@@ -11,13 +11,19 @@
  */
 
 import { colId, type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { isContractStage } from "@/lib/job-flow-stages";
+import {
+  CONTRACT_STAGE_NAMES,
+  isContractStage,
+  isInterviewStage,
+} from "@/lib/job-flow-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
 export const SCREENING_STAGE = "screening";
 export const VERIFIED_STAGE = "verified";
 export const CV_SENT_STAGE = "cv_sent";
+/** Etap decyzji klienta — źródło KPI „akceptacja" w kroku 07. */
+export const ACCEPTANCE_STAGE = "acceptance";
 
 export interface FlowQueueEntry {
   item: KanbanItem;
@@ -105,6 +111,119 @@ export function countAtClient(columns: KanbanColumn[]): number {
       return sum + col.items.length;
     }
     return sum;
+  }, 0);
+}
+
+/**
+ * Ilu kandydatów stoi w kolumnie.
+ *
+ * `count` jest liczbą Z SERWERA i to ona zasila licznik „Pipeline" na listwie
+ * kroków; `items.length` bywa krótsze, jeśli backend kiedykolwiek przytnie
+ * kartę. Klaster KPI w jobbarze mówi o tym samym, co listwa tuż pod nim, więc
+ * musi liczyć TAK SAMO — inaczej ten sam ekran pokazuje dwie różne liczby pod
+ * dwiema nazwami tego samego zbioru.
+ */
+function columnSize(col: KanbanColumn): number {
+  return col.count ?? col.items?.length ?? 0;
+}
+
+const isTerminalColumn = (col: KanbanColumn) => col.category === "terminal";
+
+/** Kandydaci „w procesie" — suma kolumn nie-terminalnych. */
+export function countInProcess(columns: KanbanColumn[]): number {
+  return columns.reduce(
+    (sum, col) => (isTerminalColumn(col) ? sum : sum + columnSize(col)),
+    0,
+  );
+}
+
+/**
+ * Kandydaci „u klienta" — WYŁĄCZNIE kolumny `external`.
+ *
+ * Świadomie węższe niż {@link countAtClient}, które dokłada `cv_sent`. To dwa
+ * różne pytania: „komu wysłaliśmy CV" i „kto jest w procesie po stronie
+ * klienta". Klaster KPI pokazuje oba obok siebie w kroku 06, więc muszą być
+ * rozłączne — inaczej ta sama osoba jest policzona dwa razy w jednym wierszu.
+ */
+export function countExternal(columns: KanbanColumn[]): number {
+  return columns.reduce(
+    (sum, col) => (col.category === "external" ? sum + columnSize(col) : sum),
+    0,
+  );
+}
+
+/**
+ * Kandydaci stojący na etapie dłużej niż `days` dni — sygnał „utknęli".
+ *
+ * Karty terminalne są poza zbiorem: odrzucony kandydat „stoi" na swoim etapie
+ * bezterminowo i nie jest sprawą do załatwienia. `days_in_stage` bywa
+ * nieobecne (starsze wiersze) — brak danych NIE liczy się jako zaległość.
+ */
+export function countStalled(columns: KanbanColumn[], days: number): number {
+  return columns.reduce((sum, col) => {
+    if (isTerminalColumn(col)) return sum;
+    return (
+      sum +
+      (col.items ?? []).filter(
+        (item) => (item.days_in_stage ?? 0) > days,
+      ).length
+    );
+  }, 0);
+}
+
+/** Karty z wetem hiring managera — poza kolumnami terminalnymi. */
+export function countHmVeto(columns: KanbanColumn[]): number {
+  return columns.reduce((sum, col) => {
+    if (isTerminalColumn(col)) return sum;
+    return sum + (col.items ?? []).filter((item) => Boolean(item.hm_veto)).length;
+  }, 0);
+}
+
+/** Kandydaci na etapach kroku 07 „Rozmowy i decyzja". */
+export function countInterviewStages(columns: KanbanColumn[]): number {
+  return columns.reduce(
+    (sum, col) => (isInterviewStage(col) ? sum + columnSize(col) : sum),
+    0,
+  );
+}
+
+/** Kandydaci na etapach kroku 08 „Umowa" (podpis → zatrudnienie → onboarding). */
+export function countContractStages(columns: KanbanColumn[]): number {
+  return columns.reduce(
+    (sum, col) => (isContractStage(col) ? sum + columnSize(col) : sum),
+    0,
+  );
+}
+
+/** Ilu kandydatów stoi na wskazanym legacy-etapie (`PipelineStage`). */
+export function countStage(columns: KanbanColumn[], stage: string): number {
+  const col = findStageColumn(columns, stage);
+  return col ? columnSize(col) : 0;
+}
+
+/** Zatrudnieni — rozpoznawani po `terminal_type`, nie po nazwie kolumny. */
+export function countHired(columns: KanbanColumn[]): number {
+  return columns.reduce(
+    (sum, col) => (terminalOf(col) === "hired" ? sum + columnSize(col) : sum),
+    0,
+  );
+}
+
+/**
+ * Kandydaci z wysłaną, jeszcze niepodpisaną umową.
+ *
+ * Rozpoznawane po NAZWIE kolumny i to nie jest tu wyjątek od reguły: etapy
+ * podpisu nie mają `legacy_enum_value`, więc backend raportuje dla nich
+ * `stage: "new"` — nazwa jest jedynym identyfikatorem, jaki system dla nich ma
+ * (patrz `job-flow-stages.ts`). Reużywamy tamtejszą stałą zamiast wpisywać
+ * napis drugi raz: dwie kopie tej nazwy rozjeżdżają się przy pierwszej zmianie
+ * szablonu i objawiają się cichym zerem.
+ */
+export function countContractSent(columns: KanbanColumn[]): number {
+  const target = CONTRACT_STAGE_NAMES[0].toLocaleLowerCase("pl-PL");
+  return columns.reduce((sum, col) => {
+    const name = (col.name ?? "").trim().toLocaleLowerCase("pl-PL");
+    return name === target ? sum + columnSize(col) : sum;
   }, 0);
 }
 

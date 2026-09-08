@@ -1,5 +1,5 @@
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -274,5 +274,111 @@ describe("JobDetailCompactHeader", () => {
       screen.getByRole("button", { name: /Zespół i priorytet/ }),
     );
     expect(await screen.findByText("Zespół operacyjny")).toBeTruthy();
+  });
+});
+
+/**
+ * Jobbar z makiety (k2–k8): klient w tytule, jedna linia faktów pod nim,
+ * trzy liczby po prawej.
+ */
+describe("JobDetailCompactHeader — jobbar", () => {
+  it("dokleja klienta do tytułu — bez niego nie wiadomo, czyja to rekrutacja", () => {
+    renderHeader({ clientName: "PKO Bank Polski" });
+
+    // `toHaveTextContent`, nie dopasowanie po nazwie dostępnej: implementacja
+    // accname w testing-library przycina białe znaki NA GRANICY węzłów, więc
+    // sprawdzałaby własny artefakt zamiast tego, co widzi użytkownik.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Senior Java Developer · PKO Bank Polski",
+    );
+  });
+
+  it("bez klienta tytuł zostaje sam — żadnej kropki wiszącej w powietrzu", () => {
+    renderHeader({ clientName: null });
+
+    expect(
+      screen.getByRole("heading", { name: "Senior Java Developer" }),
+    ).toBeTruthy();
+  });
+
+  it("pokazuje trzy KPI kroku, a niepoliczoną liczbę rysuje jako „—”, nie zero", () => {
+    renderHeader({
+      kpis: [
+        { key: "in-process", label: "w procesie", value: 15, tone: "neutral" },
+        { key: "stalled", label: "utknęli > 7 d", value: 3, tone: "warn" },
+        { key: "at-client", label: "u klienta", value: null, tone: "neutral" },
+      ],
+    });
+
+    const cluster = screen.getByTestId("job-header-kpis");
+    expect(within(cluster).getByText("15")).toBeTruthy();
+    expect(within(cluster).getByText("utknęli > 7 d")).toBeTruthy();
+    expect(within(cluster).getByText("3")).toBeTruthy();
+    expect(within(cluster).getByText("—")).toBeTruthy();
+    expect(within(cluster).queryByText("0")).toBeNull();
+  });
+
+  it("KPI screeningu i pipeline'u to różne zestawy — klaster zależy od kroku", () => {
+    const { unmount } = renderHeader({
+      activeTab: "screening",
+      kpis: [
+        { key: "screening", label: "w screeningu", value: 2, tone: "neutral" },
+        {
+          key: "pending",
+          label: "czeka na akceptację",
+          value: 1,
+          tone: "warn",
+        },
+        { key: "verified", label: "zweryfikowani", value: 0, tone: "neutral" },
+      ],
+    });
+    expect(screen.getByText("czeka na akceptację")).toBeTruthy();
+    // Policzone zero JEST pokazywane — to wynik, nie brak danych.
+    expect(
+      within(screen.getByTestId("job-header-kpis")).getByText("0"),
+    ).toBeTruthy();
+    unmount();
+
+    renderHeader({
+      activeTab: "pipeline",
+      kpis: [
+        { key: "in-process", label: "w procesie", value: 15, tone: "neutral" },
+        { key: "stalled", label: "utknęli > 7 d", value: 0, tone: "neutral" },
+        { key: "at-client", label: "u klienta", value: 0, tone: "neutral" },
+      ],
+    });
+    expect(screen.queryByText("czeka na akceptację")).toBeNull();
+    expect(screen.getByText("w procesie")).toBeTruthy();
+  });
+
+  it("bez KPI klaster w ogóle się nie renderuje", () => {
+    renderHeader({ kpis: [] });
+    expect(screen.queryByTestId("job-header-kpis")).toBeNull();
+  });
+
+  it("renderuje podtytuł jedną linią pod tytułem", () => {
+    renderHeader({
+      subtitle: "Warszawa / hybryda · deadline 30.09 · Marta K.",
+    });
+    expect(
+      screen.getByText("Warszawa / hybryda · deadline 30.09 · Marta K."),
+    ).toBeTruthy();
+  });
+
+  it("„Baza pytań” ma PEŁNĄ etykietę, nie samą ikonę", () => {
+    // Regresja z produkcji: listwa miała `overflow-x-auto`, a jedenaście
+    // kroków nie mieściło się przy 1440 px — ostatnia etykieta była ucięta
+    // do znaczka książki i czytała się jak brak funkcji.
+    renderHeader();
+    const questions = screen.getByTestId("tab-questions");
+    expect(questions).toHaveTextContent("Baza pytań");
+    expect(questions.className).not.toContain("sr-only");
+  });
+
+  it("listwa kroków zawija się zamiast chować końcówkę za przewijaniem", () => {
+    renderHeader();
+    const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
+    expect(nav.className).toContain("flex-wrap");
+    expect(nav.className).not.toContain("overflow-x-auto");
   });
 });

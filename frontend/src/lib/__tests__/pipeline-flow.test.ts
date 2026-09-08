@@ -7,6 +7,15 @@ import { describe, expect, it } from "vitest";
 import {
   PIPELINE_GROUP_LABEL,
   countAtClient,
+  countContractSent,
+  countContractStages,
+  countExternal,
+  countHired,
+  countHmVeto,
+  countInProcess,
+  countInterviewStages,
+  countStage,
+  countStalled,
   findStageColumn,
   groupKanbanColumns,
   groupKeyForColumn,
@@ -143,6 +152,116 @@ describe("selectVerifiedQueue", () => {
 describe("countAtClient", () => {
   it("liczy „CV Wysłane” i etapy zewnętrzne, pomija terminalne", () => {
     expect(countAtClient(board)).toBe(2);
+  });
+});
+
+/**
+ * Selektory klastra KPI jobbara (fala „parytet z makietami").
+ *
+ * Wszystkie liczą przez `col.count`, czyli tę samą liczbę, którą listwa kroków
+ * pokazuje tuż nad jobbarem — dwie różne liczby pod tą samą nazwą na jednym
+ * ekranie byłyby gorsze niż brak którejkolwiek.
+ */
+describe("selektory KPI", () => {
+  it("countInProcess pomija kolumny terminalne", () => {
+    // 2 screening + 2 verified + 1 cv_sent + 1 client_interview = 6;
+    // „Odrzucony" (terminal) jest poza procesem.
+    expect(countInProcess(board)).toBe(6);
+  });
+
+  it("countExternal jest WĘŻSZE niż countAtClient — cv_sent to nie „u klienta”", () => {
+    expect(countExternal(board)).toBe(1);
+    expect(countAtClient(board)).toBe(2);
+  });
+
+  it("countStalled liczy tylko karty nie-terminalne powyżej progu", () => {
+    const stalled = [
+      col({
+        stage: "screening",
+        items: [
+          item({ id: 1, days_in_stage: 8 }),
+          item({ id: 2, days_in_stage: 7 }),
+          // Brak `days_in_stage` NIE liczy się jako zaległość — nie wiemy.
+          item({ id: 3 }),
+        ],
+      }),
+      col({
+        stage: "rejected",
+        category: "terminal",
+        terminal_type: "rejected",
+        items: [item({ id: 4, stage: "rejected", days_in_stage: 400 })],
+      }),
+    ];
+    expect(countStalled(stalled, 7)).toBe(1);
+  });
+
+  it("countHmVeto pomija karty terminalne", () => {
+    const veto = {
+      hiring_manager_contact_id: 1,
+      source_job_id: 2,
+      rejected_at: "2026-09-01",
+      rejection_reason_name: "Brak doświadczenia",
+    };
+    const withVeto = [
+      col({ stage: "screening", items: [item({ id: 1, hm_veto: veto })] }),
+      col({
+        stage: "rejected",
+        category: "terminal",
+        terminal_type: "rejected",
+        items: [item({ id: 2, stage: "rejected", hm_veto: veto })],
+      }),
+    ];
+    expect(countHmVeto(withVeto)).toBe(1);
+  });
+
+  it("countStage czyta legacy-etap, a brak kolumny to zero, nie wyjątek", () => {
+    expect(countStage(board, "cv_sent")).toBe(1);
+    expect(countStage(board, "acceptance")).toBe(0);
+  });
+
+  it("countHired rozpoznaje terminal po `terminal_type`, nie po nazwie kolumny", () => {
+    const hired = [
+      // Kolumna spoza legacy-enuma raportuje `stage: "new"` — po nim
+      // zatrudnionych rozpoznać się NIE DA.
+      col({
+        stage: "new",
+        name: "Zatrudniony",
+        category: "terminal",
+        terminal_type: "hired",
+        items: [item({ id: 1 }), item({ id: 2 })],
+      }),
+      ...board,
+    ];
+    expect(countHired(hired)).toBe(2);
+    expect(countHired(board)).toBe(0);
+  });
+
+  it("countContractSent bierze „Umowa wysłana”, ale nie „Umowa podpisana”", () => {
+    const contract = [
+      col({ stage: "new", name: "Umowa wysłana", items: [item({ id: 1 })] }),
+      col({ stage: "new", name: "Umowa podpisana", items: [item({ id: 2 })] }),
+    ];
+    expect(countContractSent(contract)).toBe(1);
+    expect(countContractStages(contract)).toBe(2);
+  });
+
+  it("countInterviewStages i countContractStages nie zaliczają tej samej karty dwa razy", () => {
+    const both = [
+      col({
+        stage: "client_interview",
+        name: "Interview Klient",
+        category: "external",
+        items: [item({ id: 1, stage: "client_interview" })],
+      }),
+      col({
+        stage: "new",
+        name: "Umowa wysłana",
+        category: "external",
+        items: [item({ id: 2 })],
+      }),
+    ];
+    expect(countInterviewStages(both)).toBe(1);
+    expect(countContractStages(both)).toBe(1);
   });
 });
 

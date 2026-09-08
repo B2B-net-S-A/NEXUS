@@ -23,10 +23,16 @@ import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
 import {
+  countContractStages,
+  countHired,
+  countInProcess,
+  countInterviewStages,
   selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
+import { buildJobHeaderKpis, summarizeRanking } from "@/lib/job-header-kpis";
+import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
@@ -61,6 +67,10 @@ import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
+import {
+  JOB_HEADER_COLLAPSED_DEFAULT,
+  JOB_HEADER_COLLAPSED_STORAGE_KEY,
+} from "@/lib/job-header-preferences";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
@@ -69,7 +79,6 @@ import {
 } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
-import { isContractStage, isInterviewStage } from "@/lib/job-flow-stages";
 import { Badge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -2182,8 +2191,8 @@ export default function JobDetailPage() {
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
   const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
-    "nexus:jobHeaderCollapsed:v2",
-    true,
+    JOB_HEADER_COLLAPSED_STORAGE_KEY,
+    JOB_HEADER_COLLAPSED_DEFAULT,
   );
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
@@ -2290,17 +2299,71 @@ export default function JobDetailPage() {
 
   // Kroki 07 i 08 czytają `kanbanColumns` zadeklarowane wyżej — jedno źródło
   // (`["kanban", id]`) karmi tablicę ORAZ cztery zakładki kroków 05–08.
+  //
+  // Liczenie przeniesione do `lib/pipeline-flow.ts`, bo klaster KPI w jobbarze
+  // pyta o TE SAME zbiory. Trzy idiomy „ile jest w kolumnie" (`col.count`,
+  // `items.length`, `items.length ?? count`) żyły dotąd obok siebie w jednym
+  // pliku — a listwa kroków i jobbar stoją na ekranie jeden pod drugim, więc
+  // rozjazd o jedną kartę byłby widoczny jako dwie różne liczby pod tą samą
+  // nazwą.
   const flowCounts = useMemo(() => {
     if (!kanban) return undefined;
-    const sum = (predicate: (col: KanbanColumn) => boolean) =>
-      kanbanColumns
-        .filter(predicate)
-        .reduce((total, col) => total + (col.items?.length ?? col.count ?? 0), 0);
     return {
-      interviews: sum(isInterviewStage),
-      contract: sum(isContractStage),
+      interviews: countInterviewStages(kanbanColumns),
+      contract: countContractStages(kanbanColumns),
     };
   }, [kanban, kanbanColumns]);
+
+  // ── Jobbar: podtytuł i klaster KPI (makieta „flow w języku C2", k2–k8) ────
+  //
+  // Ranking C2 czytany WYŁĄCZNIE z cache'u (`enabled: false`). Własne zapytanie
+  // odpalałoby Qdranta przy każdym wejściu na dowolną zakładkę rekrutacji —
+  // także tam, gdzie rankingu nikt nie ogląda. Brak w cache'u = „—", nie zero.
+  //
+  // Trzeci segment klucza jest pusty celowo: to ranking NIEFILTROWANY, ten sam,
+  // który pobiera `SourcingHub`. Wariant z filtrem lokalizacji (którego używa
+  // `AIMatchingSection` niżej) odpowiada na inne pytanie niż „ilu kandydatów
+  // jest w rankingu tej rekrutacji".
+  const { data: cachedMatches } = useQuery({
+    queryKey: ["ai-matches", Number(id), ""],
+    queryFn: () => matchingApi.getMatches(Number(id)).then((r) => r.data),
+    enabled: false,
+    staleTime: 60_000,
+  });
+  const ranking = useMemo(
+    () => summarizeRanking(cachedMatches?.matches),
+    [cachedMatches],
+  );
+  const headerKpis = useMemo(
+    () =>
+      buildJobHeaderKpis({
+        tab: activeTab,
+        columns: kanban ? kanbanColumns : null,
+        ranking,
+      }),
+    [activeTab, kanban, kanbanColumns, ranking],
+  );
+  const headerSubtitle = useMemo(() => {
+    if (!job) return [];
+    return buildJobHeaderSubtitle({
+      location: job.location,
+      remotePolicy: job.remote_policy,
+      rateBudgetHourly: job.rate_budget_hourly,
+      salaryMin: job.salary_min,
+      salaryMax: job.salary_max,
+      deadline: job.deadline,
+      ownerName: job.primary_owner?.name,
+      // Hiring manager tylko w kroku 07 — tam jest decydentem, a nie jedną
+      // z ośmiu rzeczy w linijce, którą trzeba przeczytać w całości.
+      hiringManagerName:
+        activeTab === "interviews" ? job.hiring_manager_name : null,
+      // Obsada tylko w kroku 08 — to jedyny krok, na którym pytanie „ilu
+      // z ilu" jest pytaniem o zakończenie rekrutacji.
+      hired:
+        activeTab === "contract" && kanban ? countHired(kanbanColumns) : null,
+      headcount: activeTab === "contract" ? job.headcount : null,
+    });
+  }, [job, activeTab, kanban, kanbanColumns]);
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -2349,6 +2412,7 @@ export default function JobDetailPage() {
     <div className="space-y-2">
       <JobDetailCompactHeader
         title={job.title}
+        clientName={job.client_name}
         referenceNumber={job.reference_number}
         badges={
           <>
@@ -2382,28 +2446,16 @@ export default function JobDetailPage() {
             ) : null}
           </>
         }
-        metadata={
-          <>
-            {job.location ? (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" /> {job.location}
-              </span>
-            ) : null}
-            {job.salary_min || job.salary_max ? (
-              <span className="flex items-center gap-1">
-                <Banknote className="h-3.5 w-3.5" />
-                {job.salary_min?.toLocaleString()}–
-                {job.salary_max?.toLocaleString()} PLN
-              </span>
-            ) : null}
-            {job.deadline ? (
-              <span className="flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" />
-                {formatDate(job.deadline)}
-              </span>
-            ) : null}
-          </>
+        // Jedna linia faktów zamiast rzędu odznak z ikonami (makieta k2–k8).
+        // Nic z dawnego rzędu nie znika: lokalizacja, widełki i deadline są
+        // w niej dalej — dochodzą tryb pracy, sufit budżetu kandydackiego
+        // i właściciel, którego nagłówek dotąd w ogóle nie pokazywał.
+        subtitle={
+          headerSubtitle.length > 0 ? (
+            <span className="text-[12px]">{headerSubtitle.join(" · ")}</span>
+          ) : undefined
         }
+        kpis={headerKpis}
         presence={
           <ActiveViewers
             resourceType="job"
@@ -2434,16 +2486,10 @@ export default function JobDetailPage() {
         // Licznik „w procesie" na listwie kroków — ten sam wzór co
         // StageFocusNavigator (suma kolumn nie-terminalnych). Kanban ładuje się
         // dopiero na zakładce Pipeline; do tego czasu listwa nie pokazuje liczby.
-        pipelineCount={
-          kanban
-            ? ((kanban.columns ?? []) as Array<{ category?: string; count?: number }>)
-                .reduce(
-                  (sum, col) =>
-                    sum + (col.category === "terminal" ? 0 : (col.count ?? 0)),
-                  0,
-                )
-            : undefined
-        }
+        // Liczy `countInProcess`, czyli TA SAMA funkcja, której używa KPI
+        // „w procesie" w jobbarze — te dwie liczby stoją na ekranie jedna pod
+        // drugą i muszą być tą samą liczbą.
+        pipelineCount={kanban ? countInProcess(kanbanColumns) : undefined}
         // Kroki 05/06 — liczniki z tych samych kolumn co „Pipeline". Dopóki
         // kanban się nie wczytał, listwa nie pokazuje liczby (zero znaczyłoby
         // „nikogo tu nie ma", a to jeszcze nie wiadomo).

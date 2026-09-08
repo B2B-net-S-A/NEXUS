@@ -19,9 +19,14 @@ import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
 
+const quickCountsMock = vi.fn();
+
 vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),
+  },
+  jobsApi: {
+    quickCounts: (...args: unknown[]) => quickCountsMock(...args),
   },
 }));
 
@@ -45,10 +50,6 @@ vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
   GenerateInviteLinkV2: () => null,
 }));
 
-vi.mock("@/components/v2/filters/MultiSelectFilter", () => ({
-  MultiSelectFilter: () => null,
-}));
-
 vi.mock("@/components/v2/filters/UserMultiSelect", () => ({
   UserMultiSelect: () => null,
 }));
@@ -65,8 +66,24 @@ vi.mock("@/components/v2/filters/CompetenceCategoryMultiSelect", () => ({
 // potwierdzamy, że dostaje `jobId`/`stageBreakdown` z listy (patrz test
 // "przekazuje zaznaczoną rekrutację do doku" niżej).
 vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
-  JobReadinessDock: ({ jobId }: { jobId: number | null }) => (
-    <div data-testid="mock-dock">dock:{String(jobId)}</div>
+  JobReadinessDock: ({
+    jobId,
+    listNav,
+  }: {
+    jobId: number | null;
+    // Prop dokłada `JobsListV2` (kontrakt `job-list-nav.ts`); dok kroku 01
+    // dostaje go od tej fali programu. Atrapa czyta go, żeby test wiązał się
+    // z tym, CO lista przekazuje, a nie z tym, co dok z tym robi.
+    listNav?: { index: number; total: number };
+  }) => (
+    <div data-testid="mock-dock">
+      dock:{String(jobId)}
+      {listNav ? (
+        <span data-testid="mock-nav">
+          nav:{listNav.index}/{listNav.total}
+        </span>
+      ) : null}
+    </div>
   ),
 }));
 
@@ -86,6 +103,21 @@ function jobRow(overrides: Record<string, unknown> = {}) {
 function mockJobsResponse(items: ReturnType<typeof jobRow>[]) {
   getMock.mockResolvedValue({
     data: { items, total: items.length, page: 1, page_size: 20 },
+  });
+}
+
+/** Liczniki „Szybkich" — GLOBALNE, z `GET /api/jobs/quick-counts`. */
+function mockQuickCounts(overrides: Record<string, number> = {}) {
+  quickCountsMock.mockResolvedValue({
+    data: {
+      mine: 12,
+      open: 318,
+      needs_sourcing: 41,
+      active_in_search: 27,
+      owner_missing: 63,
+      deadline_7d: 9,
+      ...overrides,
+    },
   });
 }
 
@@ -130,6 +162,8 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
 
   beforeEach(() => {
     getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
     mockJobsResponse([jobRow()]);
   });
@@ -222,87 +256,141 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
   });
 });
 
-describe("JobsListV2 — „Brak ownera requestu” jako filtr (nie tylko badge)", () => {
+describe("JobsListV2 — „Brak ownera requestu” filtruje SERWER", () => {
   beforeEach(() => {
     getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("zawęża widoczne wiersze do tych bez tac_id, bez dodatkowego zapytania do API", async () => {
-    mockJobsResponse([
-      jobRow({ id: 1, title: "Ma ownera", tac_id: 7 }),
-      jobRow({ id: 2, title: "Bez ownera", tac_id: null }),
-    ]);
+  it("wysyła owner_missing=true zamiast zawężać wczytaną stronę w przeglądarce", async () => {
+    // Regresja, którą to zastępuje: filtr działał lokalnie, więc zawężał
+    // wyłącznie 20 wczytanych wierszy, a paginacja dalej obiecywała strony,
+    // na których nie było czego zawężać.
+    mockJobsResponse([jobRow({ id: 1, title: "Bez ownera", tac_id: null })]);
     const user = userEvent.setup();
     renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    expect(await screen.findByText("Ma ownera")).toBeInTheDocument();
-    expect(screen.getByText("Bez ownera")).toBeInTheDocument();
-    const callsBefore = jobsCalls().length;
-
-    // `getByRole("button", ...)`, NIE `getByText` — wiersz "Bez ownera" ma
-    // WŁASNY badge "Brak ownera requestu" (status), więc sam tekst wychodzi
-    // dwukrotnie: pigułka filtra w aside + badge w wierszu.
+    // `getByRole("button", ...)`, NIE `getByText` — wiersz bez ownera ma
+    // WŁASNY badge „Brak ownera" (status), więc tekst wychodzi dwukrotnie.
     await user.click(
       screen.getByRole("button", { name: /Brak ownera requestu/ }),
     );
 
-    expect(screen.queryByText("Ma ownera")).not.toBeInTheDocument();
-    expect(screen.getByText("Bez ownera")).toBeInTheDocument();
-    // Filtr jest lokalny — żadne nowe żądanie do `/api/jobs` nie poszło.
-    expect(jobsCalls().length).toBe(callsBefore);
-  });
-
-  it("liczy się na bieżącej stronie nawet gdy filtr jest wyłączony (licznik darmowy z już wczytanych danych)", async () => {
-    mockJobsResponse([
-      jobRow({ id: 1, title: "Ma ownera", tac_id: 7 }),
-      jobRow({ id: 2, title: "Bez ownera A", tac_id: null }),
-      jobRow({ id: 3, title: "Bez ownera B", tac_id: null }),
-    ]);
-    renderJobs();
-    await screen.findByText("Ma ownera");
-
-    const quickFilterButton = screen.getByRole("button", {
-      name: /Brak ownera requestu/,
+    await waitFor(() => {
+      expect(latestParams()).toMatchObject({ owner_missing: true });
     });
-    expect(within(quickFilterButton).getByText("2")).toBeInTheDocument();
+  });
+});
+
+describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    useUiStore.setState({ jobsView: "list" });
+    mockJobsResponse([jobRow()]);
   });
 
-  it("gdy żaden wiersz tej strony nie pasuje, pokazuje komunikat zamiast udawać brak rekrutacji", async () => {
-    mockJobsResponse([jobRow({ id: 1, title: "Ma ownera", tac_id: 7 })]);
+  it("pokazuje liczbę z /api/jobs/quick-counts przy każdej z sześciu pozycji", async () => {
+    mockQuickCounts();
+    renderJobs();
+
+    const expected: [RegExp, string][] = [
+      [/Moje projekty/, "12"],
+      [/Niezamknięte/, "318"],
+      [/Potrzebny search/, "41"],
+      [/Aktywni w searchu/, "27"],
+      [/Brak ownera requestu/, "63"],
+      [/Deadline ≤ 7 dni/, "9"],
+    ];
+    for (const [label, count] of expected) {
+      const row = await screen.findByRole("button", { name: label });
+      // `waitFor`, nie samo `getByText`: przycisk filtra istnieje od
+      // pierwszego renderu, a licznik dolatuje osobnym zapytaniem.
+      await waitFor(() => {
+        expect(within(row).getByText(count)).toBeInTheDocument();
+      });
+    }
+  });
+
+  it("wysyła to samo okno dat, którego używa preset „Najbliższe 7 dni”", async () => {
+    // Gdyby okno liczył serwer, licznik i lista mogłyby wypaść o dzień
+    // inaczej dla użytkownika w innej strefie czasowej.
+    mockQuickCounts();
+    renderJobs();
+
+    await waitFor(() => expect(quickCountsMock).toHaveBeenCalled());
+    const params = quickCountsMock.mock.calls.at(-1)?.[0] as
+      | { deadline_from?: string; deadline_to?: string }
+      | undefined;
+    expect(params?.deadline_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(params?.deadline_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("bez odpowiedzi z licznikami nie pokazuje zera — brak liczby to nie „zero w bazie”", async () => {
+    quickCountsMock.mockRejectedValue(new Error("boom"));
+    renderJobs();
+
+    const row = await screen.findByRole("button", { name: /Moje projekty/ });
+    expect(within(row).queryByText("0")).not.toBeInTheDocument();
+    // Sam filtr działa dalej — licznik jest dodatkiem, nie warunkiem.
+    expect(row).toBeEnabled();
+  });
+});
+
+describe("JobsListV2 — status jako pigułki", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    useUiStore.setState({ jobsView: "list" });
+    mockJobsResponse([jobRow()]);
+  });
+
+  it("pigułka wysyła `status[]`, a „Wszystkie” czyści filtr", async () => {
     const user = userEvent.setup();
     renderJobs();
-    await screen.findByText("Ma ownera");
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    await user.click(
-      screen.getByRole("button", { name: /Brak ownera requestu/ }),
+    // Grupy pigułek Typ i Status obie mają pozycję „Wszystkie" — stąd
+    // zapytanie w obrębie nazwanej grupy, a nie po samej nazwie przycisku.
+    const statusGroup = within(
+      screen.getByRole("group", { name: "Filtr: Status" }),
     );
 
-    expect(screen.queryByText("Ma ownera")).not.toBeInTheDocument();
-    // "wyłącz filtr" jest WŁASNYM elementem (<button>) — bezpieczne dokładne
-    // dopasowanie, niezależne od tego, jak JSX złamie resztę zdania na
-    // granicy wiersza źródłowego.
-    expect(
-      await screen.findByRole("button", { name: "wyłącz filtr" }),
-    ).toBeInTheDocument();
+    await user.click(statusGroup.getByRole("button", { name: "Zamknięta" }));
+    await waitFor(() => {
+      expect(latestParams()).toMatchObject({ status: ["closed"] });
+    });
+
+    await user.click(statusGroup.getByRole("button", { name: "Wszystkie" }));
+    await waitFor(() => {
+      expect(latestParams().status).toBeUndefined();
+    });
   });
 });
 
 describe("JobsListV2 — mini-lejek pipeline'u w wierszu", () => {
   beforeEach(() => {
     getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("z `stage_breakdown` pokazuje sumę sześciu grup (bez rejected/withdrawn)", async () => {
+  it("pokazuje „nowi·screening·zweryfikowani / w procesie”, bez rejected/withdrawn", async () => {
     mockJobsResponse([
       jobRow({
         stage_breakdown: { new: 3, screening: 2, hired: 1, rejected: 5 },
       }),
     ]);
     renderJobs();
-    // 3 + 2 + 1 = 6, `rejected` poza sześcioma grupami.
-    expect(await screen.findByText("6")).toBeInTheDocument();
+    // 3 + 2 + 1 = 6 w procesie, `rejected` poza sześcioma grupami; przed
+    // makietą „01 Lista" wiersz pokazywał samą sumę, więc nie dawało się
+    // odczytać, czy ludzie stoją na wejściu, czy są już u klienta.
+    expect(await screen.findByText("3·2·0 / 6")).toBeInTheDocument();
   });
 
   it("bez `stage_breakdown` cofa się do paska filled/target, nie chowa kolumny", async () => {
@@ -315,6 +403,8 @@ describe("JobsListV2 — mini-lejek pipeline'u w wierszu", () => {
 describe("JobsListV2 — widok kafelków (domyślny)", () => {
   beforeEach(() => {
     getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
     useUiStore.setState({ jobsView: "tiles" });
   });
 
@@ -332,6 +422,8 @@ describe("JobsListV2 — widok kafelków (domyślny)", () => {
 describe("JobsListV2 — dok pokazuje pierwszy widoczny wiersz", () => {
   beforeEach(() => {
     getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
   });
 
@@ -340,5 +432,25 @@ describe("JobsListV2 — dok pokazuje pierwszy widoczny wiersz", () => {
     renderJobs();
     await screen.findByText("Pierwszy w kolejności");
     expect(await screen.findByTestId("mock-dock")).toHaveTextContent("dock:42");
+  });
+
+  it("podaje dokowi nawigację „N z M” po wierszach bieżącej strony", async () => {
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Pierwsza" }),
+      jobRow({ id: 2, title: "Druga" }),
+      jobRow({ id: 3, title: "Trzecia" }),
+    ]);
+    renderJobs();
+    await screen.findByText("Pierwsza");
+
+    expect(await screen.findByTestId("mock-nav")).toHaveTextContent("nav:1/3");
+  });
+
+  it("nie podaje nawigacji, gdy strona ma jeden wiersz — „1 z 1” to nie nawigacja", async () => {
+    mockJobsResponse([jobRow({ id: 9, title: "Jedyna" })]);
+    renderJobs();
+    await screen.findByText("Jedyna");
+
+    expect(screen.queryByTestId("mock-nav")).not.toBeInTheDocument();
   });
 });
