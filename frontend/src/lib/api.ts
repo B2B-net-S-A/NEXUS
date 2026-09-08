@@ -1266,8 +1266,34 @@ export const marketplaceApi = {
 };
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Liczniki sześciu filtrów „Szybkie" w lewej kolumnie listy rekrutacji.
+ *
+ * GLOBALNE — dotyczą całej bazy w zakresie widoczności użytkownika, nie
+ * wczytanej strony. Każdy liczony tym samym predykatem, co odpowiadający mu
+ * filtr listy (`jobs_*_clause` w `backend/app/api/jobs.py`).
+ */
+export interface JobQuickCounts {
+  mine: number;
+  open: number;
+  needs_sourcing: number;
+  active_in_search: number;
+  owner_missing: number;
+  deadline_7d: number;
+}
+
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
+  /**
+   * `deadline_from`/`deadline_to` przekazuje WOŁAJĄCY — lista wysyła dokładnie
+   * to okno, którego używa jej własny preset „Najbliższe 7 dni". Liczone tu po
+   * stronie serwera mogłoby wypaść o dzień inaczej niż w przeglądarce
+   * użytkownika (strefa czasowa), a licznik ma zgadzać się z listą co do
+   * wiersza.
+   */
+  quickCounts: (params?: { deadline_from?: string; deadline_to?: string }) =>
+    api.get<JobQuickCounts>("/api/jobs/quick-counts", { params }),
   get: (id: number) => api.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/jobs/${id}`, data),

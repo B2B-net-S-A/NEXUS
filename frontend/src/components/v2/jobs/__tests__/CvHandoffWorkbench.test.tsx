@@ -32,6 +32,9 @@ const move = vi.fn(async (...a: unknown[]) => {
 });
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
+const shareList = vi.fn();
+const shareRevokeAll = vi.fn();
+const createScreeningShareToken = vi.fn();
 
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
 
@@ -46,7 +49,15 @@ vi.mock("@/lib/api", () => ({
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a) },
-    share: { create: (...a: unknown[]) => shareCreate(...a) },
+    share: {
+      create: (...a: unknown[]) => shareCreate(...a),
+      list: (...a: unknown[]) => shareList(...a),
+      revokeAll: (...a: unknown[]) => shareRevokeAll(...a),
+    },
+  },
+  // Link do karty Championa w doku — ten sam endpoint, którego używa krok 07.
+  screeningApi: {
+    createShareToken: (...a: unknown[]) => createScreeningShareToken(...a),
   },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
@@ -84,9 +95,12 @@ vi.mock("@/components/v2/pages/CVGeneratorStandaloneV2", () => ({
     </div>
   ),
 }));
+// Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
+// podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
+let cvRule: Record<string, unknown> | undefined = undefined;
 vi.mock("@/components/v2/cv-generator/ClientCvRuleBanner", () => ({
   ClientCvRuleBanner: () => <div data-testid="cv-rule-banner" />,
-  useClientCvRule: () => ({ data: undefined, isLoading: false, isError: false }),
+  useClientCvRule: () => ({ data: cvRule, isLoading: false, isError: false }),
 }));
 vi.mock("@/lib/client-playbooks", () => ({
   useClientPlaybook: () => ({
@@ -182,8 +196,10 @@ beforeEach(() => {
   calls.length = 0;
   authState.user = { role: "admin", roles: ["admin"] };
   canManageCvRules = true;
+  cvRule = undefined;
   originalGet.mockResolvedValue({ data: { has_snapshot: true } });
   brandedGet.mockResolvedValue({ data: { status: "finalized" } });
+  shareList.mockResolvedValue({ data: [] });
 });
 
 describe("CvHandoffWorkbench", () => {
@@ -203,8 +219,11 @@ describe("CvHandoffWorkbench", () => {
 
   it("limit CV klienta jest liczony z tablicy, nie zmyślony", () => {
     renderWorkbench();
-    // Jedna karta na „CV Wysłane" przy limicie 3 z karty klienta.
-    expect(screen.getByText("1 z 3")).toBeTruthy();
+    // Jedna karta na „CV Wysłane" przy limicie 3 z karty klienta — ta sama
+    // liczba w pigułce nagłówka i w szynie reguł klienta (makieta kroku 06).
+    expect(screen.getByText("Limit CV: 1 z 3")).toBeTruthy();
+    expect(screen.getByText("Limit CV na proces: 3")).toBeTruthy();
+    expect(screen.getByText("u klienta jest 1")).toBeTruthy();
   });
 
   it("pusta kolejka to pusty stan, a 403 to brak uprawnień", () => {
@@ -389,12 +408,12 @@ describe("CvHandoffWorkbench", () => {
 
   it("link do reguł CV klienta tylko dla ról z `cv_rule.manage` (inne dostałyby 403 z middleware)", () => {
     const { unmount } = renderWorkbench();
-    expect(screen.getByRole("link", { name: /Reguły CV klienta/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();
     unmount();
 
     canManageCvRules = false;
     renderWorkbench();
-    expect(screen.queryByRole("link", { name: /Reguły CV klienta/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Reguły CV \(DL\)/ })).toBeNull();
   });
 
   it("tryb tylko do odczytu nie pokazuje wysyłki", () => {
@@ -404,5 +423,78 @@ describe("CvHandoffWorkbench", () => {
         name: /Wyślij klientowi i przenieś/,
       }),
     ).toBeNull();
+  });
+
+  // ── Parytet z makietą (fala 3) ─────────────────────────────────────────
+  it("zatwierdzona reguła klienta jest wypisana klockami PRZED generacją", async () => {
+    cvRule = {
+      is_active: true,
+      client_name: "PKO BP",
+      cv_language: "pl",
+      content_mode: "redact",
+      content_mode_locked: true,
+      requires_rodo_consent_block: true,
+      filename_preview: "B2B_Python_G.Zebrowski.docx",
+    };
+    renderWorkbench();
+    expect(await screen.findByText("Język CV: PL")).toBeTruthy();
+    expect(screen.getByText("Tryb: Redakcja")).toBeTruthy();
+    expect(
+      screen.getByText(/zablokowany regułą — serwer nadpisze inny wybór/),
+    ).toBeTruthy();
+    expect(screen.getByText("Zrzut zgody RODO")).toBeTruthy();
+    expect(screen.getByText("B2B_Python_G.Zebrowski.docx")).toBeTruthy();
+    // Stopka doku powtarza konsekwencję braku zrzutu — 422 przed naliczeniem.
+    expect(screen.getByText(/odmawia \(422\)/)).toBeTruthy();
+  });
+
+  it("bez zatwierdzonej reguły zostaje baner o jej braku, ale limit CV nadal widać", () => {
+    renderWorkbench();
+    expect(screen.getByTestId("cv-rule-banner")).toBeTruthy();
+    // Limit idzie z KARTY KLIENTA, nie z reguły CV — brak reguły go nie kasuje.
+    expect(screen.getByText("Limit CV na proces: 3")).toBeTruthy();
+  });
+
+  it("marża liczy się dopiero przy zgodnych jednostkach — inaczej myślnik z powodem", async () => {
+    renderWorkbench();
+    await userEvent.type(screen.getByLabelText("Kwota"), "165");
+    // Kandydat ma 118 PLN/h, jednostka doku startuje na „miesięcznie" —
+    // dopóki się nie zgadzają, marża NIE może pokazać liczby.
+    const margin = await screen.findByText("—");
+    expect(margin.getAttribute("title")).toContain("Różne jednostki");
+  });
+
+  it("dok ma zakładki makiety, a lista linków startuje dopiero po wejściu na nią", async () => {
+    renderWorkbench();
+    expect(screen.getByRole("tab", { name: "Wyślij" })).toBeTruthy();
+    expect(shareList).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Linki i historia" }),
+    );
+    await waitFor(() => expect(shareList).toHaveBeenCalledWith(21));
+    expect(
+      await screen.findByText(/nie ma jeszcze żadnego linku/),
+    ).toBeTruthy();
+  });
+
+  it("odwołanie linków dotyczy tylko AKTYWNYCH i mówi ile ich jest", async () => {
+    shareList.mockResolvedValue({
+      data: [
+        { revoke_key: "a", token_preview: "abc…", view_count: 2, revoked: false },
+        { revoke_key: "b", token_preview: "def…", view_count: 0, revoked: true },
+      ],
+    });
+    shareRevokeAll.mockResolvedValue({ data: { status: "ok", count: 1 } });
+    renderWorkbench();
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Linki i historia" }),
+    );
+    const button = await screen.findByRole("button", {
+      name: /Odwołaj wcześniejsze linki \(1\)/,
+    });
+    await userEvent.click(button);
+    await waitFor(() => expect(shareRevokeAll).toHaveBeenCalled());
+    expect(shareRevokeAll.mock.calls[0][0]).toBe(21);
   });
 });

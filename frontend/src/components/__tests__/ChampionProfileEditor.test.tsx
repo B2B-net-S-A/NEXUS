@@ -14,10 +14,15 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { CHAMPION_SECTIONS } from "@/lib/champion-section-state";
 import { useAuthStore, type User } from "@/store/auth";
+
+/** Etykiety sekcji mają JEDNO źródło — test nie może mieć własnej kopii. */
+const BASICS_LABEL = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
 
 const getMock = vi.fn();
 
@@ -78,18 +83,21 @@ describe("ChampionProfileEditor — pełna szerokość", () => {
 });
 
 describe("ChampionProfileEditor — chip stanu sekcji", () => {
-  it("profil pusty — wszystkie sześć sekcji ma chip „Pusta”", async () => {
+  it("profil pusty — trzy karty z chipem „puste” plus chip grupy „3 z 3 sekcji puste”", async () => {
     getMock.mockResolvedValue({
       data: { job_id: 1, champion_profile: {} },
     });
     renderEditor(1);
-    await screen.findByText("1. Podstawowe informacje");
-    expect(screen.getAllByText("Pusta")).toHaveLength(6);
-    expect(screen.queryByText("Wypełniona")).not.toBeInTheDocument();
+    await screen.findByText(BASICS_LABEL);
+    // Karty samodzielne: 1 · Podstawowe, 3 · Stack, 6 · O kliencie.
+    expect(screen.getAllByText("puste")).toHaveLength(3);
+    // Sekcje 2 · 4 · 5 mają JEDEN wspólny chip.
+    expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
+    expect(screen.queryByText("wypełnione")).not.toBeInTheDocument();
     expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
 
-  it("profil wypełniony BEZ znacznika pochodzenia — wypełnione sekcje dostają „Wypełniona”, nigdy „Z AI”", async () => {
+  it("profil wypełniony BEZ znacznika pochodzenia — wypełnione sekcje dostają „wypełnione”, nigdy „Z AI”", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 2,
@@ -100,14 +108,15 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
       },
     });
     renderEditor(2);
-    await screen.findByText("1. Podstawowe informacje");
-    // Sekcje 1 i 3 wypełnione, 2/4/5/6 puste.
-    expect(screen.getAllByText("Wypełniona")).toHaveLength(2);
-    expect(screen.getAllByText("Pusta")).toHaveLength(4);
+    await screen.findByText(BASICS_LABEL);
+    // Sekcje 1 i 3 wypełnione; 6 pusta; grupa 2·4·5 pusta w całości.
+    expect(screen.getAllByText("wypełnione")).toHaveLength(2);
+    expect(screen.getAllByText("puste")).toHaveLength(1);
+    expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
     expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
 
-  it("profil wypełniony ZE znacznikiem pochodzenia (import dokumentu) — jeden chip „Z importu (AI)” na nagłówku, sekcje tylko „Wypełniona”", async () => {
+  it("profil wypełniony ZE znacznikiem pochodzenia (import dokumentu) — jeden chip „Z importu (AI)” na nagłówku, sekcje tylko „wypełnione”", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 3,
@@ -118,15 +127,89 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
       },
     });
     renderEditor(3);
-    await screen.findByText("1. Podstawowe informacje");
+    await screen.findByText(BASICS_LABEL);
     // Znacznik pochodzenia jest całoprofilowy: JEDEN chip na nagłówku, sekcje
-    // dostają tylko „Wypełniona" (backend nie wie, które sekcje przepisano).
+    // dostają tylko „wypełnione" (backend nie wie, które sekcje przepisano).
     expect(screen.getAllByText("Z importu (AI)")).toHaveLength(1);
-    expect(screen.getAllByText("Pusta")).toHaveLength(5);
+    expect(screen.getAllByText("puste")).toHaveLength(2);
     // Sekcja „Podstawowe informacje" jest wypełniona — chip mówi TYLKO tyle;
     // pochodzenie nie jest stanem sekcji.
-    expect(screen.getAllByText("Wypełniona")).toHaveLength(1);
+    expect(screen.getAllByText("wypełnione")).toHaveLength(1);
     expect(screen.queryByText("Z AI")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChampionProfileEditor — układ makiety kroku 02", () => {
+  it("stack stoi PRZED prozą: to on zasila must_skills/nice_skills", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 1, champion_profile: {} } });
+    const { container } = renderEditor(1);
+    await screen.findByText(BASICS_LABEL);
+
+    const headings = Array.from(container.querySelectorAll("h3")).map(
+      (h) => h.textContent ?? "",
+    );
+    const stackAt = headings.findIndex((h) => h.includes("Stack technologiczny"));
+    const proseAt = headings.findIndex((h) => h.includes("Co wpisać (search)"));
+    expect(stackAt).toBeGreaterThanOrEqual(0);
+    expect(proseAt).toBeGreaterThan(stackAt);
+  });
+
+  it("gdy 2 · 4 · 5 są PUSTE — skrót z dwoma polami i „Rozwiń pełne sekcje”, kotwice sekcji zostają", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 1, champion_profile: {} } });
+    const { container } = renderEditor(1);
+    await screen.findByText(BASICS_LABEL);
+
+    expect(screen.getByLabelText(/Frazy do searchu/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/O projekcie \(2 zdania\)/i)).toBeInTheDocument();
+    // Pełne sekcje jeszcze się nie renderują…
+    expect(screen.queryByText(/Obowiązki na stanowisku/i)).not.toBeInTheDocument();
+    // …ale link z nawigacji ma dokąd prowadzić.
+    expect(container.querySelector("#champion-section-project")).not.toBeNull();
+    expect(container.querySelector("#champion-section-screening")).not.toBeNull();
+  });
+
+  it("„Rozwiń pełne sekcje” pokazuje trzy pełne formularze", async () => {
+    const user = userEvent.setup();
+    getMock.mockResolvedValue({ data: { job_id: 1, champion_profile: {} } });
+    renderEditor(1);
+    await screen.findByText(BASICS_LABEL);
+
+    await user.click(screen.getByTestId("expand-champion-prose"));
+
+    expect(await screen.findByText(/Obowiązki na stanowisku/i)).toBeInTheDocument();
+    expect(screen.getByText(/Firmy docelowe/i)).toBeInTheDocument();
+  });
+
+  it("gdy KTÓRAKOLWIEK z 2 · 4 · 5 jest wypełniona — pełne sekcje od razu, bez chowania danych", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 1,
+        champion_profile: { project: { about: "Migracja płatności.", responsibilities: "" } },
+      },
+    });
+    renderEditor(1);
+    await screen.findByText(BASICS_LABEL);
+
+    expect(screen.getByText(/Obowiązki na stanowisku/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("expand-champion-prose")).not.toBeInTheDocument();
+    expect(screen.getByText("2 z 3 sekcji puste")).toBeInTheDocument();
+  });
+
+  it("etykiety stacku niosą liczniki, a zdanie o synchronizacji nazywa konsumentów", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 1,
+        champion_profile: {
+          stack: { must: [{ name: "Python" }, { name: "Kafka" }], nice: [{ name: "AWS" }], notes: "" },
+        },
+      },
+    });
+    const { container } = renderEditor(1);
+    await screen.findByText(BASICS_LABEL);
+
+    expect(screen.getByText("Musi mieć · 2")).toBeInTheDocument();
+    expect(screen.getByText("Mile widziane · 1")).toBeInTheDocument();
+    expect(container.textContent).toContain("ranking C2");
   });
 });
 
@@ -136,7 +219,7 @@ describe("ChampionProfileEditor — weryfikacja/briefing/wyszukiwania przeniesio
       data: { job_id: 1, champion_profile: {} },
     });
     renderEditor(1);
-    await screen.findByText("1. Podstawowe informacje");
+    await screen.findByText(BASICS_LABEL);
     expect(
       screen.queryByTestId("champion-verification-checklist"),
     ).not.toBeInTheDocument();

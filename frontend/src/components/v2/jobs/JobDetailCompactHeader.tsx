@@ -26,6 +26,7 @@ import {
 import { EntityHeader } from "@/components/ds/EntityHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { JobHeaderKpi, JobHeaderKpiTone } from "@/lib/job-header-kpis";
 import {
   Collapsible,
   CollapsibleContent,
@@ -67,9 +68,20 @@ const SOURCING_TABS = new Set<JobDetailTab>([
 
 interface JobDetailCompactHeaderProps {
   title: ReactNode;
+  /**
+   * Klient dopisany do tytułu (makieta: „Programista Python (ZOB-2947) ·
+   * PKO Bank Polski"). Do 09.2026 nagłówka rekrutacji nie było w nim W OGÓLE,
+   * więc na każdej zakładce poza listą trzeba było pamiętać, czyja to
+   * rekrutacja — a to pierwsza rzecz, którą sprawdza się przed rozmową.
+   */
+  clientName?: string | null;
   referenceNumber?: string | null;
   badges?: ReactNode;
+  /** Jedna linia faktów pod tytułem (patrz `lib/job-header-subtitle.ts`). */
+  subtitle?: ReactNode;
   metadata?: ReactNode;
+  /** Trzy liczby właściwe dla aktywnego kroku (`lib/job-header-kpis.ts`). */
+  kpis?: JobHeaderKpi[];
   presence?: ReactNode;
   activeTab: JobDetailTab;
   onTabChange: (tab: JobDetailTab) => void;
@@ -112,7 +124,12 @@ function WorkspaceButton({
       variant="ghost"
       size="sm"
       className={cn(
-        "h-10 rounded-none border-b-2 px-3 whitespace-nowrap",
+        // `px-2` + `text-[13px]`, nie `px-3`/`text-sm`: przy 1440 px jedenaście
+        // kroków ze starym paddingiem nie mieściło się w pasku, a `nav` miał
+        // `overflow-x-auto`, więc ostatnia etykieta („Baza pytań") była UCIĘTA
+        // do samej ikony. Ucięta etykieta czyta się jak brak funkcji, nie jak
+        // brak miejsca — a przewijanego paska w poziomie nikt tam nie szukał.
+        "h-10 gap-1.5 rounded-none border-b-2 px-2 text-[13px] whitespace-nowrap",
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground",
@@ -123,6 +140,46 @@ function WorkspaceButton({
     >
       {children}
     </Button>
+  );
+}
+
+const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
+  neutral: "text-foreground",
+  ok: "text-success",
+  warn: "text-warning",
+  bad: "text-destructive",
+};
+
+/**
+ * Klaster trzech liczb po prawej stronie jobbara.
+ *
+ * `value === null` renderuje „—", nigdy zera: kanban i ranking ładują się
+ * osobno, a zero jest zdaniem o rekrutacji, którego w tym momencie nikt
+ * jeszcze nie sprawdził.
+ */
+function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
+  return (
+    <div
+      className="flex items-center gap-4 pr-1"
+      data-testid="job-header-kpis"
+      aria-label="Wskaźniki tego kroku"
+    >
+      {kpis.map((kpi) => (
+        <div key={kpi.key} className="text-right leading-tight">
+          <div
+            className={cn(
+              "text-sm font-bold tabular-nums",
+              KPI_TONE_CLASS[kpi.tone],
+            )}
+          >
+            {kpi.value ?? "—"}
+          </div>
+          <div className="text-[9.5px] uppercase tracking-eyebrow text-muted-foreground">
+            {kpi.label}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -152,9 +209,12 @@ function CountBadge({ value }: { value: number }) {
  */
 export function JobDetailCompactHeader({
   title,
+  clientName,
   referenceNumber,
   badges,
+  subtitle,
   metadata,
+  kpis,
   presence,
   activeTab,
   onTabChange,
@@ -181,10 +241,33 @@ export function JobDetailCompactHeader({
   return (
     <Collapsible open={contextOpen} onOpenChange={onContextOpenChange}>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2.5">
           <EntityHeader
             density="compact"
-            title={title}
+            avatar={
+              <span
+                aria-hidden="true"
+                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              >
+                <Target className="h-4 w-4" />
+              </span>
+            }
+            title={
+              clientName ? (
+                <>
+                  {title}
+                  {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
+                      `{" · "}{clientName}` rozpadało się na trzy węzły, przez
+                      co spacja przy kropce ginęła przy pierwszej zmianie
+                      formatowania. */}
+                  <span className="font-normal text-muted-foreground">
+                    {` · ${clientName}`}
+                  </span>
+                </>
+              ) : (
+                title
+              )
+            }
             badges={
               referenceNumber || badges ? (
                 <>
@@ -201,9 +284,13 @@ export function JobDetailCompactHeader({
                 </>
               ) : undefined
             }
+            subtitle={subtitle}
             metadata={metadata}
             actions={
               <>
+                {kpis && kpis.length > 0 ? (
+                  <JobHeaderKpiCluster kpis={kpis} />
+                ) : null}
                 {presence}
                 {onAddCandidate ? (
                   <Button
@@ -270,10 +357,15 @@ export function JobDetailCompactHeader({
           />
         </div>
 
-        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej. */}
-        <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border px-1">
+        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej.
+
+            `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie listwa ma
+            się ZŁAMAĆ na dwa wiersze, a nie schować końcówkę za niewidoczny
+            pasek przewijania. Krok, którego nie widać, nie istnieje dla
+            użytkownika — a to jedyna nawigacja tego ekranu. */}
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 border-t border-border px-1">
           <nav
-            className="flex min-w-0 items-center overflow-x-auto overscroll-x-contain"
+            className="flex min-w-0 flex-wrap items-center"
             aria-label="Sekcje rekrutacji"
           >
             <WorkspaceButton
@@ -398,7 +490,7 @@ export function JobDetailCompactHeader({
             </WorkspaceButton>
           </nav>
 
-          <div className="flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center">
             <WorkspaceButton
               active={activeTab === "history"}
               onClick={() => onTabChange("history")}

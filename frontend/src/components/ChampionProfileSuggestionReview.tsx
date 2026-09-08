@@ -22,16 +22,24 @@ import {
   type ChampionSectionName,
   type ChampionSectionPatch,
 } from "@/lib/api";
+import {
+  CHAMPION_SECTIONS as CHAMPION_SECTION_META,
+  type ChampionSectionId,
+} from "@/lib/champion-section-state";
 import { cn } from "@/lib/utils";
 
+// Sześć etykiet z JEDNEGO źródła (`CHAMPION_SECTIONS` z `champion-section-state`,
+// tu pod aliasem — `@/lib/api` eksportuje stałą o tej samej nazwie, ale to lista
+// NAZW sekcji, nie metadanych). Ten modal pokazuje propozycje AI obok sekcji
+// edytora, więc własna kopia tych nazw rozjeżdża się przy pierwszej zmianie
+// w formularzu. `documents` zostaje lokalnie: to sekcja SPARSOWANEGO dokumentu,
+// której edytor nie renderuje (fakty o kliencie żyją w karcie klienta),
+// a `ChampionSectionName` wciąż ją zna.
 const SECTION_LABELS: Record<ChampionSectionName, string> = {
-  basics: "1. Podstawowe informacje",
-  search: "2. Co wpisać (search)",
-  stack: "3. Stack technologiczny",
-  project: "4. O projekcie",
-  screening_questions: "5. Pytania screeningowe",
-  client: "6. O kliencie",
-  documents: "7. Dokumenty",
+  ...(Object.fromEntries(
+    CHAMPION_SECTION_META.map((section) => [section.id, section.label]),
+  ) as Record<ChampionSectionId, string>),
+  documents: "7 · Dokumenty",
 };
 
 interface ChampionProfileSuggestionReviewProps {

@@ -12,7 +12,8 @@
 |---|---|---|---|
 | fundament | #1388 | listwa kroków w `JobDetailCompactHeader` (kroki w kolejności procesu, zdjęte „Narzędzia ▾"/„Pozyskaj ▾") | prod `aec2f246` |
 | 1 | #1396 (+ #1399) | 01 Lista rekrutacji · 03 Rama źródeł nad C2 · 04 Dok „Karta w procesie" na kanbanie · bugfix licznika kafelków | prod `59514bc` / `33b75ec` |
-| 2 | ten PR | 02 Zlecenie i Champion · 05 Screening · 06 CV do klienta · 07 Rozmowy i decyzja · 08 Umowa | — |
+| 2 | #1403 | 02 Zlecenie i Champion · 05 Screening · 06 CV do klienta · 07 Rozmowy i decyzja · 08 Umowa | prod `08978d7` |
+| 3 | ten PR | parytet z makietami: jobbar z KPI, liczniki filtrów, grupy etapów i karty pipeline'u, dok gotowości z 7 warunkami, nagłówki i zakładki doków w warsztatach 05–08 | — |
 
 Metoda (ta sama w obu falach): trzech agentów implementuje w osobnych worktree od `origin/main`,
 każdy kończy PR-em bez merge'a; koordynator zbiera commity cherry-pickiem na gałąź integracyjną
@@ -46,6 +47,64 @@ jednostkowe nie łapią (patrz niżej).
   feedback hiring managera (jedyny nowy endpoint programu), oferta/reakcja, decyzja.
 - **08 Umowa** (`JobContractTab`): status podpisu, hook „Zatrudniony", braki do aktywacji,
   „Zamknij rekrutację z powodem".
+
+## Fala 3 — parytet z makietami (8.09.2026)
+
+Po fali 2 Artur obejrzał produkcję: „nie wygląda to tak samo jak makiety". Porównanie krok po
+kroku na rekrutacji z makiet (`/jobs/552495`, ZOB-2947, 26 w procesie) pokazało, że układ
+trzech kolumn i listwa kroków się zgadzają, a różni się **gęstość**: nagłówek rekrutacji nie
+miał klienta, subtytułu ani KPI, panel „Zespół i priorytet" bywał rozwinięty na każdej
+zakładce (zapisana preferencja — domyślna wartość była już „zwinięty"; teraz jest stałą
+`JOB_HEADER_COLLAPSED_DEFAULT` z testem), listwa obcinała „Baza pytań", lista liczyła tylko
+jeden z sześciu szybkich filtrów i to z bieżącej strony, rail pipeline'u miał 15 wierszy zamiast
+6 grup, karty nie mówiły, co dalej, dok Championa dzielił gotowość na dwie listy, a warsztaty
+05–08 nie miały nagłówków, pigułek i zakładek doku z makiet. Czterech wykonawców (osobne
+worktree od `origin/main`, cherry-pick na `claude/flow-wave-3-parity`, jeden PR):
+
+- **Jobbar i listwa** (`JobDetailCompactHeader`, `lib/job-header-kpis.ts`,
+  `lib/job-header-subtitle.ts`): `tytuł · klient`, subtytuł (lokalizacja/tryb · budżet PLN/h ·
+  deadline · właściciel), trzy KPI zależne od zakładki liczone z tego samego kanbana co
+  listwa; „w rankingu / ≥ 75 pkt" czytane WYŁĄCZNIE z cache'u zapytania C2 (`enabled: false`)
+  — nagłówek nie wywołuje Qdranta. Dziewięć selektorów kolumn w `lib/pipeline-flow.ts`
+  zastąpiło trzy idiomy „ile jest w kolumnie", żeby listwa i jobbar nie pokazywały dwóch liczb
+  pod jedną nazwą.
+- **01 Lista** (`JobsListV2`, backend `GET /api/jobs/quick-counts` + `owner_missing`):
+  sześć liczników jednym zapytaniem (`count(*) FILTER`), predykaty `jobs_*_clause`
+  współdzielone z `list_jobs` — testy porównują każdy licznik z `total` listy z tym samym
+  filtrem, nie ze stałą. „Brak ownera requestu" (`tac_id IS NULL`) filtrował dotąd tylko
+  wczytaną stronę (`lib/jobs-quick-filters.ts` usunięte). Status jako pigułki wyłącznie
+  z istniejących wartości (`draft/published/closed`), klient pod tytułem, mini-lejek z liczbami,
+  deadline z liczbą dni, dok z nawigacją `‹ N z M ›` (kontrakt `job-list-nav.ts` między listą
+  a dokiem), zakładkami Gotowość · Pipeline · Zespół · Historia i stopką „Ostatnia zmiana".
+- **02 Zlecenie i Champion** (`JobReadinessDock`, `ReadinessRow`, `ChampionProfileEditor`):
+  jedna lista siedmiu warunków (trzy wiersze weryfikacji/briefingu to te same mutacje co
+  `ChampionVerificationChecklist` — wyniesione, nie skopiowane), gauge „N / 7" z procentem,
+  bramka „Przekaż do searchu" jako jedna linia z rozwinięciem, „Rekomendowane wyszukiwania
+  (AI)" inline; edytor w kolejności makiety (Zlecenie → 1 → 3 → 2·4·5 zwinięte, gdy puste → 6).
+  Zostało „kompletność zlecenia", nie „gotowość do searchu" — to rozłączny zbiór z bramką
+  `/readiness` i pilnuje tego test regresyjny.
+- **04 Pipeline** (`groupKanbanColumns`, `lib/pipeline-next-action.ts`, `KanbanBoardV2`,
+  `PipelineFiltersRail`, `PipelineCandidateDock`): sześć grup po `category`/`terminal_type`
+  (nigdy po nazwie kolumny), „Bez następnej akcji", SLA klienta z karty klienta; puste grupy
+  „U klienta"/„Umowa → zatrudnieni" zwijają się do jednej kolumny, która **przyjmuje
+  upuszczenie** na pierwszy etap grupy (bez tego pierwsze CV do klienta wymagałoby „Rozwiń
+  etapy" — regres złapany przy odbiorze); karta = nazwisko + awatar rekrutera + wiek +
+  następna akcja (deterministycznie z kategorii etapu); dok z `‹ N z M ›`, osią czasu etapu
+  i „Przenieś na etap: <następny>" tą samą ścieżką co drag&drop. Trzy poprawki układu (łamanie
+  nazwisk, wcięcie, padding) wyszły z pomiaru w DOM, nie z testów.
+- **05–08 warsztaty** (`workbench-chrome.tsx` — wspólny szkielet nagłówka, kart i doku):
+  nagłówki `Krok · Nazwisko` z subtytułem i pigułkami, zakładki doku (Stawka i decyzja ·
+  Notatki · Dopasowanie / Wyślij · Linki i historia / Decyzja · Oferta / Po podpisie ·
+  Zamówienie · Alerty DL), reguły CV klienta jako lista warunków, marża (podgląd) wyłącznie
+  w bloku stawki widocznym dla admina, oś czasu podpisu z `statusHistory`, „Odrzuć z powodem"
+  przez `requestMove` (ten sam `RejectionV2`). Braki do aktywacji kontraktu renderują się
+  neutralnie, nie zielono — wiersz kontraktu stoi za bramką Delivery, więc ekran nie wie,
+  które pola są wypełnione.
+
+Poza falą (świadomie, brak źródła danych albo osobny zakres): „Źródło" na tablicy
+(`KanbanItem` nie niesie źródła), „Wiadomość" zbiorcza, „Pliki" w doku pipeline'u, ocena ryzyka
+kandydata, aktor „ostatniej aktywności", „Zaloguj rozmowę"/„Przełóż (M365)", licznik dni
+w stopce Championa (profil nie ma daty utworzenia), przełącznik New/Old w nagłówku CV.
 
 ## Co złapał przegląd (i dlaczego testy tego nie widziały)
 

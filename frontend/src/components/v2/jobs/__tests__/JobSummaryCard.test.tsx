@@ -41,9 +41,63 @@ describe("JobSummaryCard — dane", () => {
     expect(screen.getByText("30.09.2026")).toBeInTheDocument();
   });
 
-  it("nagłówek karty to „Zlecenie”", () => {
+  it("nagłówek karty to „Zlecenie” z chipem pochodzenia", () => {
     render(<JobSummaryCard job={fullJob} />);
     expect(screen.getByText("Zlecenie")).toBeInTheDocument();
+    expect(screen.getByText("z requestu klienta")).toBeInTheDocument();
+  });
+
+  it("widełki podpisane są „(z oferty)”, NIE „klienta” — to wynagrodzenie z oferty, nie stawka klienta", () => {
+    render(<JobSummaryCard job={fullJob} />);
+    expect(screen.getByText("Widełki (z oferty)")).toBeInTheDocument();
+    // Makieta podpisuje to pole „Widełki klienta"; stawka klienta żyje na
+    // kontraktach (`rate_client`) i ta etykieta byłaby nieprawdziwa.
+    expect(screen.queryByText("Widełki klienta")).not.toBeInTheDocument();
+  });
+});
+
+describe("JobSummaryCard — lokalizacja składa miasto, tryb i dni w biurze", () => {
+  it("hybryda z dniami: „Warszawa / hybryda 2 dni”", () => {
+    render(
+      <JobSummaryCard
+        job={{ ...fullJob, location: "Warszawa", remote_policy: "hybrid", onsite_days_per_week: 2 }}
+      />,
+    );
+    expect(screen.getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
+  });
+
+  it("jeden dzień odmienia się poprawnie („1 dzień”, nie „1 dni”)", () => {
+    render(
+      <JobSummaryCard
+        job={{ ...fullJob, location: "Kraków", remote_policy: "hybrid", onsite_days_per_week: 1 }}
+      />,
+    );
+    expect(screen.getByText("Kraków / hybryda 1 dzień")).toBeInTheDocument();
+  });
+
+  it("liczba dni NIE dopisuje się poza hybrydą — przy „zdalnie” przeczyłaby sama sobie", () => {
+    render(
+      <JobSummaryCard
+        job={{ ...fullJob, location: "PL", remote_policy: "remote", onsite_days_per_week: 3 }}
+      />,
+    );
+    expect(screen.getByText("PL / zdalnie")).toBeInTheDocument();
+  });
+
+  it("nieznany tryb przechodzi surowy zamiast zniknąć", () => {
+    render(
+      <JobSummaryCard
+        job={{ ...fullJob, location: "Gdańsk", remote_policy: "flex_future" }}
+      />,
+    );
+    expect(screen.getByText("Gdańsk / flex_future")).toBeInTheDocument();
+  });
+
+  it("sam tryb bez miasta renderuje się bez wiodącego separatora", () => {
+    render(
+      <JobSummaryCard job={{ ...fullJob, location: null, remote_policy: "onsite" }} />,
+    );
+    expect(screen.getByText("stacjonarnie")).toBeInTheDocument();
   });
 });
 
