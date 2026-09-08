@@ -76,6 +76,7 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { terminalOf } from"@/lib/kanban-terminal";
+import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
@@ -1366,10 +1367,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (readOnly) return;
  if (srcColId === colId(dst)) return;
 
+ // Która gałąź — decyduje `lib/pipeline-move-dialog`, wspólne z dokiem
+ // „Decyzja" kroku 07. Zachowanie bit w bit takie samo jak przed
+ // wyniesieniem warunków (czysta ekstrakcja, zero zmiany logiki).
+ const dialog = moveDialogFor(dst);
+
  // Pending verification (migracja 0056) — najpierw zapytaj o rate,
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
- if (dst.stage === "verified") {
+ if (dialog === "verified_rate") {
  setVerifiedQueue([]);
  setVerifiedBulkTotal(1);
  setVerifiedRatePrompt({
@@ -1382,7 +1388,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
  // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
- if (dst.stage === "cv_sent") {
+ if (dialog === "client_rate") {
  setClientRateQueue([]);
  setClientRateBulkTotal(1);
  setClientRatePrompt({ item, destCol: dst, srcColId });
@@ -1391,19 +1397,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
  // — wymaga jawnego potwierdzenia zamiast samego drop-u.
- if (terminalOf(dst) === "hired") {
+ if (dialog === "hired_confirm") {
  setHiredConfirm({ item, destCol: dst, srcColId });
  return;
  }
 
  // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
  // żeby anulowanie nie zostawiało karty w złej kolumnie.
+ if (dialog === "rejection") {
  const dropTerminal = terminalOf(dst);
- if (dropTerminal === "rejected" || dropTerminal === "withdrawn") {
  setPendingRejection({
  entries: [{ item, srcColId }],
  destCol: dst,
- terminalType: dropTerminal,
+ terminalType: dropTerminal === "withdrawn" ? "withdrawn" : "rejected",
  });
  return;
  }

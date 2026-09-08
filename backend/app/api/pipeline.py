@@ -213,6 +213,12 @@ def _stage_response(
         "rejected_by": stage.rejected_by,
         "rejected_at": stage.rejected_at,
         "rejection_note": stage.rejection_note,
+        # Reakcja kandydata na ofertę (migracja 0066). Zapisywana od dawna
+        # (modal wycofania po akceptacji), ale do 09.2026 NIGDZIE nie odczytywana
+        # przez UI — „Przyjął / Odrzucił / Oczekuje" dawało się zobaczyć wyłącznie
+        # w bazie. Krok 07 „Rozmowy i decyzja" pokazuje ją przy ofercie; `None`
+        # znaczy „nie zapisano", a nie „oczekuje" (to osobna, jawna wartość).
+        "candidate_offer_response": stage.candidate_offer_response,
         "name": candidate_name,
         "lastname": candidate_lastname,
         "added_to_job_by_name": added_to_job_by_name,

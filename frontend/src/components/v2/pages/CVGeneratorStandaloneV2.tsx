@@ -134,7 +134,29 @@ function formatGeneratedDate(iso?: string | null): string {
   });
 }
 
-export function CVGeneratorStandaloneV2() {
+export interface CVGeneratorStandaloneV2Props {
+  /**
+   * Tryb osadzony — krok 06 „CV do klienta" (program „flow w języku C2",
+   * PR 6/7) renderuje generator W ŚRODKU stanowiska pracy. Zdejmuje wyłącznie
+   * chrom STRONY (kontener `max-w-3xl`, nagłówek z ikoną i podtytułem), bo na
+   * zakładce rekrutacji jest już nagłówek i listwa kroków. Przełącznik
+   * „New / Old", opcje, reguły klienta i lista wygenerowanych CV zostają —
+   * krok 06 ma zbierać funkcje, nie je odbierać.
+   */
+  embedded?: boolean;
+  /** Kandydat wybrany w kroku 06 — wypełnia krok 1 formularza „New". */
+  prefillCandidateId?: number;
+  prefillCandidateName?: string;
+  /** Rekrutacja, z której otwarto krok 06 — wybiera właściwy `stage_id`. */
+  prefillJobId?: number;
+}
+
+export function CVGeneratorStandaloneV2({
+  embedded = false,
+  prefillCandidateId,
+  prefillCandidateName,
+  prefillJobId,
+}: CVGeneratorStandaloneV2Props = {}) {
   const toast = useToast();
   const currentUser = useAuthStore((state) => state.user);
   const isImpersonating = useAuthStore((state) => state.realUser !== null);
@@ -252,6 +274,52 @@ export function CVGeneratorStandaloneV2() {
       recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ?? null
     );
   }, [recruitmentsQuery.data, stageId]);
+
+  // Lista wygenerowanych CV w kroku 06 dotyczy TEGO kandydata w TEJ rekrutacji.
+  // Wiersze z trybu upload nie mają `job_id` — zostają, bo powstały dla tej
+  // samej osoby i rekruter właśnie ich szuka. Poza trybem osadzonym lista jest
+  // nietknięta (moduł Generator CV pokazuje ostatnie generacje wszystkich).
+  const visibleGenerated = useMemo(() => {
+    const rows = generatedQuery.data ?? [];
+    if (!embedded || prefillCandidateId == null) return rows;
+    return rows.filter(
+      (r) =>
+        r.candidate_id === prefillCandidateId &&
+        (r.job_id == null || prefillJobId == null || r.job_id === prefillJobId),
+    );
+  }, [generatedQuery.data, embedded, prefillCandidateId, prefillJobId]);
+
+  // ── Prefill z kroku 06 ──────────────────────────────────────────────────
+  // Stosowany RAZ na kandydata (ref, nie efekt zależny od stanu): rekruter
+  // może w osadzonym generatorze przełączyć się na kogoś innego albo na tryb
+  // upload, a prefill nie ma go wtedy cofać. Wraca dopiero, gdy krok 06 wskaże
+  // INNEGO kandydata.
+  const appliedPrefillRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (prefillCandidateId == null) return;
+    if (appliedPrefillRef.current === prefillCandidateId) return;
+    appliedPrefillRef.current = prefillCandidateId;
+    const fullName = prefillCandidateName?.trim() || `#${prefillCandidateId}`;
+    setMode("new");
+    setCandidate({
+      id: prefillCandidateId,
+      // Rozbicie na imię/nazwisko jest tu tylko etykietą — combobox pokazuje
+      // `full_name`, a do backendu idzie samo `candidate_id`.
+      name: fullName.split(" ")[0] ?? fullName,
+      lastname: fullName.split(" ").slice(1).join(" "),
+      full_name: fullName,
+    });
+    setStageId("");
+  }, [prefillCandidateId, prefillCandidateName]);
+
+  // Rekrutacja: dopiero gdy lista procesów kandydata dojdzie. Gdy tej oferty
+  // nie ma na liście (np. etap nie kwalifikuje się do generacji), NIE zgadujemy
+  // innej — rekruter wybiera sam, a pole zostaje puste.
+  useEffect(() => {
+    if (prefillJobId == null || stageId) return;
+    const match = recruitmentsQuery.data?.find((r) => r.job_id === prefillJobId);
+    if (match) setStageId(String(match.stage_id));
+  }, [prefillJobId, stageId, recruitmentsQuery.data]);
 
   // ── Upload: klient podpowiadany z aktywnego procesu kandydata ───────────
   const debouncedUploadCandidateQuery = useDebouncedValue(uploadCandidateQuery, 300);
@@ -583,20 +651,22 @@ export function CVGeneratorStandaloneV2() {
   }
 
   return (
-    <div className="container mx-auto max-w-3xl py-8">
-      <div className="mb-6 flex items-start gap-3">
-        <div className="rounded-xl bg-primary/10 p-3 text-primary">
-          <Sparkles className="h-5 w-5" />
+    <div className={embedded ? undefined : "container mx-auto max-w-3xl py-8"}>
+      {!embedded && (
+        <div className="mb-6 flex items-start gap-3">
+          <div className="rounded-xl bg-primary/10 p-3 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Generator CV</h1>
+            <p className="text-sm text-muted-foreground">
+              Wygeneruj branżowo dopasowane CV w szablonie B2B Network. Dwa
+              tryby: zaciąganie danych z NEXUSa lub manualny upload plików (1:1
+              jak zewnętrzny CV-Generator).
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Generator CV</h1>
-          <p className="text-sm text-muted-foreground">
-            Wygeneruj branżowo dopasowane CV w szablonie B2B Network. Dwa tryby:
-            zaciąganie danych z NEXUSa lub manualny upload plików (1:1 jak
-            zewnętrzny CV-Generator).
-          </p>
-        </div>
-      </div>
+      )}
 
       {canWriteSourcing ? (
         <>
@@ -958,16 +1028,19 @@ export function CVGeneratorStandaloneV2() {
             Wygenerowane CV
           </CardTitle>
           <CardDescription>
-            Ostatnio wygenerowane CV — Podgląd w aplikacji lub Pobierz, gdy
-            będziesz gotów. Lista zostaje po przejściu do innych kandydatów.
+            {embedded && prefillCandidateId != null
+              ? "Ostatnie CV tego kandydata w tej rekrutacji. Lista jest wycinkiem globalnej listy ostatnich generacji — starsze pozycje znajdziesz w module Generator CV."
+              : "Ostatnio wygenerowane CV — Podgląd w aplikacji lub Pobierz, gdy będziesz gotów. Lista zostaje po przejściu do innych kandydatów."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {generatedQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Ładowanie…</p>
-          ) : !generatedQuery.data?.length ? (
+          ) : !visibleGenerated.length ? (
             <p className="text-sm text-muted-foreground">
-              Brak wygenerowanych CV — wygeneruj pierwsze powyżej.
+              {embedded && prefillCandidateId != null
+                ? "Brak wygenerowanych CV dla tego kandydata w tej rekrutacji — wygeneruj pierwsze powyżej."
+                : "Brak wygenerowanych CV — wygeneruj pierwsze powyżej."}
             </p>
           ) : (
             // Lista „ostatnio wygenerowanych" rośnie bez ograniczeń (na prodzie
@@ -979,7 +1052,7 @@ export function CVGeneratorStandaloneV2() {
             // Własny scroll domyka listę w samodzielną kartę z widocznym paskiem;
             // najnowsze CV jest na górze, a strona przestaje być monolitem ~7000 px.
             <ul className="max-h-[30rem] divide-y divide-border overflow-y-auto pr-2">
-              {generatedQuery.data.map((item) => (
+              {visibleGenerated.map((item) => (
                 <GeneratedCvRow
                   key={item.id}
                   item={item}
