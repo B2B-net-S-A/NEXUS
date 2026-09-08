@@ -647,11 +647,18 @@ async def get_ai_matches(
     nice_skills = _parse_nice_skills(job)
     # Rubryki 0278 strony oferty — jedna definicja dla obu gałęzi odpowiedzi
     # (semantycznej i tag-fallback), do klucza top-level `rubrics`.
+    _rubric_inputs_preview = dealbreaker_inputs_for_job(job)
     job_rubrics = {
         "budget_hourly": resolve_job_budget_hourly(job),
         "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),
         "office_location": getattr(job, "location", None),
         "must_skills": required_skills,
+        # Które wymagania REALNIE bramkują, a które są punktem wymagań i zostają
+        # wyłącznie sygnałem scoringowym. Bez tego bramka, która po cichu nie
+        # działa, wygląda identycznie jak bramka, która nikogo nie odsiała —
+        # a to dwie różne informacje dla Delivery Leada.
+        "must_skills_gating": list(_rubric_inputs_preview.must_skills),
+        "must_skills_ignored": list(_rubric_inputs_preview.must_skills_ignored),
     }
 
     # ── Location filter ──────────────────────────────────────────────────────
