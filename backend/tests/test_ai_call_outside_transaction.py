@@ -97,6 +97,17 @@ async def test_provider_is_called_with_no_open_transaction(monkeypatch) -> None:
 
     monkeypatch.setattr(mjs, "ai_feature", lambda *_a, **_k: _Gate())
 
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    @asynccontextmanager
+    async def lease(_key):
+        yield "token"
+
+    monkeypatch.setattr("app.services.ai_generation_lease.generation_lease", lease)
+    monkeypatch.setattr(
+        "app.services.ai_generation_lease.lock_owned_lease", AsyncMock()
+    )
     await mjs.get_or_generate(1, 10, db, user_id=7)
 
     assert seen["in_txn"] is False, (

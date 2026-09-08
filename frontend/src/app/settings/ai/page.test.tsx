@@ -51,6 +51,7 @@ const RESPONSE = {
       feature: "cv_generator",
       used: 12,
       input_tokens: 34_000,
+      provider_calls: 2,
       output_tokens: 8_000,
       limit: 0,
       period_start: "2026-09-01",
@@ -105,12 +106,13 @@ describe("Panel Ustawienia → AI", () => {
     expect(models).toContain("claude-sonnet-5");
   });
 
-  it("pokazuje tokeny tylko gdy niezerowe", async () => {
+  it("odróżnia zmierzone tokeny od braku pomiaru", async () => {
     renderPage();
     await screen.findByText("Generator CV B2B");
     const tokenLines = screen.getAllByTestId("feature-tokens");
     // Tylko cv_generator ma niezerowe tokeny; cv_parser (0/0) nie renderuje linii.
-    expect(tokenLines).toHaveLength(1);
+    expect(tokenLines).toHaveLength(2);
+    expect(tokenLines[1].textContent).toContain("Brak zmierzonych odpowiedzi");
     expect(tokenLines[0].textContent).toMatch(/34\D?000/);
   });
 

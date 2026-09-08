@@ -58,6 +58,7 @@ export interface TalentRadarSessionState {
    * wymagań jest wyłączona), ale po jej flipie łańcuch urwałby się cicho.
    */
   championSkills: { must: string[]; nice: string[] } | null;
+  requirementsPreview?: { source: string; must: string; nice: string; excluded: string[]; uncertain: string[] } | null;
   response: TalentRadarSearchResponse | null;
 }
 
@@ -74,6 +75,12 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
   if (!isRecord(value)) return false;
   if (typeof value.title !== "string") return false;
   if (typeof value.text !== "string") return false;
+  const preview = value.requirementsPreview;
+  if (preview != null && (!isRecord(preview) || typeof preview.source !== "string"
+    || typeof preview.must !== "string" || typeof preview.nice !== "string"
+    || !Array.isArray(preview.excluded) || !preview.excluded.every(s => typeof s === "string")
+    || !Array.isArray(preview.uncertain) || !preview.uncertain.every(s => typeof s === "string"))) return false;
+
   // `location` i `championSkills` doszły później — snapshot sprzed tej wersji
   // nie ma ich wcale. Klucz jest wersjonowany, więc taki zapis i tak zostanie
   // odrzucony; walidacja przyjmuje `undefined` po to, żeby restore nie zależał

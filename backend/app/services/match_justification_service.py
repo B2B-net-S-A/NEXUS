@@ -255,25 +255,28 @@ def _format_score_breakdown(bd: dict) -> str:
     return "\n".join(lines)
 
 
-def _input_hash(candidate: Candidate, job: Job, breakdown: dict) -> str:
-    """Fingerprint the inputs so the prose regenerates only when they change.
+def _prompt_inputs(candidate: Candidate, job: Job, breakdown: dict) -> dict:
+    """One canonical payload shared by hashing and rendering."""
+    return dict(
+        job_title=job.title or "(brak tytułu)",
+        job_requirements=_job_requirements_text(job),
+        champion_context=_champion_context_text(job),
+        competence_category=candidate.competence_category or "(brak)",
+        candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
+        candidate_skills=_skills_to_text(candidate.skills),
+        candidate_cv=_candidate_cv_text(candidate),
+        score=int(round(breakdown.get("total") or 0)),
+        score_breakdown=_format_score_breakdown(breakdown),
+    )
 
-    Includes the prompt version so a prompt bump invalidates every cached row.
-    """
+
+def _input_hash(candidate: Candidate, job: Job, breakdown: dict) -> str:
     payload = json.dumps(
         {
             "prompt_version": MATCH_JUSTIFICATION.version,
             "model": DEFAULT_MODEL,
-            "score": int(round(breakdown.get("total") or 0)),
-            "cv": _candidate_cv_text(candidate),
-            "cand_summary": candidate.ai_summary or "",
-            "cand_skills": _skills_to_text(candidate.skills),
-            "cand_cc": candidate.competence_category or "",
-            "job_title": job.title or "",
-            "job_req": _job_requirements_text(job),
-            "champion": _champion_context_text(job),
-            "matching_must": sorted(map(str, breakdown.get("matching_must") or [])),
-            "gap_must": sorted(map(str, breakdown.get("gap_must") or [])),
+            "system": MATCH_JUSTIFICATION.system_prompt,
+            "inputs": _prompt_inputs(candidate, job, breakdown),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -449,17 +452,7 @@ async def generate_prose(
     candidate: Candidate, job: Job, breakdown: dict, *, model: str = DEFAULT_MODEL
 ) -> dict:
     """Ask Claude to explain the score. Returns {summary, pros, watchouts}."""
-    prompt = MATCH_JUSTIFICATION.render(
-        job_title=job.title or "(brak tytułu)",
-        job_requirements=_job_requirements_text(job),
-        champion_context=_champion_context_text(job),
-        competence_category=candidate.competence_category or "(brak)",
-        candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
-        candidate_skills=_skills_to_text(candidate.skills),
-        candidate_cv=_candidate_cv_text(candidate),
-        score=int(round(breakdown.get("total") or 0)),
-        score_breakdown=_format_score_breakdown(breakdown),
-    )
+    prompt = MATCH_JUSTIFICATION.render(**_prompt_inputs(candidate, job, breakdown))
     parsed = await _call_claude_json(
         prompt=prompt,
         system_prompt=MATCH_JUSTIFICATION.system_prompt or "",
@@ -476,6 +469,38 @@ async def get_or_generate(
     *,
     user_id: Optional[int] = None,
     force: bool = False,
+):
+    from app.services.ai_generation_lease import GenerationBusy, generation_lease
+
+    key = f"match:{candidate_id}:{job_id}"
+    try:
+        async with generation_lease(key) as token:
+            try:
+                return await _generate_under_lease(
+                    candidate_id,
+                    job_id,
+                    db,
+                    user_id=user_id,
+                    force=force,
+                    lease_key=key,
+                    lease_token=token,
+                )
+            except BaseException:
+                await db.rollback()
+                raise
+    except GenerationBusy as exc:
+        raise MatchJustificationLLMError(str(exc)) from exc
+
+
+async def _generate_under_lease(
+    candidate_id: int,
+    job_id: int,
+    db: AsyncSession,
+    *,
+    user_id: Optional[int] = None,
+    force: bool = False,
+    lease_key: str,
+    lease_token: str,
 ) -> CandidateMatchJustification:
     """Return the (cached or freshly generated) justification row.
 
@@ -504,38 +529,13 @@ async def get_or_generate(
     if row is not None and not force and row.input_hash == input_hash:
         return row
 
-    # Cache miss / forced refresh / stale inputs → paid LLM call.
-    #
-    # `_gate_and_count` used to live in this module: 40 lines duplicating
-    # `ai_quota.check_and_increment` with the OPPOSITE answer for a missing
-    # `ai_features` row (this one allowed, the other blocked). Which behaviour
-    # you got depended on which copy the request reached. Gone; one gate now.
     async with ai_feature(db, AIFeatureKey.scoring, user_id=user_id):
-        # Commit PRZED round-tripem do Claude'a — dwa powody, oba mierzalne.
-        #
-        # 1. Zwolnienie połączenia. `check_and_increment` zapisuje wiersz
-        #    `ai_usage_logs` w sesji WOŁAJĄCEGO i nie commituje, więc bez tego
-        #    `AsyncSession` trzyma wypożyczone połączenie z puli (20+40 na
-        #    JEDNYM workerze uvicorna) przez cały czas wywołania LLM — a to jest
-        #    do ~273 s przy 3 próbach × 90 s timeoutu. Dziesięciu rekruterów na
-        #    zakładce „Dopasowanie" podczas przeciążenia Anthropica zjada pulę,
-        #    po czym KAŻDE inne żądanie — lista kandydatów, logowanie, ruch w
-        #    pipelinie — czeka `pool_timeout` i wywala 500 bez nagłówków CORS.
-        #    Ubocznie: transakcja otwarta przez minuty przypina horyzont xmin,
-        #    więc autovacuum nie odzyskuje martwych krotek w CAŁYM klastrze.
-        # 2. Zwolnienie blokady wiersza. Upsert bierze blokadę na
-        #    `(feature, user_id, period_start)`, więc drugie równoległe żądanie
-        #    tego samego użytkownika czekało na niej tyle, ile trwał LLM
-        #    pierwszego.
-        #
-        # Bezpieczne: sesja ma `expire_on_commit=False`, więc `candidate`, `job`
-        # i `row` zostają wypełnione i `generate_prose` nie robi lazy-loadu.
-        # Commit utrwala też licznik kwoty — to ta sama decyzja, co w czacie
-        # interaktywnego CV („żeby licznik nie przepadł przy późniejszym
-        # rollbacku ścieżki LLM").
         await db.commit()
         prose = await generate_prose(candidate, job, breakdown)
 
+    from app.services.ai_generation_lease import lock_owned_lease
+
+    await lock_owned_lease(db, lease_key, lease_token)
     if row is None:
         row = CandidateMatchJustification(candidate_id=candidate_id, job_id=job_id)
         db.add(row)

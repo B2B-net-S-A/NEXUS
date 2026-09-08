@@ -13,11 +13,12 @@ over capacity.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, timedelta
 from typing import Iterable, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import Text, cast, select
+from sqlalchemy import Text, cast, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
@@ -31,6 +32,7 @@ from app.models.ai_feature import (
 )
 from app.schemas.ai_settings import (
     AISettingsOut,
+    SpendAlertStatus,
     FeatureConfig,
     FeatureConfigUpdate,
     FeatureUsage,
@@ -127,6 +129,52 @@ async def get_ai_settings(
     # tokeny podwoiłyby ten koszt. Klucz = wartość enuma (string).
     usage_summary = await get_usage_summary_for_period(db, period_start)
 
+    from app.models.ai_metering import AIOperation, AIProviderCall, AISpendAlert
+    from app.models.ai_feature import AIUsageLog
+    from app.services.ai_metering import measured_usage
+
+    measured = await measured_usage(db, period_start)
+    legacy = set(
+        (
+            await db.scalars(
+                select(cast(AIUsageLog.feature, Text))
+                .where(AIUsageLog.period_start == period_start, AIUsageLog.count > 0)
+                .distinct()
+            )
+        ).all()
+    )
+    missing = dict(
+        (
+            await db.execute(
+                select(AIOperation.feature, func.count())
+                .where(
+                    AIOperation.period_start == period_start,
+                    ~select(AIProviderCall.event_key)
+                    .where(AIProviderCall.operation_id == AIOperation.id)
+                    .exists(),
+                )
+                .group_by(AIOperation.feature)
+            )
+        ).all()
+    )
+    webhook = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
+    pending = await db.scalar(
+        select(func.count())
+        .select_from(AISpendAlert)
+        .where(
+            AISpendAlert.in_app_at.is_(None)
+            | (
+                (
+                    AISpendAlert.slack_sent_at.is_(None)
+                    & AISpendAlert.recipient_id.is_(None)
+                )
+                if webhook
+                else False
+            )
+        )
+    )
+    last_delivered = await db.scalar(select(func.max(AISpendAlert.in_app_at)))
+
     feature_configs: List[FeatureConfig] = []
     feature_usage: List[FeatureUsage] = []
 
@@ -151,6 +199,21 @@ async def get_ai_settings(
                 used=used,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                provider_calls=measured.get(feature.value, {}).get("provider_calls", 0),
+                cache_read_tokens=measured.get(feature.value, {}).get(
+                    "cache_read_tokens"
+                )
+                or 0,
+                cache_creation_tokens=measured.get(feature.value, {}).get(
+                    "cache_creation_tokens"
+                )
+                or 0,
+                estimated_cost_usd=measured.get(feature.value, {}).get(
+                    "estimated_cost_usd"
+                ),
+                unpriced_calls=measured.get(feature.value, {}).get("unpriced_calls", 0),
+                legacy_usage_present=feature.value in legacy,
+                operations_without_response=missing.get(feature.value, 0),
                 limit=monthly_limit,
                 period_start=period_start,
                 period_end=period_end,
@@ -161,6 +224,11 @@ async def get_ai_settings(
         master_enabled=bool(master_enabled),
         features=feature_configs,
         usage=feature_usage,
+        spend_alerts=SpendAlertStatus(
+            slack_configured=webhook,
+            pending_deliveries=pending or 0,
+            last_delivered_at=last_delivered,
+        ),
     )
 
 
@@ -210,3 +278,33 @@ async def update_feature_config(
 
     await db.commit()
     return await get_ai_settings(admin, db)
+
+
+@router.post("/alerts/test")
+async def test_spend_alert(
+    admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Control delivery to the requesting administrator only, never Slack."""
+    from uuid import uuid4
+    from app.models.ai_metering import AISpendAlert
+    from app.services.ai_generation_lease import GenerationBusy, generation_lease
+    from app.tasks.ai_spend_alerts import queue_alert, deliver_alerts
+
+    key = f"control:{admin.id}:{uuid4()}"
+    try:
+        async with generation_lease("ai-spend-alerts"):
+            await queue_alert(
+                db,
+                key,
+                "Kontrolny alert zużycia AI. Dostawa powiadomień NEXUS działa.",
+                recipient_id=admin.id,
+            )
+            await db.commit()
+            row = await db.scalar(select(AISpendAlert).where(AISpendAlert.key == key))
+            await deliver_alerts(db, "", alert_id=row.id)
+            await db.refresh(row)
+            return {"delivered": row.in_app_at is not None, "alert_id": row.id}
+    except GenerationBusy as exc:
+        raise HTTPException(
+            status_code=409, detail="Trwa dostarczanie alarmów. Ponów za chwilę."
+        ) from exc

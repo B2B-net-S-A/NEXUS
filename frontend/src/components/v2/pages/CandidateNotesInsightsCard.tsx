@@ -35,6 +35,7 @@ interface EvidencedSkill {
 }
 
 interface NotesInsights {
+  _rate_requires_verification?: boolean;
   skills_evidenced?: EvidencedSkill[] | null;
   skills_gaps_observed?: EvidencedSkill[] | null;
   expected_rate?: {
@@ -97,7 +98,7 @@ function hasText(value: string | null | undefined): value is string {
 function formatRate(rate: NonNullable<NotesInsights["expected_rate"]>): string | null {
   if (hasText(rate.raw)) return rate.raw;
   if (typeof rate.value === "number") {
-    const currency = hasText(rate.currency) ? rate.currency : "PLN";
+    const currency = hasText(rate.currency) ? rate.currency : "(waluta niepodana)";
     const period = hasText(rate.period) ? `/${rate.period}` : "";
     return `${rate.value} ${currency}${period}`;
   }
@@ -231,6 +232,7 @@ export function CandidateNotesInsightsCard({
       value: (
         <>
           {rate}
+          {insights._rate_requires_verification && <span className="text-muted-foreground"> — do weryfikacji, bez zmiany stawki profilu</span>}
           {hasText(insights.expected_rate?.as_of) && (
             <span className="text-muted-foreground">
               {" "}

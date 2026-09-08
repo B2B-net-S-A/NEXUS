@@ -4375,14 +4375,16 @@ async def update_candidate(
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.
-    if "experience" in updates:
+    if {"experience", "skills"} & updates.keys():
         # A non-empty list is truthy, so `or {}` does not catch it and `dict()`
         # raises — a 500 on exactly the rows that already broke the sync.
         _raw_extracted = candidate.cv_extracted_data
         current_extracted = (
             dict(_raw_extracted) if isinstance(_raw_extracted, dict) else {}
         )
-        current_extracted["_manual_override_experience"] = True
+        for field in ("experience", "skills"):
+            if field in updates:
+                current_extracted[f"_manual_override_{field}"] = True
         updates["cv_extracted_data"] = current_extracted
 
     # `preferences` scala się PŁYTKO (0278): klucz z payloadu nadpisuje, klucz

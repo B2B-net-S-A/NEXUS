@@ -624,3 +624,6 @@ from app.models.recruitment_allocation import (  # noqa: F401
     RecruitmentAllocationRequest,
     RecruitmentAllocationEvent,
 )
+
+from app.models.ai_metering import AIOperation, AIProviderCall, AIGenerationLease  # noqa: F401
+from app.models.ai_metering import AISpendAlert  # noqa: F401

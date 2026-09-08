@@ -216,12 +216,33 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     continue
                 try:
                     async with ai_feature(db, AIFeatureKey.notes_extraction):
+                        await db.commit()  # release quota/config reads before AI
                         parsed = await extract_insights(blob)
                 except AIQuotaExceeded:
                     stats["quota_blocked"] += 1
                     stats["status"] = "quota_blocked"
                     break
+                # Refresh after the remote call, then lock only the local write.
+                # A recruiter may have changed skills/rate while Claude worked.
+                cand = await db.scalar(
+                    select(Candidate)
+                    .where(Candidate.id == cid)
+                    .execution_options(populate_existing=True)
+                    .with_for_update()
+                )
+                if cand is None:
+                    continue
                 row_stats = apply_insights(cand, parsed, fingerprint=fingerprint)
+                if row_stats.get("rate_audit"):
+                    from app.services import candidate_audit
+
+                    candidate_audit.record_candidate_audit(
+                        db,
+                        action=candidate_audit.PROFILE_RATE_CHANGED,
+                        user_id=None,
+                        entity_id=cid,
+                        details=row_stats["rate_audit"],
+                    )
                 for key in (
                     "changed",
                     "skills_added",

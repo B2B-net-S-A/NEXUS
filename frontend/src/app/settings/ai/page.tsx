@@ -200,15 +200,16 @@ function FeatureCard({
             </span>
           </div>
 
-          {(usage.input_tokens > 0 || usage.output_tokens > 0) && (
-            <p
-              className="text-xs text-muted-foreground/80 mt-1"
-              data-testid="feature-tokens"
-            >
-              Tokeny w tym okresie: {formatNumber(usage.input_tokens)} wejścia ·{" "}
-              {formatNumber(usage.output_tokens)} wyjścia
-            </p>
-          )}
+          <div className="text-xs text-muted-foreground mt-2 space-y-1" data-testid="feature-tokens">
+            {(usage.provider_calls ?? 0) > 0 ? <>
+              <p>Zmierzone odpowiedzi: {formatNumber(usage.provider_calls!)}. Tokeny: {formatNumber(usage.input_tokens)} wejścia · {formatNumber(usage.output_tokens)} wyjścia.</p>
+              <p>Cache: {formatNumber(usage.cache_read_tokens ?? 0)} odczytu · {formatNumber(usage.cache_creation_tokens ?? 0)} zapisu.</p>
+              <p>Koszt zmierzonych odpowiedzi: {usage.estimated_cost_usd != null ? `${Number(usage.estimated_cost_usd).toFixed(2)} USD (szacunek)` : "brak wyceny"}.</p>
+            </> : <p>Brak zmierzonych odpowiedzi dostawcy w tym okresie.</p>}
+            {usage.legacy_usage_present && <p>Historyczne tokeny wymagają uzgodnienia z dostawcą i nie są wliczone w pomiar.</p>}
+            {(usage.operations_without_response ?? 0) > 0 && <p>Operacje bez zapisanej odpowiedzi: {formatNumber(usage.operations_without_response!)} (w toku, przerwane lub bez pomiaru).</p>}
+            {(usage.unpriced_calls ?? 0) > 0 && <p>Odpowiedzi bez pełnej wyceny: {formatNumber(usage.unpriced_calls!)}. Szacunek kosztu jest niepełny.</p>}
+          </div>
 
           {config.monthly_limit > 0 && (
             <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
@@ -322,6 +323,7 @@ function FeatureCard({
 
 export default function AISettingsPage() {
   const queryClient = useQueryClient();
+  const testAlert = useMutation({ mutationFn: () => aiSettingsApi.testAlert() });
   const [pendingFeature, setPendingFeature] = useState<AIFeatureKey | null>(
     null,
   );
@@ -428,6 +430,17 @@ export default function AISettingsPage() {
           <span>{errorMsg}</span>
         </div>
       )}
+
+      <div className="rounded-xl border border-border bg-card p-4 text-sm" role="status">
+        <p className="font-medium text-foreground">Alarmy zużycia AI: powiadomienia dla administratorów w NEXUS</p>
+        <p className="mt-1 text-muted-foreground">{data.spend_alerts?.slack_configured ? "Kopia na Slack jest skonfigurowana." : "Slack nie jest skonfigurowany. Ostrzeżenia są dostępne w powiadomieniach NEXUS."}</p>
+        {(data.spend_alerts?.pending_deliveries ?? 0) > 0 && <p className="mt-1 text-muted-foreground">Oczekujące dostawy: {data.spend_alerts!.pending_deliveries}. Nieudane próby są ponawiane.</p>}
+        <button type="button" disabled={testAlert.isPending} onClick={() => testAlert.mutate()}
+          className="mt-3 rounded-md border border-border px-3 py-2 font-medium text-foreground hover:bg-accent disabled:opacity-50">Wyślij alert testowy do mnie</button>
+        {testAlert.isSuccess && <p className="mt-2 text-muted-foreground">{testAlert.data.data.delivered ? "Alert dostarczony. Sprawdź powiadomienia pod ikoną dzwonka." : "Alert oczekuje na dostawę."}</p>}
+        {testAlert.isError && <p className="mt-2 text-destructive">Nie udało się dostarczyć alertu. Ponów próbę za chwilę.</p>}
+        <p className="mt-1 text-muted-foreground">Alarm uwzględnia liczbę operacji oraz zmierzone tokeny i szacunkowy koszt z ostatnich 24 godzin. Nie zmienia limitów funkcji.</p>
+      </div>
 
       <MasterToggle
         enabled={data.master_enabled}

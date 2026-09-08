@@ -56,47 +56,32 @@ def test_levels_escalate_so_a_growing_spike_keeps_talking():
     assert l1 < l2 < l3, f"poziomy nie rosna: {l1}, {l2}, {l3}"
 
 
-def test_stamp_is_written_before_the_post_not_after():
-    """Kolejnosc decyduje, czy restart powtorzy alarm.
-
-    Prod restartuje sie przy KAZDYM pushu na main (Coolify). Gdyby stempel szedl
-    po POST-cie, twardy restart w tym oknie cofalby transakcje i kolejny przebieg
-    wyslalby to samo ostrzezenie jeszcze raz. Ten sam porzadek maja juz
-    `slack_sla_alerts` i `contract_alerts`.
-    """
-    import ast
-    import inspect
-
-    tree = ast.parse(inspect.getsource(mod._scan_once).lstrip())
-
-    def _called(node):
-        """Nazwa wolanej funkcji w OBU formach.
-
-        `db.commit()` to `ast.Attribute` (pole `attr`), a `_post_to_slack(...)`
-        to `ast.Name` (pole `id`). Dopasowywanie tylko po `attr` dawalo pusta
-        liste dla drugiego i test oblewal POPRAWNY kod - ten sam blad, ktory
-        naprawiono juz w `tests/_ast_calls.py`.
-        """
-        f = node.func
-        return f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-
-    # `ast.walk` NIE chodzi w kolejnosci zrodlowej, wiec bierzemy min(lineno),
-    # a nie "pierwszy napotkany".
-    calls = [(n.lineno, _called(n)) for n in ast.walk(tree) if isinstance(n, ast.Call)]
-    commits = [ln for ln, name in calls if name == "commit"]
-    posts = [ln for ln, name in calls if name == "_post_to_slack"]
-
-    assert commits, "brak commita stempla"
-    assert posts, "brak wysylki"
-    assert min(commits) < min(posts), (
-        f"stempel commitowany PO wyslaniu (commit@{min(commits)}, "
-        f"post@{min(posts)}) - restart w tym oknie powtorzy alarm"
-    )
+@pytest.mark.parametrize(
+    "used,baseline,floor,expected",
+    [
+        (9, 0, 10, 0),
+        (10, 0, 10, 1),
+        (20, 0, 10, 2),
+        (20, 10, 10, 0),
+        (30, 10, 10, 1),
+        (60, 10, 10, 2),
+    ],
+)
+def test_daily_cost_and_token_pace(used, baseline, floor, expected):
+    assert mod._daily_level(used, baseline, floor) == expected
 
 
-@pytest.mark.asyncio
-async def test_loop_exits_without_webhook(monkeypatch):
-    """Brak SLACK_WEBHOOK_URL ma KONCZYC petle, nie budzic jej co godzine."""
+async def test_loop_does_not_exit_when_slack_is_missing(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
-    # Gdyby petla nie wychodzila, ten await nigdy by nie wrocil.
-    await mod.ai_spend_alerts_loop()
+    scan = AsyncMock(side_effect=asyncio.CancelledError)
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=object())
+    factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(mod, "AsyncSessionLocal", factory)
+    monkeypatch.setattr(mod, "_scan_once", scan)
+    with pytest.raises(asyncio.CancelledError):
+        await mod.ai_spend_alerts_loop()
+    assert scan.await_args.args[1] == ""

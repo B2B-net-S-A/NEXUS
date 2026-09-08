@@ -192,12 +192,12 @@ def test_skills_from_cv_extracted_missing_returns_empty():
 # ── candidate_skill_names priority + fallbacks ────────────────────────────────
 
 
-def test_candidate_skill_names_structured_wins_over_cv():
+def test_candidate_skill_names_combines_independent_sources():
     cand = make_candidate(
         skills=[{"name": "Python"}],
         cv_extracted_data={"traffit_technologie": "Java, Kafka"},
     )
-    assert ss.candidate_skill_names(cand) == {"python"}
+    assert ss.candidate_skill_names(cand) == {"python", "java", "kafka"}
 
 
 def test_candidate_skill_names_falls_back_to_cv_extracted():
@@ -854,9 +854,7 @@ def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
     cand = make_candidate(expected_rate_hourly=None)
     assert ss._score_salary(cand, job).points == 0.0
 
-    job_loc = make_job(
-        location="Kraków", remote_policy=SimpleNamespace(value="onsite")
-    )
+    job_loc = make_job(location="Kraków", remote_policy=SimpleNamespace(value="onsite"))
     cand_loc = make_candidate(location=None, preferences={})
     assert ss._score_location(cand_loc, job_loc).points == 0.0
 

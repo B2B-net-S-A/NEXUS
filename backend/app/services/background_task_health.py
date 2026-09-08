@@ -8,13 +8,9 @@ był niewidoczny do dnia, w którym któryś z konsumentów by się zdezaktualiz
 Ta funkcja bierze SŁOWNIK zadań (nie ``Request``), więc wołają ją oba konsumenty.
 Jest czysta — bez env, bez I/O — żeby dała się testować bez stawiania aplikacji.
 
-Osobno: dwa alarmy Slack (`ai_spend_alerts`, `slack_sla_alerts`) to po decyzji
-24.08 (bez sufitów miesięcznych) JEDYNY mechanizm ochrony budżetu AI. Oba gasną
-po cichu, gdy brak ``SLACK_WEBHOOK_URL`` — i tak właśnie na prodzie 03.09 alarm
-NIGDY nie wystartował, a health mówił ``healthy``. Rozróżnienie „nieustawiony
-webhook" (stan do skonfigurowania, O-1) od „webhook ustawiony, a pętla i tak nie
-biegnie" (realny błąd) jest tu, bo wymaga wiedzy o configu — celowo POZA czystym
-klasyfikatorem.
+Alarm zużycia AI działa przez powiadomienia NEXUS również bez Slacka.
+Tylko zadania zależne wyłącznie od webhooka mogą kończyć się celowo przy jego
+braku. Zatrzymanie alarmu AI jest awarią, a nie brakiem konfiguracji Slacka.
 """
 
 from __future__ import annotations
@@ -26,7 +22,7 @@ from typing import Any
 # NIE dopisuj tu integracji opt-in (LinkedIn, M365, CloudTalk…): ich wyłączenie
 # jest ŚWIADOME, a flagowanie go co godzinę to dokładnie ten fałszywy alarm,
 # przed którym ostrzega komentarz przy uptime-probe.
-SLACK_WEBHOOK_ALARM_TASKS: tuple[str, ...] = ("ai_spend_alerts", "slack_sla_alerts")
+SLACK_WEBHOOK_ALARM_TASKS: tuple[str, ...] = ("slack_sla_alerts",)
 
 
 def classify_background_tasks(
@@ -92,19 +88,12 @@ def stopped_webhook_alarms(
 
 
 def spend_alarm_status(classification: dict[str, Any], *, webhook_set: bool) -> str:
-    """Informacyjny stan mechanizmu zastępczego budżetu AI (check ``ai_features``).
-
-    Zastępuje wieczne ``uncapped: …``: brak sufitów jest stanem ZAMIERZONYM od
-    24.08, więc stałe ostrzeżenie o nim jest tak samo bezużyteczne jak jego brak.
-    Wartość CELOWO nie zaczyna się od prefiksu awaryjnego
-    (``unhealthy|misconfigured|critical|crashed``) — ``ai_features`` liczy się na
-    każdym pollu, a brak webhooka to stan-do-skonfigurowania (O-1), nie awaria co
-    godzinę. Realny błąd (webhook ustawiony, pętla nie biegnie) alarmuje przez
-    ``background_tasks`` (patrz ``stopped_webhook_alarms``), nie tutaj.
-    """
+    """Operational health of AI alerts, independent of the optional Slack copy."""
     alarm_running = "ai_spend_alerts" in set(classification.get("tasks", []))
-    if not webhook_set:
-        return "spend-alarm off: SLACK_WEBHOOK_URL nieustawiony (budżet AI bez alarmu)"
     if alarm_running:
-        return "healthy"
-    return "spend-alarm off: pętla nie biegnie mimo ustawionego webhooka"
+        return (
+            "healthy"
+            if webhook_set
+            else "healthy: powiadomienia NEXUS; Slack nieustawiony"
+        )
+    return "unhealthy: pętla alarmów zużycia AI nie biegnie"

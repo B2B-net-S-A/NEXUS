@@ -26,14 +26,10 @@ Trzy decyzje, które trzymają ten alarm uczciwym:
   ostatnio ostrzegaliśmy (3×, potem 6×, 12×…). Jednorazowy alert milczałby,
   gdy zużycie rośnie dalej — a właśnie wtedy jest najciekawszy.
 
-Kolejność zapisu i wysyłki
---------------------------
-Stempel jest **commitowany PRZED** POST-em na webhook — ten sam porządek, co
-w `slack_sla_alerts` i `contract_alerts`, i z tego samego powodu: POST nie jest
-ani idempotentny, ani transakcyjny, więc „dokładnie raz" jest nieosiągalne.
-Wybieramy **najwyżej raz**: zgubione ostrzeżenie zamiast zdublowanego. Jest to
-akceptowalne, bo liczba zużycia NIE ZNIKA — `/api/settings/ai` pokazuje ją na
-żywo, a kolejny przebieg zaalarmuje na następnym poziomie.
+Trwały outbox rezerwuje alert przed wysłaniem. Powiadomienia NEXUS i stempel
+powstają w jednej transakcji; Slack jest opcjonalną kopią z ponowieniem po
+błędzie. Dostarczenie na Slack jest co najmniej raz (restart po POST może
+powtórzyć wiadomość). Brak webhooka nie wyłącza powiadomień administratorów.
 """
 
 from __future__ import annotations
@@ -45,11 +41,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models.ai_feature import AIFeatureConfig, AIFeatureKey
+from app.models.ai_feature import AIFeatureKey, FEATURE_LABELS
+from app.models.ai_metering import AIOperation, AIProviderCall, AISpendAlert
 from app.services.ai_quota import get_total_usage_for_period
 
 logger = logging.getLogger(__name__)
@@ -106,84 +104,180 @@ async def _post_to_slack(webhook: str, text: str) -> bool:
         return False
 
 
-async def _scan_once(db: AsyncSession, webhook: str) -> int:
-    period = _period_start()
-    prev = _previous_period_start(period)
+async def queue_alert(
+    db: AsyncSession, key: str, message: str, *, recipient_id: int | None = None
+) -> None:
+    await db.execute(
+        insert(AISpendAlert)
+        .values(key=key, message=message, recipient_id=recipient_id)
+        .on_conflict_do_nothing(index_elements=[AISpendAlert.key])
+    )
+
+
+def _daily_level(used: float, baseline: float, floor: float) -> int:
+    threshold = max(floor, baseline * MULTIPLIER)
+    if used < threshold:
+        return 0
+    level = 1
+    while used >= threshold * 2:
+        threshold *= 2
+        level += 1
+    return level
+
+
+async def _queue_daily_alerts(db: AsyncSession) -> None:
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Compare a completed rolling day to the preceding seven days. Historical
+    # monthly token counters never enter this calculation.
+    day = now - timedelta(days=1)
+    week = day - timedelta(days=7)
+    total_tokens = (
+        func.coalesce(AIProviderCall.input_tokens, 0)
+        + func.coalesce(AIProviderCall.output_tokens, 0)
+        + func.coalesce(AIProviderCall.cache_read_tokens, 0)
+        + func.coalesce(AIProviderCall.cache_creation_tokens, 0)
+    )
+    rows = await db.execute(
+        select(
+            AIOperation.feature,
+            func.sum(total_tokens).filter(AIProviderCall.created_at >= day),
+            func.sum(total_tokens).filter(AIProviderCall.created_at < day),
+            func.sum(AIProviderCall.estimated_cost_usd).filter(
+                AIProviderCall.created_at >= day
+            ),
+            func.sum(AIProviderCall.estimated_cost_usd).filter(
+                AIProviderCall.created_at < day
+            ),
+        )
+        .join(AIProviderCall, AIProviderCall.operation_id == AIOperation.id)
+        .where(AIProviderCall.created_at >= week)
+        .group_by(AIOperation.feature)
+    )
+    for feature, tokens, prior_tokens, cost, prior_cost in rows:
+        for metric, used, baseline, floor in (
+            ("tokeny", float(tokens or 0), float(prior_tokens or 0) / 7, 1_000_000),
+            ("USD (szacunek)", float(cost or 0), float(prior_cost or 0) / 7, 10),
+        ):
+            level = _daily_level(used, baseline, floor)
+            if level:
+                await queue_alert(
+                    db,
+                    f"daily:{today.date()}:{feature}:{metric}:{level}",
+                    f"AI {feature}: ostatnie 24 h — {used:,.2f} {metric}; "
+                    f"średnia wcześniejszych 7 dni — {baseline:,.2f}. "
+                    "Sprawdź zużycie w Ustawienia → AI. Funkcja pozostaje dostępna.",
+                )
+
+
+async def deliver_alerts(
+    db: AsyncSession, webhook: str, *, alert_id: int | None = None
+) -> int:
+    from app.models.notification import Notification, NotificationType
+    from app.models.user import User
+
     sent = 0
-
-    for feature in AIFeatureKey:
-        used = await get_total_usage_for_period(db, feature, period)
-        baseline = await get_total_usage_for_period(db, feature, prev)
-        level = _level_for(used, baseline)
-        if level == 0:
-            continue
-
-        config = await db.scalar(
-            select(AIFeatureConfig).where(AIFeatureConfig.feature == feature)
+    pending = list(
+        (
+            await db.scalars(
+                select(AISpendAlert)
+                .where(
+                    AISpendAlert.in_app_at.is_(None)
+                    | (
+                        (
+                            AISpendAlert.slack_sent_at.is_(None)
+                            & AISpendAlert.recipient_id.is_(None)
+                        )
+                        if webhook
+                        else False
+                    )
+                )
+                .where(AISpendAlert.id == alert_id if alert_id is not None else True)
+                .order_by(AISpendAlert.id)
+                .limit(25)
+            )
+        ).all()
+    )
+    # Limit visibility to the same administrators who can inspect AI settings.
+    recipients = list(
+        (
+            await db.scalars(
+                select(User.id).where(
+                    User.is_active.is_(True), User.roles.contains(["admin"])
+                )
+            )
+        ).all()
+    )
+    for alert in pending:
+        targets = (
+            [alert.recipient_id]
+            if alert.recipient_id in recipients
+            else ([] if alert.recipient_id is not None else recipients)
         )
-        if config is None:
-            # Brak wiersza to „włączona, bez sufitu" (patrz `ai_quota`), ale nie
-            # mamy gdzie zapisać stempla — a alarm bez dedupu poszedłby co
-            # godzinę. Milczymy i mówimy o tym w logu.
-            logger.warning(
-                "ai_spend_alerts: brak wiersza ai_features dla %s — "
-                "pomijam alarm, bo nie ma gdzie zapisać stempla",
-                feature.value,
-            )
-            continue
-
-        already = (
-            config.spend_alert_period == period
-            and (config.spend_alert_level or 0) >= level
-        )
-        if already:
-            continue
-
-        # STEMPEL PRZED WYSYŁKĄ. Odwrotna kolejność powtarzałaby alarm po każdym
-        # restarcie (Coolify restartuje przy każdym pushu na main).
-        config.spend_alert_period = period
-        config.spend_alert_level = level
-        await db.commit()
-
-        if baseline > 0:
-            body = (
-                f":chart_with_upwards_trend: *Zużycie AI wzrosło* — `{feature.value}`\n"
-                f"Ten miesiąc: *{used}* wywołań. Poprzedni: {baseline}. "
-                f"To ponad {MULTIPLIER * (2 ** (level - 1)):.0f}× więcej.\n"
-                f"_Nic nie jest blokowane — to tylko ostrzeżenie._"
-            )
-        else:
-            body = (
-                f":chart_with_upwards_trend: *Nowa funkcja AI w użyciu* — `{feature.value}`\n"
-                f"Ten miesiąc: *{used}* wywołań, w poprzednim nie było żadnych.\n"
-                f"_Nic nie jest blokowane — to tylko ostrzeżenie._"
-            )
-        if await _post_to_slack(webhook, body):
+        if alert.in_app_at is None and targets:
+            for user_id in targets:
+                db.add(
+                    Notification(
+                        user_id=user_id,
+                        title="Ostrzeżenie o zużyciu AI",
+                        message=alert.message,
+                        link="/settings/ai",
+                        notification_type=NotificationType.ai_spend_alert,
+                        related_entity_type="ai_spend_alert",
+                        related_entity_id=alert.id,
+                    )
+                )
+            alert.in_app_at = datetime.now(timezone.utc)
+            await db.commit()
             sent += 1
-
+        # No transaction/row lock is held during the remote POST. The scanner
+        # owns a committed cross-worker lease; failed deliveries retry next run.
+        if webhook and alert.recipient_id is None and alert.slack_sent_at is None:
+            alert.attempts += 1
+            await db.commit()
+            if await _post_to_slack(webhook, alert.message):
+                alert.slack_sent_at = datetime.now(timezone.utc)
+                await db.commit()
     return sent
+
+
+async def _scan_once(db: AsyncSession, webhook: str) -> int:
+    from app.services.ai_generation_lease import GenerationBusy, generation_lease
+
+    try:
+        async with generation_lease("ai-spend-alerts"):
+            period = _period_start()
+            prev = _previous_period_start(period)
+            for feature in AIFeatureKey:
+                used = await get_total_usage_for_period(db, feature, period)
+                baseline = await get_total_usage_for_period(db, feature, prev)
+                level = _level_for(used, baseline)
+                if level:
+                    await queue_alert(
+                        db,
+                        f"monthly:{period}:{feature.value}:{level}",
+                        f"{FEATURE_LABELS[feature]}: {used} operacji w tym miesiącu, "
+                        f"{baseline} w poprzednim. Sprawdź zużycie w Ustawienia → AI. "
+                        "Funkcja pozostaje dostępna.",
+                    )
+            await _queue_daily_alerts(db)
+            await db.commit()
+            return await deliver_alerts(db, webhook)
+    except GenerationBusy:
+        return 0
 
 
 async def ai_spend_alerts_loop() -> None:
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
-    if not webhook:
-        logger.info("ai_spend_alerts: brak SLACK_WEBHOOK_URL — zadanie wyłączone")
-        return
-
-    logger.info(
-        "ai_spend_alerts: start (co %ss, podłoga %s wywołań, mnożnik %s)",
-        CHECK_INTERVAL_SECONDS,
-        MIN_CALLS,
-        MULTIPLIER,
-    )
+    logger.info("ai_spend_alerts: in-app enabled; Slack configured=%s", bool(webhook))
     while True:
         try:
             async with AsyncSessionLocal() as db:
                 sent = await _scan_once(db, webhook)
             if sent:
-                logger.info("ai_spend_alerts: wysłano %s ostrzeżeń", sent)
+                logger.info("ai_spend_alerts: delivered %s alerts", sent)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("ai_spend_alerts: przebieg padł: %s", exc)
+        except Exception:
+            logger.exception("ai_spend_alerts: scan failed; pending alerts will retry")
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)

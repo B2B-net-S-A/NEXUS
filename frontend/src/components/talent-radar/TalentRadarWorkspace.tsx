@@ -105,6 +105,30 @@ export function TalentRadarWorkspace() {
     nice: string[];
   } | null>(null);
   const [parsingChampion, setParsingChampion] = useState(false);
+  const [requirementsPreview, setRequirementsPreview] = useState<{
+    source: string; must: string; nice: string; excluded: string[]; uncertain: string[];
+  } | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
+  const requirementSource = JSON.stringify([text, title, championProfile]);
+  const previewCurrent = requirementsPreview?.source === requirementSource;
+  const splitSkills = (value: string) => value.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
+  const previewRequirements = async () => {
+    if (!client) return;
+    setInterpreting(true);
+    try {
+      const parsed = await talentRadarApi.interpret({
+        client_id: client.id, text: championProfile ? undefined : text,
+        title: championProfile ? championSummary?.role_name ?? undefined : title,
+        champion_profile: championProfile ?? undefined,
+        must_skills: championSkills?.must, nice_skills: championSkills?.nice,
+      });
+      setRequirementsPreview({ source: requirementSource, must: parsed.must.join(", "),
+        nice: parsed.nice.join(", "), excluded: parsed.excluded, uncertain: parsed.uncertain });
+      setResponse(null);
+    } catch (error) { showError(extractErrorMsg(error)); }
+    finally { setInterpreting(false); }
+  };
+
 
   // ── Snapshot roboczy (sessionStorage) ────────────────────────────────
   // „Otwórz profil" nawiguje w tej samej karcie, a ta strona przy powrocie
@@ -126,6 +150,7 @@ export function TalentRadarWorkspace() {
       setText(saved.text);
       setLocation(saved.location ?? "");
       setChampionSkills(saved.championSkills ?? null);
+      setRequirementsPreview(saved.requirementsPreview ?? null);
       setBudgetMax(saved.budgetMax);
       setExcludeRemoteOnly(saved.excludeRemoteOnly);
       setOnsiteDaysPerWeek(saved.onsiteDaysPerWeek ?? "");
@@ -151,6 +176,7 @@ export function TalentRadarWorkspace() {
       championProfile,
       championSummary,
       championSkills,
+      requirementsPreview,
       response,
     });
   }, [
@@ -166,6 +192,7 @@ export function TalentRadarWorkspace() {
     championProfile,
     championSummary,
     championSkills,
+    requirementsPreview,
     response,
   ]);
 
@@ -186,15 +213,9 @@ export function TalentRadarWorkspace() {
           (championProfile ? championSummary?.location : location.trim()) ||
           undefined,
         top_k: 20,
-        // Puste listy pomijamy (`undefined`), żeby nie wysyłać `[]` — dla
-        // backendu „brak wymagań wprost" i „pusta lista" to ta sama decyzja,
-        // ale krótsze ciało requestu czyta się jednoznacznie.
-        must_skills: championSkills?.must.length
-          ? championSkills.must
-          : undefined,
-        nice_skills: championSkills?.nice.length
-          ? championSkills.nice
-          : undefined,
+        must_skills: previewCurrent ? splitSkills(requirementsPreview!.must) : championSkills?.must,
+        nice_skills: previewCurrent ? splitSkills(requirementsPreview!.nice) : championSkills?.nice,
+        requirements_reviewed: previewCurrent,
         budget_hourly_max:
           Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
         exclude_remote_only: excludeRemoteOnly || undefined,
@@ -479,13 +500,36 @@ export function TalentRadarWorkspace() {
           <p className="text-xs text-destructive">{blocked}</p>
         )}
 
+        {previewCurrent && requirementsPreview && (
+          <section aria-label="Interpretacja wymagań" className="grid gap-x-8 gap-y-6 border-t border-border pt-6 md:grid-cols-3">
+            <div>
+              <h3 className="text-base font-semibold text-foreground">Sprawdź wymagania</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Popraw listy przed wyszukaniem. Nazwy rozdziel przecinkami. Pusta lista oznacza brak wymagań w tej kategorii.</p>
+            </div>
+            <div className="grid gap-4 md:col-span-2">
+              <div className="space-y-2">
+                <Label htmlFor="tr-must">Obowiązkowe</Label>
+                <Textarea id="tr-must" value={requirementsPreview.must} rows={2} maxLength={4000}
+                  onChange={e => { setRequirementsPreview({ ...requirementsPreview, must: e.target.value }); clearResults(); }} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tr-nice">Dodatkowe</Label>
+                <Textarea id="tr-nice" value={requirementsPreview.nice} rows={2} maxLength={4000}
+                  onChange={e => { setRequirementsPreview({ ...requirementsPreview, nice: e.target.value }); clearResults(); }} />
+              </div>
+              {requirementsPreview.excluded.length > 0 && <p className="text-sm text-muted-foreground">Niewymagane: {requirementsPreview.excluded.join(", ")}. Nie wpływają na ocenę umiejętności.</p>}
+              {requirementsPreview.uncertain.length > 0 && <p className="text-sm text-muted-foreground">Do rozstrzygnięcia: {requirementsPreview.uncertain.join(", ")}. Dodaj je do właściwej listy, jeżeli mają wpływać na ocenę.</p>}
+            </div>
+          </section>
+        )}
+
         <div className="flex justify-end">
           <Button
-            onClick={() => search.mutate()}
-            disabled={blocked !== null || search.isPending}
+            onClick={() => previewCurrent ? search.mutate() : void previewRequirements()}
+            disabled={blocked !== null || search.isPending || interpreting}
           >
             <Radar className="mr-2 h-4 w-4" />
-            {search.isPending ? "Szukam…" : "Szukaj kandydatów"}
+            {search.isPending ? "Szukam…" : interpreting ? "Sprawdzam…" : previewCurrent ? "Szukaj kandydatów" : "Sprawdź wymagania"}
           </Button>
         </div>
       </div>

@@ -123,6 +123,7 @@ class RadarQuery:
     # niehaszowalnym.
     must_skills: Optional[list[str]] = None
     nice_skills: Optional[list[str]] = None
+    requirements_reviewed: bool = False
 
 
 @dataclass
@@ -213,20 +214,7 @@ def normalize_skill_names(raw: Any) -> list[str]:
 
 
 def _structured_skills(names: Optional[list[str]]) -> Optional[list[dict]]:
-    """Wymagania wprost → kształt JSONB oferty. ZA FLAGĄ, bo zmieniają ranking.
-
-    I to nie tylko warstwę punktową: nazwy wchodzą też do tekstu embedowanego
-    zapytania (`_build_job_text`) i do wariantu „skills"
-    (`build_job_query_variants`), więc flip zmienia również to, KTO w ogóle
-    trafia do puli. Pozycja OFF musi znaczyć dokładnie „jak przed zmianą" —
-    dlatego zwraca `None`, nie `[]` (puste `[]` też jest inną wartością niż
-    dzisiejsze `None` dla czytelników, którzy sprawdzają obecność klucza).
-
-    Flaga czytana w CIELE funkcji, nie przy imporcie — konwencja reszty
-    modułów scoringu; testy podmieniają `settings` w czasie wywołania.
-    """
-    if not settings.TALENT_RADAR_STRUCTURED_SKILLS_ENABLED:
-        return None
+    """Explicit requirements must survive transport regardless of rollout flags."""
     return [{"name": n, "level": None} for n in names or ()] or None
 
 
@@ -258,6 +246,7 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         # dalej oceniany po swojej treści, a nie po pustej liście.
         must_skills=_structured_skills(query.must_skills),
         nice_skills=_structured_skills(query.nice_skills),
+        requirements_reviewed=query.requirements_reviewed,
         location=(query.location or "").strip() or None,
         remote_policy=None,
         # Rubryki 0278: radar nie ma kolumny `onsite_days_per_week`, ale
