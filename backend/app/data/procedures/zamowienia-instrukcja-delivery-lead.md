@@ -118,10 +118,11 @@ od klienta.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Numer zamówienia,
 obie stawki i okres edytujesz **klikając wprost w tekst na karcie** — bez
-otwierania okienka. Na karcie stoją one w jednej linii pod nazwiskiem, skrócone
-do **nr zam.**, **koszt.**, **przych.** i **okres:**; najechanie myszą na
-etykietę pokazuje jej pełne brzmienie. Jeżeli ta osoba nie ma jeszcze żadnego
-zamówienia, pierwszy taki zapis sam założy szkic.
+otwierania okienka. Na każdej karcie stoją w stałym układzie trzech linii pod
+nazwiskiem: najpierw **nr zam.**, niżej razem **koszt.** i **przych.**, a w
+trzeciej linii **okres:**. Najechanie myszą na etykietę pokazuje jej pełne
+brzmienie. Jeżeli ta osoba nie ma jeszcze żadnego zamówienia, pierwszy taki
+zapis sam założy szkic.
 
 **3. Osoby nie ma jeszcze w rejestrze.** Kliknij **Nowe zamówienie**, wybierz typ
 **Okresowe** — otworzy się formularz **„Nowy kontraktor / zamówienie"**, który

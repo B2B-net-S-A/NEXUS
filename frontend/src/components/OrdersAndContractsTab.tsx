@@ -981,10 +981,8 @@ function ContractorCard({
 
   return (
     // Kafelek jest KOMPAKTOWY świadomie: lista klienta pokazuje kilkudziesięciu
-    // kontraktorów, więc każdy wiersz treści kosztuje przewijanie na każdym
-    // kolejnym. Wysokość trzymają trzy rzeczy — `p-3`, jedna zawijająca się
-    // linia meta (numer + stawki + okres) zamiast czterech osobnych oraz
-    // przyciski w rozmiarze `text-xs`.
+    // kontraktorów, więc wysokość trzymają `p-3`, trzy krótkie i przewidywalne
+    // linie szczegółów oraz przyciski w rozmiarze `text-xs`.
     <li className="border border-border rounded-lg bg-card p-3 space-y-2">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         {/* `basis-80` (20rem), nie samo `flex-1 min-w-0`: pasek czterech
@@ -1025,196 +1023,204 @@ function ContractorCard({
               </span>
             )}
           </div>
-          {/* JEDNA zawijająca się linia meta: numer zamówienia, obie stawki,
-              [część umowy], okres i rekrutacja. Wcześniej były to CZTERY
-              osobne wiersze (`div` na numer, `div` na stawki+okres, `div` na
-              rekrutację), przez co kafelek rósł niezależnie od tego, ile
-              danych faktycznie niósł. Etykiety są skrócone (`nr zam.`,
-              `koszt.`, `przych.`), bo to one — nie wartości — wypychały
-              stawki do osobnych linii; pełne brzmienie zostaje w `title`
-              i w `ariaLabel` edytora, więc czytnik ekranu i testy nadal
-              dostają „Stawka kosztowa"/„Stawka przychodowa". */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
-            <span>
-              <span title="Numer zamówienia">nr zam. </span>
-              <InlineText
-                value={activeOrder?.title ?? ""}
-                display={
-                  activeOrder ? (
-                    <span className="font-medium text-foreground">
-                      {activeOrder.title}
-                    </span>
-                  ) : (
-                    <em className="text-muted-foreground">wpisz numer</em>
-                  )
-                }
-                ariaLabel="Numer zamówienia"
+          {/* Stałe trzy linie niezależne od długości wartości: numer, para
+              stawek, okres. Każdy edytor zostaje w kontenerze swojego pola,
+              więc zawijanie treści nie może już skleić dwóch linii. */}
+          <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1"
+              data-order-detail-line="number"
+            >
+              <span>
+                <span title="Numer zamówienia">nr zam. </span>
+                <InlineText
+                  value={activeOrder?.title ?? ""}
+                  display={
+                    activeOrder ? (
+                      <span className="font-medium text-foreground">
+                        {activeOrder.title}
+                      </span>
+                    ) : (
+                      <em className="text-muted-foreground">wpisz numer</em>
+                    )
+                  }
+                  ariaLabel="Numer zamówienia"
+                  editable={canManageOrders}
+                  placeholder="np. 45767"
+                  onError={onError}
+                  onSave={async (raw) => {
+                    if (!raw)
+                      throw new Error("Numer zamówienia nie może być pusty");
+                    await saveOntoOrder({ title: raw }, { title: raw });
+                    onSuccess("Numer zamówienia zaktualizowany");
+                    onChange();
+                  }}
+                />
+              </span>
+              {ezdrowie && (
+                <span className="flex items-center gap-1">
+                  część umowy
+                  <select
+                    value={
+                      activeOrder ? (activeOrder.project_part ?? "") : pendingPart
+                    }
+                    aria-label="Część umowy"
+                    disabled={!canManageOrders || partSaving}
+                    onChange={async (e) => {
+                      const value = e.target.value || null;
+                      // disabled na czas zapisu (bez wyścigu dwóch PATCHy);
+                      // po błędzie onChange() re-synchronizuje select z serwera
+                      // zamiast zostawiać DOM na niezapisanej wartości (review).
+                      setPartSaving(true);
+                      try {
+                        if (activeOrder) {
+                          await dlPortalApi.updateOrder(clientId, activeOrder.id, {
+                            project_part: value,
+                          });
+                          onSuccess("Część umowy zaktualizowana");
+                        } else if (value) {
+                          // Bez zamówienia część jest tym POLEM, które je zakłada
+                          // — dopiero wtedy numer, okres i stawki mają dokąd
+                          // trafić. Wartość idzie jawnie, bo `pendingPart` nie
+                          // zdąży się jeszcze zaktualizować w tym samym handlerze.
+                          await saveOntoOrder({}, { projectPart: value });
+                          setPendingPart(value);
+                          onSuccess("Część umowy zapisana");
+                        } else {
+                          setPendingPart("");
+                        }
+                      } catch {
+                        onError("Nie udało się zapisać części umowy");
+                      } finally {
+                        setPartSaving(false);
+                        onChange();
+                      }
+                    }}
+                    className={`px-1.5 py-0.5 border rounded bg-background text-xs disabled:opacity-60 ${
+                      (activeOrder ? activeOrder.project_part : pendingPart)
+                        ? "border-border"
+                        : "border-amber-400 text-amber-700"
+                    }`}
+                  >
+                    <option value="">— uzupełnij —</option>
+                    {PROJECT_PARTS.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              )}
+            </div>
+
+            {canViewFinance ? (
+              <div
+                className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                data-order-detail-line="rates"
+              >
+                <span title="Stawka kosztowa">
+                  koszt.{" "}
+                  <InlineText
+                    value={
+                      displayedRateCandidate != null
+                        ? String(displayedRateCandidate)
+                        : ""
+                    }
+                    display={
+                      displayedRateCandidate != null ? (
+                        <strong className="text-foreground">
+                          {fmtMoney(displayedRateCandidate)}
+                          {` ${displayedRateCandidateCurrency}`}
+                          {rateUnitSuffix(displayedRateUnit)}
+                        </strong>
+                      ) : (
+                        <em className="text-muted-foreground">ustaw stawkę</em>
+                      )
+                    }
+                    ariaLabel="Stawka kosztowa"
+                    editable={canManageOrders}
+                    inputMode="decimal"
+                    sanitize={sanitizeDecimalInput}
+                    placeholder="np. 12000"
+                    onError={onError}
+                    onSave={async (raw) => {
+                      // Zapis idzie przez zamówienie, nie przez PATCH
+                      // /api/contracts/{id}: tamten handler ma własną, admin-only
+                      // bramkę na 17 pól finansowych, więc przypisany Delivery
+                      // Lead dostawał tam 403 mimo prawa do tego klienta.
+                      // Kontraktor bez zamówienia dostaje je przy pierwszym
+                      // zapisie — wcześniej ta gałąź rzucała wyjątkiem i pole
+                      // wyglądało na zepsute.
+                      await saveOntoOrder({
+                        rate_candidate: parseDecimalInput(raw),
+                      });
+                      onSuccess("Stawka kosztowa zaktualizowana");
+                      onChange();
+                    }}
+                  />
+                </span>
+                {/* Warunek NIE obejmuje już `activeOrder`: bez zamówienia to
+                    pole pozostaje widoczne z pustą wartością. */}
+                <span title="Stawka przychodowa">
+                  przych.{" "}
+                  <InlineText
+                    value={
+                      activeOrder?.rate_client != null
+                        ? String(activeOrder.rate_client)
+                        : ""
+                    }
+                    display={
+                      activeOrder?.rate_client != null ? (
+                        <strong className="text-foreground">
+                          {fmtMoney(activeOrder.rate_client)}
+                          {` ${displayedRateClientCurrency}`}
+                          {rateUnitSuffix(displayedRateUnit)}
+                        </strong>
+                      ) : (
+                        <em className="text-muted-foreground">ustaw stawkę</em>
+                      )
+                    }
+                    ariaLabel="Stawka przychodowa"
+                    editable={canManageOrders}
+                    inputMode="decimal"
+                    sanitize={sanitizeDecimalInput}
+                    placeholder="np. 18000"
+                    onError={onError}
+                    onSave={async (raw) => {
+                      await saveOntoOrder({ rate_client: parseDecimalInput(raw) });
+                      onSuccess("Stawka przychodowa zaktualizowana");
+                      onChange();
+                    }}
+                  />
+                </span>
+              </div>
+            ) : null}
+
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1"
+              data-order-detail-line="period"
+            >
+              <InlinePeriod
+                startDate={activeOrder?.start_date ?? null}
+                endDate={activeOrder?.end_date ?? null}
                 editable={canManageOrders}
-                placeholder="np. 45767"
                 onError={onError}
-                onSave={async (raw) => {
-                  if (!raw) throw new Error("Numer zamówienia nie może być pusty");
-                  await saveOntoOrder({ title: raw }, { title: raw });
-                  onSuccess("Numer zamówienia zaktualizowany");
+                onSave={async (start, end) => {
+                  await saveOntoOrder({ start_date: start, end_date: end });
+                  onSuccess("Okres zamówienia zaktualizowany");
                   onChange();
                 }}
               />
-            </span>
-            {canViewFinance && (
-              <span title="Stawka kosztowa">
-                koszt.{" "}
-                <InlineText
-                  value={
-                    displayedRateCandidate != null
-                      ? String(displayedRateCandidate)
-                      : ""
-                  }
-                  display={
-                    displayedRateCandidate != null ? (
-                      <strong className="text-foreground">
-                        {fmtMoney(displayedRateCandidate)}
-                        {` ${displayedRateCandidateCurrency}`}
-                        {rateUnitSuffix(displayedRateUnit)}
-                      </strong>
-                    ) : (
-                      <em className="text-muted-foreground">ustaw stawkę</em>
-                    )
-                  }
-                  ariaLabel="Stawka kosztowa"
-                  editable={canManageOrders}
-                  inputMode="decimal"
-                  sanitize={sanitizeDecimalInput}
-                  placeholder="np. 12000"
-                  onError={onError}
-                  onSave={async (raw) => {
-                    // Zapis idzie przez zamówienie, nie przez PATCH
-                    // /api/contracts/{id}: tamten handler ma własną, admin-only
-                    // bramkę na 17 pól finansowych, więc przypisany Delivery
-                    // Lead dostawał tam 403 mimo prawa do tego klienta.
-                    // Kontraktor bez zamówienia dostaje je przy pierwszym
-                    // zapisie — wcześniej ta gałąź rzucała wyjątkiem i pole
-                    // wyglądało na zepsute.
-                    await saveOntoOrder({ rate_candidate: parseDecimalInput(raw) });
-                    onSuccess("Stawka kosztowa zaktualizowana");
-                    onChange();
-                  }}
-                />
-              </span>
-            )}
-            {/* Warunek NIE obejmuje już `activeOrder`: bez zamówienia to pole
-                po prostu ZNIKAŁO, więc karta pokazywała stawkę kosztową bez
-                przychodowej i wyglądała, jakby tej drugiej u tego klienta nie
-                było wcale. */}
-            {canViewFinance && (
-              <span title="Stawka przychodowa">
-                przych.{" "}
-                <InlineText
-                  value={
-                    activeOrder?.rate_client != null
-                      ? String(activeOrder.rate_client)
-                      : ""
-                  }
-                  display={
-                    activeOrder?.rate_client != null ? (
-                      <strong className="text-foreground">
-                        {fmtMoney(activeOrder.rate_client)}
-                        {` ${displayedRateClientCurrency}`}
-                        {rateUnitSuffix(displayedRateUnit)}
-                      </strong>
-                    ) : (
-                      <em className="text-muted-foreground">ustaw stawkę</em>
-                    )
-                  }
-                  ariaLabel="Stawka przychodowa"
-                  editable={canManageOrders}
-                  inputMode="decimal"
-                  sanitize={sanitizeDecimalInput}
-                  placeholder="np. 18000"
-                  onError={onError}
-                  onSave={async (raw) => {
-                    await saveOntoOrder({ rate_client: parseDecimalInput(raw) });
-                    onSuccess("Stawka przychodowa zaktualizowana");
-                    onChange();
-                  }}
-                />
-              </span>
-            )}
-            {ezdrowie && (
-              <span className="flex items-center gap-1">
-                część umowy
-                <select
-                  value={activeOrder ? (activeOrder.project_part ?? "") : pendingPart}
-                  aria-label="Część umowy"
-                  disabled={!canManageOrders || partSaving}
-                  onChange={async (e) => {
-                    const value = e.target.value || null;
-                    // disabled na czas zapisu (bez wyścigu dwóch PATCHy);
-                    // po błędzie onChange() re-synchronizuje select z serwera
-                    // zamiast zostawiać DOM na niezapisanej wartości (review).
-                    setPartSaving(true);
-                    try {
-                      if (activeOrder) {
-                        await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                          project_part: value,
-                        });
-                        onSuccess("Część umowy zaktualizowana");
-                      } else if (value) {
-                        // Bez zamówienia część jest tym POLEM, które je zakłada
-                        // — dopiero wtedy numer, okres i stawki mają dokąd
-                        // trafić. Wartość idzie jawnie, bo `pendingPart` nie
-                        // zdąży się jeszcze zaktualizować w tym samym handlerze.
-                        await saveOntoOrder({}, { projectPart: value });
-                        setPendingPart(value);
-                        onSuccess("Część umowy zapisana");
-                      } else {
-                        setPendingPart("");
-                      }
-                    } catch {
-                      onError("Nie udało się zapisać części umowy");
-                    } finally {
-                      setPartSaving(false);
-                      onChange();
-                    }
-                  }}
-                  className={`px-1.5 py-0.5 border rounded bg-background text-xs disabled:opacity-60 ${
-                    (activeOrder ? activeOrder.project_part : pendingPart)
-                      ? "border-border"
-                      : "border-amber-400 text-amber-700"
-                  }`}
-                >
-                  <option value="">— uzupełnij —</option>
-                  {PROJECT_PARTS.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            )}
-            <InlinePeriod
-              startDate={activeOrder?.start_date ?? null}
-              endDate={activeOrder?.end_date ?? null}
-              editable={canManageOrders}
-              onError={onError}
-              onSave={async (start, end) => {
-                await saveOntoOrder({ start_date: start, end_date: end });
-                onSuccess("Okres zamówienia zaktualizowany");
-                onChange();
-              }}
-            />
-            {/* Rekrutacja, z której wyszedł ten kontraktor. Dane przychodzą
-                z `/orders` od dawna (`initial_job_title`) — wcześniejszy ticket
-                zdjął tylko render, obecny go przywraca. Siedzi w tej samej
-                zawijającej się linii co reszta meta: własny `div` dokładał
-                kafelkowi wiersz nawet wtedy, gdy obok było mnóstwo miejsca. */}
-            {contractor.initial_job_title && (
-              <span>
-                z rekrutacji:{" "}
-                <span className="text-foreground">
-                  {contractor.initial_job_title}
+              {/* Rekrutacja zachowuje dotychczasowe miejsce przy okresie. */}
+              {contractor.initial_job_title && (
+                <span>
+                  z rekrutacji:{" "}
+                  <span className="text-foreground">
+                    {contractor.initial_job_title}
+                  </span>
                 </span>
-              </span>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
