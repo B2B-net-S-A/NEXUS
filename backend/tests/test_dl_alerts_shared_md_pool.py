@@ -357,6 +357,7 @@ async def test_backstop_delivers_cost_order_exhaustion_missed_without_dl():
             is_cost_based=True,
             is_md_budget_based=False,
             budget_amount=Decimal("50000"),
+            budget_remaining=Decimal("0"),  # wyczerpana; CHECK wymaga NOT NULL
         )
         db.add(group)
         await db.commit()
