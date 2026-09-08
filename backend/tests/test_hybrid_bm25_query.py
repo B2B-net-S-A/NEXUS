@@ -394,3 +394,84 @@ async def test_or_query_is_a_disjunction_in_postgres():
 
     assert matched is True
     assert operator_as_lexeme == "'or' | 'java'"
+
+
+# ── F. Pula SQL-first (0278): AND-of-OR po rodzinach must-have ──────────────
+
+
+def test_bm25_must_groups_drops_empty_families_and_keeps_quotes():
+    """Jeden `bm25_or_query(...)` na rodzinę; rodzina, która zwija się do
+    pustego stringa (patrz `_BM25_MIN_ALNUM`), znika — nie zostaje jako pusty
+    bind."""
+    from app.services.hybrid_search import bm25_must_groups
+
+    groups = bm25_must_groups(
+        [
+            ["Python"],
+            ["c#"],  # sam "#" nie jest leksemem — cała rodzina znika
+            ["SQL Server", "MSSQL"],
+        ]
+    )
+
+    assert groups == ['"Python"', '"SQL Server" or "MSSQL"']
+
+
+def test_bm25_must_groups_empty_input_is_empty_output():
+    from app.services.hybrid_search import bm25_must_groups
+
+    assert bm25_must_groups([]) == []
+    assert bm25_must_groups([["c#"], ["++"]]) == []
+
+
+@pytest.mark.asyncio
+async def test_bm25_must_candidates_is_and_of_or_groups():
+    """Kandydat musi trafić w KAŻDĄ rodzinę must-have — jedna spełniona rodzina
+    nie wystarcza (AND MIĘDZY rodzinami). Wewnątrz jednej rodziny wystarczy
+    DOWOLNY wariant (OR WEWNĄTRZ rodziny) — to jest cała różnica względem
+    zapytania z jedną, płaską alternatywą wszystkich pisowni naraz.
+
+    Zweryfikowane na realnym Postgresie: mock nie odtwarza ani `&&` na
+    poziomie tsquery, ani symetrii leksemów `fts_doc`/`websearch_to_tsquery`.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.services.hybrid_search import bm25_must_candidates, bm25_must_groups
+
+    # Rodzina A ma DWA warianty (primary + alias) — kandydat "both" trafia
+    # przez ALIAS, nigdy przez primary, co dowodzi ORu wewnątrz rodziny.
+    family_a_primary = f"zorbaalphaprimary{uuid.uuid4().hex[:8]}"
+    family_a_alias = f"zorbaalphaalias{uuid.uuid4().hex[:8]}"
+    family_b = f"zorbabeta{uuid.uuid4().hex[:8]}"
+
+    groups = bm25_must_groups([[family_a_primary, family_a_alias], [family_b]])
+    assert len(groups) == 2, "obie rodziny muszą mieć niepusty query-string"
+
+    async with AsyncSessionLocal() as db:
+        both_families = Candidate(
+            name="Bemdwie",
+            lastname=f"Rodziny-{uuid.uuid4().hex[:6]}",
+            email=f"bm25-and-both-{uuid.uuid4().hex[:8]}@example.com",
+            status=CandidateStatus.active,
+            raw_cv_text=f"Doświadczenie komercyjne: {family_a_alias}, {family_b}.",
+        )
+        only_family_a = Candidate(
+            name="Tylko",
+            lastname=f"JednaRodzina-{uuid.uuid4().hex[:6]}",
+            email=f"bm25-and-onlya-{uuid.uuid4().hex[:8]}@example.com",
+            status=CandidateStatus.active,
+            raw_cv_text=f"Doświadczenie komercyjne: {family_a_primary}.",
+        )
+        db.add_all([both_families, only_family_a])
+        await db.commit()
+        await db.refresh(both_families)
+        await db.refresh(only_family_a)
+
+        ids = await bm25_must_candidates(db, groups, limit=100)
+
+    assert both_families.id in ids, (
+        "spełnia OBIE rodziny (A przez wariant-alias, B wprost) — MUSI wejść, "
+        "co dowodzi zarówno ANDu między rodzinami, jak i ORu wewnątrz rodziny"
+    )
+    assert only_family_a.id not in ids, (
+        "brakuje rodziny B — jedna spełniona rodzina nie wystarcza dla AND-of-OR"
+    )

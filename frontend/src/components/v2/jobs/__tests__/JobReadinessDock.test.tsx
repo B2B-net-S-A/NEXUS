@@ -1,28 +1,44 @@
 /**
- * `JobReadinessDock` (krok 01 „Lista", program „flow w języku C2", PR 4/7).
+ * `JobReadinessDock` (krok 01 „Lista" i krok 02 „Zlecenie i Champion",
+ * program „flow w języku C2", PR 4/7 i PR 5/7).
  *
  * Stany widoku dla `GET /api/jobs/{id}` (odczyt PIERWSZORZĘDNY — widoczny dla
  * każdej roli): pusto (brak zaznaczenia) / 403 / awaria / dane. Osobno:
  * `GET /api/jobs/{id}/readiness` (bramka „Przekaż do searchu", DRUGORZĘDNA —
  * `DeliveryLeadPlus` tylko, więc dla większości ról KOŃCZY SIĘ 403 i to NIE
  * jest błąd do ukrycia).
+ *
+ * `variant="champion"` (krok 02) dokłada zakładki „Zespół i priorytet" /
+ * „Wyszukiwania (AI)" — dzieci tych zakładek (`ChampionVerificationChecklist`,
+ * `ChampionRecommendedSearches`, `JobOwnershipPanel`, `HiringManagerPicker`,
+ * `JobPriorityContext`, `JobHandoffButton`) są tu ZAMOCKOWANE: ten plik testuje
+ * WIRING doku (który wariant/zakładka renderuje co i z jakimi propsami), nie
+ * powtarza ich własnych testów/logiki.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
+import {
+  JobReadinessDock,
+  type JobReadinessDockVariant,
+} from "@/components/v2/jobs/JobReadinessDock";
 import { ToastProvider } from "@/components/Toast";
 import { useAuthStore, type User } from "@/store/auth";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
+const championGetMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
+  },
+  championApi: {
+    get: (...args: unknown[]) => championGetMock(...args),
   },
   EMPTY_CHAMPION_VERIFICATION: {
     client: { status: "pending", key_corrections: "", confirmed_as_is: false },
@@ -36,6 +52,47 @@ vi.mock("@/components/AppShell", () => ({
 
 vi.mock("@/components/v2/modals/AddCandidatesQuickModal", () => ({
   AddCandidatesQuickModal: () => null,
+}));
+
+// ── Krok 02 — dzieci zakładek doku, zamockowane (patrz nagłówek pliku) ──────
+vi.mock("@/components/ChampionVerificationChecklist", () => ({
+  ChampionVerificationChecklist: (props: { canEdit: boolean }) => (
+    <div
+      data-testid="mock-verification-checklist"
+      data-can-edit={String(props.canEdit)}
+    />
+  ),
+}));
+vi.mock("@/components/ChampionRecommendedSearches", () => ({
+  ChampionRecommendedSearches: (props: {
+    canEdit: boolean;
+    searches?: unknown[];
+  }) => (
+    <div
+      data-testid="mock-recommended-searches"
+      data-can-edit={String(props.canEdit)}
+      data-count={String((props.searches ?? []).length)}
+    />
+  ),
+}));
+vi.mock("@/components/v2/jobs/JobOwnershipPanel", () => ({
+  JobOwnershipPanel: (props: { primaryOwner: { name: string } | null }) => (
+    <div
+      data-testid="mock-ownership-panel"
+      data-owner={props.primaryOwner?.name ?? ""}
+    />
+  ),
+}));
+vi.mock("@/components/jobs/HiringManagerPicker", () => ({
+  HiringManagerPicker: (props: { canEdit: boolean }) => (
+    <div data-testid="mock-hm-picker" data-can-edit={String(props.canEdit)} />
+  ),
+}));
+vi.mock("@/components/v2/priority-work", () => ({
+  JobPriorityContext: () => <div data-testid="mock-priority-context" />,
+}));
+vi.mock("@/components/v2/jobs/JobHandoffButton", () => ({
+  JobHandoffButton: () => <div data-testid="mock-handoff-button" />,
 }));
 
 const recruiterWrite = {
@@ -79,6 +136,7 @@ const headOfRecruitmentWrite = {
 const jobFixture = {
   id: 501,
   title: "Programista Python (ZOB-2947)",
+  client_id: 42,
   client_name: "PKO Bank Polski",
   reference_number: "16/9/2026/MW/4903",
   recruitment_type: "body_leasing",
@@ -86,6 +144,7 @@ const jobFixture = {
   nice_skills: ["AWS"],
   has_budget_hourly: true,
   rate_budget_hourly: 122.5,
+  hiring_manager_contact_id: null,
   hiring_manager_name: "Jan Nowak",
   primary_owner: {
     id: 7,
@@ -93,11 +152,28 @@ const jobFixture = {
     email: "marta@example.com",
     role: "recruiter",
   },
+  collaborators: [],
   champion_profile: {
     verification: {
       client: { status: "verified" },
       consultant: { status: "verified" },
     },
+  },
+};
+
+// Reużywana w testach `variant="champion"` — kształt `GET …/champion-profile`
+// (`ChampionProfileResponse`), osobny od `jobFixture.champion_profile`
+// (kształt `GET /api/jobs/{id}`) bo dok czyta je z DWÓCH różnych zapytań pod
+// tym samym kluczem `["champion-profile", jobId]`.
+const championProfileFixture = {
+  job_id: 501,
+  champion_profile: {
+    verification: {
+      client: { status: "verified" },
+      consultant: { status: "verified" },
+    },
+    briefing: { status: "pending" },
+    recommended_searches: [{ id: "s1", name: "Python + Kafka", status: "proposed" }],
   },
 };
 
@@ -132,6 +208,7 @@ function renderDock(
   jobId: number | null,
   stageBreakdown?: Record<string, number>,
   canOpen?: boolean,
+  variant?: JobReadinessDockVariant,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -143,6 +220,7 @@ function renderDock(
           jobId={jobId}
           stageBreakdown={stageBreakdown}
           canOpen={canOpen}
+          variant={variant}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -152,6 +230,8 @@ function renderDock(
 beforeEach(() => {
   getMock.mockReset();
   postMock.mockReset();
+  championGetMock.mockReset();
+  championGetMock.mockResolvedValue({ data: championProfileFixture });
   useAuthStore.setState({
     user: recruiterWrite,
     realUser: null,
@@ -419,5 +499,105 @@ describe("JobReadinessDock — bramka „Przekaż do searchu”", () => {
     await screen.findByText("Programista Python (ZOB-2947)");
     expect(container.textContent).toContain("kompletność zlecenia");
     expect(container.textContent).not.toContain("gotowość zlecenia do searchu");
+  });
+});
+
+describe("JobReadinessDock — variant domyślny (\"list\", krok 01) bez zmian", () => {
+  it("nie renderuje zakładek ani zakładkowej treści kroku 02 — dok wygląda dokładnie jak przed PR 5/7", async () => {
+    renderDock(501);
+    await screen.findByText("Programista Python (ZOB-2947)");
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-ownership-panel")).not.toBeInTheDocument();
+    // `championApi.get` w ogóle nie jest odpytywane poza wariantem "champion".
+    expect(championGetMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
+  it("domyślna zakładka to „Gotowość” — checklista + ChampionVerificationChecklist (weryfikacja + briefing) widoczne", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+
+    expect(screen.getByRole("tab", { name: "Gotowość" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("Właściciel projektu")).toBeInTheDocument();
+    const checklist = await screen.findByTestId("mock-verification-checklist");
+    expect(checklist).toHaveAttribute("data-can-edit", "true");
+    // Zakładki drugorzędne NIE renderują się, dopóki nie są aktywne.
+    expect(screen.queryByTestId("mock-ownership-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mock-recommended-searches")).not.toBeInTheDocument();
+  });
+
+  it("zakładka „Zespół i priorytet” pokazuje JobOwnershipPanel / HiringManagerPicker / JobPriorityContext, chowa checklistę gotowości", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+
+    // Radix `Tabs.Trigger` aktywuje się na pełnej sekwencji zdarzeń
+    // wskaźnika — goły `.click()` (sam event `click`) nie przełącza stanu;
+    // `userEvent` odtwarza sekwencję tak jak w prawdziwej przeglądarce.
+    await user.click(screen.getByRole("tab", { name: "Zespół i priorytet" }));
+
+    expect(await screen.findByTestId("mock-ownership-panel")).toHaveAttribute(
+      "data-owner",
+      "Marta Kowalska",
+    );
+    expect(screen.getByTestId("mock-hm-picker")).toHaveAttribute(
+      "data-can-edit",
+      "true",
+    );
+    expect(screen.getByTestId("mock-priority-context")).toBeInTheDocument();
+    expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
+  });
+
+  it("zakładka „Wyszukiwania (AI)” pokazuje ChampionRecommendedSearches z propozycjami z champion-profile", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+
+    await user.click(screen.getByRole("tab", { name: "Wyszukiwania (AI)" }));
+
+    const searches = await screen.findByTestId("mock-recommended-searches");
+    expect(searches).toHaveAttribute("data-can-edit", "true");
+    // `data-count` zależy od `championQuery` (osobne zapytanie od `jobQuery`,
+    // które ten test dotąd nie czekał) — `waitFor`, żeby nie złapać renderu
+    // sprzed rozwiązania promisa.
+    await waitFor(() => expect(searches).toHaveAttribute("data-count", "1"));
+  });
+
+  it("JobHandoffButton (główna akcja) widoczny dla Delivery Lead", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+    expect(await screen.findByTestId("mock-handoff-button")).toBeInTheDocument();
+  });
+
+  it("JobHandoffButton NIE renderuje się dla recruitera — handoff to decyzja DL/admina", async () => {
+    // Domyślny user w beforeEach to `recruiterWrite`.
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+    expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
+    // Checklista Championa też jest tylko do odczytu dla recruitera.
+    const checklist = await screen.findByTestId("mock-verification-checklist");
+    expect(checklist).toHaveAttribute("data-can-edit", "false");
+  });
+
+  it("recruiter widzi zakładkę „Zespół i priorytet”, ale HiringManagerPicker jest read-only (`job.update` = TacPlus)", async () => {
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText("Programista Python (ZOB-2947)");
+
+    await user.click(screen.getByRole("tab", { name: "Zespół i priorytet" }));
+
+    expect(await screen.findByTestId("mock-hm-picker")).toHaveAttribute(
+      "data-can-edit",
+      "false",
+    );
   });
 });

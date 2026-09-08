@@ -196,6 +196,110 @@ async def bm25_candidates(
     return [int(r[0]) for r in rows]
 
 
+# ── 0278: pula SQL-first po must-have (AND-of-OR) ────────────────────────────
+#
+# `websearch_to_tsquery` NIE MA nawiasów: `a b or c` parsuje się jako
+# `('a' & 'b') | 'c'`, więc jednego stringu nie da się złożyć w koniunkcję
+# alternatyw ("ma Pythona ORAZ (SQL Server LUB MSSQL LUB MS SQL)"). Trójka
+# poniżej rozbija to na dwa kroki: `build_job_must_groups`/`bm25_must_groups`
+# przygotowują PO JEDNYM query-stringu na rodzinę umiejętności (alternatywa
+# WEWNĄTRZ rodziny), a `bm25_must_candidates` składa je w SQL-u operatorem
+# tsquery `&&` (koniunkcja MIĘDZY rodzinami) — po jednym bindzie na rodzinę.
+
+
+def build_job_must_groups(job) -> list[list[str]]:
+    """Rodziny umiejętności must-have tej oferty, gotowe pod AND-of-OR.
+
+    Źródło jest TWARDE must — dokładnie to, czego pilnują dealbreakery 0278
+    (`job_explicit_must_skills`: kolumna oferty albo Tier 0 „Stack
+    technologiczny" Championa, NIGDY wymaganie wywiedzione regexem z prozy).
+    Pula SQL-first ma znaleźć kandydatów spełniających to, co ktoś jawnie
+    WPISAŁ — nie zgadywankę, którą ranguje warstwa punktowa.
+
+    Każda nazwa jest rozwijana na PEŁNĄ rodzinę aliasów (`skill_variant_groups`),
+    nie zwijana do jednej kanonicznej: dane kandydatów nie są kanonizowane
+    (patrz pomiar w `build_job_bm25_query` — rodzina „Microsoft SQL Server"
+    żyje w bazie jako mssql/ms sql/sql server/…), więc zapytanie o samą nazwę
+    kanoniczną gubi większość trafień. `skill_variant_groups` (nie
+    `skill_name_variants`) zachowuje granice MIĘDZY umiejętnościami — inaczej
+    „ma Pythona i SQL Servera" stałoby się „ma dowolną pisownię obu naraz".
+    """
+    from app.services.scoring_service import (  # noqa: PLC0415
+        job_explicit_must_skills,
+        skill_variant_groups,
+    )
+
+    return skill_variant_groups(job_explicit_must_skills(job))
+
+
+def bm25_must_groups(must_groups: Iterable[Iterable[str]]) -> list[str]:
+    """Jeden `bm25_or_query(...)` na rodzinę — wejście dla AND-of-OR w SQL-u.
+
+    Rodzina, której WSZYSTKIE warianty zwijają się do pustego stringa (np.
+    `["c#"]` — sam "#" nie jest leksemem, patrz `_BM25_MIN_ALNUM` w
+    `bm25_or_query`), jest POMIJANA — nigdy nie trafia do wyniku jako pusty
+    bind.
+
+    Zweryfikowane na Postgresie 16 (nie z pamięci): pusty tsquery SAMODZIELNIE
+    nie dopasowuje NIKOGO — ``SELECT to_tsvector('simple','kubernetes docker')
+    @@ websearch_to_tsquery('simple', '')`` daje ``false``, tak samo jak
+    koniunkcja dwóch pustych tsquery. Rodzina bez ograniczenia (bo cała
+    zdegenerowała się do zera leksemów) MA znaczyć „nic tu nie wymagamy", a
+    nie „wymagaj czegoś, czego nie ma żaden dokument" — więc musi zniknąć z
+    wejścia, zanim trafi do `bm25_must_candidates`, zamiast liczyć na to, że
+    `&&` z niepustą rodziną akurat ją uprości (w mieszanym przypadku Postgres
+    faktycznie tak robi, ale poleganie na tym byłoby przypadkowe, nie
+    zamierzone — a gdy WSZYSTKIE rodziny są puste, uproszczenia nie ma).
+
+    Pusta LISTA wynikowa (wszystkie rodziny puste) jest dla wołającego
+    (`retrieval_pool._structured_pool`) sygnałem „SQL nie ma o co pytać, spadnij
+    na hybrydę/wektor" — nie zapytaniem, które ma zwrócić zero trafień.
+    """
+    out: list[str] = []
+    for family in must_groups:
+        query = bm25_or_query(family)
+        if query:
+            out.append(query)
+    return out
+
+
+async def bm25_must_candidates(
+    db: AsyncSession, groups: list[str], *, limit: int = 2000
+) -> list[int]:
+    """Członkostwo AND-of-OR: kandydat musi trafić w KAŻDĄ rodzinę must-have.
+
+    ``groups`` to już zredukowane query-stringi z :func:`bm25_must_groups` —
+    po jednej alternatywie na rodzinę, bez pustych. SQL łączy je operatorem
+    tsquery ``&&`` (logiczny AND na poziomie SKŁADNI tsquery, nie stringu) —
+    dokładnie ten mechanizm, którego `websearch_to_tsquery` samo nie potrafi
+    (nie ma nawiasów). Liczba bindów (``:g0``, ``:g1``, …) rośnie z
+    ``len(groups)``, jeden na rodzinę.
+
+    Pusta lista na wejściu wraca jako `[]` — obrona, gdyby ktoś wywołał tę
+    funkcję z pominięciem `bm25_must_groups` (np. bezpośrednio z testu);
+    `retrieval_pool._structured_pool` i tak sprawdza to wcześniej i w praktyce
+    nigdy nie woła tej funkcji z pustymi `groups`.
+    """
+    if not groups:
+        return []
+    binds = [bindparam(f"g{i}", value=g) for i, g in enumerate(groups)]
+    tsquery_expr = " && ".join(
+        f"websearch_to_tsquery('simple', :g{i})" for i in range(len(groups))
+    )
+    sql = text(
+        f"""
+        SELECT id
+        FROM candidates
+        WHERE fts_doc @@ ({tsquery_expr})
+        ORDER BY ts_rank(fts_doc, ({tsquery_expr})) DESC,
+                 updated_at DESC
+        LIMIT :limit
+        """
+    ).bindparams(*binds, bindparam("limit", value=limit))
+    rows = (await db.execute(sql)).all()
+    return [int(r[0]) for r in rows]
+
+
 async def bm25_jobs(db: AsyncSession, query: str, *, limit: int = 100) -> list[int]:
     """Top-N job ids by Postgres ts_rank over `jobs.fts_doc`.
 

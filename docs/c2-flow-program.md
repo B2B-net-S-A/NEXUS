@@ -14,12 +14,12 @@
 | # | PR | Zakres | Status |
 |---|---|---|---|
 | 1 | listwa kroków | `JobDetailCompactHeader`: kroki w kolejności procesu (Zlecenie i Champion · Pozyskiwanie ▾ · Pipeline [N] · Baza pytań ‖ Historia · Chat [N] · Zespół i priorytet). Zdjęte „Narzędzia ▾" i „Pozyskaj ▾" z rzędu 1. Zero zmian w treści zakładek. | **zmergowany #1388 (`aec2f246`), na prodzie** |
-| 2 | 03 Pozyskiwanie — rama źródeł | 4 karty nad C2 (AI Matching · Wyszukaj manualnie · Podobne projekty · Portale) z licznikami; „Podobne projekty" i „Rekomendowani" jako karty, nie bloki nad rankingiem; Historia requestu pod ramą + „N kandydatów → źródło" | **fala 1 — w tym PR** (zebrane z #1391) |
-| 3 | 04 Pipeline — dok „Karta w procesie" | dok obok kanbana (etapy, „Przenieś na etap" z bramką wyszarzoną z powodem, notatki, CV, warunki), karta z wiekiem/następną akcją/flagą, filtry lewej kolumny, „Ukryj puste" | **fala 1 — w tym PR** |
-| 4 | 01 Lista | lewa kolumna filtrów (typ, szybkie z licznikami: Moje/Niezamknięte/Potrzebny search/Aktywni/Brak ownera/Deadline ≤ 7 d), mini-lejek w wierszu, dok „Gotowość zlecenia" | **fala 1 — w tym PR** |
-| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | fala 2 (jeden PR z 6 i 7) |
-| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | fala 2 |
-| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | fala 2 |
+| 2 | 03 Pozyskiwanie — rama źródeł | 4 karty nad C2 (AI Matching · Wyszukaj manualnie · Podobne projekty · Portale) z licznikami; „Podobne projekty" i „Rekomendowani" jako karty, nie bloki nad rankingiem; Historia requestu pod ramą + „N kandydatów → źródło" | **na prodzie** — fala 1 #1396 (zebrane z #1391) |
+| 3 | 04 Pipeline — dok „Karta w procesie" | dok obok kanbana (etapy, „Przenieś na etap" z bramką wyszarzoną z powodem, notatki, CV, warunki), karta z wiekiem/następną akcją/flagą, filtry lewej kolumny, „Ukryj puste" | **na prodzie** — fala 1 #1396 (+ #1399 kafelki) |
+| 4 | 01 Lista | lewa kolumna filtrów (typ, szybkie z licznikami: Moje/Niezamknięte/Potrzebny search/Aktywni/Brak ownera/Deadline ≤ 7 d), mini-lejek w wierszu, dok „Gotowość zlecenia" | **na prodzie** — fala 1 #1396 (+ #1399 kafelki) |
+| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | **fala 2 — w tym PR** (zebrane z #1401) |
+| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | **fala 2 — w tym PR** (zebrane z #1400) |
+| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | **fala 2 — w tym PR** (zebrane z #1402) |
 
 ## Kontrakt wspólny (obowiązuje każdy PR)
 

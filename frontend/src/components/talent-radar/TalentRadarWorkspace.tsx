@@ -80,6 +80,13 @@ export function TalentRadarWorkspace() {
   // preferencja kandydata przechodzi po stronie backendu.
   const [budgetMax, setBudgetMax] = useState("");
   const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
+  // Rubryki 0278: dni w biurze / tydzień i miasto biura, podane WPROST przez
+  // rekrutera (radar nie ma kolumn oferty ani profilu Championa do fallbacku
+  // dla tych dwóch pól). Puste pole = „nie wiem" i nie uzbraja żadnego
+  // dealbreakera; `0` jest LEGALNĄ, ZNANĄ wartością („wyłącznie zdalnie"), więc
+  // trzymamy je jako string i sprawdzamy pustkę wprost, nie `> 0` jak budżet.
+  const [onsiteDaysPerWeek, setOnsiteDaysPerWeek] = useState("");
+  const [officeLocation, setOfficeLocation] = useState("");
   // Profil Championa z pliku (docx/pdf): rekruter dostaje go jako DOKUMENT —
   // wklejanie do pola tekstowego gubi strukturę (stawka, must/nice).
   const [championProfile, setChampionProfile] = useState<Record<
@@ -121,6 +128,8 @@ export function TalentRadarWorkspace() {
       setChampionSkills(saved.championSkills ?? null);
       setBudgetMax(saved.budgetMax);
       setExcludeRemoteOnly(saved.excludeRemoteOnly);
+      setOnsiteDaysPerWeek(saved.onsiteDaysPerWeek ?? "");
+      setOfficeLocation(saved.officeLocation ?? "");
       setChampionProfile(saved.championProfile);
       setChampionSummary(saved.championSummary);
       setResponse(saved.response);
@@ -137,6 +146,8 @@ export function TalentRadarWorkspace() {
       location,
       budgetMax,
       excludeRemoteOnly,
+      onsiteDaysPerWeek,
+      officeLocation,
       championProfile,
       championSummary,
       championSkills,
@@ -150,6 +161,8 @@ export function TalentRadarWorkspace() {
     location,
     budgetMax,
     excludeRemoteOnly,
+    onsiteDaysPerWeek,
+    officeLocation,
     championProfile,
     championSummary,
     championSkills,
@@ -185,6 +198,11 @@ export function TalentRadarWorkspace() {
         budget_hourly_max:
           Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
         exclude_remote_only: excludeRemoteOnly || undefined,
+        // Pusty string → `undefined` (nie wiemy); `0` jest wysyłane, bo to
+        // ZNANA wartość („wyłącznie zdalnie"), nie brak danych.
+        onsite_days_per_week:
+          onsiteDaysPerWeek.trim() !== "" ? Number(onsiteDaysPerWeek) : undefined,
+        office_location: officeLocation.trim() || undefined,
       }),
     onSuccess: (data) => setResponse(data),
     onError: (error: unknown) => {
@@ -390,6 +408,37 @@ export function TalentRadarWorkspace() {
               {championSummary?.rate_value
                 ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
                 : "Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w wynikach."}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-onsite-days">Dni w biurze / tydzień</Label>
+            <Input
+              id="tr-onsite-days"
+              type="number"
+              min={0}
+              max={7}
+              value={onsiteDaysPerWeek}
+              onChange={(e) => setOnsiteDaysPerWeek(e.target.value)}
+              placeholder="np. 2 — 0 = tylko zdalnie"
+              className="w-28"
+            />
+            <p className="text-xs text-muted-foreground">
+              Bez tej liczby dealbreakery dni/miasta biura są nieaktywne —
+              „nie wiemy" przechodzi. Wpisz 0, żeby zaznaczyć „tylko zdalnie".
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-office-location">Miasto biura</Label>
+            <Input
+              id="tr-office-location"
+              value={officeLocation}
+              onChange={(e) => setOfficeLocation(e.target.value)}
+              placeholder="np. Warszawa"
+              maxLength={200}
+            />
+            <p className="text-xs text-muted-foreground">
+              Osobne od pola „Lokalizacja" niżej — to konkretne miasto biura,
+              porównywane z deklaracją kandydata przy dealbreakerze dni/miasta.
             </p>
           </div>
           <div className="flex flex-col gap-2">

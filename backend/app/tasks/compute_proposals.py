@@ -161,7 +161,10 @@ async def compute_proposal_for_job(
             # C12: noga BM25 dostaje TERMINY, nie `query_text`. Dokument
             # w roli tsquery ANDuje setki leksemów, czyli zwraca zero zawsze —
             # cicho, bo fuzja RRF z pustą listą wygląda jak porządek wektora.
-            from app.services.hybrid_search import build_job_bm25_query
+            from app.services.hybrid_search import (
+                build_job_bm25_query,
+                build_job_must_groups,
+            )
 
             hits = await retrieve_candidate_pool(
                 session,
@@ -169,6 +172,8 @@ async def compute_proposal_for_job(
                 top_k=pool_size,
                 query_variants=build_job_query_variants(job, query_text),
                 bm25_query=build_job_bm25_query(job),
+                # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
+                must_groups=build_job_must_groups(job),
             )
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
@@ -220,7 +225,7 @@ async def compute_proposal_for_job(
             from app.services.dealbreaker_filters import (
                 DealbreakerResult,
                 apply_dealbreakers,
-                resolve_job_budget_hourly,
+                dealbreaker_inputs_for_job,
             )
 
             snap.hidden = DealbreakerResult().hidden_meta()
@@ -251,12 +256,15 @@ async def compute_proposal_for_job(
                 # snapshot jest DOMYŚLNYM widokiem rekrutera, więc znany budżet
                 # oferty musi ukrywać znane stawki powyżej także tutaj — nie
                 # tylko na żywej ścieżce /recommendations. Liczniki idą do
-                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche; remote_only
-                # zostaje opt-in per wyszukiwanie (snapshot nie niesie tej
-                # deklaracji rekrutera).
+                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche. Rubryki 0278
+                # (must-have / dni w biurze / miasto) i AUTO `exclude_remote_only`
+                # (uzbraja się, gdy oferta chce biura) liczone RAZ przez
+                # `dealbreaker_inputs_for_job` — ta sama funkcja co na żywej
+                # ścieżce, więc handoff-snapshot i /recommendations zgadzają się
+                # co do tego, kogo ukrywają.
                 dealbreakers = apply_dealbreakers(
                     candidates,
-                    budget_hourly=resolve_job_budget_hourly(job),
+                    inputs=dealbreaker_inputs_for_job(job),
                 )
                 candidates = dealbreakers.kept
                 snap.hidden = dealbreakers.hidden_meta()

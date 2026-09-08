@@ -67,6 +67,15 @@ async def test_retrieval_levers_are_observable(
         "MULTI_QUERY_RETRIEVAL_ENABLED",
         "CV_PASSAGES_ENABLED",
         "RERANKER_ENABLED",
+        # 0278: pula SQL-first po must-have — sprawdzana PRZED hybrydą/wektorem
+        # w tej samej fasadzie, więc obowiązuje ta sama obietnica obserwacji.
+        "STRUCTURED_POOL_ENABLED",
+        "STRUCTURED_POOL_LIMIT",
+        "STRUCTURED_POOL_MIN_MEMBERS",
+        # Wspólny silnik pod `/ai-matches` — dźwignia bez obserwacji przestawia
+        # się na ślepo.
+        "AI_MATCHES_SHARED_ENGINE",
+        "AI_MATCHES_RERANK_TOP_N",
     ):
         assert key in flags, f"dźwignia retrievalu {key} niewidoczna w diagnostyce"
 
@@ -75,6 +84,11 @@ async def test_retrieval_levers_are_observable(
     # dźwignię, której już nie ma.
     assert flags["HYBRID_POOL_ENABLED"] is not None
     assert isinstance(flags["SEARCH_HYBRID_POOL_SIZE"], int)
+    assert flags["STRUCTURED_POOL_ENABLED"] is not None
+    assert isinstance(flags["STRUCTURED_POOL_LIMIT"], int)
+    assert isinstance(flags["STRUCTURED_POOL_MIN_MEMBERS"], int)
+    assert flags["AI_MATCHES_SHARED_ENGINE"] is not None
+    assert isinstance(flags["AI_MATCHES_RERANK_TOP_N"], int)
 
 
 @pytest.mark.asyncio

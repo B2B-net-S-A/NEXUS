@@ -1716,9 +1716,14 @@ _COLUMN_STATEMENTS = [
     # Phase 14 interview_feedback table (migration 0043_interview_feedback).
     # Prod DEBUG=false → Base.metadata.create_all nie leci, alembic multi-head
     # często pada w dev → tabela musi być stworzona explicite idempotent tutaj.
+    # `calendar_event_id` NULL-owalne od 0278 — werdykt hiring managera bywa
+    # zbierany bez spotkania w kalendarzu NEXUSA. UNIQUE zostaje: Postgres
+    # traktuje NULL-e jako różne, więc ograniczenie dalej pilnuje „max jeden
+    # feedback danej strony na SPOTKANIE". Dla baz sprzed 0278 to samo robi
+    # `DROP NOT NULL` niżej (przy bloku `rejection_reasons`, bo tam stoi FK).
     """CREATE TABLE IF NOT EXISTS interview_feedback (
         id SERIAL PRIMARY KEY,
-        calendar_event_id INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        calendar_event_id INTEGER NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
         candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
         job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
         author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -2490,6 +2495,11 @@ _COLUMN_STATEMENTS = [
     # 0197: bez tej kolumny każdy SELECT z rejection_reasons po dodaniu pola do
     # ORM leci UndefinedColumn — a to ścieżka KAŻDEGO terminalnego ruchu w pipeline.
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS disqualifies_person BOOLEAN NOT NULL DEFAULT false',
+    # 0278: werdykt hiring managera bez spotkania w kalendarzu (krok 07).
+    # Stoi TUTAJ, a nie przy bloku `interview_feedback` wyżej, bo dokładana
+    # kolumna ma FK na `rejection_reasons` — ta tabela musi już istnieć.
+    'ALTER TABLE interview_feedback ALTER COLUMN calendar_event_id DROP NOT NULL',
+    'ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS rejection_reason_id INTEGER NULL REFERENCES rejection_reasons(id) ON DELETE SET NULL',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_at TIMESTAMPTZ',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_external_id VARCHAR(255)',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_payload JSONB',
@@ -3992,6 +4002,15 @@ _COLUMN_STATEMENTS = [
     # Wiersz-kotwica: odróżnia „pętla nigdy nie wystartowała" (wiersz jest,
     # kolumny NULL) od „migracja nie doszła" (brak wiersza).
     "INSERT INTO compass_workdays_sync_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+    # 0278: trzecia rubryka rekrutacji — obecność w biurze. Kandydat dostaje
+    # własny limit dni/tydz. (0 = wyłącznie zdalnie), oferta dostaje wymaganą
+    # liczbę dni. `remote_policy` traci NOT NULL i domyślną 'hybrid' — importer
+    # Traffita przestaje stemplować każdą ofertę jako "chce biura" (DROP NOT
+    # NULL / DROP DEFAULT są idempotentne — no-op, gdy kolumna już taka jest).
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS max_onsite_days_per_week INTEGER NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_week INTEGER NULL",
+    "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
+    "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5706,6 +5725,87 @@ _DATA_STATEMENTS = [
         ON CONFLICT (key) DO NOTHING;
     END
     $bp_bik_backfill$""",
+    # 0278 S1 — literówka trybu pracy kandydata: formularz zapisywał
+    # `on_site`, backend porównywał z `onsite` bez walidacji, więc kandydat,
+    # który wprost zaznaczył "Stacjonarnie", był liczony jako odmawiający
+    # pracy biurowej i znikał z filtra "Stacjonarnie". Predykat jest
+    # idempotentny (drugi bieg nie znajduje już `on_site`) — bez markera.
+    """
+    UPDATE candidates
+    SET preferences = jsonb_set(preferences, '{remote_modes}',
+          (SELECT COALESCE(jsonb_agg(DISTINCT CASE WHEN m = 'on_site' THEN 'onsite' ELSE m END), '[]'::jsonb)
+             FROM jsonb_array_elements_text(preferences->'remote_modes') AS m))
+    WHERE jsonb_typeof(preferences->'remote_modes') = 'array'
+      AND preferences->'remote_modes' ? 'on_site'
+    """,
+    # 0278 S2 — zdejmuje stempel `hybrid` z ofert Traffita, których nikt
+    # ręcznie nie edytował (brak wpisu `updated` z kluczem `remote_policy`
+    # w `activities.details`). Ręczna edycja jest nietykalna, nawet jeśli
+    # ustawiła z powrotem `hybrid`. MUSI iść PRZED S3 (backfill Championa
+    # rywalizowałby o tę samą kolumnę w nieprzewidywalnej kolejności).
+    """
+    WITH marker AS (
+        INSERT INTO app_settings (key, value)
+        VALUES ('0278_traffit_remote_policy_unstamped', 'true'::jsonb)
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+    )
+    UPDATE jobs SET remote_policy = NULL
+    WHERE external_source = 'traffit' AND remote_policy = 'hybrid'
+      AND NOT EXISTS (
+          SELECT 1 FROM activities a
+          WHERE a.entity_type = 'job' AND a.entity_id = jobs.id
+            AND a.action = 'updated' AND a.details ? 'remote_policy'
+      )
+      AND EXISTS (SELECT 1 FROM marker)
+    """,
+    # 0278 S3 — Champion -> kolumny oferty (FILL_EMPTY, nigdy nie nadpisuje
+    # ręcznie wpisanej wartości). `champion_view.basics()` podnosi legacy pola
+    # płasko, ale nie `onsite_days_per_week` (tylko w `basics`), a legacy
+    # lokalizacja biura to top-level `location` — stąd COALESCE obu kształtów
+    # JSONB. Zagnieżdżony CASE jest celowy: Postgres nie gwarantuje kolejności
+    # operandów AND, więc rzutowanie ::numeric siedzi w gałęzi za regexem.
+    r"""
+    WITH marker AS (
+        INSERT INTO app_settings (key, value)
+        VALUES ('0278_champion_basics_to_job_columns', 'true'::jsonb)
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+    ),
+    src AS (
+      SELECT id,
+        NULLIF(trim(COALESCE(champion_profile->'basics'->>'rate_value', champion_profile->>'rate_value')), '') AS rate_txt,
+        NULLIF(trim(champion_profile->'basics'->>'onsite_days_per_week'), '') AS days_txt,
+        lower(trim(COALESCE(champion_profile->'basics'->>'work_mode', champion_profile->>'work_mode'))) AS wm,
+        NULLIF(trim(COALESCE(champion_profile->'basics'->>'candidate_location_pref', champion_profile->>'location')), '') AS loc
+      FROM jobs WHERE jsonb_typeof(champion_profile) = 'object' AND champion_profile <> '{}'::jsonb)
+    UPDATE jobs j SET
+      rate_budget_hourly = COALESCE(j.rate_budget_hourly,
+         CASE WHEN s.rate_txt ~ '^[0-9]+(\.[0-9]+)?$'
+              THEN (CASE WHEN s.rate_txt::numeric > 0 AND s.rate_txt::numeric <= 2000 THEN s.rate_txt::numeric(8,2) END) END),
+      onsite_days_per_week = COALESCE(j.onsite_days_per_week, CASE WHEN s.days_txt ~ '^[0-7]$' THEN s.days_txt::int END),
+      remote_policy = COALESCE(j.remote_policy,
+         CASE WHEN s.wm LIKE 'zdaln%' THEN 'remote'::remotepolicy
+              WHEN s.wm LIKE 'hybryd%' THEN 'hybrid'::remotepolicy
+              WHEN s.wm LIKE 'stacjonar%' THEN 'onsite'::remotepolicy END),
+      location = COALESCE(j.location, left(s.loc, 255))
+    FROM src s WHERE s.id = j.id AND EXISTS (SELECT 1 FROM marker)
+    """,
+    # 0278 S4 — kandydat oznaczony przez notatki AI jako `remote_only`, ale
+    # bez jeszcze ustawionego limitu dni w biurze, dostaje `0` (oba fakty
+    # opisują to samo — "tylko zdalnie" i "zero dni w biurze").
+    """
+    WITH marker AS (
+        INSERT INTO app_settings (key, value)
+        VALUES ('0278_remote_only_onsite_days_zero', 'true'::jsonb)
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+    )
+    UPDATE candidates SET max_onsite_days_per_week = 0
+    WHERE max_onsite_days_per_week IS NULL AND jsonb_typeof(cv_extracted_data) = 'object'
+      AND cv_extracted_data->'_notes_insights'->'preferences'->>'remote_only' = 'true'
+      AND EXISTS (SELECT 1 FROM marker)
+    """,
 ]
 
 

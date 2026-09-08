@@ -75,9 +75,7 @@ Czego świadomie NIE ma:
 # i poprawne żądanie dostawałoby 422.
 
 import logging
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -106,16 +104,32 @@ from app.models.contract import Contract
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
-    effective_rate_fields,
 )
-from app.services.contractor_identity import summarize_active_contracts
-from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln_by_date
+from app.services.insights_board_yoy import (
+    DEFAULT_YEARS,
+    MAX_YEARS,
+    compute_board_yoy,
+    resolve_years,
+)
+from app.services.insights_board_money import (
+    MONTH_LABELS_PL,
+    fold_money,
+    money,
+    ratio,
+    running_on,
+)
+from app.services.fx_service import rates_to_pln_by_date
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
+
+# Siatka rok-do-roku opisuje ZAMKNIĘTE miesiące, które się już nie zmienią —
+# jedynym ruchomym elementem jest miesiąc bieżący. Stąd TTL trzy razy dłuższy
+# niż przy kaflach: to najdroższe zapytanie tej powierzchni.
+YOY_CACHE_TTL_SECONDS = 900
 
 # Ile miesięcy serii wraca w `trend`. 12 = pełny rok do porównania
 # sezonowego; więcej i tak nie mieści się na wykresie rady.
@@ -125,49 +139,6 @@ _TZ = ZoneInfo(ANALYTICS_TIMEZONE)
 
 # Etykiety miesięcy po polsku, zamiast `strftime("%b")` — tamto zależy od
 # locale kontenera, więc na prodzie i lokalnie potrafi dać różne napisy.
-_MONTH_LABELS_PL = (
-    "sty",
-    "lut",
-    "mar",
-    "kwi",
-    "maj",
-    "cze",
-    "lip",
-    "sie",
-    "wrz",
-    "paź",
-    "lis",
-    "gru",
-)
-
-
-def _ratio(
-    numerator: Optional[int | float | Decimal],
-    denominator: Optional[int | float | Decimal],
-) -> Optional[float]:
-    """Udział procentowy albo ``None`` przy zerowym mianowniku.
-
-    NIE zwraca 0.0 — „policzone, wyszło zero" i „nie było czego dzielić" to na
-    dashboardzie rady dwie różne odpowiedzi. Świadomie NIE przycinamy też do
-    100%: wynik powyżej stu procent oznacza, że definicje licznika i mianownika
-    się rozjechały, i ma to być widoczne, a nie schowane pod sufitem osi.
-
-    Ujemny mianownik też daje ``None``: zmiana procentowa liczona od ujemnej
-    marży ma znak odwrotny do intuicji i czyta się jako poprawa tam, gdzie
-    jest pogorszenie.
-    """
-    if numerator is None or denominator is None:
-        return None
-    if Decimal(str(denominator)) <= 0:
-        return None
-    return round(float(numerator) / float(denominator) * 100, 1)
-
-
-def _money(value: Optional[Decimal]) -> Optional[float]:
-    """Kwota do JSON-a: dwa miejsca po przecinku albo ``None``."""
-    if value is None:
-        return None
-    return float(round(value, 2))
 
 
 def _today_warsaw() -> date:
@@ -213,124 +184,6 @@ def _previous_period(period: Period) -> Period:
     return resolve_period(period.kind, anchor=period.start.date(), offset=-1)
 
 
-@dataclass(frozen=True)
-class _MoneyFold:
-    """Wynik zwinięcia kontraktów w pieniądze na konkretny dzień.
-
-    Pola `skipped_*` istnieją po to, żeby brak kursu nie mógł przejść jako
-    mniejsza liczba. Oryginał w tym miejscu robił `continue`.
-    """
-
-    revenue: Decimal
-    cost: Decimal
-    margin: Decimal
-    priced_contracts: int
-    without_cost_leg: int
-    consultants: int
-    active_contracts: int
-    missing_currencies: frozenset
-    skipped_revenue: int
-    skipped_margin: int
-
-    @property
-    def complete(self) -> bool:
-        return self.skipped_revenue == 0 and self.skipped_margin == 0
-
-
-def _running_on(contracts, on: date) -> list:
-    """Kontrakty WYKONYWANE danego dnia (point-in-time).
-
-    Świadomie inne niż „nachodzące na miesiąc" z `reports.py:1660-1676`:
-    tamto wliczało pełną miesięczną kwotę kontraktu, który skończył się
-    trzeciego dnia miesiąca. Zdjęcie na dzień jest tą samą operacją co kafel
-    MRR, więc ostatni punkt serii równa się kaflowi — a wykres, którego nie da
-    się porównać z liczbą nad nim, nie daje się zweryfikować wzrokiem.
-    """
-    return [
-        c
-        for c in contracts
-        if c.start_date is not None
-        and c.start_date <= on
-        and (c.end_date is None or c.end_date >= on)
-    ]
-
-
-def _fold_money(contracts, on: date, rates: dict) -> _MoneyFold:
-    """Zwiń kontrakty w przychód/koszt/marżę w PLN na dzień ``on``.
-
-    Stawki idą z HARMONOGRAMÓW (`effective_rate_fields`), nie z kolumn
-    `contracts.rate_*` — patrz docstring modułu, punkt 5.
-
-    Nogi przychodu i kosztu przeliczane są niezależnie: brak kursu waluty
-    kosztu unieważnia marżę tego kontraktu, ale nie wyrzuca poprawnie
-    przeliczonego przychodu. Żadna kwota w obcej walucie nie jest nigdy
-    traktowana jak PLN po nominale.
-    """
-    revenue = Decimal("0")
-    cost = Decimal("0")
-    margin = Decimal("0")
-    priced = 0
-    without_cost_leg = 0
-    missing: set = set()
-    skipped_revenue = 0
-    skipped_margin = 0
-
-    for contract in contracts:
-        eff = effective_rate_fields(contract, on)
-        client_amount = eff["monthly_rate_client"]
-        candidate_amount = eff["monthly_rate_candidate"]
-        client_currency = eff["rate_client_currency"]
-        candidate_currency = eff["rate_candidate_currency"]
-
-        if client_amount is None:
-            # Kontrakt bez wycenionej nogi przychodu — nie ma czego dodać
-            # i nie jest to problem z kursem.
-            continue
-        priced += 1
-
-        client_pln, client_ok = amount_to_pln_with_rate(
-            client_amount, rates.get(client_currency)
-        )
-        if not client_ok:
-            missing.add(client_currency)
-            skipped_revenue += 1
-            skipped_margin += 1
-            continue
-        assert client_pln is not None
-        revenue += client_pln
-
-        if candidate_amount is None:
-            # Przychód bez kosztu: marża tego wiersza jest NIEZNANA, a nie
-            # równa przychodowi. Dodanie zera zawyżyłoby marżę firmy.
-            without_cost_leg += 1
-            continue
-
-        candidate_pln, candidate_ok = amount_to_pln_with_rate(
-            candidate_amount, rates.get(candidate_currency)
-        )
-        if not candidate_ok:
-            missing.add(candidate_currency)
-            skipped_margin += 1
-            continue
-        assert candidate_pln is not None
-        cost += candidate_pln
-        margin += client_pln - candidate_pln
-
-    headcount = summarize_active_contracts(contracts)
-    return _MoneyFold(
-        revenue=revenue,
-        cost=cost,
-        margin=margin,
-        priced_contracts=priced,
-        without_cost_leg=without_cost_leg,
-        consultants=headcount.contractors,
-        active_contracts=headcount.active_contracts,
-        missing_currencies=frozenset(missing),
-        skipped_revenue=skipped_revenue,
-        skipped_margin=skipped_margin,
-    )
-
-
 def _resolve(kind: str, offset: int, anchor, date_from, date_to) -> Period:
     try:
         return resolve_period(
@@ -361,7 +214,7 @@ def _delta(current, previous) -> dict:
         "current": current,
         "previous": previous,
         "delta": round(delta, 2) if isinstance(delta, float) else delta,
-        "change_pct": _ratio(delta, previous) if previous else None,
+        "change_pct": ratio(delta, previous) if previous else None,
     }
 
 
@@ -567,11 +420,11 @@ async def insights_board(
         db, {d: currencies for d in valuation_dates}
     )
 
-    current_fold = _fold_money(
-        _running_on(contracts, asof), asof, rates_by_date.get(asof, {})
+    current_fold = fold_money(
+        running_on(contracts, asof), asof, rates_by_date.get(asof, {})
     )
-    previous_fold = _fold_money(
-        _running_on(contracts, prev_asof), prev_asof, rates_by_date.get(prev_asof, {})
+    previous_fold = fold_money(
+        running_on(contracts, prev_asof), prev_asof, rates_by_date.get(prev_asof, {})
     )
 
     missing_currencies: set = set(current_fold.missing_currencies) | set(
@@ -585,8 +438,8 @@ async def insights_board(
     for month in months:
         month_asof = min(_last_day_inside(month), asof)
         month_key = month.start.strftime("%Y-%m")
-        fold = _fold_money(
-            _running_on(contracts, month_asof),
+        fold = fold_money(
+            running_on(contracts, month_asof),
             month_asof,
             rates_by_date.get(month_asof, {}),
         )
@@ -596,14 +449,14 @@ async def insights_board(
         trend_months.append(
             {
                 "month": month_key,
-                "label": f"{_MONTH_LABELS_PL[month.start.month - 1]} {month.start.year}",
+                "label": f"{MONTH_LABELS_PL[month.start.month - 1]} {month.start.year}",
                 # Dzień wyceny jest częścią odpowiedzi, bo bez niego nie da się
                 # sprawdzić, dlaczego ostatni słupek różni się od kafla.
                 "asof": month_asof.isoformat(),
                 "placements": placements_by_month.get(month_key, 0),
-                "revenue_monthly_pln": _money(fold.revenue),
-                "consultant_cost_monthly_pln": _money(fold.cost),
-                "margin_monthly_pln": _money(fold.margin),
+                "revenue_monthly_pln": money(fold.revenue),
+                "consultant_cost_monthly_pln": money(fold.cost),
+                "margin_monthly_pln": money(fold.margin),
                 "consultants": fold.consultants,
                 "active_contracts": fold.active_contracts,
                 "complete": fold.complete,
@@ -677,19 +530,19 @@ async def insights_board(
             "verified": counts.get("verified", 0),
             "cv_sent": counts.get("cv_sent", 0),
             "interview": counts.get("interview", 0),
-            "funnel_efficiency_pct": _ratio(placements, counts.get("verified", 0)),
+            "funnel_efficiency_pct": ratio(placements, counts.get("verified", 0)),
             "jobs_closed": jobs_closed,
             "jobs_closed_with_placement": jobs_closed_filled,
             # Definicja wypowiadalna jednym zdaniem — patrz docstring modułu p.2.
-            "hit_ratio_pct": _ratio(jobs_closed_filled, jobs_closed),
+            "hit_ratio_pct": ratio(jobs_closed_filled, jobs_closed),
             "hit_ratio_definition": CLOSED_JOBS_WITH_PLACEMENT,
             "finance": {
                 "asof": asof.isoformat(),
                 "basis": "mrr_from_rate_schedules",
-                "revenue_monthly_pln": _money(current_fold.revenue),
-                "consultant_cost_monthly_pln": _money(current_fold.cost),
-                "margin_monthly_pln": _money(current_fold.margin),
-                "margin_pct": _ratio(current_fold.margin, current_fold.revenue),
+                "revenue_monthly_pln": money(current_fold.revenue),
+                "consultant_cost_monthly_pln": money(current_fold.cost),
+                "margin_monthly_pln": money(current_fold.margin),
+                "margin_pct": ratio(current_fold.margin, current_fold.revenue),
                 "active_consultants": current_fold.consultants,
                 "active_contracts": current_fold.active_contracts,
                 "priced_contracts": current_fold.priced_contracts,
@@ -703,10 +556,10 @@ async def insights_board(
             "previous_asof": prev_asof.isoformat(),
             "placements": _delta(placements, prev_placements),
             "revenue_monthly_pln": _delta(
-                _money(current_fold.revenue), _money(previous_fold.revenue)
+                money(current_fold.revenue), money(previous_fold.revenue)
             ),
             "margin_monthly_pln": _delta(
-                _money(current_fold.margin), _money(previous_fold.margin)
+                money(current_fold.margin), money(previous_fold.margin)
             ),
             "active_consultants": _delta(
                 current_fold.consultants, previous_fold.consultants
@@ -719,4 +572,50 @@ async def insights_board(
         "degraded": degraded,
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/board/yoy")
+# Najdroższy endpoint całej powierzchni: trzy lata × dwanaście miesięcy to 36
+# wycen WSZYSTKICH kontraktów żywych w danym dniu, każda przez harmonogramy
+# stawek. Dlatego TTL jest dłuższy niż przy kaflach (15 min zamiast 5): tabela
+# opisuje zamknięte miesiące, które się już nie zmienią, a jedyny ruchomy
+# element to miesiąc bieżący.
+@limiter.limit("10/minute")
+async def insights_board_yoy(
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    end_year: Optional[int] = Query(
+        None, ge=2000, le=2100, description="ostatni rok siatki (domyślnie bieżący)"
+    ),
+    years: int = Query(
+        DEFAULT_YEARS,
+        ge=2,
+        le=MAX_YEARS,
+        description="ile lat wstecz łącznie z `end_year`",
+    ),
+):
+    """Tabele rok-do-roku Rady: miesiąc × rok dla każdej metryki.
+
+    Świadomie BEZ paska okresu — ta powierzchnia z definicji patrzy na pełne
+    lata kalendarzowe, a wpuszczenie tu `period`/`offset` dałoby siatkę
+    „ostatnie 12 miesięcy" podpisaną nazwami miesięcy, czyli dwie różne rzeczy
+    pod jedną etykietą. Okno wybiera się latami.
+
+    D7: KAŻDA zalogowana rola, bez redakcji kwot — jak reszta /insights.
+    """
+    resolved_years = resolve_years(end_year, years, _today_warsaw())
+    # Klucz niesie LATA i dzień — bez daty siatka z wczoraj wisiałaby przez TTL
+    # z wczorajszym miesiącem bieżącym.
+    today = _today_warsaw()
+    cache_key = (
+        f"insights:board:yoy:v1:{resolved_years[0]}-{resolved_years[-1]}:{today}"
+    )
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = await compute_board_yoy(db, resolved_years, today)
+    await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
     return result

@@ -301,9 +301,16 @@ async def gated_over_budget_fixture():
             description="Python backend engineer, FastAPI, PostgreSQL",
             requirements="python, fastapi, postgresql",
             hiring_manager_contact_id=None,
-            rate_budget_hourly=Decimal("100.00"),
+            # Budżet CELOWO poza realnym zakresem stawek (999 zł/h). Gałąź
+            # tag-fallback wybiera WSZYSTKICH niezablokowanych kandydatów
+            # z bazy (`select(Candidate).where(status != blacklisted)`), a baza
+            # testowa jest współdzielona w obrębie przebiegu — przy budżecie
+            # 100 zł/h asercja `hidden.over_budget == 0` mierzyła stawki
+            # kandydatów zasianych przez INNE pliki testowe i wywracała się
+            # zależnie od kolejności shardów, a nie od zachowania kodu.
+            rate_budget_hourly=Decimal("999.00"),
         )
-        # `warn` (NDA u klienta) i JEDNOCZEŚNIE stawka 300 PLN/h > budżet 100.
+        # `warn` (NDA u klienta) i JEDNOCZEŚNIE stawka ponad budżet.
         blocked = Candidate(
             name="Drogi",
             lastname=f"ZNDA{unique}",
@@ -311,7 +318,7 @@ async def gated_over_budget_fixture():
             status=CandidateStatus.active,
             skills=[{"name": "python"}, {"name": "fastapi"}],
             raw_cv_text="python fastapi postgresql",
-            expected_rate_hourly=Decimal("300.00"),
+            expected_rate_hourly=Decimal("1500.00"),
             expected_rate_currency="PLN",
         )
         db.add_all([job, blocked])
@@ -378,3 +385,133 @@ async def test_warn_over_budget_still_surfaces_with_reason(
     assert body["meta"]["hidden"]["over_budget"] == 0, (
         "warn nie może trafić do licznika over_budget — ma być wierszem z powodem"
     )
+
+
+# ── rubryka must-have (0278): ukrywanie na obu gałęziach ─────────────────────
+
+
+@pytest_asyncio.fixture
+async def gated_missing_must_fixture():
+    """Oferta z `must_skills=[python]`, kandydat WYŁĄCZNIE z `java` (ma sygnał,
+    ale nie ma wymaganego must) — plus kandydat `warn` (NDA) BEZ żadnego
+    sygnału umiejętności, który mimo braku must-have musi zostać widoczny."""
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"AIMatch MissingMust Client {unique}")
+        db.add(client)
+        await db.flush()
+
+        job = Job(
+            title=f"AIMatch MissingMust Job {unique}",
+            client_id=client.id,
+            description="Python backend engineer",
+            requirements="python",
+            hiring_manager_contact_id=None,
+            must_skills=[{"name": "python"}],
+        )
+        java_only = Candidate(
+            name="Java",
+            lastname=f"Only{unique}",
+            email=f"java-only-{unique}@example.com",
+            status=CandidateStatus.active,
+            skills=[{"name": "java"}],
+        )
+        warn_no_signal = Candidate(
+            # `warn` (NDA) bez żadnego sygnału umiejętności: rubryka must-have
+            # jest no-opem dla niego (nieznany przechodzi) I ZWOLNIONY z
+            # dealbreakerów jako `warn` — obie reguły osobno by go przepuściły.
+            name="Warn",
+            lastname=f"NoSignal{unique}",
+            email=f"warn-no-signal-{unique}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add_all([job, java_only, warn_no_signal])
+        await db.flush()
+
+        db.add(
+            CandidateConflict(
+                candidate_id=warn_no_signal.id,
+                client_id=client.id,
+                type=ConflictType.nda,
+                reason="pytest — NDA + brak must-have",
+                active=True,
+            )
+        )
+        await db.commit()
+        ids = (job.id, java_only.id, warn_no_signal.id, client.id)
+
+    yield ids
+
+    job_id, java_only_id, warn_id, client_id = ids
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
+        )
+        await db.execute(
+            delete(Candidate).where(Candidate.id.in_([java_only_id, warn_id]))
+        )
+        await db.execute(delete(Job).where(Job.id == job_id))
+        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_missing_must_hides_on_both_branches(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    gated_missing_must_fixture,
+    monkeypatch,
+):
+    job_id, java_only_id, warn_id, _client_id = gated_missing_must_fixture
+    _widen_pool(monkeypatch)
+
+    # Gałąź fallback (droga 3: pusty wynik Qdranta, cicho).
+    async def _no_hits(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _no_hits
+    )
+    resp_fallback = await app_client.get(
+        f"/api/jobs/{job_id}/ai-matches",
+        params={"min_score": 0.0, "limit": 500},
+        headers=app_auth_headers,
+    )
+    assert resp_fallback.status_code == 200, resp_fallback.text
+    body_fallback = resp_fallback.json()
+    assert body_fallback["search_type"] == "tag_fallback"
+    assert java_only_id not in _ids(body_fallback), (
+        "kandydat bez wymaganego must-have (python) nie może przejść fallbacku"
+    )
+    assert body_fallback["meta"]["hidden"]["missing_must"] == 1
+    warn_match = _match(body_fallback, warn_id)
+    assert warn_match is not None, (
+        "warn bez sygnału umiejętności musi zostać widoczny — must-have jest "
+        "no-opem bez sygnału, a warn jest ZWOLNIONY z dealbreakerów"
+    )
+    assert warn_match["eligibility"] is not None
+    assert warn_match["eligibility"]["assignment_allowed"] is False
+
+    # Gałąź semantyczna (prawdziwe trafienie z Qdranta).
+    async def _one_hit(*_a, **_kw):
+        return [
+            {"candidate_id": java_only_id, "score": 0.9},
+            {"candidate_id": warn_id, "score": 0.8},
+        ]
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _one_hit
+    )
+    resp_semantic = await app_client.get(
+        f"/api/jobs/{job_id}/ai-matches",
+        params={"min_score": 0.0, "limit": 500},
+        headers=app_auth_headers,
+    )
+    assert resp_semantic.status_code == 200, resp_semantic.text
+    body_semantic = resp_semantic.json()
+    assert body_semantic["search_type"] == "semantic"
+    assert java_only_id not in _ids(body_semantic)
+    assert body_semantic["meta"]["hidden"]["missing_must"] == 1
+    warn_match2 = _match(body_semantic, warn_id)
+    assert warn_match2 is not None and warn_match2["eligibility"] is not None

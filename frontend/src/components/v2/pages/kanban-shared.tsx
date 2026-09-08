@@ -41,6 +41,9 @@ export interface KanbanItem {
  expected_rate_unit?: RateUnit | null;
  expected_rate_currency?: string | null;
  budget_max_at_move?: number | null;
+ // Reakcja kandydata na ofertę (migracja 0066) — zapisywana przy wycofaniu po
+ // akceptacji. `null`/brak = nie zapisano; `pending` to JAWNE „czekamy”.
+ candidate_offer_response?: "pending" |"accepted" |"declined" | null;
  // Hiring manager tej oferty odrzucił już tego kandydata po rozmowie na innej
  // rekrutacji. Manager jest domyślny (to manager tej oferty), więc chip nie
  // niesie nazwiska — kto/kiedy/dlaczego siedzi w tooltipie.

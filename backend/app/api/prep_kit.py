@@ -166,11 +166,17 @@ async def generate_prep_kit(
     # 1. CLIENT OVERVIEW
     client_name = client.name if client else "Klient"
     client_industry = getattr(client, "industry", None) or "IT"
+    # 0278: remote_policy jest nullable (bez domyślnej "hybrid" po stronie
+    # bazy/schematu) — brak wartości NIE jest równoznaczny z hybrydą, więc
+    # fallback musi nazwać brak danych, nie zgadywać tryb.
     job_remote = {
         "onsite": "praca stacjonarna",
         "hybrid": "tryb hybrydowy",
         "remote": "praca zdalna",
-    }.get(job.remote_policy.value if job.remote_policy else "hybrid", "tryb hybrydowy")
+    }.get(
+        job.remote_policy.value if job.remote_policy else None,
+        "tryb pracy do potwierdzenia",
+    )
 
     salary_info = _salary_info_for_overview(
         job,

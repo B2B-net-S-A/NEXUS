@@ -35,7 +35,9 @@ dla których odmawia go warstwa salary (brak polityki konwersji).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Sequence
+
+from app.core.config import settings
 
 
 def resolve_job_budget_hourly(job) -> Optional[float]:
@@ -109,15 +111,205 @@ def remote_only_refuses_office(candidate) -> bool:
     return prefs.get("remote_only") is True
 
 
+@dataclass(frozen=True)
+class DealbreakerInputs:
+    """Rubryki JEDNEGO wyszukiwania, już rozwiązane. Czyste dane: bez ORM, bez `Job`.
+
+    Konstruowane RAZ na wyszukiwanie (`dealbreaker_inputs_for_job` dla ofert,
+    `dealbreaker_inputs_for_radar` dla Talent Radaru) i przekazywane do
+    `apply_dealbreakers` — dzięki temu bramka nigdy nie musi wiedzieć, skąd
+    wzięły się liczby ani czy chodzi o prawdziwą ofertę, czy o efemeryczne
+    zapytanie radaru.
+    """
+
+    budget_hourly: Optional[float] = None
+    must_skills: tuple[
+        str, ...
+    ] = ()  # kanoniczne, TYLKO jawne (patrz job_explicit_must_skills)
+    onsite_days_per_week: Optional[int] = None
+    office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
+    wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
+
+    @property
+    def requires_office_days(self) -> bool:
+        return (self.onsite_days_per_week or 0) > 0
+
+
+def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
+    """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
+
+    Pusta `must` → `[]` (nie ma czego wymagać). Kandydat bez ŻADNEGO sygnału
+    umiejętności (`candidate_skill_names` puste — ani `skills`, ani
+    `verified_tech`, ani CV, ani tagi) → `[]` też: brak danych nie jest dowodem
+    niedopasowania, tylko brakiem wiedzy. Porównanie idzie przez `skill_present`
+    (tolerancja `postgresql`/`postgres`, `node.js`/`nodejs`) — TĘ SAMĄ funkcję,
+    której używają chipy ✓/✗ na `/ai-matches`.
+    """
+    if not must:
+        return []
+    from app.services.scoring_service import candidate_skill_names, skill_present
+
+    cand_skills = candidate_skill_names(candidate)
+    if not cand_skills:
+        return []
+    return [m for m in must if not skill_present(m, cand_skills)]
+
+
+def office_days_exceeded(candidate, required_days: Optional[int]) -> bool:
+    """True TYLKO gdy wymagane dni > 0 i znana deklaracja kandydata jest niższa.
+
+    Kandydat bez zapisanej deklaracji (`max_onsite_days_per_week is None`)
+    przechodzi — „nieznany przechodzi" tak samo jak przy budżecie.
+    """
+    if not required_days or required_days <= 0:
+        return False
+    cand_days = getattr(candidate, "max_onsite_days_per_week", None)
+    if not isinstance(cand_days, int) or isinstance(cand_days, bool):
+        return False
+    return cand_days < required_days
+
+
+def office_city_mismatch(
+    candidate, office_tokens: frozenset[str], *, required_days: Optional[int]
+) -> bool:
+    """True TYLKO gdy oferta wymaga dni w biurze, ma zadeklarowane miasto,
+    kandydat ma ZNANE tokeny biura (`candidate_office_tokens`) i żaden nie
+    pokrywa się z miastem oferty.
+
+    Brak wymaganych dni, brak miasta oferty lub brak znanej lokalizacji
+    kandydata — w każdym z tych przypadków „nie wiemy", więc przechodzi.
+    """
+    if not required_days or required_days <= 0:
+        return False
+    if not office_tokens:
+        return False
+    from app.services.location_utils import candidate_office_tokens, tokens_overlap
+
+    cand_tokens = candidate_office_tokens(candidate)
+    if not cand_tokens:
+        return False
+    return not tokens_overlap(set(office_tokens), cand_tokens)
+
+
+def resolve_effective_remote_policy(job) -> Optional[str]:
+    """Tryb pracy dla rubryk: kolumna oferty, a w jej braku — profil Championa.
+
+    `job.remote_policy` wygrywa zawsze, gdy ustawiona — tak jak
+    `resolve_job_budget_hourly` traktuje kolumnę stawki. Fallback do Championa
+    działa TYLKO za `CHAMPION_MATCH_SIGNALS_ENABLED` (ta sama flaga, pod którą
+    warstwa scoringu — `scoring_service._score_location` — już stosuje ten
+    sygnał): bez niej silnik i tak by go nie użył, więc bramka nie miałaby
+    czego egzekwować.
+    """
+    explicit = getattr(job, "remote_policy", None)
+    value = getattr(explicit, "value", explicit)
+    if value:
+        return value
+    if not bool(getattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False)):
+        return None
+    from app.services import champion_view
+    from app.services.champion_job_sync import champion_work_mode_to_remote
+
+    return champion_work_mode_to_remote(champion_view.basics(job).get("work_mode"))
+
+
+def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
+    """Rozwiąż rubryki JEDNEJ oferty raz, dla wszystkich pięciu powierzchni.
+
+    Kolumny oferty (0278: `rate_budget_hourly`, `must_skills`,
+    `onsite_days_per_week`, `location`) wygrywają zawsze, gdy ustawione. Profil
+    Championa wypełnia braki TYLKO za `CHAMPION_MATCH_SIGNALS_ENABLED` — silnik
+    scoringu stosuje ten sam sygnał pod tą samą flagą (poza must-have: Tier 0
+    Championa jest bezwarunkowy, patrz `job_explicit_must_skills`), więc bramka
+    i punktacja patrzą na to samo. Każdy odczyt idzie przez `getattr`: obiekt
+    bez nowych atrybutów (stary stub testowy, oferta efemeryczna sprzed tej
+    flagi) daje `None`/puste, nigdy `AttributeError`.
+    """
+    from app.services.location_utils import location_tokens
+    from app.services.scoring_service import job_explicit_must_skills
+
+    budget = resolve_job_budget_hourly(job)
+    must = tuple(job_explicit_must_skills(job))
+
+    days = getattr(job, "onsite_days_per_week", None)
+    office_location = getattr(job, "location", None)
+
+    if bool(getattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False)):
+        from app.services import champion_view
+
+        champion = getattr(job, "champion_profile", None)
+        champion = champion if isinstance(champion, dict) else {}
+        if days is None:
+            champ_days = champion_view.basics(job).get("onsite_days_per_week")
+            if isinstance(champ_days, int) and not isinstance(champ_days, bool):
+                days = champ_days
+        if not office_location:
+            basics_raw = champion.get("basics")
+            basics_raw = basics_raw if isinstance(basics_raw, dict) else {}
+            office_location = basics_raw.get("candidate_location_pref") or champion.get(
+                "location"
+            )
+
+    office_tokens = frozenset(location_tokens(office_location))
+    policy = resolve_effective_remote_policy(job)
+    wants_office = bool(days and days > 0) or policy in ("onsite", "hybrid")
+
+    return DealbreakerInputs(
+        budget_hourly=budget,
+        must_skills=must,
+        onsite_days_per_week=days,
+        office_tokens=office_tokens,
+        wants_office=wants_office,
+    )
+
+
+def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
+    """`"ok" | "over_budget" | "unknown"` — status stawki dla etykiety wiersza."""
+    if inputs.budget_hourly is None:
+        return "unknown"
+    cand_rate = _candidate_rate_pln_hourly(candidate)
+    if cand_rate is None:
+        return "unknown"
+    return "over_budget" if cand_rate > inputs.budget_hourly else "ok"
+
+
+def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
+    """`"ok" | "days_exceeded" | "city_mismatch" | "unknown" | "not_required"`.
+
+    `"not_required"` gdy oferta w ogóle nie wymaga jawnej liczby dni w biurze —
+    odróżnia „biuro nas nie dotyczy" od „nie wiemy, ile dni".
+    """
+    if not inputs.requires_office_days:
+        return "not_required"
+    if office_days_exceeded(candidate, inputs.onsite_days_per_week):
+        return "days_exceeded"
+    if office_city_mismatch(
+        candidate, inputs.office_tokens, required_days=inputs.onsite_days_per_week
+    ):
+        return "city_mismatch"
+    cand_days = getattr(candidate, "max_onsite_days_per_week", None)
+    if not isinstance(cand_days, int) or isinstance(cand_days, bool):
+        return "unknown"
+    return "ok"
+
+
 @dataclass
 class DealbreakerResult:
     kept: list = field(default_factory=list)
     hidden_over_budget: int = 0
+    hidden_missing_must: int = 0
+    hidden_office_days_exceeded: int = 0
+    hidden_office_city_mismatch: int = 0
     hidden_remote_only: int = 0
 
     def hidden_meta(self) -> dict:
+        # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
+        # (budżet → must-have → dni w biurze → miasto → tylko-zdalnie).
         return {
             "over_budget": self.hidden_over_budget,
+            "missing_must": self.hidden_missing_must,
+            "office_days_exceeded": self.hidden_office_days_exceeded,
+            "office_city_mismatch": self.hidden_office_city_mismatch,
             "remote_only": self.hidden_remote_only,
         }
 
@@ -125,9 +317,13 @@ class DealbreakerResult:
 def apply_dealbreakers(
     candidates: list,
     *,
+    inputs: Optional[DealbreakerInputs] = None,
     exclude_over_budget: bool = True,
     budget_hourly: Optional[float] = None,
-    exclude_remote_only: bool = False,
+    exclude_remote_only: Optional[bool] = None,
+    exclude_missing_must: bool = True,
+    exclude_office_days_exceeded: bool = True,
+    exclude_office_city_mismatch: bool = True,
 ) -> DealbreakerResult:
     """Przefiltruj listę kandydatów switchami; policz ukrytych per powód.
 
@@ -135,14 +331,76 @@ def apply_dealbreakers(
     znany budżet działa Z AUTOMATU jako dealbreaker (konsument może go jawnie
     wyłączyć, żeby pokazać też przekraczających). Bez znanego budżetu filtr
     jest no-opem — brak budżetu po stronie oferty to także „nie wiemy",
-    nie powód do ukrywania. Kolejność powodów jest deterministyczna (budżet
-    przed biurem), żeby kandydat łapiący oba nie migrował między licznikami.
+    nie powód do ukrywania.
+
+    Trzy nowe rubryki (0278) mają domyślnie WŁĄCZONE ukrywanie
+    (``exclude_missing_must`` / ``exclude_office_days_exceeded`` /
+    ``exclude_office_city_mismatch``), ale każda jest no-opem bez danych do
+    porównania: pusta ``inputs.must_skills`` nie ukrywa nikogo, a dni/miasto
+    działają WYŁĄCZNIE gdy ``inputs.requires_office_days`` (dni > 0).
+
+    ``exclude_remote_only`` domyślnie ``None`` = AUTO: gdy nie podane jawnie,
+    rozwiązuje się z ``inputs.wants_office`` — oferta, która chce biura
+    (kolumna/Champion/dni > 0), automatycznie ukrywa zadeklarowane „wyłącznie
+    zdalnie". Jawne ``True``/``False`` zawsze wygrywa (istniejący kontrakt
+    sprzed rubryk — C2 na ``/ai-matches`` liczy to jawnie).
+
+    ``budget_hourly`` (legacy) nadpisuje ``inputs.budget_hourly``, gdy podane —
+    zgodność wsteczna z wywołaniami sprzed 0278, które nie znają ``inputs``.
+
+    Kolejność powodów jest deterministyczna i STAŁA: budżet → must-have →
+    dni w biurze → miasto biura → tylko-zdalnie. Pierwszy pasujący powód
+    wygrywa — kandydat łapiący kilka naraz nie migruje między licznikami.
+
+    Kill-switch ``settings.RUBRIC_DEALBREAKERS_ENABLED`` (default ``True``):
+    przy ``False`` trzy nowe predykaty są no-opem, a AUTO ``exclude_remote_only``
+    (czyli ``None`` → ``wants_office``) rozwiązuje się do ``False`` — dokładnie
+    przedwczesne zachowanie. Jawnie przekazane ``exclude_remote_only`` NIE jest
+    dotykane: reguła C2 na ``/ai-matches`` przeżywa wyłącznik.
     """
+    rubrics_enabled = bool(getattr(settings, "RUBRIC_DEALBREAKERS_ENABLED", True))
+    if not rubrics_enabled:
+        exclude_missing_must = False
+        exclude_office_days_exceeded = False
+        exclude_office_city_mismatch = False
+        if exclude_remote_only is None:
+            exclude_remote_only = False
+
+    effective_inputs = inputs if inputs is not None else DealbreakerInputs()
+    effective_budget = (
+        budget_hourly if budget_hourly is not None else effective_inputs.budget_hourly
+    )
+    if exclude_remote_only is None:
+        exclude_remote_only = bool(effective_inputs.wants_office)
+
     result = DealbreakerResult()
-    budget_active = exclude_over_budget and budget_hourly is not None
+    budget_active = exclude_over_budget and effective_budget is not None
+    must_active = exclude_missing_must and bool(effective_inputs.must_skills)
+    days_active = exclude_office_days_exceeded and effective_inputs.requires_office_days
+    city_active = (
+        exclude_office_city_mismatch
+        and effective_inputs.requires_office_days
+        and bool(effective_inputs.office_tokens)
+    )
+
     for candidate in candidates:
-        if budget_active and budget_excludes(candidate, budget_hourly):
+        if budget_active and budget_excludes(candidate, effective_budget):
             result.hidden_over_budget += 1
+            continue
+        if must_active and missing_must_skills(candidate, effective_inputs.must_skills):
+            result.hidden_missing_must += 1
+            continue
+        if days_active and office_days_exceeded(
+            candidate, effective_inputs.onsite_days_per_week
+        ):
+            result.hidden_office_days_exceeded += 1
+            continue
+        if city_active and office_city_mismatch(
+            candidate,
+            effective_inputs.office_tokens,
+            required_days=effective_inputs.onsite_days_per_week,
+        ):
+            result.hidden_office_city_mismatch += 1
             continue
         if exclude_remote_only and remote_only_refuses_office(candidate):
             result.hidden_remote_only += 1

@@ -89,7 +89,11 @@ class InterviewFeedbackUpdate(BaseModel):
 
 class InterviewFeedbackOut(BaseModel):
     id: int
-    calendar_event_id: int
+    # NULL od migracji 0278: werdykty hiring managera zapisywane z karty
+    # rekrutacji (`POST /jobs/{id}/hiring-manager-feedback`) nie mają
+    # wydarzenia w kalendarzu. `int` wywalałby serializację CAŁEJ listy
+    # (`ResponseValidationError` → 500) przy pierwszym takim wierszu.
+    calendar_event_id: Optional[int]
     candidate_id: int
     job_id: Optional[int]
     author_id: Optional[int]
@@ -295,7 +299,9 @@ async def update_feedback(
         setattr(fb, field, value)
 
     await db.flush()
-    await _clear_needs_attention(db, fb.calendar_event_id)
+    # Werdykt HM z karty rekrutacji nie ma wydarzenia — nie ma czego odznaczać.
+    if fb.calendar_event_id is not None:
+        await _clear_needs_attention(db, fb.calendar_event_id)
     try:
         await apply_post_feedback_actions(db, fb)
     except Exception:  # noqa: BLE001

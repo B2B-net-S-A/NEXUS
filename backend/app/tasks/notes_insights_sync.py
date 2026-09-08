@@ -178,6 +178,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "skills_added": 0,
         "rate_written": 0,
         "rate_updated": 0,
+        "onsite_days_filled": 0,
         "quota_blocked": 0,
     }
     stale = await _select_stale_candidates(limit)
@@ -226,6 +227,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     "skills_added",
                     "rate_written",
                     "rate_updated",
+                    "onsite_days_filled",
                 ):
                     stats[key] += row_stats.get(key, 0)
                 if row_stats.get("changed"):

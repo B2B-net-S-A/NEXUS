@@ -27,6 +27,11 @@ _READY_CHAMPION = {
         {"id": "q1", "question": "Doświadczenie z Pythonem?"},
         {"id": "q2", "question": "Doświadczenie z Postgres?"},
     ],
+    # 0278: sekcje rubryk (must-have / budżet / tryb pracy) — obok jawnych
+    # kolumn ustawianych w `_seed_job` (na wypadek testów, które PUT-ują ten
+    # słownik jako nowy profil zamiast polegać na kolumnach z seeda).
+    "stack": {"must": [{"name": "Python"}]},
+    "basics": {"rate_value": 150, "work_mode": "zdalnie"},
 }
 
 
@@ -42,7 +47,7 @@ async def _seed_client() -> int:
 
 
 async def _seed_job(*, champion: dict | None = None, status=None) -> int:
-    from app.models.job import Job, JobStatus
+    from app.models.job import Job, JobStatus, RemotePolicy
 
     client_id = await _seed_client()
     async with AsyncSessionLocal() as db:
@@ -51,6 +56,16 @@ async def _seed_job(*, champion: dict | None = None, status=None) -> int:
             status=status or JobStatus.published,
             client_id=client_id,
             champion_profile=champion,
+            # 0278: kolumny jawne, NIEZALEŻNE od CHAMPION_MATCH_SIGNALS_ENABLED
+            # (w testach domyślnie False) — bramka gotowości ma trzy dodatkowe
+            # rubryki, a te testy sprawdzają ścieżkę Championa (kontekst +
+            # pytania), nie te rubryki. `champion=None` przypadki (test
+            # „zablokowane bez Championa") i tak zostają zablokowane przez
+            # brakujący kontekst/pytania — dodatkowe „gotowe" kolumny im nie
+            # przeszkadzają.
+            remote_policy=RemotePolicy.remote,
+            rate_budget_hourly=150,
+            must_skills=[{"name": "Python"}],
         )
         db.add(job)
         await db.commit()

@@ -30,7 +30,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.job import Job
 from app.models.ai_feature import AIFeatureKey
+from app.services import champion_view
 from app.services.ai_models import model_for
+from app.services.champion_job_sync import fill_job_columns_from_champion
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +305,7 @@ async def ingest_parsed_profile(
         "champion_written": False,
         "must_written": False,
         "nice_written": False,
+        "columns_filled": [],
     }
 
     changed = False
@@ -344,6 +347,20 @@ async def ingest_parsed_profile(
             job.nice_skills = skills
             outcome["nice_written"] = True
             changed = True
+
+    # Sekcja 1 „Podstawowe informacje" ma odpowiednik w KOLUMNACH oferty
+    # (budżet, dni w biurze, tryb pracy, miasto biura — 0278). Bez tego
+    # ingest z pliku wypełniał JSONB, ale scoring/dealbreakery/bramka
+    # handoffu (które czytają kolumny, nie profil) nic z tego nie widziały —
+    # dokładnie ta sama luka co przy zapisie z edytora UI
+    # (`update_champion_profile`). `champion_view.basics(job)` czyta profil,
+    # który już leży na `job` (świeżo zbudowany wyżej albo istniejący od
+    # wcześniej) — działa niezależnie od tego, którym z dwóch kształtów
+    # JSONB jest zapisany (stary płaski / nowy sekcyjny).
+    filled = fill_job_columns_from_champion(job, champion_view.basics(job))
+    if filled:
+        outcome["columns_filled"] = filled
+        changed = True
 
     # Werdykt na KOŃCU, ze stanu faktycznego: "champion_skipped_nonempty"
     # wyłącznie gdy profil już był I nic innego nie dopisaliśmy — outcome

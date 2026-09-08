@@ -1466,6 +1466,16 @@ async def list_generated_contracts(
         None,
         description="Filtr powodu zakończenia projektu (zakładki bez projektu / zakończone).",
     ),
+    job_id: int | None = Query(
+        None,
+        gt=0,
+        description=(
+            "Umowy powiązane z jedną rekrutacją — krok 08 „Umowa” na ekranie "
+            "rekrutacji. Bez tego filtra karta zamknięcia czytałaby tylko "
+            "najnowsze `limit` wierszy REJESTRU i gubiła umowę starszą niż "
+            "widoczna strona."
+        ),
+    ),
     start_from: date | None = Query(
         None, description="Data rozpoczęcia usług OD (włącznie)."
     ),
@@ -1556,6 +1566,8 @@ async def list_generated_contracts(
         query = query.where(B2BGeneratedContract.contract_status.in_(statuses))
     if closure_reason:
         query = query.where(B2BGeneratedContract.closure_reason == closure_reason)
+    if job_id is not None:
+        query = query.where(B2BGeneratedContract.job_id == job_id)
 
     # Koniunkcja z `q` i `contract_status` wychodzi sama: każdy filtr dokłada
     # własne `.where(...)`, a SQLAlchemy łączy je AND-em. Wiersze bez

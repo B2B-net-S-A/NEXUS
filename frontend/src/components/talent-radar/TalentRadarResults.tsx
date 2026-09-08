@@ -21,6 +21,7 @@ import {
 } from "@/components/ds";
 import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { HIDDEN_LABELS_PL, type HiddenReason } from "@/lib/api";
 import { encodeTalentRadarBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
@@ -196,29 +197,22 @@ export function TalentRadarResults({
         zaproponować temu klientowi. Pokazujemy{" "}
         <strong>{meta.returned.toLocaleString("pl-PL")}</strong> najlepiej
         dopasowanych.
-        {(meta.hidden?.over_budget ?? 0) > 0 && (
-          <>
-            {" "}
-            <span
-              className="font-medium text-amber-700 dark:text-amber-400"
-              data-testid="tr-hidden-over-budget"
-            >
-              Ukryto {meta.hidden!.over_budget!.toLocaleString("pl-PL")} poza
-              budżetem.
-            </span>
-          </>
-        )}
-        {(meta.hidden?.remote_only ?? 0) > 0 && (
-          <>
-            {" "}
-            <span
-              className="font-medium text-amber-700 dark:text-amber-400"
-              data-testid="tr-hidden-remote-only"
-            >
-              Ukryto {meta.hidden!.remote_only!.toLocaleString("pl-PL")}{" "}
-              „wyłącznie zdalnych”.
-            </span>
-          </>
+        {(Object.entries(HIDDEN_LABELS_PL) as [HiddenReason, string][]).map(
+          ([reason, label]) => {
+            const count = meta.hidden?.[reason] ?? 0;
+            if (count <= 0) return null;
+            return (
+              <span key={reason}>
+                {" "}
+                <span
+                  className="font-medium text-amber-700 dark:text-amber-400"
+                  data-testid={`tr-hidden-${reason}`}
+                >
+                  Ukryto {count.toLocaleString("pl-PL")} — {label}.
+                </span>
+              </span>
+            );
+          },
         )}
       </p>
 

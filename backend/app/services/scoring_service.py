@@ -35,6 +35,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.services import champion_view
+from app.services.champion_job_sync import champion_work_mode_to_remote
 from app.services.location_utils import location_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
@@ -702,6 +703,52 @@ def _skill_scan_cap(job) -> Optional[int]:
 _RAW_CV_SKILL_SCAN_CAP_DEFAULT = 4000
 
 
+def _champion_stack_must_names(job: Job) -> list[str]:
+    """Sekcja 3 „Stack technologiczny" Championa — wymagania PODANE WPROST.
+
+    Wyodrębnione z `_extract_skills_from_champion` (Tier 0), bo TWARDA bramka
+    (`dealbreaker_filters.job_explicit_must_skills`) potrzebuje TEGO SAMEGO
+    sygnału co miękka warstwa scoringu — inaczej bramka i punktacja liczyłyby
+    „must-have" z dwóch różnych źródeł.
+
+    Nazwy spoza taksonomii przechodzą DALEJ, surowe (oryginalna wielkość
+    liter): alias map zna 153 kanoniczne skille i 277 aliasów, a Delivery Lead
+    wpisujący technologię, której tam nie ma, opisuje realne wymaganie, nie
+    literówkę. Odsianie ich tutaj zamieniłoby jawnie podane wymaganie w ciszę.
+    """
+    stack_names: list[str] = []
+    for item in champion_view.stack(job).get("must") or []:
+        name = item.get("name") if isinstance(item, dict) else item
+        if isinstance(name, str) and name.strip():
+            stack_names.append(ALIAS_MAP.get(name.strip().lower(), name.strip()))
+    if not stack_names:
+        return []
+    seen: set[str] = set()
+    return [n for n in stack_names if not (n in seen or seen.add(n))]
+
+
+def job_explicit_must_skills(job) -> list[str]:
+    """Wymagania must PODANE WPROST: kolumna oferty albo Tier 0 Championa.
+
+    Świadomie WĘŻSZE niż `_extract_skills_from_champion`, który dochodzi aż do
+    Tier 3 (regex po prozie JD). Dla TWARDEJ bramki (dealbreaker, gotowość
+    handoffu) liczy się wyłącznie to, co ktoś jawnie WPISAŁ — jawnym polem
+    oferty albo listą w sekcji „Stack technologiczny" Championa — nigdy
+    wymaganie WYWIEDZIONE zgadywaniem z opisu, które zostaje sygnałem
+    WYŁĄCZNIE dla warstwy punktowej (`_score_skills`). Nie jest gated przez
+    `CHAMPION_MATCH_SIGNALS_ENABLED`: `_score_skills` czyta Tier 0 bezwarunkowo
+    (patrz `_extract_skills_from_champion`), więc bramka egzekwuje dokładnie
+    to, co silnik i tak już punktuje jako must.
+
+    `getattr` na wejściu: obiekt bez `must_skills` (np. atrapa testowa) daje
+    pustą listę zamiast `AttributeError`.
+    """
+    explicit = canonical_skill_names(getattr(job, "must_skills", None))
+    if explicit:
+        return explicit
+    return canonical_skill_names(_champion_stack_must_names(job))
+
+
 def _extract_skills_from_champion(job: Job) -> list[dict]:
     """Return [{name: canonical}, ...] derived from job narrative text.
 
@@ -726,20 +773,9 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
     # długie opowiadanie, bo im więcej prozy, tym więcej trafień. Gdy sekcja 3
     # jest wypełniona, nie ma czego zgadywać, więc krótkie „O projekcie" nie
     # kosztuje już ani jednego skilla.
-    #
-    # Nazwy spoza taksonomii przechodzą DALEJ, surowe: alias map zna 153
-    # kanoniczne skille i 277 aliasów, a Delivery Lead wpisujący technologię,
-    # której tam nie ma, opisuje realne wymaganie, nie literówkę. Odsianie ich
-    # tutaj zamieniłoby jawnie podane wymaganie w ciszę.
-    stack_names: list[str] = []
-    for item in champion_view.stack(job).get("must") or []:
-        name = item.get("name") if isinstance(item, dict) else item
-        if isinstance(name, str) and name.strip():
-            stack_names.append(ALIAS_MAP.get(name.strip().lower(), name.strip()))
+    stack_names = _champion_stack_must_names(job)
     if stack_names:
-        seen: set[str] = set()
-        unique = [n for n in stack_names if not (n in seen or seen.add(n))]
-        return [{"name": n} for n in unique]
+        return [{"name": n} for n in stack_names]
 
     # Dopiero TERAZ wymagamy taksonomii — i ani chwili wcześniej. Tier 0 czyta
     # listę wpisaną ręcznie, więc regex aliasów nie jest mu do niczego potrzebny;
@@ -928,6 +964,32 @@ def candidate_skill_names(candidate) -> set[str]:
     return cand
 
 
+def _canon_skill(s: str) -> str:
+    """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
+    and a few well-known suffix variants so e.g. ``postgresql``/``postgres``
+    and ``node.js``/``nodejs`` compare equal).
+
+    Przeniesione z `app.api.matching` (0278): dealbreaker rubryki must-have
+    (`dealbreaker_filters.missing_must_skills`) potrzebuje TEJ SAMEJ tolerancji
+    porównania co chipy ✓/✗ na `/ai-matches` — inaczej bramka i wiersz
+    rankingu mogłyby się nie zgadzać co do tego, czy dany skill jest obecny.
+    """
+    canon = "".join(ch for ch in s.lower() if ch.isalnum())
+    for a, b in (("postgresql", "postgres"), ("nodejs", "node")):
+        if canon == a:
+            canon = b
+    return canon
+
+
+def skill_present(required: str, candidate_skills) -> bool:
+    """True if a required skill is present among the candidate's skills, using
+    exact match plus tolerant canonicalization for common name variants."""
+    if required in candidate_skills:
+        return True
+    req_canon = _canon_skill(required)
+    return any(_canon_skill(c) == req_canon for c in candidate_skills)
+
+
 def _score_skills(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> tuple[LayerResult, List[str], List[str], List[str], List[str]]:
@@ -1059,15 +1121,6 @@ def _notes_insights(candidate: Candidate) -> dict:
     return insights if isinstance(insights, dict) else {}
 
 
-# Tryb pracy z dokumentu Championa → słownik remote_policy używany przez
-# warstwę lokalizacji po stronie kandydata (preferences.remote_modes).
-_CHAMPION_WORK_MODE_TO_REMOTE = {
-    "zdalnie": "remote",
-    "hybrydowo": "hybrid",
-    "stacjonarnie": "onsite",
-}
-
-
 def _score_salary(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
@@ -1182,7 +1235,7 @@ def _score_location(
         # rekruter zapisał twardy warunek, którego nie wolno zgubić.
         if not job_remote:
             champion_mode = _champion_dict(job).get("work_mode")
-            job_remote = _CHAMPION_WORK_MODE_TO_REMOTE.get(champion_mode)
+            job_remote = champion_work_mode_to_remote(champion_mode)
         if not remote_modes:
             pref = _notes_insights(candidate).get("preferences")
             # isinstance, nie .get w łańcuchu: dane kształtuje AI i "preferences"

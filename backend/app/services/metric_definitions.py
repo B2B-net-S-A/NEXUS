@@ -34,8 +34,31 @@ CLOSED_JOBS_WITH_PLACEMENT = "closed_jobs_with_at_least_one_placement"
 # To druga rodzina atrybucji — ta, która niesie pieniądze (KPI, konkursy).
 VERIFIER_ANCHORED_MILESTONES = "verifier_anchored_milestones"
 
+# Zejście kontraktora: kontrakt zakończony, datowany dniem faktycznego
+# rozstania (`COALESCE(terminated_at, end_date)`) — wypowiedzenie przed czasem
+# liczy się w swoim miesiącu, nie w pierwotnym terminie umowy.
+CONTRACTOR_DEPARTURE = "ended_contracts_by_effective_end_date"
+
+# Rezygnacja: PODZBIÓR zejść z powodem po stronie kontraktora
+# (`consultant_resigned`, `better_offer`, `personal_reasons`).
+CONTRACTOR_RESIGNATION = "ended_contracts_with_contractor_side_reason"
+
+# Marża na godzinę, ważona, wyłącznie z kontraktów o znanym wymiarze godzin.
+MARGIN_PER_BILLABLE_HOUR = "margin_per_billable_hour_known_units_only"
+
+# Udział największego klienta w placementach miesiąca.
+TOP_CLIENT_SHARE = "top_client_share_of_monthly_placements"
+
+# Liczba klientów z co najmniej jednym placementem w miesiącu.
+DISTINCT_CLIENTS_WITH_PLACEMENT = "distinct_clients_with_at_least_one_placement"
+
 __all__ = [
     "CLOSED_JOBS_WITH_PLACEMENT",
+    "CONTRACTOR_DEPARTURE",
+    "CONTRACTOR_RESIGNATION",
+    "DISTINCT_CLIENTS_WITH_PLACEMENT",
+    "MARGIN_PER_BILLABLE_HOUR",
+    "TOP_CLIENT_SHARE",
     "FIRST_HIRED_PER_CANDIDATE_JOB",
     "VERIFIER_ANCHORED_MILESTONES",
 ]

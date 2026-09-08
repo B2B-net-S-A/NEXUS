@@ -1,19 +1,37 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
-import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
+import api, {
+  postingsApi,
+  aiWriterApi,
+  matchingApi,
+  phase3Api,
+  recommendationsApi,
+  hiddenTotal as computeHiddenTotal,
+  HIDDEN_LABELS_PL,
+  type HiddenReason,
+} from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
+import {
+  selectPendingVerifications,
+  selectScreeningQueue,
+  selectVerifiedQueue,
+} from "@/lib/pipeline-flow";
+import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
+import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
+import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
+import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
@@ -49,6 +67,9 @@ import {
   JobDetailCompactHeader,
   type JobDetailTab,
 } from "@/components/v2/jobs/JobDetailCompactHeader";
+import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
+import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
+import { isContractStage, isInterviewStage } from "@/lib/job-flow-stages";
 import { Badge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -903,8 +924,15 @@ function AIMatchingSection({
   // dopuszczalności NIE trafia tu: `warn` są widoczni z powodem na wierszu,
   // a `hidden` (globalna blacklista) świadomie nie są liczeni (wyrocznia NDA).
   const hiddenMeta = data?.meta?.hidden;
-  const hiddenTotal =
-    (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
+  const hiddenTotal = computeHiddenTotal(hiddenMeta);
+  // Rozbicie „ukryto N" per powód (0278: pięć rubryk) — jedno zdanie,
+  // renderowane tylko z powodami, które faktycznie coś ukryły.
+  const hiddenBreakdown = (
+    Object.entries(HIDDEN_LABELS_PL) as [HiddenReason, string][]
+  )
+    .filter(([reason]) => (hiddenMeta?.[reason] ?? 0) > 0)
+    .map(([reason, label]) => `${label}: ${hiddenMeta?.[reason]}`)
+    .join(", ");
   const niceSkills: string[] = data?.nice_skills ?? [];
   const budgetHourly = data?.meta?.budget_hourly ?? null;
 
@@ -1358,13 +1386,7 @@ function AIMatchingSection({
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Ukryto <strong>{hiddenTotal}</strong>
-                {hiddenMeta?.over_budget
-                  ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
-                  : ""}
-                {hiddenMeta?.remote_only
-                  ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
-                  : ""}
-                .
+                {hiddenBreakdown ? `: ${hiddenBreakdown}` : ""}.
               </span>
               <span className="text-muted-foreground">
                 Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
@@ -1470,12 +1492,28 @@ function AIMatchingSection({
                 const mustTotal = requiredSkills.length;
                 const mustHit = (match.matching_skills ?? []).length;
                 const rate = c.expected_rate_hourly as number | null | undefined;
+                // Rubryki 0278: `match.rate_fit` jest autorytatywne (ten sam
+                // status, którego używa dealbreaker — uwzględnia też walutę),
+                // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
                 const rateBand =
-                  rate == null || budgetHourly == null
-                    ? "unknown"
-                    : rate <= budgetHourly
+                  match.rate_fit === "over_budget"
+                    ? "over"
+                    : match.rate_fit === "ok"
                       ? "in"
-                      : "over";
+                      : match.rate_fit === "unknown"
+                        ? "unknown"
+                        : rate == null || budgetHourly == null
+                          ? "unknown"
+                          : rate <= budgetHourly
+                            ? "in"
+                            : "over";
+                const officeFit = match.office_fit;
+                const officeFitLabel =
+                  officeFit === "days_exceeded"
+                    ? "za mało dni w biurze"
+                    : officeFit === "city_mismatch"
+                      ? "inne miasto niż biuro"
+                      : null;
                 const inPipe = pipelineSet.has(c.id);
                 const roleLine =
                   [c.current_title, c.current_company]
@@ -1595,6 +1633,14 @@ function AIMatchingSection({
                             }
                           >
                             {Math.round(rate)} PLN/h
+                          </span>
+                        )}
+                        {officeFitLabel && (
+                          <span
+                            className="font-medium text-destructive"
+                            title="Rubryka biura (0278): deklaracja kandydata nie pokrywa wymogu oferty"
+                          >
+                            {officeFitLabel}
                           </span>
                         )}
                         {inPipe && (
@@ -1788,16 +1834,34 @@ function JobMatchDock({
   const assignBlocked = elig?.assignment_allowed === false;
   const isAdded = added.has(c.id);
   const rate = c.expected_rate_hourly as number | null | undefined;
+  // Rubryki 0278: `match.rate_fit` jest autorytatywne (uwzględnia walutę),
+  // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
   const rateBand =
-    rate == null || budgetHourly == null
-      ? "unknown"
-      : rate <= budgetHourly
+    match.rate_fit === "over_budget"
+      ? "over"
+      : match.rate_fit === "ok"
         ? "in"
-        : "over";
+        : match.rate_fit === "unknown"
+          ? "unknown"
+          : rate == null || budgetHourly == null
+            ? "unknown"
+            : rate <= budgetHourly
+              ? "in"
+              : "over";
+  const officeFit = match.office_fit;
+  const officeFitLabel =
+    officeFit === "days_exceeded"
+      ? "za mało dni w biurze"
+      : officeFit === "city_mismatch"
+        ? "inne miasto niż biuro"
+        : officeFit === "ok"
+          ? "spełnia wymóg biura"
+          : null;
   const mustMatching: string[] = match.matching_skills ?? [];
   const mustGaps: string[] = match.gaps ?? [];
   const niceMatching: string[] = match.nice_matching ?? [];
   const niceGaps: string[] = match.nice_gaps ?? [];
+  const missingMust: string[] = match.missing_must ?? [];
   const gaugeColor =
     pct == null
       ? "text-muted-foreground"
@@ -1888,6 +1952,14 @@ function JobMatchDock({
           <div className="text-xs font-semibold text-foreground">
             Pokrycie wymagań · {mustMatching.length} z {requiredSkills.length} must
           </div>
+          {missingMust.length > 0 && (
+            <div
+              className="rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1 text-[11px] text-destructive"
+              title="Bramka dealbreakera (0278): bez tych technologii kandydat jest ukrywany na pozostałych powierzchniach rankingu — ta lista jest węższa niż pełne pokrycie wymagań poniżej."
+            >
+              Bramka must-have: brak {missingMust.join(", ")}
+            </div>
+          )}
           <div className="space-y-1">
             {mustMatching.map((s) => (
               <CoverageRow key={`m-${s}`} label={s} tag="must" hit />
@@ -1938,6 +2010,19 @@ function JobMatchDock({
           </span>
           <span className="text-muted-foreground">Lokalizacja</span>
           <span className="text-foreground">{city || "—"}</span>
+          {officeFitLabel && (
+            <>
+              <span className="text-muted-foreground">Biuro</span>
+              <span
+                className={
+                  "font-medium " +
+                  (officeFit === "ok" ? "text-success" : "text-destructive")
+                }
+              >
+                {officeFitLabel}
+              </span>
+            </>
+          )}
           <span className="text-muted-foreground">Etap</span>
           <span>
             {inPipeline ? (
@@ -2039,6 +2124,30 @@ const RECRUITMENT_TYPE_CONFIG: Record<
   tender: { label: "Przetarg", variant: "warning" },
 };
 
+// ── Kroki 05 i 06 za granicą `next/dynamic` ──────────────────────────────────
+//
+// `/jobs/[id]` to gorąca trasa, a stanowisko „CV do klienta" wciąga cały
+// `CVGeneratorStandaloneV2` (1800 linii: combobox, dropzone, modale podglądu
+// i udostępniania). Bez tej granicy za jego wagę płaciłoby KAŻDE otwarcie
+// rekrutacji, także wtedy, gdy nikt nie zajrzy do kroku 06. Oba stanowiska
+// renderują się dopiero po kliknięciu kroku na listwie — dokładnie ten sam
+// wzorzec, którego pilnuje `heavy-bundle-boundaries.test.ts` dla TipTapa
+// i rechartsa.
+const ScreeningWorkbench = dynamic(
+  () =>
+    import("@/components/v2/jobs/ScreeningWorkbench").then(
+      (m) => m.ScreeningWorkbench,
+    ),
+  { ssr: false },
+);
+const CvHandoffWorkbench = dynamic(
+  () =>
+    import("@/components/v2/jobs/CvHandoffWorkbench").then(
+      (m) => m.CvHandoffWorkbench,
+    ),
+  { ssr: false },
+);
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function JobDetailPage() {
@@ -2092,6 +2201,14 @@ export default function JobDetailPage() {
       setActiveTab("ai-matching");
     } else if (tab === "champion") {
       setActiveTab("champion");
+    } else if (tab === "screening" || tab === "cv") {
+      // Kroki 05/06 — deep-link tożsamościowy, jak „champion".
+      setActiveTab(tab);
+    } else if (tab === "interviews") {
+      // Kroki 07 i 08 (flow C2) — mapowanie tożsamościowe, jak „champion".
+      setActiveTab("interviews");
+    } else if (tab === "contract") {
+      setActiveTab("contract");
     }
   }, [searchParams]);
 
@@ -2125,10 +2242,33 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
 
-  const { data: kanban, isLoading: kanbanLoading } = useQuery({
+  const {
+    data: kanban,
+    isLoading: kanbanLoading,
+    // Kroki 05–08 renderują pipeline z TEGO zapytania. Bez przekazania im
+    // błędu 403/500 wyglądałby stamtąd jak „nikt nie jest u klienta" — czyli
+    // dokładnie ten wzorzec, przez który brak uprawnień czytało się jako
+    // utratę danych (F-20).
+    isError: kanbanIsError,
+    error: kanbanError,
+    isSuccess: kanbanIsSuccess,
+    refetch: refetchKanban,
+  } = useQuery({
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
   });
+
+  // Kroki 05–08 (Screening, CV do klienta, Rozmowy, Umowa) czytają TE SAME
+  // kolumny co listwa kroków — bez własnego zapytania (program „flow w języku
+  // C2", PR 6/7 i 7/7).
+  const kanbanColumns = useMemo(
+    () => (kanban?.columns ?? []) as KanbanColumn[],
+    [kanban],
+  );
+  const invalidateKanban = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["kanban", id] });
+    queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+  }, [queryClient, id]);
 
   // AI match scores (0-100) for pipeline candidates → score ring on kanban cards.
   // Fetched in parallel with the kanban (cache-first server-side) so cards paint
@@ -2147,6 +2287,20 @@ export default function JobDetailPage() {
     }
     return m;
   }, [pipelineScores]);
+
+  // Kroki 07 i 08 czytają `kanbanColumns` zadeklarowane wyżej — jedno źródło
+  // (`["kanban", id]`) karmi tablicę ORAZ cztery zakładki kroków 05–08.
+  const flowCounts = useMemo(() => {
+    if (!kanban) return undefined;
+    const sum = (predicate: (col: KanbanColumn) => boolean) =>
+      kanbanColumns
+        .filter(predicate)
+        .reduce((total, col) => total + (col.items?.length ?? col.count ?? 0), 0);
+    return {
+      interviews: sum(isInterviewStage),
+      contract: sum(isContractStage),
+    };
+  }, [kanban, kanbanColumns]);
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -2290,28 +2444,58 @@ export default function JobDetailPage() {
                 )
             : undefined
         }
+        // Kroki 05/06 — liczniki z tych samych kolumn co „Pipeline". Dopóki
+        // kanban się nie wczytał, listwa nie pokazuje liczby (zero znaczyłoby
+        // „nikogo tu nie ma", a to jeszcze nie wiadomo).
+        screeningCount={
+          kanban
+            ? selectScreeningQueue(kanbanColumns).length +
+              selectPendingVerifications(kanbanColumns).length
+            : undefined
+        }
+        cvCount={kanban ? selectVerifiedQueue(kanbanColumns).length : undefined}
+        // Kroki 07 i 08 (flow C2, PR 7/7) — liczone z TEGO SAMEGO kanbana co
+        // Pipeline, więc listwa nie dokłada ani jednego zapytania. `undefined`
+        // dopóki kanban się nie wczyta: zero czytałoby się jako „nikt nie jest
+        // u klienta", a to inna wiadomość niż „jeszcze nie wiem".
+        interviewsCount={flowCounts?.interviews}
+        contractCount={flowCounts?.contract}
         contextOpen={!headerCollapsed}
         onContextOpenChange={(open) => setHeaderCollapsed(!open)}
         contextContent={
           <>
-            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-              <JobOwnershipPanel
-                jobId={Number(id)}
-                jobTitle={job.title}
-                primaryOwner={job.primary_owner ?? null}
-                collaborators={job.collaborators ?? []}
-              />
-              <HiringManagerPicker
-                jobId={Number(id)}
-                clientId={job.client_id ?? null}
-                value={job.hiring_manager_contact_id ?? null}
-                valueName={job.hiring_manager_name ?? null}
-                canEdit={canWritePipeline && canUpdateJob}
-                onSaved={() =>
-                  queryClient.invalidateQueries({ queryKey: ["job", id] })
-                }
-              />
-            </div>
+            {/* Krok 02 „Zlecenie i Champion" (program „flow w języku C2",
+                PR 5/7) przeniósł Właściciela/Współpracowników, Hiring
+                Managera i Priority Work do zakładki doku „Zespół i
+                priorytet" — na TYM kroku ten panel byłby duplikatem tej
+                samej mutowalnej treści w dwóch miejscach na ekranie
+                jednocześnie. Na pozostałych krokach (Pipeline, Pozyskiwanie,
+                …) panel „Zespół i priorytet" w nagłówku zostaje bez zmian. */}
+            {activeTab === "champion" ? (
+              <p className="text-xs text-muted-foreground">
+                Właściciela, hiring managera i Priority Work znajdziesz teraz
+                w zakładce „Zespół i priorytet" doku obok Profilu Championa.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+                <JobOwnershipPanel
+                  jobId={Number(id)}
+                  jobTitle={job.title}
+                  primaryOwner={job.primary_owner ?? null}
+                  collaborators={job.collaborators ?? []}
+                />
+                <HiringManagerPicker
+                  jobId={Number(id)}
+                  clientId={job.client_id ?? null}
+                  value={job.hiring_manager_contact_id ?? null}
+                  valueName={job.hiring_manager_name ?? null}
+                  canEdit={canWritePipeline && canUpdateJob}
+                  onSaved={() =>
+                    queryClient.invalidateQueries({ queryKey: ["job", id] })
+                  }
+                />
+              </div>
+            )}
             {job.description ? (
               <div className="border-t border-border pt-3">
                 <button
@@ -2328,7 +2512,7 @@ export default function JobDetailPage() {
                 ) : null}
               </div>
             ) : null}
-            <JobPriorityContext jobId={Number(id)} />
+            {activeTab !== "champion" && <JobPriorityContext jobId={Number(id)} />}
           </>
         }
       />
@@ -2439,23 +2623,82 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "champion" && (
-        <>
-          <ChampionProfileEditor
-            jobId={Number(id)}
-            clientId={job?.client_id ?? null}
-            // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
-            // recruiter sees a read-only Champion instead of filling a form that
-            // 403s on save (P1-02).
-            canEdit={
-              canWritePipeline &&
-              (isAdmin || hasRole(authUser, "delivery_lead"))
-            }
-          />
-          {canWritePipeline &&
-            (isAdmin || hasRole(authUser, "delivery_lead")) && (
-            <JobHandoffButton jobId={Number(id)} />
-            )}
-        </>
+        // Krok 02 „Zlecenie i Champion" (program „flow w języku C2", PR 5/7):
+        // sam layout kroku, jak C2 — lewa kolumna nawiguje po sekcjach
+        // Championa, środek jest teraz pełną szerokością (bez `max-w`), a
+        // dok „Gotowość" (`variant="champion"`) niesie weryfikację/briefing/
+        // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
+        // pory siedziały nad formularzem i w panelu nagłówka.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+          <aside className="lg:sticky lg:top-4 lg:self-start">
+            <ChampionSectionNav jobId={Number(id)} />
+          </aside>
+
+          <div className="min-w-0 space-y-4">
+            <JobSummaryCard
+              job={job}
+              onEdit={
+                canWritePipeline && canUpdateJob
+                  ? () => setShowEditJob(true)
+                  : undefined
+              }
+            />
+            <ChampionProfileEditor
+              jobId={Number(id)}
+              clientId={job?.client_id ?? null}
+              // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
+              // recruiter sees a read-only Champion instead of filling a form that
+              // 403s on save (P1-02).
+              canEdit={
+                canWritePipeline &&
+                (isAdmin || hasRole(authUser, "delivery_lead"))
+              }
+            />
+          </div>
+
+          <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
+            <JobReadinessDock jobId={Number(id)} variant="champion" />
+          </aside>
+        </div>
+      )}
+
+      {/* Krok 05 „Screening" (program „flow w języku C2", PR 6/7) — kolejka,
+          arkusz Championa inline i dok weryfikacji stawki. Arkusz jako modal
+          na tablicy Pipeline ZOSTAJE bez zmian. */}
+      {activeTab === "screening" && (
+        <ScreeningWorkbench
+          jobId={Number(id)}
+          jobBudgetMax={
+            typeof job?.salary_max === "number" ? job.salary_max : null
+          }
+          columns={kanbanColumns}
+          isLoading={kanbanLoading}
+          isError={kanbanIsError}
+          error={kanbanError}
+          isSuccess={kanbanIsSuccess}
+          onRetry={() => void refetchKanban()}
+          onMoved={invalidateKanban}
+          readOnly={!canWritePipeline}
+          onTabChange={setActiveTab}
+        />
+      )}
+
+      {/* Krok 06 „CV do klienta" — reguły klienta przed generacją, generator
+          osadzony z prefillem i jedna akcja wysyłki. */}
+      {activeTab === "cv" && (
+        <CvHandoffWorkbench
+          jobId={Number(id)}
+          jobTitle={job?.title}
+          clientId={job?.client_id ?? null}
+          columns={kanbanColumns}
+          isLoading={kanbanLoading}
+          isError={kanbanIsError}
+          error={kanbanError}
+          isSuccess={kanbanIsSuccess}
+          onRetry={() => void refetchKanban()}
+          onMoved={invalidateKanban}
+          readOnly={!canWritePipeline}
+        />
       )}
 
       {activeTab === "questions" && (
@@ -2463,6 +2706,38 @@ export default function JobDetailPage() {
           jobId={Number(id)}
           clientId={job?.client_id ?? null}
           readOnly={!canWritePipeline}
+        />
+      )}
+
+      {/* Krok 07 „Rozmowy i decyzja" (flow C2, PR 7/7). Kolumny kanbana idą
+          propsem — zakładka nie pobiera pipeline'u drugi raz. */}
+      {activeTab === "interviews" && (
+        <JobInterviewsTab
+          jobId={Number(id)}
+          jobTitle={job?.title}
+          columns={kanbanColumns}
+          columnsLoading={kanbanLoading}
+          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
+          columnsSuccess={kanbanIsSuccess}
+          onColumnsRetry={() => void refetchKanban()}
+          readOnly={!canWritePipeline}
+        />
+      )}
+
+      {/* Krok 08 „Umowa". `canCloseJob` to `job.update` — lustro `TacPlus`,
+          tej samej bramki co `POST /api/jobs/{id}/close`. */}
+      {activeTab === "contract" && (
+        <JobContractTab
+          jobId={Number(id)}
+          jobTitle={job?.title ?? `Rekrutacja #${id}`}
+          clientId={job?.client_id ?? null}
+          columns={kanbanColumns}
+          columnsLoading={kanbanLoading}
+          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
+          columnsSuccess={kanbanIsSuccess}
+          onColumnsRetry={() => void refetchKanban()}
+          readOnly={!canWritePipeline}
+          canCloseJob={canUpdateJob}
         />
       )}
 

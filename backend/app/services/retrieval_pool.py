@@ -1,4 +1,4 @@
-"""Fasada puli kandydatów — jedno wejście, dwie strategie retrievalu.
+"""Fasada puli kandydatów — jedno wejście, trzy strategie retrievalu.
 
 Silnik hybrydowy (BM25 + wektory + fuzja RRF + reranker Voyage) istnieje w tym
 repo od dawna, ale obsługiwał wyłącznie opcjonalny tryb ręcznej wyszukiwarki.
@@ -7,6 +7,12 @@ pobierał pulę po samych wektorach. Ta fasada pozwala przełączyć CAŁY ten r
 jedną flagą (`HYBRID_POOL_ENABLED`, domyślnie OFF), z tych samych powodów, dla
 których pasaże mają jeden flip: częściowe przełączenie zostawia powierzchnie
 liczące na różnych zasadach.
+
+Trzecia strategia (0278, `STRUCTURED_POOL_ENABLED`, domyślnie OFF) wybiera
+członkostwo SQL-em zamiast wektorem/hybrydą — AND-of-OR po jawnych rodzinach
+umiejętności must-have (patrz `_structured_pool`). Sprawdzana JAKO PIERWSZA
+w `retrieve_candidate_pool`: gdy nie ma o co pytać (brak must-have) albo pada,
+spada dokładnie na tę samą hybrydę/wektor, jakby jej wcale nie było.
 
 DECYZJA, KTÓRA NIE JEST OCZYWISTA — hybryda wybiera CZŁONKOSTWO, nie wynik.
 Wyniki z fuzji RRF (~1/60 na pozycję) i z rerankera żyją na INNYCH skalach niż
@@ -45,6 +51,106 @@ def hybrid_pool_enabled() -> bool:
 
 def multi_query_enabled() -> bool:
     return bool(getattr(settings, "MULTI_QUERY_RETRIEVAL_ENABLED", False))
+
+
+def structured_pool_enabled() -> bool:
+    return bool(getattr(settings, "STRUCTURED_POOL_ENABLED", False))
+
+
+async def _structured_pool(
+    db: AsyncSession,
+    query_text: str,
+    must_groups: list[list[str]] | None,
+    *,
+    top_k: int,
+    raise_on_error: bool,
+) -> list[dict] | None:
+    """SQL-first (0278): Postgres wybiera CZŁONKOSTWO po must-have, kosinus
+    liczony jak zawsze. `None` = „ta strategia nie ma o co pytać, spadnij na
+    hybrydę/wektor" — trzy niezależne, nieszkodliwe powody:
+
+      1. brak jawnych rodzin must-have (`must_groups` puste albo `None`, albo
+         wszystkie rodziny zwijają się do pustego stringa — patrz
+         `hybrid_search.bm25_must_groups`);
+      2. noga SQL padła i `raise_on_error=False` (awaria NOWEJ strategii nie
+         może degradować puli poniżej stanu sprzed flagi — ten sam kontrakt
+         co przy hybrydzie);
+      3. trafień jest mniej niż `STRUCTURED_POOL_MIN_MEMBERS` — zbyt wąskie
+         członkostwo nie jest ufane jako CAŁA pula.
+
+    Sama STRATEGIA jest gated flagą przez wołającego
+    (`retrieve_candidate_pool` — `structured_pool_enabled()` sprawdzane jako
+    PIERWSZA instrukcja funkcji, przed dotknięciem `db`); ta funkcja zakłada,
+    że już wie, że ma działać.
+
+    Skala semantyczna bez zmian — jak w hybrydzie i multi-query: SQL wybiera
+    CZŁONKOSTWO, `similarity_for_candidate_ids` liczy kosinus DLA WYBRANYCH,
+    więc cache score'ów (kalibrowany pod kosinus) zostaje poprawny niezależnie
+    od tego, która strategia wybrała pulę — dlatego flagi tej strategii są
+    POZA `_SCORING_CACHE_INPUTS` (patrz `config.py`).
+    """
+    from app.services import hybrid_search
+
+    groups = hybrid_search.bm25_must_groups(must_groups or [])
+    if not groups:
+        return None
+
+    try:
+        # Wołane przez ATRYBUT modułu (`hybrid_search.bm25_must_candidates`),
+        # nie przez nazwę związaną przy imporcie — ten sam powód co `_embedding`
+        # na górze pliku: testy monkeypatchują `hybrid_search.bm25_must_candidates`
+        # w miejscu kanonicznym, a nazwa związana lokalnie byłaby dla nich
+        # niewidzialna.
+        ids = await hybrid_search.bm25_must_candidates(
+            db, groups, limit=settings.STRUCTURED_POOL_LIMIT
+        )
+    except Exception:
+        if raise_on_error:
+            raise
+        logger.exception(
+            "[retrieval-pool] structured: noga SQL padła — spadek na hybrydę/wektor"
+        )
+        return None
+
+    if len(ids) < settings.STRUCTURED_POOL_MIN_MEMBERS:
+        return None
+
+    # `similarity_for_candidate_ids` łyka błędy dostawcy wewnętrznie i zwraca
+    # `{}` (patrz jej docstring) — nie ma tu więc czego łapać osobnym
+    # try/except: brak wpisu per kandydat jest jedynym kształtem awarii, jaki
+    # ta funkcja kiedykolwiek zwraca.
+    cosine_by_id = await _embedding.similarity_for_candidate_ids(query_text, ids)
+
+    unknown_count = 0
+    scored: list[tuple[int, float, bool]] = []
+    for candidate_id in ids:
+        score = cosine_by_id.get(candidate_id)
+        if score is None:
+            unknown_count += 1
+            scored.append((candidate_id, 0.0, True))
+        else:
+            scored.append((candidate_id, float(score), False))
+
+    # Kosinus malejąco; `semantic_unknown` zawsze na końcu — klucz jawny
+    # (`is_unknown, -score`), nie poleganie na tym, że 0.0 akurat jest niższe
+    # niż każdy prawdziwy kosinus. Wśród samych `unknown` stabilne sortowanie
+    # zachowuje kolejność SQL-a (`ts_rank DESC, updated_at DESC`).
+    scored.sort(key=lambda row: (row[2], -row[1]))
+
+    logger.info(
+        "[retrieval-pool] structured: groups=%s members=%s unknown=%s",
+        len(groups),
+        len(ids),
+        unknown_count,
+    )
+
+    pool: list[dict] = []
+    for candidate_id, score, is_unknown in scored[:top_k]:
+        row: dict = {"candidate_id": int(candidate_id), "score": score}
+        if is_unknown:
+            row["semantic_unknown"] = True
+        pool.append(row)
+    return pool
 
 
 async def _multi_query_pool(
@@ -125,6 +231,7 @@ async def retrieve_candidate_pool(
     raise_on_error: bool = False,
     query_variants: list[str] | None = None,
     bm25_query: str | None = None,
+    must_groups: list[list[str]] | None = None,
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
@@ -141,10 +248,10 @@ async def retrieve_candidate_pool(
     który pisze do `candidate_job_match_scores`, MUSI ten klucz czytać; kto tylko
     rankuje w pamięci, może go zignorować.
 
-    `raise_on_error` obowiązuje na OBU ścieżkach. Konsumenci fasady (poza
-    harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na łagodną
-    degradację — awaria dostawcy ma dawać pustą/uboższą pulę, nie 500 na
-    rekomendacjach. Flip flagi nie może tego kontraktu unieważnić.
+    `raise_on_error` obowiązuje na WSZYSTKICH trzech ścieżkach. Konsumenci
+    fasady (poza harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na
+    łagodną degradację — awaria dostawcy ma dawać pustą/uboższą pulę, nie 500
+    na rekomendacjach. Flip żadnej flagi nie może tego kontraktu unieważnić.
 
     Flaga wyłączona ⇒ dosłownie dzisiejsza ścieżka, wywołanie za wywołanie.
 
@@ -163,7 +270,31 @@ async def retrieve_candidate_pool(
     Brak `bm25_query` ⇒ przekazujemy "" ⇒ nogi BM25 się nie pyta. To
     ŚWIADOMIE inna domyślna niż w `hybrid_candidates` (tam `None` znaczy „użyj
     query", bo tam `query` bywa prawdziwym zapytaniem rekrutera).
+
+    `must_groups` (0278): rodziny umiejętności must-have tej oferty, gotowe
+    pod AND-of-OR — patrz `hybrid_search.build_job_must_groups`. Konsumowane
+    WYŁĄCZNIE przez strategię SQL-first (`STRUCTURED_POOL_ENABLED`); pozostałe
+    dwie ścieżki (hybryda, wektor/multi-query) go ignorują, bo dokładne must
+    wnosi już ich własna noga BM25 (`bm25_query`) / warstwa punktowa scoringu.
     """
+
+    # Pierwsza instrukcja strategii = sprawdzenie flagi — PRZED jakimkolwiek
+    # dotknięciem `db`. Harness (i test passthrough) wołają tę fasadę z flagą
+    # OFF i `db=object()`; strategia SQL-first musi zostać nieodpalona w
+    # całości, nie tylko „nie znaleźć nic".
+    if structured_pool_enabled():
+        structured = await _structured_pool(
+            db,
+            query_text,
+            must_groups,
+            top_k=top_k,
+            raise_on_error=raise_on_error,
+        )
+        if structured is not None:
+            return structured
+        # `None` = strategia SQL-first nie ma o co pytać / padła bez
+        # `raise_on_error` / trafień za mało — spadamy na hybrydę/wektor
+        # dokładnie tak, jakby flaga była wyłączona. Patrz `_structured_pool`.
 
     if not hybrid_pool_enabled():
         if multi_query_enabled() and query_variants:

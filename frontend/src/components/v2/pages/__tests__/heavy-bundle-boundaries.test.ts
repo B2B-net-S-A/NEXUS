@@ -110,6 +110,39 @@ describe("ciężkie biblioteki zostają za granicą next/dynamic", () => {
   }
 });
 
+it("krok 06 „CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
+  // Ciężarem nie jest tu zewnętrzna biblioteka, tylko własny komponent:
+  // `CVGeneratorStandaloneV2` to ~1800 linii z comboboxem, dropzone'em i
+  // trzema modalami. Statyczny import stanowiska w `page.tsx` przenosi ten
+  // koszt na KAŻDE otwarcie rekrutacji, także gdy nikt nie zajrzy do kroku 06.
+  // Regresja jest cicha jak przy TipTapie: ekran działa, rośnie tylko rachunek.
+  const page = fs.readFileSync(path.join(SRC, "app/jobs/[id]/page.tsx"), "utf8");
+  const offenders = staticSpecifiers(page).filter((spec) =>
+    /jobs\/(ScreeningWorkbench|CvHandoffWorkbench)$/.test(spec),
+  );
+  expect(
+    offenders,
+    "Stanowiska kroków 05/06 wróciły do statycznego importu w /jobs/[id].",
+  ).toEqual([]);
+
+  for (const mod of ["ScreeningWorkbench", "CvHandoffWorkbench"]) {
+    // Bez tej połowy zieleń oznaczałaby „nie ma funkcji", a nie „lekki bundle".
+    expect(page).toMatch(
+      new RegExp(
+        `dynamic\\(\\s*\\(\\)\\s*=>[\\s\\S]{0,200}?import\\(\\s*["']@/components/v2/jobs/${mod}["']`,
+      ),
+    );
+  }
+
+  const workbench = fs.readFileSync(
+    path.join(SRC, "components/v2/jobs/CvHandoffWorkbench.tsx"),
+    "utf8",
+  );
+  expect(staticSpecifiers(workbench)).toContain(
+    "@/components/v2/pages/CVGeneratorStandaloneV2",
+  );
+});
+
 it("wydzielone moduły edytora/wykresu faktycznie niosą ciężką bibliotekę", () => {
   // Gdyby import ciężkiej biblioteki wyparował z modułu docelowego, testy
   // wyżej dalej byłyby zielone, a granica `dynamic()` przestałaby cokolwiek
