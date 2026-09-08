@@ -593,9 +593,9 @@ describe("JobReadinessDock — variant \"list\" (krok 01), zakładki fali 3", ()
     for (const label of ["Gotowość", "Pipeline", "Zespół", "Historia"]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
-    // „Wyszukiwania (AI)" to zakładka kroku 02 — na liście jej nie ma.
+    // „Wyszukiwania" to zakładka kroku 02 — na liście jej nie ma.
     expect(
-      screen.queryByRole("tab", { name: "Wyszukiwania (AI)" }),
+      screen.queryByRole("tab", { name: "Wyszukiwania" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("mock-handoff-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("mock-ownership-panel")).not.toBeInTheDocument();
@@ -745,7 +745,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(container.textContent).toContain("/ 4 · kompletność zlecenia");
   });
 
-  it("zakładka „Zespół i priorytet” pokazuje JobOwnershipPanel / HiringManagerPicker / JobPriorityContext, chowa checklistę gotowości", async () => {
+  it("zakładka „Zespół” pokazuje JobOwnershipPanel / HiringManagerPicker / JobPriorityContext, chowa checklistę gotowości", async () => {
     useAuthStore.setState({ user: deliveryLead });
     const user = userEvent.setup();
     renderDock(501, undefined, true, "champion");
@@ -754,7 +754,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     // Radix `Tabs.Trigger` aktywuje się na pełnej sekwencji zdarzeń
     // wskaźnika — goły `.click()` (sam event `click`) nie przełącza stanu;
     // `userEvent` odtwarza sekwencję tak jak w prawdziwej przeglądarce.
-    await user.click(screen.getByRole("tab", { name: "Zespół i priorytet" }));
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
     expect(await screen.findByTestId("mock-ownership-panel")).toHaveAttribute(
       "data-owner",
@@ -768,7 +768,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
   });
 
-  it("„Gotowość” pokazuje TRZY pierwsze propozycje inline, a pełna zakładka „Wyszukiwania (AI)” — komplet", async () => {
+  it("„Gotowość” pokazuje TRZY pierwsze propozycje inline, a pełna zakładka „Wyszukiwania” — komplet", async () => {
     useAuthStore.setState({ user: deliveryLead });
     championGetMock.mockResolvedValue({
       data: {
@@ -791,7 +791,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     const inline = await screen.findByTestId("mock-recommended-searches");
     await waitFor(() => expect(inline).toHaveAttribute("data-count", "3"));
 
-    await user.click(screen.getByRole("tab", { name: "Wyszukiwania (AI)" }));
+    await user.click(screen.getByRole("tab", { name: "Wyszukiwania" }));
     const full = await screen.findByTestId("mock-recommended-searches");
     await waitFor(() => expect(full).toHaveAttribute("data-count", "4"));
   });
@@ -823,12 +823,12 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(checklist).toHaveAttribute("data-can-edit", "false");
   });
 
-  it("recruiter widzi zakładkę „Zespół i priorytet”, ale HiringManagerPicker jest read-only (`job.update` = TacPlus)", async () => {
+  it("recruiter widzi zakładkę „Zespół”, ale HiringManagerPicker jest read-only (`job.update` = TacPlus)", async () => {
     const user = userEvent.setup();
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
 
-    await user.click(screen.getByRole("tab", { name: "Zespół i priorytet" }));
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
 
     expect(await screen.findByTestId("mock-hm-picker")).toHaveAttribute(
       "data-can-edit",

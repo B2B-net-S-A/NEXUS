@@ -115,10 +115,15 @@ const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "history", label: "Historia" },
 ];
 
+// Etykiety krótsze niż w makiecie („Zespół i priorytet" / „Wyszukiwania (AI)")
+// świadomie: dok ma 360 px, a cztery pełne etykiety nie mieszczą się w jednym
+// wierszu — chowały „Historię" za krawędź. Krótsze + `dense` (patrz `TabbedNav`)
+// pokazują wszystkie cztery naraz, jak zakłada makieta. Znaczenie zostaje jasne
+// z kontekstu (treść zakładki „Zespół" to właściciel + HM + Priority Work).
 const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
-  { value: "team", label: "Zespół i priorytet" },
-  { value: "searches", label: "Wyszukiwania (AI)" },
+  { value: "team", label: "Zespół" },
+  { value: "searches", label: "Wyszukiwania" },
   { value: "history", label: "Historia" },
 ];
 
@@ -854,13 +859,17 @@ export function JobReadinessDock({
         ) : null}
 
         {/* `overflow="scroll"`, nie „wrap": cztery zakładki zawijały się na
-            kroku 02 do dwóch wierszy na 1440 px i zjadały wysokość doku. */}
+            kroku 02 do dwóch wierszy na 1440 px i zjadały wysokość doku.
+            `dense`: w 360-px doku pełny padding `px-3 text-sm` na czterech
+            zakładkach chował ostatnią za krawędź — ciaśniejsze triggery
+            mieszczą wszystkie w jednym wierszu (scroll to fallback). */}
         <TabbedNav
           ariaLabel="Zakładki gotowości zlecenia"
           value={dockTab}
           onValueChange={(v) => setDockTab(v as DockTab)}
           tabs={tabs}
           overflow="scroll"
+          dense
         />
       </div>
 
