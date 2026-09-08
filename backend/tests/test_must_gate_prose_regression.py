@@ -47,6 +47,19 @@ PROZA_Z_PRODUKCJI = [
     "Jenkins/Gitlab/Github Actions",
     "KYC / AML",
     "Portfolio/backlog management",
+    # Frazy CZYNNOŚCIOWE — zmierzone po pierwszej naprawie: wciąż bramkowały
+    # na 20 ofertach. Krótkie i bez separatorów, więc przechodziły; opisują
+    # czynność albo wymóg formalny, nie technologię.
+    "pisanie zapytań sql",
+    "tworzenie dokumentacji technicznej",
+    "rozwój aplikacji backendowych",
+    "budowa aplikacji webowych",
+    "zarządzanie ryzykiem",
+    "zarządzanie harmonogramem",
+    "uzgadnianie wymagań",
+    "wykształcenie wyższe",
+    "wsparcie UAT",
+    "zasady SOLID",
 ]
 
 # Nazwy technologii, które MUSZĄ dalej bramkować — inaczej naprawa wyłącza
@@ -105,6 +118,15 @@ def test_real_technology_names_still_gate():
     assert zgubione == [], (
         f"nazwa technologii przestała bramkować — rubryka przestaje działać: {zgubione}"
     )
+
+
+def test_single_word_verbal_noun_still_gates():
+    """Wymóg ≥2 słów jest celowy: jednowyrazowe „Programowanie" bywa realną
+    deklaracją kandydata, więc go nie wycinamy. Wycinamy dopiero FRAZĘ, której
+    głowa jest rzeczownikiem odczasownikowym („programowanie w java")."""
+    assert is_gate_eligible_must("Programowanie") is True
+    assert is_gate_eligible_must("Testowanie") is True
+    assert is_gate_eligible_must("tworzenie dokumentacji") is False
 
 
 def test_mixed_list_keeps_only_the_technologies():
