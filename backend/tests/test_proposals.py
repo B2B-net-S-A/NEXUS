@@ -62,7 +62,10 @@ async def _create_job(client: AsyncClient, headers: dict) -> int:
     payload = {
         "title": f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
         "description": "Backend engineer with Python + FastAPI",
-        "must_skills": [{"name": "Python", "level": 4, "years": 3}],
+        # `level` to enum stringowy (junior/mid/senior/expert), nie liczba —
+        # `JobCreate` waliduje go wprost. „mid" jest uczciwym odczytem
+        # `years: 3`; sama wartość nie wpływa na asercje tych testów.
+        "must_skills": [{"name": "Python", "level": "mid", "years": 3}],
         "client_id": cli_id,
     }
     resp = await client.post("/api/jobs", headers=headers, json=payload)
@@ -70,32 +73,60 @@ async def _create_job(client: AsyncClient, headers: dict) -> int:
     return resp.json()["id"]
 
 
+async def _regenerate(client: AsyncClient, headers: dict, job_id: int) -> None:
+    """Wymuś powstanie snapshotu propozycji.
+
+    Snapshot NIE powstaje przy tworzeniu rekrutacji — to decyzja projektowa,
+    nie brak: ranking liczy się dopiero przy przekazaniu do searchu, żeby nie
+    powstawał „przed Championem" (patrz docstring `job_readiness.py`). Poza
+    handoffem jedyną drogą jest ręczna regeneracja, i tej używamy tutaj.
+    """
+    resp = await client.post(
+        f"/api/jobs/{job_id}/proposals/regenerate", headers=headers
+    )
+    assert resp.status_code == 202, resp.text
+
+
 # ── Integration tests ──────────────────────────────────────────────────────
 
 
-async def test_create_job_creates_proposal_snapshot(
+async def test_create_job_does_not_rank_before_handoff(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
-    """Every POST /api/jobs should schedule a proposal snapshot."""
+    """Samo utworzenie rekrutacji NIE liczy rankingu — i tak ma zostać.
+
+    Ten test do 09.2026 twierdził coś odwrotnego („Every POST /api/jobs should
+    schedule a proposal snapshot") i nie przeszedł ANI RAZU: commit, który go
+    dodał (`86e52411`), w ogóle nie dotykał `app/api/jobs.py`. Opisywał
+    intencję, której nigdy nie wdrożono.
+
+    Dzisiejszy projekt świadomie jej przeczy. `create_pending_snapshot` woła
+    się w DWÓCH miejscach — przy przekazaniu do searchu i przy ręcznej
+    regeneracji — bo ranking policzony przed wypełnieniem Profilu Championa
+    powstałby z samej treści ogłoszenia i byłby słaby. Dokładnie temu ma
+    zapobiegać bramka handoffu (patrz `app/services/job_readiness.py`).
+
+    Odwrócenie asercji zamiast skasowania testu jest celowe: granica, która
+    nie ma strażnika, wraca przy pierwszym „to chyba powinno się liczyć od
+    razu".
+    """
     job_id = await _create_job(proposals_client, app_auth_headers)
 
     async with AsyncSessionLocal() as db:
         snap = await db.scalar(
-            select(ProposalSnapshot)
-            .where(ProposalSnapshot.job_id == job_id)
-            .order_by(ProposalSnapshot.created_at.desc())
+            select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
         )
-    assert snap is not None, "expected a snapshot row for the freshly created job"
-    assert snap.source == "create"
-    # Status can be pending (if background task hasn't finished) or ready/failed
-    # depending on whether Qdrant/Voyage are reachable in the test env.
-    assert snap.status in (STATUS_PENDING, STATUS_READY, STATUS_FAILED)
+    assert snap is None, (
+        "utworzenie rekrutacji policzyło ranking — to omija bramkę handoffu, "
+        "która istnieje po to, żeby ranking nie powstawał przed Championem"
+    )
 
 
 async def test_get_latest_proposal_returns_snapshot(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
     job_id = await _create_job(proposals_client, app_auth_headers)
+    await _regenerate(proposals_client, app_auth_headers, job_id)
     resp = await proposals_client.get(
         f"/api/jobs/{job_id}/proposals/latest", headers=app_auth_headers
     )
@@ -171,6 +202,7 @@ async def test_list_proposals_paginates(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
     job_id = await _create_job(proposals_client, app_auth_headers)
+    await _regenerate(proposals_client, app_auth_headers, job_id)
     resp = await proposals_client.get(
         f"/api/jobs/{job_id}/proposals?page=1&page_size=5",
         headers=app_auth_headers,
