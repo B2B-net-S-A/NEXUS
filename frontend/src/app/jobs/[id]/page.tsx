@@ -2614,6 +2614,10 @@ export default function JobDetailPage() {
               scoresLoading={scoresLoading}
               headerCollapsed={headerCollapsed}
               readOnly={!canWritePipeline}
+              // Fala 3: SLA klienta na kolumnie Screening i w lewej kolumnie —
+              // ten sam klucz zapytania karty klienta co krok 06 (zero nowych
+              // requestów). Bez klienta tablica mówi „nie ustawiono".
+              clientId={job?.client_id ?? null}
             />
           )}
         </div>
@@ -2726,6 +2730,10 @@ export default function JobDetailPage() {
           onMoved={invalidateKanban}
           readOnly={!canWritePipeline}
           onTabChange={setActiveTab}
+          // Fala 3: „SLA <klient>: N d" w nagłówku kolejki i „dzień X z Y SLA"
+          // — z karty klienta (ten sam klucz zapytania co krok 06).
+          clientId={job?.client_id ?? null}
+          clientName={job?.client_name ?? null}
         />
       )}
 

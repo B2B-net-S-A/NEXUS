@@ -1,5 +1,7 @@
 "use client";
 
+import type { JobListNav } from "@/components/v2/jobs/job-list-nav";
+
 import { type ReactNode, useState } from "react";
 import Link from "next/link";
 import {
@@ -71,12 +73,7 @@ export type JobReadinessDockVariant = "list" | "champion";
  * nie cały wynik zapytania — dok nie ma jak przeskoczyć na kolejną stronę, więc
  * „12" musi znaczyć „tyle wierszy widzisz", a nie „tyle jest rekrutacji".
  */
-export interface JobReadinessDockListNav {
-  index: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
-}
+export type JobReadinessDockListNav = JobListNav;
 
 interface JobReadinessDockProps {
   jobId: number | null;

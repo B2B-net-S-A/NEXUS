@@ -50,7 +50,6 @@ import {
 } from "@/components/ui/select";
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
-import type { JobListNav } from "@/components/v2/jobs/job-list-nav";
 import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/CompetenceCategoryMultiSelect";
@@ -242,22 +241,6 @@ function deadlineParams(preset: DeadlinePreset): {
   // next30
   return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(30)) };
 }
-
-/**
- * `JobReadinessDock` z propem `listNav` (makieta „01 Lista": strzałki „1 z 12"
- * w nagłówku doku).
- *
- * Rozszerzenie typu, a nie edycja doku: `JobReadinessDock.tsx` jest w tej fali
- * własnością innego wykonawcy, a jego `JobReadinessDockProps` nie jest
- * eksportowany. Poszerzenie jest WĄSKIE i nazwane (`JobListNav`, wspólny plik
- * kontraktu) — nie `any` — więc gdy `listNav?: JobListNav` trafi do właściwych
- * propsów doku, ten alias staje się tożsamością i można go usunąć razem
- * z tym komentarzem. Do tego czasu lista przekazuje prop, którego dok jeszcze
- * nie czyta: nawigacja nie działa, ale nic się nie psuje.
- */
-const DockWithListNav = JobReadinessDock as React.ComponentType<
-  React.ComponentProps<typeof JobReadinessDock> & { listNav?: JobListNav }
->;
 
 /** Pigułka filtra w lewej kolumnie (makieta `.fp`) — Typ i Status. */
 function FilterPill({
@@ -1564,7 +1547,7 @@ export function JobsListV2() {
 
         {/* ── Prawy dok: Gotowość zlecenia ───────────────────────────── */}
         <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-          <DockWithListNav
+          <JobReadinessDock
             jobId={effSelectedJobId}
             stageBreakdown={selectedListItem?.stage_breakdown}
             canOpen={selectedListItem?.can_open !== false}
