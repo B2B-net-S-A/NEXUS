@@ -728,6 +728,13 @@ export interface InsightsYoYMetric {
   lower_is_better: boolean;
   definition: string | null;
   note: string | null;
+  /**
+   * Z czego liczona metryka. `contracts` = z ewidencji kontraktów w NEXUSIE,
+   * która jest MŁODSZA niż firma, więc porównanie lat może opisywać
+   * rozrastanie się ewidencji zamiast wyniku. `pipeline` = z historii
+   * pipeline'u (import Traffita), która sięga wstecz i tego problemu nie ma.
+   */
+  basis: "contracts" | "pipeline";
   /** Rok → 12 wartości. `null` = miesiąc się nie wydarzył. */
   series: Record<string, Array<number | null>>;
 }
@@ -739,9 +746,18 @@ export interface InsightsYoYClientMonth {
   total: number;
 }
 
+export interface InsightsYoYCoverage {
+  /** Średnia liczba wycenionych kontraktów w miesiącu danego roku. */
+  contracts_by_year: Record<string, number | null>;
+  /** `false` = podstawa najstarszego roku jest ułamkiem najnowszego. */
+  money_comparable_across_years: boolean;
+  message: string | null;
+}
+
 export interface InsightsYoYResponse {
   years: number[];
   asof: string;
+  coverage: InsightsYoYCoverage;
   /** Miesiąc, który JESZCZE TRWA — jego wartości są niepełne, nie słabe. */
   partial_month: { year: number; month: number } | null;
   month_labels: string[];
