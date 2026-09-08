@@ -21,6 +21,12 @@ export interface TabbedNavProps {
   ariaLabel?: string;
   /** Scroll keeps a single row; wrap exposes every tab on wider layouts. */
   overflow?: "scroll" | "wrap";
+  /**
+   * Ciaśniejszy padding + `text-xs` na triggerach. Dla wąskich doków (360 px),
+   * gdzie cztery pełne etykiety z domyślnym `px-3 text-sm` nie mieszczą się
+   * w jednym wierszu i albo się zawijają, albo chowają za krawędź.
+   */
+  dense?: boolean;
   className?: string;
   listClassName?: string;
 }
@@ -32,6 +38,7 @@ export function TabbedNav({
   children,
   ariaLabel = "Sekcje",
   overflow = "wrap",
+  dense = false,
   className,
   listClassName,
 }: TabbedNavProps) {
@@ -52,6 +59,7 @@ export function TabbedNav({
           className={cn(
             "w-full",
             overflow === "scroll" ? "min-w-max flex-nowrap" : "flex-wrap",
+            dense && "gap-0.5",
             listClassName,
           )}
         >
@@ -60,7 +68,11 @@ export function TabbedNav({
             const isActive = tab.value === value;
 
             return (
-              <TabsTrigger key={tab.value} value={tab.value}>
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className={cn(dense && "gap-1 px-2 py-1.5 text-xs")}
+              >
                 {Icon ? <Icon className="h-4 w-4" aria-hidden /> : null}
                 <span>{tab.label}</span>
                 {typeof tab.count === "number" ? (
