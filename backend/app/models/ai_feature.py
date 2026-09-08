@@ -254,14 +254,11 @@ class AIMasterToggle(Base, TimestampMixin):
 
 
 class AIUsageLog(Base):
-    """Aggregated monthly call counts per (feature, user, period).
+    """Read-only legacy monthly counts; no new writes after migration 0280.
 
-    One row per (feature, user_id, period_start). Incremented atomically
-    via INSERT ... ON CONFLICT DO UPDATE on each successful AI call.
-
-    Why aggregated (not append-only audit log): we only need quota counts
-    in the UI ("2994 / 20000"). For cost/usage forensics we'd ship to
-    Loki/Grafana via structured logs (see observability.md).
+    New admissions and responses belong to AIOperation / AIProviderCall.
+    Legacy counts still contribute to quotas; legacy tokens are unreliable
+    because nullable actors allowed duplicate rows and token-update fanout.
 
     `period_start` = first day of the calendar month (UTC). The 1st-of-month
     reset is enforced by query: SELECT … WHERE period_start = date_trunc('month', NOW()).

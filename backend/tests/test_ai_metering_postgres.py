@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, select, func, update
+from sqlalchemy import delete, select, func, update, text, insert
 from starlette.concurrency import run_in_threadpool
 
 from app.models.ai_feature import AIFeatureKey
@@ -248,6 +248,34 @@ async def test_legacy_manual_skill_audit_blocks_cv_resurrection():
         )
         db.add(activity)
         await db.flush()
+        # A busy candidate can have many unrelated audit entries. Exercise
+        # the actual ORM query plan, not just the index's existence.
+        await db.execute(
+            insert(Activity),
+            [
+                {
+                    "entity_type": "candidate",
+                    "entity_id": candidate.id,
+                    "action": "created",
+                    "external_source": "traffit",
+                    "details": {},
+                }
+                for _ in range(1000)
+            ],
+        )
+        await db.execute(text("ANALYZE activities"))
+        from sqlalchemy.dialects import postgresql
+
+        query = select(Candidate.skills_manually_curated).where(
+            Candidate.id == candidate.id
+        )
+        sql = str(
+            query.compile(
+                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+            )
+        )
+        plan = await db.scalar(text("EXPLAIN (FORMAT JSON) " + sql))
+        assert "ix_activities_candidate_manual_edit" in str(plan)
         await db.refresh(candidate)
         assert candidate.skills_manually_curated is True
         assert candidate_skill_names(candidate) == {"python"}

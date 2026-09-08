@@ -37,7 +37,9 @@ bez wyceny; panel ujawnia niepełne pokrycie. Nie jest to faktura ani pełne
 rozliczenie historyczne.
 Źródło: https://platform.claude.com/docs/en/about-claude/pricing
 
-Migracja 0280 jest addytywna. Zmieniona wersja algorytmu punktacji unieważnia
+Migracje 0280–0281 są addytywne. Indeks dziennika aktywności powstaje
+`CONCURRENTLY`; wspiera również zapytania przygotowane z parametrami.
+Zmieniona wersja algorytmu punktacji unieważnia
 stare wyniki leniwie przy odczycie. Nie przelicza automatycznie całej bazy.
 Historyczne podejrzane stawki wymagają osobnego raportu i zatwierdzenia korekt.
 

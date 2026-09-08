@@ -31,6 +31,8 @@ async def generation_lease(key: str):
             .returning(AIGenerationLease.token)
         )
         await db.commit()
+    # PostgreSQL returns no row when DO UPDATE WHERE is false; scalar() is
+    # None for a live competitor, never that competitor's existing token.
     if claimed != token:
         raise GenerationBusy(
             "Uzasadnienie jest już generowane. Spróbuj ponownie za chwilę."
