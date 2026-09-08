@@ -47,7 +47,7 @@ _TERM_HEADER_RE = re.compile(r"Start\s+date\s+End\s+date", re.IGNORECASE)
 _TWO_ISO_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})")
 _AMT = r"\d[\d\s  ]*,\d{2}"
 _ROW_RE = re.compile(
-    rf"^(?P<name>\S+[ \t]+\S+(?:-\S+)?)[ \t]+(?P<rest>.*?)[ \t]+(?:\d[\d  ]*|[-–—])[ \t]+(?:Hours?|Days?|Months?|MD|h|d)"
+    rf"^(?P<name>\S+[ \t]+\S+(?:-\S+)?)[ \t]+(?P<rest>.*?)[ \t]+(?:(?:\d[\d  ]*|[-–—])[ \t]+)?(?:Hours?|Days?|Months?|MD|h|d)"
     rf"[ \t]+(?P<rate>{_AMT})[ \t]*PLN(?:[ \t]+{_AMT}[ \t]*PLN)?[ \t]*$",
     re.MULTILINE | re.IGNORECASE,
 )

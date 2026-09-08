@@ -85,6 +85,15 @@ def test_quantity_unit_and_subtotal_do_not_affect_the_hourly_net_rate(unit, quan
     assert not row.uncertain
 
 
+def test_blank_quantity_does_not_block_reading_the_rate():
+    text = ORDER.replace("Poland - 1 728 Hours", "Warsaw Hours")
+    row = nordea.extract_rows(text)[0]
+    assert row.rate_client == Decimal("175.00")
+    assert row.rate_unit == "hour"
+    assert row.md_total is None
+    assert not row.uncertain
+
+
 @pytest.mark.parametrize(
     "reason",
     [

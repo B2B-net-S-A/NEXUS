@@ -38,7 +38,7 @@
     "backend/app/services/order_policies/kir.py": "ad30ac651877d7386798fdc0ca88b79329ab20f1a9e3fc6a3a174729f779cf80",
     "backend/app/services/order_policies/known_clients.py": "2c0ddb458e00065c8eefda2d1c0c340bd0893415eb6c6be4714dd8f53efdb881",
     "backend/app/services/order_policies/mleasing.py": "93ba9fd2318bbc09155c05f267caaec7dd3dd4f5ec2c4072f6a1dccb7d7258d8",
-    "backend/app/services/order_policies/nordea.py": "fe5ad015d6c3a18d3d4fdad938fddfe30c42bfb59e8f9f900a0dc0d9aa7988aa",
+    "backend/app/services/order_policies/nordea.py": "fe8988d75e53f40c9270b4c30d1f102eaef526d6242bd6b0a74956ddf9be39c9",
     "backend/app/services/order_policies/pko_bp.py": "b089ec0c92a45a3d0c15a6ba040f7f2f6b53fb59236bccbc485ea78eafe4f3a6",
     "backend/app/services/order_policies/registry.py": "4c86601497ab463011a16f231e5d6b5b0ad0301ad977b492d54f57d2ee820a25",
     "backend/app/services/order_policies/velobank.py": "2b70feebe4a4964b52f8139ddc35680964aa2ae89912a573bdd84bcbe6db2e89",
