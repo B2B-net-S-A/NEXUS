@@ -60,9 +60,13 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
+  CHAMPION_PROSE_SECTION_IDS,
+  CHAMPION_SECTION_STATE_LABEL,
   CHAMPION_SECTIONS,
   championSectionState,
+  championSectionsEmptyCount,
   hasChampionAiProvenance,
+  type ChampionSectionId,
   type ChampionSectionState,
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
@@ -108,6 +112,10 @@ export function ChampionProfileEditor({
 
   // AI Intake (Phase 14)
   const [showIntake, setShowIntake] = useState(false);
+  // Grupa „proza" (2 · 4 · 5) zwija się DOPIERO gdy wszystkie trzy sekcje są
+  // puste — wtedy pełne trzy formularze to trzy ekrany pustych pól. Cokolwiek
+  // wypełnione i grupa jest rozwinięta na stałe: zwinięcie ukryłoby dane.
+  const [proseExpanded, setProseExpanded] = useState(false);
   const [jdText, setJdText] = useState("");
   const [activeSuggestion, setActiveSuggestion] =
     useState<ChampionProfileSuggestion | null>(null);
@@ -230,6 +238,15 @@ export function ChampionProfileEditor({
     );
 
   const disabled = !canEdit;
+  /** Etykiety i kotwice z JEDNEGO źródła — patrz `CHAMPION_SECTIONS`. */
+  const meta = (id: ChampionSectionId) =>
+    CHAMPION_SECTIONS.find((s) => s.id === id)!;
+  const proseEmptyCount = championSectionsEmptyCount(
+    CHAMPION_PROSE_SECTION_IDS,
+    draft,
+  );
+  const proseAllEmpty = proseEmptyCount === CHAMPION_PROSE_SECTION_IDS.length;
+  const showFullProse = !proseAllEmpty || proseExpanded;
 
   return (
     <div className="space-y-6">
@@ -287,25 +304,40 @@ export function ChampionProfileEditor({
         </div>
       )}
 
-      {/* AI Intake (Phase 14): paste JD → draft Championa */}
+      {/* AI Intake (Phase 14): paste JD → draft Championa.
+          Od fali 3 wejściem jest BANER na górze formularza (makieta kroku 02),
+          a nie wiersz-akordeon między sekcjami: to pierwsza rzecz, którą robi
+          Delivery Lead z pustym profilem, więc stoi tam, gdzie zaczyna czytać.
+          Zdanie makiety „pola z AI są oznaczone do czasu zapisu" świadomie
+          zmienione — znacznik pochodzenia jest CAŁOPROFILOWY i przeżywa zapis
+          (patrz `lib/champion-section-state.ts`), więc obietnica per pole
+          byłaby nieprawdziwa. */}
       {canEdit && (
-        <div className="rounded-xl border border-purple-200 dark:border-purple-900 bg-purple-50/50 dark:bg-purple-950/20">
-          <button
-            type="button"
-            onClick={() => setShowIntake((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left"
-            data-testid="toggle-ai-intake"
-          >
-            <span className="inline-flex items-center gap-2 font-medium text-sm text-purple-900 dark:text-purple-200">
-              <Wand2 className="w-4 h-4" />
-              Wygeneruj Profil Championa z opisu klienta (AI)
-            </span>
-            {showIntake ? (
-              <ChevronDown className="w-4 h-4 text-purple-600" />
-            ) : (
-              <ChevronRight className="w-4 h-4 text-purple-600" />
-            )}
-          </button>
+        <div className="rounded-xl border border-info/20 bg-info-muted">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <Wand2
+              className="w-4 h-4 shrink-0 text-info-muted-foreground"
+              aria-hidden="true"
+            />
+            <p className="min-w-0 flex-1 text-xs text-info-muted-foreground">
+              Profil można wygenerować z opisu klienta (AI) i poprawić ręcznie —
+              import zostawia znacznik pochodzenia na całym profilu.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowIntake((v) => !v)}
+              aria-expanded={showIntake}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent"
+              data-testid="toggle-ai-intake"
+            >
+              Wygeneruj z opisu klienta
+              {showIntake ? (
+                <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+              )}
+            </button>
+          </div>
           {showIntake && (
             <div className="px-4 pb-4 space-y-2">
               <p className="text-xs text-muted-foreground dark:text-muted-foreground">
@@ -364,8 +396,8 @@ export function ChampionProfileEditor({
 
       {/* 1. Podstawowe informacje */}
       <Section
-        title="1. Podstawowe informacje"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "basics")?.anchor}
+        title={meta("basics").label}
+        anchor={meta("basics").anchor}
         state={championSectionState("basics", draft)}
       >
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -513,11 +545,121 @@ export function ChampionProfileEditor({
         </div>
       </Section>
 
+      {/* 3. Stack technologiczny — ZARAZ po podstawach, przed prozą: to on
+          zasila `must_skills`/`nice_skills`, czyli ranking C2, kafelki
+          interaktywnego CV i filtry wyszukiwarki. Numer w tytule zostaje
+          szablonowy (wzór Word), kolejność jest robocza. */}
+      <Section
+        title={meta("stack").label}
+        anchor={meta("stack").anchor}
+        state={championSectionState("stack", draft)}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <StackField
+            label={`Musi mieć · ${(draft.stack.must || []).length}`}
+            testId="champion-stack-must"
+            value={draft.stack.must}
+            disabled={disabled}
+            onChange={(items) => patchStack({ must: items })}
+          />
+          <StackField
+            label={`Mile widziane · ${(draft.stack.nice || []).length}`}
+            testId="champion-stack-nice"
+            value={draft.stack.nice}
+            disabled={disabled}
+            onChange={(items) => patchStack({ nice: items })}
+          />
+        </div>
+        <div className="mt-3">
+          <Labeled label="Niuanse wersji / zakresu">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.stack.notes}
+              onChange={(e) => patchStack({ notes: e.target.value })}
+              placeholder="np. Java 17+, Java 8 nie interesuje"
+              className={inputClass}
+            />
+          </Labeled>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-3">
+          Zapis synchronizuje stack do <code>must_skills</code>/
+          <code>nice_skills</code> — to one zasilają ranking C2, kafelki
+          interaktywnego CV i filtry wyszukiwarki. Oddzielaj przecinkiem lub
+          nową linią.
+        </p>
+      </Section>
+
+      {/* 2 · 4 · 5 — jeden blok „proza". Trzy osobne karty pustych pól były
+          trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
+      <SectionGroup
+        title={CHAMPION_PROSE_SECTION_IDS.map((id) => meta(id).label).join("  ·  ")}
+        // Kotwica sekcji 2 siedzi na karcie grupy WYŁĄCZNIE gdy jest zwinięta —
+        // po rozwinięciu nosi ją własna sekcja niżej, a dwa te same `id`
+        // w dokumencie sprawiają, że skok do kotwicy trafia raz tu, raz tam.
+        anchor={showFullProse ? undefined : meta("search").anchor}
+        emptyCount={proseEmptyCount}
+        total={CHAMPION_PROSE_SECTION_IDS.length}
+      >
+        {showFullProse ? null : (
+          <>
+            {/* Kotwice sekcji zwiniętych — `ChampionSectionNav` linkuje do
+                każdej z osobna, a link prowadzący donikąd jest gorszy niż brak
+                linku. Klik ląduje na tej karcie, czyli tam, gdzie ta sekcja
+                naprawdę jest. */}
+            <span
+              id={meta("project").anchor}
+              className="block scroll-mt-4"
+              aria-hidden="true"
+            />
+            <span
+              id={meta("screening_questions").anchor}
+              className="block scroll-mt-4"
+              aria-hidden="true"
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Labeled label="Frazy do searchu">
+                <textarea
+                  disabled={disabled}
+                  value={draft.search.keywords}
+                  onChange={(e) => patchSearch({ keywords: e.target.value })}
+                  placeholder="java, spring boot, kafka, mikroserwisy"
+                  rows={2}
+                  className={textareaClass}
+                  data-testid="champion-search-keywords"
+                />
+              </Labeled>
+              <Labeled label="O projekcie (2 zdania)">
+                <textarea
+                  disabled={disabled}
+                  value={draft.project.about}
+                  onChange={(e) => patchProject({ about: e.target.value })}
+                  placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
+                  rows={2}
+                  className={textareaClass}
+                  data-testid="champion-project-about"
+                />
+              </Labeled>
+            </div>
+            <button
+              type="button"
+              onClick={() => setProseExpanded(true)}
+              className="self-start text-xs font-medium text-primary hover:underline"
+              data-testid="expand-champion-prose"
+            >
+              Rozwiń pełne sekcje
+            </button>
+          </>
+        )}
+
+        {showFullProse ? (
+          <>
       {/* 2. Co wpisać (search) */}
       <Section
-        title="2. Co wpisać (search)"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "search")?.anchor}
+        title={meta("search").label}
+        anchor={meta("search").anchor}
         state={championSectionState("search", draft)}
+        nested
       >
         <div className="space-y-3">
           <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz">
@@ -567,51 +709,12 @@ export function ChampionProfileEditor({
         </div>
       </Section>
 
-      {/* 3. Stack technologiczny */}
-      <Section
-        title="3. Stack technologiczny"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "stack")?.anchor}
-        state={championSectionState("stack", draft)}
-      >
-        <p className="text-[11px] text-muted-foreground mb-3">
-          Zapis przenosi te technologie do wymagań rekrutacji — to z nich liczy
-          się dopasowanie kandydatów. Oddzielaj przecinkiem lub nową linią.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <StackField
-            label="MUST-HAVE"
-            testId="champion-stack-must"
-            value={draft.stack.must}
-            disabled={disabled}
-            onChange={(items) => patchStack({ must: items })}
-          />
-          <StackField
-            label="NICE-TO-HAVE"
-            testId="champion-stack-nice"
-            value={draft.stack.nice}
-            disabled={disabled}
-            onChange={(items) => patchStack({ nice: items })}
-          />
-        </div>
-        <div className="mt-3">
-          <Labeled label="Niuanse wersji / zakresu">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.stack.notes}
-              onChange={(e) => patchStack({ notes: e.target.value })}
-              placeholder="np. Java 17+, Java 8 nie interesuje"
-              className={inputClass}
-            />
-          </Labeled>
-        </div>
-      </Section>
-
       {/* 4. O projekcie */}
       <Section
-        title="4. O projekcie"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "project")?.anchor}
+        title={meta("project").label}
+        anchor={meta("project").anchor}
         state={championSectionState("project", draft)}
+        nested
       >
         <div className="space-y-3">
           <Labeled label="Czym jest projekt — maksymalnie 2 zdania">
@@ -649,9 +752,10 @@ export function ChampionProfileEditor({
 
       {/* 5. Pytania screeningowe */}
       <Section
-        title="5. Pytania screeningowe"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "screening_questions")?.anchor}
+        title={meta("screening_questions").label}
+        anchor={meta("screening_questions").anchor}
         state={championSectionState("screening_questions", draft)}
+        nested
         action={
           canEdit && (
             <button
@@ -723,7 +827,9 @@ export function ChampionProfileEditor({
           ))}
         </div>
       </Section>
-
+          </>
+        ) : null}
+      </SectionGroup>
 
       {/* 6. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
           „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
@@ -733,26 +839,26 @@ export function ChampionProfileEditor({
           zostają w `draft` i jadą w PUT nietknięte (serwer scala płytko) —
           usunięcie kontrolek NIE kasuje zapisanych danych. */}
       <Section
-        title="6. O kliencie"
-        anchor={CHAMPION_SECTIONS.find((s) => s.id === "client")?.anchor}
+        title={meta("client").label}
+        anchor={meta("client").anchor}
         state={championSectionState("client", draft)}
-      >
-        <div className="space-y-3">
-          {clientId ? (
-            <ClientPlaybookCard
-              clientId={clientId}
-              variant="compact"
-              editHref={`/clients/${clientId}?tab=zasady`}
-            />
-          ) : (
-            <p
-              className="text-xs text-muted-foreground"
-              data-testid="champion-client-playbook-missing"
+        action={
+          clientId ? (
+            <a
+              href={`/clients/${clientId}?tab=zasady`}
+              className="text-xs font-medium text-primary hover:underline"
             >
-              Wybierz klienta rekrutacji, żeby zobaczyć jego kartę.
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              Pełna karta klienta →
+            </a>
+          ) : undefined
+        }
+      >
+        {/* Dwie kolumny (makieta): po lewej to, co piszemy per rekrutacja, po
+            prawej karta klienta — tylko do odczytu. Standardy klienta nie są
+            przepisywane do Championa; to `client_playbooks` jest ich jedynym
+            źródłem. */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="space-y-3">
             <Labeled label="Co przekona kandydata do TEJ oferty">
               <textarea
                 disabled={disabled}
@@ -797,6 +903,25 @@ export function ChampionProfileEditor({
               />
             </Labeled>
           </div>
+          <div className="space-y-1.5">
+            <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
+              Z karty klienta (tylko odczyt)
+            </span>
+            {clientId ? (
+              <ClientPlaybookCard
+                clientId={clientId}
+                variant="compact"
+                editHref={`/clients/${clientId}?tab=zasady`}
+              />
+            ) : (
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="champion-client-playbook-missing"
+              >
+                Wybierz klienta rekrutacji, żeby zobaczyć jego kartę.
+              </p>
+            )}
+          </div>
         </div>
       </Section>
 
@@ -832,6 +957,7 @@ function Section({
   action,
   state,
   anchor,
+  nested = false,
   children,
 }: {
   title: string;
@@ -840,12 +966,19 @@ function Section({
   state?: ChampionSectionState;
   /** Kotwica scrolla dla `ChampionSectionNav` (lewa kolumna kroku 02). */
   anchor?: string;
+  /** Wewnątrz `SectionGroup` — bez własnej ramki, żeby nie było karty w karcie. */
+  nested?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <section
       id={anchor}
-      className="scroll-mt-4 rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted"
+      className={cn(
+        "scroll-mt-4",
+        nested
+          ? "border-t border-border pt-3 first:border-t-0 first:pt-0"
+          : "rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted",
+      )}
     >
       <header className="flex items-center justify-between gap-2 mb-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -861,20 +994,61 @@ function Section({
   );
 }
 
-/** Chip „pusta / wypełniona" obok tytułu sekcji — źródło: dane profilu, nigdy zgadywanie.
+/**
+ * Karta grupy sekcji (2 · 4 · 5) — jeden nagłówek, jeden chip „N z 3 sekcji
+ * puste", w środku albo skrót, albo pełne sekcje jako `nested`.
+ */
+function SectionGroup({
+  title,
+  anchor,
+  emptyCount,
+  total,
+  children,
+}: {
+  title: string;
+  anchor?: string;
+  emptyCount: number;
+  total: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={anchor}
+      className="scroll-mt-4 rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted"
+    >
+      <header className="flex flex-wrap items-center gap-2 mb-3">
+        <h3 className="text-[11px] uppercase tracking-wide text-purple-700 dark:text-purple-300 font-bold">
+          {title}
+        </h3>
+        {emptyCount === 0 ? (
+          <Badge variant="success" size="sm">
+            {CHAMPION_SECTION_STATE_LABEL.filled}
+          </Badge>
+        ) : (
+          <Badge variant="warning" size="sm">
+            {emptyCount} z {total} sekcji {CHAMPION_SECTION_STATE_LABEL.empty}
+          </Badge>
+        )}
+      </header>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
+  );
+}
+
+/** Chip „puste / wypełnione" obok tytułu sekcji — źródło: dane profilu, nigdy zgadywanie.
  *  Pochodzenie „z AI" jest CAŁOPROFILOWE i siedzi na nagłówku profilu
  *  (`ChampionAiProvenanceBadge`), nie przy sekcjach — patrz `lib/champion-section-state.ts`. */
 function SectionStateChip({ state }: { state: ChampionSectionState }) {
   if (state === "filled") {
     return (
       <Badge variant="success" size="sm">
-        Wypełniona
+        {CHAMPION_SECTION_STATE_LABEL.filled}
       </Badge>
     );
   }
   return (
     <Badge variant="outline" size="sm">
-      Pusta
+      {CHAMPION_SECTION_STATE_LABEL.empty}
     </Badge>
   );
 }

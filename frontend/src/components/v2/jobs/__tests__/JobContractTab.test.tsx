@@ -12,7 +12,7 @@
  */
 
 import type { ComponentProps } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -201,10 +201,19 @@ describe("JobContractTab", () => {
     ]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
-    // „Data zakończenia" pada tylko w zdaniu wyjaśniającym, nie na liście
-    // wymaganych pól — wymaganie jej więziło kompletne kontrakty w szkicu.
-    expect(screen.queryByText("Data zakończenia")).toBeNull();
-    expect(screen.getByText(/NIE jest wymagana/)).toBeTruthy();
+    // „Data zakończenia" JEST wypisana (makieta kroku 08 pokazuje ją wprost),
+    // ale wyłącznie jako pole NIEwymagane — wymaganie jej więziło kompletne
+    // kontrakty w szkicu.
+    expect(screen.getByText("Data zakończenia")).toBeTruthy();
+    expect(
+      screen.getByText(/niewymagana — umowa bezterminowa jest stanem docelowym/),
+    ).toBeTruthy();
+    // Cztery pola bramki są opisane jako wymagane, a nie odhaczone na zielono:
+    // wiersz kontraktu stoi za bramką Delivery, więc ta zakładka nie wie,
+    // które z nich są wypełnione.
+    expect(screen.getAllByText(/wymagane do przejścia na „Aktywny”/)).toHaveLength(
+      4,
+    );
   });
 
   it("zamyka rekrutację z powodem — przyciskiem, nie automatem", async () => {
@@ -245,5 +254,108 @@ describe("JobContractTab", () => {
     });
     expect(screen.getByText("Nie udało się pobrać danych")).toBeTruthy();
     expect(screen.queryByText("Nikt nie doszedł jeszcze do umowy")).toBeNull();
+  });
+
+  // ── Parytet z makietą (fala 3) ─────────────────────────────────────────
+  it("nagłówek mówi „Zamknięcie · Nazwisko” i niesie numer umowy oraz start", async () => {
+    renderTab();
+    expect(
+      await screen.findByRole("heading", {
+        name: "Zamknięcie · Grzegorz Żebrowski",
+      }),
+    ).toBeTruthy();
+    // Numer i data startu dochodzą osobnym zapytaniem o umowy tej rekrutacji.
+    const subtitle = await screen.findByText(/Umowa 1436\/2026/);
+    expect(subtitle.textContent).toContain("start");
+  });
+
+  it("oś podpisu stoi w szynie i mówi, kto i kiedy wygenerował dokument", async () => {
+    renderTab();
+    expect(await screen.findByText("Umowa wygenerowana")).toBeTruthy();
+    expect(screen.getByText(/Marta K\./)).toBeTruthy();
+    // Etap, którego jeszcze nie było, jest wypisany jako następny krok.
+    expect(
+      screen.getByText(/„Umowa podpisana”, obie strony → „Zatrudniony”/),
+    ).toBeTruthy();
+  });
+
+  it("hook `hired` jest opowiedziany wierszami z tagami źródeł", async () => {
+    renderTab();
+    expect(
+      await screen.findByText("Co zrobi system po „Zatrudniony”"),
+    ).toBeTruthy();
+    for (const tag of [
+      "contracts",
+      "client_orders",
+      "notyfikacja",
+      "suggest_next_step",
+    ]) {
+      expect(screen.getByText(tag)).toBeTruthy();
+    }
+    // Powód, dla którego zamówienie czasem NIE powstaje, jest wypisany —
+    // dziś to wiedza z CLAUDE.md i jednej notyfikacji.
+    expect(screen.getByText(/żywej linii grupy MD albo kliencie kosztowym/)).toBeTruthy();
+  });
+
+  it("dok ma trzy zakładki makiety, a „Zamówienie” linkuje do zakładki klienta", async () => {
+    renderTab();
+    expect(await screen.findByRole("tab", { name: "Po podpisie" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Alerty DL" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Zamówienie" }));
+    expect(
+      await screen.findByRole("link", { name: /Otwórz Zamówienia klienta/ }),
+    ).toHaveAttribute("href", "/clients/3?tab=zamowienia");
+  });
+
+  it("historia statusów umowy stoi w stopce szyny i tłumaczy statusy na polski", async () => {
+    statusHistory.mockResolvedValue([
+      {
+        id: 1,
+        from_status: null,
+        to_status: "in_progress",
+        changed_by_name: "Marta K.",
+        effective_date: "2026-09-16",
+        created_at: "2026-09-16T09:00:00Z",
+      },
+    ]);
+    renderTab();
+    const summary = await screen.findByText("Historia statusów umowy");
+    await userEvent.click(summary);
+    const details = summary.closest("details");
+    expect(details).not.toBeNull();
+    // `in_progress` z API pokazuje się jako „W trakcie podpisu", nie surowy
+    // enum. Szukamy WEWNĄTRZ historii — ten sam napis jest też pigułką stanu
+    // umowy w nagłówku i globalne zapytanie trafiałoby w dwa różne miejsca.
+    expect(
+      await within(details as HTMLElement).findByText("W trakcie podpisu"),
+    ).toBeTruthy();
+    await waitFor(() => expect(statusHistory).toHaveBeenCalledWith(5));
+  });
+
+  it("przy komplecie obsady przycisk zamknięcia nazywa powód wprost", async () => {
+    const withHired = columns().map((c) =>
+      c.stage === "hired"
+        ? {
+            ...c,
+            count: 1,
+            items: [
+              {
+                id: 800,
+                candidate_id: 42,
+                stage: "hired",
+                name: "Grzegorz",
+                lastname: "Żebrowski",
+              },
+            ],
+          }
+        : c,
+    );
+    renderTab({ columns: withHired });
+    expect(
+      await screen.findByRole("button", {
+        name: /Zamknij rekrutację: „Obsadzone przez nas”/,
+      }),
+    ).toBeTruthy();
   });
 });

@@ -2,7 +2,7 @@
 
 /**
  * CvHandoffWorkbench — stanowisko „CV do klienta" (krok 06 programu „flow
- * w języku C2", docs/c2-flow-program.md, PR 6/7).
+ * w języku C2", docs/c2-flow-program.md; układ z makiety — fala 3).
  *
  * Najbardziej rozproszony krok procesu: generator CV to osobna strona,
  * brandowane CV robi się z profilu kandydata, link dla klienta z innego
@@ -12,11 +12,12 @@
  * **nie odbierając żadnego z dotychczasowych miejsc**: `/cv-generator`, modale
  * na profilu i ruch z tablicy działają dokładnie jak dotąd.
  *
- * Zero nowych endpointów: `client-rate`, `share-token`, `pipeline/move`,
- * `cv/original`, `cv/branded` i sam generator — wszystko istniejące.
+ * Zero nowych endpointów: `client-rate`, `share-token` (create/list/revoke),
+ * `pipeline/move`, `cv/original`, `cv/branded`, `screening/share-token`
+ * i sam generator — wszystko istniejące.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ import {
   HelpCircle,
   Link2,
   Loader2,
+  Mail,
   Send,
   Settings2,
   UserX,
@@ -39,8 +41,10 @@ import {
   candidatesApi,
   extractErrorMsg,
   pipelineApi,
+  screeningApi,
   type CVBrandedState,
   type CVOriginalSnapshot,
+  type CVShareTokenListItem,
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -65,25 +69,43 @@ import {
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { CVGeneratorStandaloneV2 } from "@/components/v2/pages/CVGeneratorStandaloneV2";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
-import { RATE_UNIT_LABELS, RATE_UNIT_SHORT } from "@/lib/verified-rate-gate";
+import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
 import {
   CV_SENT_STAGE,
   countAtClient,
   findStageColumn,
+  formatExpectedRate,
   itemFullName,
   moveBlockedReason,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
 import {
   CvHandoffError,
+  computeMarginPreview,
   describeCvHandoffFailure,
   describeCvHandoffSuccess,
   runCvHandoff,
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
 import { resolveViewState } from "@/lib/view-state";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
+import {
+  ChromeBanner,
+  DockActions,
+  DockSection,
+  KvList,
+  RailRow,
+  RailSection,
+  ReadyItem,
+  ReqRow,
+  ToolPill,
+  WorkbenchCard,
+  WorkbenchDock,
+  WorkbenchHeader,
+  WorkbenchRail,
+  type DockTabItem,
+} from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import, ten sam
@@ -112,6 +134,14 @@ export interface CvHandoffWorkbenchProps {
 }
 
 const SHARE_DAYS_OPTIONS = [7, 14, 30, 60, 90];
+
+const CONTENT_MODE_LABEL: Record<string, string> = {
+  rewrite: "Przepisanie",
+  redact: "Redakcja",
+  tailor: "Pod rekrutację",
+};
+
+type DockTab = "send" | "links";
 
 export function CvHandoffWorkbench({
   jobId,
@@ -164,12 +194,19 @@ export function CvHandoffWorkbench({
 
   // ── Reguły klienta (te same, które generator pokazuje po wyborze klienta) ─
   const cvRuleQuery = useClientCvRule(clientId);
+  const rule = cvRuleQuery.data ?? null;
+  const ruleActive = Boolean(rule?.is_active);
   const playbookQuery = useClientPlaybook(clientId);
   const cvLimit = playbookQuery.data?.cv_limit_per_process ?? null;
+  const clientLabel =
+    rule?.client_name?.trim() ||
+    playbookQuery.data?.client_name?.trim() ||
+    (clientId != null ? `klient #${clientId}` : "");
 
   // ── Snapshoty tej rekrutacji ────────────────────────────────────────────
   const [openOriginal, setOpenOriginal] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
+  const generatorRef = useRef<HTMLDivElement | null>(null);
   const originalQuery = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
     queryFn: () => candidateStageCvApi.original.get(stageId!).then((r) => r.data),
@@ -184,6 +221,7 @@ export function CvHandoffWorkbench({
   const brandedFinalized = brandedStatus === "finalized";
 
   // ── Dok: stawka do klienta + link ───────────────────────────────────────
+  const [dockTab, setDockTab] = useState<DockTab>("send");
   const [clientRate, setClientRate] = useState("");
   const [clientRateUnit, setClientRateUnit] = useState<RateUnit>("monthly");
   const [shareDays, setShareDays] = useState(14);
@@ -193,17 +231,63 @@ export function CvHandoffWorkbench({
     setClientRate("");
     setClientRateUnit("monthly");
     setLastShareSuffix(null);
+    setDockTab("send");
   }, [selectedStageId]);
 
   const numericClientRate = Number.parseFloat(clientRate.replace(",", "."));
   const clientRateValid =
     Number.isFinite(numericClientRate) && numericClientRate > 0;
+  const margin = computeMarginPreview({
+    clientRate,
+    clientUnit: clientRateUnit,
+    candidateRate: selected?.item.expected_rate_value,
+    candidateUnit: selected?.item.expected_rate_unit,
+    candidateCurrency: selected?.item.expected_rate_currency,
+  });
   // Link tylko przy sfinalizowanym CV brandowanym — backend odbija 409, więc
   // bramka jest widoczna z powodem, a nie niespodzianką po kliknięciu.
   const linkBlockedReason = brandedFinalized
     ? null
     : "Link dla klienta wymaga sfinalizowanego CV brandowanego — utwórz je poniżej albo wyślij bez linku.";
   const willCreateLink = createLink && brandedFinalized;
+
+  // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
+  // zakładce „Linki": kolejka bywa długa, a to jest zapytanie per kandydat.
+  const linksQuery = useQuery<CVShareTokenListItem[]>({
+    queryKey: ["cv-share-tokens", stageId],
+    queryFn: () => candidateStageCvApi.share.list(stageId!).then((r) => r.data),
+    enabled: stageId != null && dockTab === "links",
+  });
+  const activeLinks = (linksQuery.data ?? []).filter((t) => !t.revoked);
+
+  const revokeAllMut = useMutation({
+    mutationFn: () =>
+      candidateStageCvApi.share.revokeAll(
+        stageId!,
+        "Odwołane z warsztatu „CV do klienta”",
+      ),
+    onSuccess: () => {
+      showSuccess("Wcześniejsze linki odwołane.");
+      void linksQuery.refetch();
+    },
+    onError: (e) =>
+      showError(extractErrorMsg(e) || "Nie udało się odwołać linków."),
+  });
+
+  const championLinkMut = useMutation({
+    mutationFn: () => screeningApi.createShareToken(stageId!, 30),
+    onSuccess: (res) => {
+      const suffix = res?.data?.share_url_suffix;
+      if (suffix && typeof window !== "undefined") {
+        void navigator.clipboard
+          ?.writeText(`${window.location.origin}${suffix}`)
+          .catch(() => undefined);
+      }
+      showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
+    },
+    onError: (e) =>
+      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku."),
+  });
 
   const moveBlocked = selected
     ? (moveBlockedReason({ item: selected.item, readOnly }) ??
@@ -315,61 +399,70 @@ export function CvHandoffWorkbench({
     );
   }
 
+  const mailtoHref = (() => {
+    const link =
+      lastShareSuffix && typeof window !== "undefined"
+        ? `${window.location.origin}${lastShareSuffix}`
+        : null;
+    const subject = `CV kandydata: ${fullName} — ${jobLabel}`;
+    const body = link
+      ? `Dzień dobry,\n\nprzesyłam CV kandydata ${fullName} do rekrutacji „${jobLabel}”.\nLink: ${link}\n`
+      : `Dzień dobry,\n\nprzesyłam CV kandydata ${fullName} do rekrutacji „${jobLabel}”.\n`;
+    // Adresat świadomie PUSTY — kontakt hiring managera nie przychodzi
+    // z kanbana, a zgadnięty adres to mail wysłany nie tam, gdzie trzeba.
+    return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  })();
+
+  const dockTabs: DockTabItem[] = [
+    { value: "send", label: "Wyślij" },
+    { value: "links", label: "Linki i historia" },
+  ];
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {/* ── Lewa kolumna: kolejka + warunki klienta ─────────────────────── */}
-      <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <Users className="h-4 w-4 text-primary" />
-          Zweryfikowani
-          <Badge variant="outline" size="sm" className="ml-auto tabular-nums">
-            {queue.length}
-          </Badge>
-        </div>
-
+      {/* ── Szyna: kolejka + reguły klienta ─────────────────────────────── */}
+      <WorkbenchRail
+        icon={<Users className="h-4 w-4 text-primary" />}
+        title="Zweryfikowani"
+        count={queue.length}
+        meta={queue.length > 0 ? `${queue.length} do wysłania` : null}
+        footer={
+          canManageCvRules && clientId != null ? (
+            <Link
+              href={`/settings/cv-rules?client=${clientId}`}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+            >
+              <Settings2 className="h-3.5 w-3.5" /> Reguły CV (DL) →
+            </Link>
+          ) : undefined
+        }
+      >
         {queue.length > 0 ? (
           <div className="space-y-0.5" role="list" aria-label="Zweryfikowani kandydaci">
-            {queue.map(({ item }) => {
-              const active = item.id === selectedStageId;
-              return (
-                <div key={item.id} role="listitem">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedStageId(item.id)}
-                    aria-current={active ? "true" : undefined}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-                      active
-                        ? "bg-primary/10 font-medium text-primary"
-                        : "text-foreground hover:bg-accent",
-                    )}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        item.hm_veto
-                          ? "bg-destructive"
-                          : item.verification_status === "pending"
-                            ? "bg-warning"
-                            : "bg-success",
-                      )}
-                    />
-                    <span className="min-w-0 flex-1 truncate">
-                      {itemFullName(item)}
-                    </span>
-                    {item.expected_rate_value != null && (
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {item.expected_rate_value}
-                        {item.expected_rate_unit
-                          ? ` ${RATE_UNIT_SHORT[item.expected_rate_unit]}`
-                          : ""}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              );
-            })}
+            {queue.map(({ item }) => (
+              <div key={item.id} role="listitem">
+                <RailRow
+                  tone={
+                    item.hm_veto
+                      ? "bad"
+                      : item.verification_status === "pending"
+                        ? "warn"
+                        : "ok"
+                  }
+                  label={itemFullName(item)}
+                  meta={
+                    item.verification_status === "pending"
+                      ? `${formatExpectedRate(item) ?? "—"} · pending`
+                      : (formatExpectedRate(item) ?? undefined)
+                  }
+                  metaTone={
+                    item.verification_status === "pending" ? "warn" : "neutral"
+                  }
+                  active={item.id === selectedStageId}
+                  onSelect={() => setSelectedStageId(item.id)}
+                />
+              </div>
+            ))}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -378,52 +471,111 @@ export function CvHandoffWorkbench({
           </p>
         )}
 
-        <div className="space-y-2 border-t border-border pt-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Warunki klienta
-          </div>
+        <RailSection
+          label={
+            clientLabel ? `Reguły CV klienta · ${clientLabel}` : "Reguły CV klienta"
+          }
+        >
           {clientId == null ? (
             <p className="text-xs text-muted-foreground">
               Ta rekrutacja nie ma przypiętego klienta — żadna reguła CV nie
               obowiązuje, a nazwa pliku będzie ogólna.
             </p>
           ) : (
-            <>
-              <ClientCvRuleBanner
-                clientId={clientId}
-                rule={cvRuleQuery.data}
-                isLoading={cvRuleQuery.isLoading}
-                isError={cvRuleQuery.isError}
-              />
-              <div className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5 text-xs">
-                <span className="text-muted-foreground">Limit CV na proces</span>
-                <span className="tabular-nums text-foreground">
-                  {playbookQuery.isLoading
-                    ? "…"
+            <div className="space-y-1.5">
+              {cvRuleQuery.isLoading || cvRuleQuery.isError || !ruleActive ? (
+                // Ładowanie, awarię i „klient nie ma zatwierdzonej reguły"
+                // opisuje ten sam baner, którego używa generator — jedno zdanie
+                // o braku reguł, nie cisza (bramki są fail-closed i same z
+                // siebie nie dają żadnego objawu).
+                <ClientCvRuleBanner
+                  clientId={clientId}
+                  rule={cvRuleQuery.data}
+                  isLoading={cvRuleQuery.isLoading}
+                  isError={cvRuleQuery.isError}
+                />
+              ) : (
+                <>
+                  <ReadyItem
+                    tone={rule?.cv_language ? "y" : "z"}
+                    title={`Język CV: ${rule?.cv_language ? rule.cv_language.toUpperCase() : "bez wymogu"}`}
+                    detail={
+                      rule?.cv_language
+                        ? "wymuszony regułą klienta"
+                        : "generator użyje domyślnego"
+                    }
+                  />
+                  <ReadyItem
+                    tone={rule?.content_mode_locked ? "y" : "z"}
+                    title={`Tryb: ${
+                      rule?.content_mode
+                        ? (CONTENT_MODE_LABEL[rule.content_mode] ??
+                          rule.content_mode)
+                        : "do wyboru"
+                    }`}
+                    detail={
+                      rule?.content_mode_locked
+                        ? "zablokowany regułą — serwer nadpisze inny wybór"
+                        : "rekruter wybiera w generatorze"
+                    }
+                  />
+                  {rule?.requires_rodo_consent_block && (
+                    <ReadyItem
+                      tone="n"
+                      title="Zrzut zgody RODO"
+                      detail="wymagany na końcu CV — wgraj go w generatorze"
+                      action={
+                        <button
+                          type="button"
+                          onClick={() =>
+                            generatorRef.current?.scrollIntoView({
+                              block: "start",
+                            })
+                          }
+                          className="text-[11px] font-medium text-primary hover:underline"
+                        >
+                          Wgraj
+                        </button>
+                      }
+                    />
+                  )}
+                  {(rule?.filename_preview || rule?.filename_pattern) && (
+                    <ReadyItem
+                      tone="y"
+                      title="Nazwa pliku"
+                      detail={rule.filename_preview ?? rule.filename_pattern}
+                    />
+                  )}
+                </>
+              )}
+              {/* Limit CV idzie z KARTY KLIENTA, nie z reguły CV — brak
+                  zatwierdzonej reguły go nie unieważnia. */}
+              <ReadyItem
+                tone={
+                  cvLimit != null && atClient >= cvLimit
+                    ? "n"
                     : cvLimit != null
-                      ? `${atClient} z ${cvLimit}`
-                      : `${atClient} u klienta`}
-                </span>
-              </div>
+                      ? "y"
+                      : "z"
+                }
+                title={
+                  cvLimit != null
+                    ? `Limit CV na proces: ${cvLimit}`
+                    : "Limit CV na proces: brak w karcie klienta"
+                }
+                detail={`u klienta jest ${atClient}`}
+              />
               {cvLimit != null && atClient >= cvLimit && (
-                <p className="inline-flex items-start gap-1 text-xs text-warning-muted-foreground">
+                <p className="inline-flex items-start gap-1 text-[11px] text-warning-muted-foreground">
                   <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                   Limit CV tego klienta jest wyczerpany — potwierdź z Delivery
                   Leadem przed kolejną wysyłką.
                 </p>
               )}
-              {canManageCvRules && (
-                <Link
-                  href={`/settings/cv-rules?client=${clientId}`}
-                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-                >
-                  <Settings2 className="h-3 w-3" /> Reguły CV klienta (DL)
-                </Link>
-              )}
-            </>
+            </div>
           )}
-        </div>
-      </aside>
+        </RailSection>
+      </WorkbenchRail>
 
       {/* ── Środek: przygotowanie CV ────────────────────────────────────── */}
       <div className="min-w-0 space-y-4">
@@ -436,196 +588,416 @@ export function CvHandoffWorkbench({
           </div>
         ) : (
           <>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-semibold text-foreground">
-                  CV · {fullName}
-                </h2>
-                {selected.item.verification_status === "pending" && (
-                  <Badge variant="warning" size="sm">
-                    <HelpCircle className="h-2.5 w-2.5" /> Stawka czeka na
-                    akceptację
-                  </Badge>
-                )}
-                {selected.item.hm_veto && (
-                  <Badge
-                    variant="danger"
-                    size="sm"
-                    title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
-                  >
-                    <UserX className="h-2.5 w-2.5" /> Weto HM
-                  </Badge>
-                )}
+            <WorkbenchHeader
+              title={`CV · ${fullName}`}
+              subtitle={[
+                "Zweryfikowany",
+                formatExpectedRate(selected.item),
+                originalQuery.data?.original_cv_language
+                  ? `CV źródłowe: ${originalQuery.data.original_cv_language.toUpperCase()}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              badges={
+                <>
+                  {selected.item.verification_status === "pending" && (
+                    <Badge variant="warning" size="sm">
+                      <HelpCircle className="h-2.5 w-2.5" /> Stawka czeka na
+                      akceptację
+                    </Badge>
+                  )}
+                  {selected.item.hm_veto && (
+                    <Badge
+                      variant="danger"
+                      size="sm"
+                      title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
+                    >
+                      <UserX className="h-2.5 w-2.5" /> Weto HM
+                    </Badge>
+                  )}
+                </>
+              }
+              actions={
                 <Link
                   href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-                  className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
                 >
-                  <ExternalLink className="h-3 w-3" /> Pełny profil
+                  <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
                 </Link>
-              </div>
-            </div>
-
-            {/* Snapshoty tej rekrutacji — te same modale, co na profilu. */}
-            <div className="space-y-2 rounded-xl border border-border bg-card p-4">
-              <div className="text-xs font-semibold text-foreground">
-                Snapshoty tej rekrutacji
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {originalQuery.isLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                ) : originalQuery.data?.has_snapshot ? (
-                  <Badge size="sm" variant="success">
-                    CV oryginalne
-                  </Badge>
-                ) : (
-                  <Badge size="sm" variant="warning">
-                    Brak CV w momencie zgłoszenia
-                  </Badge>
-                )}
-                {brandedFinalized ? (
-                  <Badge size="sm" variant="success">
-                    Brandowane: zfinalizowane
-                  </Badge>
-                ) : brandedStatus === "draft" ? (
-                  <Badge size="sm" variant="info">
-                    Brandowane: draft
-                  </Badge>
-                ) : (
-                  <Badge size="sm" variant="neutral">
-                    Brandowane: brak
-                  </Badge>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setOpenOriginal(true)}
-                >
-                  <FileText className="h-3.5 w-3.5" /> Pokaż CV oryginalne
-                </Button>
-                {!readOnly && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setOpenBranded(true)}
+              }
+              tools={
+                <>
+                  <ToolPill tone={brandedFinalized ? "ok" : "neutral"}>
+                    Brandowane:{" "}
+                    {brandedFinalized
+                      ? "zfinalizowane"
+                      : brandedStatus === "draft"
+                        ? "draft"
+                        : "brak"}
+                  </ToolPill>
+                  <ToolPill
+                    tone={originalQuery.data?.has_snapshot ? "info" : "warn"}
+                    title={
+                      originalQuery.data?.original_snapshot_source ?? undefined
+                    }
                   >
-                    <FileText className="h-3.5 w-3.5" />{" "}
-                    {brandedStatus === "none"
-                      ? "Stwórz brandowane"
-                      : "Edytuj brandowane"}
-                  </Button>
-                )}
-              </div>
-            </div>
+                    CV źródłowe:{" "}
+                    {originalQuery.isLoading
+                      ? "…"
+                      : (originalQuery.data?.original_cv_filename ??
+                        "brak snapshotu")}
+                  </ToolPill>
+                  {cvLimit != null && (
+                    <ToolPill tone={atClient >= cvLimit ? "warn" : "neutral"}>
+                      {`Limit CV: ${atClient} z ${cvLimit}`}
+                    </ToolPill>
+                  )}
+                </>
+              }
+            />
 
             {/* Generator CV — ten sam komponent co `/cv-generator`, osadzony
                 z wypełnionym krokiem 1 (kandydat) i rekrutacją. */}
-            <div className="rounded-xl border border-border bg-card p-4">
-              <CVGeneratorStandaloneV2
-                embedded
-                prefillCandidateId={selected.item.candidate_id}
-                prefillCandidateName={fullName}
-                prefillJobId={jobId}
-              />
+            <div ref={generatorRef}>
+              <WorkbenchCard
+                title="Obróbka treści"
+                status={
+                  rule?.content_mode_locked
+                    ? "tryb zablokowany regułą klienta"
+                    : undefined
+                }
+                statusTone="warn"
+              >
+                <CVGeneratorStandaloneV2
+                  embedded
+                  prefillCandidateId={selected.item.candidate_id}
+                  prefillCandidateName={fullName}
+                  prefillJobId={jobId}
+                />
+              </WorkbenchCard>
             </div>
+
+            {/* Snapshoty tej rekrutacji — te same modale, co na profilu. */}
+            <WorkbenchCard title="Snapshoty tej rekrutacji">
+              {originalQuery.isLoading ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+                </div>
+              ) : (
+                <ReqRow
+                  tone={originalQuery.data?.has_snapshot ? "y" : "w"}
+                  label={
+                    originalQuery.data?.has_snapshot
+                      ? `CV oryginalne${
+                          originalQuery.data.original_snapshot_at
+                            ? ` · snapshot z ${formatDate(originalQuery.data.original_snapshot_at)}`
+                            : ""
+                        }`
+                      : "Brak CV w momencie zgłoszenia"
+                  }
+                  tag={
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => setOpenOriginal(true)}
+                    >
+                      Pokaż
+                    </button>
+                  }
+                />
+              )}
+              <ReqRow
+                tone={brandedFinalized ? "y" : brandedStatus === "draft" ? "w" : "n"}
+                label={
+                  brandedFinalized
+                    ? `Brandowane · zfinalizowane${
+                        brandedQuery.data?.finalized_at
+                          ? ` ${formatDate(brandedQuery.data.finalized_at)}`
+                          : ""
+                      }`
+                    : brandedStatus === "draft"
+                      ? "Brandowane · draft (niesfinalizowane)"
+                      : "Brandowane · brak"
+                }
+                tag={
+                  readOnly ? undefined : (
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => setOpenBranded(true)}
+                    >
+                      {brandedStatus === "none" ? "Stwórz" : "Edytuj"}
+                    </button>
+                  )
+                }
+              />
+            </WorkbenchCard>
           </>
         )}
       </div>
 
       {/* ── Dok: wysyłka do klienta ─────────────────────────────────────── */}
       <aside className="lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1 xl:self-start">
-        <div className="space-y-4 rounded-xl border border-border bg-card p-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-              Wysyłka do klienta
-            </div>
-            <div className="truncate text-sm font-semibold text-foreground">
-              {selected ? fullName : "Nikt nie wybrany"}
-            </div>
-          </div>
-
-          {selected ? (
+        <WorkbenchDock
+          name="Wysyłka do klienta"
+          who={selected ? fullName : null}
+          whoSub={
+            selected
+              ? `→ CV Wysłane${clientLabel ? ` · ${clientLabel}` : ""}`
+              : undefined
+          }
+          tabs={selected ? dockTabs : undefined}
+          activeTab={dockTab}
+          onTabChange={(v) => setDockTab(v as DockTab)}
+          footer={
+            rule?.requires_rodo_consent_block ? (
+              <>
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                Bez zrzutu zgody RODO generacja dla klienta{" "}
+                {clientLabel || "tego klienta"} odmawia (422), zanim naliczy
+                kwotę.
+              </>
+            ) : (
+              <>
+                <Link2 className="h-3 w-3 shrink-0" />
+                Zarządzanie linkami zostaje też w doku „Karta w procesie” na
+                tablicy i na profilu kandydata.
+              </>
+            )
+          }
+        >
+          {!selected ? (
+            <p className="text-xs text-muted-foreground">
+              Wybierz kandydata z kolejki, żeby przygotować wysyłkę.
+            </p>
+          ) : dockTab === "links" ? (
             <>
-              <div
-                className={cn(
-                  "flex items-start gap-2 rounded-md border px-3 py-2 text-xs",
-                  moveBlocked
-                    ? "border-warning/30 bg-warning-muted text-warning-muted-foreground"
-                    : "border-success/30 bg-success-muted text-success-muted-foreground",
-                )}
-                role="status"
+              {linksQuery.isLoading ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie
+                  linków…
+                </div>
+              ) : linksQuery.isError ? (
+                <QueryStateNotice
+                  state={
+                    resolveViewState({
+                      isLoading: false,
+                      isError: true,
+                      error: linksQuery.error,
+                      isSuccess: false,
+                    }) as "forbidden" | "not_found" | "error"
+                  }
+                  description="Nie udało się wczytać linków tego etapu. Linki nie zniknęły — to nieudane pobranie."
+                  onRetry={() => void linksQuery.refetch()}
+                />
+              ) : (linksQuery.data ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Ten etap nie ma jeszcze żadnego linku dla klienta.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {(linksQuery.data ?? []).map((token) => (
+                    <div
+                      key={token.revoke_key}
+                      className="rounded-lg border border-border bg-muted/20 p-2 text-[11px]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          size="sm"
+                          variant={token.revoked ? "neutral" : "success"}
+                        >
+                          {token.revoked ? "odwołany" : "aktywny"}
+                        </Badge>
+                        <code className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {token.token_preview}
+                        </code>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {token.view_count} wyświetleń
+                        </span>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        {[
+                          token.created_at
+                            ? `utworzony ${formatDate(token.created_at)}`
+                            : null,
+                          token.created_by_name,
+                          token.expires_at
+                            ? `wygasa ${formatDate(token.expires_at)}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!readOnly && activeLinks.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full justify-start"
+                  loading={revokeAllMut.isPending}
+                  onClick={() => revokeAllMut.mutate()}
+                >
+                  <Link2 className="h-3.5 w-3.5" /> Odwołaj wcześniejsze linki (
+                  {activeLinks.length})
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <ChromeBanner
+                tone={moveBlocked ? "warn" : "ok"}
+                icon={
+                  moveBlocked ? (
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  )
+                }
               >
-                {moveBlocked ? (
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                )}
-                <span>
-                  {moveBlocked ?? "Bramka: brak przeciwwskazań — ruch przejdzie."}
-                </span>
-              </div>
+                {moveBlocked ??
+                  `Bramka: brak przeciwwskazań · weto HM: brak${
+                    cvLimit != null ? ` · limit CV: ${atClient} z ${cvLimit}` : ""
+                  }`}
+              </ChromeBanner>
 
               {canWriteClientRate ? (
-              <div className="space-y-2">
-                <div className="text-xs font-semibold text-foreground">
-                  Stawka do klienta
-                </div>
-                <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="cv-client-rate">Kwota</Label>
-                    <input
-                      id="cv-client-rate"
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
-                      min="0"
-                      value={clientRate}
-                      disabled={readOnly}
-                      onChange={(e) => setClientRate(e.target.value)}
-                      placeholder="np. 25000"
-                      className="h-10 w-full rounded-md border border-border bg-card px-3 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
-                    />
+                <DockSection title="Stawka do klienta" right="z ClientRateModal">
+                  <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="cv-client-rate">Kwota</Label>
+                      <input
+                        id="cv-client-rate"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        value={clientRate}
+                        disabled={readOnly}
+                        onChange={(e) => setClientRate(e.target.value)}
+                        placeholder="np. 25000"
+                        className="h-9 w-full rounded-md border border-border bg-card px-3 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="cv-client-rate-unit">Jednostka</Label>
+                      <Select
+                        value={clientRateUnit}
+                        onValueChange={(v) => setClientRateUnit(v as RateUnit)}
+                        disabled={readOnly}
+                      >
+                        <SelectTrigger id="cv-client-rate-unit" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(RATE_UNIT_LABELS) as RateUnit[]).map(
+                            (u) => (
+                              <SelectItem key={u} value={u}>
+                                {RATE_UNIT_LABELS[u]}
+                              </SelectItem>
+                            ),
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="cv-client-rate-unit">Jednostka</Label>
-                    <Select
-                      value={clientRateUnit}
-                      onValueChange={(v) => setClientRateUnit(v as RateUnit)}
-                      disabled={readOnly}
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      Marża (podgląd)
+                    </span>
+                    <span
+                      title={margin.reason ?? undefined}
+                      className={cn(
+                        "font-medium tabular-nums",
+                        margin.value != null && margin.value > 0
+                          ? "text-success-muted-foreground"
+                          : margin.value != null
+                            ? "text-destructive-muted-foreground"
+                            : "text-muted-foreground",
+                      )}
                     >
-                      <SelectTrigger id="cv-client-rate-unit" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(Object.keys(RATE_UNIT_LABELS) as RateUnit[]).map(
-                          (u) => (
-                            <SelectItem key={u} value={u}>
-                              {RATE_UNIT_LABELS[u]}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
+                      {margin.label}
+                    </span>
                   </div>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Puste pole = wysyłka bez stawki (dawne „Pomiń”). Stawka
-                  zapisuje się PO ruchu, na nowym etapie — jak na tablicy.
-                </p>
-              </div>
+                  <p className="text-[10.5px] text-muted-foreground">
+                    „Pomiń” zostaje — puste pole wysyła bez stawki, można ją
+                    uzupełnić później na karcie rekrutacji w profilu. Stawka
+                    zapisuje się PO ruchu, na nowym etapie — jak na tablicy.
+                  </p>
+                </DockSection>
               ) : (
-              <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                Stawkę do klienta zapisuje admin (uprawnienie finansowe) —
-                wysyłka idzie bez stawki, uzupełni ją później z profilu
-                kandydata.
-              </p>
+                <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                  Stawkę do klienta zapisuje admin (uprawnienie finansowe) —
+                  wysyłka idzie bez stawki, uzupełni ją później z profilu
+                  kandydata.
+                </p>
               )}
 
-              <div className="space-y-2 border-t border-border pt-3">
-                <div className="text-xs font-semibold text-foreground">
-                  Link dla klienta
-                </div>
+              <DockSection title="Link dla klienta">
+                <KvList
+                  rows={[
+                    {
+                      k: "Dokument",
+                      v: brandedFinalized ? (
+                        "Brandowane (zfinalizowane)"
+                      ) : (
+                        <span className="text-warning-muted-foreground">
+                          brak — sfinalizuj brandowane
+                        </span>
+                      ),
+                    },
+                    {
+                      k: "Ważność",
+                      v: brandedFinalized ? (
+                        <Select
+                          value={String(shareDays)}
+                          onValueChange={(v) => setShareDays(Number(v))}
+                          disabled={readOnly || !createLink}
+                        >
+                          <SelectTrigger
+                            id="cv-share-days"
+                            className="h-8 w-full"
+                            aria-label="Ważność linku"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SHARE_DAYS_OPTIONS.map((d) => (
+                              <SelectItem key={d} value={String(d)}>
+                                {d} dni
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        "14 dni (max 90)"
+                      ),
+                    },
+                    {
+                      k: "Limit wyświetleń",
+                      v: "— (ustawia się przy linku interaktywnego CV)",
+                    },
+                    {
+                      k: "Karta Championa",
+                      v:
+                        readOnly || stageId == null ? (
+                          "—"
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-primary hover:underline disabled:opacity-60"
+                            disabled={championLinkMut.isPending}
+                            onClick={() => championLinkMut.mutate()}
+                          >
+                            Utwórz link (30 dni)
+                          </button>
+                        ),
+                    },
+                  ]}
+                />
                 <label className="flex cursor-pointer items-start gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -634,79 +1006,81 @@ export function CvHandoffWorkbench({
                     onChange={(e) => setCreateLink(e.target.checked)}
                     className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary disabled:cursor-not-allowed"
                   />
-                  <span
-                    className={cn(
-                      !brandedFinalized && "text-muted-foreground",
-                    )}
-                  >
+                  <span className={cn(!brandedFinalized && "text-muted-foreground")}>
                     Utwórz link do brandowanego CV
                   </span>
                 </label>
-                {linkBlockedReason ? (
+                {linkBlockedReason && (
                   <p className="text-[11px] text-muted-foreground">
                     {linkBlockedReason}
                   </p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="cv-share-days">Ważność linku</Label>
-                    <Select
-                      value={String(shareDays)}
-                      onValueChange={(v) => setShareDays(Number(v))}
-                      disabled={readOnly || !createLink}
-                    >
-                      <SelectTrigger id="cv-share-days" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SHARE_DAYS_OPTIONS.map((d) => (
-                          <SelectItem key={d} value={String(d)}>
-                            {d} dni
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 )}
                 {lastShareSuffix && (
                   <p className="break-all text-[11px] text-muted-foreground">
                     Ostatni link: <code>{lastShareSuffix}</code>
                   </p>
                 )}
-              </div>
+              </DockSection>
 
               {!readOnly && (
-                <div className="space-y-1.5 border-t border-border pt-3">
-                  <Button
-                    className="w-full justify-center"
-                    disabled={Boolean(moveBlocked) || sendMut.isPending}
-                    loading={sendMut.isPending}
-                    title={moveBlocked ?? undefined}
-                    onClick={() => sendMut.mutate()}
-                  >
-                    <Send className="h-4 w-4" />
-                    Wyślij klientowi i przenieś na „CV Wysłane”
-                  </Button>
+                <>
+                  <DockActions>
+                    <Button
+                      className="col-span-2 w-full justify-start"
+                      size="sm"
+                      disabled={Boolean(moveBlocked) || sendMut.isPending}
+                      loading={sendMut.isPending}
+                      title={moveBlocked ?? undefined}
+                      onClick={() => sendMut.mutate()}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Wyślij klientowi i przenieś na „CV Wysłane”
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full justify-start"
+                      disabled={!lastShareSuffix}
+                      title={
+                        lastShareSuffix
+                          ? "Kopiuje pełny adres linku do schowka"
+                          : "Link powstaje przy wysyłce — wtedy da się go skopiować"
+                      }
+                      onClick={() => {
+                        if (!lastShareSuffix || typeof window === "undefined")
+                          return;
+                        void navigator.clipboard
+                          ?.writeText(
+                            `${window.location.origin}${lastShareSuffix}`,
+                          )
+                          .then(() => showSuccess("Link skopiowany."))
+                          .catch(() =>
+                            showError("Nie udało się skopiować linku."),
+                          );
+                      }}
+                    >
+                      <Link2 className="h-3.5 w-3.5" /> Kopiuj link
+                    </Button>
+                    <a
+                      href={mailtoHref}
+                      className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+                      title="Otwiera klienta pocztowego z gotową treścią — adresata wpisujesz sam"
+                    >
+                      <Mail className="h-3.5 w-3.5" /> Mail do klienta
+                    </a>
+                  </DockActions>
                   <p className="text-[11px] text-muted-foreground">
                     Kolejność: link → zmiana etapu → stawka do klienta. Link musi
                     powstać przed ruchem (ruch tworzy nowy etap bez CV), a stawka
-                    po nim (zapisuje się na najnowszym etapie). Gdy któryś krok
-                    padnie, dok mówi, co zdążyło się wykonać.
+                    po nim (zapisuje się na najnowszym etapie). Po ruchu:
+                    auto-dodanie do talent poola i powiadomienia stage’owe — jak
+                    dziś.
                   </p>
-                </div>
+                </>
               )}
             </>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Wybierz kandydata z kolejki, żeby przygotować wysyłkę.
-            </p>
           )}
-
-          <p className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-            <Link2 className="mr-1 inline h-3 w-3" />
-            Zarządzanie istniejącymi linkami (podgląd, odwołanie) zostaje w doku
-            „Karta w procesie” na tablicy Pipeline i na profilu kandydata.
-          </p>
-        </div>
+        </WorkbenchDock>
       </aside>
 
       {selected && openOriginal && (

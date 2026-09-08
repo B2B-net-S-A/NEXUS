@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import {
+  CHAMPION_PROSE_SECTION_IDS,
   CHAMPION_SECTIONS,
   championSectionState,
+  championSectionsEmptyCount,
   hasChampionAiProvenance,
 } from "@/lib/champion-section-state";
 
@@ -120,5 +122,61 @@ describe("championSectionState", () => {
     expect(CHAMPION_SECTIONS).toHaveLength(6);
     const anchors = new Set(CHAMPION_SECTIONS.map((s) => s.anchor));
     expect(anchors.size).toBe(6);
+  });
+});
+
+describe("CHAMPION_SECTIONS — kolejność kroku 02", () => {
+  it("kolejność jest robocza (1 · 3 · 2 · 4 · 5 · 6), numeracja szablonowa", () => {
+    expect(CHAMPION_SECTIONS.map((s) => s.id)).toEqual([
+      "basics",
+      "stack",
+      "search",
+      "project",
+      "screening_questions",
+      "client",
+    ]);
+    // Etykieta drugiego wpisu niesie numer 3 — wiąże ekran ze wzorem Word,
+    // po którym poruszają się Delivery Leadowie.
+    expect(CHAMPION_SECTIONS[1].label.startsWith("3 · ")).toBe(true);
+  });
+
+  it("grupa „proza” to dokładnie sekcje 2 · 4 · 5, wszystkie obecne w CHAMPION_SECTIONS", () => {
+    expect([...CHAMPION_PROSE_SECTION_IDS]).toEqual([
+      "search",
+      "project",
+      "screening_questions",
+    ]);
+    const known = new Set(CHAMPION_SECTIONS.map((s) => s.id));
+    for (const id of CHAMPION_PROSE_SECTION_IDS) {
+      expect(known.has(id)).toBe(true);
+    }
+  });
+});
+
+describe("championSectionsEmptyCount", () => {
+  it("pusty profil — wszystkie trzy sekcje grupy są puste", () => {
+    expect(
+      championSectionsEmptyCount(CHAMPION_PROSE_SECTION_IDS, EMPTY_CHAMPION_PROFILE),
+    ).toBe(3);
+  });
+
+  it("wypełniony profil — zero pustych", () => {
+    expect(championSectionsEmptyCount(CHAMPION_PROSE_SECTION_IDS, FILLED)).toBe(0);
+  });
+
+  it("liczy TĄ SAMĄ regułą co chip pojedynczej sekcji", () => {
+    const profile: ChampionProfile = {
+      ...EMPTY_CHAMPION_PROFILE,
+      project: { about: "Migracja platformy płatności.", responsibilities: "" },
+    };
+    expect(championSectionsEmptyCount(CHAMPION_PROSE_SECTION_IDS, profile)).toBe(2);
+    // Nagłówek grupy nie może twierdzić czegoś innego niż sekcja pod nim.
+    expect(championSectionState("project", profile)).toBe("filled");
+    expect(championSectionState("search", profile)).toBe("empty");
+    expect(championSectionState("screening_questions", profile)).toBe("empty");
+  });
+
+  it("pusta lista sekcji daje zero (bez dzielenia przez nic)", () => {
+    expect(championSectionsEmptyCount([], EMPTY_CHAMPION_PROFILE)).toBe(0);
   });
 });

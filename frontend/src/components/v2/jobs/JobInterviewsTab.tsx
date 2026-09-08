@@ -26,6 +26,7 @@ import {
   Save,
   Sparkles,
   UserX,
+  Users,
 } from "lucide-react";
 
 import api, {
@@ -55,6 +56,8 @@ import {
   type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
 import { ScreeningSheet } from "@/components/v2/modals/ScreeningSheet";
+import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { PrepInviteModal } from "@/components/v2/modals/PrepInviteModal";
 import {
   RejectionV2,
   type CandidateOfferResponse,
@@ -64,6 +67,14 @@ import {
   InterviewDecisionDockEmpty,
   buildDecisionMoveTargets,
 } from "@/components/v2/jobs/InterviewDecisionDock";
+import {
+  RailRow,
+  RailSection,
+  ToolPill,
+  WorkbenchCard,
+  WorkbenchHeader,
+  WorkbenchRail,
+} from "@/components/v2/jobs/workbench-chrome";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
   { value: "advance", label: "Dalej" },
@@ -113,6 +124,8 @@ export function JobInterviewsTab({
     stageId: number;
     name: string;
   } | null>(null);
+  const [showOriginalCv, setShowOriginalCv] = useState(false);
+  const [prepInviteOpen, setPrepInviteOpen] = useState(false);
   const [pendingTerminal, setPendingTerminal] = useState<{
     col: KanbanColumn;
     terminal: "rejected" | "withdrawn";
@@ -305,115 +318,141 @@ export function JobInterviewsTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {/* ── Lewa kolumna: u klienta + weta ─────────────────────────── */}
-      <aside className="space-y-4">
-        <section className="rounded-xl border border-border bg-card p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold text-foreground">U klienta</h3>
-            <Badge variant="outline" size="sm" className="tabular-nums">
-              {entries.length}
-            </Badge>
+      {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
+      <WorkbenchRail
+        icon={<Users className="h-4 w-4 text-primary" />}
+        title="U klienta"
+        count={entries.length}
+        meta="etapy zewnętrzne"
+        footer={
+          <Button
+            size="sm"
+            variant="outline"
+            className="justify-center"
+            disabled={!selected}
+            title={
+              selected
+                ? "Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+                : "Wybierz kandydata z listy"
+            }
+            onClick={() => setShowOriginalCv(true)}
+          >
+            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+          </Button>
+        }
+      >
+        {listViewState === "loading" ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
           </div>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            Etapy zewnętrzne tego szablonu.
+        ) : listBlocked ? (
+          <QueryStateNotice
+            state={listViewState as "forbidden" | "not_found" | "error"}
+            description={
+              listViewState === "error"
+                ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
+                : undefined
+            }
+            onRetry={listViewState === "error" ? onColumnsRetry : undefined}
+          />
+        ) : listViewState === "empty" ? (
+          <p className="text-xs text-muted-foreground">
+            Nikt nie jest jeszcze u klienta.
           </p>
-          {listViewState === "loading" ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-            </div>
-          ) : listBlocked ? (
-            <QueryStateNotice
-              state={listViewState as "forbidden" | "not_found" | "error"}
-              description={
-                listViewState === "error"
-                  ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
-                  : undefined
-              }
-              onRetry={listViewState === "error" ? onColumnsRetry : undefined}
-            />
-          ) : listViewState === "empty" ? (
-            <p className="text-xs text-muted-foreground">
-              Nikt nie jest jeszcze u klienta.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {entries.map(({ item, col }) => {
-                const active = item.candidate_id === selectedCandidateId;
-                const feedback = feedbackByCandidate.get(item.candidate_id);
-                return (
-                  <li key={item.candidate_id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCandidateId(item.candidate_id)}
-                      aria-current={active ? "true" : undefined}
-                      className={cn(
-                        "w-full rounded-lg border px-2 py-1.5 text-left text-xs transition-colors",
-                        active
-                          ? "border-primary bg-primary/5 text-foreground"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted",
-                      )}
-                    >
-                      <span className="block truncate font-medium text-foreground">
-                        {`${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
-                          "Kandydat"}
-                      </span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1">
-                        <span className="truncate">{columnLabel(col)}</span>
-                        {feedback ? (
-                          <Badge size="sm" variant="soft">
-                            feedback
-                          </Badge>
-                        ) : null}
-                        {item.hm_veto ? (
-                          <Badge size="sm" variant="danger">
-                            weto
-                          </Badge>
-                        ) : null}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        ) : (
+          <div className="space-y-0.5" role="list" aria-label="U klienta">
+            {entries.map(({ item, col }) => {
+              const feedback = feedbackByCandidate.get(item.candidate_id);
+              return (
+                <div key={item.candidate_id} role="listitem">
+                  <RailRow
+                    tone={
+                      item.hm_veto
+                        ? "bad"
+                        : feedback
+                          ? "ok"
+                          : "neutral"
+                    }
+                    label={
+                      `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
+                      "Kandydat"
+                    }
+                    meta={columnLabel(col)}
+                    active={item.candidate_id === selectedCandidateId}
+                    onSelect={() => setSelectedCandidateId(item.candidate_id)}
+                    title={
+                      feedback ? "Feedback hiring managera zapisany" : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-        <section className="rounded-xl border border-border bg-card p-3">
-          <h3 className="mb-1 text-xs font-semibold text-foreground">
-            Wcześniej u tego klienta
-          </h3>
+        <RailSection
+          label="Wcześniej u tego klienta"
+          note="Weto blokuje ponowne „CV Wysłane” i „Interview Klient” u tego managera — 409 z powodem, nie do nadpisania."
+        >
           {vetoedEntries.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">
               Nikt z tej rekrutacji nie ma weta hiring managera.
             </p>
           ) : (
-            <ul className="space-y-1">
+            <div className="space-y-0.5">
               {vetoedEntries.map(({ item }) => (
-                <li key={`veto-${item.candidate_id}`}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCandidateId(item.candidate_id)}
-                    className="w-full rounded-lg border border-destructive/40 bg-destructive-muted/40 px-2 py-1.5 text-left text-xs"
-                    title={item.hm_veto?.rejection_reason_name ?? undefined}
-                  >
-                    <span className="block truncate font-medium text-foreground">
-                      {`${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
-                        "Kandydat"}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-destructive-muted-foreground">
-                      <UserX className="h-3 w-3" /> weto HM
-                    </span>
-                  </button>
-                </li>
+                <RailRow
+                  key={`veto-${item.candidate_id}`}
+                  tone="bad"
+                  label={
+                    `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
+                    "Kandydat"
+                  }
+                  meta="weto HM"
+                  metaTone="bad"
+                  active={item.candidate_id === selectedCandidateId}
+                  onSelect={() => setSelectedCandidateId(item.candidate_id)}
+                  title={item.hm_veto?.rejection_reason_name ?? undefined}
+                />
               ))}
-            </ul>
+            </div>
           )}
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Weto blokuje ponowne „CV Wysłane” i „Interview Klient” u tego
-            managera — 409 z powodem, nie do nadpisania.
-          </p>
-        </section>
-      </aside>
+        </RailSection>
+
+        {selected && (
+          <RailSection label="Przygotowanie">
+            <div className="space-y-0.5">
+              <Link
+                href={`/jobs/${jobId}/prep/${selected.item.candidate_id}`}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent"
+              >
+                <Sparkles className="h-3 w-3 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 truncate">Prep-kit (AI)</span>
+                <span className="shrink-0 text-[10.5px] text-muted-foreground">
+                  otwórz
+                </span>
+              </Link>
+              <RailRow
+                label="Screening Championa dla klienta"
+                meta="arkusz"
+                onSelect={() =>
+                  setScreeningFor({
+                    stageId: selected.item.id,
+                    name:
+                      `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+                      "Kandydat",
+                  })
+                }
+              />
+              <RailRow
+                label="Zaproszenie prep (.ics + CV)"
+                meta="szablon"
+                onSelect={() => setPrepInviteOpen(true)}
+              />
+            </div>
+          </RailSection>
+        )}
+      </WorkbenchRail>
 
       {/* ── Środek: karta rozmowy ──────────────────────────────────── */}
       <section className="min-w-0 space-y-4">
@@ -484,6 +523,33 @@ export function JobInterviewsTab({
           onOpenChange={(o) => !o && setScreeningFor(null)}
           stageId={screeningFor.stageId}
           candidateName={screeningFor.name}
+        />
+      )}
+
+      {selected && showOriginalCv && (
+        <CVOriginalPreviewModal
+          open
+          onOpenChange={setShowOriginalCv}
+          stageId={selected.item.id}
+          jobTitle={jobTitle?.trim() || `Rekrutacja #${jobId}`}
+          candidateName={
+            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+            "Kandydat"
+          }
+        />
+      )}
+
+      {selected && prepInviteOpen && (
+        <PrepInviteModal
+          open
+          onOpenChange={setPrepInviteOpen}
+          candidateName={
+            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+            "Kandydat"
+          }
+          onToast={(message, type) =>
+            type === "error" ? showError(message) : showSuccess(message)
+          }
         />
       )}
 
@@ -612,57 +678,23 @@ function InterviewCard({
 
   return (
     <div className="space-y-4">
-      {/* Nagłówek karty */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-[10px] font-semibold tracking-wide text-primary uppercase">
-              Rozmowa u klienta
-            </div>
-            <h2 className="truncate text-base font-semibold text-foreground">
-              {fullName}
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {columnLabel(col)}
-              {item.days_in_stage != null
-                ? ` · ${item.days_in_stage} ${item.days_in_stage === 1 ? "dzień" : "dni"} na etapie`
-                : ""}
-              {jobTitle ? ` · ${jobTitle}` : ""}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {item.hm_veto ? (
-              <Badge variant="danger" size="sm">
-                <UserX className="h-2.5 w-2.5" /> Weto HM
-              </Badge>
-            ) : (
-              <Badge variant="soft" size="sm">
-                Weto HM: brak
-              </Badge>
-            )}
-            {item.verification_status === "pending" && (
-              <Badge variant="warning" size="sm">
-                Pending
-              </Badge>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <Link
-            href={`/jobs/${jobId}/prep/${item.candidate_id}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
-          >
-            <Sparkles className="h-3.5 w-3.5" /> Prep-kit (AI)
-          </Link>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onOpenScreening(item.id, fullName)}
-          >
-            <FileText className="h-3.5 w-3.5" /> Screening Championa
-          </Button>
-          {!readOnly && (
+      {/* Nagłówek kroku — układ z makiety: tytuł, podtytuł, akcje, pigułki. */}
+      <WorkbenchHeader
+        title={`Rozmowa u klienta · ${fullName}`}
+        subtitle={[
+          columnLabel(col),
+          item.days_in_stage != null
+            ? `${item.days_in_stage} ${item.days_in_stage === 1 ? "dzień" : "dni"} na etapie`
+            : null,
+          jobTitle ?? null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        actions={
+          // Prep-kit ma teraz JEDNO wejście w tym kroku — sekcję
+          // „Przygotowanie" w szynie (makieta). Drugi link o tym samym adresie
+          // obok nagłówka kazałby zgadywać, czym się różnią.
+          !readOnly ? (
             <Button
               size="sm"
               variant="outline"
@@ -670,12 +702,45 @@ function InterviewCard({
               loading={shareMutation.isPending}
               title="Link do karty Championa dla klienta — ważny 30 dni"
             >
-              <Link2 className="h-3.5 w-3.5" /> Link dla klienta
+              <Link2 className="h-3.5 w-3.5" /> Karta Championa dla klienta
             </Button>
-          )}
-        </div>
+          ) : undefined
+        }
+        tools={
+          <>
+            {item.hm_veto ? (
+              <ToolPill tone="bad">
+                <UserX className="h-3 w-3" /> Weto HM: jest
+              </ToolPill>
+            ) : (
+              <ToolPill tone="ok">Weto HM: brak</ToolPill>
+            )}
+            {item.verification_status === "pending" && (
+              <ToolPill tone="warn">Stawka czeka na akceptację</ToolPill>
+            )}
+            {item.days_in_stage != null && (
+              <ToolPill>
+                {item.days_in_stage}{" "}
+                {item.days_in_stage === 1 ? "dzień" : "dni"} na etapie
+              </ToolPill>
+            )}
+          </>
+        }
+      />
 
-        <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 text-xs">
+      <WorkbenchCard
+        title="Screening Championa dla klienta"
+        status={
+          <button
+            type="button"
+            className="text-primary hover:underline"
+            onClick={() => onOpenScreening(item.id, fullName)}
+          >
+            Otwórz arkusz
+          </button>
+        }
+      >
+        <div className="text-xs">
           {screeningQuery.isLoading ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie
@@ -738,25 +803,14 @@ function InterviewCard({
             </span>
           )}
         </div>
-      </div>
+      </WorkbenchCard>
 
       {/* Feedback klienta */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-foreground">
-            Feedback klienta po rozmowie
-          </h3>
-          {feedback ? (
-            <Badge size="sm" variant="soft">
-              zapisany
-            </Badge>
-          ) : (
-            <Badge size="sm" variant="warning">
-              do uzupełnienia
-            </Badge>
-          )}
-        </div>
-
+      <WorkbenchCard
+        title="Feedback klienta po rozmowie"
+        status={feedback ? "zapisany" : "do uzupełnienia"}
+        statusTone={feedback ? "ok" : "warn"}
+      >
         {feedbackQueryState === "forbidden" ||
         feedbackQueryState === "not_found" ||
         feedbackQueryState === "error" ? (
@@ -886,7 +940,7 @@ function InterviewCard({
             )}
           </div>
         )}
-      </div>
+      </WorkbenchCard>
 
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         <Link

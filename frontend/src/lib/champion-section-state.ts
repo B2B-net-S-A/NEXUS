@@ -34,17 +34,44 @@ export interface ChampionSectionMeta {
   label: string;
 }
 
+/**
+ * Kolejność WYŚWIETLANIA kroku 02, nie kolejność szablonu: 1 · 3 · (2·4·5) · 6.
+ *
+ * Numery w etykietach zostają szablonowe („3 · Stack technologiczny" stoi jako
+ * drugi) — to one wiążą ekran z wzorem Word, po którym Delivery Leadowie się
+ * poruszają, a przenumerowanie zerwałoby tę więź. Kolejność jest robocza:
+ * stack idzie zaraz po podstawach, bo to on zasila `must_skills`/`nice_skills`,
+ * czyli ranking C2 i filtry — a proza (2·4·5) jest tym, co bez niego i tak nie
+ * ma czego rankować.
+ *
+ * Ta tablica JEST kolejnością renderowania — `ChampionSectionNav` mapuje po niej
+ * wprost, a `ChampionProfileEditor` bierze z niej etykiety i kotwice. Jedno
+ * źródło: rozjazd nawigacji z formularzem oznaczałby link prowadzący w złe
+ * miejsce.
+ */
 export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
-  { id: "basics", anchor: "champion-section-basics", label: "1. Podstawowe informacje" },
-  { id: "search", anchor: "champion-section-search", label: "2. Co wpisać (search)" },
-  { id: "stack", anchor: "champion-section-stack", label: "3. Stack technologiczny" },
-  { id: "project", anchor: "champion-section-project", label: "4. O projekcie" },
+  { id: "basics", anchor: "champion-section-basics", label: "1 · Podstawowe informacje" },
+  { id: "stack", anchor: "champion-section-stack", label: "3 · Stack technologiczny" },
+  { id: "search", anchor: "champion-section-search", label: "2 · Co wpisać (search)" },
+  { id: "project", anchor: "champion-section-project", label: "4 · O projekcie" },
   {
     id: "screening_questions",
     anchor: "champion-section-screening",
-    label: "5. Pytania screeningowe",
+    label: "5 · Pytania screeningowe",
   },
-  { id: "client", anchor: "champion-section-client", label: "6. O kliencie" },
+  { id: "client", anchor: "champion-section-client", label: "6 · O kliencie" },
+];
+
+/**
+ * Sekcje 2 · 4 · 5 renderują się na kroku 02 jako JEDEN blok („proza": frazy do
+ * searchu, opis projektu, pytania screeningowe). Grupa jest tu, a nie w
+ * komponencie, żeby chip „N z 3 sekcji puste" i kolejność renderowania liczyły
+ * się z tej samej listy.
+ */
+export const CHAMPION_PROSE_SECTION_IDS: readonly ChampionSectionId[] = [
+  "search",
+  "project",
+  "screening_questions",
 ];
 
 function hasText(value: string | null | undefined): boolean {
@@ -124,9 +151,22 @@ export function championSectionState(
 }
 
 export const CHAMPION_SECTION_STATE_LABEL: Record<ChampionSectionState, string> = {
-  empty: "Pusta",
-  filled: "Wypełniona",
+  empty: "puste",
+  filled: "wypełnione",
 };
+
+/**
+ * Ile z podanych sekcji jest pustych — podstawa chipu grupy „proza" (2·4·5).
+ *
+ * Liczy z TEJ SAMEJ funkcji co chip pojedynczej sekcji, więc nagłówek grupy nie
+ * może twierdzić czegoś innego niż sekcja pod nim.
+ */
+export function championSectionsEmptyCount(
+  ids: readonly ChampionSectionId[],
+  profile: ChampionProfile,
+): number {
+  return ids.filter((id) => championSectionState(id, profile) === "empty").length;
+}
 
 /** Etykieta znacznika pochodzenia na nagłówku profilu (jedno miejsce, nie per sekcja). */
 export const CHAMPION_AI_PROVENANCE_LABEL = "Z importu (AI)";

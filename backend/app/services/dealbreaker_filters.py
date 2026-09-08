@@ -126,6 +126,11 @@ class DealbreakerInputs:
     must_skills: tuple[
         str, ...
     ] = ()  # kanoniczne, TYLKO jawne (patrz job_explicit_must_skills)
+    # Wpisy `must_skills`, których bramka NIE użyła, bo są punktem wymagań,
+    # a nie nazwą technologii. Wystawiane w odpowiedzi `/ai-matches`, żeby
+    # niedziałająca bramka nie była cicha — to ta sama zasada co liczniki
+    # ukrycia, tylko w drugą stronę.
+    must_skills_ignored: tuple[str, ...] = ()
     onsite_days_per_week: Optional[int] = None
     office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
     wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
@@ -213,6 +218,117 @@ def resolve_effective_remote_policy(job) -> Optional[str]:
     return champion_work_mode_to_remote(champion_view.basics(job).get("work_mode"))
 
 
+# Znaki i słowa, które zdradzają, że wpis `must_skills` jest PUNKTEM WYMAGAŃ,
+# a nie nazwą technologii. Myślnik/przecinek/nawias rozdzielają kwalifikator od
+# nazwy („apache kafka – minimum 4 lata"), a spójniki i rzeczowniki wymagań
+# („i", „lub", „doświadczenie", „znajomość") występują wyłącznie w zdaniach.
+# Ukośnik jest tu ŚWIADOMIE, mimo że bywa częścią prawdziwej nazwy (`CI/CD`,
+# `TDD/BDD`, `UI/UX`). Zmierzone na produkcji: 24 oferty mają w zestawie
+# bramkującym wpis z ukośnikiem, a przytłaczająca większość to ALTERNATYWY
+# („Docker/Kubernetes", „Pytest/Jest/Cypress", „Flask/FastAPI", „KYC / AML"),
+# których nikt nie ma dosłownie jako umiejętności — czyli ta sama awaria co
+# proza, tylko węższa. Wykluczenie ukośnika kosztuje 3 oferty ze 193, które
+# tracą bramkę must-have i wracają do stanu sprzed 0278 (bramka słabsza, nikt
+# błędnie ukryty). Osiem do jednego na korzyść wykluczenia, a kierunek błędu
+# jest ten właściwy: „nieznane przechodzi". `CI/CD` i spółka zostają sygnałem
+# dla warstwy punktowej — nie znikają, po prostu nie bramkują.
+_PROSE_SEPARATORS = ("–", "—", ",", ";", ":", "(", ")", "|", "&", "/")
+_PROSE_WORDS = frozenset(
+    {
+        "i",
+        "oraz",
+        "lub",
+        "albo",
+        "w",
+        "z",
+        "na",
+        "do",
+        "przy",
+        "od",
+        "minimum",
+        "min",
+        "mile",
+        "widziane",
+        "co",
+        "najmniej",
+        "doświadczenie",
+        "doswiadczenie",
+        "doświadczenia",
+        "doswiadczenia",
+        "znajomość",
+        "znajomosc",
+        "znajomości",
+        "znajomosci",
+        "umiejętność",
+        "umiejetnosc",
+        "umiejętności",
+        "umiejetnosci",
+        "gotowość",
+        "gotowosc",
+        "praktyczna",
+        "praktyczne",
+        "praktyczny",
+        "rok",
+        "roku",
+        "lat",
+        "lata",
+        "poziom",
+        "poziomie",
+        "stanowisku",
+        "experience",
+        "years",
+        "knowledge",
+        "ability",
+        "minimum.",
+        "and",
+        "or",
+        "with",
+        "in",
+        "of",
+        "the",
+    }
+)
+
+# Nazwa technologii bywa trzywyrazowa („Amazon Web Services", „Microsoft SQL
+# Server"), ale nigdy nie jest zdaniem. Sufit trzymamy przy trzech słowach
+# i 40 znakach — powyżej tego w produkcji leżą wyłącznie punkty wymagań.
+_GATE_MAX_WORDS = 3
+_GATE_MAX_CHARS = 40
+
+
+def is_gate_eligible_must(name: str) -> bool:
+    """Czy ten wpis `must_skills` nadaje się na TWARDĄ bramkę.
+
+    Bramka porównuje wpis z umiejętnościami kandydata jako CAŁY STRING, więc
+    działa wyłącznie dla wpisów będących NAZWĄ technologii. W produkcji 70%
+    ofert ma w tej kolumnie punkty wymagań przepisane z ogłoszenia („apache
+    kafka – minimum 4 lata komercyjnego doświadczenia", „gotowość do pracy
+    hybrydowej w warszawie"), których żaden kandydat nigdy nie ma w profilu
+    jako umiejętności — więc bramka ukrywała KAŻDEGO, kto ma jakiekolwiek
+    umiejętności, i zostawiała listę pustą.
+    """
+    text = (name or "").strip()
+    if not text or len(text) > _GATE_MAX_CHARS:
+        return False
+    if any(sep in text for sep in _PROSE_SEPARATORS):
+        return False
+    words = text.lower().split()
+    if not words or len(words) > _GATE_MAX_WORDS:
+        return False
+    return not any(w in _PROSE_WORDS for w in words)
+
+
+def gate_eligible_must_skills(must: Sequence[str]) -> list[str]:
+    """Podzbiór `must` nadający się na bramkę — patrz `is_gate_eligible_must`.
+
+    Świadomie NIE zawężamy tego w `job_explicit_must_skills`: bramka gotowości
+    handoffu ma nadal widzieć, że Delivery Lead wymagania PODAŁ (podał je, tylko
+    prozą), a warstwa punktowa scoringu ma je nadal czytać jako sygnał. Zawęża
+    się wyłącznie UKRYWANIE, bo tylko ono krzywdzi przy fałszywym trafieniu.
+    """
+    return [m for m in must if is_gate_eligible_must(m)]
+
+
 def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     """Rozwiąż rubryki JEDNEJ oferty raz, dla wszystkich pięciu powierzchni.
 
@@ -229,7 +345,12 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     from app.services.scoring_service import job_explicit_must_skills
 
     budget = resolve_job_budget_hourly(job)
-    must = tuple(job_explicit_must_skills(job))
+    # Na bramkę idą WYŁĄCZNIE wpisy będące nazwą technologii. Punkty wymagań
+    # przepisane z ogłoszenia zostają w scoringu i w bramce gotowości, ale nie
+    # ukrywają nikogo — patrz `gate_eligible_must_skills`.
+    declared_must = tuple(job_explicit_must_skills(job))
+    must = tuple(gate_eligible_must_skills(declared_must))
+    must_ignored = tuple(m for m in declared_must if m not in set(must))
 
     days = getattr(job, "onsite_days_per_week", None)
     office_location = getattr(job, "location", None)
@@ -257,6 +378,7 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     return DealbreakerInputs(
         budget_hourly=budget,
         must_skills=must,
+        must_skills_ignored=must_ignored,
         onsite_days_per_week=days,
         office_tokens=office_tokens,
         wants_office=wants_office,
