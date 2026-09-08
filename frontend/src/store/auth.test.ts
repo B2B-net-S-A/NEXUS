@@ -4,6 +4,7 @@ import { hasCapability } from "@/lib/capabilities"
 
 import {
   canManageCandidateFinance,
+  canManageContractStatus,
   canManageMultiConsultantOrders,
   canViewCandidateFinance,
   canViewClientFinance,
@@ -34,6 +35,32 @@ const ALL_ROLES: UserRole[] = [
 ]
 
 const mkUser = (role: UserRole) => ({ role })
+
+describe("contract status access", () => {
+  it("pozwala TCM zmieniać wyłącznie status przy odczycie Delivery", () => {
+    expect(
+      canManageContractStatus({
+        role: "talent_community_manager",
+        effective_section_access: { delivery: "read" },
+      }),
+    ).toBe(true)
+    expect(
+      canManageContractStatus({
+        role: "talent_community_manager",
+        effective_section_access: { delivery: "none" },
+      }),
+    ).toBe(false)
+  })
+
+  it("nie rozszerza uprawnienia na pozostałe role z odczytem Delivery", () => {
+    expect(
+      canManageContractStatus({
+        role: "finance",
+        effective_section_access: { delivery: "read" },
+      }),
+    ).toBe(false)
+  })
+})
 
 describe("onboarding persona", () => {
   it("czyta pełną unię ról i preferuje Delivery Lead", () => {

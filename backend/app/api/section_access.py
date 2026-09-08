@@ -21,13 +21,27 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 
 from app.api.deps import get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
     section_access_for_user,
 )
+
+
+def _is_tcm_contract_status_command(request: Request, current_user: User) -> bool:
+    """Admit only the dedicated, non-financial contract-status command."""
+
+    parts = request.url.path.strip("/").split("/")
+    return (
+        request.method.upper() == "PATCH"
+        and len(parts) == 4
+        and parts[:2] == ["api", "contracts"]
+        and parts[2].isdigit()
+        and parts[3] == "status"
+        and current_user.has_role(UserRole.talent_community_manager)
+    )
 
 
 def require_section_access(section: ProductSection):
@@ -40,6 +54,10 @@ def require_section_access(section: ProductSection):
         is_read = is_read_only_http_request(request.method, request.url.path)
         required = SectionAccess.read if is_read else SectionAccess.write
         granted = section_access_for_user(current_user, section)
+        if section is ProductSection.delivery and _is_tcm_contract_status_command(
+            request, current_user
+        ):
+            return current_user
         if granted < required:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
