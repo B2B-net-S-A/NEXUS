@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-07",
+  "reviewed_at": "2026-09-08",
   "sources": {
     "backend/app/api/admin_order_mail.py": "9906e4d5b834ca51e95b0f765f64e5194706f5202029c0128960a899b7ed836a",
     "backend/app/api/client_order_groups.py": "f4b031bc0fa579bec430818e4e3e06c445963f02dd452c4a4fbf80f1254c10c5",
@@ -13,7 +13,7 @@
     "backend/app/services/cost_orders.py": "e092ebefe4ba313f8f359c4d5cb28efc10da657eb3da035c73953b1c1eef2bd8",
     "backend/app/services/cv_text_extractor.py": "3cde8c7fe399789f17b77d7afd56a317c0dd15e8f219a2de573317ff1a453261",
     "backend/app/services/cyfrowy_polsat_orders.py": "0578823b1ce18e93af95cd386a6cc60d999c6c28d9c8cb209491c5b78cc88e50",
-    "backend/app/services/dl_alerts.py": "4c8837d2df5d64d3e94b4e257ef0cdcf5473594d703b4b402a14e93f9bdadebd",
+    "backend/app/services/dl_alerts.py": "0aeab7753eb980d217f98dd94967bc895f090f4d5d8a6fc787d12f0302a0c573",
     "backend/app/services/ezdrowie.py": "c8bafb9952da477ed18664e6bfdf0167d3db02b786caa1b29b0a8f882c774bc0",
     "backend/app/services/finance_order_matching.py": "17eb4961d6dd78814869686367b66ea37cfb9cfda424fa70785e9c62e3475c13",
     "backend/app/services/lotte_wedel_orders.py": "0c9bfa1fb232f154f66ce894c5861b62c831a2c847df273b32550ff4194275e2",

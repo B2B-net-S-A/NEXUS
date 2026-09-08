@@ -24,6 +24,8 @@ od nowa niezależnie od tego, co obsłużono wcześniej.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Sequence
@@ -52,6 +54,8 @@ from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
 )
 from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
+
+logger = logging.getLogger(__name__)
 
 
 async def dl_user_ids_for_client(
@@ -415,11 +419,23 @@ async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
     )
     created = 0
     for group in (await db.execute(stmt)).scalars().all():
-        if group.is_cost_based:
-            alerts = await emit_cost_order_exhausted(db, group)
-        else:
-            alerts = await emit_shared_md_pool_exhausted(db, group)
-        created += len(alerts)
+        # Savepoint PER GRUPA: awaria emisji jednej grupy (brakujący FK,
+        # nieoczekiwany constraint) nie może wycofać alertów już wystawionych
+        # grupom wcześniejszym w tym przebiegu. Lustro wzorca z `_run_rules`,
+        # gdzie każda reguła ma własny `begin_nested()`.
+        try:
+            async with db.begin_nested():
+                if group.is_cost_based:
+                    alerts = await emit_cost_order_exhausted(db, group)
+                else:
+                    alerts = await emit_shared_md_pool_exhausted(db, group)
+                created += len(alerts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "backstop wyczerpania: emisja padła dla grupy %d", group.id
+            )
     return created
 
 

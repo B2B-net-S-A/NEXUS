@@ -321,3 +321,83 @@ async def test_backstop_delivers_exhaustion_alert_missed_without_dl():
             await db.scalars(select(DlAlert).where(DlAlert.order_group_id == group_id))
         ).all()
     assert len(rows) == 1
+
+
+async def test_backstop_delivers_cost_order_exhaustion_missed_without_dl():
+    """Wariant KOSZTOWY (is_cost_based=True) — gałąź emit_cost_order_exhausted.
+
+    Ta sama luka co przy wspólnej puli MD: alert wyczerpania budżetu w złotych
+    jest jednorazowy i przepada, gdy klient nie ma DL. Backstop dostarcza go po
+    przypisaniu DL. Pokrywa drugą gałąź `if group.is_cost_based`.
+    """
+    from datetime import date
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import (
+        GROUP_STATUS_EXHAUSTED,
+        ClientOrderGroup,
+        ClientOrderGroupEvent,
+    )
+    from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED, DlAlert
+    from app.services.dl_alerts import (
+        emit_cost_order_exhausted,
+        reconcile_exhausted_group_budget_alerts,
+    )
+    from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
+    from sqlalchemy import select
+
+    client_id = await _seed_fresh_client()
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"CST-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 1, 1),
+            status=GROUP_STATUS_EXHAUSTED,
+            order_type="cost",
+            is_cost_based=True,
+            is_md_budget_based=False,
+            budget_amount=Decimal("50000"),
+        )
+        db.add(group)
+        await db.commit()
+        await db.refresh(group)
+        group_id = group.id
+
+    # 1) Wyczerpanie bez przypisanego DL → emisja do pustej listy.
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=group_id,
+                event_type=EVENT_BUDGET_EXHAUSTED,
+                description="Budżet kosztowy wyczerpany.",
+            )
+        )
+        await db.flush()
+        await emit_cost_order_exhausted(db, group)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(select(DlAlert).where(DlAlert.order_group_id == group_id))
+        ).all()
+    assert rows == []
+
+    # 2) Po przypisaniu DL backstop dostarcza alert kosztowy.
+    user_id = await _seed_delivery_lead(client_id)
+    async with AsyncSessionLocal() as db:
+        await reconcile_exhausted_group_budget_alerts(db)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.order_group_id == group_id,
+                    DlAlert.user_id == user_id,
+                    DlAlert.alert_type == ALERT_COST_ORDER_EXHAUSTED,
+                )
+            )
+        ).all()
+    assert len(rows) == 1
+    assert "Sprawdź rozliczenie" in rows[0].message
