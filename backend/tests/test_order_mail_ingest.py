@@ -856,3 +856,93 @@ async def test_roster_includes_old_contract_and_refreshes_only_its_client(db_ses
     refreshed = await load_roster(db_session, client.id)
     assert {p.candidate_id for p in refreshed} == {person.id, outsider.id}
     await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_pfron_active_directory_record_controls_roster_and_plan(
+    db_session, monkeypatch
+):
+    from dataclasses import replace
+    from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
+    from app.services.order_policies.known_clients import (
+        build_registry_from_known_clients,
+    )
+    from tests.test_pfron_order_fields import FILENAME, TEXT, old_extraction
+
+    active = Client(name=f"Państwowy Fundusz {RUN}")
+    inactive = Client(name=f"PFRON duplicate {RUN}")
+    db_session.add_all([active, inactive])
+    await db_session.flush()
+    # Podstawowa kategoria jest nieaktywna, ale katalog ma ręczne przeniesienie.
+    active_scope = ClientPortfolioScope(
+        client_id=active.id,
+        category=PortfolioCategory.inactive,
+        category_override=PortfolioCategory.active,
+    )
+    inactive_scope = ClientPortfolioScope(
+        client_id=inactive.id, category=PortfolioCategory.inactive
+    )
+    person = Candidate(
+        name="Michał",
+        lastname="Chwedorczuk",
+        email=f"pfron-{uuid.uuid4().hex}@example.test",
+    )
+    db_session.add_all([active_scope, inactive_scope, person])
+    await db_session.flush()
+    contract = Contract(
+        candidate_id=person.id, client_id=active.id, status=ContractStatus.active
+    )
+    db_session.add(contract)
+    await db_session.flush()
+    policy = replace(
+        svc.policy_by_key("pfron"), canonical_client_ids=frozenset({active.id})
+    )
+    original_lookup = svc.policy_by_key
+    monkeypatch.setattr(
+        svc,
+        "policy_by_key",
+        lambda key: policy if key == "pfron" else original_lookup(key),
+    )
+    # Stare env wskazuje duplikat. Dla stosowania polityki dodajemy aktywne ID
+    # środowiska testowego; selektor musi mimo to odrzucić duplikat.
+    monkeypatch.setenv(
+        "PFRON_ORDER_EXTRACTION_CLIENT_IDS", f"{inactive.id},{active.id}"
+    )
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
+    monkeypatch.setattr(
+        svc,
+        "extract_order_text",
+        lambda *args: OrderDocumentText(TEXT, 1, False, False, None, 0.0),
+    )
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        svc, "parse_order_document", AsyncMock(return_value=old_extraction())
+    )
+    row = OrderMailDocument(
+        attachment_name=FILENAME, sender_email="sender@example.test"
+    )
+    await svc.process_pdf_bytes(
+        db_session, row, b"fake pdf", registry=build_registry_from_known_clients()
+    )
+    assert row.client_id == active.id
+    assert row.extraction["title"] == "34"
+    assert row.extraction["end_date"] == "2026-09-30"
+    assert row.proposal["rows"][0]["candidate_id"] == person.id
+    assert row.proposal["rows"][0]["contract_id"] == contract.id
+    assert row.proposal["rows"][0]["action"] == "new"
+    assert row.proposal["rows"][0]["end_date"] == "2026-09-30"
+    assert not any(
+        "numeru rejestrowego" in r or "Brak takiej osoby" in r for r in row.gate_reasons
+    )
+    # Nawet po NIP-ie nie wybieramy skonfigurowanego nieaktywnego duplikatu.
+    ident = ClientIdentification(client_key=str(inactive.id), method="registry_id")
+    assert await svc.resolve_order_client_id(db_session, ident) == (active.id, "pfron")
+    inactive_scope.category_override = PortfolioCategory.active
+    await db_session.flush()
+    assert await svc.resolve_order_client_id(db_session, ident) == (None, "pfron")
+    active_scope.category_override = PortfolioCategory.inactive
+    inactive_scope.category_override = None
+    await db_session.flush()
+    assert await svc.resolve_order_client_id(db_session, ident) == (None, "pfron")
+    await db_session.rollback()

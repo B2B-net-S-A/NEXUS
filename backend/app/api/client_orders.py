@@ -2025,6 +2025,7 @@ async def extract_order_pdf(
             document_text=text,
             target_consultant=target_consultant,
             target_given_names=target_given_names,
+            filename=filename,
         ),
         policies,
     )
