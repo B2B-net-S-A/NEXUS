@@ -321,11 +321,14 @@ class TestNordeaLayout:
         assert r.consultant_rows[0].consultant_name == "Łukasz Testowy"
         assert r.consultant_rows[0].uncertain is False
 
-    def test_quantity_times_rate_must_equal_subtotal(self):
+    def test_quantity_and_subtotal_do_not_determine_rate_or_certainty(self):
         rows = nordea.extract_rows(
             NORDEA.replace("302 400,00 PLN\nGdańsk", "300 000,00 PLN\nGdańsk")
         )
-        assert rows[0].uncertain is True
+        assert rows[0].uncertain is False
+        assert rows[0].rate_client == Decimal("175.00")
+        assert rows[0].rate_unit == "hour"
+        assert rows[0].md_total is None
 
 
 # ── Bank Pocztowy (warstwa) / Credit Agricole (warstwa) ─────────────────────
