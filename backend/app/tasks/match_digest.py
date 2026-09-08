@@ -119,10 +119,10 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     from app.services.canonical_text import build_job_query_variants
     from app.services.dealbreaker_filters import (
         apply_dealbreakers,
-        resolve_job_budget_hourly,
+        dealbreaker_inputs_for_job,
     )
     from app.services.embedding_service import _build_job_text
-    from app.services.hybrid_search import build_job_bm25_query
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
     from app.services.match_score_cache import bulk_get_or_compute
     from app.services.pipeline_eligibility import filter_eligible_candidates
     from app.services.retrieval_pool import retrieve_candidate_pool
@@ -138,6 +138,8 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
             # C12: noga BM25 dostaje terminy, nie dokument — inaczej ANDuje
             # setki leksemów i nie trafia w nikogo, cicho i bez awarii.
             bm25_query=build_job_bm25_query(job),
+            # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
+            must_groups=build_job_must_groups(job),
         )
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)
@@ -196,12 +198,12 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
     # Parametry są lustrem `compute_proposals` (snapshot = DOMYŚLNY widok
-    # zakładki), nie wywołania /recommendations z parametrami: widget startuje
-    # z budżetem ON / biurem OFF i przy tych wartościach żywego zapytania
-    # w ogóle nie robi. `remote_only` zostaje opt-in per wyszukiwanie —
-    # powiadomienie nie niesie deklaracji rekrutera.
+    # zakładki): budżet, must-have, dni w biurze i miasto liczone RAZ przez
+    # `dealbreaker_inputs_for_job`, `exclude_remote_only` AUTO z
+    # `inputs.wants_office` — ten sam kontrakt co snapshot, żeby liczba
+    # w powiadomieniu dawała się odnaleźć w zakładce, do której linkuje.
     candidates = apply_dealbreakers(
-        candidates, budget_hourly=resolve_job_budget_hourly(job)
+        candidates, inputs=dealbreaker_inputs_for_job(job)
     ).kept
     # Oba filtry PRZED scoringiem: (a) nie płacimy za ludzi, których i tak nie
     # pokażemy, (b) nie zapisujemy do `match_score_cache` wierszy, których

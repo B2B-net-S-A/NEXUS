@@ -40,10 +40,17 @@ vi.mock("@/lib/talent-radar-api", () => ({
   },
 }));
 
-vi.mock("@/lib/api", () => ({
-  extractErrorMsg: (error: unknown) =>
-    (error as { message?: string })?.message ?? "błąd",
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  // `HIDDEN_LABELS_PL` (0278) jest realną stałą, potrzebną przez
+  // `TalentRadarResults` do renderu chipów „ukryto N" — sam `extractErrorMsg`
+  // tego nie niesie.
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    extractErrorMsg: (error: unknown) =>
+      (error as { message?: string })?.message ?? "błąd",
+  };
+});
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showError: mocks.showError }),

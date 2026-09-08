@@ -14,12 +14,17 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => {
+vi.mock("@/lib/api", async (importOriginal) => {
+  // `HIDDEN_LABELS_PL`/`hiddenTotal` (0278) są czystymi stałymi/funkcjami z
+  // realnego modułu — `TalentRadarResults` ich potrzebuje do renderu chipów
+  // ukrytych, więc mock musi je przepuścić, nie tylko `api`/`extractErrorMsg`.
+  const actual = await importOriginal<typeof import("@/lib/api")>();
   const api = {
     get: (...args: unknown[]) => mocks.apiGet(...args),
     post: (...args: unknown[]) => mocks.apiPost(...args),
   };
   return {
+    ...actual,
     __esModule: true,
     default: api,
     api,

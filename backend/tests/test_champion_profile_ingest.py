@@ -75,6 +75,13 @@ async def test_ingest_fill_empty_never_overwrites(monkeypatch):
         champion_profile={"role_name": "ISTNIEJĄCY"},
         must_skills=[{"name": "Java"}],
         nice_skills=[{"name": "Docker"}],
+        # Kolumny trzech rubryk (0278) — `ingest_parsed_profile` woła
+        # `fill_job_columns_from_champion`, które je czyta i zapisuje.
+        # Atrapa bez nich mierzyłaby własny kształt, nie kod.
+        rate_budget_hourly=None,
+        onsite_days_per_week=None,
+        remote_policy=None,
+        location=None,
     )
 
     class _Res:
@@ -114,6 +121,13 @@ async def test_existing_champion_with_empty_skills_reports_ok(monkeypatch):
         champion_profile={"role_name": "JEST"},
         must_skills=[],
         nice_skills=None,
+        # Kolumny trzech rubryk (0278) — `ingest_parsed_profile` woła
+        # `fill_job_columns_from_champion`, które je czyta i zapisuje.
+        # Atrapa bez nich mierzyłaby własny kształt, nie kod.
+        rate_budget_hourly=None,
+        onsite_days_per_week=None,
+        remote_policy=None,
+        location=None,
     )
 
     class _Res:
@@ -152,6 +166,13 @@ async def test_ingest_writes_empty_fields_and_marks_stale(monkeypatch):
         champion_profile=None,
         must_skills=[],
         nice_skills=None,
+        # Kolumny trzech rubryk (0278) — `ingest_parsed_profile` woła
+        # `fill_job_columns_from_champion`, które je czyta i zapisuje.
+        # Atrapa bez nich mierzyłaby własny kształt, nie kod.
+        rate_budget_hourly=None,
+        onsite_days_per_week=None,
+        remote_policy=None,
+        location=None,
     )
 
     class _Res:

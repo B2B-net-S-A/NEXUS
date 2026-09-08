@@ -18,8 +18,11 @@
  * znalezionych technologii. Nie skracaj sekcji 4 bez wypełnionej sekcji 3.
  *
  * Weryfikacja dwustronna, briefing DL i rekomendowane wyszukiwania NIE są
- * sekcjami — serwer stempluje je własnymi endpointami i renderują się osobno
- * nad formularzem.
+ * sekcjami — serwer stempluje je własnymi endpointami. Od kroku 02 programu
+ * „flow w języku C2" (PR 5/7) renderują się w doku „Gotowość"
+ * (`JobReadinessDock` z `variant="champion"`), nie tutaj — ten edytor jest
+ * teraz WYŁĄCZNIE sześcioma sekcjami, każda z chipem stanu (pusta / wypełniona
+ * / z AI, patrz `lib/champion-section-state.ts`).
  */
 
 import { useEffect, useState } from "react";
@@ -53,11 +56,17 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import {
+  CHAMPION_AI_PROVENANCE_LABEL,
+  CHAMPION_SECTIONS,
+  championSectionState,
+  hasChampionAiProvenance,
+  type ChampionSectionState,
+} from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
-import { ChampionVerificationChecklist } from "./ChampionVerificationChecklist";
-import { ChampionRecommendedSearches } from "./ChampionRecommendedSearches";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -141,6 +150,9 @@ export function ChampionProfileEditor({
       }
       setRemoteChange({ by: detail.updated_by_name || "Ktoś", at: Date.now() });
       qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
+      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
+      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
     };
     window.addEventListener(CHAMPION_PROFILE_CHANGED_EVENT, handler);
     return () =>
@@ -157,6 +169,9 @@ export function ChampionProfileEditor({
     mutationFn: (p: ChampionProfile) => championApi.put(jobId, p),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
+      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
+      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     },
@@ -217,12 +232,24 @@ export function ChampionProfileEditor({
   const disabled = !canEdit;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profil Championa
+            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
+                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
+                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
+            {hasChampionAiProvenance(draft) ? (
+              <Badge
+                variant="info"
+                size="sm"
+                title={`Profil zaimportowany z dokumentu (parser AI${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+              >
+                {CHAMPION_AI_PROVENANCE_LABEL}
+              </Badge>
+            ) : null}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
@@ -259,33 +286,6 @@ export function ChampionProfileEditor({
           {remoteChange.by} zaktualizował profil — odświeżono
         </div>
       )}
-
-      {/* Two-sided verification + DL briefing. Reads server state (not the
-          local draft) — updates go through dedicated endpoints with
-          server-side stamps. */}
-      <ChampionVerificationChecklist
-        jobId={jobId}
-        verification={
-          (data?.champion_profile as Partial<ChampionProfile> | undefined)
-            ?.verification
-        }
-        briefing={
-          (data?.champion_profile as Partial<ChampionProfile> | undefined)
-            ?.briefing
-        }
-        canEdit={canEdit}
-      />
-
-      {/* AI-proposed sourcing strategies — DL approves, recruiters activate
-          them one-click from the "Wyszukaj manualnie" tab. */}
-      <ChampionRecommendedSearches
-        jobId={jobId}
-        searches={
-          (data?.champion_profile as Partial<ChampionProfile> | undefined)
-            ?.recommended_searches
-        }
-        canEdit={canEdit}
-      />
 
       {/* AI Intake (Phase 14): paste JD → draft Championa */}
       {canEdit && (
@@ -363,7 +363,11 @@ export function ChampionProfileEditor({
       )}
 
       {/* 1. Podstawowe informacje */}
-      <Section title="1. Podstawowe informacje">
+      <Section
+        title="1. Podstawowe informacje"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "basics")?.anchor}
+        state={championSectionState("basics", draft)}
+      >
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Labeled label="Nazwa roli">
             <input
@@ -510,7 +514,11 @@ export function ChampionProfileEditor({
       </Section>
 
       {/* 2. Co wpisać (search) */}
-      <Section title="2. Co wpisać (search)">
+      <Section
+        title="2. Co wpisać (search)"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "search")?.anchor}
+        state={championSectionState("search", draft)}
+      >
         <div className="space-y-3">
           <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz">
             <textarea
@@ -560,7 +568,11 @@ export function ChampionProfileEditor({
       </Section>
 
       {/* 3. Stack technologiczny */}
-      <Section title="3. Stack technologiczny">
+      <Section
+        title="3. Stack technologiczny"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "stack")?.anchor}
+        state={championSectionState("stack", draft)}
+      >
         <p className="text-[11px] text-muted-foreground mb-3">
           Zapis przenosi te technologie do wymagań rekrutacji — to z nich liczy
           się dopasowanie kandydatów. Oddzielaj przecinkiem lub nową linią.
@@ -596,7 +608,11 @@ export function ChampionProfileEditor({
       </Section>
 
       {/* 4. O projekcie */}
-      <Section title="4. O projekcie">
+      <Section
+        title="4. O projekcie"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "project")?.anchor}
+        state={championSectionState("project", draft)}
+      >
         <div className="space-y-3">
           <Labeled label="Czym jest projekt — maksymalnie 2 zdania">
             <textarea
@@ -634,6 +650,8 @@ export function ChampionProfileEditor({
       {/* 5. Pytania screeningowe */}
       <Section
         title="5. Pytania screeningowe"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "screening_questions")?.anchor}
+        state={championSectionState("screening_questions", draft)}
         action={
           canEdit && (
             <button
@@ -714,7 +732,11 @@ export function ChampionProfileEditor({
           `client.about/priority_rules/contract_type/offlimit` i `documents`
           zostają w `draft` i jadą w PUT nietknięte (serwer scala płytko) —
           usunięcie kontrolek NIE kasuje zapisanych danych. */}
-      <Section title="6. O kliencie">
+      <Section
+        title="6. O kliencie"
+        anchor={CHAMPION_SECTIONS.find((s) => s.id === "client")?.anchor}
+        state={championSectionState("client", draft)}
+      >
         <div className="space-y-3">
           {clientId ? (
             <ClientPlaybookCard
@@ -808,22 +830,52 @@ const textareaClass = inputClass + " resize-y";
 function Section({
   title,
   action,
+  state,
+  anchor,
   children,
 }: {
   title: string;
   action?: React.ReactNode;
+  /** Chip stanu (pusta/wypełniona/z AI) — patrz `lib/champion-section-state.ts`. */
+  state?: ChampionSectionState;
+  /** Kotwica scrolla dla `ChampionSectionNav` (lewa kolumna kroku 02). */
+  anchor?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted">
-      <header className="flex items-center justify-between mb-3">
-        <h3 className="text-[11px] uppercase tracking-wide text-purple-700 dark:text-purple-300 font-bold">
-          {title}
-        </h3>
+    <section
+      id={anchor}
+      className="scroll-mt-4 rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted"
+    >
+      <header className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-[11px] uppercase tracking-wide text-purple-700 dark:text-purple-300 font-bold">
+            {title}
+          </h3>
+          {state ? <SectionStateChip state={state} /> : null}
+        </div>
         {action}
       </header>
       {children}
     </section>
+  );
+}
+
+/** Chip „pusta / wypełniona" obok tytułu sekcji — źródło: dane profilu, nigdy zgadywanie.
+ *  Pochodzenie „z AI" jest CAŁOPROFILOWE i siedzi na nagłówku profilu
+ *  (`ChampionAiProvenanceBadge`), nie przy sekcjach — patrz `lib/champion-section-state.ts`. */
+function SectionStateChip({ state }: { state: ChampionSectionState }) {
+  if (state === "filled") {
+    return (
+      <Badge variant="success" size="sm">
+        Wypełniona
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" size="sm">
+      Pusta
+    </Badge>
   );
 }
 

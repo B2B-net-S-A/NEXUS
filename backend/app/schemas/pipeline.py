@@ -124,6 +124,12 @@ class CandidateStageResponse(BaseModel):
     rejected_at: Optional[datetime] = None
     rejection_note: Optional[str] = None
 
+    # ── Reakcja kandydata na ofertę (migracja 0066) ───────────────────────
+    # Zapisywana wyłącznie przez `POST /pipeline/move` przy wycofaniu po
+    # akceptacji. `None` = nie zapisano; `pending` to JAWNA wartość znacząca
+    # „czekamy na odpowiedź" — dlatego nie da się jej udawać brakiem pola.
+    candidate_offer_response: Optional[CandidateOfferResponse] = None
+
     model_config = {"from_attributes": True}
 
 

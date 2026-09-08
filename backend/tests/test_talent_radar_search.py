@@ -202,6 +202,18 @@ def test_client_is_carried_onto_the_job_or_conflicts_cannot_be_checked():
     )
 
 
+def test_ephemeral_job_carries_onsite_days():
+    """Rubryki 0278: `onsite_days_per_week` z `RadarQuery` trafia na ofertę
+    efemeryczną — pod PRZYSZŁY strażnik AST (dziś żaden moduł ze skanowanej
+    listy jej nie czyta; `dealbreaker_inputs_for_radar` czyta ją z `RadarQuery`
+    wprost, nie z tej oferty)."""
+    job = build_ephemeral_job(RadarQuery(client_id=7, text="x", onsite_days_per_week=3))
+    assert job.onsite_days_per_week == 3
+
+    job_unset = build_ephemeral_job(RadarQuery(client_id=7, text="x"))
+    assert job_unset.onsite_days_per_week is None
+
+
 @pytest.mark.asyncio
 async def test_empty_query_is_refused_before_any_paid_call():
     class _DB:
@@ -611,6 +623,7 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
             raise_on_error=False,
             query_variants=None,
             bm25_query=None,
+            must_groups=None,
         ):
             return [{"candidate_id": cand.id, "score": 0.71}]
 
@@ -635,6 +648,85 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
 
     assert result.degraded is False
     assert result.pool_size == 1, "kandydat z puli musi dojść do rankingu"
+
+
+# ── rubryki 0278: dni w biurze / miasto biura uzbrajają bramkę ──────────────
+
+
+@pytest.mark.asyncio
+async def test_radar_office_fields_arm_the_gate(monkeypatch):
+    """Kandydat z deklaracją 1 dnia w biurze odpada przy wymogu 3 dni."""
+    import uuid as _uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.services import talent_radar_search as mod
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"RadarOffice-{_uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+
+        too_few_days = Candidate(
+            name="Rzadko",
+            lastname=f"WBiurze-{_uuid.uuid4().hex[:6]}",
+            email=f"radar-office-{_uuid.uuid4().hex[:8]}@example.com",
+            max_onsite_days_per_week=1,
+        )
+        db.add(too_few_days)
+        await db.commit()
+        await db.refresh(too_few_days)
+
+        async def _fake_pool(
+            _db,
+            _text,
+            *,
+            top_k,
+            raise_on_error=False,
+            query_variants=None,
+            bm25_query=None,
+            must_groups=None,
+        ):
+            return [{"candidate_id": too_few_days.id, "score": 0.71}]
+
+        monkeypatch.setattr(mod, "retrieve_candidate_pool", _fake_pool)
+
+        try:
+            result = await mod.search(
+                db,
+                mod.RadarQuery(
+                    client_id=client.id,
+                    text="Senior DevOps Engineer, praca z biura",
+                    top_k=5,
+                    onsite_days_per_week=3,
+                    office_location="Warszawa",
+                ),
+            )
+        finally:
+            await db.delete(too_few_days)
+            await db.delete(client)
+            await db.commit()
+
+    assert result.degraded is False
+    assert result.eligible_size == 1, "kandydat MUSI dojść do dealbreakerów"
+    assert result.hidden["office_days_exceeded"] == 1
+    assert result.breakdowns == []
+
+
+def test_radar_request_rejects_eight_office_days():
+    """`onsite_days_per_week` jest ograniczone do 0..7 — jak kolumna oferty."""
+    from pydantic import ValidationError
+
+    from app.api.talent_radar import TalentRadarSearchRequest
+
+    with pytest.raises(ValidationError):
+        TalentRadarSearchRequest(client_id=1, text="x", onsite_days_per_week=8)
+
+    # Zero jest legalne — „wyłącznie zdalnie" jest ZNANĄ wartością.
+    req = TalentRadarSearchRequest(client_id=1, text="x", onsite_days_per_week=0)
+    assert req.onsite_days_per_week == 0
 
 
 # ── 0270: radar czyta CAŁY wklejony request ─────────────────────────────────

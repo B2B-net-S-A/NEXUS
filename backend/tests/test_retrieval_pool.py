@@ -201,6 +201,221 @@ async def test_cosine_failure_after_bm25_gives_zero_score_pool(monkeypatch):
         )
 
 
+# ── structured (0278): pula SQL-first po must-have ───────────────────────────
+#
+# Trzecia strategia w tej fasadzie: zamiast wektora/hybrydy, CZŁONKOSTWO
+# wybiera Postgres (AND-of-OR po jawnych rodzinach umiejętności must-have).
+# Ten sam kontrakt co przy hybrydzie — patrz docstring modułu i
+# `_structured_pool`: SQL decyduje KTO wchodzi, kosinus liczy się OSOBNO
+# i identycznie jak dotąd.
+
+
+@pytest.mark.asyncio
+async def test_structured_flag_off_is_verbatim_passthrough(monkeypatch):
+    """`STRUCTURED_POOL_ENABLED=False` (domyślne) = dosłownie dzisiejsza ścieżka.
+
+    Pierwsza instrukcja strategii SQL-first to sprawdzenie flagi — PRZED
+    dotknięciem `db`. Test woła fasadę z `db=object()`: gdyby strategia
+    strukturalna spróbowała cokolwiek na nim wykonać, wywaliłby się na
+    `AttributeError`, a nie na tej asercji — to jest jego prawdziwy dowód.
+    """
+
+    from app.services import retrieval_pool as rp
+
+    sentinel = [{"candidate_id": 1, "score": 0.9}]
+    seen: dict = {}
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        seen.update(query=query, top_k=top_k, raise_on_error=raise_on_error)
+        return sentinel
+
+    async def exploding_hybrid(*a, **k):  # pragma: no cover - nie wolno
+        raise AssertionError("hybryda nie może być wołana przy wyłączonej fladze")
+
+    from app.services import embedding_service
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(hybrid_module, "hybrid_candidates", exploding_hybrid)
+    monkeypatch.setattr(rp, "hybrid_pool_enabled", lambda: False)
+    monkeypatch.setattr(rp, "structured_pool_enabled", lambda: False)
+
+    out = await rp.retrieve_candidate_pool(
+        object(),
+        "Senior Python",
+        top_k=200,
+        raise_on_error=True,
+        # Obecność `must_groups` NIE wystarcza, żeby cokolwiek uzbroić —
+        # tylko flaga decyduje.
+        must_groups=[["python"]],
+    )
+
+    assert out is sentinel
+    assert seen == {"query": "Senior Python", "top_k": 200, "raise_on_error": True}
+
+
+@pytest.mark.asyncio
+async def test_structured_membership_from_sql_scores_from_cosine(monkeypatch):
+    """SEDNO: kto wchodzi — decyduje SQL; ile podobieństwa — kosinus.
+
+    Ten sam wzorzec co przy hybrydzie: `bm25_must_candidates` wybiera
+    CZŁONKOSTWO, a `score` w wyniku to zawsze kosinus z
+    `similarity_for_candidate_ids` — nigdy ranga SQL-a.
+    """
+
+    from app.core.config import settings
+    from app.services import retrieval_pool as rp
+
+    async def fake_bm25_must_candidates(db, groups, *, limit):
+        assert groups == ['"Python"'], (
+            "must_groups=[['Python']] MUSI dojść do SQL-a jako gotowy "
+            "query-string tej rodziny — to buduje `hybrid_search.bm25_must_groups`"
+        )
+        assert limit == settings.STRUCTURED_POOL_LIMIT
+        return [7, 9, 4]
+
+    async def fake_cosines(query, ids):
+        assert ids == [7, 9, 4], "kosinusy liczone dokładnie dla wybranych przez SQL"
+        return {7: 0.81, 4: 0.55}  # 9 celowo bez wektora
+
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(
+        hybrid_module, "bm25_must_candidates", fake_bm25_must_candidates
+    )
+    from app.services import embedding_service
+
+    monkeypatch.setattr(embedding_service, "similarity_for_candidate_ids", fake_cosines)
+    monkeypatch.setattr(rp, "structured_pool_enabled", lambda: True)
+    # 3 trafienia < domyślny STRUCTURED_POOL_MIN_MEMBERS (20) — bez tego SQL-first
+    # oddałby `None` (poniżej progu ufności) i test mierzyłby SPADEK na wektor,
+    # nie sedno tego testu (kto wchodzi vs ile podobieństwa). Próg ma WŁASNY test
+    # (`test_structured_falls_through_below_floor_or_without_groups`).
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_MIN_MEMBERS", 1, raising=False)
+
+    out = await rp.retrieve_candidate_pool(
+        object(), "Senior Python", top_k=3, must_groups=[["Python"]]
+    )
+
+    known = [row["candidate_id"] for row in out if not row.get("semantic_unknown")]
+    unknown = [row["candidate_id"] for row in out if row.get("semantic_unknown")]
+    assert known == [7, 4], "kosinus malejąco"
+    assert unknown == [9], "bez zmierzonego kosinusu — na końcu, nie wykluczony"
+    by_id = {row["candidate_id"]: row["score"] for row in out}
+    assert by_id[7] == 0.81 and by_id[4] == 0.55, "score = kosinus, nie ranga SQL-a"
+    assert by_id[9] == 0.0, "brak wektora ≠ wykluczenie — 0.0 to «nie wiem»"
+
+
+@pytest.mark.asyncio
+async def test_structured_falls_through_below_floor_or_without_groups(monkeypatch):
+    """Trzy niezależne, nieszkodliwe powody, dla których SQL-first oddaje
+    `None` i pula spada na wektor — dokładnie jakby flaga była wyłączona.
+
+    (a) `must_groups` puste/`None`/złożone z samych zdegenerowanych rodzin —
+        SQL nie ma o co pytać.
+    (b) SQL trafił, ale mniej niż `STRUCTURED_POOL_MIN_MEMBERS` — zbyt wąskie
+        członkostwo nie jest ufane jako CAŁA pula.
+    """
+
+    from app.core.config import settings
+    from app.services import retrieval_pool as rp
+
+    sentinel = [{"candidate_id": 1, "score": 0.9}]
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        return sentinel
+
+    async def exploding_sql(*a, **k):  # pragma: no cover - nie wolno
+        raise AssertionError("SQL nie może być wołany bez rodzin must-have")
+
+    from app.services import embedding_service
+    import app.services.hybrid_search as hybrid_module
+
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(rp, "structured_pool_enabled", lambda: True)
+    monkeypatch.setattr(hybrid_module, "bm25_must_candidates", exploding_sql)
+
+    for empty_input in (None, [], [["c#"]]):
+        out = await rp.retrieve_candidate_pool(
+            object(), "Senior Python", top_k=5, must_groups=empty_input
+        )
+        assert out is sentinel, (
+            f"must_groups={empty_input!r} nie ma o co pytać SQL-a — spadek na "
+            "wektor bez dotykania bazy"
+        )
+
+    async def fake_few_hits(db, groups, *, limit):
+        return [1, 2]
+
+    monkeypatch.setattr(hybrid_module, "bm25_must_candidates", fake_few_hits)
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_MIN_MEMBERS", 20, raising=False)
+
+    out = await rp.retrieve_candidate_pool(
+        object(), "Senior Python", top_k=5, must_groups=[["Python"]]
+    )
+    assert out is sentinel, "2 trafienia < 20 — poniżej progu ufności, spadek na wektor"
+
+
+@pytest.mark.asyncio
+async def test_structured_sql_failure_swallows_or_raises_per_contract(monkeypatch):
+    """`raise_on_error` obowiązuje TEŻ na ścieżce SQL-first.
+
+    Ten sam kontrakt co przy hybrydzie: konsumenci fasady wołają z domyślnym
+    `False` i liczą na łagodną degradację (awaria NOWEJ strategii nie może
+    degradować puli poniżej stanu sprzed flagi); harness ewaluacyjny
+    (`raise_on_error=True`) ma widzieć awarię, nie maskę.
+    """
+
+    from app.services import retrieval_pool as rp
+
+    async def exploding_sql(db, groups, *, limit):
+        raise RuntimeError("Postgres w awarii")
+
+    sentinel = [{"candidate_id": 3, "score": 0.7}]
+
+    async def fake_semantic(query, *, top_k, raise_on_error=False):
+        return sentinel
+
+    import app.services.hybrid_search as hybrid_module
+    from app.services import embedding_service
+
+    monkeypatch.setattr(hybrid_module, "bm25_must_candidates", exploding_sql)
+    monkeypatch.setattr(embedding_service, "search_candidates_semantic", fake_semantic)
+    monkeypatch.setattr(rp, "structured_pool_enabled", lambda: True)
+
+    out = await rp.retrieve_candidate_pool(
+        object(), "Senior Python", top_k=5, must_groups=[["Python"]]
+    )
+    assert out is sentinel, "raise_on_error=False (domyślne) — spadek na wektor"
+
+    with pytest.raises(RuntimeError, match="Postgres w awarii"):
+        await rp.retrieve_candidate_pool(
+            object(),
+            "Senior Python",
+            top_k=5,
+            raise_on_error=True,
+            must_groups=[["Python"]],
+        )
+
+
+def test_structured_flags_absent_from_scoring_cache_inputs():
+    """Zamrożona decyzja, nie przeoczenie — jak przy hybrydzie i multi-query.
+
+    Wszystkie trzy pokrętła strategii SQL-first (`STRUCTURED_POOL_ENABLED`,
+    `STRUCTURED_POOL_LIMIT`, `STRUCTURED_POOL_MIN_MEMBERS`) zmieniają
+    wyłącznie CZŁONKOSTWO puli; kosinus per kandydat liczy dokładnie ta sama
+    funkcja (`similarity_for_candidate_ids`) niezależnie od tego, która
+    strategia go wybrała — więc istniejące wiersze cache score'ów zostają
+    poprawne.
+    """
+
+    from app.services.scoring_service import _SCORING_CACHE_INPUTS
+
+    assert "STRUCTURED_POOL_ENABLED" not in _SCORING_CACHE_INPUTS
+    assert "STRUCTURED_POOL_LIMIT" not in _SCORING_CACHE_INPUTS
+    assert "STRUCTURED_POOL_MIN_MEMBERS" not in _SCORING_CACHE_INPUTS
+
+
 def test_hybrid_flag_is_deliberately_absent_from_scoring_cache_inputs():
     """Zamrożona decyzja, nie przeoczenie.
 
@@ -230,11 +445,11 @@ def test_hybrid_flag_is_deliberately_absent_from_scoring_cache_inputs():
 _BM25_QUERY_PENDING = {"scripts/eval_matching.py"}
 
 
-def test_all_five_pool_sites_go_through_the_facade():
+def test_all_pool_sites_go_through_the_facade():
     """Częściowy flip to jedyny naprawdę błędny stan — patrz pasaże.
 
-    Każde z pięciu miejsc puli (rekomendacje, Talent Radar, propozycje,
-    digest, eval) woła fasadę; żadne nie woła `search_candidates_semantic`
+    Każde z sześciu miejsc puli (rekomendacje, `/ai-matches`, Talent Radar,
+    propozycje, digest, eval) woła fasadę; żadne nie woła `search_candidates_semantic`
     bezpośrednio dla PULI. (Inne użycia — np. `similarity_for_candidate_ids` —
     zostają.)
 
@@ -243,10 +458,22 @@ def test_all_five_pool_sites_go_through_the_facade():
     powierzchni, cicho i bez awarii. To dokładnie ta klasa defektu, przez którą
     hybryda przez cały czas swojego istnienia była kosztem bez wkładu, więc
     strażnik pilnuje obecności argumentu, nie samego przejścia przez fasadę.
+
+    Trzeci wymóg (0278): każde wywołanie fasady podaje TAKŻE `must_groups`.
+    W odróżnieniu od `bm25_query` (który ma jeden świadomy wyjątek —
+    `_BM25_QUERY_PENDING`), `must_groups` jest wymagany na WSZYSTKICH sześciu
+    powierzchniach bez wyjątku: zapomniany argument nie wywala niczego — po
+    prostu wyłącza strategię SQL-first dla tej powierzchni, cicho, i A/B na
+    zamrożonym zbiorze ofert wyglądałby jak „strategia bez wpływu", mimo że
+    po prostu nie dostała danych.
     """
 
     sites = {
         "app/api/recommendations.py",
+        # `/ai-matches` — powierzchnia produktu na stronie rekrutacji. Dołożona
+        # 09.2026: była jedyną, która pobierała pulę z pominięciem fasady, więc
+        # żadna dźwignia retrievalu jej nie dotyczyła.
+        "app/api/matching.py",
         "app/services/talent_radar_search.py",
         "app/tasks/compute_proposals.py",
         # Digest wołał fasadę od początku, ale nigdy nie był na tej liście —
@@ -280,8 +507,6 @@ def test_all_five_pool_sites_go_through_the_facade():
             f"{rel}: atrybutowe wywołanie puli obok fasady — częściowy flip"
         )
 
-        if rel in _BM25_QUERY_PENDING:
-            continue
         pool_calls = [
             node
             for node in ast.walk(tree)
@@ -289,6 +514,14 @@ def test_all_five_pool_sites_go_through_the_facade():
             and isinstance(node.func, ast.Name)
             and node.func.id == "retrieve_candidate_pool"
         ]
+        for call in pool_calls:
+            assert any(kw.arg == "must_groups" for kw in call.keywords), (
+                f"{rel}: pula bez `must_groups` — strategia SQL-first (0278) "
+                f"nie dostanie jawnych must-have i cicho spadnie na starą ścieżkę"
+            )
+
+        if rel in _BM25_QUERY_PENDING:
+            continue
         for call in pool_calls:
             assert any(kw.arg == "bm25_query" for kw in call.keywords), (
                 f"{rel}: pula bez `bm25_query` — noga BM25 nie dostanie o co "

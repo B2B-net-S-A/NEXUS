@@ -84,7 +84,10 @@ export function ClientCvRuleBanner({
     return (
       <div
         role="status"
-        className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-400"
+        // Tokeny DS zamiast `amber-*`: baner renderuje się teraz także w wąskiej
+        // kolumnie kroku 06 („CV do klienta"), gdzie paleta jest tokenowa,
+        // a hardcode nie reagował na motywy (kontrakt programu „flow w C2").
+        className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-muted p-2 text-xs text-warning-muted-foreground"
       >
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
@@ -109,7 +112,10 @@ export function ClientCvRuleBanner({
         {rule?.filename_preview ? (
           <span className="block text-muted-foreground">
             Przykładowa nazwa pliku:{" "}
-            <span className="font-mono">{rule.filename_preview}</span>
+            {/* `break-all`: nazwa pliku nie ma spacji, a baner stoi też
+                w 230-pikselowej kolumnie kroku 06 — bez tego wypychała stronę
+                w poziomy scroll. */}
+            <span className="font-mono break-all">{rule.filename_preview}</span>
           </span>
         ) : null}
         {rule?.requires_en_copy ? (
