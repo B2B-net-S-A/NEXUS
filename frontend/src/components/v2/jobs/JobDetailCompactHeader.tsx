@@ -143,6 +143,16 @@ function WorkspaceButton({
   );
 }
 
+/**
+ * Ikony w listwie kroków tylko na bardzo szerokich ekranach.
+ *
+ * Zmierzone na prodzie (okno 1615 px): listwa potrzebowała 1448 px, a miała
+ * 1261 — osiem ikon po ~22 px i etykieta „Zespół i priorytet" (170 px)
+ * łamały ją na dwa wiersze, choć makieta ma jeden. Poniżej 1800 px krok
+ * rozpoznaje się po etykiecie; ikona wraca, gdy jest na nią miejsce.
+ */
+const STRIP_ICON = "hidden min-[1800px]:block h-4 w-4";
+
 const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
   neutral: "text-foreground",
   ok: "text-success",
@@ -379,9 +389,14 @@ export function JobDetailCompactHeader({
               active={activeTab === "champion"}
               onClick={() => onTabChange("champion")}
               data-testid="tab-champion"
+              title="Zlecenie i Champion"
             >
-              <PencilLine className="h-4 w-4" />
-              Zlecenie i Champion
+              <PencilLine className={STRIP_ICON} />
+              {/* Spacja w tekście RODZICA („Zlecenie ”), nie w spanie: algorytm
+                  nazwy dostępnej ucina białe znaki na brzegach każdego elementu,
+                  więc `<span> i Champion</span>` dawał „Zleceniei Champion". */}
+              {"Zlecenie "}
+              <span className="hidden 2xl:inline">i Champion</span>
             </WorkspaceButton>
 
             <DropdownMenu>
@@ -390,7 +405,7 @@ export function JobDetailCompactHeader({
                   active={sourcingActive}
                   aria-label="Pozyskaj kandydatów"
                 >
-                  <Target className="h-4 w-4" />
+                  <Target className={STRIP_ICON} />
                   Pozyskiwanie
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </WorkspaceButton>
@@ -426,7 +441,7 @@ export function JobDetailCompactHeader({
               active={activeTab === "pipeline"}
               onClick={() => onTabChange("pipeline")}
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid className={STRIP_ICON} />
               Pipeline
               {typeof pipelineCount === "number" ? (
                 <CountBadge value={pipelineCount} />
@@ -439,7 +454,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("screening")}
               data-testid="tab-screening"
             >
-              <ClipboardCheck className="h-4 w-4" />
+              <ClipboardCheck className={STRIP_ICON} />
               Screening
               {typeof screeningCount === "number" ? (
                 <CountBadge value={screeningCount} />
@@ -452,7 +467,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("cv")}
               data-testid="tab-cv"
             >
-              <FileText className="h-4 w-4" />
+              <FileText className={STRIP_ICON} />
               CV do klienta
               {typeof cvCount === "number" ? <CountBadge value={cvCount} /> : null}
             </WorkspaceButton>
@@ -465,9 +480,11 @@ export function JobDetailCompactHeader({
               active={activeTab === "interviews"}
               onClick={() => onTabChange("interviews")}
               data-testid="tab-interviews"
+              title="Rozmowy i decyzja"
             >
-              <CalendarClock className="h-4 w-4" />
-              Rozmowy i decyzja
+              <CalendarClock className={STRIP_ICON} />
+              {"Rozmowy "}
+              <span className="hidden 2xl:inline">i decyzja</span>
               {typeof interviewsCount === "number" ? (
                 <CountBadge value={interviewsCount} />
               ) : null}
@@ -478,7 +495,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("contract")}
               data-testid="tab-contract"
             >
-              <FileSignature className="h-4 w-4" />
+              <FileSignature className={STRIP_ICON} />
               Umowa
               {typeof contractCount === "number" ? (
                 <CountBadge value={contractCount} />
@@ -492,7 +509,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("questions")}
               data-testid="tab-questions"
             >
-              <BookOpen className="h-4 w-4" />
+              <BookOpen className={STRIP_ICON} />
               Baza pytań
             </WorkspaceButton>
           </nav>
@@ -503,7 +520,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("history")}
               data-testid="tab-history"
             >
-              <History className="h-4 w-4" />
+              <History className={STRIP_ICON} />
               Historia
             </WorkspaceButton>
             <WorkspaceButton
@@ -512,7 +529,7 @@ export function JobDetailCompactHeader({
               data-testid="tab-chat"
               aria-label={unreadLabel}
             >
-              <MessageCircle className="h-4 w-4" />
+              <MessageCircle className={STRIP_ICON} />
               Chat
               {chatUnreadCount > 0 ? (
                 <Badge
@@ -541,7 +558,7 @@ export function JobDetailCompactHeader({
                 {/* Etykieta dopiero od 2xl: przy 1440 px pełna listwa kroków
                     + Historia + Chat + ta etykieta łamały pasek na dwa wiersze
                     (makieta ma jeden). Ikona + `title` zostają zawsze. */}
-                <span className="hidden 2xl:inline">Zespół i priorytet</span>
+                <span className="hidden min-[1800px]:inline">Zespół i priorytet</span>
                 {contextOpen ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (
