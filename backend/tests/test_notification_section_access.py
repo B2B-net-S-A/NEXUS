@@ -38,6 +38,20 @@ def test_every_notification_type_has_an_explicit_access_rule() -> None:
     assert unmapped_notification_types() == frozenset()
 
 
+def test_ai_spend_alert_requires_current_admin_role() -> None:
+    user = _user(**{section.value: "write" for section in ProductSection})
+    assert not user_can_receive_notification(user, NotificationType.ai_spend_alert)
+    sql = str(
+        notification_visibility_predicate(user).compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "ai_spend_alert" not in sql
+    user.roles = [UserRole.admin.value]
+    user.role = UserRole.admin
+    assert user_can_receive_notification(user, NotificationType.ai_spend_alert)
+
+
 def test_old_rows_follow_current_effective_section_not_historic_role() -> None:
     revoked = _user()
 
