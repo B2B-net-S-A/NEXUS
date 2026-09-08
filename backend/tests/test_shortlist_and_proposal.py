@@ -13,6 +13,8 @@ Covers:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
@@ -24,7 +26,30 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 
 
-async def _seed_candidate(*, email: str | None = "shortlist@example.com") -> int:
+# Wartownik, bo `email=None` jest tu ZNACZĄCĄ wartością (kandydat bez adresu —
+# `test_shortlist_email_400_when_no_email`). Idiom `email or "<domyślny>"`
+# zamieniłby to `None` na adres i po cichu wyłączył tamten test.
+#
+# Wartownik jest instancją WŁASNEJ klasy, nie gołym `object()`: adnotacja
+# `str | None | object` upraszcza się do `object`, więc type-checker
+# przepuściłby dowolną wartość i adnotacja przestałaby cokolwiek znaczyć.
+class _Unset:
+    pass
+
+
+_AUTO_EMAIL = _Unset()
+
+
+def _unique_email() -> str:
+    """Adres unikalny per wywołanie — `candidates.email` ma UNIQUE, a baza
+    testowa jest WSPÓŁDZIELONA w obrębie sharda (brak rollbacku per test),
+    więc stały literał kolidował z samym sobą przy drugim seedzie."""
+    return f"shortlist-{uuid.uuid4().hex[:8]}@example.com"
+
+
+async def _seed_candidate(*, email: str | None | _Unset = _AUTO_EMAIL) -> int:
+    if email is _AUTO_EMAIL:
+        email = _unique_email()
     async with AsyncSessionLocal() as db:
         cand = Candidate(
             name="Anna",
@@ -70,7 +95,9 @@ async def _seed_published_job(
 
 async def _seed_client() -> int:
     async with AsyncSessionLocal() as db:
-        client = Client(name="Phase3Co")
+        # Nazwa unikalna per wywołanie z tego samego powodu co e-mail wyżej:
+        # baza jest współdzielona w obrębie sharda.
+        client = Client(name=f"Phase3Co-{uuid.uuid4().hex[:6]}")
         db.add(client)
         await db.commit()
         await db.refresh(client)
@@ -97,9 +124,13 @@ async def _cleanup(
 async def test_shortlist_email_happy_path(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    cid = await _seed_candidate()
-    j1 = await _seed_published_job("Python Eng A")
-    j2 = await _seed_published_job("Python Eng B")
+    email = _unique_email()
+    cid = await _seed_candidate(email=email)
+    # `jobs.client_id` jest NOT NULL (migracja 0120), więc oferta bez klienta
+    # nie da się zapisać — ten sam wzorzec, co w `test_client_proposal_happy_path`.
+    client_id = await _seed_client()
+    j1 = await _seed_published_job("Python Eng A", client_id=client_id)
+    j2 = await _seed_published_job("Python Eng B", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/send-candidate-shortlist-email",
@@ -109,13 +140,15 @@ async def test_shortlist_email_happy_path(
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["candidate_id"] == cid
-        assert body["to"] == "shortlist@example.com"
+        assert body["to"] == email
         assert body["job_count"] == 2
         assert "Mamy 2 propozycji" in body["subject"]
         assert "Python Eng A" in body["text_body"]
         assert "Python Eng B" in body["html_body"]
     finally:
-        await _cleanup(candidate_ids=[cid], job_ids=[j1, j2], client_ids=[])
+        await _cleanup(
+            candidate_ids=[cid], job_ids=[j1, j2], client_ids=[client_id]
+        )
 
 
 @pytest.mark.asyncio
@@ -123,7 +156,8 @@ async def test_shortlist_email_400_when_no_email(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_candidate(email=None)
-    j1 = await _seed_published_job("Python Eng C")
+    client_id = await _seed_client()
+    j1 = await _seed_published_job("Python Eng C", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/send-candidate-shortlist-email",
@@ -133,7 +167,7 @@ async def test_shortlist_email_400_when_no_email(
         assert resp.status_code == 400
         assert "email" in resp.json()["detail"].lower()
     finally:
-        await _cleanup(candidate_ids=[cid], job_ids=[j1], client_ids=[])
+        await _cleanup(candidate_ids=[cid], job_ids=[j1], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
@@ -178,7 +212,8 @@ async def test_shortlist_email_400_when_no_published_jobs(
 async def test_client_proposal_happy_path(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    cid = await _seed_candidate()
+    email = _unique_email()
+    cid = await _seed_candidate(email=email)
     client_id = await _seed_client()
     job_id = await _seed_published_job("Senior Python Engineer", client_id=client_id)
     try:
@@ -195,7 +230,11 @@ async def test_client_proposal_happy_path(
         # Blind summary stays anonymous — no name/email
         bs = body["blind_summary"]
         assert "Anna" not in str(bs)
-        assert "shortlist@example.com" not in str(bs)
+        # Porównanie z ADRESEM TEGO kandydata, nie z literałem: przy losowanym
+        # e-mailu stały literał nigdy by się nie pojawił, więc asercja
+        # przechodziłaby także wtedy, gdyby podsumowanie naprawdę wyciekało
+        # adres — zielona i nic nie znacząca.
+        assert email not in str(bs)
         assert bs["experience_years"] == 5
         assert "Python" in bs["skills_summary"]
         # Draft email targets the role
@@ -210,7 +249,8 @@ async def test_client_proposal_happy_path(
 async def test_client_proposal_404_when_candidate_missing(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    job_id = await _seed_published_job("Backend Eng")
+    client_id = await _seed_client()
+    job_id = await _seed_published_job("Backend Eng", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/prepare-client-proposal",
@@ -219,7 +259,7 @@ async def test_client_proposal_404_when_candidate_missing(
         )
         assert resp.status_code == 404
     finally:
-        await _cleanup(candidate_ids=[], job_ids=[job_id], client_ids=[])
+        await _cleanup(candidate_ids=[], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
