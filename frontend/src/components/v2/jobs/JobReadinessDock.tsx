@@ -9,8 +9,11 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import {
-  AlertCircle,
-  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Link2,
   PencilLine,
   Target,
   UserPlus,
@@ -23,7 +26,7 @@ import api, {
   type ChampionVerification,
   type RecommendedSearch,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
 import { canMutateSection } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -37,19 +40,43 @@ import { useCapability } from "@/hooks/useCapability";
 import { extractSkills } from "@/lib/job-skills";
 import {
   buildStageFunnel,
+  funnelRejectedTotal,
   funnelTotal,
+  type FunnelGroup,
 } from "@/lib/job-pipeline-funnel";
 import { EditJobModal } from "@/components/AppShell";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
-import { ChampionVerificationChecklist } from "@/components/ChampionVerificationChecklist";
+import {
+  ChampionVerificationChecklist,
+  championVerificationDone,
+} from "@/components/ChampionVerificationChecklist";
 import { ChampionRecommendedSearches } from "@/components/ChampionRecommendedSearches";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
+import { RequestHistorySection } from "@/components/RequestHistorySection";
+import {
+  ReadinessRow,
+  type ReadinessRowState,
+} from "@/components/v2/jobs/ReadinessRow";
 
 export type JobReadinessDockVariant = "list" | "champion";
+
+/**
+ * Przewijanie po wierszach BIEŻĄCEJ STRONY listy (makieta: `‹ 1 z 12 ›`).
+ *
+ * `index` jest 1-BAZOWY, bo trafia wprost na ekran. Zakres to wczytana strona,
+ * nie cały wynik zapytania — dok nie ma jak przeskoczyć na kolejną stronę, więc
+ * „12" musi znaczyć „tyle wierszy widzisz", a nie „tyle jest rekrutacji".
+ */
+export interface JobReadinessDockListNav {
+  index: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+}
 
 interface JobReadinessDockProps {
   jobId: number | null;
@@ -69,22 +96,33 @@ interface JobReadinessDockProps {
    */
   canOpen?: boolean;
   /**
-   * "champion" (krok 02 „Zlecenie i Champion", program „flow w języku C2",
-   * PR 5/7): dokłada zakładki „Zespół i priorytet" / „Wyszukiwania (AI)" do
-   * istniejącej „Gotowość" (weryfikacja dwustronna + briefing DL dołączają
-   * tam) i `JobHandoffButton` jako główną akcję. Domyślnie "list" (krok 01,
-   * zachowanie sprzed tej zmiany bit w bit — patrz testy „JobReadinessDock —
-   * dane" wyżej w tym pliku).
+   * "champion" (krok 02 „Zlecenie i Champion", program „flow w języku C2"):
+   * weryfikacja dwustronna i briefing wchodzą do JEDNEJ listy gotowości (7
+   * warunków zamiast 5), dochodzą zakładki „Zespół i priorytet" /
+   * „Wyszukiwania (AI)", a `JobHandoffButton` jest główną akcją. "list"
+   * (krok 01) zostaje przy pięciu warunkach i identyfikacji zlecenia
+   * w nagłówku — tam dok stoi obok listy, więc musi mówić, o której
+   * rekrutacji jest mowa.
    */
   variant?: JobReadinessDockVariant;
+  /** Patrz `JobReadinessDockListNav`. Tylko `variant="list"`. */
+  listNav?: JobReadinessDockListNav;
 }
 
-type ChampionDockTab = "readiness" | "team" | "searches";
+type DockTab = "readiness" | "pipeline" | "team" | "searches" | "history";
 
-const CHAMPION_DOCK_TABS: { value: ChampionDockTab; label: string }[] = [
+const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
+  { value: "readiness", label: "Gotowość" },
+  { value: "pipeline", label: "Pipeline" },
+  { value: "team", label: "Zespół" },
+  { value: "history", label: "Historia" },
+];
+
+const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
   { value: "team", label: "Zespół i priorytet" },
   { value: "searches", label: "Wyszukiwania (AI)" },
+  { value: "history", label: "Historia" },
 ];
 
 // Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
@@ -109,32 +147,16 @@ const GATE_ROLES = ["admin", "delivery_lead"] as const;
 interface ReadinessItem {
   key: string;
   done: boolean;
+  /** `neutral` — nie przypisano/nie dotyczy; patrz `ReadinessRowState`. */
+  state?: ReadinessRowState;
   title: string;
   description: string;
   action?: ReactNode;
 }
 
-function ReadinessRow({ done, title, description, action }: Omit<ReadinessItem, "key">) {
-  return (
-    <div className="flex items-start gap-2.5 py-1.5">
-      <span
-        className={cn(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
-          done
-            ? "bg-success-muted text-success-muted-foreground"
-            : "bg-warning-muted text-warning-muted-foreground",
-        )}
-        aria-hidden="true"
-      >
-        {done ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-foreground">{title}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
-      </div>
-      {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
-    </div>
-  );
+/** Link akcji wiersza — jeden wygląd na wszystkie wiersze listy gotowości. */
+function rowLinkClass() {
+  return "text-[11px] font-medium text-primary hover:underline";
 }
 
 /**
@@ -144,9 +166,11 @@ function ReadinessRow({ done, title, description, action }: Omit<ReadinessItem, 
  * (`DeliveryLeadPlus` + zakres klient–DL w handlerze) — dla każdej innej roli
  * to zapytanie kończy się 403. To NIE jest błąd do ukrycia: pokazujemy
  * czytelną notatkę „kto to widzi", żeby recruiter nie myślał, że coś się nie
- * wczytało. Sekcja jest drugorzędna względem checklisty wyżej (tamta liczy się
- * z danych zlecenia widocznych dla każdej roli) — stąd lżejszy traktament niż
- * pełnoekranowy `QueryStateNotice`.
+ * wczytało.
+ *
+ * Od fali 3 werdykt jest JEDNĄ LINIĄ z licznikiem braków, rozwijaną kliknięciem
+ * — pełna lista blokerów potrafiła zająć pół doku i spychała pod krawędź to,
+ * po co ten dok istnieje (akcje). Nic nie znika: lista jest o jedno kliknięcie.
  */
 function ReadinessGateBlock({
   query,
@@ -156,27 +180,22 @@ function ReadinessGateBlock({
   /** Rola z `GATE_ROLES` — bez niej zapytanie nie jest wysyłane (patrz wyżej). */
   canSeeGate: boolean;
 }) {
-  if (!canSeeGate) {
-    return (
-      <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-        Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
-        przypisanego do tego klienta.
-      </p>
-    );
-  }
+  const [open, setOpen] = useState(false);
+
+  const notice = (
+    <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+      Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
+      przypisanego do tego klienta.
+    </p>
+  );
+
+  if (!canSeeGate) return notice;
   if (query.isLoading) {
     return <Skeleton className="h-9 w-full rounded-md" />;
   }
   if (query.isError) {
     const status = httpStatusFromError(query.error);
-    if (status === 403) {
-      return (
-        <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-          Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
-          przypisanego do tego klienta.
-        </p>
-      );
-    }
+    if (status === 403) return notice;
     return (
       <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
         <span>Nie udało się sprawdzić bramki „Przekaż do searchu”.</span>
@@ -206,29 +225,90 @@ function ReadinessGateBlock({
       </p>
     );
   }
+
+  const blockers: string[] = Array.isArray(data.blockers) ? data.blockers : [];
+  const expandable = !data.ready && blockers.length > 0;
+
   return (
     <div
       className={cn(
-        "rounded-md border px-2.5 py-2 text-[11px]",
+        "rounded-md border text-[11px]",
         data.ready
           ? "border-success/20 bg-success-muted text-success-muted-foreground"
           : "border-warning/25 bg-warning-muted text-warning-muted-foreground",
       )}
+      data-testid="readiness-gate-block"
     >
-      <div className="font-medium">
-        Bramka „Przekaż do searchu”: {data.ready ? "gotowa" : "zablokowana"}
-      </div>
-      {!data.ready && Array.isArray(data.blockers) && data.blockers.length > 0 && (
-        <ul className="mt-1 list-disc space-y-0.5 pl-4">
-          {data.blockers.map((blocker: string) => (
+      {expandable ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left font-medium"
+        >
+          <span className="min-w-0 flex-1">
+            Bramka „Przekaż do searchu”: zablokowana ·{" "}
+            {countPl(blockers.length, "brak", "braki", "braków")}
+          </span>
+          {open ? (
+            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+          )}
+        </button>
+      ) : (
+        <div className="px-2.5 py-2 font-medium">
+          Bramka „Przekaż do searchu”: {data.ready ? "gotowa" : "zablokowana"}
+        </div>
+      )}
+      {expandable && open ? (
+        <ul className="list-disc space-y-0.5 px-2.5 pb-2 pl-7">
+          {blockers.map((blocker: string) => (
             <li key={blocker}>{blocker}</li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }
 
+/** Kropka etapu — kolor mówi „są tu ludzie", nie „to jest teraz aktywny krok". */
+function stepDotClass(group: FunnelGroup): string {
+  if (group.count === 0) return "bg-muted";
+  if (group.key === "hired") return "bg-success";
+  return "bg-primary";
+}
+
+function PipelineStepRow({
+  label,
+  count,
+  dotClass,
+}: {
+  label: string;
+  count: number;
+  dotClass: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 py-0.5 text-[11px]">
+      <span
+        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotClass)}
+        aria-hidden="true"
+      />
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
+      <span className="shrink-0 font-medium tabular-nums text-foreground">
+        {count}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Skrót pipeline'u w zakładce „Gotowość" — grupy Z LUDŹMI plus odrzuceni.
+ *
+ * Grupy zerowe schodzą tu z oczu (pełny rozkład jest w zakładce „Pipeline"),
+ * ale ODRZUCENI zostają zawsze, gdy są: to jedyna liczba w tym module, która
+ * mówi, że praca się dzieje, a mimo to nie przybywa kandydatów.
+ */
 function PipelineSummary({
   jobId,
   stageBreakdown,
@@ -241,36 +321,98 @@ function PipelineSummary({
   if (!stageBreakdown) return null;
   const groups = buildStageFunnel(stageBreakdown);
   const total = funnelTotal(groups);
+  const rejected = funnelRejectedTotal(stageBreakdown);
   const nonZero = groups.filter((g) => g.count > 0);
   return (
-    <div className="space-y-1.5 border-t border-border pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-xs font-semibold text-foreground">
+    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
           Pipeline · {countPl(total, "kandydat", "kandydatów", "kandydatów")}
         </h4>
         <Link
           href={`/jobs/${jobId}`}
-          className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+          className="shrink-0 text-[10.5px] font-medium text-primary hover:underline"
         >
           Otwórz kanban
         </Link>
       </div>
-      {nonZero.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
+      {nonZero.length === 0 && rejected === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
           Brak kandydatów w tym procesie.
         </p>
       ) : (
-        <div className="space-y-1">
+        <div>
           {nonZero.map((g) => (
-            <div key={g.key} className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">{g.label}</span>
-              <span className="font-medium tabular-nums text-foreground">
-                {g.count}
-              </span>
-            </div>
+            <PipelineStepRow
+              key={g.key}
+              label={g.label}
+              count={g.count}
+              dotClass={stepDotClass(g)}
+            />
           ))}
+          {rejected > 0 ? (
+            <PipelineStepRow
+              label="Odrzuceni / wycofani"
+              count={rejected}
+              dotClass="bg-destructive"
+            />
+          ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Zakładka „Pipeline" — WSZYSTKIE sześć grup, także zerowe (rozkład, nie skrót). */
+function PipelineTab({
+  jobId,
+  stageBreakdown,
+}: {
+  jobId: number;
+  stageBreakdown: Record<string, number> | undefined;
+}) {
+  if (!stageBreakdown) {
+    return (
+      <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+        Rozkład etapów jest dostępny dla wierszy z bieżącej strony listy.{" "}
+        <Link href={`/jobs/${jobId}`} className="font-medium text-primary hover:underline">
+          Otwórz kanban
+        </Link>
+        , żeby zobaczyć pełny pipeline.
+      </p>
+    );
+  }
+  const groups = buildStageFunnel(stageBreakdown);
+  const total = funnelTotal(groups);
+  const rejected = funnelRejectedTotal(stageBreakdown);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          Pipeline · {countPl(total, "kandydat", "kandydatów", "kandydatów")}
+        </h4>
+        <Link
+          href={`/jobs/${jobId}`}
+          className="shrink-0 text-[10.5px] font-medium text-primary hover:underline"
+        >
+          Otwórz kanban
+        </Link>
+      </div>
+      <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+        {groups.map((g) => (
+          <PipelineStepRow
+            key={g.key}
+            label={g.label}
+            count={g.count}
+            dotClass={stepDotClass(g)}
+          />
+        ))}
+        <PipelineStepRow
+          label="Odrzuceni / wycofani"
+          count={rejected}
+          dotClass={rejected > 0 ? "bg-destructive" : "bg-muted"}
+        />
+      </div>
     </div>
   );
 }
@@ -280,6 +422,7 @@ export function JobReadinessDock({
   stageBreakdown,
   canOpen = true,
   variant = "list",
+  listNav,
 }: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -294,7 +437,7 @@ export function JobReadinessDock({
   const canEditChampion = canWritePipeline && hasRole(authUser, "admin", "delivery_lead");
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  const [dockTab, setDockTab] = useState<ChampionDockTab>("readiness");
+  const [dockTab, setDockTab] = useState<DockTab>("readiness");
 
   // Klucz `["job", "<id>"]` = DOKŁADNIE ten, pod którym strona rekrutacji
   // trzyma zlecenie (`page.tsx`: `["job", id]`, `id` to string z `useParams`).
@@ -466,104 +609,131 @@ export function JobReadinessDock({
     job.primary_owner == null &&
     !claimMutation.isSuccess;
 
-  const items: ReadinessItem[] = [
-    {
-      key: "owner",
-      done: job.primary_owner != null,
-      title: "Właściciel projektu",
-      description: job.primary_owner
-        ? job.primary_owner.name
-        : "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
-      action: canClaim ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          loading={claimMutation.isPending}
-          onClick={() => claimMutation.mutate()}
-        >
-          Claim
-        </Button>
-      ) : undefined,
-    },
-    {
-      key: "champion",
-      done: championVerified,
-      title: "Profil Championa",
-      description: championVerified
-        ? consultantSkipped
-          ? `Zweryfikowany z klientem; konsultant pominięty${
-              verification.consultant.skip_reason
-                ? ` — ${verification.consultant.skip_reason}`
-                : ""
-            }.`
-          : "Zweryfikowany z klientem i konsultantem."
-        : clientVerified || consultantVerified
-          ? "Częściowo zweryfikowany — brakuje drugiej strony (klient/konsultant)."
-          : "Niezweryfikowany — brak rozmowy z klientem i konsultantem.",
-      // Na kroku 02 edytor Championa stoi obok — link „Otwórz" prowadziłby
-      // na ekran, na którym użytkownik już jest.
-      action:
-        variant === "champion" ? undefined : (
-          <Link
-            href={`/jobs/${jobId}?tab=champion`}
-            className="text-xs font-medium text-primary hover:underline"
+  const ownerItem: ReadinessItem = {
+    key: "owner",
+    done: job.primary_owner != null,
+    title: "Właściciel projektu",
+    description: job.primary_owner
+      ? job.primary_owner.name
+      : "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
+    action: canClaim ? (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        loading={claimMutation.isPending}
+        onClick={() => claimMutation.mutate()}
+      >
+        Claim
+      </Button>
+    ) : undefined,
+  };
+
+  const budgetItem: ReadinessItem = {
+    key: "budget",
+    done: job.has_budget_hourly === true,
+    title: "Budżet kandydacki",
+    description: job.has_budget_hourly
+      ? job.rate_budget_hourly != null
+        ? `do ${job.rate_budget_hourly} PLN/h`
+        : "Ustawiony — ze stawki w Profilu Championa."
+      : "Brak — dodaj budżet PLN/h do oferty lub stawkę w Profilu Championa.",
+  };
+
+  const skillsItem: ReadinessItem = {
+    key: "skills",
+    done: must.length > 0,
+    title:
+      variant === "champion" ? "Stack → must / nice" : "Must / nice zsynchronizowane",
+    description:
+      must.length > 0
+        ? `${must.length} must · ${nice.length} nice · zasilają C2 i filtry.`
+        : "Brak — dodaj wymagania w Profilu Championa (sekcja Stack) lub w ofercie.",
+  };
+
+  const hiringManagerItem: ReadinessItem = {
+    key: "hiring_manager",
+    done: job.hiring_manager_name != null,
+    // Brak HM to nie „zaległość", tylko nieprzypisana rola po stronie klienta —
+    // stąd neutralny znacznik, a nie ostrzeżenie (makieta: `.d.z`).
+    state: job.hiring_manager_name != null ? "done" : "neutral",
+    title: "Hiring manager (klient)",
+    description: job.hiring_manager_name
+      ? job.hiring_manager_name
+      : "nie przypisano — weto HM nie zadziała.",
+    action:
+      job.hiring_manager_name == null ? (
+        variant === "champion" ? (
+          // Picker HM jest zakładką TEGO doku — przełączamy ją, zamiast
+          // linkować na tę samą trasę (miękka nawigacja bez `?tab=` nie
+          // zmienia niczego widocznego).
+          <button
+            type="button"
+            onClick={() => setDockTab("team")}
+            className={rowLinkClass()}
           >
-            Otwórz
+            Przypisz
+          </button>
+        ) : (
+          <Link href={`/jobs/${jobId}`} className={rowLinkClass()}>
+            Przypisz
           </Link>
-        ),
-    },
-    {
-      key: "budget",
-      done: job.has_budget_hourly === true,
-      title: "Budżet kandydacki",
-      description: job.has_budget_hourly
-        ? job.rate_budget_hourly != null
-          ? `do ${job.rate_budget_hourly} PLN/h`
-          : "Ustawiony — ze stawki w Profilu Championa."
-        : "Brak — dodaj budżet PLN/h do oferty lub stawkę w Profilu Championa.",
-    },
-    {
-      key: "skills",
-      done: must.length > 0,
-      title: "Must / nice zsynchronizowane",
-      description:
-        must.length > 0
-          ? `${must.length} must · ${nice.length} nice · zasilają C2 i filtry.`
-          : "Brak — dodaj wymagania w Profilu Championa (sekcja Stack) lub w ofercie.",
-    },
-    {
-      key: "hiring_manager",
-      done: job.hiring_manager_name != null,
-      title: "Hiring manager (klient)",
-      description: job.hiring_manager_name
-        ? job.hiring_manager_name
-        : "nie przypisano — weto HM nie zadziała.",
-      action:
-        job.hiring_manager_name == null ? (
-          variant === "champion" ? (
-            // Picker HM jest zakładką TEGO doku — przełączamy ją, zamiast
-            // linkować na tę samą trasę (miękka nawigacja bez `?tab=` nie
-            // zmienia niczego widocznego).
-            <button
-              type="button"
-              onClick={() => setDockTab("team")}
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              Przypisz
-            </button>
-          ) : (
-            <Link
-              href={`/jobs/${jobId}`}
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              Przypisz
-            </Link>
-          )
-        ) : undefined,
-    },
-  ];
-  const doneCount = items.filter((i) => i.done).length;
+        )
+      ) : undefined,
+  };
+
+  // Na kroku 02 „Profil Championa" NIE jest jednym wierszem: jego treścią są
+  // trzy wiersze weryfikacji i briefingu wyżej, a edytor stoi tuż obok — wiersz
+  // „Otwórz" prowadziłby na ekran, na którym użytkownik już jest.
+  const championItem: ReadinessItem = {
+    key: "champion",
+    done: championVerified,
+    title: "Profil Championa",
+    description: championVerified
+      ? consultantSkipped
+        ? `Zweryfikowany z klientem; konsultant pominięty${
+            verification.consultant.skip_reason
+              ? ` — ${verification.consultant.skip_reason}`
+              : ""
+          }.`
+        : "Zweryfikowany z klientem i konsultantem."
+      : clientVerified || consultantVerified
+        ? "Częściowo zweryfikowany — brakuje drugiej strony (klient/konsultant)."
+        : "Niezweryfikowany — brak rozmowy z klientem i konsultantem.",
+    action: (
+      <Link href={`/jobs/${jobId}?tab=champion`} className={rowLinkClass()}>
+        Otwórz
+      </Link>
+    ),
+  };
+
+  const items: ReadinessItem[] =
+    variant === "champion"
+      ? [skillsItem, budgetItem, ownerItem, hiringManagerItem]
+      : [ownerItem, championItem, budgetItem, skillsItem, hiringManagerItem];
+
+  // Trzy warunki weryfikacji liczy `championVerificationDone` — ta sama funkcja,
+  // z której `ChampionVerificationChecklist` rysuje wiersze. Gdy profil się nie
+  // wczytał, NIE dokładamy ich do mianownika: „2 / 7" sugerowałoby pięć braków
+  // tam, gdzie o trzech po prostu nic nie wiemy.
+  const verificationDone =
+    variant === "champion" && championQuery.isSuccess
+      ? championVerificationDone(
+          championProfile?.verification,
+          championProfile?.briefing,
+        )
+      : null;
+  const verificationTotal = verificationDone ? 3 : 0;
+  const verificationDoneCount = verificationDone
+    ? [verificationDone.client, verificationDone.consultant, verificationDone.briefing].filter(
+        Boolean,
+      ).length
+    : 0;
+
+  const doneCount = items.filter((i) => i.done).length + verificationDoneCount;
+  const totalCount = items.length + verificationTotal;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
   const subtitle = [
     job.client_name,
     RECRUITMENT_TYPE_LABEL[job.recruitment_type as string] ?? job.recruitment_type,
@@ -572,186 +742,325 @@ export function JobReadinessDock({
     .filter(Boolean)
     .join(" · ");
 
+  const tabs = variant === "champion" ? CHAMPION_DOCK_TABS : LIST_DOCK_TABS;
+
+  const copyJobLink = () => {
+    const url =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/jobs/${jobId}`
+        : `/jobs/${jobId}`;
+    // `navigator.clipboard` nie istnieje w niezabezpieczonym kontekście — bez
+    // tej gałęzi klik po prostu nic nie robi i wygląda na zepsuty przycisk.
+    if (!navigator?.clipboard?.writeText) {
+      toast.showError("Przeglądarka nie pozwala skopiować linku.");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => toast.showSuccess("Skopiowano link do rekrutacji."))
+      .catch(() => toast.showError("Nie udało się skopiować linku."));
+  };
+
+  const teamTab = (
+    <div className="space-y-4">
+      <JobOwnershipPanel
+        jobId={jobId}
+        jobTitle={job.title}
+        primaryOwner={job.primary_owner ?? null}
+        collaborators={job.collaborators ?? []}
+      />
+      <HiringManagerPicker
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        value={job.hiring_manager_contact_id ?? null}
+        valueName={job.hiring_manager_name ?? null}
+        canEdit={canWritePipeline && canUpdateJob}
+        onSaved={() =>
+          queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
+        }
+      />
+      <JobPriorityContext jobId={jobId} />
+    </div>
+  );
+
   return (
     // `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
     // champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
     // nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
     // wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`.
-    <div className="space-y-4 rounded-xl border border-border bg-card p-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-      <div className="flex items-start gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <Target className="h-4 w-4" aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
+    <div className="flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+      {/* ── nagłówek doku (makieta: `.dhd`) ───────────────────────────────── */}
+      <div className="space-y-2.5 border-b border-border px-4 pb-0 pt-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {variant === "champion" ? (
-            // Na kroku 02 stoimy JUŻ na tej rekrutacji — link do niej samej
-            // nic by nie zrobił.
-            <div className="truncate text-sm font-semibold text-foreground">
-              {job.title}
+            <span className="min-w-0 truncate">Zlecenie · gotowość do searchu</span>
+          ) : listNav ? (
+            <div className="flex items-center gap-1" data-testid="dock-list-nav">
+              <button
+                type="button"
+                onClick={listNav.onPrev}
+                disabled={listNav.index <= 1}
+                aria-label="Poprzednia rekrutacja"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              <span className="tabular-nums">
+                {listNav.index} z {listNav.total}
+              </span>
+              <button
+                type="button"
+                onClick={listNav.onNext}
+                disabled={listNav.index >= listNav.total}
+                aria-label="Następna rekrutacja"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
             </div>
           ) : (
-            <Link
-              href={`/jobs/${jobId}`}
-              className="block truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
-            >
-              {job.title}
-            </Link>
+            <span className="min-w-0 truncate">Gotowość zlecenia</span>
           )}
-          {subtitle && (
-            <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-end gap-2">
-          <span
-            className={cn(
-              "text-2xl font-bold tabular-nums",
-              doneCount === items.length ? "text-success" : "text-warning",
-            )}
+          <button
+            type="button"
+            onClick={copyJobLink}
+            aria-label="Kopiuj link do rekrutacji"
+            title="Kopiuj link do rekrutacji"
+            className="ml-auto rounded p-0.5 text-muted-foreground hover:text-foreground"
           >
-            {doneCount}
-          </span>
-          {/* „Kompletność", NIE „gotowość do searchu": ta checklista liczy
-              właściciela, Championa, budżet, skille i HM — zbiór ROZŁĄCZNY
-              z oficjalną bramką „Przekaż do searchu” (`job_readiness.py`:
-              tytuł, klient, kontekst projektu, ≥2 pytania screeningowe).
-              Werdykt bramki jest niżej, w `ReadinessGateBlock`; dwie liczby
-              pod tą samą nazwą przeczyłyby sobie na jednej karcie. */}
-          <span className="pb-0.5 text-xs text-muted-foreground">
-            / {items.length} · kompletność zlecenia
-          </span>
+            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
         </div>
-        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn(
-              "h-1.5 rounded-full transition-all",
-              doneCount === items.length ? "bg-success" : "bg-warning",
-            )}
-            style={{ width: `${(doneCount / items.length) * 100}%` }}
-          />
-        </div>
-      </div>
 
-      {variant === "champion" && (
+        {/* Identyfikacja zlecenia tylko na liście — na kroku 02 tytuł stoi
+            w nagłówku strony tuż nad dokiem i powtarzanie go zabierałoby
+            miejsce warunkom, po które ten dok istnieje. */}
+        {variant === "list" ? (
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Target className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={`/jobs/${jobId}`}
+                className="block truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
+              >
+                {job.title}
+              </Link>
+              {subtitle && (
+                <div className="truncate text-xs text-muted-foreground">
+                  {subtitle}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {/* `overflow="scroll"`, nie „wrap": cztery zakładki zawijały się na
+            kroku 02 do dwóch wierszy na 1440 px i zjadały wysokość doku. */}
         <TabbedNav
           ariaLabel="Zakładki gotowości zlecenia"
           value={dockTab}
-          onValueChange={(v) => setDockTab(v as ChampionDockTab)}
-          tabs={CHAMPION_DOCK_TABS}
-          overflow="wrap"
+          onValueChange={(v) => setDockTab(v as DockTab)}
+          tabs={tabs}
+          overflow="scroll"
         />
-      )}
+      </div>
 
-      {(variant === "list" || dockTab === "readiness") && (
-        <>
-          <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
-
-          <div className="divide-y divide-border/60">
-            {items.map((item) => (
-              <ReadinessRow
-                key={item.key}
-                done={item.done}
-                title={item.title}
-                description={item.description}
-                action={item.action}
-              />
-            ))}
-          </div>
-
-          <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
-
-          {variant === "champion" && (
-            <div className="border-t border-border pt-3">
-              {championBlocked ?? (
-                <ChampionVerificationChecklist
-                  jobId={jobId}
-                  verification={championProfile?.verification}
-                  briefing={championProfile?.briefing}
-                  canEdit={canEditChampion}
+      {/* ── treść (makieta: `.dbody`) ─────────────────────────────────────── */}
+      <div className="flex-1 space-y-3 px-4 py-3">
+        {dockTab === "readiness" && (
+          <>
+            <div>
+              <div className="flex items-end gap-2">
+                <span
+                  className={cn(
+                    "text-3xl font-bold leading-none tabular-nums",
+                    doneCount === totalCount ? "text-success" : "text-warning",
+                  )}
+                >
+                  {doneCount}
+                </span>
+                {/* „Kompletność", NIE „gotowość do searchu": ta checklista liczy
+                    właściciela, Championa, budżet, skille i HM — zbiór ROZŁĄCZNY
+                    z oficjalną bramką „Przekaż do searchu” (`job_readiness.py`:
+                    tytuł, klient, kontekst projektu, ≥2 pytania screeningowe).
+                    Werdykt bramki jest niżej, w `ReadinessGateBlock`; dwie liczby
+                    pod tą samą nazwą przeczyłyby sobie na jednej karcie.
+                    Makieta podpisuje ten licznik „gotowość zlecenia do searchu"
+                    — świadomie NIE przejmujemy tego zdania. */}
+                <span className="pb-0.5 text-xs text-muted-foreground">
+                  / {totalCount} · kompletność zlecenia ({pct}%)
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn(
+                    "h-1.5 rounded-full transition-all",
+                    doneCount === totalCount ? "bg-success" : "bg-warning",
+                  )}
+                  style={{ width: `${pct}%` }}
                 />
+              </div>
+              {variant === "champion" ? (
+                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                  Search bez weryfikacji i briefingu to search po requeście
+                  klienta, nie po tym, czego klient naprawdę potrzebuje.
+                </p>
+              ) : null}
+            </div>
+
+            <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
+
+            <div className="space-y-1.5">
+              {variant === "champion"
+                ? (championBlocked ?? (
+                    <ChampionVerificationChecklist
+                      jobId={jobId}
+                      verification={championProfile?.verification}
+                      briefing={championProfile?.briefing}
+                      canEdit={canEditChampion}
+                      variant="rows"
+                    />
+                  ))
+                : null}
+              {items.map((item) => (
+                <ReadinessRow
+                  key={item.key}
+                  state={item.state ?? (item.done ? "done" : "todo")}
+                  title={item.title}
+                  description={item.description}
+                  action={item.action}
+                />
+              ))}
+            </div>
+
+            {variant === "list" ? (
+              <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
+            ) : null}
+
+            {/* Ten sam komponent i ta sama mutacja co pełna zakładka
+                „Wyszukiwania (AI)" — tylko trzy pierwsze propozycje. Zapytania
+                o liczniki dzielą klucze z zakładką, więc podgląd nie kosztuje
+                ani jednego dodatkowego żądania. */}
+            {variant === "champion"
+              ? (championBlocked ?? (
+                  <ChampionRecommendedSearches
+                    jobId={jobId}
+                    searches={(championProfile?.recommended_searches ?? []).slice(0, 3)}
+                    canEdit={canEditChampion}
+                  />
+                ))
+              : null}
+
+            {variant === "champion" ? (
+              <JobPriorityContext jobId={jobId} variant="summary" />
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
+                  rekruter dostaje dostęp i ranking się generuje. Ten sam warunek
+                  widoczności, którego do tej pory używał `page.tsx` na zakładce
+                  `champion` (`canWritePipeline && (isAdmin || DL)`). */}
+              {variant === "champion" && canEditChampion && (
+                <div className="col-span-2">
+                  <JobHandoffButton jobId={jobId} />
+                </div>
+              )}
+              {/* Goły <a> ze stylami `buttonVariants`, nie `<Button asChild>` —
+                  `Button` dokłada slot na spinner, więc Radix `Slot` dostałby dwoje
+                  dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —
+                  zawsze aktywna, niezależnie od `canWritePipeline`. */}
+              <Link
+                href={`/jobs/${jobId}?tab=similar`}
+                className={cn(
+                  buttonVariants({ variant: "primary", size: "sm" }),
+                  "col-span-2 w-full",
+                )}
+              >
+                <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz warsztat
+                (C2)
+              </Link>
+              {/* Makieta kroku 02 ma tu jeszcze „Wzór Word (SharePoint)"
+                  i „Historia requestu" — pierwszego dok nie zna (link żyje
+                  w `help_materials`, poza danymi tego komponentu), a drugie
+                  jest ZAKŁADKĄ tego samego doku: przycisk obok zakładki o tej
+                  samej nazwie to dwa wejścia do jednego miejsca.
+                  „Dodaj kandydata" i „Edytuj rekrutację" zostają w OBU
+                  wariantach — makieta ich na kroku 02 nie rysuje, ale dziś tam
+                  są i ich zniknięcie byłoby utratą funkcji, nie porządkowaniem. */}
+              {canWritePipeline && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => setShowAddCandidates(true)}
+                  >
+                    <UserPlus className="h-3.5 w-3.5" /> Dodaj kandydata
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => setShowEdit(true)}
+                  >
+                    <PencilLine className="h-3.5 w-3.5" /> Edytuj rekrutację
+                  </Button>
+                </>
               )}
             </div>
-          )}
-        </>
-      )}
+          </>
+        )}
 
-      {variant === "champion" && dockTab === "team" && (
-        <div className="space-y-4 border-t border-border pt-3">
-          <JobOwnershipPanel
-            jobId={jobId}
-            jobTitle={job.title}
-            primaryOwner={job.primary_owner ?? null}
-            collaborators={job.collaborators ?? []}
-          />
-          <HiringManagerPicker
+        {dockTab === "pipeline" && (
+          <PipelineTab jobId={jobId} stageBreakdown={stageBreakdown} />
+        )}
+
+        {dockTab === "team" && teamTab}
+
+        {dockTab === "searches" && variant === "champion" && (
+          <>
+            {championBlocked ?? (
+              <ChampionRecommendedSearches
+                jobId={jobId}
+                searches={championProfile?.recommended_searches}
+                canEdit={canEditChampion}
+              />
+            )}
+          </>
+        )}
+
+        {dockTab === "history" && (
+          <RequestHistorySection
             jobId={jobId}
             clientId={job.client_id ?? null}
-            value={job.hiring_manager_contact_id ?? null}
-            valueName={job.hiring_manager_name ?? null}
-            canEdit={canWritePipeline && canUpdateJob}
-            onSaved={() =>
-              queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
-            }
+            readOnly={!canWritePipeline}
+            compact
+            maxItems={3}
           />
-          <JobPriorityContext jobId={jobId} />
-        </div>
-      )}
-
-      {variant === "champion" && dockTab === "searches" && (
-        <div className="border-t border-border pt-3">
-          {championBlocked ?? (
-            <ChampionRecommendedSearches
-              jobId={jobId}
-              searches={championProfile?.recommended_searches}
-              canEdit={canEditChampion}
-            />
-          )}
-        </div>
-      )}
-
-      <div className="space-y-2 pt-1">
-        {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
-            rekruter dostaje dostęp i ranking się generuje. Ten sam warunek
-            widoczności, którego do tej pory używał `page.tsx` na zakładce
-            `champion` (`canWritePipeline && (isAdmin || DL)`). */}
-        {variant === "champion" && canEditChampion && (
-          <JobHandoffButton jobId={jobId} />
-        )}
-        {/* Goły <a> ze stylami `buttonVariants`, nie `<Button asChild>` —
-            `Button` dokłada slot na spinner, więc Radix `Slot` dostałby dwoje
-            dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —
-            zawsze aktywna, niezależnie od `canWritePipeline`. */}
-        <Link
-          href={`/jobs/${jobId}?tab=similar`}
-          className={cn(buttonVariants({ variant: "primary", size: "sm" }), "w-full")}
-        >
-          <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz warsztat (C2)
-        </Link>
-        {canWritePipeline && (
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => setShowAddCandidates(true)}
-            >
-              <UserPlus className="h-3.5 w-3.5" /> Dodaj kandydata
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => setShowEdit(true)}
-            >
-              <PencilLine className="h-3.5 w-3.5" /> Edytuj rekrutację
-            </Button>
-          </div>
         )}
       </div>
+
+      {/* ── stopka (makieta: `.dfoot`) ────────────────────────────────────── */}
+      {variant === "list" && job.updated_at ? (
+        <div className="mt-auto flex items-center gap-1.5 border-t border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Ostatnia zmiana: {formatRelativeTime(job.updated_at)}
+        </div>
+      ) : null}
+      {/* Makieta pisze tu „niezweryfikowany od 21 dni" — profil Championa nie
+          niesie daty utworzenia, a `verified_at` istnieje dopiero PO
+          weryfikacji, więc liczby dni nie ma z czego policzyć. Zdanie zostaje
+          bez niej: ostrzeżenie jest prawdziwe, wymyślony licznik nie byłby. */}
+      {variant === "champion" && championQuery.isSuccess && !championVerified ? (
+        <div className="mt-auto border-t border-border bg-warning-muted px-4 py-2 text-[11px] text-warning-muted-foreground">
+          Champion niezweryfikowany — rekruterzy widzą to na profilu kandydata
+          jako ostrzeżenie.
+        </div>
+      ) : null}
 
       {canWritePipeline && showAddCandidates && (
         <AddCandidatesQuickModal
