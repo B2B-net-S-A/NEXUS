@@ -113,7 +113,11 @@ karty; dok umowy bez wybranego kandydata powtarzał tytuł rekrutacji w podtytul
 szybkiego filtra ucinała się przy czterocyfrowym liczniku; klucz preferencji panelu „Zespół
 i priorytet" podbity do `:v3`, bo preferencja „rozwinięty" pochodzi z czasów, gdy panel był
 jedynym miejscem właściciela i hiring managera. Do tego znalezisko auto-review PR #1410:
-`nextActionFor` dla „Zatrudniony" z zaległym `pending`/wetem HM.
+`nextActionFor` dla „Zatrudniony" z zaległym `pending`/wetem HM. Po deployu follow-upu listwa
+nadal łamała się na dwa wiersze — pomiar w DOM (okno 1615 px: listwa potrzebowała 1448 px,
+miała 1261) zamiast zgadywania; ikony kroków i etykieta „Zespół i priorytet" wracają dopiero
+od 1800 px, a „Zlecenie i Champion" / „Rozmowy i decyzja" skracają się poniżej 1536 px
+(pełna nazwa w `title`).
 
 Poza falą (świadomie, brak źródła danych albo osobny zakres): „Źródło" na tablicy
 (`KanbanItem` nie niesie źródła), „Wiadomość" zbiorcza, „Pliki" w doku pipeline'u, ocena ryzyka
