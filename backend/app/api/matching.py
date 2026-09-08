@@ -476,17 +476,26 @@ def _required_skills_with_source(job: Job) -> tuple[list[str], str]:
          inne miejsce zapisu) → "champion_stack"
       3. narracja/JD/tytuł Championa, WYWIEDZIONE regexem
          (`_extract_skills_from_champion` Tier 1-3) → "champion_narrative"
-      4. regex po treści wymagań oferty (ostatni fallback sprzed Championa)
+      4. wspólna interpretacja treści wymagań oferty
          → "requirements_text"
     """
     explicit = job_explicit_must_skills(job)
-    if explicit:
+    if explicit or getattr(job, "requirements_reviewed", False):
         has_column = bool(canonical_skill_names(getattr(job, "must_skills", None)))
-        return explicit, ("must_skills" if has_column else "champion_stack")
+        return explicit, (
+            "must_skills"
+            if has_column or getattr(job, "requirements_reviewed", False)
+            else "champion_stack"
+        )
     narrative = [d["name"] for d in _extract_skills_from_champion(job)]
-    if narrative:
-        return narrative, "champion_narrative"
-    return _parse_required_skills(job), "requirements_text"
+    source = (
+        "champion_narrative"
+        if getattr(job, "champion_profile", None)
+        else "requirements_text"
+    )
+    # Empty is authoritative too: never turn optional/negated prose back into
+    # required chips through the legacy comma/newline fallback.
+    return narrative, source
 
 
 async def _shared_engine_matches(

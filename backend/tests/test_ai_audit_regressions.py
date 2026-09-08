@@ -251,3 +251,22 @@ def test_champion_nice_is_consistent_in_chips_and_notes_warnings():
         },
         job,
     ) == [{"skill": "Kubernetes", "evidence": "do sprawdzenia"}]
+
+
+@pytest.mark.parametrize(
+    "prose",
+    ["Mile widziane Kubernetes.", "Nie wymagamy Java.", "Projekt używa Python."],
+)
+def test_match_chips_do_not_restore_non_required_prose(prose):
+    from app.api.matching import _required_skills_with_source
+
+    scoring.set_alias_map({s: s for s in ("python", "java", "kubernetes")})
+    job = make_job(
+        title="",
+        requirements=prose,
+        description=None,
+        champion_profile=None,
+        must_skills=None,
+        nice_skills=None,
+    )
+    assert _required_skills_with_source(job) == ([], "requirements_text")

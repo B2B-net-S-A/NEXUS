@@ -776,11 +776,28 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     parts = champion_view.narrative_parts(job)
     if not parts:
         cap = _skill_scan_cap(job)
-        parts = [
-            v[:cap] if cap else v
-            for attr in ("requirements", "description")
-            if isinstance(v := getattr(job, attr, None), str) and v.strip()
-        ]
+        for attr in ("requirements", "description"):
+            value = getattr(job, attr, None)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            value = value[:cap] if cap else value
+            # Legacy requirements fields also contain bare technology lists.
+            # Only an exact taxonomy-only list carries that implicit label;
+            # ordinary prose still needs explicit modality or human review.
+            entries = [
+                s.strip().lstrip("•-–*·").strip()
+                for s in re.split(r"[,;\n]", value)
+                if s.strip()
+            ]
+            pattern = _alias_pattern()
+            if (
+                attr == "requirements"
+                and pattern is not None
+                and entries
+                and all(pattern.fullmatch(s) for s in entries)
+            ):
+                value = "Wymagane:\n" + value
+            parts.append(value)
     from app.services.requirement_modality import classify_requirements
 
     result = classify_requirements("\n\n".join(parts), _alias_pattern(), ALIAS_MAP)
