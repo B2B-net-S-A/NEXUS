@@ -56,6 +56,7 @@ class PolicyContext:
     document_text: str
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None
+    filename: Optional[str] = None
 
 
 PolicyFn = Callable[[OrderExtraction, PolicyContext], OrderExtraction]
@@ -159,7 +160,9 @@ def _orlen(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
 
 
 def _pfron(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    return parser.apply_pfron_order_policy(result, ctx.document_text)
+    return parser.apply_pfron_order_policy(
+        result, ctx.document_text, filename=ctx.filename
+    )
 
 
 def _erste(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:

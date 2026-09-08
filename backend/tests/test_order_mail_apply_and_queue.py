@@ -448,3 +448,34 @@ async def test_refresh_plan_rejects_read_only_roles_and_partially_applied_docume
         f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
+    seeded, app_client, monkeypatch
+):
+    from app.api import order_mail_queue as queue
+    from tests.test_order_extract_endpoint import _dl_headers
+
+    headers = await _dl_headers(app_client, seeded["client_id"])
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"Other refresh {uuid.uuid4().hex}")
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+
+    async def move_plan(db, doc):
+        doc.client_id = other_id
+        # Nawet autoflush wykonany przez planer nie może utrwalić zmiany,
+        # gdy użytkownik nie ma prawa do klienta docelowego.
+        await db.flush()
+
+    monkeypatch.setattr(queue, "refresh_review_plan", move_plan)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 403, response.text
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        assert doc.client_id == seeded["client_id"]
+        assert doc.applied_order_id is None

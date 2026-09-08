@@ -49,6 +49,8 @@ class GateInput:
     current_rates: Mapping[int, tuple[Optional[Decimal], Optional[str]]]
     autoapply_enabled: bool
     excluded_client_ids: frozenset[int] = frozenset()
+    #: Serwer potwierdził jeden aktywny rekord w jawnej puli polityki PFRON.
+    trusted_policy_identity: Optional[str] = None
 
 
 @dataclass
@@ -76,8 +78,13 @@ def evaluate(inp: GateInput) -> GateVerdict:
             "Klient wykluczony z automatu (ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS)"
         )
 
-    # 1) klient po numerze rejestrowym
-    if inp.identification_method != "registry_id":
+    # 1) NIP albo jednoznaczny marker/domena PFRON i aktywny rekord z bazy.
+    trusted_pfron = (
+        inp.trusted_policy_identity == "pfron"
+        and "PFRON" in inp.policies_applied
+        and inp.identification_method in {"marker", "sender_domain"}
+    )
+    if inp.identification_method != "registry_id" and not trusted_pfron:
         reasons.append(
             "Klient rozpoznany bez numeru rejestrowego (marker/domena) — nie jest to dowód"
         )

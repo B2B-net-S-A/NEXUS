@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
+from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.m365 import M365Connection
 from app.models.order_mail import (
     CONNECTION_PURPOSE_ORDERS,
@@ -79,6 +80,7 @@ from app.services.order_policies import (
     apply_policies,
     apply_rate_kind,
     client_ids_from_env,
+    is_client_in_policy,
     policy_by_key,
     prepare_document_text,
     prepare_parser_text,
@@ -253,6 +255,49 @@ def resolve_client_id(
     return None, policy.key
 
 
+async def resolve_order_client_id(
+    db: AsyncSession, ident: ClientIdentification
+) -> tuple[Optional[int], Optional[str]]:
+    """PFRON: jeden aktywny rekord z jawnej puli polityki, także przy starym env.
+
+    Kategoria katalogu (z ręcznym nadpisaniem) jest niezależna od statusu
+    Traffita. Nie rozszerzamy dopasowania na podobne nazwy innych klientów.
+    """
+    client_id, key = resolve_client_id(ident)
+    if key != "pfron" and not is_client_in_policy("pfron", client_id):
+        return client_id, key
+    policy = policy_by_key("pfron")
+    ids = policy.canonical_client_ids | client_ids_from_env(policy.env_var)
+    active_scope = (
+        select(ClientPortfolioScope.id)
+        .where(
+            ClientPortfolioScope.client_id == Client.id,
+            ClientPortfolioScope.archived_at.is_(None),
+            func.coalesce(
+                ClientPortfolioScope.category_override, ClientPortfolioScope.category
+            )
+            == PortfolioCategory.active,
+        )
+        .exists()
+    )
+    active_ids = (
+        (
+            await db.execute(
+                select(Client.id).where(
+                    Client.id.in_(ids),
+                    Client.hidden.is_(False),
+                    Client.archived_at.is_(None),
+                    Client.merged_into_client_id.is_(None),
+                    active_scope,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return (active_ids[0] if len(active_ids) == 1 else None), "pfron"
+
+
 # ── Serializacja wyniku odczytu ──────────────────────────────────────────────
 
 
@@ -384,7 +429,7 @@ async def process_pdf_bytes(
                 pass
 
     ident = identify_client(doc.text, registry, sender_email=row.sender_email)
-    client_id, policy_key = resolve_client_id(ident)
+    client_id, policy_key = await resolve_order_client_id(db, ident)
     row.identification_method = ident.method
     row.identification_reason = ident.reason
     row.client_key = policy_key or (ident.client_key if ident.client_key else None)
@@ -396,7 +441,9 @@ async def process_pdf_bytes(
         prepare_parser_text(doc.text, policies), all_rows=True
     )
     extraction, applied = apply_policies(
-        extraction, PolicyContext(document_text=doc.text), policies
+        extraction,
+        PolicyContext(document_text=doc.text, filename=row.attachment_name),
+        policies,
     )
     extraction = apply_rate_kind(extraction, doc.text, policies)
     row.client_policy = " + ".join(applied) or None
@@ -425,8 +472,8 @@ async def process_pdf_bytes(
 async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
 
-    Tożsamość klienta, numer i okres pozostają z zaakceptowanego odczytu.
-    Nie odpytujemy modelu ponownie ani nie wykonujemy auto-zapisu.
+    PFRON ponownie rozpoznaje aktywnego klienta i pola ze źródłowego PDF-a.
+    Pozostali klienci zachowują numer i okres. Bez modelu i auto-zapisu.
     """
 
     def restore(cls, data):
@@ -453,6 +500,26 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     doc = await run_in_threadpool(
         extract_order_text, str(path), row.attachment_name or "zamowienie.pdf"
     )
+    if getattr(row, "client_key", None) == "pfron" or is_client_in_policy(
+        "pfron", row.client_id
+    ):
+        registry = await build_registry_from_db(db)
+        ident = identify_client(
+            doc.text, registry, sender_email=getattr(row, "sender_email", None)
+        )
+        client_id, key = await resolve_order_client_id(db, ident)
+        if key != "pfron" or client_id is None:
+            raise ValueError("Nie rozpoznano jednoznacznie aktywnego klienta PFRON")
+        row.client_id = client_id
+        row.client_key = key
+        row.identification_method = ident.method
+        row.identification_reason = ident.reason
+        extraction, applied = apply_policies(
+            extraction,
+            PolicyContext(document_text=doc.text, filename=row.attachment_name),
+            active_policies(client_id),
+        )
+        row.client_policy = " + ".join(applied) or None
     policies = active_policies(row.client_id)
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
     if any(p.key == "nordea" for p in policies):
@@ -549,6 +616,9 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
     verdict = evaluate(
         GateInput(
             identification_method=method,
+            trusted_policy_identity=(
+                "pfron" if is_client_in_policy("pfron", client_id) else None
+            ),
             policies_applied=tuple(p.display_name for p in policies),
             extraction=extraction,
             document_truncated=extraction.document_truncated,

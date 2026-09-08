@@ -415,8 +415,9 @@ liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
 listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
-Zachowuje rozpoznanego klienta, numer i okres zamówienia; ponownie sprawdza
-stawki oraz dopasowanie osób. **Przeliczenie nie zapisuje zamówienia** — plan
+Dla PFRON ponownie wybiera aktywny rekord klienta, odczytuje numer z nazwy PDF
+i datę końca z pola „Termin wykonania Prac”. Dla pozostałych klientów zachowuje
+rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób. **Przeliczenie nie zapisuje zamówienia** — plan
 nadal czeka na weryfikację. Przycisk jest dostępny administratorowi albo
 Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
@@ -884,12 +885,21 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### PFRON
 
+* **Klient**: zamówienia trafiają do aktywnego rekordu „Państwowy Fundusz
+  Rehabilitacji Osób Niepełnosprawnych”, a osoby są szukane w jego liście
+  konsultantów. Nieaktywny duplikat „PFRON” nie jest wybierany. Jednoznaczny
+  marker lub domena PFRON nie wymagają dodatkowego numeru rejestrowego.
+* **Numer zamówienia** pochodzi wyłącznie z nazwy pliku PDF: „Zlecenie nr 34
+  …pdf” daje **34**. Numer umowy i numer zapotrzebowania nie są używane.
+  Brak jednoznacznego numeru w nazwie wymaga sprawdzenia przez operatora.
 * **Liczba MD z dokumentu jest zawsze pomijana** — bezwarunkowo, szerzej niż
   u Orlena.
-* **Data zakończenia** jest podawana tylko wtedy, gdy w dokumencie jest
-  **dokładnie jedna** jednoznaczna data końca usług. Przy zerze albo kilku
-  różnych datach system nie poda żadnej, a w banerze pojawi się o tym komunikat —
-  ale **wcześniejszej wartości w polu nie skasuje**, więc sprawdź, co tam stoi.
+* **Data zakończenia** pochodzi wyłącznie z pola **„Termin wykonania Prac”**.
+  Opcja przedłużenia i pozostałe daty w treści nie zmieniają daty końca — ani
+  dokumentu, ani wiersza osoby. Brak lub niejednoznaczność tego pola wymaga
+  sprawdzenia przez operatora. W formularzu sprawdź też wcześniejszą wartość.
+* Oczekujący wpis z błędnym klientem, numerem lub datą popraw przyciskiem
+  **„Przelicz plan”**. Przeliczenie nie tworzy ani nie zmienia zamówień.
 * **Stawka oznaczona w dokumencie jako brutto jest przeliczana na netto**
   (dzielona przez 1,23), a jednostka ustawiana na **godzinę**. Przy przeliczeniu
   pod polem zobaczysz podpis „Z dokumentu: X/h brutto → Y/h netto (÷ 1,23)".
@@ -1009,7 +1019,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
   kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
   oznaczenia, kwota zostaje bez zmian; **brak oznaczenia albo konflikt
-brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea**, także
+  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea**, także
   spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
   system ją przeliczy. U Erste i PFRON dokumenty są zwykle brutto, ale i tam
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy

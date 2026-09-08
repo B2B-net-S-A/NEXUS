@@ -418,7 +418,13 @@ async def refresh_queue_plan(
         ).is_file()
     ):
         raise HTTPException(status_code=404, detail="Brak zapisanego pliku PDF")
-    await refresh_review_plan(db, doc)
+    try:
+        await refresh_review_plan(db, doc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje prawa
+    # do nowego rekordu ani jego danych finansowych.
+    await _require_apply_rights(db, doc, user)
     await db.commit()
     await db.refresh(doc)
     return await _serialize(db, doc, user)

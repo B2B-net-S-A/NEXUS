@@ -1683,51 +1683,70 @@ def apply_orlen_order_policy(
 # ── PFRON: konkretny okres, bez liczby MD; stawka brutto → netto ────────────
 
 _DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4})"
-_PFRON_OD_DO_END_RE = re.compile(
-    rf"\bod(?:\s+dnia)?\s+{_DATE_TOKEN_PATTERN}\s*"
-    rf"(?:do(?:\s+dnia)?|[-–—])\s*(?P<end>{_DATE_TOKEN_PATTERN})",
+_PFRON_TERM_RE = re.compile(
+    rf"\btermin\s+wykonania\s+prac\s*[:\-–—]?\s*"
+    rf"(?:(?:od|do)(?:\s+dnia)?\s+)?(?P<first>{_DATE_TOKEN_PATTERN})"
+    rf"(?:\s*r\.?)?(?:\s*(?:do(?:\s+dnia)?|[-–—])\s*"
+    rf"(?P<end>{_DATE_TOKEN_PATTERN}))?",
     re.IGNORECASE,
 )
-_PFRON_LABELLED_RANGE_END_RE = re.compile(
-    rf"(?:termin|okres)\s+realizacji(?:\s+usług)?\s*[:\-–—]?\s*"
-    rf"{_DATE_TOKEN_PATTERN}\s*[-–—]\s*(?P<end>{_DATE_TOKEN_PATTERN})",
-    re.IGNORECASE,
-)
-_PFRON_LABELLED_END_RE = re.compile(
-    rf"(?:data|termin)\s+zakończenia"
-    rf"(?:\s+(?:zamówienia|realizacji(?:\s+usług)?|usług))?"
-    rf"\s*[:\-–—]?\s*(?P<end>{_DATE_TOKEN_PATTERN})",
-    re.IGNORECASE,
-)
-_PFRON_SERVICE_TO_END_RE = re.compile(
-    rf"(?:termin|okres)\s+realizacji(?:\s+usług)?[^\n]{{0,100}}?"
-    rf"\bdo(?:\s+dnia)?\s+(?P<end>{_DATE_TOKEN_PATTERN})",
-    re.IGNORECASE,
+_PFRON_FILENAME_NUMBER_RE = re.compile(
+    r"\bzlecenie[ _]+nr\.?[ _]*(\d+)(?![\w/]|[.\-]\d)", re.IGNORECASE
 )
 
 
 def _pfron_end_date_candidates(document_text: str) -> list[str]:
-    """Jawne daty końca okresu usług; pozostałe daty dokumentu są ignorowane."""
-
+    """Wyłącznie pole „Termin wykonania Prac”, bez okresu opcjonalnego."""
     candidates: list[str] = []
-    for pattern in (
-        _PFRON_OD_DO_END_RE,
-        _PFRON_LABELLED_RANGE_END_RE,
-        _PFRON_LABELLED_END_RE,
-        _PFRON_SERVICE_TO_END_RE,
-    ):
-        for match in pattern.finditer(document_text or ""):
-            normalized = _normalize_date(match.group("end"), end=True)
-            if normalized and normalized not in candidates:
-                candidates.append(normalized)
+    for match in _PFRON_TERM_RE.finditer(document_text or ""):
+        # Alternatywy w polu nie są jedną datą. Daty po dopisku o możliwości
+        # przedłużenia nie należą do tego pola.
+        if re.match(
+            r"\s*(?:r\.?)?\s*(?:lub|albo|/)\s*\d", document_text[match.end() :], re.I
+        ):
+            return []
+        normalized = _normalize_date(
+            match.group("end") or match.group("first"), end=True
+        )
+        if normalized is None:
+            return []
+        if normalized not in candidates:
+            candidates.append(normalized)
     return candidates
 
 
 def pfron_end_date(document_text: str) -> Optional[str]:
-    """Jedyna konkretna data końca usług PFRON albo ``None`` (fail closed)."""
-
+    """Jedna data z pola „Termin wykonania Prac” albo ``None``."""
     candidates = _pfron_end_date_candidates(document_text)
     return candidates[0] if len(candidates) == 1 else None
+
+
+def pfron_order_number(filename: Optional[str]) -> Optional[str]:
+    """Numer zlecenia z nazwy załącznika, nigdy z umowy ani zapotrzebowania."""
+    numbers = set(_PFRON_FILENAME_NUMBER_RE.findall(filename or ""))
+    return next(iter(numbers)) if len(numbers) == 1 else None
+
+
+def _pfron_title_reason(reason: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:numer\w*|tytul\w*)[^.!?]{0,50}(?:zamowien|zlecen)",
+            _fold_policy_text(reason),
+        )
+    )
+
+
+def _pfron_period_reason(reason: str) -> bool:
+    folded = _fold_policy_text(reason)
+    return any(
+        part in folded
+        for part in (
+            "data zakonczenia",
+            "daty zakonczenia",
+            "termin wykonania prac",
+            "przedluz",
+        )
+    )
 
 
 # ── Stawka brutto/netto: rozpoznanie z DOKUMENTU (per zamówienie) ───────────
@@ -1985,35 +2004,55 @@ def apply_gross_to_net_rate_policy(
 
 
 def apply_pfron_order_policy(
-    result: OrderExtraction, document_text: str
+    result: OrderExtraction, document_text: str, *, filename: Optional[str] = None
 ) -> OrderExtraction:
-    """Pomiń MD, zapisz jawną datę końca i przelicz stawkę brutto na netto."""
-
+    """PFRON: numer z nazwy PDF, koniec wyłącznie z etykiety, bez liczby MD."""
     _ignore_md_total(result)
-    candidates = _pfron_end_date_candidates(document_text)
-    end_date = candidates[0] if len(candidates) == 1 else None
+    end_date = pfron_end_date(document_text)
+    number = pfron_order_number(filename)
+    result.title = number
+    result.title_needs_review = number is None
+    result.end_date = end_date
 
     result.uncertain_reasons = [
         reason
         for reason in result.uncertain_reasons
         if not _is_md_quantity_reason(reason)
-        and "przedluz" not in _fold_policy_text(reason)
-        and not (
-            end_date is not None and "data zakonczenia" in _fold_policy_text(reason)
-        )
+        and not (number is not None and _pfron_title_reason(reason))
+        and not (end_date is not None and _pfron_period_reason(reason))
     ]
-    if end_date is not None:
-        result.end_date = end_date
-        result.confidence["end_date"] = 1.0
-    else:
-        result.end_date = None
-        result.confidence.pop("end_date", None)
-        reason = (
-            "Nie znaleziono jednej konkretnej daty zakończenia okresu usług "
-            "PFRON — wpisz datę ręcznie"
-        )
-        if reason not in result.uncertain_reasons:
-            result.uncertain_reasons.append(reason)
+    for key, value, reason in (
+        (
+            "title",
+            number,
+            "Nie znaleziono jednego numeru zlecenia w nazwie pliku PDF PFRON",
+        ),
+        (
+            "end_date",
+            end_date,
+            "Nie znaleziono jednej konkretnej daty w polu „Termin wykonania Prac” PFRON — wpisz datę ręcznie",
+        ),
+    ):
+        if value is not None:
+            result.confidence[key] = 1.0
+        else:
+            result.confidence.pop(key, None)
+            if reason not in result.uncertain_reasons:
+                result.uncertain_reasons.append(reason)
+
+    # Planer preferuje okres wiersza nad okresem dokumentu. Stara/modelowa
+    # data osoby nie może przemycić opcji przedłużenia do zapisu zamówienia.
+    for row in result.consultant_rows:
+        row.end_date = end_date
+        row.md_total = None
+        if end_date is not None and row.uncertain_reason:
+            reasons = [
+                r
+                for r in row.uncertain_reason.split("; ")
+                if not _pfron_period_reason(r) and not _is_md_quantity_reason(r)
+            ]
+            row.uncertain_reason = "; ".join(reasons) or None
+            row.uncertain = bool(reasons)
 
     result.uncertain = bool(result.uncertain_reasons)
     return apply_gross_to_net_rate_policy(result, document_text)
