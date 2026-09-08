@@ -16,6 +16,7 @@ zwracało ZERO kandydatów**, przy 61–100 ukrytych z powodu `missing_must`.
 
 from __future__ import annotations
 
+import itertools
 from types import SimpleNamespace
 
 from app.services.dealbreaker_filters import (
@@ -37,6 +38,15 @@ PROZA_Z_PRODUKCJI = [
     "język angielski na poziomie minimum średniozaawansowanym (b1/b2)",
     "Minimum 3 lata doświadczenia na stanowisku Testera IT",
     "doświadczenie w architekturze it – aplikacyjnej, korporacyjnej lub systemowej",
+    # Alternatywy z ukośnikiem — zmierzone na 24 ofertach produkcyjnych. Nikt
+    # nie ma ich dosłownie jako umiejętności, więc bramkowanie nimi opróżnia
+    # listę tak samo jak proza.
+    "Docker/Kubernetes",
+    "Pytest/Jest/Cypress",
+    "Flask/FastAPI",
+    "Jenkins/Gitlab/Github Actions",
+    "KYC / AML",
+    "Portfolio/backlog management",
 ]
 
 # Nazwy technologii, które MUSZĄ dalej bramkować — inaczej naprawa wyłącza
@@ -59,9 +69,15 @@ TECHNOLOGIE = [
 ]
 
 
+_next_id = itertools.count(1)
+
+
 def _kandydat(skills):
+    # Rozróżnialne id: asercja `[c.id for c in kept] == [ma.id]` przy dwóch
+    # kandydatach o tym samym id przechodziłaby także wtedy, gdyby bramka
+    # zostawiła TEGO NIEWŁAŚCIWEGO — byle zostawiła dokładnie jednego.
     return SimpleNamespace(
-        id=1,
+        id=next(_next_id),
         skills=[{"name": s} for s in skills],
         verified_tech=None,
         cv_extracted_data=None,

@@ -222,7 +222,17 @@ def resolve_effective_remote_policy(job) -> Optional[str]:
 # a nie nazwą technologii. Myślnik/przecinek/nawias rozdzielają kwalifikator od
 # nazwy („apache kafka – minimum 4 lata"), a spójniki i rzeczowniki wymagań
 # („i", „lub", „doświadczenie", „znajomość") występują wyłącznie w zdaniach.
-_PROSE_SEPARATORS = ("–", "—", ",", ";", ":", "(", ")", "|", "&")
+# Ukośnik jest tu ŚWIADOMIE, mimo że bywa częścią prawdziwej nazwy (`CI/CD`,
+# `TDD/BDD`, `UI/UX`). Zmierzone na produkcji: 24 oferty mają w zestawie
+# bramkującym wpis z ukośnikiem, a przytłaczająca większość to ALTERNATYWY
+# („Docker/Kubernetes", „Pytest/Jest/Cypress", „Flask/FastAPI", „KYC / AML"),
+# których nikt nie ma dosłownie jako umiejętności — czyli ta sama awaria co
+# proza, tylko węższa. Wykluczenie ukośnika kosztuje 3 oferty ze 193, które
+# tracą bramkę must-have i wracają do stanu sprzed 0278 (bramka słabsza, nikt
+# błędnie ukryty). Osiem do jednego na korzyść wykluczenia, a kierunek błędu
+# jest ten właściwy: „nieznane przechodzi". `CI/CD` i spółka zostają sygnałem
+# dla warstwy punktowej — nie znikają, po prostu nie bramkują.
+_PROSE_SEPARATORS = ("–", "—", ",", ";", ":", "(", ")", "|", "&", "/")
 _PROSE_WORDS = frozenset(
     {
         "i",
