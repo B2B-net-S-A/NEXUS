@@ -1608,7 +1608,9 @@ function FileDropZone({
   return (
     <label
       className={cn(
-        "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
+        // Anchor the absolute sr-only input inside the scrolling form. Without
+        // this, focusing it scrolls the document and pushes the app shell away.
+        "relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors focus-within:ring-2 focus-within:ring-ring",
         dragOver
           ? "border-primary bg-primary/5"
           : invalid
