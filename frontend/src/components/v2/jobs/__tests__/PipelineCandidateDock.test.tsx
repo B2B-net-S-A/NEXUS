@@ -281,3 +281,141 @@ describe("PipelineCandidateDock", () => {
     expect(onOpenScreening).toHaveBeenCalledWith(501, "Anna Kowalska");
   });
 });
+
+// ── Fala 3 („parytet z makietami") ─────────────────────────────────────────
+
+describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({
+      data: {
+        email: "anna@example.com",
+        city: "Warszawa",
+        status: "active",
+        max_onsite_days_per_week: 2,
+        availability_date: "2026-10-01",
+        linkedin_current_title: "Python Developer",
+        linkedin_current_company: "Asseco",
+      },
+    });
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  it("bez podanej pozycji nie zgaduje nawigatora „N z M”", () => {
+    renderDock();
+    expect(screen.queryByRole("button", { name: "Następna karta" })).toBeNull();
+    expect(screen.getByText("Karta w procesie")).toBeTruthy();
+  });
+
+  it("nawigator pokazuje pozycję w kolejności tablicy i woła sąsiadów", async () => {
+    const user = userEvent.setup();
+    const onSelectNext = vi.fn();
+    const onSelectPrevious = vi.fn();
+    renderDock({ position: 1, total: 15, onSelectNext, onSelectPrevious });
+
+    expect(screen.getByText("1 z 15")).toBeTruthy();
+    // Na pierwszej karcie „poprzedni" jest wyłączony — w obu miejscach.
+    for (const btn of screen.getAllByRole("button", { name: /Poprzedni/ })) {
+      expect(btn).toBeDisabled();
+    }
+    await user.click(screen.getAllByRole("button", { name: /Następn/ })[0]);
+    expect(onSelectNext).toHaveBeenCalled();
+    expect(onSelectPrevious).not.toHaveBeenCalled();
+  });
+
+  it("podtytuł składa się wyłącznie ze znanych członów", async () => {
+    renderDock({ matchScore: 56 });
+    expect(
+      await screen.findByText("Python Developer · Asseco · Warszawa · 56 / 100"),
+    ).toBeTruthy();
+    expect(await screen.findByText("Aktywny")).toBeTruthy();
+  });
+
+  it("oś czasu niesie następną akcję jako bieżący punkt", () => {
+    renderDock({
+      item: baseItem({
+        added_to_job_by_name: "Katarzyna Nowak",
+        added_to_job_at: "2026-09-03T14:20:00Z",
+      }),
+      nextAction: { label: "Umów screening", tone: "normal", kind: "screening" },
+    });
+
+    expect(screen.getByText("Dodany do rekrutacji")).toBeTruthy();
+    expect(screen.getByText("W etapie od 3 dni")).toBeTruthy();
+    expect(screen.getByText("Następna akcja: Umów screening")).toBeTruthy();
+  });
+
+  it("zaległa akcja mówi o terminie, a bramka odsyła do pigułek ruchu", () => {
+    renderDock({
+      nextAction: {
+        label: "Brak następnej akcji",
+        tone: "due",
+        kind: "analysis",
+      },
+    });
+    expect(
+      screen.getByText(/Po terminie — ta karta czeka dłużej/),
+    ).toBeTruthy();
+  });
+
+  it("główna akcja przenosi na wskazany etap tą samą ścieżką co pigułki", async () => {
+    const user = userEvent.setup();
+    const target = stageCol("screening", "Screening", { stage_def_id: 2 });
+    const onMoveTo = vi.fn();
+    renderDock({ primaryTarget: target, onMoveTo });
+
+    await user.click(
+      screen.getByRole("button", { name: "Przenieś na etap: Screening" }),
+    );
+    expect(onMoveTo).toHaveBeenCalledWith(target);
+  });
+
+  it("w trybie readOnly głównej akcji nie ma wcale", () => {
+    const target = stageCol("screening", "Screening", { stage_def_id: 2 });
+    renderDock({ primaryTarget: target, readOnly: true });
+    expect(
+      screen.queryByRole("button", { name: /Przenieś na etap:/ }),
+    ).toBeNull();
+  });
+
+  it("warunki wobec oferty pokazują „—”, a nie znikają, gdy danych brak", async () => {
+    candidatesGet.mockResolvedValue({ data: { email: "a@b.pl" } });
+    renderDock({ item: baseItem({ expected_rate_value: null }) });
+
+    expect(await screen.findByText("Dostępność")).toBeTruthy();
+    expect(screen.getByText("Tryb")).toBeTruthy();
+    expect(screen.getByText("Pokrycie must")).toBeTruthy();
+    expect(screen.getByText("brak stawki")).toBeTruthy();
+  });
+
+  it("stawka ponad budżet jest nazwana wprost", async () => {
+    renderDock({
+      item: baseItem({
+        expected_rate_value: 150,
+        expected_rate_currency: "PLN",
+        expected_rate_unit: "hourly",
+        budget_max_at_move: 122,
+      }),
+    });
+    expect(await screen.findByText("ponad budżet")).toBeTruthy();
+  });
+
+  it("zielona pigułka nie obiecuje więcej, niż karta wie", () => {
+    const target = stageCol("screening", "Screening", { stage_def_id: 2 });
+    renderDock({ moveTargets: [{ col: target, blockedReason: null }] });
+    const pill = screen.getByText("Brak znanych blokad");
+    expect(pill.closest("[title]")?.getAttribute("title")).toContain(
+      "bramka sprawdza dopiero przy samym ruchu",
+    );
+  });
+
+  it("zablokowany etap gasi zieloną pigułkę", () => {
+    const target = stageCol("cv_sent", "CV Wysłane", { stage_def_id: 5 });
+    renderDock({ moveTargets: [{ col: target, blockedReason: "Weto HM" }] });
+    expect(screen.queryByText("Brak znanych blokad")).toBeNull();
+  });
+});

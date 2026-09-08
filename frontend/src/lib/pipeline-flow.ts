@@ -11,6 +11,8 @@
  */
 
 import { colId, type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { isContractStage } from "@/lib/job-flow-stages";
+import { terminalOf } from "@/lib/kanban-terminal";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
 export const SCREENING_STAGE = "screening";
@@ -145,4 +147,122 @@ export function moveBlockedReason({
 /** Imię i nazwisko z karty, z uczciwym fallbackiem. */
 export function itemFullName(item: KanbanItem): string {
   return `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
+}
+
+// ── Grupy etapów (krok 04 Pipeline, fala 3 „parytet z makietami") ──────
+//
+// Lewa kolumna Pipeline'u pokazuje SZEŚĆ grup zamiast piętnastu wierszy —
+// „Default B2B" ma trzynaście pustych kolumn i płaska lista etapów jest
+// w praktyce listą zer. Grupa jest wyłącznie WIDOKIEM: nie zmienia celów
+// ruchu, kolejności kolumn ani niczego, co czyta `onDragEnd`.
+//
+// Przynależność liczy się z `category` / `terminal_type` / legacy `stage`,
+// NIGDY z polskiej nazwy kolumny — nazwy są edytowalne per szablon
+// (`pipeline_stage_defs.name`), więc reguła po nazwie rozjeżdża się przy
+// pierwszej rekrutacji, która nazwie etap po swojemu. Wyjątkiem są dwa
+// etapy podpisu, których backend NIE mapuje na żaden legacy enum — te
+// rozpoznaje `isContractStage` po nazwie i jest to ta sama, jedyna nazwa,
+// której używa hook podpisu po stronie serwera (patrz `job-flow-stages.ts`).
+
+export type PipelineGroupKey =
+  | "intake"
+  | "screening"
+  | "verification"
+  | "client"
+  | "contract"
+  | "closed";
+
+export const PIPELINE_GROUP_LABEL: Record<PipelineGroupKey, string> = {
+  intake: "Nowi / Analiza CV",
+  screening: "Screening",
+  verification: "Zweryfikowani",
+  client: "U klienta (CV → interview)",
+  contract: "Umowa → zatrudnieni",
+  closed: "Odrzuceni / wycofani",
+};
+
+/** Krótka etykieta na zwiniętą kolumnę-zastępnik na tablicy. */
+export const PIPELINE_GROUP_SHORT_LABEL: Record<PipelineGroupKey, string> = {
+  intake: "Nowi",
+  screening: "Screening",
+  verification: "Zweryfikowani",
+  client: "U klienta",
+  contract: "Umowa → zatrudnieni",
+  closed: "Zamknięci",
+};
+
+const GROUP_ORDER: readonly PipelineGroupKey[] = [
+  "intake",
+  "screening",
+  "verification",
+  "client",
+  "contract",
+  "closed",
+];
+
+export interface PipelineColumnGroup {
+  key: PipelineGroupKey;
+  label: string;
+  columns: KanbanColumn[];
+  /** Suma kandydatów w kolumnach grupy. */
+  count: number;
+}
+
+/**
+ * Grupa kolumny liczona BEZ znajomości reszty tablicy.
+ *
+ * Wystarcza wszędzie poza jednym miejscem: własny etap wewnętrzny stojący
+ * PO screeningu (w „Default B2B" są to „Przepuszczony przez DZ" i „Wysłać
+ * do Cpro") nie ma legacy enuma, więc bez pozycji w szablonie nie da się go
+ * odróżnić od etapu wejściowego. Tę różnicę dokłada
+ * {@link groupKanbanColumns}, które widzi całą listę.
+ */
+export function groupKeyForColumn(col: KanbanColumn): PipelineGroupKey {
+  // Kontrakt PRZED terminalem: „Zatrudniony" JEST terminalem (`hired`), ale
+  // należy do „Umowa → zatrudnieni". Odwrotna kolejność wrzuciłaby go do
+  // „Odrzuceni / wycofani", czyli pod nagłówek, który mówi coś przeciwnego.
+  if (isContractStage(col)) return "contract";
+  const terminal = terminalOf(col);
+  if (terminal != null || col.category === "terminal") return "closed";
+  if (col.stage === SCREENING_STAGE) return "screening";
+  if (col.stage === VERIFIED_STAGE) return "verification";
+  if (col.stage === CV_SENT_STAGE || col.category === "external") return "client";
+  return "intake";
+}
+
+/**
+ * Kolumny szablonu pogrupowane w sześć wierszy lewej kolumny.
+ *
+ * Zwraca WYŁĄCZNIE grupy, które ten szablon faktycznie ma (choćby puste) —
+ * wiersz „U klienta 0" dla szablonu bez etapów zewnętrznych obiecywałby etap,
+ * którego nie ma. Kolejność grup jest stała; kolejność kolumn wewnątrz grupy
+ * pozostaje taka jak w szablonie.
+ */
+export function groupKanbanColumns(columns: KanbanColumn[]): PipelineColumnGroup[] {
+  const screeningIndex = columns.findIndex((c) => c.stage === SCREENING_STAGE);
+  const buckets = new Map<PipelineGroupKey, KanbanColumn[]>();
+
+  columns.forEach((col, index) => {
+    let key = groupKeyForColumn(col);
+    // Etap wewnętrzny STOJĄCY PO screeningu to etap weryfikacji/przekazania,
+    // nie wejście. Bez tej korekty „Przepuszczony przez DZ" trafiałby do
+    // „Nowi / Analiza CV" i grupa wejściowa liczyłaby ludzi, których nikt
+    // już nie analizuje.
+    if (key === "intake" && screeningIndex >= 0 && index > screeningIndex) {
+      key = "verification";
+    }
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(col);
+    else buckets.set(key, [col]);
+  });
+
+  return GROUP_ORDER.filter((key) => buckets.has(key)).map((key) => {
+    const groupColumns = buckets.get(key) as KanbanColumn[];
+    return {
+      key,
+      label: PIPELINE_GROUP_LABEL[key],
+      columns: groupColumns,
+      count: groupColumns.reduce((sum, c) => sum + c.count, 0),
+    };
+  });
 }

@@ -249,7 +249,9 @@ describe("KanbanBoardV2 — pending verification card", () => {
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
     // …ale decyzje approvera nie.
     expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
-    expect(screen.getByText("Dodano przez: brak danych")).toBeTruthy();
+    // Fala 3: wiersz właściciela to awatar + imię, a brak danych mówi o sobie
+    // wprost zamiast udawać nazwisko.
+    expect(screen.getByText("Brak danych")).toBeTruthy();
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(document.querySelector(`#${descriptionId}`)).toHaveTextContent(
@@ -282,8 +284,11 @@ describe("KanbanBoardV2 — pending verification card", () => {
     const checkbox = screen.getByRole("checkbox", { name: "Zaznacz Anna Kowalska" });
     expect(checkbox).toBeInTheDocument();
     await userEvent.click(checkbox);
-    expect(screen.getByRole("button", { name: /Pobierz CV/ })).toBeInTheDocument();
-    expect(screen.queryByText("Przenieś do:")).toBeNull();
+    expect(screen.getByRole("button", { name: /CV \(ZIP\)/ })).toBeInTheDocument();
+    // Pasek akcji zbiorczych: bez prawa zapisu zostaje sam eksport — ani
+    // przenoszenia, ani skrótu „Odrzuć".
+    expect(screen.queryByText(/Przenieś na etap/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Odrzuć$/ })).toBeNull();
     expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
     expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
     expect(
@@ -359,7 +364,11 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     ).toBeTruthy();
   });
 
-  it("kompaktuje karty od czterech etapów, aby nie przywracać scrolla", async () => {
+  // Fala 3 („parytet z makietami") przesunęła próg zwężenia karty z czterech
+  // etapów na dziesięć: po zwinięciu pustych grup „Default B2B" renderuje
+  // dziewięć kolumn i to WŁAŚNIE tam karta ma pokazać pełny układ z makiety.
+  // Cztery kolumny to tym bardziej pełna karta — nie kafelek.
+  it("przy czterech etapach zostawia pełną kartę, nie kafelek", async () => {
     const columns = (
       overviewColumns() as unknown as Array<Record<string, unknown>>
     ).slice(0, 4) as never;
@@ -370,13 +379,31 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     const candidate = await screen.findByRole("link", {
       name: "Aleksandra Nowakowska",
     });
-    expect(candidate.closest("[data-kanban-card]")).toHaveClass("xl:pointer-fine:pt-6");
-    expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("—");
+    expect(candidate.closest("[data-kanban-card]")).not.toHaveClass(
+      "xl:pointer-fine:pt-6",
+    );
+    // Kafelkowy badge wyniku jest tylko w trybie przeglądowym.
+    expect(screen.queryByTestId("overview-match-score-90")).toBeNull();
+    // Pełna karta niesie wiersz „co dalej" (5 dni na etapie wejściowym).
+    expect(screen.getByText("Umów screening")).toBeTruthy();
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(document.querySelector(`#${descriptionId}`)).toHaveTextContent(
-      "Brak wyliczonego dopasowania AI.",
+      "Następny krok: Umów screening.",
     );
+  });
+
+  it("powyżej dziewięciu kolumn karta wraca do kafelka", async () => {
+    renderBoard(overviewColumns());
+
+    await screen.findByTestId("pipeline-board");
+    const candidate = await screen.findByRole("link", {
+      name: "Aleksandra Nowakowska",
+    });
+    expect(candidate.closest("[data-kanban-card]")).toHaveClass(
+      "xl:pointer-fine:pt-6",
+    );
+    expect(screen.getByTestId("overview-match-score-90")).toBeTruthy();
   });
 
   it("zachowuje scroll i navigator dla pipeline dłuższego niż 15 etapów", async () => {
@@ -560,7 +587,7 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     );
     const bulkTrigger = screen
       .getAllByRole("combobox")
-      .find((el) => el.textContent?.includes("Wybierz etap"));
+      .find((el) => el.textContent?.includes("Przenieś na etap"));
     await userEvent.click(bulkTrigger as Element);
 
     const options = await screen.findAllByRole("option");
@@ -611,5 +638,198 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     ).toBeNull();
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(15);
     expect(screen.queryByRole("link", { name: "Otwórz szablony" })).toBeNull();
+  });
+});
+
+// ── Fala 3: grupy etapów, zwinięte grupy, SLA na kolumnie, „co dalej" ───────
+//
+// Szablon „Default B2B" z produkcji — ZMAPOWANY na legacy enumy (w odróżnieniu
+// od `focusColumns()`), bo dopiero wtedy w ogóle powstają grupy etapów.
+
+function defaultB2BColumns() {
+  const spec: Array<[string, string, string, number]> = [
+    ["new", "Nowi / Analiza CV", "internal", 2],
+    ["screening", "Screening", "internal", 1],
+    ["verified", "Zweryfikowany", "internal", 0],
+    ["new", "Przepuszczony przez DZ", "internal", 0],
+    ["new", "Wysłać do Cpro", "internal", 0],
+    ["cv_sent", "CV Wysłane", "internal", 0],
+    ["new", "Preparation Meeting", "external", 0],
+    ["client_interview", "Interview Klient", "external", 0],
+    ["acceptance", "Akceptacja", "external", 0],
+    ["new", "Umowa wysłana", "external", 0],
+    ["new", "Umowa podpisana", "external", 0],
+    ["new", "Zatrudniony", "terminal", 0],
+    ["onboarding", "Onboarding", "external", 0],
+    ["new", "Odrzucony", "terminal", 1],
+    ["new", "Wycofany", "terminal", 0],
+  ];
+  return spec.map(([stage, name, category, count], index) => ({
+    stage,
+    name,
+    category,
+    stage_def_id: 300 + index,
+    count,
+    terminal_type:
+      name === "Zatrudniony"
+        ? "hired"
+        : name === "Odrzucony"
+          ? "rejected"
+          : name === "Wycofany"
+            ? "withdrawn"
+            : null,
+    items: Array.from({ length: count }, (_, i) => ({
+      id: 1000 + index * 100 + i,
+      candidate_id: 2000 + index * 100 + i,
+      stage,
+      name: "Kandydat",
+      lastname: `${name.slice(0, 6)}${i}`,
+      // Dwa dni na etapie → „Umów screening"; dziewięć → zaległość.
+      days_in_stage: i === 0 ? 2 : 9,
+      added_to_job_by_name: "Katarzyna Nowak",
+    })),
+  })) as never;
+}
+
+describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+    useUiStore.setState({ density: "cozy", hideEmptyKanbanColumns: false } as never);
+  });
+
+  it("lewa kolumna pokazuje grupy etapów z licznikami zamiast piętnastu zer", async () => {
+    renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    const groups = screen.getByRole("list", { name: "Grupy etapów pipeline" });
+    expect(groups).toHaveTextContent("Wszystkie aktywne");
+    expect(groups).toHaveTextContent("Nowi / Analiza CV");
+    expect(groups).toHaveTextContent("U klienta (CV → interview)");
+    expect(groups).toHaveTextContent("Odrzuceni / wycofani");
+    // Etapy nie zniknęły — są schowane pod grupą, nie usunięte.
+    expect(
+      screen.queryByRole("list", { name: /Etapy grupy/ }),
+    ).toBeNull();
+  });
+
+  it("klik w grupę rozwija jej etapy z zachowanym fokusem kolumny", async () => {
+    renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /U klienta \(CV → interview\)/ }),
+    );
+    const stages = await screen.findByRole("list", {
+      name: "Etapy grupy U klienta (CV → interview)",
+    });
+    expect(stages).toHaveTextContent("CV Wysłane");
+    expect(stages).toHaveTextContent("Akceptacja");
+  });
+
+  it("puste grupy klienta i umowy zwijają się w jedną kolumnę-zastępnik", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    // 15 etapów − 4 (grupa klienta) − 4 (grupa umowy) = 7 prawdziwych kolumn,
+    // plus dwa zastępniki = 9 pozycji na tablicy.
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(7);
+    expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(2);
+    // Zastępnik NIE jest celem upuszczenia — nie ma żadnego `data-colid`.
+    const placeholder = container.querySelector('[data-collapsed-group="client"]');
+    expect(placeholder).toBeTruthy();
+    expect(placeholder?.querySelector("[data-colid]")).toBeNull();
+  });
+
+  it("„Rozwiń etapy” przywraca prawdziwe kolumny grupy", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    const placeholder = container.querySelector<HTMLElement>(
+      '[data-collapsed-group="client"]',
+    );
+    await userEvent.click(
+      placeholder!.querySelector("button") as HTMLButtonElement,
+    );
+
+    expect(container.querySelector('[data-collapsed-group="client"]')).toBeNull();
+    expect(container.querySelector('[data-colid="def:305"]')).toBeTruthy();
+    // 7 kolumn + 4 odzyskane etapy klienta; grupa umowy zostaje zwinięta.
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(11);
+    expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(1);
+  });
+
+  it("grupa z choćby jedną kartą renderuje się w pełni, bez zastępnika", async () => {
+    const columns = (
+      defaultB2BColumns() as unknown as Array<Record<string, unknown>>
+    ).map((c) =>
+      c.name === "Interview Klient"
+        ? {
+            ...c,
+            count: 1,
+            items: [
+              {
+                id: 7001,
+                candidate_id: 7001,
+                stage: "client_interview",
+                name: "Ewa",
+                lastname: "Klientowa",
+                days_in_stage: 1,
+              },
+            ],
+          }
+        : c,
+    ) as never;
+    const { container } = renderBoard(columns);
+    await screen.findByTestId("pipeline-board");
+
+    expect(container.querySelector('[data-collapsed-group="client"]')).toBeNull();
+    expect(container.querySelector('[data-collapsed-group="contract"]')).toBeTruthy();
+  });
+
+  it("nagłówek kolumny niesie drugą linię o SLA i najstarszej karcie", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    // Bez karty klienta SLA nie jest zgadywane — kolumna mówi „SLA: —".
+    const intake = container.querySelector('[data-column-sla="def:300"]');
+    expect(intake).toHaveTextContent("SLA: —");
+    expect(intake).toHaveTextContent("najstarszy 9 d");
+    // Terminal odsyła po powody do doku, weryfikacja — do następnego kroku.
+    expect(
+      container.querySelector('[data-column-sla="def:302"]'),
+    ).toHaveTextContent("→ CV do klienta");
+    expect(
+      container.querySelector('[data-column-sla="def:313"]'),
+    ).toHaveTextContent("powody w doku");
+  });
+
+  it("karta mówi, co dalej, a filtr „Bez następnej akcji” liczy zaległe", async () => {
+    renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    // Dwa dni na etapie wejściowym → screening; dziewięć → brak akcji.
+    expect(screen.getByText("Umów screening")).toBeTruthy();
+    expect(screen.getByText("Brak następnej akcji")).toBeTruthy();
+    // Licznik w rail'u liczy TĄ SAMĄ funkcją co karta: jedna zaległa karta
+    // wejściowa. Karta ze screeningu (2 dni) ma akcję, terminalna nie liczy się.
+    expect(
+      screen.getByRole("button", { name: "Bez następnej akcji · 1" }),
+    ).toBeTruthy();
+  });
+
+  it("przełącznik „Ukryj puste kolumny” chowa też zastępniki zwiniętych grup", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Kolumny: ukryj puste" }),
+    );
+
+    expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(0);
+    // Zostają wyłącznie kolumny z kartami: wejście, screening, odrzuceni.
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(3);
   });
 });

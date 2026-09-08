@@ -5,8 +5,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PIPELINE_GROUP_LABEL,
   countAtClient,
   findStageColumn,
+  groupKanbanColumns,
+  groupKeyForColumn,
   itemFullName,
   moveBlockedReason,
   selectPendingVerifications,
@@ -195,5 +198,170 @@ describe("itemFullName", () => {
     expect(itemFullName(item({ name: undefined, lastname: undefined }))).toBe(
       "Kandydat",
     );
+  });
+});
+
+// ── Grupy etapów lewej kolumny (fala 3 „parytet z makietami") ───────────────
+
+/** Pełny „Default B2B" z produkcji — piętnaście kolumn w kolejności szablonu. */
+function defaultB2B(): KanbanColumn[] {
+  const spec: Array<[string, string, KanbanColumn["category"], number]> = [
+    ["new", "Nowi / Analiza CV", "internal", 13],
+    ["screening", "Screening", "internal", 2],
+    ["verified", "Zweryfikowany", "internal", 0],
+    ["new", "Przepuszczony przez DZ", "internal", 0],
+    ["new", "Wysłać do Cpro", "internal", 0],
+    ["cv_sent", "CV Wysłane", "internal", 0],
+    ["new", "Preparation Meeting", "external", 0],
+    ["client_interview", "Interview Klient", "external", 0],
+    ["acceptance", "Akceptacja", "external", 0],
+    ["new", "Umowa wysłana", "external", 0],
+    ["new", "Umowa podpisana", "external", 0],
+    ["new", "Zatrudniony", "terminal", 0],
+    ["onboarding", "Onboarding", "external", 0],
+    ["new", "Odrzucony", "terminal", 9],
+    ["new", "Wycofany", "terminal", 0],
+  ];
+  return spec.map(([stage, name, category, count], index) => ({
+    stage,
+    name,
+    category,
+    stage_def_id: 300 + index,
+    count,
+    items: Array.from({ length: count }, (_, i) =>
+      item({ id: 1000 + index * 100 + i, candidate_id: 2000 + index * 100 + i }),
+    ),
+    terminal_type:
+      name === "Zatrudniony"
+        ? "hired"
+        : name === "Odrzucony"
+          ? "rejected"
+          : name === "Wycofany"
+            ? "withdrawn"
+            : null,
+  }));
+}
+
+describe("groupKanbanColumns — pełny „Default B2B”", () => {
+  const groups = groupKanbanColumns(defaultB2B());
+  const byKey = new Map(groups.map((g) => [g.key, g]));
+
+  it("daje sześć grup w stałej kolejności", () => {
+    expect(groups.map((g) => g.key)).toEqual([
+      "intake",
+      "screening",
+      "verification",
+      "client",
+      "contract",
+      "closed",
+    ]);
+  });
+
+  it("liczy tyle, ile pokazuje makieta", () => {
+    expect(byKey.get("intake")?.count).toBe(13);
+    expect(byKey.get("screening")?.count).toBe(2);
+    expect(byKey.get("verification")?.count).toBe(0);
+    expect(byKey.get("client")?.count).toBe(0);
+    expect(byKey.get("contract")?.count).toBe(0);
+    expect(byKey.get("closed")?.count).toBe(9);
+  });
+
+  it("etapy wewnętrzne PO screeningu idą do weryfikacji, nie do wejścia", () => {
+    expect(byKey.get("verification")?.columns.map((c) => c.name)).toEqual([
+      "Zweryfikowany",
+      "Przepuszczony przez DZ",
+      "Wysłać do Cpro",
+    ]);
+    expect(byKey.get("intake")?.columns.map((c) => c.name)).toEqual([
+      "Nowi / Analiza CV",
+    ]);
+  });
+
+  it("„Zatrudniony” jest w umowie, nie wśród odrzuconych", () => {
+    expect(byKey.get("contract")?.columns.map((c) => c.name)).toEqual([
+      "Umowa wysłana",
+      "Umowa podpisana",
+      "Zatrudniony",
+      "Onboarding",
+    ]);
+    expect(byKey.get("closed")?.columns.map((c) => c.name)).toEqual([
+      "Odrzucony",
+      "Wycofany",
+    ]);
+  });
+
+  it("etapy u klienta to CV wysłane i wszystko zewnętrzne przed umową", () => {
+    expect(byKey.get("client")?.columns.map((c) => c.name)).toEqual([
+      "CV Wysłane",
+      "Preparation Meeting",
+      "Interview Klient",
+      "Akceptacja",
+    ]);
+  });
+
+  it("suma kolumn we wszystkich grupach = cała tablica (nic nie ginie)", () => {
+    const grouped = groups.flatMap((g) => g.columns.map((c) => c.name));
+    expect(grouped).toHaveLength(15);
+    expect(new Set(grouped).size).toBe(15);
+  });
+});
+
+describe("groupKanbanColumns — szablony niepełne", () => {
+  it("szablon bez kolumny „Zweryfikowany” nadal ma grupę weryfikacji", () => {
+    const columns = defaultB2B().filter((c) => c.name !== "Zweryfikowany");
+    const byKey = new Map(groupKanbanColumns(columns).map((g) => [g.key, g]));
+    expect(byKey.get("verification")?.columns.map((c) => c.name)).toEqual([
+      "Przepuszczony przez DZ",
+      "Wysłać do Cpro",
+    ]);
+  });
+
+  it("brak etapów zewnętrznych = brak wiersza „U klienta” (nie wiersz z zerem)", () => {
+    const columns = defaultB2B().filter(
+      (c) => c.category !== "external" && c.stage !== "cv_sent",
+    );
+    const keys = groupKanbanColumns(columns).map((g) => g.key);
+    expect(keys).not.toContain("client");
+    expect(keys).toContain("intake");
+  });
+
+  it("same kolumny custom bez mapowania trafiają do jednej grupy", () => {
+    // Szablon, w którym backend nie zmapował ŻADNEGO etapu na legacy enum —
+    // wszystkie raportują `stage: "new"`. Bez screeningu nie ma po czym
+    // przeciąć listy, więc powstaje jedna grupa; widok ma z tego wyciągnąć
+    // wniosek „grupowanie nic nie wnosi” i pokazać płaską listę etapów.
+    const columns: KanbanColumn[] = ["Etap A", "Etap B", "Etap C"].map(
+      (name, index) => ({
+        stage: "new",
+        name,
+        category: "internal",
+        stage_def_id: 400 + index,
+        count: index,
+        items: [],
+      }),
+    );
+    const groups = groupKanbanColumns(columns);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].key).toBe("intake");
+    expect(groups[0].count).toBe(0 + 1 + 2);
+  });
+
+  it("pusta tablica nie wymyśla żadnej grupy", () => {
+    expect(groupKanbanColumns([])).toEqual([]);
+  });
+});
+
+describe("groupKeyForColumn — bez znajomości reszty tablicy", () => {
+  it("terminal bez `terminal_type` nadal jest zamknięciem, nie etapem procesu", () => {
+    expect(
+      groupKeyForColumn(
+        col({ stage: "new", name: "Archiwum", category: "terminal" }),
+      ),
+    ).toBe("closed");
+  });
+
+  it("etykiety grup są jednym źródłem prawdy dla widoku", () => {
+    expect(PIPELINE_GROUP_LABEL.closed).toBe("Odrzuceni / wycofani");
+    expect(PIPELINE_GROUP_LABEL.client).toBe("U klienta (CV → interview)");
   });
 });

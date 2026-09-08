@@ -13,21 +13,26 @@ import {
 } from"@hello-pangea/dnd";
 import {
  AlertCircle,
+ AlertTriangle,
  ChevronLeft,
  ChevronRight,
  CheckCircle2,
  Clock,
  FileArchive,
+ FileSignature,
+ FileText,
  Flag,
  HelpCircle,
  LayoutGrid,
  Loader2,
+ Mail,
  MoveRight,
+ Phone,
  Rows3,
+ Send,
  Sparkles,
  Star,
  Trash2,
- UserPlus,
  UserX,
  XCircle,
 } from"lucide-react";
@@ -56,6 +61,7 @@ import {
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
+import { countPl } from"@/lib/plural-pl";
 import { encodeJobBackRef } from"@/lib/url-filters";
 import { celebrate } from "@/lib/celebrate";
 import { useUiStore } from"@/store/ui";
@@ -93,6 +99,21 @@ import {
  type KanbanColumn,
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
+import {
+ PIPELINE_GROUP_SHORT_LABEL,
+ groupKanbanColumns,
+ type PipelineColumnGroup,
+ type PipelineGroupKey,
+} from "@/lib/pipeline-flow";
+import {
+ columnSlaHint,
+ hasNoNextAction,
+ nextActionFor,
+ oldestDaysInColumn,
+ type NextAction,
+ type NextActionKind,
+} from "@/lib/pipeline-next-action";
+import { useClientPlaybook } from "@/lib/client-playbooks";
 
 // Re-eksport — `KanbanColumn`/`KanbanItem`/`colId`/`columnLabel`/`ScoreRing`
 // mieszkają teraz w `kanban-shared.tsx` (dok i lewy rail importują je STAMTĄD,
@@ -127,7 +148,12 @@ interface KanbanBoardV2Props {
  /** Read-only policy keeps the pipeline visible but removes every mutation. */
  readOnly?: boolean;
  /** Karty poza szablonem — `null` na zdrowej tablicy. */
- offTemplate?: OffTemplateColumn | null;}
+ offTemplate?: OffTemplateColumn | null;
+ /** Klient tej rekrutacji — SLA w dniach roboczych z jego karty
+  *  (`client_playbooks`) zasila lewą kolumnę i licznik na kolumnie
+  *  „Screening". Bez niego tablica działa jak dotąd i mówi wprost, że SLA
+  *  nie jest ustawione — nigdy go nie zgaduje. */
+ clientId?: number | null;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -370,6 +396,43 @@ const OverviewScoreBadge = memo(function OverviewScoreBadge({
 
 // ── Card ─────────────────────────────────────────────────────────────
 
+/** Ikona wiersza „następna akcja". Ton (`due`/`gate`) wygrywa z rodzajem —
+ *  zaległość i bramka mają mówić o sobie, nie o etapie. */
+const NEXT_ACTION_ICON: Record<NextActionKind, typeof Phone> = {
+ analysis: FileText,
+ screening: Phone,
+ verification: HelpCircle,
+ cv: Send,
+ client: Mail,
+ offer: Clock,
+ contract: FileSignature,
+ none: FileText,
+};
+
+function NextActionRow({
+ action,
+ hidden,
+}: {
+ action: NextAction;
+ hidden?: boolean;
+}) {
+ if (action.kind === "none") return null;
+ const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
+ return (
+ <div
+ data-next-action={action.tone}
+ className={cn(
+ "mt-1.5 flex items-center gap-1.5 border-t border-dashed border-border pt-1 text-[10.5px] leading-tight",
+ action.tone === "normal" ? "text-foreground/80" : "text-warning font-medium",
+ hidden && "xl:pointer-fine:hidden"
+ )}
+ >
+ <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="min-w-0 truncate">{action.label}</span>
+ </div>
+ );
+}
+
 interface CardProps {
  item: KanbanItem;
  jobId: number;
@@ -395,6 +458,10 @@ interface CardProps {
   *  `@hello-pangea/dnd`, na których stoi `onDragEnd`. Ukrywanie liczników w
   *  rail'u (nie tutaj) jest tym, co czyni przyciemnienie „nie cichym". */
  dimmed?: boolean;
+ /** Wiersz „co dalej" — liczony z etapu i wieku karty, patrz
+  *  `lib/pipeline-next-action.ts`. Przekazywany gotowy (a nie liczony tutaj),
+  *  bo tylko kolumna zna grupę etapu policzoną nad CAŁĄ tablicą. */
+ nextAction: NextAction;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -416,6 +483,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  readOnly,
  onOpenDock,
  dimmed,
+ nextAction,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -423,12 +491,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
  : null;
- const initials = fullName
- .split(/\s+/)
- .map((w) => w[0])
- .slice(0, 2)
- .join("")
- .toUpperCase();
  const daysBadge =
  item.days_in_stage == null
  ? null
@@ -443,6 +505,17 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const addedByShortName = item.added_to_job_by_name?.trim()
  ? item.added_to_job_by_name.trim().split(/\s+/)[0]
  : "Brak danych";
+ // Awatar WŁAŚCICIELA karty, nie kandydata — makieta kroku 04 pyta „czyja to
+ // karta", a nazwisko kandydata i tak stoi wiersz wyżej.
+ const ownerInitials = item.added_to_job_by_name?.trim()
+ ? item.added_to_job_by_name
+ .trim()
+ .split(/\s+/)
+ .map((w) => w[0])
+ .slice(0, 2)
+ .join("")
+ .toUpperCase()
+ : "?";
  const addedAttribution = hasAddedByName
  ? `Dodano do rekrutacji przez: ${addedByDisplayName}${
  item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
@@ -467,6 +540,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : null,
  `${addedAttribution}.`,
  item.hm_veto ? "Weto hiring managera." : null,
+ // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
+ // kolejnym faktem o kandydacie.
+ nextAction.kind !== "none" ? `Następny krok: ${nextAction.label}.` : null,
  ]
  .filter(Boolean)
  .join(" ");
@@ -498,7 +574,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
- density === "compact" ?"p-2" :"p-5",
+ // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
+ // przy 176 px kolumny ćwierć jej szerokości na sam padding.
+ density === "compact" ?"p-2" :"p-3",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  isPending &&"opacity-70 grayscale-40 border-amber-300 bg-amber-50/40",
  // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
@@ -583,84 +661,97 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  w procesie" (`handleCardClick` na kontenerze). Do profilu prowadzi
  wyłącznie nazwisko (link niżej) oraz „Pełny profil" w doku. Wcześniej
  link owijał całą treść, więc dok dało się otworzyć tylko z paddingu. */}
- <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
- <div
- className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density === "compact" ?"h-6 w-6 text-[10px]" :"h-12 w-12 text-lg",
- desktopOverview &&"xl:pointer-fine:hidden"
- )}
- >
- {initials}
- </div>
+ {/* Wiersz 1 makiety: nazwisko (do dwóch linii, bez ucinania w połowie)
+ + pierścień wyniku po prawej. Wielki awatar kandydata odpadł razem
+ z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
+ zabierał miejsce, przez które nazwisko trzeba było uciąć. */}
+ {/* Wcięcie DOKŁADNIE pod checkbox: jego pole wizualne (`before:inset-1`)
+ kończy się 20 px od lewej krawędzi karty, a padding karty to 12 px
+ (cozy) / 8 px (compact). Stare `pl-5` zostawiało nazwisku 64 z 158 px
+ karty — stąd „Wojcie/ch" łamane w środku wyrazu. */}
+ <div className={cn("flex items-start gap-2", density === "compact" ? "pl-3" : "pl-2", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div className="min-w-0 flex-1">
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
  aria-label={fullName}
  aria-describedby={accessibleDetails ? detailsId : undefined}
  onClick={(e) => e.stopPropagation()}
- className={cn("block font-medium text-foreground truncate hover:underline",
- density === "compact" ?"text-sm" :"text-2xl",
- desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
+ // `break-words`, NIE `overflow-wrap:anywhere` — to drugie łamie nazwisko
+ // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
+ // dokładnie to, czego ta karta miała się pozbyć.
+ className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
+ density === "compact" ?"text-[11px] leading-tight" :"text-[13px] leading-snug",
+ desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
  )}
  >
  {fullName}
  </Link>
+ </div>
+ {(normalizedMatchScore != null || scoresLoading) && (
+ <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
+ {/* Zawsze `compact`: kolumna kanbana ma ~176 px, a pierścień „cozy"
+ (40 px) zabierał ćwierć tej szerokości nazwisku obok. Gęstość
+ steruje tu paddingiem i krojem, nie rozmiarem pierścienia. */}
+ <ScoreRing score={normalizedMatchScore} density="compact" />
+ </div>
+ )}
+ </div>
+
+ {/* Wiersz 2 makiety: właściciel karty po lewej, wiek na etapie po prawej. */}
  <div
  className={cn(
- "mt-1 flex min-w-0 items-center gap-1 text-muted-foreground",
- density === "compact" ? "text-[11px]" : "text-sm",
+ // Bez `pl-5`: checkbox jest absolutny i zajmuje tylko górne 24 px, więc
+ // wcięcie w dolnych wierszach kradłoby 20 px z i tak wąskiej kolumny.
+ "mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] text-muted-foreground",
  desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[9px] xl:pointer-fine:leading-none"
  )}
  title={addedAttribution}
+ >
+ <span
+ className={cn(
+ "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-semibold",
+ hasAddedByName
+ ? "bg-primary/10 text-primary"
+ : "bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
  aria-hidden="true"
  >
- <UserPlus className={cn("h-3 w-3 shrink-0", desktopOverview && "xl:pointer-fine:hidden")} />
- <span className={cn("truncate", desktopOverview && "xl:pointer-fine:hidden")}>
- Dodano przez: {addedByDisplayName}
+ {ownerInitials}
+ </span>
+ <span
+ className={cn(
+ "min-w-0 truncate",
+ !hasAddedByName && "text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ aria-hidden="true"
+ >
+ {addedByShortName}
  </span>
  {desktopOverview && (
- <span className="hidden truncate xl:pointer-fine:inline">
+ <span className="hidden truncate xl:pointer-fine:inline" aria-hidden="true">
  R: {addedByShortName}
  </span>
  )}
- </div>
- {contactFeatureEnabled ? (
- <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
- <ContactStatusBadge
- contactCase={item.contact_case}
- className="mt-1"
- />
- </div>
- ) : null}
- <div
- className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
- density === "compact" ?"text-xs" :"text-base",
- desktopOverview &&"xl:pointer-fine:hidden"
- )}
- >
  {item.rating != null && item.rating > 0 && (
- <span className="inline-flex items-center gap-0.5">
- <Star className={cn("fill-amber-500 text-amber-500", density === "compact" ?"h-3 w-3" :"h-4 w-4")} />
- {item.rating.toFixed(1)}
- </span>
- )}
- {daysBadge && (
  <span
- className={cn("inline-flex items-center gap-0.5",
- daysBadge === "danger"
- ?"text-primary"
- : daysBadge === "warning"
- ?"text-amber-600"
- :""
+ className={cn(
+ "inline-flex items-center gap-0.5",
+ desktopOverview && "xl:pointer-fine:hidden"
  )}
+ aria-hidden="true"
  >
- <Clock className={density === "compact" ?"h-3 w-3" :"h-4 w-4"} />
- {item.days_in_stage}d
+ <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+ {item.rating.toFixed(1)}
  </span>
  )}
  {item.hm_veto && (
  <span
- className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive"
+ className={cn(
+ "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
  title={[
  `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
  `Powód: ${item.hm_veto.rejection_reason_name}`,
@@ -672,18 +763,36 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  .filter(Boolean)
  .join("\n")}
  >
- <UserX className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
+ <UserX className="h-2.5 w-2.5" />
  Weto HM
  </span>
  )}
- </div>
- </div>
- {(normalizedMatchScore != null || scoresLoading) && (
- <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
- <ScoreRing score={normalizedMatchScore} density={density} />
- </div>
+ {daysBadge && (
+ <span
+ className={cn(
+ "ml-auto shrink-0 tabular-nums",
+ daysBadge === "danger"
+ ? "font-semibold text-destructive"
+ : daysBadge === "warning"
+ ? "font-semibold text-warning"
+ : "",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ aria-hidden="true"
+ >
+ {item.days_in_stage} d
+ </span>
  )}
  </div>
+
+ {contactFeatureEnabled ? (
+ <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
+ <ContactStatusBadge contactCase={item.contact_case} className="mt-1" />
+ </div>
+ ) : null}
+
+ {/* Wiersz 3 makiety: co dalej z tą kartą. */}
+ <NextActionRow action={nextAction} hidden={desktopOverview} />
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
@@ -783,6 +892,11 @@ interface ColProps {
  onOpenDock: (item: KanbanItem) => void;
  /** `true` = karta nie pasuje aktywnym filtrom lewej kolumny (przyciemnij). */
  isDimmed: (item: KanbanItem) => boolean;
+ /** Grupa etapu policzona nad CAŁĄ tablicą — bez niej własny etap wewnętrzny
+  *  po screeningu byłby nie do odróżnienia od etapu wejściowego. */
+ group?: PipelineGroupKey;
+ /** SLA klienta w dniach roboczych (karta klienta) — `null` = nie ustawiono. */
+ slaDays: number | null;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -805,11 +919,25 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  dropDisabled,
  onOpenDock,
  isDimmed,
+ group,
+ slaDays,
 }: ColProps) {
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
  const noDrop = Boolean(dropDisabled);
+ // Jedna tablica akcji na kolumnę, memoizowana razem z nią — gdyby liczyć je
+ // w JSX-ie, każda karta dostawałaby nowy obiekt przy KAŻDYM renderze kolumny
+ // (np. po zaznaczeniu sąsiada) i `memo` na `CandidateKanbanCard` przestałoby
+ // cokolwiek dawać na tablicy z 26+ kartami.
+ const nextActions = useMemo(
+ () => col.items.map((it) => nextActionFor(it, col, { slaDays, group })),
+ [col, slaDays, group]
+ );
+ const slaHint = useMemo(
+ () => columnSlaHint(col, { slaDays, group, oldestDays: oldestDaysInColumn(col) }),
+ [col, slaDays, group]
+ );
  return (
  <div
  data-colid={dropId}
@@ -818,7 +946,13 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  aria-label={`${columnLabel(col)}, liczba kandydatów: ${col.count}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
- fullPipelineDesktop &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink"
+ fullPipelineDesktop && desktopOverview &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
+ // Mało kolumn: NIE ściskamy ich do zera. Podłoga 11 rem to szerokość,
+ // przy której makieta mieści pełną kartę (nazwisko do dwóch linii,
+ // właściciel, wiek, następna akcja); poniżej karta znów byłaby kafelkiem,
+ // tylko bez uczciwego trybu przeglądowego. Board ma `overflow-auto`, więc
+ // nadmiar kolumn scrolluje się w poziomie — tak jak w makiecie.
+ fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11rem] xl:pointer-fine:basis-[11rem] xl:pointer-fine:grow"
  )}
  >
  <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5")}>
@@ -842,6 +976,33 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
  {col.count}
  </Badge>
+ </div>
+
+ {/* Druga linia nagłówka: SLA klienta po lewej, najstarsza karta po prawej.
+ „SLA: —" zamiast pustki — cisza czytałaby się jak „zdążamy", a prawda
+ jest taka, że na tej kolumnie nikt nic nie mierzy. */}
+ <div
+ data-column-sla={dropId}
+ className={cn(
+ "flex items-center justify-between gap-2 border-b border-border px-3 pb-1.5 pt-1 text-[9.5px] text-muted-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ <span className="min-w-0 truncate">{slaHint.left}</span>
+ {slaHint.right && (
+ <span
+ className={cn(
+ "shrink-0 tabular-nums",
+ slaHint.rightTone === "bad"
+ ? "font-semibold text-destructive"
+ : slaHint.rightTone === "warn"
+ ? "font-semibold text-warning"
+ : ""
+ )}
+ >
+ {slaHint.right}
+ </span>
+ )}
  </div>
 
  <Droppable droppableId={dropId} isDropDisabled={noDrop}>
@@ -896,6 +1057,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  readOnly={readOnly}
  onOpenDock={onOpenDock}
  dimmed={isDimmed(item)}
+ nextAction={nextActions[index]}
  />
  </div>
  )}
@@ -909,6 +1071,72 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  );
 });
 
+/**
+ * Zwinięta grupa pustych etapów — JEDNA kolumna-zastępnik zamiast trzech
+ * pustych („Default B2B" ma trzynaście pustych kolumn z piętnastu).
+ *
+ * CELOWO nie jest `Droppable`: upuszczenie karty na zastępnik znaczyłoby ruch
+ * na przypadkowy z trzech etapów, których on reprezentuje. Stoi poza listą
+ * `Droppable`, więc nie ma też żadnego indeksu, który `@hello-pangea/dnd`
+ * mógłby pomylić. Gdy którakolwiek kolumna grupy dostanie kartę, grupa
+ * rozwija się z powrotem w pełne kolumny.
+ */
+const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
+ group,
+ fullPipelineDesktop,
+ desktopOverview,
+ onExpand,
+}: {
+ group: PipelineColumnGroup;
+ fullPipelineDesktop: boolean;
+ desktopOverview: boolean;
+ onExpand: () => void;
+}) {
+ const label = PIPELINE_GROUP_SHORT_LABEL[group.key];
+ return (
+ <div
+ data-collapsed-group={group.key}
+ role="group"
+ aria-label={`${label}, grupa pustych etapów: ${group.columns
+ .map((c) => columnLabel(c))
+ .join(", ")}`}
+ className={cn(
+ "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-border bg-background/40 sm:min-w-[19rem]",
+ fullPipelineDesktop && desktopOverview && "xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
+ fullPipelineDesktop && !desktopOverview && "xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11rem] xl:pointer-fine:basis-[11rem] xl:pointer-fine:grow"
+ )}
+ >
+ <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+ <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true" />
+ <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={label}>
+ {label}
+ </h3>
+ <Badge size="sm" variant="outline">
+ {group.count}
+ </Badge>
+ </div>
+ <div className="border-b border-border px-3 pb-1.5 pt-1 text-[9.5px] text-muted-foreground">
+ <span className="line-clamp-2">
+ {group.columns.map((c) => columnLabel(c)).join(" · ")}
+ </span>
+ </div>
+ <div className="flex flex-1 flex-col gap-2 p-2.5 text-[10.5px] leading-snug text-muted-foreground">
+ <p>
+ {countPl(group.columns.length, "etap", "etapy", "etapów")} zwinięte,
+ dopóki są puste.
+ </p>
+ <button
+ type="button"
+ onClick={onExpand}
+ className="self-start rounded-md border border-border px-2 py-1 text-[10.5px] text-foreground transition-colors hover:bg-accent"
+ >
+ Rozwiń etapy
+ </button>
+ </div>
+ </div>
+ );
+});
+
 // ── Board ────────────────────────────────────────────────────────────
 
 // Dół boardu: pb-4 kontenera (16px) + dolny padding <main> (24px). Tyle zostawiamy
@@ -917,7 +1145,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -950,6 +1178,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  { id: string; label: string; applies_to: ("rejected" |"withdrawn")[] }[]
  >([]);
  const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
+ // Nazwa szablonu do nagłówka lewej kolumny — z odpowiedzi, którą board i tak
+ // już pobiera przy rejection-reasons. Żadnego dodatkowego zapytania.
+ const [templateName, setTemplateName] = useState<string | null>(null);
  // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
  // kontraktu + zamówienia, nie powinien być skutkiem samego puszczenia myszy.
  const [hiredConfirm, setHiredConfirm] = useState<{
@@ -977,7 +1208,39 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // `toggleSelect`), stąd `useCallback` z zależnościami tylko od samych filtrów.
  const [stuckFilter, setStuckFilter] = useState(false);
  const [blockedFilter, setBlockedFilter] = useState(false);
+ const [noActionFilter, setNoActionFilter] = useState(false);
  const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
+
+ // Grupy etapów — jedno źródło dla lewej kolumny, zwijania pustych grup na
+ // tablicy i „następnej akcji" na karcie (bez grupy własny etap wewnętrzny po
+ // screeningu byłby nie do odróżnienia od etapu wejściowego).
+ const stageGroups = useMemo(() => groupKanbanColumns(stageCols), [stageCols]);
+ const groupByColId = useMemo(() => {
+ const map = new Map<string, PipelineGroupKey>();
+ for (const group of stageGroups) {
+ for (const col of group.columns) map.set(colId(col), group.key);
+ }
+ return map;
+ }, [stageGroups]);
+
+ // SLA klienta z jego karty (`client_playbooks`) — TA SAMA ścieżka i ten sam
+ // klucz zapytania, co krok 06 „CV do klienta". Bez `clientId` hook nie strzela
+ // w ogóle, a rail mówi wprost, że SLA nie jest ustawione.
+ const playbookQuery = useClientPlaybook(clientId);
+ const slaDays = playbookQuery.data?.sla_business_days ?? null;
+
+ // Grupy pustych etapów rozwinięte ręcznie („Rozwiń etapy" na zastępniku).
+ const [expandedGroups, setExpandedGroups] = useState<Set<PipelineGroupKey>>(
+ () => new Set()
+ );
+ const expandGroup = useCallback((key: PipelineGroupKey) => {
+ setExpandedGroups((prev) => {
+ if (prev.has(key)) return prev;
+ const next = new Set(prev);
+ next.add(key);
+ return next;
+ });
+ }, []);
 
  // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
  // Problem: stary `h-[calc(100vh-350px)]` miał na sztywno offset 350px = wysokość
@@ -1109,6 +1372,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (tid) {
  const detail = await pipelineTemplatesApi.get(tid);
  reasons = mapReasons(detail.data.rejection_reasons ?? []);
+ // Nazwa szablonu do nagłówka lewej kolumny — z odpowiedzi, która i tak
+ // tu leci po rejection-reasons.
+ const tname = (detail.data as { name?: string | null }).name;
+ setTemplateName(typeof tname === "string" && tname.trim() ? tname : null);
  const withScorecard = new Set<number>();
  for (const s of detail.data.stages ?? []) {
  const sch = (s as any).scorecard_schema;
@@ -1709,12 +1976,59 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, [dockItem, dockItemColId, stageCols, readOnly]);
 
+ // Główna akcja doku: PIERWSZY dozwolony etap PO bieżącym w kolejności
+ // szablonu. Terminalne odpadają — „Odrzuć z powodem" jest osobnym, czerwonym
+ // przyciskiem i nie może wejść pod przycisk oznaczony jako krok naprzód.
+ const dockPrimaryTarget = useMemo<KanbanColumn | null>(() => {
+ if (!dockItemColId) return null;
+ const currentIndex = stageCols.findIndex((c) => colId(c) === dockItemColId);
+ if (currentIndex < 0) return null;
+ for (let i = currentIndex + 1; i < stageCols.length; i += 1) {
+ const candidate = stageCols[i];
+ if (terminalOf(candidate) != null) continue;
+ const target = dockMoveTargets.find((t) => colId(t.col) === colId(candidate));
+ if (target && !target.blockedReason) return candidate;
+ }
+ return null;
+ }, [dockItemColId, stageCols, dockMoveTargets]);
+
+ // Wiersz „następna akcja" doku — TA SAMA funkcja, którą renderuje karta na
+ // tablicy; osobna kopia rozjechałaby się przy pierwszej zmianie progu.
+ const dockNextAction = useMemo<NextAction | null>(() => {
+ if (!dockItem || !dockItemColumn) return null;
+ return nextActionFor(dockItem, dockItemColumn, {
+ slaDays,
+ group: dockItemColId ? groupByColId.get(dockItemColId) : undefined,
+ });
+ }, [dockItem, dockItemColumn, dockItemColId, groupByColId, slaDays]);
+
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
  requestMove(dockItem, dockItemColId, dst);
  },
  [dockItem, dockItemColId, requestMove]
+ );
+
+ // Nawigator doku „‹ N z M ›" — kolejność TABLICY (kolumna po kolumnie),
+ // łącznie z kubełkiem „Poza szablonem": to nadal karty w procesie, a dok
+ // musi umieć na nie wejść. Klucz to `candidate_id` (stabilny przez ruchy),
+ // dokładnie jak `dockCandidateId`.
+ const dockOrder = useMemo(
+ () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
+ [cols]
+ );
+ const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
+ const selectAdjacentDockCard = useCallback(
+ (delta: -1 | 1) => {
+ if (dockOrder.length === 0) return;
+ const current = dockIndex;
+ if (current < 0) return;
+ const next = current + delta;
+ if (next < 0 || next >= dockOrder.length) return;
+ setDockCandidateId(dockOrder[next]);
+ },
+ [dockOrder, dockIndex]
  );
 
  const handleDockReject = useCallback(() => {
@@ -1733,6 +2047,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () => allItems.filter((i) => (i.days_in_stage ?? 0) > 7).length,
  [allItems]
  );
+ // Karty bez podpowiedzi „co dalej" — liczone tą samą funkcją, którą karta
+ // renderuje, więc licznik w rail'u nie może rozjechać się z tablicą.
+ const noActionIds = useMemo(() => {
+ const ids = new Set<number>();
+ for (const col of cols) {
+ const group = groupByColId.get(colId(col));
+ for (const item of col.items) {
+ if (hasNoNextAction(nextActionFor(item, col, { slaDays, group }))) {
+ ids.add(item.id);
+ }
+ }
+ }
+ return ids;
+ }, [cols, groupByColId, slaDays]);
  const blockedCount = useMemo(
  () =>
  allItems.filter(
@@ -1761,12 +2089,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ) {
  return true;
  }
+ if (noActionFilter && !noActionIds.has(item.id)) return true;
  if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
  return true;
  }
  return false;
  },
- [stuckFilter, blockedFilter, recruiterFilter]
+ [stuckFilter, blockedFilter, noActionFilter, noActionIds, recruiterFilter]
  );
 
  // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to
@@ -1778,6 +2107,46 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  () => (hideEmptyColumns ? cols.filter((c) => c.count > 0) : cols),
  [cols, hideEmptyColumns]
  );
+
+ // Grupy zwinięte w jedną kolumnę-zastępnik: WYŁĄCZNIE etapy u klienta i etapy
+ // umowy, wyłącznie gdy KAŻDA kolumna grupy jest pusta i gdy jest ich więcej
+ // niż jedna (zwinięcie jednej kolumny w jeden zastępnik to sama zmiana nazwy).
+ // Grupa, w której ktokolwiek stoi, rozwija się z powrotem sama.
+ const collapsedGroupKeys = useMemo(() => {
+ const keys = new Set<PipelineGroupKey>();
+ for (const group of stageGroups) {
+ if (group.key !== "client" && group.key !== "contract") continue;
+ if (expandedGroups.has(group.key)) continue;
+ if (group.columns.length < 2) continue;
+ if (group.columns.every((c) => c.count === 0)) keys.add(group.key);
+ }
+ return keys;
+ }, [stageGroups, expandedGroups]);
+
+ // Lista renderu tablicy: prawdziwe kolumny (jedyne cele `Droppable`) i
+ // zastępniki zwiniętych grup. Zastępnik wchodzi w miejsce PIERWSZEJ kolumny
+ // swojej grupy, więc kolejność etapów zostaje nienaruszona.
+ const boardEntries = useMemo(() => {
+ const entries: Array<
+ | { kind: "column"; key: string; col: KanbanColumn }
+ | { kind: "collapsed"; key: string; group: PipelineColumnGroup }
+ > = [];
+ const emitted = new Set<PipelineGroupKey>();
+ for (const col of visibleCols) {
+ const groupKey = groupByColId.get(colId(col));
+ if (groupKey && collapsedGroupKeys.has(groupKey)) {
+ if (emitted.has(groupKey)) continue;
+ emitted.add(groupKey);
+ const group = stageGroups.find((g) => g.key === groupKey);
+ if (group) {
+ entries.push({ kind: "collapsed", key: `group:${groupKey}`, group });
+ continue;
+ }
+ }
+ entries.push({ kind: "column", key: colId(col), col });
+ }
+ return entries;
+ }, [visibleCols, groupByColId, collapsedGroupKeys, stageGroups]);
 
  // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
  // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
@@ -1953,7 +2322,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Progi liczone z kolumn SZABLONU — kubełek nie może przestawić układu
  // desktopowego na 1 009 rekrutacjach z sierotami.
  const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 15;
- const desktopOverview = fullPipelineDesktop && stageCols.length > 3;
+ // Próg zwężenia karty liczy się z liczby RENDEROWANYCH kolumn, nie z liczby
+ // etapów szablonu: po zwinięciu pustych grup „Default B2B" pokazuje dziewięć
+ // kolumn zamiast piętnastu, więc na kolumnę wypada ~155 px — tyle, ile
+ // makieta przewiduje dla pełnej karty (nazwisko do dwóch linii, właściciel,
+ // wiek, następna akcja). Powyżej karta znowu musi degradować się do kafelka.
+ //
+ // Dziewięć, nie osiem: to jest DOKŁADNIE tyle, ile zostaje z „Default B2B"
+ // po zwinięciu grup „U klienta" i „Umowa → zatrudnieni" — siedem prawdziwych
+ // kolumn (15 − 4 − 4) plus dwa zastępniki. Próg o jeden niżej zostawiałby
+ // najczęstszy szablon w produkcie po gorszej stronie granicy, czyli cała ta
+ // karta nigdy nie pokazałaby się nikomu.
+ const OVERVIEW_COLUMN_THRESHOLD = 9;
+ const desktopOverview =
+ fullPipelineDesktop && boardEntries.length > OVERVIEW_COLUMN_THRESHOLD;
 
  return (
  <div className="relative space-y-3">
@@ -1963,6 +2345,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
  <PipelineFiltersRail
  stageCols={stageCols}
+ groups={stageGroups}
+ templateName={templateName}
  focusedColId={focusedColId}
  onFocusColumn={focusColumn}
  offTemplateCount={offTemplate?.count ?? 0}
@@ -1970,6 +2354,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  stuckFilter={stuckFilter}
  onToggleStuckFilter={() => setStuckFilter((v) => !v)}
  stuckCount={stuckCount}
+ noActionFilter={noActionFilter}
+ onToggleNoActionFilter={() => setNoActionFilter((v) => !v)}
+ noActionCount={noActionIds.size}
  blockedFilter={blockedFilter}
  onToggleBlockedFilter={() => setBlockedFilter((v) => !v)}
  blockedCount={blockedCount}
@@ -1978,6 +2365,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onSetRecruiterFilter={setRecruiterFilter}
  hideEmptyColumns={hideEmptyColumns}
  onToggleHideEmptyColumns={() => setHideEmptyColumns(!hideEmptyColumns)}
+ slaDays={slaDays}
+ slaClientName={playbookQuery.data?.client_name ?? null}
+ slaLoading={playbookQuery.isLoading}
  />
 
  <div className="min-w-0 space-y-3">
@@ -2028,17 +2418,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  {/* Bulk action bar */}
  {selected.size > 0 && (
- <Card className="p-3! flex items-center gap-3 flex-wrap bg-card text-foreground border-white/10">
+ <Card className="p-3! flex items-center gap-2 flex-wrap bg-card text-foreground border-white/10">
  <Flag className="h-4 w-4" />
- <span className="text-sm font-medium">
- Wybrano: <strong>{selected.size}</strong>
+ <span className="text-sm">
+ Zaznaczono <strong className="font-semibold">{selected.size}</strong>
  </span>
- {!readOnly && <div className="inline-flex items-center gap-2 text-xs ml-2">
+ {!readOnly && <div className="inline-flex items-center gap-1.5 text-xs ml-1">
  <MoveRight className="h-3.5 w-3.5" />
- <span>Przenieś do:</span>
  <Select onValueChange={bulkMove}>
- <SelectTrigger className="h-8 w-[220px] bg-card/10 text-foreground border-white/20">
- <SelectValue placeholder="Wybierz etap…" />
+ <SelectTrigger className="h-8 w-[200px] bg-card/10 text-foreground border-white/20">
+ <SelectValue placeholder="Przenieś na etap…" />
  </SelectTrigger>
  <SelectContent>
  {stageCols.map((c) => (
@@ -2060,8 +2449,24 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ) : (
  <FileArchive className="h-3.5 w-3.5" />
  )}{""}
- Pobierz CV (ZIP)
+ CV (ZIP)
  </Button>
+ {/* Skrót do tej samej ścieżki, co wybór „Odrzucony" z listy wyżej —
+ `bulkMove` otwiera wspólny modal powodu (`RejectionV2`). Żadnej nowej
+ mutacji: bez kolumny terminalnej „Odrzucony" w szablonie przycisku
+ po prostu nie ma. */}
+ {!readOnly && rejectedTemplateCol && (
+ <Button
+ size="sm"
+ variant="ghost"
+ onClick={() => bulkMove(colId(rejectedTemplateCol))}
+ disabled={bulkBusy || bulkDownloadBusy}
+ className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+ >
+ <XCircle className="h-3.5 w-3.5" />
+ Odrzuć
+ </Button>
+ )}
  <button
  onClick={() => setSelected(new Set())}
  disabled={bulkBusy || bulkDownloadBusy}
@@ -2099,7 +2504,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {visibleCols.length === 0 ? (
+ {boardEntries.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
  {cols.length === 0 ? (
@@ -2118,10 +2523,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  </div>
  ) : (
- visibleCols.map((col) => (
+ boardEntries.map((entry) =>
+ entry.kind === "collapsed" ? (
+ <CollapsedGroupColumn
+ key={entry.key}
+ group={entry.group}
+ fullPipelineDesktop={fullPipelineDesktop}
+ desktopOverview={desktopOverview}
+ onExpand={() => expandGroup(entry.group.key)}
+ />
+ ) : (
  <KanbanColumnV2
- key={colId(col)}
- col={col}
+ key={entry.key}
+ col={entry.col}
  jobId={jobId}
  selectedIds={selected}
  onToggleSelect={toggleSelect}
@@ -2137,11 +2551,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  desktopOverview={desktopOverview}
  fullPipelineDesktop={fullPipelineDesktop}
  readOnly={readOnly}
- dropDisabled={isOffTemplate(col)}
+ dropDisabled={isOffTemplate(entry.col)}
  onOpenDock={openDock}
  isDimmed={isDimmed}
+ group={groupByColId.get(entry.key)}
+ slaDays={slaDays}
  />
- ))
+ )
+ )
  )}
  </div>
  </DragDropContext>
@@ -2161,6 +2578,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly={readOnly}
  contactFeatureEnabled={contactFeature.enabled}
  canReject={canRejectDockItem}
+ position={dockIndex >= 0 ? dockIndex + 1 : null}
+ total={dockOrder.length}
+ onSelectPrevious={() => selectAdjacentDockCard(-1)}
+ onSelectNext={() => selectAdjacentDockCard(1)}
+ nextAction={dockNextAction}
+ primaryTarget={dockPrimaryTarget}
  onClose={closeDock}
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
