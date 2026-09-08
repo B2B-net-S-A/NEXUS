@@ -41,7 +41,8 @@ from app.services.match_score_cache import get_cached_or_compute
 from app.services.ai_models import model_for
 from app.services.scoring_service import (
     ScoreBreakdown,
-    _extract_skills_from_champion,
+    job_skill_requirements,
+    candidate_skill_names,
     canonical_skill_names,
 )
 
@@ -263,7 +264,7 @@ def _prompt_inputs(candidate: Candidate, job: Job, breakdown: dict) -> dict:
         champion_context=_champion_context_text(job),
         competence_category=candidate.competence_category or "(brak)",
         candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
-        candidate_skills=_skills_to_text(candidate.skills),
+        candidate_skills=_skills_to_text(sorted(candidate_skill_names(candidate))),
         candidate_cv=_candidate_cv_text(candidate),
         score=int(round(breakdown.get("total") or 0)),
         score_breakdown=_format_score_breakdown(breakdown),
@@ -330,11 +331,8 @@ def notes_gap_warnings_from_extracted(extracted: Any, job: Job) -> list[dict]:
     if not isinstance(gaps, list):
         return []
 
-    requirement_names = canonical_skill_names(job.must_skills) + canonical_skill_names(
-        job.nice_skills
-    )
-    if not requirement_names:
-        requirement_names = canonical_skill_names(_extract_skills_from_champion(job))
+    interpreted = job_skill_requirements(job)
+    requirement_names = interpreted["must"] + interpreted["nice"]
     if not requirement_names:
         return []
     requirements = {name.casefold() for name in requirement_names if name}

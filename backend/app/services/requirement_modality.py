@@ -7,12 +7,12 @@ reported for human review, never silently promoted to a hard requirement.
 import re
 
 _MARKERS = re.compile(
-    r"(?P<excluded>nie\s+(?:wymagamy|wymagane|jest\s+wymagan\w*)|niewymagan\w*|"
+    r"\b(?:(?P<excluded>nie\s+(?:wymagamy|wymagane|jest\s+wymagan\w*)|niewymagan\w*|"
     r"not\s+required|no\s+(?:need|requirement)\s+for|without\s+requiring)|"
     r"(?P<nice>mile\s+widzian\w*|opcjonaln\w*|dodatkowym\s+atutem|"
     r"nice[ -]to[ -]have|optional|preferred|a\s+plus)|"
     r"(?P<must>wymagan\w*|wymagamy|obowiązkow\w*|konieczn\w*|"
-    r"must(?:[ -]have)?|required|requirements|essential)",
+    r"must(?:[ -]have)?|required|requirements|essential))\b",
     re.IGNORECASE,
 )
 

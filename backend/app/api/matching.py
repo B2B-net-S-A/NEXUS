@@ -438,6 +438,10 @@ def _parse_nice_skills(job: Job) -> list[str]:
     and the dock's nice-coverage list, never the score.
     """
     raw = job.nice_skills
+    if not raw:
+        from app.services.scoring_service import job_skill_requirements
+
+        raw = job_skill_requirements(job)["nice"]
     if not raw or not isinstance(raw, list):
         return []
     out: list[str] = []

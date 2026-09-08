@@ -227,3 +227,27 @@ def test_provider_metering_prices_cache_and_actual_fallback_model():
         ]
         is None
     )
+
+
+def test_champion_nice_is_consistent_in_chips_and_notes_warnings():
+    from app.api.matching import _parse_nice_skills
+    from app.services.match_justification_service import (
+        notes_gap_warnings_from_extracted,
+    )
+
+    job = make_job(
+        must_skills=None,
+        nice_skills=None,
+        champion_profile={"stack": {"must": ["Python"], "nice": ["Kubernetes"]}},
+    )
+    assert _parse_nice_skills(job) == ["kubernetes"]
+    assert notes_gap_warnings_from_extracted(
+        {
+            "_notes_insights": {
+                "skills_gaps_observed": [
+                    {"name": "Kubernetes", "evidence": "do sprawdzenia"}
+                ]
+            }
+        },
+        job,
+    ) == [{"skill": "Kubernetes", "evidence": "do sprawdzenia"}]
