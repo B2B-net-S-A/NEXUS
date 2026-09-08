@@ -271,6 +271,7 @@ async def _gate_and_dealbreakers(
     job: Job,
     ordered: list[Candidate],
     now: datetime,
+    inputs: DealbreakerInputs | None = None,
 ) -> tuple[list[Candidate], dict[int, dict], dict, int, DealbreakerInputs]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
@@ -311,7 +312,10 @@ async def _gate_and_dealbreakers(
     """
     empty_meta = DealbreakerResult().hidden_meta()
     if not ordered:
-        return [], {}, empty_meta, 0, dealbreaker_inputs_for_job(job)
+        # Też przez `inputs` wołającego — pusta pula nie jest powodem, żeby
+        # policzyć rubryki po raz drugi i zwrócić inny obiekt niż ten,
+        # który handler już wpisał do `rubrics`.
+        return [], {}, empty_meta, 0, inputs or dealbreaker_inputs_for_job(job)
 
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=[c.id for c in ordered], now=now
@@ -345,7 +349,13 @@ async def _gate_and_dealbreakers(
     # też fallback do Championa (za CHAMPION_MATCH_SIGNALS_ENABLED) i dni w biurze
     # > 0, więc oferta z pustym `remote_policy`, ale wypełnionym Championem, też
     # poprawnie uzbraja auto-wykluczanie „tylko zdalnie".
-    inputs = dealbreaker_inputs_for_job(job)
+    # Rubryki liczy się RAZ na request. Handler potrzebuje ich wcześniej niż ta
+    # bramka (klucz `rubrics` w odpowiedzi powstaje przed retrievalem), więc gdy
+    # je poda — używamy dokładnie tych samych. Dzięki temu `must_skills_gating`
+    # w odpowiedzi jest z KONSTRUKCJI listą, którą bramka faktycznie
+    # zastosowała, a nie drugim, niezależnym wyliczeniem tego samego.
+    if inputs is None:
+        inputs = dealbreaker_inputs_for_job(job)
     db_res = apply_dealbreakers(
         dealbreakable,
         inputs=inputs,
@@ -647,7 +657,10 @@ async def get_ai_matches(
     nice_skills = _parse_nice_skills(job)
     # Rubryki 0278 strony oferty — jedna definicja dla obu gałęzi odpowiedzi
     # (semantycznej i tag-fallback), do klucza top-level `rubrics`.
-    _rubric_inputs_preview = dealbreaker_inputs_for_job(job)
+    # Policzone TU, bo `rubrics` trafia do odpowiedzi obu gałęzi (semantycznej
+    # i tag-fallback), a bramka odpala się dopiero po retrievalu. Przekazywane
+    # dalej do `_gate_and_dealbreakers`, żeby nie liczyć tego drugi raz.
+    rubric_inputs = dealbreaker_inputs_for_job(job)
     job_rubrics = {
         "budget_hourly": resolve_job_budget_hourly(job),
         "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),
@@ -657,8 +670,8 @@ async def get_ai_matches(
         # wyłącznie sygnałem scoringowym. Bez tego bramka, która po cichu nie
         # działa, wygląda identycznie jak bramka, która nikogo nie odsiała —
         # a to dwie różne informacje dla Delivery Leada.
-        "must_skills_gating": list(_rubric_inputs_preview.must_skills),
-        "must_skills_ignored": list(_rubric_inputs_preview.must_skills_ignored),
+        "must_skills_gating": list(rubric_inputs.must_skills),
+        "must_skills_ignored": list(rubric_inputs.must_skills_ignored),
     }
 
     # ── Location filter ──────────────────────────────────────────────────────
@@ -802,7 +815,11 @@ async def get_ai_matches(
             eligibility_filtered,
             rubric_inputs,
         ) = await _gate_and_dealbreakers(
-            db, job=job, ordered=ordered, now=datetime.now(timezone.utc)
+            db,
+            job=job,
+            ordered=ordered,
+            now=datetime.now(timezone.utc),
+            inputs=rubric_inputs,
         )
 
         search_type = "semantic"
@@ -946,7 +963,11 @@ async def get_ai_matches(
         eligibility_filtered,
         rubric_inputs,
     ) = await _gate_and_dealbreakers(
-        db, job=job, ordered=all_candidates, now=datetime.now(timezone.utc)
+        db,
+        job=job,
+        ordered=all_candidates,
+        now=datetime.now(timezone.utc),
+        inputs=rubric_inputs,
     )
     # Log zostaje (P-B): rozstrzyga „lista jest podejrzanie krótka" bez zgadywania,
     # także gdy front licznika nie pokaże. Liczy WYŁĄCZNIE warstwę `hidden`
