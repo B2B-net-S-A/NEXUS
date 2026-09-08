@@ -126,8 +126,14 @@ def client_ids_from_env(env_name: str) -> frozenset[int]:
 
 
 def _nordea(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    result = parser.enforce_nordea_order_number(result, ctx.document_text)
-    return nordea.apply_nordea_layout(result, ctx.document_text)
+    text = nordea.order_text_only(ctx.document_text)
+    result = parser.enforce_nordea_order_number(result, text)
+    return nordea.apply_nordea_layout(
+        result,
+        text,
+        target_consultant=ctx.target_consultant,
+        target_given_names=ctx.target_given_names,
+    )
 
 
 def _bank_pocztowy(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
@@ -196,6 +202,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         env_var="NORDEA_ORDER_NUMBER_CLIENT_IDS",
         apply=_nordea,
         order=10,
+        rate_unit_default="hour",
         extract_rows=nordea.extract_rows,
     ),
     OrderClientPolicy(
@@ -382,3 +389,26 @@ def apply_policies(
         applied.append(policy.display_name)
         result = policy.apply(result, ctx)
     return result, applied
+
+
+def prepare_document_text(text: str, policies: list[OrderClientPolicy]) -> str:
+    """Zakres dokumentu wspólny dla modelu, reguł i kontroli deterministycznej."""
+    if any(p.key == "nordea" for p in policies):
+        return nordea.order_text_only(text)
+    return text
+
+
+def apply_rate_kind(
+    result: OrderExtraction, text: str, policies: list[OrderClientPolicy]
+) -> OrderExtraction:
+    """Nordea ma jawną regułę netto; inni klienci nadal wymagają dowodu z PDF-a."""
+    if any(p.key == "nordea" for p in policies):
+        return nordea.apply_rate_rules(result)
+    return parser.apply_document_rate_kind(result, text)
+
+
+def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:
+    """Kolumny ignorowane przez klienta nie są przekazywane do modelu."""
+    if any(p.key == "nordea" for p in policies):
+        return nordea.parser_text(text)
+    return text

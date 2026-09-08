@@ -72,16 +72,18 @@ from app.services.order_mail_resolver import load_roster, resolve_rows
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
-    apply_document_rate_kind,
     parse_order_document,
 )
 from app.services.order_policies import (
     PolicyContext,
     active_policies,
     apply_policies,
+    apply_rate_kind,
     client_ids_from_env,
     is_client_in_policy,
     policy_by_key,
+    prepare_document_text,
+    prepare_parser_text,
 )
 from app.services.order_policies.known_clients import (
     KNOWN_MARKERS,
@@ -433,17 +435,17 @@ async def process_pdf_bytes(
     row.client_key = policy_key or (ident.client_key if ident.client_key else None)
     row.client_id = client_id
 
-    extraction = await parse_order_document(doc.text, all_rows=True)
     policies = active_policies(client_id) if client_id is not None else []
+    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    extraction = await parse_order_document(
+        prepare_parser_text(doc.text, policies), all_rows=True
+    )
     extraction, applied = apply_policies(
         extraction,
         PolicyContext(document_text=doc.text, filename=row.attachment_name),
         policies,
     )
-    # Rodzaj stawki (brutto/netto) czytamy z DOKUMENTU, dla każdego klienta i
-    # niezależnie od env polityki — inaczej zamówienie Erste spoza listy env
-    # trafiało do bazy ze stawką brutto potraktowaną jak netto (zgłoszenie).
-    extraction = apply_document_rate_kind(extraction, doc.text)
+    extraction = apply_rate_kind(extraction, doc.text, policies)
     row.client_policy = " + ".join(applied) or None
     row.extraction = extraction_to_json(extraction)
     row.document_meta = document_meta_to_json(doc, extraction)
@@ -518,14 +520,21 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
             active_policies(client_id),
         )
         row.client_policy = " + ".join(applied) or None
-    extraction = apply_document_rate_kind(extraction, doc.text)
+    policies = active_policies(row.client_id)
+    doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    if any(p.key == "nordea" for p in policies):
+        # Stary model mógł dodać osoby z summary. Przeliczenie korzysta z
+        # właściwej tabeli PDF-a, zachowując zaakceptowany numer i okres.
+        extraction.consultant_rows = policy_by_key("nordea").extract_rows(doc.text)
+    extraction = apply_rate_kind(extraction, doc.text, policies)
     row.extraction = extraction_to_json(extraction)
+    row.document_meta = document_meta_to_json(doc, extraction)
     await _plan_and_gate(
         db,
         row,
         extraction,
         doc,
-        active_policies(row.client_id),
+        policies,
         row.client_id,
         row.identification_method,
     )

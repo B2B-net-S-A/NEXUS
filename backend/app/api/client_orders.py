@@ -103,7 +103,6 @@ from app.services.order_types import (
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
-    apply_document_rate_kind,
     enforce_consultant_policy_safety,
     parse_order_document,
 )
@@ -111,8 +110,11 @@ from app.services.order_policies import (
     PolicyContext,
     active_policies,
     apply_policies,
+    apply_rate_kind,
     is_client_in_policy,
     parse_plan,
+    prepare_document_text,
+    prepare_parser_text,
 )
 from app.services.order_excel_export import (
     OrderExportRow,
@@ -1994,6 +1996,7 @@ async def extract_order_pdf(
     #    gdy model odczytał wiersz osoby, ale pominął sam token jednostki.
     policies = active_policies(client_id)
     plan = parse_plan(policies)
+    text = prepare_document_text(text, policies)
 
     # Bramka kwoty MUSI obejmować wywołanie modelu: `ai_feature` deklaruje
     # kontekst tylko na czas swojego bloku, a bez deklaracji `parse_order_document`
@@ -2002,7 +2005,7 @@ async def extract_order_pdf(
         async with ai_feature(db, AIFeatureKey.order_parser, user_id=user.id):
             await db.commit()
             extraction = await _extract_with_plan(
-                text,
+                prepare_parser_text(text, policies),
                 plan=plan,
                 target_consultant=target_consultant,
                 target_given_names=target_given_names,
@@ -2030,10 +2033,7 @@ async def extract_order_pdf(
         policies,
     )
 
-    # Rodzaj stawki (brutto/netto) z OZNACZENIA w dokumencie — dla każdego
-    # klienta, niezależnie od env polityki. Brutto → ÷ 1,23; netto/brak → bez
-    # zmian. Idempotentne wobec polityki Erste/PFRON (znacznik rate_client_gross).
-    extraction = apply_document_rate_kind(extraction, text)
+    extraction = apply_rate_kind(extraction, text, policies)
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
     # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby. U BNP nie
