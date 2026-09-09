@@ -272,6 +272,10 @@ export function CVBrandedEditModal({
  </div>
  </div>
 
+ {data?.from_generator && <p className="px-5 py-2 text-xs text-muted-foreground">
+ Wybrano wynik generatora {data.generated_document_id != null ? `#${data.generated_document_id}` : "(źródło usunięte)"}.
+ Aby zmienić język lub szablon, wygeneruj i wybierz nowy wynik.
+ </p>}
  <div className="px-5 py-3 border-b border-border bg-background">
  <div className="flex items-end gap-3 flex-wrap">
  <div>
@@ -279,13 +283,13 @@ export function CVBrandedEditModal({
  <Select
  value={pendingTemplate ?? data?.template ??"standard"}
  onValueChange={(v) => handleTemplateChange(v as CVTemplate)}
- disabled={isFinalized}
+ disabled={isFinalized || data?.from_generator}
  >
  <SelectTrigger className="w-36 h-8 text-xs">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
- <SelectItem value="standard">Pełny (z kontaktem)</SelectItem>
+ <SelectItem value="standard">Pełny</SelectItem>
  <SelectItem value="blind">Anonimowy (blind)</SelectItem>
  </SelectContent>
  </Select>
@@ -295,7 +299,7 @@ export function CVBrandedEditModal({
  <Select
  value={pendingLanguage ?? data?.language ??"pl"}
  onValueChange={(v) => handleLanguageChange(v as CVLanguage)}
- disabled={isFinalized}
+ disabled={isFinalized || data?.from_generator}
  >
  <SelectTrigger className="w-24 h-8 text-xs">
  <SelectValue />
