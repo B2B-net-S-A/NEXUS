@@ -126,3 +126,65 @@ async def test_recent_pair_selection_is_bounded_and_keeps_actor_and_context(
     assert len(seen) == 3
     with pytest.raises(ValueError):
         await recent_comparisons(db, [run(i) for i in range(1, 12)])
+
+
+@pytest.mark.asyncio
+async def test_real_query_isolates_the_two_archived_snapshots():
+    from sqlalchemy import (
+        Boolean,
+        Column,
+        Float,
+        Integer,
+        MetaData,
+        String,
+        Table,
+        create_engine,
+    )
+
+    engine = create_engine("sqlite://")
+    table = Table(
+        "candidate_search_results",
+        MetaData(),
+        Column("run_id", String, primary_key=True),
+        Column("candidate_id", Integer, primary_key=True),
+        Column("candidate_version", String),
+        Column("state", String),
+        Column("eligible", Boolean),
+        Column("fit_score", Float),
+        Column("measurement", String),
+    )
+    table.create(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            table.insert(),
+            [
+                {
+                    "run_id": run(rid).id,
+                    "candidate_id": cid,
+                    "candidate_version": "v1",
+                    "state": "evaluated",
+                    "eligible": True,
+                    "fit_score": score,
+                    "measurement": "measured",
+                }
+                for rid, cid, score in [
+                    (1, 1, 80),
+                    (1, 2, 70),
+                    (2, 1, 80.2),
+                    (2, 2, 70),
+                    (3, 999, 100),
+                ]
+            ],
+        )
+
+        class Database:
+            async def execute(self, statement):
+                return connection.execute(statement)
+
+        reports = await recent_comparisons(Database(), [run(1), run(2)])
+    engine.dispose()
+    assert len(reports) == 1
+    assert reports[0]["common_candidates"] == 2
+    assert reports[0]["max_absolute_score_difference"] == pytest.approx(0.2)
+    assert reports[0]["score_differences_above_tolerance"] == 1
+    assert not reports[0]["archived_parity_complete"]
