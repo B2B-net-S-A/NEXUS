@@ -47,3 +47,9 @@ Health i deep health potwierdziły zdrową wersję 561f02ca383a8c94cab5268839d43
 W uwierzytelnionym Chrome wykonano wybór konsultanta i procesu oraz zmianę Redakcja → Pod rekrutację, bez generowania ani zapisu danych kandydata. Etykiety źródeł zmieniają wymaganie Championa zgodnie z trybem; notatki pozostają opcjonalne przy braku reguły klienta. Wykryty sprzeczny, stały opis wymagający zawsze Championa i notatek poprawiono w tym PR. To dowód działania wyboru/etykiet, nie pełnego przepływu zatwierdzania DOCX.
 
 Diagnostyka Coolify list miała osobny błąd: pomijała /api/v1 przy budowie URL. Poprawiono prefiks zgodnie z istniejącym działającym deploy.yml. Składnia bash sprawdzona; potwierdzenie żądań w środowisku GitHub pozostaje po dostarczeniu tej zmiany. Nie zmieniano tokenów ani uprawnień.
+
+## Jawny wybór pliku źródłowego
+
+Wspólny formularz samodzielny/osadzony pobiera listę obsługiwanych plików kandydata, pokazuje nazwę, datę oraz oznaczenie głównego i wymaga wyboru przed generacją. Wysyła cv_document_id; loader ogranicza zapytanie jednocześnie do tego ID i kandydata. Usunięty lub obcy wybrany dokument nie uruchamia zastępczego pliku. Wybór jest powiązany ze wskazanym kandydatem. Źródłowe bajty pozostają przechwytywane przed przyjęciem zadania i wspólne dla obu języków.
+
+Dla zgodności starszych wywołań API cv_document_id pozostaje opcjonalne; stary osobny modal i próbki reguł wymagają jeszcze wyrównania. Nie jest to trwały snapshot zadania. 29 regresji źródeł/gotowości, następnie 7 testów wyboru/przyjęcia oraz 16 testów formularza przeszło; TypeScript i Ruff bez błędów. Produkcyjny wybór konkretnego pliku czeka na wdrożenie tego PR.

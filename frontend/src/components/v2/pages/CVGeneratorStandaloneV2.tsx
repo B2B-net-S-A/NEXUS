@@ -269,6 +269,22 @@ export function CVGeneratorStandaloneV2({
     staleTime: 30_000,
   });
 
+  const [sourceChoice, setSourceChoice] = useState<{candidateId: number; documentId: number} | null>(null);
+  const cvSourcesQuery = useQuery({
+    queryKey: ["cv-gen-sources", candidate?.id],
+    queryFn: async () => {
+      if (!candidate) return [];
+      const res = await api.get<Array<{id: number; filename: string; is_primary: boolean; uploaded_at: string | null}>>(
+        `/api/cv-generator/candidates/${candidate.id}/cv-sources`,
+      );
+      return res.data;
+    },
+    enabled: !!candidate && mode === "new",
+  });
+  const selectedSource = sourceChoice?.candidateId === candidate?.id
+    ? cvSourcesQuery.data?.find((source) => source.id === sourceChoice?.documentId)
+    : undefined;
+
   const recruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
     queryFn: async () => {
@@ -461,7 +477,7 @@ export function CVGeneratorStandaloneV2({
     (mode === "new" ? !!selectedRecruitment : !!uploadClient);
 
   const canSubmitNew =
-    !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
+    !!candidate && !!selectedRecruitment && selectedRecruitment.ready && !!selectedSource;
   const canSubmitOld = !!cvFile &&
     (embedded ? !!uploadRecruitment : (!uploadStageId || !!uploadRecruitment)) &&
     (!!effectiveClientId || outsideAssignment);
@@ -475,13 +491,14 @@ export function CVGeneratorStandaloneV2({
   // can leave the tab; the CV lands on the „Wygenerowane CV" list when ready.
   const generateMut = useMutation({
     mutationFn: async () => {
-      if (!candidate || !selectedRecruitment) {
+      if (!candidate || !selectedRecruitment || !selectedSource) {
         throw new Error("Missing inputs");
       }
       const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate",
         {
           candidate_id: candidate.id,
+          cv_document_id: selectedSource.id,
           stage_id: selectedRecruitment.stage_id,
           // Asercja, nie wybór: serwer i tak bierze klienta z rekrutacji,
           // a rozjazd odrzuca 422 — dzięki temu rekruter nigdy nie dostanie
@@ -773,6 +790,38 @@ export function CVGeneratorStandaloneV2({
           setMustRequirements={setMustRequirements}
           setNiceRequirements={setNiceRequirements}
         />
+      )}
+
+      {mode === "new" && candidate && (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <Label htmlFor="cv-source-document">Plik do generacji</Label>
+            <select
+              id="cv-source-document"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              value={selectedSource?.id ?? ""}
+              onChange={(event) => setSourceChoice(event.target.value ? {
+                candidateId: candidate.id, documentId: Number(event.target.value),
+              } : null)}
+              disabled={cvSourcesQuery.isLoading || cvSourcesQuery.isError}
+            >
+              <option value="">Wybierz źródłowe CV…</option>
+              {(cvSourcesQuery.data ?? []).map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.filename}{source.is_primary ? " · główne" : ""}
+                  {source.uploaded_at ? ` · ${new Date(source.uploaded_at).toLocaleDateString("pl-PL")}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {cvSourcesQuery.isError ? "Nie udało się pobrać plików CV. Odśwież stronę i spróbuj ponownie."
+                : cvSourcesQuery.isLoading ? "Wczytywanie plików CV…"
+                : !cvSourcesQuery.data?.length ? "Brak obsługiwanych plików PDF lub DOCX."
+                : "Wybrany plik będzie źródłem faktów dla obu wersji językowych."}
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       <Card className="mt-4">

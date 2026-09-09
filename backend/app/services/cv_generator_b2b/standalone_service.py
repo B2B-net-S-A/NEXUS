@@ -2164,12 +2164,43 @@ class CandidateGenerationSource:
         return ChampionProfileForPrompt(**data)
 
 
+async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list[dict]:
+    if await db.get(Candidate, candidate_id) is None:
+        raise StandaloneGenerationError(
+            code="candidate_not_found", message="Konsultant nie istnieje."
+        )
+    rows = (
+        await db.scalars(
+            select(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                _supported_cv_doc_filter(),
+            )
+            .order_by(
+                CandidateDocument.is_primary.desc(),
+                CandidateDocument.uploaded_at.desc(),
+                CandidateDocument.id.desc(),
+            )
+        )
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "is_primary": bool(row.is_primary),
+            "uploaded_at": row.uploaded_at,
+        }
+        for row in rows
+    ]
+
+
 async def load_candidate_generation_source(
     db: AsyncSession,
     *,
     candidate_id: int,
     stage_id: int,
     language: Language = "pl",
+    cv_document_id: int | None = None,
 ) -> CandidateGenerationSource:
     """Read the chosen file, recruitment context and notes once; no provider calls."""
     request_id = f"cvsource_{uuid.uuid4().hex[:12]}"
@@ -2212,7 +2243,14 @@ async def load_candidate_generation_source(
         )
         .limit(1)
     )
+    if cv_document_id is not None:
+        cv_doc_q = cv_doc_q.where(CandidateDocument.id == cv_document_id)
     cv_doc = (await db.scalars(cv_doc_q)).first()
+    if cv_doc is None and cv_document_id is not None:
+        raise StandaloneGenerationError(
+            code="no_cv_file",
+            message="Wybrane CV nie jest dostępne dla tego konsultanta. Wybierz plik ponownie.",
+        )
     if cv_doc is None:
         any_doc_id = await db.scalar(
             select(CandidateDocument.id)

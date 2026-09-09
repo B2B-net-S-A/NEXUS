@@ -360,6 +360,7 @@ describe("CV readiness follows the selected content mode", () => {
     setSourcingAccess("write");
     getMock.mockReset();
     getMock.mockImplementation(async (url, options) => {
+      if (String(url).endsWith("/cv-sources")) return {data: [{id: 71, filename: "source.pdf", is_primary: true, uploaded_at: null}]};
       if (!String(url).endsWith("/recruitments")) return {data: String(url).includes("cv-rule") ? null : []};
       const mode = (options as {params: {content_mode: string}}).params.content_mode;
       return {data: [{stage_id: 30, job_id: 40, job_title: "Test job", has_cv: true,
@@ -369,9 +370,41 @@ describe("CV readiness follows the selected content mode", () => {
     });
     renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
     expect(await screen.findByText("Profil Championa (opcjonalny)")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+    await screen.findByRole("option", {name: "source.pdf · główne"});
+    fireEvent.change(screen.getByLabelText("Plik do generacji"), {target: {value: "71"}});
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", {name: /Pod rekrutację/}));
     expect(await screen.findByText("Tryb dopasowany wymaga Profilu Championa.")).toBeInTheDocument();
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+  });
+});
+
+
+describe("Explicit CV source selection", () => {
+  it("submits the chosen non-primary file and blocks generation before selection", async () => {
+    setSourcingAccess("write");
+    postMock.mockClear();
+    getMock.mockReset();
+    getMock.mockImplementation(async (url) => {
+      if (String(url).endsWith("/cv-sources")) return {data: [
+        {id: 71, filename: "primary.pdf", is_primary: true, uploaded_at: null},
+        {id: 72, filename: "chosen.docx", is_primary: false, uploaded_at: null},
+      ]};
+      if (String(url).endsWith("/recruitments")) return {data: [{stage_id: 30, job_id: 40,
+        job_title: "Synthetic job", has_cv: true, has_champion: false, has_notes: false,
+        ready: true, required_champion: false, required_notes_min_chars: 0, missing_inputs: []}]};
+      return {data: String(url).includes("cv-rule") ? null : []};
+    });
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Synthetic", prefillJobId: 40});
+    await screen.findByRole("option", {name: "chosen.docx"});
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Plik do generacji"), {target: {value: "72"}});
+    await waitFor(() => expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", {name: /Generuj CV/}));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith(
+      "/api/cv-generator/generate", expect.objectContaining({candidate_id: 2, stage_id: 30, cv_document_id: 72}),
+      expect.anything(),
+    ));
   });
 });

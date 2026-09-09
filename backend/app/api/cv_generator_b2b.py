@@ -113,6 +113,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     generate_cv_from_uploads,
     load_candidate_generation_source,
     list_recruitments_with_readiness,
+    list_candidate_cv_sources,
     prepare_source_facts,
     rerender_docx_from_payload,
     screening_notes_char_count,
@@ -161,6 +162,7 @@ class RecruitmentOption(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    cv_document_id: Optional[int] = Field(default=None, ge=1)
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
     # Klient jest wyprowadzany z rekrutacji; jawna wartość służy wyłącznie do
@@ -1046,6 +1048,30 @@ async def search_candidates(
     ]
 
 
+class CvSourceOption(BaseModel):
+    id: int
+    filename: str
+    is_primary: bool
+    uploaded_at: datetime | None = None
+
+
+@router.get(
+    "/candidates/{candidate_id}/cv-sources", response_model=list[CvSourceOption]
+)
+async def candidate_cv_sources(
+    candidate_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[CvSourceOption]:
+    try:
+        rows = await list_candidate_cv_sources(db, candidate_id)
+    except StandaloneGenerationError as err:
+        raise HTTPException(
+            status_code=_error_status(err.code), detail=err.message
+        ) from err
+    return [CvSourceOption(**row) for row in rows]
+
+
 @router.get(
     "/candidates/{candidate_id}/recruitments",
     response_model=list[RecruitmentOption],
@@ -1385,6 +1411,7 @@ async def generate(
             candidate_id=payload.candidate_id,
             stage_id=payload.stage_id,
             language=payload.language,
+            cv_document_id=payload.cv_document_id,
         )
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
