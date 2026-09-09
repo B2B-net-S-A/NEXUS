@@ -14,10 +14,12 @@ import { useState, useEffect, useRef } from"react";
 import { useQuery, useMutation, useQueryClient } from"@tanstack/react-query";
 import { useEditor, EditorContent } from"@tiptap/react";
 import StarterKit from"@tiptap/starter-kit";
+import { CvEditorSection } from "@/lib/cv-editor-section";
 import {
  CheckCircle2,
  Loader2,
  Printer,
+ Download,
  RefreshCcw,
  Sparkles,
  AlertCircle,
@@ -36,7 +38,7 @@ import {
 } from"@/components/ui/select";
 import { CvDraftSession, type CvSaveState } from "@/lib/cv-draft-session";
 import { useToast } from"@/components/Toast";
-import { openAuthenticatedFile } from "@/lib/authenticated-files";
+import { openAuthenticatedFile, downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 import {
  candidateStageCvApi,
  type CVBrandedState,
@@ -82,7 +84,7 @@ export function CVBrandedEditModal({
  });
 
  const editor = useEditor({
- extensions: [StarterKit],
+ extensions: [StarterKit, CvEditorSection],
  content: "",
  editorProps: {
  attributes: {
@@ -238,6 +240,32 @@ export function CVBrandedEditModal({
  };
 
  const isFinalized = saveState === "finalized";
+ const [downloadingDocx, setDownloadingDocx] = useState(false);
+ const previewDocx = async () => {
+   const session = sessionRef.current;
+   if (!session) return;
+   setDownloadingDocx(true);
+   try {
+     await session.settle();
+     const result = await postAuthenticatedDownload(
+       `/api/candidates/stages/${stageId}/cv/branded/preview-docx`,
+       {content_html: session.html, expected_revision: session.revision},
+     );
+     downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
+   } catch (error) { showError(getErrorMessage(error)); }
+   finally { setDownloadingDocx(false); }
+ };
+ const downloadApproved = async () => {
+   if (!data?.docx_available) return;
+   setDownloadingDocx(true);
+   try {
+     await downloadAuthenticatedFile(
+       `/api/candidates/stages/${stageId}/cv/branded/versions/${data.version}/docx`,
+       data.docx_filename || "CV.docx",
+     );
+   } catch (error) { showError(getErrorMessage(error)); }
+   finally { setDownloadingDocx(false); }
+ };
 
  return (
  <>
@@ -358,7 +386,7 @@ export function CVBrandedEditModal({
  )}
  </div>
 
- <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-border">
+ <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-t border-border">
  <Button
  variant="outline"
  size="sm"
@@ -368,7 +396,15 @@ export function CVBrandedEditModal({
  <Printer className="h-3.5 w-3.5 mr-1.5" />
  Drukuj / PDF
  </Button>
- <div className="flex items-center gap-2">
+ <div className="flex flex-wrap items-center gap-2">
+ {!isFinalized && data?.status === "draft" && <Button size="sm" variant="outline"
+ disabled={downloadingDocx || finalizeMut.isPending || swapMut.isPending} onClick={() => void previewDocx()}>
+ <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz szkic DOCX
+ </Button>}
+ {isFinalized && data?.docx_available && <Button size="sm" variant="outline"
+ disabled={downloadingDocx} onClick={() => void downloadApproved()}>
+ <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz zatwierdzony DOCX v{data.version}
+ </Button>}
  {isFinalized ? <Button size="sm" variant="outline" disabled={newDraftMut.isPending}
  onClick={() => newDraftMut.mutate()}>Utwórz nową wersję</Button> : null}
  <Button
