@@ -2123,11 +2123,17 @@ async def test_confirming_signature_does_not_reopen_a_closed_contract(
 
 
 @pytest.mark.asyncio
-async def test_tcm_confirms_without_document_management_and_override_revokes(app_client):
+@pytest.mark.parametrize("clientless", [False, True])
+async def test_tcm_confirms_without_document_management_and_override_revokes(app_client, clientless):
     from app.models.section_permission import UserActionOverride
 
     admin_id = await _current_admin_id(app_client)
     scenario = await _seed_bound_scenario(created_by=admin_id)
+    if clientless:
+        async with AsyncSessionLocal() as db:
+            row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+            row.client_id = None
+            await db.commit()
     headers = await _headers_for_role(app_client, UserRole.talent_community_manager)
     user_id = int(headers["X-Test-User-Id"])
     listing = await app_client.get("/api/b2b-generator/generated?limit=200", headers=headers)

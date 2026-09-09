@@ -380,7 +380,7 @@ async def _assert_signature_client_access(
 ) -> None:
     # Preserve existing legal scope for DL/TAC. The separately granted command
     # lets operational users confirm signatures without granting document edits.
-    if client_id is None or user.has_any_role(UserRole.delivery_lead, UserRole.tac):
+    if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
         await assert_contract_legal_client_access(db, user, client_id, write=True)
 
 
@@ -1917,6 +1917,7 @@ async def confirm_generated_contract_fully_signed(
             job_id=job_id,
         )
         await _require_signature_job_scope(db, current_user, job)
+        await _assert_signature_client_access(db, current_user, job.client_id)
         if row.client_id is not None and row.client_id != job.client_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.b2b_contract_generator import (
+    _assert_signature_client_access,
     _require_signature_confirmation,
     _require_signature_job_scope,
 )
@@ -20,6 +21,7 @@ def user_with_access(generator="view", signature="manage", role=UserRole.talent_
             "b2b_signature_confirmation": signature,
         },
         has_role=lambda required: required == role,
+        has_any_role=lambda *required: role in required,
     )
 
 
@@ -45,3 +47,13 @@ async def test_tcm_signature_scope_is_operational_but_dl_scope_is_preserved(monk
     with pytest.raises(HTTPException):
         await _require_signature_job_scope(None, user_with_access(role=UserRole.delivery_lead), job)
     membership.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_clientless_tcm_signature_reaches_link_validation(monkeypatch):
+    legal_scope = AsyncMock(side_effect=HTTPException(status_code=403))
+    monkeypatch.setattr("app.api.b2b_contract_generator.assert_contract_legal_client_access", legal_scope)
+    await _assert_signature_client_access(None, user_with_access(), None)
+    legal_scope.assert_not_awaited()
+    with pytest.raises(HTTPException):
+        await _assert_signature_client_access(None, user_with_access(role=UserRole.tac), None)
