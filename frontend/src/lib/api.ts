@@ -5176,6 +5176,8 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  docx_available?: boolean;
+  docx_filename?: string | null;
   generated_document_id?: number | null;
   from_generator?: boolean;
   edit_revision: number;

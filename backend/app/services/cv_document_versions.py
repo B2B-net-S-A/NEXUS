@@ -20,7 +20,9 @@ def check_revision(csv, expected: int) -> None:
         )
 
 
-async def freeze_approved_version(db, csv):
+async def freeze_approved_version(
+    db, csv, *, docx_content=None, docx_filename=None, render_metadata=None
+):
     """Also pins legacy tokens before creating a new draft. No token is revoked."""
     if csv.branded_status != "finalized":
         raise HTTPException(409, "Najpierw zatwierdź bieżącą wersję CV.")
@@ -39,6 +41,12 @@ async def freeze_approved_version(db, csv):
             version=csv.branded_version,
             generated_document_id=csv.generated_document_id,
             content_html=html,
+            docx_content=docx_content,
+            docx_sha256=hashlib.sha256(docx_content).hexdigest()
+            if docx_content
+            else None,
+            docx_filename=docx_filename,
+            render_metadata=render_metadata,
             content_sha256=hashlib.sha256(html.encode()).hexdigest(),
             template=csv.branded_template,
             language=csv.branded_language,

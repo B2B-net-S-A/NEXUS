@@ -23,6 +23,8 @@ migracji danych.
 
 from __future__ import annotations
 
+from html.parser import HTMLParser
+
 import bleach
 from bleach.css_sanitizer import CSSSanitizer
 
@@ -74,6 +76,7 @@ ALLOWED_TAGS = [
 
 ALLOWED_ATTRIBUTES = {
     "*": ["style", "class"],
+    "p": ["data-cv-section"],
     "a": ["href", "title", "rel"],
     "img": ["src", "alt", "width", "height"],
     "td": ["colspan", "rowspan"],
@@ -139,12 +142,56 @@ _CSS_SANITIZER = CSSSanitizer(
 )
 
 
+class _VisibleCVMarkup(HTMLParser):
+    """Remove non-visible content before allowlisting presentation markup.
+
+    Bleach strip=True removes a style/script tag but keeps its raw code as text.
+    Full-document imports must not print that code in the approved document.
+    """
+
+    hidden_tags = {"head", "style", "script", "template", "noscript"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.hidden = []
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.hidden_tags:
+            self.hidden.append(tag)
+        elif not self.hidden:
+            self.parts.append(self.get_starttag_text())
+
+    def handle_startendtag(self, tag, attrs):
+        if not self.hidden and tag not in self.hidden_tags:
+            self.parts.append(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        if tag in self.hidden:
+            del self.hidden[self.hidden.index(tag) :]
+        elif not self.hidden and tag not in self.hidden_tags:
+            self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+    def handle_entityref(self, name):
+        self.handle_data(f"&{name};")
+
+    def handle_charref(self, name):
+        self.handle_data(f"&#{name};")
+
+
 def sanitize_cv_html(html: str | None) -> str:
     """Zwraca HTML przefiltrowany allowlistą (pusty string dla None)."""
     if not html:
         return ""
+    visible = _VisibleCVMarkup()
+    visible.feed(html)
+    visible.close()
     return bleach.clean(
-        html,
+        "".join(visible.parts),
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRIBUTES,
         protocols=ALLOWED_PROTOCOLS,

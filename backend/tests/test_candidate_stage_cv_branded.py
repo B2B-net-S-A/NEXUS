@@ -829,3 +829,22 @@ async def test_selected_generated_document_is_edited_approved_and_pinned_to_link
     assert public.status_code == 200, public.text
     assert "Reviewed <b>Python</b> result" in public.json()["cv_html"]
     assert "Chosen" not in public.json()["cv_html"]
+    first_docx = await app_client.get(
+        base + "/versions/1/docx", headers=app_auth_headers
+    )
+    assert first_docx.status_code == 200, first_docx.text
+    async with AsyncSessionLocal() as db:
+        source = await db.get(CvGeneratedDocument, generated_id)
+        await db.delete(source)
+        await db.commit()
+    second_docx = await app_client.get(
+        base + "/versions/1/docx", headers=app_auth_headers
+    )
+    assert second_docx.status_code == 200, second_docx.text
+    assert second_docx.content == first_docx.content
+    from io import BytesIO
+    from docx import Document
+
+    document = Document(BytesIO(second_docx.content))
+    visible = "\n".join(p.text for p in document.paragraphs)
+    assert "Reviewed Python result" in visible and "Chosen" not in visible

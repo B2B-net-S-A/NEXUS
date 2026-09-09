@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     ForeignKey,
     Integer,
@@ -102,6 +103,16 @@ class CandidateStageCV(Base):
     branded_from_generator: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="false"
     )
+    branded_template_content: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    branded_consent_content: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    branded_docx_filename: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True
+    )
+    branded_render_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     branded_draft_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     edit_revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
