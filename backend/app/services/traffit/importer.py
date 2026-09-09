@@ -814,6 +814,12 @@ _UPSERT_JOB = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         title                = EXCLUDED.title,
+        matching_requirements = CASE
+            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN NULL
+            ELSE jobs.matching_requirements END,
+        requirements_reviewed = CASE
+            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN false
+            ELSE jobs.requirements_reviewed END,
         status               = EXCLUDED.status,
         client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
         pipeline_template_id = COALESCE(

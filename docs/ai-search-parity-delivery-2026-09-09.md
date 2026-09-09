@@ -344,3 +344,9 @@ Added `Coolify Ops` action `candidate-index-repair` with `index_audit_identity=R
 The once-only remote wrapper invokes the existing CLI, returns only enqueue counters and preserves timeout as an unknown transaction outcome. A missing manifest (for example after container replacement) requires a fresh audit. Successful output says `state=enqueued`, not indexed: verify the index worker is enabled, observe queue processing, then run a new coverage audit and full search. Never treat scheduling or enqueueing alone as completed repair. Coolify task cleanup uses the operation's unique run identity and does not touch other crons.
 
 Validation: 26 host-native index audit/repair/transport tests passed; Ruff and diff checks passed. Tests cover command shape, exact manifest path, fingerprint receipt mismatch, once-only execution, missing manifest, timeout uncertainty, redaction and task cleanup for both operations on success/failure. No production dispatch or repair was performed. Hosted CI for the preceding SHA remained queued/pending at this checkpoint.
+
+### Traffit source-update invalidation
+
+The job importer uses raw PostgreSQL UPSERT rather than the API's requirement-source update helper. Its incoming title now clears `matching_requirements` and `requirements_reviewed` only when distinct from the saved title, matching the normal edit contract. Identical repeated syncs and metadata/status updates retain reviewed criteria, including an intentionally empty list. This closes the observed title-update bypass; Traffit's current mapper does not update description, requirements or Champion fields.
+
+Validation: 6 native reviewed-requirement/import-contract tests passed, Ruff and diff checks passed. Two new PostgreSQL cases execute the actual `_UPSERT_JOB`, checking changed-title invalidation, unchanged-title preservation and request fingerprints; collected successfully, execution deferred to hosted CI. No production imports were invoked.
