@@ -14,6 +14,7 @@ synchronous and slow (30-60 s). All DB access happens in the async part of
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import re
@@ -1396,35 +1397,22 @@ def _champion_parse_warnings(
 # ── Shared Claude → DOCX pipeline (sync; run via threadpool) ───────────────
 
 
-def _run_generation_pipeline(
+@dataclass(frozen=True)
+class PreparedSourceFacts:
+    cv_text: str
+    facts_json: str
+    cv_sha256: str
+    notes_sha256: str
+
+
+def prepare_source_facts(
     *,
     cv_bytes: bytes,
     cv_filename: str,
-    champion_dto: ChampionProfileForPrompt | None,
     screening_notes_text: str,
-    language: Language,
-    blind_cv: bool,
     request_id: str,
-    fallback_name: str | None,
-    started_at: float,
-    job_id: int | None = None,
-    job_title: str | None = None,
-    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
-    client_rule: CvRuleSnapshot | None = None,
-    project_ref: str | None = None,
-    position_ref: str | None = None,
-) -> GenerationResult:
-    """Extract CV text, call Claude and render the DOCX.
-
-    Fully synchronous — wrap in ``run_in_threadpool`` from async callers.
-    Used by both the DB-backed (New) and the manual-upload (Old) modes; the
-    modes differ only in how the inputs are sourced.
-
-    ``content_mode`` gates every channel through which the client's job ad can
-    shape the document. Below "tailored" the Champion Profile is not sent to
-    the model at all, so the prompt's whole positioning section has nothing to
-    act on, and the client's requirement list stops driving what gets bolded.
-    """
+) -> PreparedSourceFacts:
+    """One independent extraction and dated tenure ledger for all preview variants."""
     # ── 1. Extract CV text ───────────────────────────────────────────────
     try:
         cv_text = extract_text_from_file(cv_bytes, cv_filename or "cv.pdf")
@@ -1463,6 +1451,62 @@ def _run_generation_pipeline(
         ],
         "technology_durations": None,  # A tool in a role is not a dated tool history.
     }
+
+    return PreparedSourceFacts(
+        cv_text=cv_text,
+        facts_json=json.dumps(source_facts, ensure_ascii=False),
+        cv_sha256=hashlib.sha256(cv_bytes).hexdigest(),
+        notes_sha256=hashlib.sha256(screening_notes_text.encode()).hexdigest(),
+    )
+
+
+def _run_generation_pipeline(
+    *,
+    cv_bytes: bytes,
+    cv_filename: str,
+    champion_dto: ChampionProfileForPrompt | None,
+    screening_notes_text: str,
+    language: Language,
+    blind_cv: bool,
+    request_id: str,
+    fallback_name: str | None,
+    started_at: float,
+    job_id: int | None = None,
+    job_title: str | None = None,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    position_ref: str | None = None,
+    prepared_source_facts: PreparedSourceFacts | None = None,
+) -> GenerationResult:
+    """Extract CV text, call Claude and render the DOCX.
+
+    Fully synchronous — wrap in ``run_in_threadpool`` from async callers.
+    Used by both the DB-backed (New) and the manual-upload (Old) modes; the
+    modes differ only in how the inputs are sourced.
+
+    ``content_mode`` gates every channel through which the client's job ad can
+    shape the document. Below "tailored" the Champion Profile is not sent to
+    the model at all, so the prompt's whole positioning section has nothing to
+    act on, and the client's requirement list stops driving what gets bolded.
+    """
+    facts = prepared_source_facts or prepare_source_facts(
+        cv_bytes=cv_bytes,
+        cv_filename=cv_filename,
+        screening_notes_text=screening_notes_text,
+        request_id=request_id,
+    )
+    if (
+        facts.cv_sha256 != hashlib.sha256(cv_bytes).hexdigest()
+        or facts.notes_sha256
+        != hashlib.sha256(screening_notes_text.encode()).hexdigest()
+    ):
+        raise StandaloneGenerationError(
+            code="source_extraction_failed",
+            message="Źródła zmieniły się po ekstrakcji faktów. Uruchom podgląd ponownie.",
+        )
+    cv_text = facts.cv_text
+    source_facts = json.loads(facts.facts_json)
 
     # ── 2. Edit the already extracted facts ────────────────────────────
     mode = normalize_content_mode(content_mode)
@@ -2254,6 +2298,7 @@ async def generate_cv_from_candidate_source(
     client_rule: CvRuleSnapshot | None = None,
     project_ref: str | None = None,
     client_policy_override: dict[str, Any] | None = None,
+    prepared_source_facts: PreparedSourceFacts | None = None,
 ) -> GenerationResult:
     """Apply one variant's policy to already captured source values, with no DB reads."""
     locked_mode, _ = resolve_content_mode(client_rule, content_mode)
@@ -2294,6 +2339,7 @@ async def generate_cv_from_candidate_source(
             content_mode=effective_mode,
             client_rule=client_rule,
             project_ref=project_ref,
+            prepared_source_facts=prepared_source_facts,
         )
     )
     if source.source_warnings:

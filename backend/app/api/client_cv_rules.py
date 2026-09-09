@@ -80,6 +80,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     generate_cv_from_candidate_source,
     load_candidate_generation_source,
+    prepare_source_facts,
     list_recruitments_with_readiness,
 )
 from app.services.section_permissions import (
@@ -1459,14 +1460,23 @@ async def _run_rule_preview_job_inner(
                 stage_id=stage_id,
                 language=language,
             )
+            facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=source.cv_bytes,
+                cv_filename=source.cv_filename,
+                screening_notes_text=source.screening_notes_text,
+                request_id=f"cv-rule-preview:{preview_id}:source",
+            )
             with_rule = await generate_cv_from_candidate_source(
                 source,
+                prepared_source_facts=facts,
                 language=language,  # type: ignore[arg-type]
                 client_rule=snap,
                 client_policy_override=row.recipe_snapshot,
             )
             without_rule = await generate_cv_from_candidate_source(
                 source,
+                prepared_source_facts=facts,
                 language=language,  # type: ignore[arg-type]
                 client_rule=None,
                 client_policy_override={"cv_content_mode_cap": None},

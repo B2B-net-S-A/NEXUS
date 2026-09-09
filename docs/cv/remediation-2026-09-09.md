@@ -330,3 +330,14 @@ one variant to the other. Ordinary generation uses the same loader and renderer.
 The API lifecycle keeps hosted coverage. The snapshot currently lives in worker
 memory: durable enqueue-time inputs and one shared extracted fact ledger are
 still open requirements. This package includes the two-unit admission fix.
+
+### CV-18: one extracted ledger in the inactive quality pipeline
+
+The quality branch now prepares CV text, complete source facts and dated tenure
+once for a rule preview, then supplies the same immutable JSON ledger to both
+variants. Each variant deserializes its own copy and retains final factual review.
+CV-byte and notes hashes reject accidental reuse with another source. One
+regression runs both pipelines, mutates the first result's fact list, checks the
+second remains complete, and proves only one text/source extraction occurred.
+67 focused gate/editorial/snapshot/publication/runtime tests pass. This remains
+inactive pending actual-model quality acceptance and does not add durable jobs.

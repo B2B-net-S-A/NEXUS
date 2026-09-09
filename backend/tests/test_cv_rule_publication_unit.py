@@ -162,7 +162,12 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypat
             job_id=1,
         )
     )
-    source = object()
+    source = SimpleNamespace(
+        cv_bytes=b"cv", cv_filename="cv.docx", screening_notes_text="notes"
+    )
+    facts = object()
+    prepare = Mock(return_value=facts)
+    monkeypatch.setattr(api, "prepare_source_facts", prepare)
     load_source = AsyncMock(return_value=source)
     monkeypatch.setattr(api, "load_candidate_generation_source", load_source)
     monkeypatch.setattr(api, "generate_cv_from_candidate_source", generate)
@@ -171,6 +176,11 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypat
     )
     assert row.status == "ready"
     load_source.assert_awaited_once()
+    prepare.assert_called_once()
+    assert all(
+        call.kwargs["prepared_source_facts"] is facts
+        for call in generate.call_args_list
+    )
     assert generate.await_count == 2
     assert all(call.args == (source,) for call in generate.call_args_list)
     assert generate.call_args_list[0].kwargs["client_rule"].cv_language == "en"

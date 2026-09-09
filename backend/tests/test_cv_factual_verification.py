@@ -158,7 +158,7 @@ def test_negative_semantic_verdict_blocks_before_render(monkeypatch, claim, stat
     assert rendered == []
 
 
-def run_pipeline(rule=None):
+def run_pipeline(rule=None, prepared=None):
     return svc._run_generation_pipeline(
         cv_bytes=b"cv",
         cv_filename="test.docx",
@@ -172,6 +172,7 @@ def run_pipeline(rule=None):
         job_id=None,
         job_title="Target vacancy, not evidence",
         client_rule=rule,
+        prepared_source_facts=prepared,
     )
 
 
@@ -360,3 +361,40 @@ def test_limit_rewrite_is_reviewed_against_original_source_before_docx(monkeypat
         "Wdrażał produkcyjnie AWS."
     ]
     assert rendered == []
+
+
+def test_two_variants_reuse_one_extraction_and_reject_different_sources(monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import Mock
+
+    extract_text = Mock(return_value=SOURCE)
+    extract_facts = Mock(
+        return_value={"version": 1, "document": copy.deepcopy(DOCUMENT)}
+    )
+    monkeypatch.setattr(svc, "extract_text_from_file", extract_text)
+    monkeypatch.setattr(svc, "extract_source_facts", extract_facts)
+    prepared = svc.prepare_source_facts(
+        cv_bytes=b"cv",
+        cv_filename="test.docx",
+        screening_notes_text="",
+        request_id="pair",
+    )
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(DOCUMENT))
+    monkeypatch.setattr(
+        gate,
+        "analyze_with_ai",
+        lambda content, *a, **k: json.dumps(review_response(content)),
+    )
+    monkeypatch.setattr(svc, "render_cv_to_bytes", lambda *a, **k: b"docx")
+    first = run_pipeline(prepared=prepared)
+    first.render_payload["source_facts"]["document"]["why_points"].clear()
+    second = run_pipeline(prepared=prepared)
+    assert (
+        second.render_payload["source_facts"]["document"]["why_points"]
+        == DOCUMENT["why_points"]
+    )
+    extract_text.assert_called_once()
+    extract_facts.assert_called_once()
+    with pytest.raises(svc.StandaloneGenerationError) as error:
+        run_pipeline(prepared=replace(prepared, cv_sha256="wrong-source"))
+    assert error.value.code == "source_extraction_failed"

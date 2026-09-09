@@ -529,7 +529,14 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         from unittest.mock import AsyncMock
 
-        frozen_source = object()
+        from types import SimpleNamespace
+
+        frozen_source = SimpleNamespace(
+            cv_bytes=b"cv", cv_filename="cv.docx", screening_notes_text="notes"
+        )
+        monkeypatch.setattr(
+            api_module, "prepare_source_facts", lambda **kwargs: object()
+        )
         load_source = AsyncMock(return_value=frozen_source)
         monkeypatch.setattr(api_module, "load_candidate_generation_source", load_source)
         monkeypatch.setattr(
