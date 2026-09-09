@@ -41,31 +41,41 @@ import { useToast } from"@/components/Toast";
 import { openAuthenticatedFile, downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 import {
  candidateStageCvApi,
+ cvGeneratedEditorApi,
  type CVBrandedState,
  type CVTemplate,
  type CVLanguage,
 } from"@/lib/api";
 
-interface Props {
+type Props = {
  open: boolean;
  onOpenChange: (open: boolean) => void;
- stageId: number;
+
  candidateName: string;
  jobTitle?: string;
-}
+} & ({ stageId: number; generatedId?: never } | { generatedId: number; stageId?: never });
 
 function getErrorMessage(e: unknown): string {
  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
  return typeof detail === "string" ? detail : e instanceof Error ? e.message : "Nie udało się wykonać operacji";
 }
 
-export function CVBrandedEditModal({
+export function CVBrandedEditModal(props: Props) {
+ return <CVBrandedEditContent key={props.generatedId !== undefined ? `generated-${props.generatedId}` : `stage-${props.stageId}`} {...props} />;
+}
+
+function CVBrandedEditContent({
  open,
  onOpenChange,
- stageId,
+ stageId: pipelineStageId,
+ generatedId,
  candidateName,
  jobTitle,
 }: Props) {
+ const stageId = (generatedId ?? pipelineStageId)!;
+ const scopeKey = generatedId !== undefined ? "cv-generated-editor" : "cv-branded";
+ const editorApi = generatedId !== undefined ? cvGeneratedEditorApi : candidateStageCvApi.branded;
+ const basePath = generatedId !== undefined ? `/api/cv-generator/generated/${generatedId}/editor` : `/api/candidates/stages/${stageId}/cv/branded`;
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const [confirmFinalize, setConfirmFinalize] = useState(false);
@@ -77,9 +87,9 @@ export function CVBrandedEditModal({
  );
 
  const { data, isLoading } = useQuery<CVBrandedState>({
- queryKey: ["cv-branded", stageId],
+ queryKey: [scopeKey, stageId],
  queryFn: () =>
- candidateStageCvApi.branded.get(stageId).then((r) => r.data),
+ editorApi.get(stageId).then((r) => r.data),
  enabled: open,
  });
 
@@ -101,10 +111,10 @@ export function CVBrandedEditModal({
  const loadState = (state: CVBrandedState) => {
    const session = new CvDraftSession(state.content_html ?? "<p></p>", state.edit_revision,
      state.status === "finalized", {
-       save: (html, revision) => candidateStageCvApi.branded.update(stageId, {
+       save: (html, revision) => editorApi.update(stageId, {
          content_html: html, expected_revision: revision,
        }).then((r) => r.data),
-       finalize: (html, revision) => candidateStageCvApi.branded.finalize(stageId, {
+       finalize: (html, revision) => editorApi.finalize(stageId, {
          content_html: html, expected_revision: revision,
        }).then((r) => r.data),
      }, (status) => {
@@ -114,7 +124,7 @@ export function CVBrandedEditModal({
    loadedStage.current = stageId;
    setSaveState(session.state);
    editor?.commands.setContent(session.html, false);
-   queryClient.setQueryData(["cv-branded", stageId], state);
+   queryClient.setQueryData([scopeKey, stageId], state);
  };
 
  useEffect(() => {
@@ -170,7 +180,7 @@ export function CVBrandedEditModal({
      replacingRef.current = true;
      editor?.setEditable(false);
      await session.settle();
-     return candidateStageCvApi.branded.update(stageId, { ...payload, expected_revision: session.revision });
+     return editorApi.update(stageId, { ...payload, expected_revision: session.revision });
    },
    onSuccess: (response) => {
      loadState(response.data);
@@ -188,7 +198,7 @@ export function CVBrandedEditModal({
    mutationFn: async () => {
      if (!sessionRef.current) throw new Error("CV nie jest jeszcze wczytane");
      await sessionRef.current.finalize();
-     return candidateStageCvApi.branded.get(stageId);
+     return editorApi.get(stageId);
    },
    onSuccess: (response) => {
      loadState(response.data);
@@ -198,7 +208,7 @@ export function CVBrandedEditModal({
    onError: (e) => showError(getErrorMessage(e)),
  });
  const newDraftMut = useMutation({
-   mutationFn: () => candidateStageCvApi.branded.newDraft(stageId, sessionRef.current!.revision),
+   mutationFn: () => editorApi.newDraft(stageId, sessionRef.current!.revision),
    onSuccess: (response) => loadState(response.data),
    onError: (e) => showError(getErrorMessage(e)),
  });
@@ -231,7 +241,7 @@ export function CVBrandedEditModal({
      await sessionRef.current?.save();
      while (sessionRef.current?.state === "unsaved") await sessionRef.current.save();
      await openAuthenticatedFile(
-       `/api/candidates/stages/${stageId}/cv/branded/render-pdf`,
+       `${basePath}/render-pdf`,
        "text/html",
      );
    } catch {
@@ -248,7 +258,7 @@ export function CVBrandedEditModal({
    try {
      await session.settle();
      const result = await postAuthenticatedDownload(
-       `/api/candidates/stages/${stageId}/cv/branded/preview-docx`,
+       `${basePath}/preview-docx`,
        {content_html: session.html, expected_revision: session.revision},
      );
      downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
@@ -260,7 +270,7 @@ export function CVBrandedEditModal({
    setDownloadingDocx(true);
    try {
      await downloadAuthenticatedFile(
-       `/api/candidates/stages/${stageId}/cv/branded/versions/${data.version}/docx`,
+       `${basePath}/versions/${data.version}/docx`,
        data.docx_filename || "CV.docx",
      );
    } catch (error) { showError(getErrorMessage(error)); }

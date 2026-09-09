@@ -10,6 +10,7 @@ import {
   ChevronsUpDown,
   Download,
   Eye,
+  Pencil,
   FileCode2,
   FileText,
   Link2,
@@ -56,6 +57,7 @@ import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
 import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
@@ -236,6 +238,7 @@ export function CVGeneratorStandaloneV2({
 
   // „Wygenerowane CV" — server-side list, survives navigation/refresh.
   const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
+  const [editItem, setEditItem] = useState<GeneratedCvItem | null>(null);
   const [shareItem, setShareItem] = useState<GeneratedCvItem | null>(null);
   const historyCandidateId = embedded ? prefillCandidateId : undefined;
   const historyJobId = embedded ? prefillJobId : undefined;
@@ -1117,6 +1120,7 @@ export function CVGeneratorStandaloneV2({
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
                   onDownloadHtml={handleDownloadHtml}
+                  onEdit={setEditItem}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
                   canWrite={canWriteSourcing}
@@ -1131,6 +1135,8 @@ export function CVGeneratorStandaloneV2({
         </CardContent>
       </Card>
 
+      {canWriteSourcing && editItem && <CVBrandedEditModal open generatedId={editItem.id}
+        candidateName={editItem.candidate_name} onOpenChange={open => { if (!open) setEditItem(null); }} />}
       <GeneratedCvPreviewModal
         item={previewItem}
         onClose={() => setPreviewItem(null)}
@@ -1728,6 +1734,7 @@ type GeneratedCvRowProps = {
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
   onDownloadHtml: (item: GeneratedCvItem) => void;
+  onEdit: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
   canWrite: boolean;
@@ -1741,6 +1748,7 @@ function GeneratedCvRow({
   onDownload,
   onDownloadHtml,
   onShare,
+  onEdit,
   onDelete,
   canWrite,
 }: GeneratedCvRowProps) {
@@ -1850,6 +1858,8 @@ function GeneratedCvRow({
                   >
                     <FileCode2 className="h-4 w-4" />
                   </Button>
+                  {canWrite && <Button variant="ghost" size="sm" disabled={!item.can_download}
+                    onClick={() => onEdit(item)} title="Edytuj i zatwierdź CV"><Pencil className="h-4 w-4" /></Button>}
                   {canWrite ? (
                     <Button
                       variant="ghost"

@@ -33,8 +33,8 @@ vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile: vi.fn(), do
   postAuthenticatedDownload: vi.fn(async () => ({blob: new Blob(["synthetic docx"]), filename: "SZKIC_Reviewed.docx"})),
   downloadBlob: vi.fn(),
 }));
-vi.mock("@/lib/api", () => ({
-  candidateStageCvApi: { branded: {
+vi.mock("@/lib/api", () => {
+  const adapter = {
     get: async () => ({ data: { status: state.status, content_html: state.stored,
       edit_revision: state.revision, version: 1, template: "standard", language: "pl",
       docx_available: state.status === "finalized", docx_filename: "Reviewed.docx",
@@ -51,24 +51,30 @@ vi.mock("@/lib/api", () => ({
       state.revision += 1;
       return {data: { edit_revision: state.revision }};
     },
-  } },
-}));
+  };
+  return { candidateStageCvApi: { branded: adapter }, cvGeneratedEditorApi: adapter };
+});
 
 import { CVBrandedEditModal } from "../CVBrandedEditModal";
 import { downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 
 afterEach(() => vi.useRealTimers());
 
-it("finalize before the autosave interval must include the last edit", async () => {
+it.each(["pipeline", "standalone"])("%s finalize before autosave includes the last edit", async (mode) => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.clearAllMocks();
+  const target = mode === "pipeline" ? {stageId: 21} : {generatedId: 7};
+  const base = mode === "pipeline" ? "/api/candidates/stages/21/cv/branded" : "/api/cv-generator/generated/7/editor";
   vi.useFakeTimers({toFake: ["setInterval", "clearInterval"]});
   const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={()=>{}}
-    stageId={21} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
+    {...target} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
   await screen.findByText("Szkic v1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
   fireEvent.click(screen.getByRole("button", {name: "Pobierz szkic DOCX"}));
   await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
-    "/api/candidates/stages/21/cv/branded/preview-docx",
+    `${base}/preview-docx`,
     {content_html: "<p>New verified text</p>", expected_revision: 1},
   ));
   await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "SZKIC_Reviewed.docx"));
@@ -81,6 +87,6 @@ it("finalize before the autosave interval must include the last edit", async () 
   expect(state.snapshot).toBe("<p>New verified text</p>");
   fireEvent.click(await screen.findByRole("button", {name: "Pobierz zatwierdzony DOCX v1"}));
   await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
-    "/api/candidates/stages/21/cv/branded/versions/1/docx", "Reviewed.docx",
+    `${base}/versions/1/docx`, "Reviewed.docx",
   ));
 });

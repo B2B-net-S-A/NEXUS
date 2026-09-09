@@ -46,6 +46,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from app.core.http_headers import content_disposition_attachment
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2378,4 +2379,56 @@ async def preview_generated_editor(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": 'attachment; filename="SZKIC_CV.docx"'},
+    )
+
+
+@router.get("/generated/{generated_id}/editor/render-pdf")
+async def print_generated_editor(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    content = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CV</title>'
+        "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script>"
+        "</head><body>" + sanitize_cv_html(draft.branded_draft_html) + "</body></html>"
+    )
+    await db.commit()
+    return Response(
+        content=content, media_type="text/html", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.get("/generated/{generated_id}/editor/versions/{version_number}/docx")
+async def download_generated_approved_version(
+    generated_id: int,
+    version_number: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    generated = await _load_generated_document(db, generated_id, current_user)
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    version_id = await db.scalar(
+        select(CvDocumentVersion.id).where(
+            CvDocumentVersion.generated_owner_id == generated_id,
+            CvDocumentVersion.version == version_number,
+        )
+    )
+    if version_id is None:
+        raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji.")
+    version = await approved_version_for_generation(db, generated, version_id)
+    return Response(
+        content=version.docx_content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                version.docx_filename or "CV.docx"
+            ),
+            "Cache-Control": "no-store",
+        },
     )

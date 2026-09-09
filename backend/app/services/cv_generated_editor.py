@@ -70,6 +70,18 @@ async def load_draft(db, generated):
 
 def state(draft):
     return {
+        "docx_available": draft.branded_status == "finalized",
+        "docx_filename": draft.branded_docx_filename,
+        "updated_at": None,
+        "updated_by": None,
+        "updated_by_name": None,
+        "finalized_at": None,
+        "finalized_by": None,
+        "finalized_by_name": None,
+        "snapshot_filename": draft.branded_docx_filename
+        if draft.branded_status == "finalized"
+        else None,
+        "rendered_from_default": False,
         "generated_document_id": draft.generated_document_id,
         "candidate_stage_id": None,
         "from_generator": True,

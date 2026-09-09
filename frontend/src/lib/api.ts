@@ -5182,7 +5182,7 @@ export interface CVBrandedState {
   from_generator?: boolean;
   edit_revision: number;
   version: number;
-  candidate_stage_id: number;
+  candidate_stage_id: number | null;
   status: CVBrandedStatus;
   content_html: string | null;
   template: string | null;
@@ -5201,7 +5201,7 @@ export interface CVBrandedFinalizeResponseT {
   edit_revision: number;
   version: number;
   document_version_id: number;
-  candidate_stage_id: number;
+  candidate_stage_id: number | null;
   status: CVBrandedStatus;
   snapshot_filename: string;
   snapshot_size_bytes: number;
@@ -5328,6 +5328,16 @@ export interface CvGeneratedShareListItem {
   max_views?: number | null;
   last_viewed_at?: string | null;
 }
+
+export const cvGeneratedEditorApi = {
+  get: (id: number) => api.get<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`),
+  update: (id: number, payload: { content_html: string; expected_revision: number } | { template?: CVTemplate; language?: CVLanguage; expected_revision: number }) =>
+    api.patch<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`, payload),
+  newDraft: (id: number, expected_revision: number) =>
+    api.post<CVBrandedState>(`/api/cv-generator/generated/${id}/editor/new-draft`, { expected_revision }),
+  finalize: (id: number, payload: { content_html: string; expected_revision: number }) =>
+    api.post<CVBrandedFinalizeResponseT>(`/api/cv-generator/generated/${id}/editor/finalize`, payload, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
+};
 
 export interface CvGeneratedApprovedVersion {
   id: number;

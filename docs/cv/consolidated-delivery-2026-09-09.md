@@ -262,3 +262,21 @@ Renderer/reviewer are mocked in the new transition tests, so these are lifecycle
 proof only. Frontend adapter, print/download endpoints and real edited-CV acceptance
 remain unfinished. The shared review service is still synchronous and needs the
 previously recorded durable/cache treatment. No production completion is claimed.
+
+
+### Shared editor connected to standalone panel
+
+The generated-history row now opens the same editor component through a standalone
+API adapter. Query/session identity includes the resource kind; switching between
+resources remounts local state. The adapter covers save, finalize, new draft,
+DOCX preview, print and exact approved-version download. Standalone state explicitly
+has no candidate-stage ID. Template/language replacement remains disabled for
+selected generated documents in both entry paths.
+
+Two editor interaction cases pass (pipeline and standalone): an immediate finalize
+includes the last edit before autosave, and download/preview use the correct resource
+endpoint. The two sharing interaction cases passed earlier. TypeScript, Ruff and
+18 backend unit cases pass. Tiptap/backend transport are mocked in these UI tests;
+production browser verification and PostgreSQL integration remain pending.
+CI 34407704731 for 96d9ff50 has a successful frontend build and four backend shards
+still running at this checkpoint. This UI/editor package is newer than that head.
