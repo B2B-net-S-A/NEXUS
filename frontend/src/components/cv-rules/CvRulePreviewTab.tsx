@@ -105,7 +105,7 @@ function VariantColumn({
       <h4 className="font-semibold">{title}</h4>
       {!!variant?.rule_feedback?.length && <ul className="space-y-1 text-xs" aria-label="Kontrola reguł prezentacji">
         {variant.rule_feedback.map((item, index) => <li key={`${item.field}-${index}`}>
-          {item.label}: {{satisfied: "zgodne", not_applicable: "brak treści do zastosowania", conflict: "niezgodność — sprawdź", needs_review: "ocena ręczna"}[item.status]}
+          {item.label}: {{satisfied: "zgodne", not_applicable: "brak treści do zastosowania", conflict: "niezgodność — sprawdź", needs_review: "ocena ręczna", skipped: "pominięto"}[item.status]}
         </li>)}
       </ul>}
       {variant?.can_download && <Button type="button" variant="outline" size="sm" onClick={onDownload}>Pobierz DOCX — {title.toLowerCase()}</Button>}

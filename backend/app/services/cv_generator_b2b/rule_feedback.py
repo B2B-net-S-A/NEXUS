@@ -59,6 +59,37 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
             len(payload.get("why_points") or []) <= rule.why_points_max,
             bool(payload.get("why_points")),
         )
+    highlighting = payload.get("highlight_policy_result")
+    if isinstance(highlighting, dict):
+        check(
+            "highlight_policy",
+            "Wybór fraz do pogrubienia",
+            highlighting.get("policy") == rule.highlight_policy,
+        )
+        for term in highlighting.get("ignored") or []:
+            feedback.append(
+                {
+                    "field": "highlight_terms",
+                    "label": f"Fraza „{term}” nie występuje w źródle — pominięta",
+                    "status": "skipped",
+                }
+            )
+        if highlighting.get("requires_champion"):
+            feedback.append(
+                {
+                    "field": "highlight_policy",
+                    "label": "Brak wymagań Profilu Championa do wyboru pogrubień",
+                    "status": "not_applicable",
+                }
+            )
+    else:
+        feedback.append(
+            {
+                "field": "highlight_policy",
+                "label": "Brak zapisanego wyniku wyboru pogrubień",
+                "status": "needs_review",
+            }
+        )
     if rule.generator_instructions or rule.generator_instructions_en or rule.notes:
         feedback.append(
             {

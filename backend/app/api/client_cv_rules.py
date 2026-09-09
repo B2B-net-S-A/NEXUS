@@ -490,7 +490,9 @@ class PreviewRequest(BaseModel):
 class RuleFeedbackItem(BaseModel):
     field: str
     label: str
-    status: Literal["satisfied", "not_applicable", "conflict", "needs_review"]
+    status: Literal[
+        "satisfied", "not_applicable", "conflict", "needs_review", "skipped"
+    ]
 
 
 class PreviewVariant(BaseModel):
