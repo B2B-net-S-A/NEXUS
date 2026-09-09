@@ -2264,3 +2264,118 @@ async def revoke_generated_cv_share_token(
     )
     await db.commit()
     return {"ok": True, "already_revoked": False}
+
+
+# The standalone editor shares revision, rendering and factual-review semantics
+# with the pipeline editor; its parent is the authorized generated document.
+from app.schemas.candidate_stage_cv import (  # noqa: E402
+    CVBrandedUpdate,
+    CVBrandedFinalize,
+    CVBrandedNewDraft,
+)
+from app.services import cv_generated_editor as generated_editor  # noqa: E402
+
+
+async def _load_generated_editor(db, generated_id, user):
+    await _load_generated_document(db, generated_id, user, write=True)
+    generated = await db.scalar(
+        select(CvGeneratedDocument)
+        .where(CvGeneratedDocument.id == generated_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if generated is None:
+        raise HTTPException(404, "Nie znaleziono CV.")
+    return await generated_editor.load_draft(db, generated)
+
+
+@router.get("/generated/{generated_id}/editor")
+async def get_generated_editor(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.patch("/generated/{generated_id}/editor")
+async def save_generated_editor(
+    generated_id: int,
+    payload: CVBrandedUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    if payload.content_html is None:
+        raise HTTPException(409, "Zmiana języka lub szablonu wymaga nowej generacji.")
+    generated_editor.save(draft, payload.expected_revision, payload.content_html)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/new-draft")
+async def new_generated_editor_draft(
+    generated_id: int,
+    payload: CVBrandedNewDraft,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    generated_editor.new_draft(draft, payload.expected_revision)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/finalize")
+async def finalize_generated_editor(
+    generated_id: int,
+    payload: CVBrandedFinalize,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    version = await generated_editor.finalize(
+        db, draft, payload.expected_revision, payload.content_html, current_user.id
+    )
+    result = {
+        **generated_editor.state(draft),
+        "document_version_id": version.id,
+        "snapshot_filename": version.docx_filename,
+        "snapshot_size_bytes": len(version.docx_content),
+    }
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=generated_id,
+            action="cv_generated_edit_approved",
+            user_id=current_user.id,
+            details={"document_version_id": version.id, "version": version.version},
+        )
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/preview-docx")
+async def preview_generated_editor(
+    generated_id: int,
+    payload: CVBrandedFinalize,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    from app.services.cv_document_versions import check_revision
+
+    check_revision(draft, payload.expected_revision)
+    content = await generated_editor.render(draft, payload.content_html)
+    await db.commit()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="SZKIC_CV.docx"'},
+    )

@@ -38,6 +38,16 @@ async def approve_unchanged_generation(db, generated, user_id):
     )
     if existing is not None:
         return existing
+    from app.models.cv_generated_draft import CvGeneratedDraft
+
+    if await db.scalar(
+        select(CvGeneratedDraft.id).where(
+            CvGeneratedDraft.generated_document_id == generated.id
+        )
+    ):
+        raise HTTPException(
+            409, "To CV ma zapisany szkic. Zatwierdź jego treść w edytorze."
+        )
     version = CvDocumentVersion(
         generated_owner_id=generated.id,
         generated_document_id=generated.id,

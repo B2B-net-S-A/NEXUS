@@ -246,3 +246,19 @@ before validating it, and approved-version resolution explicitly checks the stan
 owner ID as well as the source generation ID. Fourteen focused local unit cases
 still pass. CI run 34407704731 for pushed head 96d9ff50 was verified in progress;
 these additional checks are not part of that head yet.
+
+
+### Standalone manual-edit backend
+
+Migration 0295 adds a durable generated draft with revision, version, HTML and
+frozen template/consent assets. Authorized editor endpoints now support load/save,
+new draft, DOCX preview and finalization. Finalization uses the same HTML sanitizer,
+DOCX renderer and source-review service as the pipeline, then stores an immutable
+CvDocumentVersion. Failed review does not advance status/revision. The unchanged
+approval shortcut refuses to bypass an existing editable draft.
+
+Eighteen focused unit cases pass; Alembic has single head 0295 and Ruff passes.
+Renderer/reviewer are mocked in the new transition tests, so these are lifecycle
+proof only. Frontend adapter, print/download endpoints and real edited-CV acceptance
+remain unfinished. The shared review service is still synchronous and needs the
+previously recorded durable/cache treatment. No production completion is claimed.
