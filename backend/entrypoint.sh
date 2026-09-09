@@ -7194,6 +7194,10 @@ async def prepare_allocation():
 asyncio.run(prepare_allocation())
 PY_ALLOCATION
 
+# CV schema 0290–0299 must exist before workers or ORM reads start.
+# Fail startup on an incomplete repair; reuse canonical table migrations.
+python -m app.services.cv_schema_bootstrap
+
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
 # Idempotentne + transakcyjne (rollback przy błędzie → worst case brak zmiany);
 # scala tylko faktyczne duplikaty case + 5 par semantycznych, repin-before-delete.
