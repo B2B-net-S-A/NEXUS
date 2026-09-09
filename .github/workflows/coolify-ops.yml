@@ -28,6 +28,7 @@ name: Coolify Ops
 #                                    wymaga fingerprintu i jawnego potwierdzenia.
 #  10. action=nexus-data-correction-audit → read-only plan korekty z Nexus.xlsx.
 #  11. action=nexus-data-correction-apply → dokładny, zatwierdzony plan korekty.
+#  13. action=candidate-index-audit → full SQL/index ID and content audit (read-only).
 #  12. action=migration-receipts  → paragony jednorazowych migracji naprawczych
 #                                   (read-only; liczniki i ID, zero kwot i nazwisk).
 #
@@ -40,7 +41,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop]
+        options: [candidate-index-audit, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -953,6 +954,30 @@ jobs:
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
           echo "zadanie $TASK_NAME skasowane"
+
+  candidate_index_audit:
+    name: Candidate index coverage (prod, read-only)
+    if: ${{ inputs.action == 'candidate-index-audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: coolify-candidate-index-audit
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Audit full candidate population
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: python3 .github/scripts/candidate-index-audit-ops.py
+      - name: Preserve aggregate coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-index-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate-index-audit/report.json
+          if-no-files-found: error
+          retention-days: 7
 
   # Audyt jest read-only. Apply ma trzy niezależne bezpieczniki: fingerprint
   # identyczny z audytem, jawne APPLY w dispatchu i repo secret ustawiony na

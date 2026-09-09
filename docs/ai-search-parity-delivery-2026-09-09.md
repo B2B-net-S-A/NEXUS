@@ -328,3 +328,11 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 Search start records a hash of all effective client conflicts and manager veto candidate IDs. Completed reads compare it across the entire scope, so an off-page block addition/removal or time-based expiry invalidates ranking completeness. Candidate status/preferences remain covered by population version checks; displayed rows still receive live eligibility enforcement. Old runs without the fingerprint are marked changed. This is detection, not automatic recomputation, and concurrent changes after a read remain possible.
 
 Validation: 15 native freshness/API tests passed, including unchanged visible candidates with changed off-page policy. Existing database manager-verdict scenarios now also compare full-scope and candidate-scoped results; execution is left to hosted CI. Ruff passed. Production verification remains pending.
+
+### Production index audit transport
+
+Added `Coolify Ops` action `candidate-index-audit`. After the expected backend revision is deployed, dispatch that action on main. It schedules only `python -m scripts.run_candidate_index_audit_once --run-identity RUN_ID-ATTEMPT`, with a 12-minute subprocess limit and once-only private directory. Actions waits up to 15 minutes, validates population accounting, saves an aggregate artifact for seven days and removes only its uniquely named task. The manifest stays at `/tmp/nexus-index-audit-RUN_ID-ATTEMPT/manifest.json` inside the backend (directory 0700, manifest 0600). It is ephemeral across container replacement; rerun audit if lost. No raw CV, candidate rows, provider logs or orphan ID list is exported.
+
+This action is audit-only: it does not enqueue repairs or delete index points. A reviewed fingerprint and exact manifest remain necessary for the separate repair CLI. The audit fails if SQL membership/content changed during scanning; successful output is still a reconciliation observation, not proof that a later repair finished.
+
+Validation: 18 host-native audit/transport tests passed. Covered successful report extraction, failed/timeout reports, duplicate cron ticks, command identity validation, population accounting, output redaction and owned-task cleanup on success/failure. Ruff passed. Production dispatch is pending deployment; no production audit was performed in this increment.
