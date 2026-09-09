@@ -58,3 +58,44 @@ async def test_only_one_worker_claims_and_expired_owner_cannot_finish():
                 delete(CvGenerationJob).where(CvGenerationJob.id == job_id)
             )
             await db.commit()
+
+
+async def test_reaper_preserves_queued_and_live_work_and_fences_expired_owner():
+    from app.services.cv_generator_b2b.job_leases import interrupt_expired_jobs
+
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        jobs = [
+            CvGenerationJob(
+                kind="upload",
+                status=status,
+                input_storage_key="test-only/no-object",
+                input_sha256="b" * 64,
+                lease_token="test-owner" if status == "running" else None,
+                lease_expires_at=expires,
+            )
+            for status, expires in [
+                ("queued", None),
+                ("running", now + timedelta(minutes=10)),
+                ("running", now - timedelta(minutes=1)),
+            ]
+        ]
+        db.add_all(jobs)
+        await db.flush()
+        ids = [job.id for job in jobs]
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            interrupted = await interrupt_expired_jobs(db)
+            await db.commit()
+            assert ids[2] in interrupted
+            assert ids[0] not in interrupted
+            assert ids[1] not in interrupted
+            assert not await finish_job(db, ids[2], "test-owner")
+            assert await claim_job(db, ids[2]) is None
+            assert await heartbeat_job(db, ids[1], "test-owner")
+            assert await claim_job(db, ids[0]) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(CvGenerationJob).where(CvGenerationJob.id.in_(ids)))
+            await db.commit()

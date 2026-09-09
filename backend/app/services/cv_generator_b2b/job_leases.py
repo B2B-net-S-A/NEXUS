@@ -67,3 +67,28 @@ async def finish_job(db, job_id: int, token: str, *, failed: bool = False) -> bo
     finished = result.scalar_one_or_none() is not None
     await db.commit()
     return finished
+
+
+async def interrupt_expired_jobs(db) -> list[int]:
+    """Fence expired owners without replaying an uncertain provider request.
+
+    The caller owns the transaction so related UI rows can change atomically.
+    Queued and freshly renewed attempts are deliberately unaffected.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(CvGenerationJob)
+        .where(
+            CvGenerationJob.status == "running",
+            CvGenerationJob.lease_expires_at <= now,
+        )
+        .values(
+            status="interrupted",
+            finished_at=now,
+            lease_token=None,
+            lease_expires_at=None,
+            error_code="worker_lease_expired",
+        )
+        .returning(CvGenerationJob.id)
+    )
+    return list(result.scalars().all())
