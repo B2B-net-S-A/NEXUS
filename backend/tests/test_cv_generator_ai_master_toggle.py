@@ -43,7 +43,7 @@ async def test_gate_raises_503_when_quota_refuses(monkeypatch):
     """Każdy powód odmowy (master off / funkcja off / sufit) leci tą samą drogą."""
     import app.services.ai_quota as ai_quota
 
-    async def _refuse(_db, feature, user_id=None):
+    async def _refuse(_db, feature, user_id=None, *, commit_with_caller=False):
         raise ai_quota.AIQuotaExceeded(feature, "Miesięczny limit wyczerpany", 50, 50)
 
     monkeypatch.setattr(ai_quota, "check_and_increment", _refuse)
@@ -74,7 +74,8 @@ async def test_gate_charges_the_cv_generator_bucket(monkeypatch):
 
     seen: dict[str, object] = {}
 
-    async def _accept(_db, feature, user_id=None):
+    async def _accept(_db, feature, user_id=None, *, commit_with_caller=False):
+        assert commit_with_caller is True
         seen["feature"] = feature
         seen["user_id"] = user_id
         return None

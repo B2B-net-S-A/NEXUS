@@ -12,8 +12,9 @@ from app.services import ai_quota
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("used, admitted", [(9, False), (8, True)])
+@pytest.mark.parametrize("queued", [False, True])
 async def test_preview_pair_capacity_is_checked_before_durable_record(
-    monkeypatch, used, admitted
+    monkeypatch, used, admitted, queued
 ):
     monkeypatch.setattr(ai_quota, "get_master_enabled", AsyncMock(return_value=True))
     monkeypatch.setattr(
@@ -26,6 +27,7 @@ async def test_preview_pair_capacity_is_checked_before_durable_record(
     )
     ledger = MagicMock()
     ledger.commit = AsyncMock()
+    ledger.flush = AsyncMock()
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=ledger)
     session.__aexit__ = AsyncMock(return_value=False)
@@ -35,7 +37,11 @@ async def test_preview_pair_capacity_is_checked_before_durable_record(
     if not admitted:
         with pytest.raises(ai_quota.AIQuotaExceeded) as error:
             await ai_quota.check_and_increment(
-                object(), AIFeatureKey.cv_generator, user_id=17, units=2
+                ledger,
+                AIFeatureKey.cv_generator,
+                user_id=17,
+                units=2,
+                commit_with_caller=queued,
             )
         assert (error.value.used, error.value.limit) == (9, 10)
         factory.assert_not_called()
@@ -44,7 +50,11 @@ async def test_preview_pair_capacity_is_checked_before_durable_record(
         return
 
     state = await ai_quota.check_and_increment(
-        object(), AIFeatureKey.cv_generator, user_id=17, units=2
+        ledger,
+        AIFeatureKey.cv_generator,
+        user_id=17,
+        units=2,
+        commit_with_caller=queued,
     )
     ledger.add.assert_called_once()
     operation = ledger.add.call_args.args[0]
@@ -52,4 +62,9 @@ async def test_preview_pair_capacity_is_checked_before_durable_record(
     assert operation.actor_key == "user:17"
     assert operation.id == state.operation_id
     assert state.used == 10
-    ledger.commit.assert_awaited_once()
+    if queued:
+        factory.assert_not_called()
+        ledger.commit.assert_not_awaited()
+        ledger.flush.assert_awaited_once()
+    else:
+        ledger.commit.assert_awaited_once()

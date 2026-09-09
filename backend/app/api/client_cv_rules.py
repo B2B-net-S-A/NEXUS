@@ -1673,11 +1673,14 @@ async def enqueue_client_cv_rule_preview(
 
     async def charge_preview():
         try:
-            # Both variants belong to one admission decision. Metering commits
-            # independently: business rollback cannot undo a first single-unit charge.
-            # Reject insufficient capacity before recording either preview variant.
+            # Both variants and their admission commit with the durable job,
+            # before a worker can make a provider call.
             return await check_and_increment(
-                db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
+                db,
+                AIFeatureKey.cv_generator,
+                user_id=current_user.id,
+                units=2,
+                commit_with_caller=True,
             )
         except AIQuotaExceeded as exc:
             await db.rollback()

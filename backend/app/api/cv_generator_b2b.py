@@ -452,7 +452,9 @@ async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> QuotaSt
     )
 
     try:
-        return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
+        return await check_and_increment(
+            db, AIFeatureKey.cv_generator, user_id=user_id, commit_with_caller=True
+        )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
