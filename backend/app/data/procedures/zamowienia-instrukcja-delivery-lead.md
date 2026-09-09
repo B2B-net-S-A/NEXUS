@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-08
+> **Zgodność z systemem sprawdzona:** 2026-09-09
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -53,10 +53,9 @@ Nad listą masz:
   konsultant nadal pracuje,
 * przycisk **Nowe zamówienie**.
 
-Dwa filtry działają węziej, niż sugeruje nazwa, i warto o tym wiedzieć:
-**📝 Draft** pokazuje wyłącznie zamówienia z kart pojedynczych konsultantów
-(zamówienia zbiorcze nigdy tam nie wpadną), a **Wyczerpane** — odwrotnie,
-wyłącznie zamówienia zbiorcze.
+**📝 Draft** pokazuje szkice pojedynczych konsultantów oraz nowe zbiorcze
+zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**
+pokazuje wyłącznie zamówienia zbiorcze.
 
 ---
 
@@ -78,19 +77,25 @@ zamówienie jest w statusie **Draft** — po awansie na „Aktywne" jest już za
 
 Każda pozycja na liście ma kolorową etykietę z typem, więc widzisz to od razu.
 
-**Budżet MD jest przypisany osobie — z dwoma wyjątkami.** Na zwykłym zamówieniu
-MD **każdy konsultant ma własny budżet dni**, widoczny przy jego nazwisku, i to
-jego podajesz przy dodawaniu osoby do zamówienia. Tylko u **Lotte Wedel**
-i **Cyfrowego Polsatu** obowiązuje **wspólna pula dni dla całego zamówienia**:
-karta pokazuje wtedy napis **„Wspólna pula"**, a przy dodawanym konsultancie
-nie ma pola budżetu.
+**W nowym zamówieniu MD wybierasz tryb budżetu u każdego klienta.** Domyślnie
+checkbox **„Budżet MD na całe zamówienie”** jest odznaczony: każda osoba ma
+własny budżet. Po zaznaczeniu wpisujesz jedną wspólną pulę na zamówieniu,
+a konsultanci nie mają osobnych pól budżetu. Karta pokazuje **„Wspólna pula”**.
 
-Różnica jest praktyczna, nie kosmetyczna — od niej zależy, **czego wymaga
-miesięczny import z Finansów** (wspólna pula potrzebuje numeru zamówienia
-w kolumnie „Uwagi", sam budżet przy osobie nie) i **czego dotyczą ostrzeżenia
-o kończących się dniach**: przy budżecie przy osobie liczą się dni tej osoby,
-przy wspólnej puli — dni całego zamówienia. Modelu nie da się przełączyć;
-poznajesz go po tym, co widzisz na karcie.
+Tryb można zmienić tylko w **Draft**, dopóki nie ma żadnego wpisu zużycia MD.
+Aktywacja albo pierwszy wpis zużycia trwale blokują przełącznik. Zmiana trybu
+w szkicu usuwa dotychczasowy podział: po powrocie do budżetu per osoba uzupełnij
+budżet każdej linii przed aktywacją.
+
+**Istniejące zamówienia zachowują swój tryb.** Dotychczasowe budżety per osoba
+nie są przeliczane ani łączone. Historyczne wspólne pule Lotte Wedel i Cyfrowego
+Polsatu pozostają wspólne; nowych zamówień tych klientów dotyczy ten sam wybór
+co u pozostałych klientów.
+
+Przy wspólnej puli import z Finansów wymaga numeru zamówienia w kolumnie
+„Uwagi” i sumuje zużycie wszystkich konsultantów. Karta oraz Excel pokazują
+budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
+per osoba liczby i ostrzeżenia dotyczą poszczególnych konsultantów.
 
 **Nie u każdego klienta masz wszystkie trzy do wyboru.** Cztery firmy mają
 zawężoną listę wpisaną na stałe w systemie (szczegóły w sekcjach per klient);
@@ -207,20 +212,22 @@ to dwa różne modele rozliczenia i są od siebie niezależne.
 
 ## Jak dodać zamówienie MD albo kosztowe (kilku konsultantów, jeden numer)
 
-Zakładanie jest **dwuetapowe** i to jest najczęstsze źródło nieporozumień:
-najpierw powstaje samo zamówienie, a **dopiero potem dokładasz do niego ludzi**.
+Najpierw powstaje samo zamówienie, a **dopiero potem dokładasz do niego ludzi**.
+Nowe zamówienie MD zapisuje się jako szkic i po uzupełnieniu wymaga aktywacji.
 
 **Krok 1 — załóż zamówienie.** Przycisk **Nowe zamówienie**, typ **MD** albo
 **Kosztowe**. W formularzu **„Nowe zamówienie"**:
 
 * **Typ zamówienia** — wybierany raz, później zablokowany
 * **Numer zamówienia \*** — ten, który nadał klient (np. „445")
-* **Budżet w MD \*** (typ MD) albo **Budżet całkowity (PLN) \*** (typ kosztowy)
+* **Budżet MD na całe zamówienie** — przy typie MD, domyślnie odznaczony
+* **Budżet w MD \*** — tylko przy zaznaczonej wspólnej puli; w trybie per osoba podasz go przy konsultantach
+* **Budżet całkowity (PLN) \*** — przy typie kosztowym
 * **Obowiązuje od \*** i **Obowiązuje do** — puste „do" znaczy bezterminowo
 * **Notatki**
 * **PDF zamówienia od klienta** — tylko rozszerzenie `.pdf`, do 25 MB
 
-Zapisujesz przyciskiem **Utwórz zamówienie**.
+Zapisujesz przyciskiem **Utwórz zamówienie**. Nowe MD zobaczysz w **📝 Draft**.
 
 > **Jeżeli plik nie wejdzie, zamówienie i tak zostało zapisane.** Zapis
 > zamówienia i wysłanie pliku to dwie osobne operacje. System powie Ci wprost, że
@@ -244,27 +251,37 @@ o wygasaniu.
 
 Każdy konsultant to osobna **linia** — tak nazywają wiersz jednej osoby na
 zamówieniu przyciski w aplikacji („Edytuj linię"). Linia ma **obie stawki i obie
-są wymagane**.
-Na zamówieniu **MD** podajesz przy każdej osobie jej **budżet dni**; przełącznik
+są wymagane**. Bezpośrednio pod każdą stawką wybierasz jej walutę — kosztową
+po lewej, przychodową po prawej, zarówno dla MD, jak i zamówień kosztowych.
+Edycja pokazuje zapisane waluty. Zmiana samej waluty zachowuje wpisaną liczbę;
+nie przelicza jej automatycznie na nową walutę.
+Na zamówieniu **MD per osoba** podajesz przy każdej osobie jej **budżet dni**; przełącznik
 daje wybór **„Liczba MD"** albo **„Kwota zamówienia"** — tę kwotę system dzieli
-przez stawkę przychodową i sam wylicza liczbę dni. Pola budżetu przy osobie
-**nie ma** na zamówieniu **kosztowym** ani na zamówieniu MD ze **wspólną pulą**
-(Lotte Wedel, Cyfrowy Polsat) — tam pula jest wspólna.
+przez stawkę przychodową i sam wylicza liczbę dni. Kwota budżetu jest w PLN;
+przy stawce zagranicznej wynik zostanie obliczony przy zapisie według kursu.
+Pola budżetu przy osobie **nie ma** na zamówieniu **kosztowym** ani na zamówieniu
+MD ze **wspólną pulą**, niezależnie od klienta.
 
 Przycisk **Dodaj konsultanta** jest wyszarzony tylko przy zamówieniu
 **zakończonym** albo **wyczerpanym**. Do zamówienia **przyszłego** (z datą startu
 w przód) konsultantów dodajesz normalnie — czekają razem z nim na dzień startu.
 
+**Krok 3 — aktywuj nowe zamówienie MD.** Po dodaniu konsultantów otwórz
+**Uzupełnij zamówienie**, wybierz status **Aktywne** i zapisz. Wymagana jest
+przynajmniej jedna linia oraz dodatnie budżety osób albo wspólny budżet.
+Od tej chwili tryb budżetu jest zablokowany. Jeśli data startu jest przyszła,
+zamówienie czeka na tę datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
+
 ### Co jeszcze możesz zrobić na karcie zamówienia zbiorczego
 
 | Przycisk | Co robi |
 |---|---|
-| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a |
+| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Konsultanci nie znikają nigdy: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej |
-| **Historia zamówienia** | rozwijana lista zdarzeń z datami i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. **Nie ma tu edycji zrobionych przez „Uzupełnij zamówienie"** — zmiana numeru, dat, notatek czy budżetu nie zostawia śladu |
+| **Historia zamówienia** | rozwijana lista zdarzeń z datami i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**. Gdy po
@@ -430,8 +447,9 @@ z danego wpisu.
   „zatrudniony" albo po potwierdzeniu obustronnie podpisanej umowy (u Polkomtela
   — nie, patrz sekcja tego klienta). Umowa powstaje jako **szkic**: dopóki jej
   nie domkniesz, ta osoba nie liczy się do przychodów.
-* **Awansuje szkic na Aktywne** w chwili zapisu, gdy komplet danych jest na
-  miejscu.
+* **Awansuje szkic pojedynczej osoby na Aktywne** w chwili zapisu, gdy komplet
+  danych jest na miejscu. Nowe zbiorcze MD z wyborem trybu budżetu aktywujesz
+  sam w edycji zamówienia.
 * **Uruchamia zamówienia przyszłe** w dniu ich startu — z jednym wyjątkiem: przy
   zamówieniach MD następca czeka dodatkowo, aż poprzednikowi skończą się dni,
   więc mimo minionej daty startu potrafi jeszcze przez jakiś czas figurować jako
@@ -610,9 +628,13 @@ co widzisz w zakładce „Zamówienia", i uruchamia powiadomienia o budżecie.
 
 ## Skąd biorą się liczby zużycia
 
-Zużycie — dni albo złotówek — wpisuje **wyłącznie miesięczny import raportu
-z Finansów**. Delivery Lead nie odejmuje niczego ręcznie; może za to poprawić
-błędną pozostałość korektą (patrz koniec tej sekcji).
+Zużycie — dni albo złotówek — wpisuje **miesięczny import raportu z Finansów**.
+Przy aktywnej lub wyczerpanej wspólnej puli MD osoba uprawniona do edycji
+finansowych pól zamówienia może też w **Uzupełnij zamówienie** podać miesiąc
+i łączne zużycie MD za ten miesiąc. To suma wszystkich konsultantów:
+**kolejny zapis zastępuje sumę danego miesiąca, także pochodzącą z importu**,
+a nie dodaje kolejnej pozycji. Suma miesięcy pomniejsza jedną wspólną pulę.
+Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
 
 * Import robi rola Finanse albo administrator, w **Finanse → Import zużycia MD**.
 * Jeden plik obejmuje wszystkich klientów naraz. Miesiąc raportu **wybiera
@@ -622,7 +644,7 @@ błędną pozostałość korektą (patrz koniec tej sekcji).
   „Wymaga przypisania"** i system czeka, aż człowiek wskaże właściwe zamówienie.
   Nie zgaduje, bo trafienie w złe zamówienie odejmuje dni nie temu klientowi
   i wychodzi dopiero na fakturze.
-* **Przy wspólnej puli MD (Lotte Wedel, Cyfrowy Polsat) samo nazwisko nie
+* **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
   wystarcza** — wiersz musi mieć dodatkowo **numer tego zamówienia w kolumnie
   „Uwagi"**. Bez numeru (albo gdy numer pasuje do kilku zamówień) **z puli nie
   schodzi ani jeden dzień**, a wiersz zostaje niedopasowany. To najczęstsza
@@ -721,7 +743,8 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   To najważniejsza różnica praktyczna dla tego klienta.
 * Przy zamówieniu kosztowym kwota jest **wspólna dla całego zamówienia**; przy
   konsultancie nie ma pola budżetu, są tylko obie stawki.
-* Na zamówieniach MD budżet jest **przypisany osobie**, jak u BNP i BIK.
+* Nowe zamówienie MD domyślnie ma budżet **per osoba**; możesz wybrać wspólną
+  pulę, jak u pozostałych klientów.
 * **W imporcie z Finansów numer zamówienia z kolumny „Uwagi" jest u Polkomtela
   rozstrzygający.** Gdy wiersz go niesie, decyduje numer, a nie nazwisko — i gdy
   numer nie pasuje do żadnego zamówienia Polkomtela, system **nie próbuje już
@@ -736,16 +759,12 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 * **Zamówienia MD i kosztowe.** „Okresowe" są zablokowane nie tylko
   w interfejsie — próba zapisu zostanie odrzucona.
-* Przy zamówieniu MD obowiązuje **wspólna pula dni**: budżet mieszka na
-  zamówieniu, nie przy osobie. Konsultant dodany do takiego zamówienia **nie
-  dostaje własnego budżetu MD** — wszyscy czerpią z jednej puli. **To wariant
-  zarezerwowany dla Lotte Wedel i Cyfrowego Polsatu**; u pozostałych klientów
-  budżet MD jest przypisany osobie.
-* Pulę pomniejsza import z Finansów tylko wtedy, gdy wiersz zawiera
-  **jednocześnie nazwisko i numer zamówienia** w kolumnie „Uwagi".
-* Typy zamówień i wspólna pula są u tego klienta **wpisane w system na stałe** —
-  działają niezależnie od konfiguracji. (Nie dotyczy to reguł odczytu PDF-a:
-  Lotte Wedel żadnej własnej nie ma.)
+* Historyczne zamówienia MD zachowują **wspólną pulę dni**. Przy nowym MD
+  domyślny jest budżet per osoba; wspólną pulę wybierasz checkboxem.
+* Przy wspólnej puli import wymaga **jednocześnie nazwiska i numeru zamówienia**
+  w kolumnie „Uwagi”. Konsultant nie dostaje wtedy osobnego budżetu.
+* Ograniczenie typów zamówień jest stałe. Wybór trybu budżetu nowych MD jest
+  taki sam jak u wszystkich klientów. Lotte Wedel nie ma własnej reguły PDF.
 * **Powiadomienia:** standardowe, a dla wspólnej puli MD dwa własne: **„mało MD"**,
   gdy w puli zostanie 15 dni lub mniej, oraz jednorazowy alert **o wyczerpaniu**,
   gdy zejdzie do zera i zamówienie przestanie przyjmować konsultantów. Przy
@@ -755,9 +774,9 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 ### Cyfrowy Polsat
 
 * **Wszystkie trzy typy do wyboru** — Okresowe, Kosztowe i MD.
-* Przy typie MD obowiązuje **wspólna pula dni**, tak samo jak u Lotte Wedel.
-* Typy zamówień i wspólna pula są wpisane w system na stałe, niezależnie od
-  konfiguracji. Własnej reguły odczytu PDF-a ten klient nie ma.
+* Historyczne MD zachowują **wspólną pulę dni**, tak samo jak u Lotte Wedel.
+  W nowych MD domyślny jest budżet per osoba, z możliwością wybrania wspólnej puli.
+* Własnej reguły odczytu PDF-a ten klient nie ma.
 * Zamówienie okresowe zakładasz tu tak jak u każdego innego klienta —
   formularzem „Nowy kontraktor / zamówienie".
 * **Powiadomienia:** standardowe, a poza tym jak u Lotte Wedel: wspólna pula MD
@@ -1011,8 +1030,8 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 * Do wyboru **wszystkie trzy typy** zamówienia. Zamówienia MD i kosztowe nie są
   już zarezerwowane dla wybranych firm — jeśli klient przysłał jeden numer
   obejmujący kilka osób, załóż je również tutaj.
-* Na zamówieniu MD budżet dni jest **przypisany każdej osobie** — wspólna pula
-  jest zarezerwowana dla Lotte Wedel i Cyfrowego Polsatu.
+* W nowym MD budżet dni jest domyślnie **przypisany każdej osobie**. Checkbox
+  **„Budżet MD na całe zamówienie”** pozwala wybrać wspólną pulę także tutaj.
 * Odczyt PDF-a działa w wersji ogólnej — bez przeliczeń specyficznych dla
   klienta, **poza jednym: brutto/netto** (patrz niżej).
 * **Rodzaj stawki (brutto/netto) system czyta z OZNACZENIA w dokumencie, dla
@@ -1040,7 +1059,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    zamówienia** (30/14/7 dni) dostaje globalnie także aktywny administrator,
    ale nie Head of Recruitment; Delivery Lead dostaje je tylko dla przypisanych
    klientów.
-2. **„Zamówienie utknęło w Draft."** Brakuje jednej z czterech rzeczy: numeru,
+2. **„Zamówienie utknęło w Draft."** Nowe zbiorcze MD trzeba po dodaniu osób
+   i budżetów aktywować przez **Uzupełnij zamówienie → Aktywne**.
+   Przy szkicu pojedynczej osoby brakuje zwykle jednej z czterech rzeczy: numeru,
    daty rozpoczęcia, stawki przychodowej albo kosztowej. **Jeżeli szkic ma typ MD
    albo Kosztowy, potrzebny jest jeszcze budżet** — bez niego cztery pozostałe
    pola nie wystarczą. **Data zakończenia nie jest wymagana** — nie wpisuj jej
