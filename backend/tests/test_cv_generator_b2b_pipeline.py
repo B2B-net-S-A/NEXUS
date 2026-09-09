@@ -960,14 +960,14 @@ def test_fix_experience_years_corrects_undercount():
     data = {
         "experience": [{"dates": "09.2018 – 09.2023"}],
         "why_points": [
-            "Ponad 4 lata doświadczenia jako UX/UI Designer, w tym 3 lata w startupie",
+            "Ponad 4 lata doświadczenia zawodowego, w tym 3 lata w startupie",
             "Specjalizacja w technologiach: Figma, Sketch",
         ],
     }
     _fix_experience_years(data, "pl")
     # Headline total corrected to the exact figure; "w tym 3 lata" sub-figure
     # and the second point are left untouched.
-    assert data["why_points"][0].startswith("5 lat doświadczenia jako UX/UI Designer")
+    assert data["why_points"][0].startswith("5 lat doświadczenia zawodowego")
     assert "w tym 3 lata w startupie" in data["why_points"][0]
     assert data["why_points"][1] == "Specjalizacja w technologiach: Figma, Sketch"
 
@@ -979,10 +979,10 @@ def test_fix_experience_years_polish_plural_unit():
 
     data = {
         "experience": [{"dates": "01.2022 – 12.2023"}],  # 24 months → 2 → "2 lata"
-        "why_points": ["Ponad 1 rok doświadczenia jako Developer"],
+        "why_points": ["Ponad 1 rok doświadczenia zawodowego"],
     }
     _fix_experience_years(data, "pl")
-    assert data["why_points"][0] == "2 lata doświadczenia jako Developer"
+    assert data["why_points"][0] == "2 lata doświadczenia zawodowego"
 
 
 def test_fix_experience_years_skips_technology_specific_point():
@@ -1003,7 +1003,7 @@ def test_fix_experience_years_skips_technology_specific_point():
         "highlight_keywords": ["Microsoft Intune", "Microsoft Endpoint Manager"],
         "why_points": [
             "2 lata doświadczenia z Microsoft Intune i Microsoft Endpoint Manager",
-            "Ponad 4 lata doświadczenia jako Specjalista MDM",
+            "Ponad 4 lata doświadczenia zawodowego",
         ],
     }
     _fix_experience_years(data, "pl")
@@ -1011,7 +1011,7 @@ def test_fix_experience_years_skips_technology_specific_point():
     assert data["why_points"][0] == (
         "2 lata doświadczenia z Microsoft Intune i Microsoft Endpoint Manager"
     )
-    assert data["why_points"][1] == "6 lat doświadczenia jako Specjalista MDM"
+    assert data["why_points"][1] == "6 lat doświadczenia zawodowego"
 
 
 def test_fix_experience_years_never_inflates_lone_technology_point():
@@ -1031,9 +1031,8 @@ def test_fix_experience_years_never_inflates_lone_technology_point():
     assert data["why_points"][0] == "Ponad 3 lata doświadczenia z Kubernetes"
 
 
-def test_fix_experience_years_still_fixes_industry_duration():
-    # An industry/domain duration ("w fintechu") is NOT a technology binding —
-    # the total-tenure correction must still apply.
+def test_fix_experience_years_preserves_industry_duration():
+    # An industry duration needs evidence for that industry, not all jobs.
     from app.services.cv_generator_b2b.standalone_service import (
         _fix_experience_years,
     )
@@ -1045,7 +1044,7 @@ def test_fix_experience_years_still_fixes_industry_duration():
         "why_points": ["Ponad 4 lata doświadczenia w fintechu"],
     }
     _fix_experience_years(data, "pl")
-    assert data["why_points"][0] == "5 lat doświadczenia w fintechu"
+    assert data["why_points"][0] == "Ponad 4 lata doświadczenia w fintechu"
 
 
 def test_fix_experience_years_never_lands_on_company_subfigure():
@@ -1085,12 +1084,12 @@ def test_fix_experience_years_fixes_headline_and_preserves_company_subfigure():
             {"company": "Gigaset", "dates": "01.2019 – 12.2023"}
         ],  # 5 years total
         "why_points": [
-            "Ponad 3 lata doświadczenia jako inżynier QA, w tym 4 lata w Gigaset"
+            "Ponad 3 lata doświadczenia zawodowego, w tym 4 lata w Gigaset"
         ],
     }
     _fix_experience_years(data, "pl")
     assert data["why_points"][0] == (
-        "5 lat doświadczenia jako inżynier QA, w tym 4 lata w Gigaset"
+        "5 lat doświadczenia zawodowego, w tym 4 lata w Gigaset"
     )
 
 

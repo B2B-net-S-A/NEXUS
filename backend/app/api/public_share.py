@@ -48,7 +48,6 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
-from app.models.client import Client
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.cv_share_token import CVShareToken
@@ -347,25 +346,15 @@ def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
 async def _interactive_flags(
     db: AsyncSession, doc: CvGeneratedDocument
 ) -> tuple[bool, bool]:
-    """(kafelki_dostępne, chat_dostępny) dla publicznego widoku.
+    """Resolve client policy identically for upload and recruitment documents."""
+    from app.services.cv_generator_b2b.document_policy import (
+        interactive_client_enabled,
+    )
 
-    Tryb "new": interaktywność gdy klient ma włączone `cv_interactive_enabled`
-    (kafelki dodatkowo wymagają wygenerowanej mapy). Tryb "upload": brak joba
-    i klienta — interaktywność (kafelki + chat) tylko gdy rekruter dał
-    wymagania przy generacji (ręczne pola albo plik championa → jest mapa);
-    bez mapy link zostaje classic-only. Chat zawsze dodatkowo wymaga
-    włączonych toggle'i AI (master + feature) — limit kwoty egzekwuje
-    endpoint chatu przy pytaniu.
-    """
     tiles = bool((doc.requirement_map or {}).get("items"))
-    if doc.mode == "new" and doc.job_id is not None:
-        job = await db.scalar(select(Job).where(Job.id == doc.job_id))
-        if job is not None and job.client_id is not None:
-            client = await db.scalar(select(Client).where(Client.id == job.client_id))
-            if client is not None and not client.cv_interactive_enabled:
-                return False, False
-    elif not tiles:
-        # Upload bez wymagań — świadomie classic-only (decyzja produktowa).
+    if not await interactive_client_enabled(db, doc):
+        return False, False
+    if (doc.mode != "new" or doc.job_id is None) and not tiles:
         return False, False
 
     from app.models.ai_feature import AIFeatureKey

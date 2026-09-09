@@ -23,6 +23,7 @@ import hashlib
 import uuid
 from typing import Any, Optional
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -93,6 +94,7 @@ async def _seed_generated_doc(
     client_interactive: bool = True,
     with_map: bool = True,
     status: str = "ready",
+    explicit_client: bool = False,
 ) -> int:
     """Zwraca id wiersza cv_generated_documents z kontekstem kandydat/job/klient."""
     from app.models.candidate import Candidate
@@ -122,6 +124,7 @@ async def _seed_generated_doc(
         db.add(job)
         await db.flush()
         doc = CvGeneratedDocument(
+            client_id=cli.id if explicit_client else None,
             candidate_id=cand.id if mode == "new" else None,
             job_id=job.id if mode == "new" else None,
             candidate_name="Jan Interaktywny",
@@ -360,10 +363,15 @@ def test_parse_manual_requirements():
     assert parse_manual_requirements("", "") == []
 
 
+@pytest.mark.parametrize(
+    "mode,explicit_client", [("new", False), ("new", True), ("upload", True)]
+)
 async def test_client_flag_disables_interactive(
-    app_client: AsyncClient, app_auth_headers
+    app_client: AsyncClient, app_auth_headers, mode, explicit_client
 ):
-    doc_id = await _seed_generated_doc(client_interactive=False)
+    doc_id = await _seed_generated_doc(
+        client_interactive=False, mode=mode, explicit_client=explicit_client
+    )
     created = await _create_share(app_client, app_auth_headers, doc_id)
     assert created["interactive_available"] is False
     pub = await app_client.get(f"/api/public/cv-i/{created['token']}")
@@ -371,6 +379,11 @@ async def test_client_flag_disables_interactive(
     body = pub.json()
     assert body["requirements"] is None
     assert body["chat_enabled"] is False
+    exported = await app_client.get(
+        f"/api/cv-generator/generated/{doc_id}/html", headers=app_auth_headers
+    )
+    assert exported.status_code == 200, exported.text
+    assert 'id="tiles"' not in exported.text
     # chat też odmawia
     chat = await app_client.post(
         f"/api/public/cv-i/{created['token']}/chat",
