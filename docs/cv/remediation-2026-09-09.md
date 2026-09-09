@@ -224,18 +224,6 @@ preview DOM regression and type-check pass. Hosted CI/deployment/production
 browser proof remain pending. This fixes letterhead layout, not unsupported
 AI claims, font availability or complete Word/browser pagination parity.
 
-### CV-09 / CV-18: one admission for both preview variants
-
-The client-rule trial previously admitted two single-unit operations sequentially,
-although metering commits independently of the business transaction. With one
-unit remaining, the second refusal left the first charge behind without a preview.
-The handler now requests `units=2` once and passes that operation to the worker.
-Two focused service tests cover insufficient and exactly sufficient capacity;
-the hosted API lifecycle additionally checks 503 without a charge or generation,
-then successful generation of both variants with one two-unit admission.
-This does not establish global concurrent quota serialization or refund behavior
-for provider failures, and does not complete durable jobs or same-facts previews.
-
 ### CV-09 / required Champion admission — partial delivery
 
 Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
