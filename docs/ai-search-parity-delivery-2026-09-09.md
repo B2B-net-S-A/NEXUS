@@ -368,3 +368,9 @@ Validation: six native canonical-fit tests passed; targeted Ruff/format/diff che
 The same older run subsequently completed shards 2 and 0 with one failure each. SQL fallback intentionally includes the shared test population, so its missing-must count must include the known excluded fixture (at least one), while the semantic branch retains the exact one-exclusion assertion against its two-ID pool. Candidate-ID removal and blocked-candidate visibility/assignment assertions remain unchanged. The flag-off score assertion now checks the exact four-decimal API rounding rather than an unrealistically narrow float tolerance. No application logic was changed.
 
 Validation: one native compatibility guard test passed, 11 database cases collected/deferred; focused Ruff/format and diff checks passed. Hosted rerun is required for the changed database assertions.
+
+### Current-main migration integration
+
+Merged main revision cdc26a70 (CV publication and highlighting changes) without conflicts. Alembic initially reported two heads; schema-neutral merge revision `0285_merge_search_cv` joins `0284_merge_search_signature` and `0284_cv_highlight_policy`, preserving both branches. Import registration and health checks retain both full search and published CV models.
+
+Validation: Alembic reports one head, targeted Ruff/format and staged/unstaged diff checks passed. 27 native CV publication/highlighting tests passed. An additionally selected startup-schema test requires PostgreSQL and could not connect to localhost:5432; it remains a hosted-CI check, not a local pass. No local Docker or production schema changes were run. Required CI must run on the merged revision.

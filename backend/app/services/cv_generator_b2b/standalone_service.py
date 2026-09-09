@@ -1490,21 +1490,23 @@ def _run_generation_pipeline(
     # mode produced the document that actually reached the client.
     candidate_data["content_mode"] = mode
 
-    # Bold only the TECHNOLOGIES the client listed — must-have AND nice-to-have
-    # (compile_keyword_patterns drops methodologies/concepts/requirement prose).
-    # Only in "tailored": bolding the client's requirement list is precisely
-    # what makes a CV read as a mirror of the job ad.
-    if champion_dto and mode == "tailored":
-        highlight = [
-            kw.strip()
-            for kw in (champion_dto.must_have + champion_dto.nice_to_have)
-            if kw and kw.strip()
-        ]
-        if highlight:
-            candidate_data["highlight_keywords"] = highlight
+    from app.services.cv_generator_b2b.highlight_policy import apply_highlight_policy
+
+    apply_highlight_policy(
+        candidate_data,
+        client_rule,
+        f"{cv_text}\n{screening_notes_text}",
+        list(champion_dto.must_have) if champion_dto else [],
+        list(champion_dto.nice_to_have) if champion_dto else [],
+    )
 
     # Readability: hard-cap the "Technologie:" line per role (champion first).
-    _cap_role_technologies(candidate_data, candidate_data.get("highlight_keywords"))
+    _cap_role_technologies(
+        candidate_data,
+        list(champion_dto.must_have) + list(champion_dto.nice_to_have)
+        if champion_dto and mode == "tailored"
+        else None,
+    )
 
     # Exact years of experience — Claude tends to under-count ("ponad 4" for a
     # 5-year candidate); recompute the headline from the extracted dates.
@@ -1589,6 +1591,21 @@ def _run_generation_pipeline(
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
     warnings.extend(guard_warnings)
     warnings.extend(rule_warnings)
+    highlighting = candidate_data.get("highlight_policy_result") or {}
+    if highlighting.get("requires_champion"):
+        warnings.append(
+            "Wyróżnienia: reguła wymaga listy MUST/NICE z profilu Championa, której nie podano."
+        )
+    elif highlighting.get("policy") in {
+        "explicit",
+        "must",
+        "must_nice",
+    } and highlighting.get("ignored"):
+        warnings.append(
+            "Wyróżnienia: pominięto pozycje bez rozpoznanej technologii w materiale źródłowym: "
+            + ", ".join(highlighting["ignored"])
+            + "."
+        )
 
     logger.info(
         "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
@@ -1913,6 +1930,7 @@ async def generate_cv_for_candidate(
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
     client_rule: CvRuleSnapshot | None = None,
     project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -1969,7 +1987,10 @@ async def generate_cv_for_candidate(
     # nothing changes for clients we have made no promise to.
     client = await db.get(Client, job.client_id) if job.client_id else None
     effective_mode, was_capped = apply_content_mode_cap(
-        locked_mode, getattr(client, "cv_content_mode_cap", None)
+        locked_mode,
+        client_policy_override.get("cv_content_mode_cap")
+        if client_policy_override is not None
+        else getattr(client, "cv_content_mode_cap", None),
     )
     if was_capped:
         logger.info(

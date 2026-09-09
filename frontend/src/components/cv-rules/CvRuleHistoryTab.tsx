@@ -9,6 +9,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 
 import {
   RULE_EVENT_LABELS,
@@ -73,7 +74,16 @@ function ChangeList({ event }: { event: RuleEvent }) {
   );
 }
 
-export function CvRuleHistoryTab({ clientId }: { clientId: number }) {
+export function CvRuleHistoryTab({ clientId, onRestore, restoreDisabled }: {
+  clientId: number;
+  onRestore?: (version: number) => void;
+  restoreDisabled?: boolean;
+}) {
+  const versions = useQuery({
+    queryKey: ["cv-rule-versions", clientId],
+    queryFn: () => cvRulesApi.versions(clientId),
+    enabled: !!onRestore,
+  });
   const history = useQuery({
     queryKey: ["cv-rule-history", clientId],
     queryFn: () => cvRulesApi.history(clientId),
@@ -85,6 +95,24 @@ export function CvRuleHistoryTab({ clientId }: { clientId: number }) {
 
   return (
     <div className="space-y-6">
+      {onRestore ? (
+        <section className="space-y-2">
+          <h4 className="text-xs font-medium">Opublikowane wersje</h4>
+          <p className="text-xs text-muted-foreground">
+            Przywrócenie tworzy szkic. Zacznie obowiązywać po zatwierdzeniu.
+            {restoreDisabled ? " Najpierw zapisz bieżące zmiany." : ""}
+          </p>
+          {versions.isError ? <p className="text-xs text-destructive">Nie udało się pobrać wersji.</p> : null}
+          {versions.data?.map((version) => (
+            <div key={version.version} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+              <span>Wersja {version.version} · {formatDate(version.published_at)}</span>
+              <Button variant="outline" size="sm" disabled={restoreDisabled} onClick={() => onRestore(version.version)}>
+                Przywróć do szkicu
+              </Button>
+            </div>
+          ))}
+        </section>
+      ) : null}
       <section className="space-y-2">
         <h4 className="text-xs font-medium">Sygnał zwrotny z ostatnich 90 dni</h4>
         {feedback.isError ? (
