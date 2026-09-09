@@ -32,6 +32,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+vi.mock("@/store/auth", () => ({ useAuthStore: (select: (state: unknown) => unknown) => select({ user: { id: 7 } }) }));
+
 vi.mock("@/hooks/useCapability", () => ({
   __esModule: true,
   useCapability: () => true,
@@ -117,14 +119,19 @@ beforeEach(() => {
   mocks.apiGet.mockReset();
   mocks.apiPost.mockReset();
   // Jedyny GET na tej stronie: lookup klientów dla pickera.
-  mocks.apiGet.mockResolvedValue({ data: [{ id: 7, name: "Acme Sp. z o.o." }] });
+  mocks.apiGet.mockImplementation(async (url: string) => ({ data: url.includes("candidate-search/runs") ? {
+    run_id: "saved-run", state: "complete", versions: {},
+    counts: { population: 60000, pending: 0, evaluated: 60000, failed: 0, eligible: 1, excluded: 59999, needs_verification: 0 },
+    results: [{ candidate: SAVED_SEARCH.response!.results[0].candidate, fit_score: 87, measurement: "measured", requirements: [], eligibility: null, match: null }],
+    total_after_threshold: 1, next_offset: null, ranking_complete: true,
+  } : [{ id: 7, name: "Acme Sp. z o.o." }] }));
 });
 
 describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
   it("bez snapshotu startuje od pustego formularza", async () => {
     renderWorkspace();
     expect(
-      await screen.findByText("Zacznij od wklejenia requestu"),
+      await screen.findByText(/Sprawdź wymagania i uruchom wyszukiwanie/),
     ).toBeInTheDocument();
     expect(screen.queryByText("Jan Kowalski")).not.toBeInTheDocument();
   });
@@ -134,6 +141,7 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
       TALENT_RADAR_SESSION_KEY,
       JSON.stringify(SAVED_SEARCH),
     );
+    sessionStorage.setItem("nexus-full-radar:7", "saved-run");
     renderWorkspace();
 
     // Wyniki wróciły — bez ponownego wyszukiwania (zero POST-ów).
@@ -157,6 +165,7 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
       TALENT_RADAR_SESSION_KEY,
       JSON.stringify(SAVED_SEARCH),
     );
+    sessionStorage.setItem("nexus-full-radar:7", "saved-run");
     renderWorkspace();
     await screen.findByText("Jan Kowalski");
 
@@ -164,7 +173,17 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
       sessionStorage.getItem(TALENT_RADAR_SESSION_KEY) ?? "null",
     ) as TalentRadarSessionState | null;
     expect(stored?.text).toBe(SAVED_SEARCH.text);
-    expect(stored?.response?.results).toHaveLength(1);
+    expect(stored?.response).toBeNull();
+    expect(sessionStorage.getItem("nexus-full-radar:7")).toBe("saved-run");
+  });
+
+  it("nie przedstawia dawnej ograniczonej puli jako pełnego przeglądu", async () => {
+    sessionStorage.setItem(TALENT_RADAR_SESSION_KEY, JSON.stringify(SAVED_SEARCH));
+    renderWorkspace();
+    await screen.findByDisplayValue(SAVED_SEARCH.text);
+    expect(screen.queryByText("Jan Kowalski")).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(screen.getByText(/Sprawdź wymagania i uruchom wyszukiwanie/)).toBeVisible();
   });
 
   it("edycja formularza aktualizuje snapshot", async () => {
@@ -186,7 +205,7 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
     sessionStorage.setItem(TALENT_RADAR_SESSION_KEY, "{nie-json");
     renderWorkspace();
     expect(
-      await screen.findByText("Zacznij od wklejenia requestu"),
+      await screen.findByText(/Sprawdź wymagania i uruchom wyszukiwanie/),
     ).toBeInTheDocument();
   });
 });

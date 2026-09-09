@@ -1,35 +1,14 @@
 "use client";
 
-/**
- * Talent Radar — wklejasz treść requestu, dostajesz ranking bazy kandydatów.
- *
- * Cztery decyzje, które widać w kodzie i które nie są kosmetyczne:
- *
- * 1. Klient jest OBOWIĄZKOWY i pilnowany po stronie FE. Filtr dopuszczalności
- *    sprawdza względem niego blacklistę, NDA, konflikty konkurencyjne i weto
- *    hiring managera. Puszczenie żądania bez klienta dałoby 422 z dosłownym
- *    `client_id: Field required` (tak `extractErrorMsg` formatuje błędy body),
- *    czyli komunikat kontraktu API zamiast zdania po polsku.
- *
- * 2. Szukanie idzie na PRZYCISK (`useMutation`), nie na wpisywanie. Zapytanie
- *    liczy embedding i przemiela pulę do tysiąca kandydatów — debounce na
- *    każdym naciśnięciu klawisza zamieniłby pisanie opisu roli w kilkadziesiąt
- *    takich przebiegów.
- *
- * 3. `meta.degraded` renderuje się jako AWARIA, nigdy jako pusty stan. Gdy
- *    Qdrant albo Voyage nie odpowiada, backend zwraca zero wyników z tą flagą;
- *    pokazanie wtedy „brak dopasowań" byłoby kłamstwem w najgorszą stronę —
- *    rekruter uznałby, że w bazie nie ma nikogo takiego.
- *
- * 4. To samo dotyczy błędu HTTP, który wcześniej lądował WYŁĄCZNIE w toaście:
- *    po jego zniknięciu zostawał ekran startowy „Zacznij od wklejenia
- *    requestu", czyli zdanie o tym, że rekruter nic nie zrobił. Błąd jedzie
- *    więc do `TalentRadarResults` i zostaje na ekranie do następnej próby.
+/** Talent Radar uses the shared, durable full-population search.
+ * A click starts a scan; subsequent reads poll and paginate that same run.
+ * Only the request form and actor-scoped run ID survive profile navigation.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { Radar } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useAuthStore } from "@/store/auth";
+import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 
 import { PageHeader } from "@/components/ds";
 import { Button } from "@/components/ui/button";
@@ -46,13 +25,12 @@ import { extractErrorMsg } from "@/lib/api";
 import {
   talentRadarApi,
   type ChampionParseSummary,
-  type TalentRadarSearchResponse,
 } from "@/lib/talent-radar-api";
 import {
   loadTalentRadarSession,
   saveTalentRadarSession,
 } from "@/lib/talent-radar-session";
-import { TalentRadarResults } from "@/components/talent-radar/TalentRadarResults";
+import { FullCandidateSearchResults } from "@/components/talent-radar/FullCandidateSearchResults";
 
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
 const MIN_QUERY_LENGTH = 30;
@@ -71,9 +49,9 @@ export function TalentRadarWorkspace() {
   // (3,2 z 5 punktów) — zmierzone: z podaną lokalizacją pierwszy wynik zmienia
   // się na osobę z właściwego miasta.
   const [location, setLocation] = useState("");
-  const [response, setResponse] = useState<TalentRadarSearchResponse | null>(
-    null,
-  );
+  const actorId = useAuthStore(s => s.user?.id);
+  const fullSearch = useFullCandidateSearch({ storageKey: actorId ? `nexus-full-radar:${actorId}` : undefined });
+  useEffect(() => { if (fullSearch.error) showError(extractErrorMsg(fullSearch.error)); }, [fullSearch.error, showError]);
   // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty)
   // i SAMA jego obecność działa jako twardy sufit — bez marginesu, bez
   // osobnego uzbrajania (decyzja produktowa 19.08). Nieznana stawka/
@@ -124,7 +102,7 @@ export function TalentRadarWorkspace() {
       });
       setRequirementsPreview({ source: requirementSource, must: parsed.must.join(", "),
         nice: parsed.nice.join(", "), excluded: parsed.excluded, uncertain: parsed.uncertain });
-      setResponse(null);
+      fullSearch.clear();
     } catch (error) { showError(extractErrorMsg(error)); }
     finally { setInterpreting(false); }
   };
@@ -157,7 +135,7 @@ export function TalentRadarWorkspace() {
       setOfficeLocation(saved.officeLocation ?? "");
       setChampionProfile(saved.championProfile);
       setChampionSummary(saved.championSummary);
-      setResponse(saved.response);
+      // Old capped-pool responses are not valid full-population results.
     }
     setHydrated(true);
   }, []);
@@ -177,7 +155,7 @@ export function TalentRadarWorkspace() {
       championSummary,
       championSkills,
       requirementsPreview,
-      response,
+      response: null,
     });
   }, [
     hydrated,
@@ -193,12 +171,9 @@ export function TalentRadarWorkspace() {
     championSummary,
     championSkills,
     requirementsPreview,
-    response,
   ]);
 
-  const search = useMutation({
-    mutationFn: () =>
-      talentRadarApi.search({
+  const startSearch = () => fullSearch.start({ radar: {
         client_id: client!.id,
         text: championProfile ? undefined : text.trim() || undefined,
         champion_profile: championProfile ?? undefined,
@@ -212,7 +187,6 @@ export function TalentRadarWorkspace() {
         location:
           (championProfile ? championSummary?.location : location.trim()) ||
           undefined,
-        top_k: 20,
         must_skills: previewCurrent ? splitSkills(requirementsPreview!.must) : championSkills?.must,
         nice_skills: previewCurrent ? splitSkills(requirementsPreview!.nice) : championSkills?.nice,
         requirements_reviewed: previewCurrent,
@@ -224,22 +198,13 @@ export function TalentRadarWorkspace() {
         onsite_days_per_week:
           onsiteDaysPerWeek.trim() !== "" ? Number(onsiteDaysPerWeek) : undefined,
         office_location: officeLocation.trim() || undefined,
-      }),
-    onSuccess: (data) => setResponse(data),
-    onError: (error: unknown) => {
-      // Toast zostaje (natychmiastowy sygnał), ale nie jest już JEDYNYM
-      // śladem awarii — `search.error` renderuje się w wynikach.
-      setResponse(null);
-      showError(extractErrorMsg(error));
-    },
-  });
+  } });
 
   // Zmiana wejścia unieważnia POPRZEDNI błąd tak samo jak poprzednie wyniki:
   // komunikat „nie udało się" wiszący nad świeżo wybranym klientem opisywałby
   // zapytanie, którego już nie ma.
   const clearResults = () => {
-    setResponse(null);
-    search.reset();
+    fullSearch.clear();
   };
 
   const hasProfile = championProfile !== null;
@@ -282,8 +247,7 @@ export function TalentRadarWorkspace() {
     }
   };
 
-  const meta = response?.meta;
-  const results = response?.results ?? [];
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -525,21 +489,23 @@ export function TalentRadarWorkspace() {
 
         <div className="flex justify-end">
           <Button
-            onClick={() => previewCurrent ? search.mutate() : void previewRequirements()}
-            disabled={blocked !== null || search.isPending || interpreting}
+            onClick={() => previewCurrent ? void startSearch() : void previewRequirements()}
+            disabled={blocked !== null || fullSearch.running || interpreting}
           >
             <Radar className="mr-2 h-4 w-4" />
-            {search.isPending ? "Szukam…" : interpreting ? "Sprawdzam…" : previewCurrent ? "Szukaj kandydatów" : "Sprawdź wymagania"}
+            {fullSearch.running ? "Szukam…" : interpreting ? "Sprawdzam…" : previewCurrent ? "Szukaj w całej bazie" : "Sprawdź wymagania"}
           </Button>
         </div>
       </div>
 
-      <TalentRadarResults
-        meta={meta ?? null}
-        results={results}
-        pending={search.isPending}
-        error={search.isError ? search.error : null}
-        onRetry={() => search.mutate()}
+      <FullCandidateSearchResults
+        data={fullSearch.data}
+        offset={fullSearch.offset}
+        onPage={fullSearch.setOffset}
+        loading={fullSearch.loading}
+        fetching={fullSearch.fetching}
+        error={fullSearch.error}
+        onRetry={() => { if (fullSearch.runId) void fullSearch.refresh(); else void startSearch(); }}
         canOpenProfile={canOpenProfile}
       />
     </div>

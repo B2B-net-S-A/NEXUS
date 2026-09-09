@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { candidateSearchApi, searchIsRunning, type StartCandidateSearch } from "@/lib/full-candidate-search-api";
 
 /** Explicit start only: changing form fields must never launch a paid scan. */
-export function useFullCandidateSearch({ includeCandidateDetails = false } = {}) {
+export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey }: { includeCandidateDetails?: boolean; storageKey?: string } = {}) {
   const [runId, setRunId] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [minScore, setMinScore] = useState(0);
@@ -13,6 +13,16 @@ export function useFullCandidateSearch({ includeCandidateDetails = false } = {})
   const [startError, setStartError] = useState<unknown>(null);
   const generation = useRef(0);
   const inFlight = useRef(false);
+  useEffect(() => {
+    generation.current += 1;
+    setRunId(null);
+    setOffset(0);
+    if (!storageKey) return;
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved && saved.length <= 128) setRunId(saved);
+    } catch { /* Storage may be disabled; live search still works. */ }
+  }, [storageKey]);
   const page = useQuery({
     queryKey: ["candidate-search", runId, offset, minScore, includeCandidateDetails],
     enabled: runId !== null,
@@ -30,7 +40,8 @@ export function useFullCandidateSearch({ includeCandidateDetails = false } = {})
     setRunId(null);
     setOffset(0);
     setStartError(null);
-  }, []);
+    if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
+  }, [storageKey]);
 
   const start = useCallback(async (request: StartCandidateSearch) => {
     if (inFlight.current) return;
@@ -40,10 +51,14 @@ export function useFullCandidateSearch({ includeCandidateDetails = false } = {})
     setStartError(null);
     setRunId(null);
     setOffset(0);
+    if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
     try {
       const run = await candidateSearchApi.start(request);
       // A response for a cleared/edited form must not replace its new state.
-      if (generation.current === attempt) setRunId(run.run_id);
+      if (generation.current === attempt) {
+        setRunId(run.run_id);
+        if (storageKey) { try { sessionStorage.setItem(storageKey, run.run_id); } catch {} }
+      }
       return run;
     } catch (error) {
       if (generation.current === attempt) setStartError(error);
@@ -51,7 +66,7 @@ export function useFullCandidateSearch({ includeCandidateDetails = false } = {})
       inFlight.current = false;
       setStarting(false);
     }
-  }, []);
+  }, [storageKey]);
 
   return {
     start, clear, runId, offset, setOffset,
