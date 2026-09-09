@@ -29,6 +29,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from app.models.cv_document_version import CvDocumentVersion
+from app.services.cv_document_assets import (
+    generated_assets,
+    default_template,
+    CvAssetsError,
+)
+from app.services.cv_approved_docx import (
+    render_approved_docx,
+    ApprovedDocxError,
+    RENDERER_VERSION,
+)
 
 from app.core.http_headers import content_disposition_attachment
 from sqlalchemy import select, update
@@ -298,6 +310,11 @@ def _build_branded_response(
         candidate_stage_id=csv.candidate_stage_id,
         generated_document_id=csv.generated_document_id,
         from_generator=bool(csv.branded_from_generator),
+        docx_available=csv.branded_status == "finalized"
+        and bool((csv.branded_render_metadata or {}).get("renderer_version")),
+        docx_filename=csv.branded_docx_filename
+        if csv.branded_status == "finalized"
+        else None,
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
@@ -432,6 +449,12 @@ async def select_generated_cv(
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
+    try:
+        template, consent, metadata = await run_in_threadpool(
+            generated_assets, generated
+        )
+    except CvAssetsError as error:
+        raise HTTPException(422, str(error)) from error
     public = build_public_payload(generated.render_payload)
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     if csv.branded_status == "finalized":
@@ -439,6 +462,10 @@ async def select_generated_cv(
         csv.branded_version += 1
     csv.generated_document_id = generated.id
     csv.branded_from_generator = True
+    csv.branded_template_content = template
+    csv.branded_consent_content = consent
+    csv.branded_docx_filename = generated.filename
+    csv.branded_render_metadata = metadata
     csv.branded_draft_html = html
     csv.branded_template = "blind" if public["blind"] else "standard"
     csv.branded_language = public["language"]
@@ -582,6 +609,49 @@ async def render_branded_cv_for_print(
     )
 
 
+async def _render_editor_docx(csv, content_html: str) -> tuple[bytes, bytes]:
+    template = csv.branded_template_content or await run_in_threadpool(default_template)
+    try:
+        docx = await run_in_threadpool(
+            render_approved_docx,
+            sanitize_cv_html(content_html),
+            template,
+            consent=csv.branded_consent_content,
+            language=csv.branded_language or "pl",
+        )
+    except ApprovedDocxError as error:
+        raise HTTPException(422, str(error)) from error
+    return docx, template
+
+
+@router.post("/candidates/stages/{stage_id}/cv/branded/preview-docx")
+async def preview_branded_docx(
+    stage_id: int,
+    payload: CVBrandedFinalize,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Render the current editor contents and frozen assets without approval."""
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    if csv.branded_status != "draft":
+        raise HTTPException(
+            409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
+        )
+    docx, _ = await _render_editor_docx(csv, payload.content_html)
+    return Response(
+        content=docx,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                "SZKIC_"
+                + (csv.branded_docx_filename or f"CV_v{csv.branded_version}.docx")
+            ),
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
 @router.post(
     "/candidates/stages/{stage_id}/cv/branded/finalize",
     response_model=CVBrandedFinalizeResponse,
@@ -627,6 +697,20 @@ async def finalize_branded_cv(
     today = datetime.now(timezone.utc).date().isoformat()
     filename = f"cv_brandowane_{candidate_label}_v{csv.branded_version}_{today}.html"
 
+    # Render the exact submitted/sanitized content once, before approval. The
+    # stored bytes are subsequently downloaded without accessing live sources.
+    docx, template = await _render_editor_docx(csv, csv.branded_draft_html)
+    docx_filename = (
+        csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
+    )
+    metadata = {
+        **(csv.branded_render_metadata or {}),
+        "renderer_version": RENDERER_VERSION,
+        "template_sha256": hashlib.sha256(template).hexdigest(),
+        "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()
+        if csv.branded_consent_content
+        else None,
+    }
     snapshot_html = _wrap_printable_cv(
         csv.branded_draft_html, stage_id, candidate_label
     )
@@ -647,7 +731,15 @@ async def finalize_branded_cv(
     csv.branded_snapshot_filename = filename
     csv.branded_snapshot_size_bytes = size
 
-    version = await freeze_approved_version(db, csv)
+    csv.branded_docx_filename = docx_filename
+    csv.branded_render_metadata = metadata
+    version = await freeze_approved_version(
+        db,
+        csv,
+        docx_content=docx,
+        docx_filename=docx_filename,
+        render_metadata=metadata,
+    )
     db.add(
         Activity(
             entity_type="candidate_stage_cv",
@@ -675,6 +767,42 @@ async def finalize_branded_cv(
         snapshot_filename=filename,
         snapshot_size_bytes=size,
         document_version_id=version.id,
+    )
+
+
+@router.get("/candidates/stages/{stage_id}/cv/branded/versions/{version_number}/docx")
+async def download_approved_docx(
+    stage_id: int,
+    version_number: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+    version = await db.scalar(
+        select(CvDocumentVersion).where(
+            CvDocumentVersion.candidate_stage_cv_id == csv.id,
+            CvDocumentVersion.version == version_number,
+        )
+    )
+    if version is None:
+        raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji CV.")
+    if not version.docx_content:
+        raise HTTPException(
+            409,
+            "Ta historyczna wersja nie ma zatwierdzonego DOCX. Utwórz i zatwierdź nową wersję.",
+        )
+    return Response(
+        content=version.docx_content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                version.docx_filename or "CV.docx"
+            ),
+            "ETag": f'"{version.docx_sha256}"',
+            "X-CV-Version": str(version.version),
+            "X-CV-Content-SHA256": version.content_sha256,
+            "Cache-Control": "private, no-store",
+        },
     )
 
 

@@ -40,6 +40,8 @@ class CVBrandedSelectGenerated(BaseModel):
 
 
 class CVBrandedResponse(BaseModel):
+    docx_available: bool = False
+    docx_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
     edit_revision: int = 0

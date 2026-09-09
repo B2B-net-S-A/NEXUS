@@ -3038,7 +3038,7 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
-    # 0285: immutable approved document versions, draft OCC and pinned links.
+    # 0287: immutable approved document versions, draft OCC and pinned links.
     "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS edit_revision INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_version INTEGER NOT NULL DEFAULT 1",
     """CREATE TABLE IF NOT EXISTS cv_document_versions (
@@ -3060,6 +3060,15 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_from_generator BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE INDEX IF NOT EXISTS ix_cv_document_versions_candidate_stage_cv_id ON cv_document_versions(candidate_stage_cv_id)",
     "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS document_version_id INTEGER REFERENCES cv_document_versions(id) ON DELETE CASCADE",
+    # 0289: frozen DOCX artifacts and draft assets.
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_template_content BYTEA",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_consent_content BYTEA",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_docx_filename VARCHAR(500)",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_render_metadata JSON",
+    "ALTER TABLE cv_document_versions ADD COLUMN IF NOT EXISTS docx_content BYTEA",
+    "ALTER TABLE cv_document_versions ADD COLUMN IF NOT EXISTS docx_sha256 VARCHAR(64)",
+    "ALTER TABLE cv_document_versions ADD COLUMN IF NOT EXISTS docx_filename VARCHAR(500)",
+    "ALTER TABLE cv_document_versions ADD COLUMN IF NOT EXISTS render_metadata JSON",
     # 0284: independent formatting policy (same constraint as the migration).
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_policy VARCHAR(24) NOT NULL DEFAULT 'technologies'",
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_terms JSONB",

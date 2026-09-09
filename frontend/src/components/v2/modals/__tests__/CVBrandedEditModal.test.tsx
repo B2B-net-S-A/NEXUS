@@ -29,11 +29,16 @@ vi.mock("@tiptap/react", () => {
 });
 vi.mock("@tiptap/starter-kit", () => ({ default: {} }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }));
-vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile: vi.fn() }));
+vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile: vi.fn(), downloadAuthenticatedFile: vi.fn(),
+  postAuthenticatedDownload: vi.fn(async () => ({blob: new Blob(["synthetic docx"]), filename: "SZKIC_Reviewed.docx"})),
+  downloadBlob: vi.fn(),
+}));
 vi.mock("@/lib/api", () => ({
   candidateStageCvApi: { branded: {
     get: async () => ({ data: { status: state.status, content_html: state.stored,
-      edit_revision: state.revision, version: 1, template: "standard", language: "pl", updated_at: "2026-09-09T07:00:00Z" } }),
+      edit_revision: state.revision, version: 1, template: "standard", language: "pl",
+      docx_available: state.status === "finalized", docx_filename: "Reviewed.docx",
+      updated_at: "2026-09-09T07:00:00Z" } }),
     update: async (_id: number, body: {content_html: string}) => {
       state.stored = body.content_html;
       state.revision += 1;
@@ -50,6 +55,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { CVBrandedEditModal } from "../CVBrandedEditModal";
+import { downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 
 afterEach(() => vi.useRealTimers());
 
@@ -60,9 +66,21 @@ it("finalize before the autosave interval must include the last edit", async () 
     stageId={21} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
   await screen.findByText("Szkic v1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Pobierz szkic DOCX"}));
+  await waitFor(() => expect(postAuthenticatedDownload).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/preview-docx",
+    {content_html: "<p>New verified text</p>", expected_revision: 1},
+  ));
+  await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "SZKIC_Reviewed.docx"));
+  expect(state.status).toBe("draft");
+  expect(state.stored).toBe("<p>Old text</p>");
   fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
   await screen.findByText("Sfinalizować brandowane CV?");
   fireEvent.click(screen.getByRole("button", {name: "Sfinalizuj"}));
   await waitFor(() => expect(state.status).toBe("finalized"));
   expect(state.snapshot).toBe("<p>New verified text</p>");
+  fireEvent.click(await screen.findByRole("button", {name: "Pobierz zatwierdzony DOCX v1"}));
+  await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
+    "/api/candidates/stages/21/cv/branded/versions/1/docx", "Reviewed.docx",
+  ));
 });

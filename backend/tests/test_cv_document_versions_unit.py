@@ -185,6 +185,9 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
     csv.generated_document_id = 41
     generated = SimpleNamespace(
         id=42,
+        filename="chosen.docx",
+        client_id=None,
+        client_rule_version=None,
         candidate_id=3,
         job_id=4,
         status="ready",
