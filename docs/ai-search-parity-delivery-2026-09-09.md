@@ -307,3 +307,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - CandidateEvaluation rejects measured-without-score, unknown measurement states and boolean scores. This prevents an invalid evaluator response from being counted as a complete measured ranking. Real numeric zero remains a valid measured value; missing vectors remain nullable and unmeasured.
 - Sixteen native scan/worker tests pass, including new invalid-state cases and preservation of zero versus unknown. Ruff/diff checks pass. Latest CI 34338923482 and gate 34338923456 were verified queued, with concrete job IDs; neither was restarted. Production quality/index/coverage and the remaining audit requirements are still open.
+
+### Increment: generated draft output matches consumed contract
+
+- AI writer requests only the description field it actually consumes, avoiding generated titles/requirements/pay/benefits that are discarded. Explicit user criteria and empty unapproved compensation/benefits remain server-controlled.
+- Empty, non-object or non-text descriptions now fail instead of producing a successful blank draft; the existing route maps provider failures to an explicit unavailable response. Thirteen native writer tests pass, including malformed payloads, prompt output fields and preserved supplied criteria. Ruff/diff checks pass. This validates transport/grounding boundaries, not factual accuracy of actual model prose; live quality review remains required. Latest CI was still queued.

@@ -128,12 +128,7 @@ Nie wywodź seniority z tytułu ani pilności. Brakujące informacje pozostaw pu
 To szkic wymagający przeglądu człowieka przed zastosowaniem.
 Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładnej strukturze:
 {{
-  "title": "pełny tytuł stanowiska",
-  "description": "opis wyłącznie na podstawie podanych faktów, bez dopowiedzeń",
-  "requirements": "wyłącznie podane wymagania, bez minimum liczby punktów",
-  "nice_to_have": "pusty tekst",
-  "benefits": "pusty tekst",
-  "salary_range_suggestion": "pusty tekst"
+  "description": "opis wyłącznie na podstawie podanych faktów, bez dopowiedzeń"
 }}"""
 
     # Wspólny, odporny helper zamiast surowego `anthropic.Anthropic(...)`:
@@ -166,9 +161,12 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
     raw = raw.strip()
 
     data = json.loads(raw)
+    description = data.get("description") if isinstance(data, dict) else None
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("Provider returned no usable job description")
     return GenerateJobResponse(
         title=request.title.strip(),
-        description=data.get("description", ""),
+        description=description.strip(),
         requirements="\n".join(f"- {skill}" for skill in request.skills or []),
         nice_to_have="",
         benefits="",

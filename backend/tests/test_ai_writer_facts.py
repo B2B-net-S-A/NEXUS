@@ -70,3 +70,56 @@ async def test_provider_cannot_replace_criteria_or_inject_salary(monkeypatch):
     assert (
         result.benefits == result.nice_to_have == result.salary_range_suggestion == ""
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{}",
+        "[]",
+        "null",
+        '{"description":null}',
+        '{"description":42}',
+        '{"description":"  "}',
+    ],
+)
+async def test_unusable_provider_description_is_not_a_successful_draft(
+    monkeypatch, payload
+):
+    import app.services.claude_client as claude_client
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(
+        claude_client,
+        "call_claude",
+        lambda **kwargs: SimpleNamespace(content=[SimpleNamespace(text=payload)]),
+    )
+    with pytest.raises(ValueError, match="no usable job description"):
+        await ai_writer._generate_with_claude(
+            ai_writer.GenerateJobRequest(title="Developer")
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_is_only_asked_for_consumed_description(monkeypatch):
+    import json
+    import app.services.claude_client as claude_client
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+    def respond(**kwargs):
+        prompt = kwargs["messages"][0]["content"]
+        schema = json.loads(prompt[prompt.rindex("{") :])
+        assert set(schema) == {"description"}
+        return SimpleNamespace(
+            content=[SimpleNamespace(text='{"description":"  Developer Python  "}')]
+        )
+
+    monkeypatch.setattr(claude_client, "call_claude", respond)
+    result = await ai_writer._generate_with_claude(
+        ai_writer.GenerateJobRequest(title="Developer", skills=["Python"])
+    )
+    assert result.description == "Developer Python"
+    assert result.requirements == "- Python"
+    assert result.salary_range_suggestion == ""
