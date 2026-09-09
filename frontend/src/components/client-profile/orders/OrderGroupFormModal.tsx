@@ -19,10 +19,7 @@ import {
   openAuthenticatedFile,
 } from "@/lib/authenticated-files";
 import type { OrderGroupInput, OrderGroupRead } from "@/lib/api/orderGroups";
-import {
-  clientUsesSharedMdPool,
-  usesSharedMdPool,
-} from "@/lib/client-order-list";
+import { usesSharedMdPool } from "@/lib/client-order-list";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   extractionErrorMessage,
@@ -76,11 +73,17 @@ export function OrderGroupFormModal({
   const [notes, setNotes] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [mdBudgetTotal, setMdBudgetTotal] = useState("");
+  const [consumptionMonth, setConsumptionMonth] = useState("");
+  const [consumptionValue, setConsumptionValue] = useState("");
+  const [sharedChoice, setSharedChoice] = useState(false);
+  const [draftStatus, setDraftStatus] = useState<"draft" | "active">("draft");
+  const modeLocked = Boolean(
+    group &&
+    (group.md_budget_mode_locked !== false || group.status !== "draft"),
+  );
   const isCostBased = orderType === "cost";
   const isMdOrder = orderType === "md";
-  const sharedMd =
-    isMdOrder &&
-    (group ? usesSharedMdPool(group) : clientUsesSharedMdPool(clientId));
+  const sharedMd = isMdOrder && sharedChoice;
 
   const [file, setFile] = useState<File | null>(null);
   const [hasExistingFile, setHasExistingFile] = useState(false);
@@ -105,6 +108,10 @@ export function OrderGroupFormModal({
     setNotes(group?.notes ?? "");
     setBudgetAmount(numberToField(group?.budget_amount));
     setMdBudgetTotal(numberToField(group?.md_budget_total));
+    setSharedChoice(group ? usesSharedMdPool(group) : false);
+    setConsumptionMonth("");
+    setConsumptionValue("");
+    setDraftStatus(group?.status === "draft" || !group ? "draft" : "active");
     setFile(null);
     setHasExistingFile(Boolean(group?.has_file));
     setFileError(null);
@@ -185,7 +192,10 @@ export function OrderGroupFormModal({
       }
     } catch (err: unknown) {
       setExtractError(
-        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
+        extractionErrorMessage(
+          err,
+          "Nie udało się odczytać danych z dokumentu.",
+        ),
       );
     } finally {
       setExtracting(false);
@@ -196,13 +206,22 @@ export function OrderGroupFormModal({
     (isCostBased && (parseDecimalInput(budgetAmount) ?? 0) <= 0) ||
     (sharedMd && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
   const canSubmit =
-    !submitting && orderNumber.trim() !== "" && startDate !== "" && !budgetMissing;
+    !submitting &&
+    orderNumber.trim() !== "" &&
+    startDate !== "" &&
+    !budgetMissing &&
+    ((!consumptionMonth && !consumptionValue) ||
+      (Boolean(consumptionMonth) &&
+        (parseDecimalInput(consumptionValue) ?? -1) >= 0));
 
   const fileEndpoint = group
     ? `/api/clients/${clientId}/order-groups/${group.id}/file`
     : null;
 
-  async function withExistingFileBusy(action: () => Promise<void>, message: string) {
+  async function withExistingFileBusy(
+    action: () => Promise<void>,
+    message: string,
+  ) {
     setBusyExistingFile(true);
     setFileError(null);
     try {
@@ -237,32 +256,48 @@ export function OrderGroupFormModal({
             type="button"
             disabled={!canSubmit}
             onClick={() =>
-              onSubmit({
-                order_number: orderNumber.trim(),
-                start_date: startDate,
-                end_date: endDate || null,
-                notes: notes.trim() || null,
-                // Typ rozliczenia jest wybierany PRZY ZAKŁADANIU i nie zmienia
-                // się później. Zwykłe MD ma budżet przy liniach, a świadome
-                // warianty CP/Lotte wysyłają jedną pulę MD na grupie.
-                ...(editing
-                  ? {}
-                  : {
-                      order_type: orderType,
-                      ...(sharedMd
-                        ? {
-                            is_cost_based: false,
-                            is_md_budget_based: true,
-                          }
-                        : {}),
-                    }),
-                ...(isCostBased
-                  ? { budget_amount: parseDecimalInput(budgetAmount) }
-                  : {}),
-                ...(sharedMd
-                  ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
-                  : {}),
-              }, file)
+              onSubmit(
+                {
+                  order_number: orderNumber.trim(),
+                  start_date: startDate,
+                  end_date: endDate || null,
+                  notes: notes.trim() || null,
+                  ...(sharedMd && consumptionMonth && consumptionValue
+                    ? {
+                        md_consumption_month: consumptionMonth,
+                        md_consumption_value:
+                          parseDecimalInput(consumptionValue)!,
+                      }
+                    : {}),
+                  ...(isMdOrder && !modeLocked
+                    ? {
+                        md_budget_mode: sharedMd ? "shared" : "per_person",
+                        status: draftStatus,
+                      }
+                    : {}),
+                  // Typ rozliczenia jest wybierany PRZY ZAKŁADANIU i nie zmienia
+                  // się później. Zwykłe MD ma budżet przy liniach, a świadome
+                  // warianty CP/Lotte wysyłają jedną pulę MD na grupie.
+                  ...(editing
+                    ? {}
+                    : {
+                        order_type: orderType,
+                        ...(sharedMd
+                          ? {
+                              is_cost_based: false,
+                              is_md_budget_based: true,
+                            }
+                          : {}),
+                      }),
+                  ...(isCostBased
+                    ? { budget_amount: parseDecimalInput(budgetAmount) }
+                    : {}),
+                  ...(sharedMd
+                    ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
+                    : {}),
+                },
+                file,
+              )
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
           >
@@ -287,6 +322,53 @@ export function OrderGroupFormModal({
           allowedTypes={allowedOrderTypes}
           disabled={editing}
         />
+
+        {isMdOrder ? (
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={sharedMd}
+                disabled={modeLocked}
+                onChange={(event) => setSharedChoice(event.target.checked)}
+              />
+              Budżet MD na całe zamówienie
+            </label>
+            {modeLocked ? (
+              <p className="text-xs text-muted-foreground">
+                Tryb budżetu jest zablokowany po aktywacji lub pierwszym wpisie
+                zużycia MD.
+              </p>
+            ) : (
+              <>
+                <label className={labelClass}>
+                  Status zamówienia
+                  <select
+                    aria-label="Status zamówienia"
+                    className={inputClass}
+                    value={draftStatus}
+                    onChange={(event) =>
+                      setDraftStatus(event.target.value as "draft" | "active")
+                    }
+                  >
+                    <option value="draft">Draft — do uzupełnienia</option>
+                    {editing ? (
+                      <option value="active">
+                        Active — aktywuj zamówienie
+                      </option>
+                    ) : null}
+                  </select>
+                </label>
+                {editing && sharedMd !== usesSharedMdPool(group!) ? (
+                  <p className="text-xs text-muted-foreground">
+                    Zmiana trybu usuwa podział budżetu. Po powrocie do trybu per
+                    osoba uzupełnij budżety konsultantów przed aktywacją.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
 
         {consultantRef !== null ? (
           <p
@@ -391,9 +473,43 @@ export function OrderGroupFormModal({
                 placeholder="100"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Automatyczne pomniejszanie działa dla klientowego wariantu
-                wspólnej puli MD.
+                Zużycie wszystkich konsultantów pomniejsza tę jedną pulę MD.
               </p>
+              {group && ["active", "exhausted"].includes(group.status) ? (
+                <div className="my-3 space-y-2">
+                  <label className={labelClass}>
+                    Miesiąc rozliczenia
+                    <input
+                      aria-label="Miesiąc rozliczenia"
+                      type="month"
+                      value={consumptionMonth}
+                      onChange={(event) =>
+                        setConsumptionMonth(event.target.value)
+                      }
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className={labelClass}>
+                    Łączne zużycie MD w miesiącu
+                    <input
+                      aria-label="Łączne zużycie MD w miesiącu"
+                      inputMode="decimal"
+                      value={consumptionValue}
+                      onChange={(event) =>
+                        setConsumptionValue(
+                          sanitizeDecimalInput(event.target.value),
+                        )
+                      }
+                      className={inputClass}
+                    />
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Wpisz sumę MD wszystkich konsultantów za wybrany miesiąc.
+                    Zapis zastępuje dotychczasowe rozliczenie tego miesiąca,
+                    także z importu.
+                  </p>
+                </div>
+              ) : null}
               <label htmlFor="group-md-used" className={`${labelClass} mt-3`}>
                 Wykorzystano MD
               </label>
@@ -464,7 +580,12 @@ export function OrderGroupFormModal({
                     title="Otwórz"
                     onClick={() =>
                       withExistingFileBusy(
-                        () => openAuthenticatedFile(fileEndpoint, "application/pdf", `${group.order_number}.pdf`),
+                        () =>
+                          openAuthenticatedFile(
+                            fileEndpoint,
+                            "application/pdf",
+                            `${group.order_number}.pdf`,
+                          ),
                         "Nie udało się otworzyć pliku PDF.",
                       )
                     }
@@ -478,7 +599,11 @@ export function OrderGroupFormModal({
                     title="Pobierz"
                     onClick={() =>
                       withExistingFileBusy(
-                        () => downloadAuthenticatedFile(fileEndpoint, `${group.order_number}.pdf`),
+                        () =>
+                          downloadAuthenticatedFile(
+                            fileEndpoint,
+                            `${group.order_number}.pdf`,
+                          ),
                         "Nie udało się pobrać pliku PDF.",
                       )
                     }
@@ -491,7 +616,12 @@ export function OrderGroupFormModal({
                     aria-label="Usuń plik PDF zamówienia"
                     title="Usuń"
                     onClick={() => {
-                      if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                      if (
+                        !window.confirm(
+                          "Czy na pewno chcesz usunąć plik PDF zamówienia?",
+                        )
+                      )
+                        return;
                       void withExistingFileBusy(async () => {
                         await onDeleteFile();
                         setHasExistingFile(false);
@@ -544,7 +674,12 @@ export function OrderGroupFormModal({
                 aria-label="Usuń wybrany plik PDF zamówienia"
                 title="Usuń wybrany plik"
                 onClick={() => {
-                  if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                  if (
+                    !window.confirm(
+                      "Czy na pewno chcesz usunąć plik PDF zamówienia?",
+                    )
+                  )
+                    return;
                   setFile(null);
                   setFileError(null);
                   setExtractError(null);
