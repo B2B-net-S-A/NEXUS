@@ -156,6 +156,19 @@ beforeEach(() => {
 });
 
 describe("SuggestedCandidatesWidget degraded recommendations", () => {
+  it("preserves an unknown snapshot score without calling it zero or BM25", async () => {
+    mocks.latest.mockResolvedValue({ data: {
+      id: 99, job_id: 7, status: "ready", source: "manual_regenerate", top_k: 20,
+      profile_id: 0, created_at: new Date().toISOString(), degraded: true,
+      candidates: [{ ...candidateMatch(null), breakdown: { ...BREAKDOWN, total: null } }],
+    } });
+    renderWidget();
+    expect(await screen.findByTestId("degraded-score-42")).toHaveTextContent("Ocena niepełna");
+    expect(screen.queryByText("0/100")).not.toBeInTheDocument();
+    expect(screen.queryByText("BM25 · tryb awaryjny")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
+  });
+
   it("renders BM25 explicitly without formatting null as a numeric score", async () => {
     mocks.forJob.mockResolvedValue({
       data: {

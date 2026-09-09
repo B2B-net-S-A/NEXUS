@@ -77,7 +77,7 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL");
 }
 
-function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
+function snapshotToMatches(snap: ProposalSnapshot): CandidateMatch[] {
   return snap.candidates.map((item) => ({
     candidate: {
       id: item.candidate.id,
@@ -91,7 +91,7 @@ function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
       avatar_url: item.candidate.avatar_url,
     },
     total_score: item.total_score,
-    breakdown: item.breakdown,
+    breakdown: item.total_score === null ? null : { ...item.breakdown, total: item.total_score },
   }));
 }
 
@@ -820,9 +820,11 @@ export function SuggestedCandidatesWidget({
                       <span
                         data-testid={`degraded-score-${cand.id}`}
                         className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        title="Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                        title={mode === "fallback-live" && liveMeta?.mode === "bm25"
+                          ? "Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                          : "Brak aktualnego pomiaru dopasowania — kandydat wymaga weryfikacji"}
                       >
-                        BM25 · tryb awaryjny
+                        {mode === "fallback-live" && liveMeta?.mode === "bm25" ? "BM25 · tryb awaryjny" : "Ocena niepełna"}
                       </span>
                     ) : (
                       <span

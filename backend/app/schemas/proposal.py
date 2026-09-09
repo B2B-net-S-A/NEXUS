@@ -34,7 +34,7 @@ class ProposalCandidateItem(BaseModel):
     """One ranked candidate inside a snapshot."""
 
     candidate: ProposalCandidate
-    total_score: float
+    total_score: float | None
     breakdown: dict[str, Any]
 
 

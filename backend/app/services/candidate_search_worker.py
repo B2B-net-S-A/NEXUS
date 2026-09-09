@@ -28,7 +28,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         requirements_for_job,
         evaluate_requirements,
     )
-    from app.services.scoring_service import score_candidate_job
+    from app.services.canonical_fit import score_pair
 
     with stage("sql_load"):
         candidates = await load_snapshot_batch(db, batch)
@@ -69,23 +69,15 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             )
             continue
         measurement = measurements[cid]
-        with stage("scoring"):
-            breakdown = await score_candidate_job(
-                candidate,
-                target,
-                db,
-                semantic_similarity=measurement.score,
-                semantic_unavailable=measurement.status != "measured",
-                profile=request.profile(),
-                base_fit=True,
-            )
+        fit = await score_pair(db, request, candidate, measurement)
+        breakdown = fit.breakdown
         requirements = evaluate_requirements(criteria, candidate)
         results.append(
             CandidateEvaluation(
                 cid,
                 versions[cid],
                 True,
-                breakdown.total if measurement.status == "measured" else None,
+                fit.fit_score,
                 measurement.status,
                 evidence={
                     "breakdown": breakdown.as_dict(),

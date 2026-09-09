@@ -89,9 +89,7 @@ async def test_healthy_pool_does_not_claim_unknown_semantics(monkeypatch):
         return {11: 0.61, 22: 0.44}
 
     monkeypatch.setattr(hybrid_module, "hybrid_candidates", fake_hybrid)
-    monkeypatch.setattr(
-        embedding_service, "similarity_for_candidate_ids", real_cosines
-    )
+    monkeypatch.setattr(embedding_service, "similarity_for_candidate_ids", real_cosines)
 
     pool = await rp.retrieve_candidate_pool(object(), "Senior Python", top_k=50)
 
@@ -126,8 +124,10 @@ async def test_candidate_without_a_vector_is_unknown_not_a_measured_zero(
         embedding_service, "similarity_for_candidate_ids", partial_cosines
     )
 
-    pool = {row["candidate_id"]: row for row in
-            await rp.retrieve_candidate_pool(object(), "Senior Python", top_k=50)}
+    pool = {
+        row["candidate_id"]: row
+        for row in await rp.retrieve_candidate_pool(object(), "Senior Python", top_k=50)
+    }
 
     assert not pool[11].get("semantic_unknown")
     assert pool[99].get("semantic_unknown"), (
@@ -159,8 +159,12 @@ def test_recommendations_treats_unknown_semantics_as_degraded():
     assert "semantic_degraded = not candidate_ids or" in src, (
         "sama pustka nie wystarcza: pula pełna zer z awarii JEST niepusta"
     )
-    assert "allow_cache_write=not semantic_degraded" in src, (
-        "sygnał degradacji musi nadal blokować zapis cache'u"
+    from tests._ast_calls import calls_in
+
+    calls = calls_in("app/api/recommendations.py", "_recommend_candidates_core")
+    assert "score_candidates" in calls
+    assert "bulk_get_or_compute" not in calls, (
+        "canonical recommendations must not write/read legacy composites"
     )
 
 

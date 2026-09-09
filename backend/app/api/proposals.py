@@ -82,7 +82,7 @@ def _hydrate_items(
                     status=cand.status.value if cand.status else None,
                     champion=cand.champion,
                 ),
-                total_score=float(breakdown.get("total", 0.0)),
+                total_score=breakdown.get("total"),
                 breakdown=breakdown,
             )
         )

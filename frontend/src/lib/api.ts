@@ -2531,9 +2531,8 @@ export interface ScoreBreakdown {
   gap_nice: string[];
   penalties: string[];
   /**
-   * Phase 14: bonus za obecność kandydata w semantycznie podobnych
-   * historycznych projektach. Wchodzi do `total`, więc MUSI być widoczny w
-   * rozbiciu — inaczej suma warstw nie zgadza się z totalem (M3-SCORE-01).
+   * Legacy payloads may contain a historical bonus. Current base-fit paths
+   * keep this zero and report process history separately.
    */
   historical_boost?: number;
   historical_sources_count?: number;
@@ -3839,8 +3838,8 @@ export interface ProposalCandidateItem {
     status: string | null;
     champion: boolean | null;
   };
-  total_score: number;
-  breakdown: ScoreBreakdown;
+  total_score: number | null;
+  breakdown: Omit<ScoreBreakdown, "total"> & { total: number | null };
 }
 
 export interface ProposalSnapshot {

@@ -15,6 +15,7 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.proposal_snapshot import ProposalSnapshot, STATUS_READY
 from app.services.scoring_service import LayerResult, ScoreBreakdown
+from app.services.canonical_fit import CanonicalFit
 
 
 def _breakdown(candidate_id: int, job_id: int, total: float) -> ScoreBreakdown:
@@ -73,10 +74,18 @@ async def boost_fixture():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.parametrize("base_score, expected_present", [(28.0, False), (48.0, True)])
+@pytest.mark.parametrize(
+    "base_score, measurement, expected_present",
+    [
+        (28.0, "measured", False),
+        (48.0, "measured", True),
+        (28.0, "missing_index", True),
+    ],
+)
 async def test_snapshot_history_does_not_change_fit_threshold(
     boost_fixture,
     base_score,
+    measurement,
     expected_present,
 ):
     from app.tasks.compute_proposals import (
@@ -91,11 +100,11 @@ async def test_snapshot_history_does_not_change_fit_threshold(
         return [{"candidate_id": cand_id, "score": 0.8}]
 
     async def _scored(*_a, **_kw):
-        return [_breakdown(cand_id, job_id, base_score)]
+        return [CanonicalFit(_breakdown(cand_id, job_id, base_score), measurement)]
 
     with (
         patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool),
-        patch("app.services.match_score_cache.bulk_get_or_compute", new=_scored),
+        patch("app.services.canonical_fit.score_candidates", new=_scored),
         patch(
             "app.services.similar_job_candidates.fetch_historical_boost_map",
             new=AsyncMock(return_value={cand_id: 3}),
@@ -114,7 +123,10 @@ async def test_snapshot_history_does_not_change_fit_threshold(
             payload = snap.breakdowns[0]
             assert payload["historical_boost"] == 0.0
             assert payload["historical_sources_count"] == 3
-            assert payload["total"] == base_score
+            assert payload["total"] == (
+                base_score if measurement == "measured" else None
+            )
+            assert payload["measurement"] == measurement
 
 
 @pytest.mark.integration
@@ -133,14 +145,14 @@ async def test_boost_lookup_failure_does_not_fail_the_snapshot(boost_fixture):
         return [{"candidate_id": cand_id, "score": 0.8}]
 
     async def _scored(*_a, **_kw):
-        return [_breakdown(cand_id, job_id, 55.0)]
+        return [CanonicalFit(_breakdown(cand_id, job_id, 55.0), "measured")]
 
     async def _boom(*_a, **_kw):
         raise RuntimeError("qdrant down")
 
     with (
         patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool),
-        patch("app.services.match_score_cache.bulk_get_or_compute", new=_scored),
+        patch("app.services.canonical_fit.score_candidates", new=_scored),
         patch(
             "app.services.similar_job_candidates.fetch_historical_boost_map", new=_boom
         ),

@@ -56,7 +56,6 @@ from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
 from app.services.embedding_service import (
     SemanticSearchUnavailable,
-    _build_job_text,
     embed_job,
     search_jobs_semantic,
 )
@@ -67,9 +66,6 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.location_utils import location_tokens
-from app.services.match_score_cache import (
-    bulk_get_or_compute,
-)
 from app.services.similar_job_candidates import (
     fetch_historical_boost_map,
     fetch_historical_candidates,
@@ -343,7 +339,12 @@ async def _recommend_candidates_core(
             db, user_id=current_user.id, client_id=job.client_id
         )
 
-    query_text = _build_job_text(job)
+    from app.services.canonical_fit import score_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.search_telemetry import SearchTelemetry
+
+    fit_context = build_request_context(job, profile)
+    query_text = fit_context.query_text
 
     # Pull a wider candidate pool from Qdrant, then re-rank with rules. When a
     # location filter is active, widen retrieval so the sparse located subset
@@ -375,30 +376,13 @@ async def _recommend_candidates_core(
         # `STRUCTURED_POOL_ENABLED` jest wyłączona.
         must_groups=build_job_must_groups(job),
     )
-    similarity_map = {h["candidate_id"]: h["score"] for h in hits}
-    candidate_ids = list(similarity_map.keys())
+    candidate_ids = list(dict.fromkeys(h["candidate_id"] for h in hits))
 
-    # Degraded retrieval: Qdrant down or index empty. The DB fallback below still
-    # serves results, but its composites are computed with a NEUTRAL semantic
-    # layer — persisting them would poison the shared score cache as "fresh"
-    # long after the provider recovers (M3-CACHE-01), so cache writes are
-    # disabled for this request.
-    #
-    # PUSTKA NIE JEST JEDYNYM KSZTAŁTEM DEGRADACJI. Fasada puli oddaje wiersze
-    # z `semantic_unknown`, gdy kosinusu nie zmierzono (padła dosypka po udanym
-    # BM25 albo kandydat nie ma wektora) — `score` wynosi wtedy 0.0, ale to
-    # „nie wiem", nie „zmierzono zero". Taka pula JEST niepusta, więc sam warunek
-    # `not candidate_ids` przepuszczał ją jako zdrową i zapisywał warstwę
-    # semantyczną 0/60 do cache'u jako wynik świeży — czyli dokładnie ten sam
-    # M3-CACHE-01, przed którym ta gałąź miała bronić.
+    # Retrieval completeness is separate from the exact fit measurements.
     semantic_unknown_ids = {
         h["candidate_id"] for h in hits if h.get("semantic_unknown")
     }
     semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
-    # Kandydat bez ZMIERZONEGO kosinusu nie może dostać zera jako wartości —
-    # `score_semantic(None)` zna stan „brak pomiaru", `score_semantic(0.0)` nie.
-    for cid in semantic_unknown_ids:
-        similarity_map.pop(cid, None)
 
     # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
@@ -407,12 +391,8 @@ async def _recommend_candidates_core(
     dealbreakers = DealbreakerResult()
 
     def _meta() -> dict:
-        # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
-        # or the job not indexed yet). The widget already renders a degraded
-        # notice off meta.degraded — the backend just never populated it, so a
-        # fallback looked identical to a healthy AI ranking. Mode is deliberately
-        # NOT "bm25": the fallback still yields numeric composites (neutral
-        # semantic layer); it just isn't cache-written or logged to history.
+        # Retrieval or exact measurement was incomplete. Individual unknown
+        # scores remain null; a populated candidate pool is not proof of health.
         return {
             "mode": "degraded_semantic" if semantic_degraded else "dense",
             "degraded": semantic_degraded,
@@ -532,18 +512,17 @@ async def _recommend_candidates_core(
             "meta": _meta(),
         }
 
-    # Phase C1 + D1: cache-first scoring keyed by active profile.
-    breakdowns = await bulk_get_or_compute(
-        job,
-        candidates,
-        db,
-        similarity_map=similarity_map,
-        profile=profile,
-        allow_cache_write=not semantic_degraded,
-        # Ci, dla których kosinusu NIE zmierzono — breakdown ma to powiedzieć
-        # wprost („pomiar niedostępny"), zamiast obwiniać profil kandydata.
-        semantic_unavailable_ids=semantic_unknown_ids,
-    )
+    telemetry = SearchTelemetry()
+    telemetry.begin_attempt()
+    # The preceding legacy retrieval can also call providers/rerankers. Until
+    # it shares this accounting scope, never label the fit subtotal a full cost.
+    telemetry.data["scope"] = "canonical_fit_only"
+    telemetry.data["accounting_complete"] = False
+    with telemetry.activate():
+        fits = await score_candidates(db, fit_context, candidates)
+    fits_by_id = {fit.breakdown.candidate_id: fit for fit in fits}
+    breakdowns = [fit.breakdown for fit in fits]
+    semantic_degraded = semantic_degraded or any(fit.fit_score is None for fit in fits)
 
     # Process history is fresh context, separate from fit and its threshold.
     try:
@@ -560,7 +539,12 @@ async def _recommend_candidates_core(
     threshold = (
         min_score if min_score is not None else settings.RECOMMENDATION_MIN_SCORE
     )
-    breakdowns = [b for b in breakdowns if b.total >= threshold][:top_k]
+    # Preserve unknown measurements for review, after all measured fits.
+    breakdowns = [
+        fit.breakdown
+        for fit in fits
+        if fit.fit_score is None or fit.fit_score >= threshold
+    ][:top_k]
 
     matches = []
     for b in breakdowns:
@@ -584,9 +568,10 @@ async def _recommend_candidates_core(
                 "skills": c.skills,
                 "ai_summary": c.ai_summary,
             },
-            "total_score": round(b.total, 1),
+            "total_score": fits_by_id[b.candidate_id].fit_score,
+            "measurement": fits_by_id[b.candidate_id].measurement,
         }
-        if include_breakdown:
+        if include_breakdown and fits_by_id[b.candidate_id].fit_score is not None:
             match["breakdown"] = _score_breakdown_payload(
                 b,
                 include_finance=user_has_capability(
@@ -599,6 +584,9 @@ async def _recommend_candidates_core(
         "job_id": job_id,
         "job_title": job.title,
         "search_type": "hybrid",
+        "request_fingerprint": fit_context.fingerprint,
+        "versions": fit_context.versions,
+        "metrics": telemetry.snapshot(),
         "min_score": round(threshold, 1),
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
