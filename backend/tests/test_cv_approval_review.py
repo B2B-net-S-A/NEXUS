@@ -81,3 +81,37 @@ async def test_rejected_review_prevents_finalized_version_and_snapshot(monkeypat
     assert not blobs
     db.commit.assert_not_awaited()
     guard.assert_awaited_once_with(db, csv, "<p>Invented claim</p>", user.id)
+
+
+async def test_provider_failure_does_not_approve_document(monkeypatch):
+    from app.services.cv_generator_b2b.provider import CVGeneratorAIError
+
+    source = SimpleNamespace(
+        cv_bytes=b"source",
+        cv_filename="source.docx",
+        screening_notes="",
+        identity="",
+        snapshot_sha256="hash",
+    )
+    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    monkeypatch.setattr(
+        review, "extract_text_from_file", Mock(return_value="source text")
+    )
+
+    @asynccontextmanager
+    async def quota(*args, **kwargs):
+        yield
+
+    monkeypatch.setattr(review, "ai_feature", quota)
+    monkeypatch.setattr(
+        review,
+        "verify_editor_content",
+        Mock(side_effect=CVGeneratorAIError("provider unavailable")),
+    )
+    csv = SimpleNamespace(
+        id=1, edit_revision=3, generated_document_id=11, branded_render_metadata={}
+    )
+    with pytest.raises(HTTPException) as error:
+        await review.review_for_approval(AsyncMock(), csv, "<p>Claim</p>", 7)
+    assert error.value.status_code == 503
+    assert "Nie zatwierdzono" in error.value.detail
