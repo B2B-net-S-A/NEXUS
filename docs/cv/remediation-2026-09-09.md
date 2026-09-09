@@ -18,7 +18,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Pending |
 | CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
 | CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
-| CV-12 | Complete facts extracted independently of display limits/omitted sections | Pending |
+| CV-12 | Complete facts extracted independently of display limits/omitted sections | Separate source extraction and cited ledger implemented; full history retained before client/editorial limits. Real-model completeness benchmark pending |
 | CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Final semantic review gate implemented locally: exhaustive field verdicts and exact citations, reject before DOCX. Real-model evaluation and structured fact ledger still pending |
 | CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
 | CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Removed rigid career/role/biggest-company and MUST-list instructions; final source review added. Rewrite/quality evaluation still pending |
@@ -88,3 +88,21 @@ full-document corpus or a DL-approved holdout. `scripts.eval_cv_factual_gate`
 validates it offline, and its real run uses the regular master switch/quota,
 records actual provider models, token/cost evidence and separates semantic
 rejections from protocol/provider failures. Runtime execution still pending.
+
+## Source extraction package (draft, not enabled in production)
+
+The first extraction call has only the source CV and screening notes; client,
+vacancy, language and role/section limits enter the later editorial call. Each
+populated source fact must occur in a literal source citation. The private
+ledger retains every extracted role and section even when the document omits
+them. Career calculations read that ledger and record the calculation date,
+calendar-month precision and per-role intervals. A technology listed in a role
+does not receive that role's duration. Final review still checks source text.
+
+222 focused host tests passed, including the real DOCX renderer with controlled
+provider responses: a one-role document retains 11 years from two source roles
+and keeps an omitted education entry in the private ledger. The tests establish
+phase isolation and deterministic behavior, not real-model completeness or
+semantic accuracy. Frozen source artifacts, precise scoped tenure, full-document
+quality/cost/latency measurements and DL acceptance remain outstanding. This
+package must not be enabled merely because mocked tests pass.

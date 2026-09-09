@@ -22,6 +22,15 @@ DOCUMENT = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _source_stage_isolated_for_final_review_tests(monkeypatch):
+    monkeypatch.setattr(
+        svc,
+        "extract_source_facts",
+        lambda **kwargs: {"version": 1, "document": copy.deepcopy(DOCUMENT)},
+    )
+
+
 def review_response(content, **overrides):
     request = json.loads(content)
     return {

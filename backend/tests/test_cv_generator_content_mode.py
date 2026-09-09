@@ -75,6 +75,12 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
         return json.dumps(_AI_JSON)
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+
+    def facts(**kwargs):
+        seen["extraction_sources"] = kwargs
+        return {"version": 1, "document": json.loads(json.dumps(_AI_JSON))}
+
+    monkeypatch.setattr(svc, "extract_source_facts", facts)
     monkeypatch.setattr(svc, "analyze_with_ai", fake_analyze)
     # These tests isolate presentation. Evidence review has dedicated integration
     # regressions in test_cv_factual_verification.py, including rejection paths.
@@ -272,9 +278,11 @@ def test_lower_modes_never_send_the_job_ad_to_the_model(
     assert "<champion_profile>" not in seen["user"]
     assert "Kubernetes" not in seen["user"]
     assert "Utrzymanie klastrów produkcyjnych" not in seen["user"]
-    # CV i notatki nadal idą — tryb ogranicza pozycjonowanie, nie materiał.
-    assert "<cv>" in seen["user"]
-    assert "<screening_notes>" in seen["user"]
+    # Both sources reach full extraction; editing receives the extracted facts.
+    assert seen["extraction_sources"]["cv_text"] == _CV_TEXT
+    assert "potwierdził" in seen["extraction_sources"]["screening_notes"]
+    assert "<source_facts>" in seen["user"]
+    assert "<screening_notes>" not in seen["user"]
 
 
 def test_tailored_still_sends_the_champion_profile(captured_prompt: dict) -> None:

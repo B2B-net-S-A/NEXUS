@@ -49,7 +49,6 @@ from app.services.cv_generator_b2b.provider import (
 from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
     build_champion_section,
-    build_screening_notes_section,
     from_nexus_job,
     parse_champion_from_docx_bytes,
 )
@@ -66,6 +65,10 @@ from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
     render_cv_to_bytes,
+)
+from app.services.cv_generator_b2b.source_facts import (
+    SourceFactsError,
+    extract_source_facts,
 )
 from app.services.cv_generator_b2b.prompts import get_prompt
 from app.services.cv_generator_b2b.factual_verification import (
@@ -864,8 +867,8 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
     return (start, end)
 
 
-def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
-    """Completed years in the union of all precisely dated employment months.
+def _total_experience_months(experience: list[dict[str, Any]]) -> int | None:
+    """Union count of precisely dated employment calendar months.
 
     Missing dates or year-only precision make the total unknown. Never replace
     an explicit source claim with a total based on a partially dated history.
@@ -901,8 +904,19 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
             cur_start, cur_end = start, end
     total_months += cur_end - cur_start + 1
 
-    years = total_months // 12
-    return years if years >= 1 else None
+    return total_months
+
+
+def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
+    months = _total_experience_months(experience)
+    return months // 12 if months is not None and months >= 12 else None
+
+
+def _full_history(candidate_data: dict[str, Any]) -> list[dict[str, Any]]:
+    facts = candidate_data.get("source_facts")
+    if isinstance(facts, dict) and isinstance(facts.get("document"), dict):
+        return facts["document"].get("experience") or []
+    return candidate_data.get("experience") or []
 
 
 # A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
@@ -949,7 +963,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
     total. Decimal/range/plus claims are matched atomically, without changing
     only the trailing digit (e.g. Polish "2,5 roku").
     """
-    years = _total_experience_years(candidate_data.get("experience") or [])
+    years = _total_experience_years(_full_history(candidate_data))
     if not years:
         return
     if language == "en":
@@ -1144,11 +1158,11 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
     CV. Without this allowance the guard would flag its own arithmetic.
     """
     allowed: set[str] = set()
-    total = _total_experience_years(candidate_data.get("experience") or [])
+    total = _total_experience_years(_full_history(candidate_data))
     if total is not None:
         # ±1 absorbs the rounding _fix_experience_years applies.
         allowed.update(str(total + delta) for delta in (-1, 0, 1) if total + delta >= 0)
-    for job in candidate_data.get("experience") or []:
+    for job in _full_history(candidate_data):
         span = _parse_date_range(str(job.get("dates") or ""))
         if not span:
             continue
@@ -1406,16 +1420,48 @@ def _run_generation_pipeline(
             message=f"Nie udało się odczytać tekstu z CV: {err}",
         ) from err
 
-    # ── 2. Build prompt (system = instructions, user = data in tags) ─────
+    # Capture the full history BEFORE any client, language or page-length rule.
+    # Editorial output may omit roles/sections; these source facts never do so
+    # because of presentation settings and remain separate from render fields.
+    try:
+        source_facts = extract_source_facts(
+            cv_text=cv_text, screening_notes=screening_notes_text, request_id=request_id
+        )
+    except SourceFactsError as err:
+        logger.info(
+            "[cv_b2b][%s] source extraction rejected: %s", request_id, err.reason
+        )
+        raise StandaloneGenerationError(
+            code="source_extraction_failed",
+            message="Nie udało się potwierdzić pełnych danych źródłowych. Sprawdź czytelność CV i ponów generację.",
+        ) from err
+    except CVGeneratorAIError as err:
+        raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
+    full_history = source_facts["document"].get("experience") or []
+    source_facts["tenure"] = {
+        "as_of": datetime.now().date().isoformat(),
+        "precision": "calendar_months",
+        "career_months": _total_experience_months(full_history),
+        "career_completed_years": _total_experience_years(full_history),
+        "role_months": [
+            {"path": f"/experience/{index}", "months": _total_experience_months([role])}
+            for index, role in enumerate(full_history)
+        ],
+        "technology_durations": None,  # A tool in a role is not a dated tool history.
+    }
+
+    # ── 2. Edit the already extracted facts ────────────────────────────
     mode = normalize_content_mode(content_mode)
     system_prompt = get_prompt(language, blind_cv, mode)
-
-    user_parts = [f"<cv>\n{cv_text.strip()}\n</cv>"]
-    screening_section = build_screening_notes_section(screening_notes_text, language)
-    if screening_section.strip():
-        user_parts.append(
-            f"<screening_notes>\n{screening_section.strip()}\n</screening_notes>"
-        )
+    editorial_input = {
+        "document": source_facts["document"],
+        "tenure": source_facts["tenure"],
+    }
+    user_parts = [
+        "<source_facts>\n"
+        + json.dumps(editorial_input, ensure_ascii=False)
+        + "\n</source_facts>"
+    ]
     # Only "tailored" gets the client's requirements in front of the model.
     # Withholding the section (rather than relying on the prompt to ignore it)
     # is what makes the lower modes trustworthy: there is nothing to position
@@ -1488,6 +1534,7 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    candidate_data["source_facts"] = source_facts
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
     # Stamped BEFORE the render_payload snapshot so the saved row records which
@@ -1512,8 +1559,8 @@ def _run_generation_pipeline(
         else None,
     )
 
-    # Exact years of experience — Claude tends to under-count ("ponad 4" for a
-    # 5-year candidate); recompute the headline from the extracted dates.
+    # Only full source history can support the generic career total. The
+    # editorial response may already have obeyed the client's role limit.
     _fix_experience_years(candidate_data, language)
 
     # The recruitment role (Champion Profile → Job.title) names the vacancy, not
@@ -1534,9 +1581,8 @@ def _run_generation_pipeline(
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
 
     # Klocki reguły klienta domykane W KODZIE — PO bezpiecznikach, nie przed:
-    # `_fix_experience_years` i `_derivable_years` liczą lata z PEŁNEJ listy
-    # stanowisk (obcięcie do `max_roles` przed nimi zaniżałoby nagłówek
-    # „N lat doświadczenia" i flagowało poprawną liczbę jako brak pokrycia),
+    # `_fix_experience_years` i `_derivable_years` liczą lata z osobnego
+    # pełnego source_facts, nigdy z listy przyciętej przez redakcję modelu,
     # a słownik podmienia nazewnictwo, którego bezpiecznik nie znalazłby
     # w źródle. Model dostał te same reguły w prompcie, ale prośba nie jest
     # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
@@ -1555,6 +1601,12 @@ def _run_generation_pipeline(
             request_id=request_id,
         )
     except FactualVerificationError as err:
+        logger.info(
+            "[cv_b2b][%s] final factual review rejected: reason=%s field_count=%s",
+            request_id,
+            err.reason,
+            len(err.paths),
+        )
         labels = {
             "why_points": "podsumowanie",
             "experience": "doświadczenie",

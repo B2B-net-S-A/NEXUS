@@ -96,6 +96,12 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
         return json.dumps(_AI_JSON)
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+
+    def facts(**kwargs):
+        seen["extraction_sources"] = kwargs
+        return {"version": 1, "document": json.loads(json.dumps(_AI_JSON))}
+
+    monkeypatch.setattr(svc, "extract_source_facts", facts)
     monkeypatch.setattr(svc, "analyze_with_ai", fake_analyze)
     # These tests isolate presentation. Evidence review has dedicated integration
     # regressions in test_cv_factual_verification.py, including rejection paths.
@@ -158,7 +164,9 @@ def test_system_prompts_define_the_block_and_forbid_adding_facts(prompt: str) ->
     # Ograniczenie do prezentacji + jawny zakaz dopisywania faktów + kanał
     # zgłaszania pominiętej instrukcji.
     assert "prezentacj" in lower or "presentation" in lower
-    assert "pominięto instrukcję klienta" in lower or "skipped client instruction" in lower
+    assert (
+        "pominięto instrukcję klienta" in lower or "skipped client instruction" in lower
+    )
     # Granica danych nadal obowiązuje dla trzech tagów danych.
     assert "<cv>" in prompt and "<screening_notes>" in prompt
     assert "<champion_profile>" in prompt
@@ -240,6 +248,11 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
         for dates, company in roles
     ]
     monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    monkeypatch.setattr(
+        svc,
+        "extract_source_facts",
+        lambda **kwargs: {"version": 1, "document": json.loads(json.dumps(payload))},
+    )
     cv_text = "\n".join(f"{d} {c} Backend Developer, Python" for d, c in roles)
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: cv_text)
 
@@ -260,7 +273,9 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
     # `_normalize_dashes` sprowadza półpauzę do zwykłego myślnika — to jest
     # kształt, który trafia do dokumentu.
     assert saved["experience"][0]["dates"] == "03/2024 - obecnie"
-    assert not any("12" in w and "BRAK POKRYCIA" in w for w in result.warnings), result.warnings
+    assert not any("12" in w and "BRAK POKRYCIA" in w for w in result.warnings), (
+        result.warnings
+    )
     assert any("domknięto politykę prezentacji" in w for w in result.warnings)
 
 
