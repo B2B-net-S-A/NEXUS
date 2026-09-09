@@ -167,6 +167,8 @@ async def test_new_line_currency_round_trip_without_silent_pln(
                     "rate_revenue": 218.75,
                     "rate_candidate_currency": "EUR",
                     "rate_client_currency": "EUR",
+                    "input_mode": "amount",
+                    "input_value": 35000,
                 }
             ],
         },
@@ -174,6 +176,7 @@ async def test_new_line_currency_round_trip_without_silent_pln(
     assert created.status_code == 201, created.text
     group = created.json()
     line = group["lines"][0]
+    assert line["md_total"] == 40  # PLN amount / canonical 875 PLN per MD
     assert line["source_rate_cost"] == 176
     assert line["rate_cost"] == 704
     assert line["rate_candidate_currency"] == line["rate_client_currency"] == "EUR"

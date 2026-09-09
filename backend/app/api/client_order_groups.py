@@ -1317,6 +1317,12 @@ async def _build_line(
     # własnego budżetu MD. Wymuszenie budżetu tutaj zmusiłoby operatora do
     # wymyślenia liczby, której nikt nigdy nie rozliczy, a CHECK spójności
     # w bazie i tak dopuszcza komplet NULL-i.
+    canonical_cost = await _canonical_currency_rate(
+        db, payload.rate_cost, payload.rate_candidate_currency or "PLN", payload.start_date
+    )
+    canonical_revenue = await _canonical_currency_rate(
+        db, payload.rate_revenue, payload.rate_client_currency or "PLN", payload.start_date
+    )
     md_total: Optional[Decimal] = None
     if group.is_cost_based or uses_shared_md_pool(group):
         if payload.input_mode is not None or payload.input_value is not None:
@@ -1336,7 +1342,7 @@ async def _build_line(
             md_total = compute_md_total(
                 input_mode=payload.input_mode,
                 input_value=payload.input_value,
-                rate_revenue=payload.rate_revenue,
+                rate_revenue=canonical_revenue,
             )
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
@@ -1363,18 +1369,8 @@ async def _build_line(
         start_date=payload.start_date,
         end_date=payload.end_date or group.end_date,
         filled_at=now if line_status == ClientOrderStatus.active else None,
-        md_rate_cost=await _canonical_currency_rate(
-            db,
-            payload.rate_cost,
-            payload.rate_candidate_currency or "PLN",
-            payload.start_date,
-        ),
-        md_rate_revenue=await _canonical_currency_rate(
-            db,
-            payload.rate_revenue,
-            payload.rate_client_currency or "PLN",
-            payload.start_date,
-        ),
+        md_rate_cost=canonical_cost,
+        md_rate_revenue=canonical_revenue,
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
