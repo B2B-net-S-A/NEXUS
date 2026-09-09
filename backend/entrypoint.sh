@@ -3734,7 +3734,7 @@ _COLUMN_STATEMENTS = [
     # wyłączone nie zmieniają istniejącego wariantu MD per konsultant.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "is_md_budget_based BOOLEAN NOT NULL DEFAULT FALSE",
-    # 0284: explicit scope for new MD orders; NULL preserves legacy behavior.
+    # 0285: explicit scope for new MD orders; NULL preserves legacy behavior.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "md_budget_mode VARCHAR(16) NULL",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
