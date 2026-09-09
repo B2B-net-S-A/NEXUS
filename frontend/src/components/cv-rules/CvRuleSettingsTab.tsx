@@ -322,6 +322,26 @@ export function CvRuleSettingsTab({
         </div>
       </Group>
 
+      <Group icon={Wand2} title="Pogrubienia w CV" subtitle="Ta sama reguła w DOCX, HTML i publicznym CV; niezależnie od trybu redakcji." always>
+        <label className="block text-xs font-medium" htmlFor="cvrule-highlights">Co pogrubiać</label>
+        <select id="cvrule-highlights" value={form.highlight_policy}
+          onChange={(event) => set("highlight_policy", event.target.value as CvRuleForm["highlight_policy"])}
+          className="w-full rounded-md border px-3 py-2 text-sm">
+          <option value="technologies">Technologie występujące w CV i źródłach</option>
+          <option value="must">Technologie MUST z profilu Championa</option>
+          <option value="must_nice">Technologie MUST i NICE z profilu Championa</option>
+          <option value="explicit">Wskazana lista technologii</option>
+          <option value="none">Bez wyróżnień technologii</option>
+        </select>
+        {form.highlight_policy === "explicit" ? <div>
+          <label className="block text-xs font-medium" htmlFor="cvrule-highlight-terms">Wyróżniane technologie — po jednej w wierszu</label>
+          <textarea id="cvrule-highlight-terms" value={form.highlight_terms}
+            onChange={(event) => set("highlight_terms", event.target.value)} rows={4}
+            className="w-full rounded-md border px-3 py-2 text-sm" placeholder={"Python\nPostgreSQL"} />
+        </div> : null}
+        <p className="text-xs text-muted-foreground">Wyróżnienie nie dopisuje umiejętności. Pozycje bez pokrycia w źródłach są pomijane; podgląd pokaże ostrzeżenie. Nagłówki sekcji zachowują swój styl.</p>
+      </Group>
+
       {/* ── GRUPA 2: Wskazówki dla generatora ── */}
       <Group
         icon={Wand2}
