@@ -8,6 +8,7 @@ from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
 from app.core.database import AsyncSessionLocal
+from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generation_job import CvGenerationJob
 from app.services import object_storage
@@ -26,15 +27,26 @@ logger = logging.getLogger(__name__)
 
 
 async def persist_job(
-    db, *, generated_id: int, kind: str, user_id: int, inputs: dict
+    db,
+    *,
+    kind: str,
+    user_id: int,
+    inputs: dict,
+    generated_id: int | None = None,
+    preview_id: int | None = None,
 ) -> int:
     """Caller commits job and result placeholder together, before scheduling."""
+    if (kind == "preview") != (preview_id is not None) or (
+        (generated_id is None) == (preview_id is None)
+    ):
+        raise ValueError("CV job must reference exactly its result type")
     raw, digest = serialize_job_inputs(kind, inputs)
     key = await run_in_threadpool(
         object_storage.upload_cv, raw, "cv-job-input.json", "application/json"
     )
     job = CvGenerationJob(
         generated_id=generated_id,
+        preview_id=preview_id,
         created_by=user_id,
         kind=kind,
         status="queued",
@@ -73,17 +85,27 @@ async def execute_job(job_id: int):
             job.generated_id,
             job.kind,
         )
+        preview_id = job.preview_id
     renewal = asyncio.create_task(_renew(job_id, token))
     work = None
     failed = False
     try:
         raw = await run_in_threadpool(object_storage.download_cv, key)
         stored_kind, inputs = deserialize_job_inputs(raw, digest)
-        if stored_kind != kind or kind not in {"new", "upload"}:
+        if stored_kind != kind or kind not in {"new", "upload", "preview"}:
             raise ValueError("CV job kind mismatch")
-        worker = _run_generate_new_job if kind == "new" else _run_generate_upload_job
         with owned_job(job_id, token):
-            work = asyncio.create_task(_run_declared(worker, generated_id, **inputs))
+            if kind == "preview":
+                from app.api.client_cv_rules import _run_rule_preview_job
+
+                work = asyncio.create_task(_run_rule_preview_job(preview_id, **inputs))
+            else:
+                worker = (
+                    _run_generate_new_job if kind == "new" else _run_generate_upload_job
+                )
+                work = asyncio.create_task(
+                    _run_declared(worker, generated_id, **inputs)
+                )
         done, _ = await asyncio.wait(
             {work, renewal}, return_when=asyncio.FIRST_COMPLETED
         )
@@ -91,7 +113,10 @@ async def execute_job(job_id: int):
             await renewal  # Surface loss before accepting a result.
         await work
         async with AsyncSessionLocal() as db:
-            document = await db.get(CvGeneratedDocument, generated_id)
+            document = await db.get(
+                ClientCvRulePreview if kind == "preview" else CvGeneratedDocument,
+                preview_id if kind == "preview" else generated_id,
+            )
             job = await db.get(CvGenerationJob, job_id)
             second = (
                 await db.get(CvGeneratedDocument, job.second_generated_id)
@@ -110,7 +135,10 @@ async def execute_job(job_id: int):
         failed = True
         logger.exception("CV durable job failed: id=%s", job_id)
         async with AsyncSessionLocal() as db:
-            document = await db.get(CvGeneratedDocument, generated_id)
+            document = await db.get(
+                ClientCvRulePreview if kind == "preview" else CvGeneratedDocument,
+                preview_id if kind == "preview" else generated_id,
+            )
             if document is not None and document.status == "processing":
                 document.status = "failed"
                 document.error_message = (
@@ -171,6 +199,20 @@ async def recovery_loop():
                             .values(
                                 status="failed",
                                 error_message="Generacja przerwana po utracie wykonawcy. Sprawdź wynik przed ponowieniem.",
+                            )
+                        )
+                        previews = select(CvGenerationJob.preview_id).where(
+                            CvGenerationJob.id.in_(expired)
+                        )
+                        await db.execute(
+                            update(ClientCvRulePreview)
+                            .where(
+                                ClientCvRulePreview.id.in_(previews),
+                                ClientCvRulePreview.status == "processing",
+                            )
+                            .values(
+                                status="failed",
+                                error_message="CV próbne przerwane po utracie wykonawcy. Uruchom ponownie po sprawdzeniu wyniku.",
                             )
                         )
                     await db.commit()

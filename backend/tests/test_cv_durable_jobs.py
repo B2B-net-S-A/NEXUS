@@ -9,16 +9,18 @@ from app.services.cv_generator_b2b.job_snapshot import serialize_job_inputs
 
 
 @pytest.mark.parametrize("case", ["valid", "corrupt", "already_claimed"])
+@pytest.mark.parametrize("kind", ["upload", "preview"])
 async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
-    monkeypatch, case
+    monkeypatch, case, kind
 ):
-    raw, digest = serialize_job_inputs("upload", {"user_id": 7, "quota_state": None})
+    raw, digest = serialize_job_inputs(kind, {"user_id": 7, "quota_state": None})
     record = SimpleNamespace(
         input_storage_key="private-test-key",
         second_generated_id=None,
         input_sha256=digest,
-        generated_id=11,
-        kind="upload",
+        generated_id=11 if kind == "upload" else None,
+        preview_id=12 if kind == "preview" else None,
+        kind=kind,
     )
     document = SimpleNamespace(status="ready")
     db = AsyncMock()
@@ -40,11 +42,17 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
     monkeypatch.setattr(jobs.object_storage, "download_cv", download)
     worker = AsyncMock()
     monkeypatch.setattr(api, "_run_declared", worker)
+    from app.api import client_cv_rules
+
+    monkeypatch.setattr(client_cv_rules, "_run_rule_preview_job", worker)
     await jobs.execute_job(21)
     if case == "valid":
-        worker.assert_awaited_once_with(
-            api._run_generate_upload_job, 11, user_id=7, quota_state=None
-        )
+        if kind == "upload":
+            worker.assert_awaited_once_with(
+                api._run_generate_upload_job, 11, user_id=7, quota_state=None
+            )
+        else:
+            worker.assert_awaited_once_with(12, user_id=7, quota_state=None)
         assert finish.call_args.kwargs == {"failed": False}
     else:
         worker.assert_not_awaited()

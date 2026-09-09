@@ -538,16 +538,41 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         document.add_paragraph("Synthetic candidate CV with source experience.")
         buffer = BytesIO()
         document.save(buffer)
-        frozen_source = SimpleNamespace(
+        from app.services.cv_generator_b2b.standalone_service import (
+            CandidateGenerationSource,
+        )
+
+        frozen_source = CandidateGenerationSource(
             cv_bytes=buffer.getvalue(),
             cv_filename="cv.docx",
             screening_notes_text="notes",
+            champion_json="{}",
+            has_champion=True,
+            source_warnings=(),
+            fallback_name="Synthetic",
+            job_id=job_id,
+            job_title="Developer",
+            client_content_mode_cap=None,
+            cv_document_id=None,
             candidate_id=candidate_id,
             stage_id=stage_id,
             client_id=cid,
         )
         monkeypatch.setattr(
             api_module, "prepare_source_facts", lambda **kwargs: object()
+        )
+        from app.services import object_storage
+
+        stored_inputs = {}
+
+        def upload_snapshot(raw, filename, content_type):
+            key = f"test-only/{uuid.uuid4().hex}"
+            stored_inputs[key] = raw
+            return key
+
+        monkeypatch.setattr(object_storage, "upload_cv", upload_snapshot)
+        monkeypatch.setattr(
+            object_storage, "download_cv", lambda key: stored_inputs[key]
         )
         load_source = AsyncMock(return_value=frozen_source)
         monkeypatch.setattr(api_module, "load_candidate_generation_source", load_source)
@@ -568,7 +593,6 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert "nie jest gotowa" in r.json()["detail"]
         assert charged == []
 
-        from types import SimpleNamespace
 
         async def fake_readiness(db, candidate_id, **kwargs):
             return [

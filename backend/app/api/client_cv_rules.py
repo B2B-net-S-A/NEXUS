@@ -1381,6 +1381,9 @@ async def _mark_preview_failed(db: AsyncSession, preview_id: int, message: str) 
     jest w stanie, w którym `commit()` sam rzuca, a wiersz zostałby
     „processing" na zawsze."""
     await db.rollback()
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(ClientCvRulePreview, preview_id)
     if row is None:
         return
@@ -1496,6 +1499,9 @@ async def _run_rule_preview_job_inner(
                 db, preview_id, "Nieoczekiwany błąd generacji CV próbnego."
             )
             return
+        from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+        await lock_owned_job(db)
         row.with_rule = {
             "payload": with_rule.render_payload,
             "warnings": list(with_rule.warnings or []),
@@ -1667,23 +1673,31 @@ async def enqueue_client_cv_rule_preview(
         created_by=current_user.id,
     )
     db.add(row)
+    await db.flush()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
+
+    durable_id = await persist_job(
+        db,
+        kind="preview",
+        preview_id=row.id,
+        user_id=current_user.id,
+        inputs=dict(
+            client_id=client_id,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            # Kwota jest naliczona WYŻEJ, w handlerze — bramka musi tam zostać,
+            # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
+            # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
+            # ustawiony przez handler nie dożywa do `BackgroundTasks`.
+            quota_state=quota_state,
+            quota_user_id=current_user.id,
+            source=source,
+        ),
+    )
     await db.commit()
     await db.refresh(row)
-    background_tasks.add_task(
-        _run_rule_preview_job,
-        row.id,
-        client_id=client_id,
-        candidate_id=payload.candidate_id,
-        stage_id=payload.stage_id,
-        language=payload.language,
-        # Kwota jest naliczona WYŻEJ, w handlerze — bramka musi tam zostać,
-        # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
-        # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
-        # ustawiony przez handler nie dożywa do `BackgroundTasks`.
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-        source=source,
-    )
+    background_tasks.add_task(execute_job, durable_id)
     return _preview_read(row)
 
 

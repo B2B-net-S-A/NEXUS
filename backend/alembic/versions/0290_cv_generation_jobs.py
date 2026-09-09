@@ -26,6 +26,12 @@ def upgrade():
             unique=True,
         ),
         sa.Column(
+            "preview_id",
+            sa.Integer(),
+            sa.ForeignKey("client_cv_rule_previews.id", ondelete="CASCADE"),
+            unique=True,
+        ),
+        sa.Column(
             "created_by", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")
         ),
         sa.Column("kind", sa.String(10), nullable=False),
