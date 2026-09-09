@@ -223,6 +223,12 @@ def _build_match_info(
                 is not None
                 else None
             ),
+            "expected_rate_currency": getattr(
+                candidate, "expected_rate_currency", None
+            ),
+            # This dedicated column stores hourly amounts; no unit inference
+            # is made from historical free-text or monthly rate fields.
+            "expected_rate_unit": "hour" if rate_hourly is not None else None,
             "current_title": getattr(candidate, "linkedin_current_title", None),
             "current_company": getattr(candidate, "linkedin_current_company", None),
         },

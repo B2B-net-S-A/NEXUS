@@ -415,3 +415,17 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     assert warn_row2["rate_fit"] == "over_budget"
     assert warn_row2["office_fit"] == "days_exceeded"
     assert warn_row2["missing_must"] == ["python"]
+
+
+@pytest.mark.parametrize("currency", ["EUR", "PLN", None])
+def test_match_payload_preserves_hourly_rate_currency(currency):
+    candidate = _candidate(
+        expected_rate_hourly=Decimal("100.50"), expected_rate_currency=currency
+    )
+    result = _build_match_info(
+        candidate, [], inputs=DealbreakerInputs(budget_hourly=150)
+    )
+    assert result["candidate"]["expected_rate_hourly"] == 100.5
+    assert result["candidate"]["expected_rate_currency"] == currency
+    assert result["candidate"]["expected_rate_unit"] == "hour"
+    assert result["rate_fit"] == ("ok" if currency == "PLN" else "unknown")

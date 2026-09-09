@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
@@ -958,13 +959,7 @@ function AIMatchingSection({
         return false;
       }
       if (rateFilter !== "all") {
-        const rate = m.candidate?.expected_rate_hourly;
-        const band =
-          rate == null || budgetHourly == null
-            ? "unknown"
-            : rate <= budgetHourly
-              ? "in"
-              : "over";
+        const band = matchingRateBand(m.rate_fit);
         if (band !== rateFilter) return false;
       }
       if (stageFilter !== "all") {
@@ -1501,21 +1496,7 @@ function AIMatchingSection({
                 const mustTotal = requiredSkills.length;
                 const mustHit = (match.matching_skills ?? []).length;
                 const rate = c.expected_rate_hourly as number | null | undefined;
-                // Rubryki 0278: `match.rate_fit` jest autorytatywne (ten sam
-                // status, którego używa dealbreaker — uwzględnia też walutę),
-                // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
-                const rateBand =
-                  match.rate_fit === "over_budget"
-                    ? "over"
-                    : match.rate_fit === "ok"
-                      ? "in"
-                      : match.rate_fit === "unknown"
-                        ? "unknown"
-                        : rate == null || budgetHourly == null
-                          ? "unknown"
-                          : rate <= budgetHourly
-                            ? "in"
-                            : "over";
+                const rateBand = matchingRateBand(match.rate_fit);
                 const officeFit = match.office_fit;
                 const officeFitLabel =
                   officeFit === "days_exceeded"
@@ -1641,7 +1622,7 @@ function AIMatchingSection({
                                 : "Brak budżetu oferty do porównania"
                             }
                           >
-                            {Math.round(rate)} PLN/h
+                            {formatMatchingRate(c)}
                           </span>
                         )}
                         {officeFitLabel && (
@@ -1843,20 +1824,7 @@ function JobMatchDock({
   const assignBlocked = elig?.assignment_allowed === false;
   const isAdded = added.has(c.id);
   const rate = c.expected_rate_hourly as number | null | undefined;
-  // Rubryki 0278: `match.rate_fit` jest autorytatywne (uwzględnia walutę),
-  // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
-  const rateBand =
-    match.rate_fit === "over_budget"
-      ? "over"
-      : match.rate_fit === "ok"
-        ? "in"
-        : match.rate_fit === "unknown"
-          ? "unknown"
-          : rate == null || budgetHourly == null
-            ? "unknown"
-            : rate <= budgetHourly
-              ? "in"
-              : "over";
+  const rateBand = matchingRateBand(match.rate_fit);
   const officeFit = match.office_fit;
   const officeFitLabel =
     officeFit === "days_exceeded"
@@ -2004,10 +1972,12 @@ function JobMatchDock({
                       : "text-foreground")
                 }
               >
-                {Math.round(rate)} PLN/h
+                {formatMatchingRate(c)}
                 {budgetHourly != null && (
                   <span className="ml-1 font-normal text-muted-foreground">
-                    {rateBand === "over"
+                    {rateBand === "unknown"
+                      ? "· do weryfikacji"
+                      : rateBand === "over"
                       ? `· powyżej budżetu ${Math.round(budgetHourly)}`
                       : `· w budżecie do ${Math.round(budgetHourly)}`}
                   </span>

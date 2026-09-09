@@ -67,13 +67,9 @@ def _candidate_rate_pln_hourly(candidate) -> Optional[float]:
     if rate is None:
         return None
     currency = getattr(candidate, "expected_rate_currency", None)
-    from app.services.candidate_profile_rate import (
-        is_canonical_profile_rate_currency,
-    )
-
-    if not is_canonical_profile_rate_currency(currency):
-        # Stawka w obcej walucie bez polityki przeliczenia — to jest
-        # „nie wiemy", nie „za drogo".
+    # Historical acceptance of an unlabeled profile amount is not evidence
+    # that it can be compared with this request's PLN budget.
+    if str(currency or "").strip().upper() != "PLN":
         return None
     try:
         value = float(rate)

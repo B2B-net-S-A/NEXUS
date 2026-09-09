@@ -1007,6 +1007,8 @@ export const matchingApi = {
           // C2 workspace: candidate hourly rate (compared with the job budget
           // in the dock), current role + company (row subtitle). Nullable.
           expected_rate_hourly?: number | null;
+          expected_rate_currency?: string | null;
+          expected_rate_unit?: "hour" | null;
           current_title?: string | null;
           current_company?: string | null;
         };
