@@ -192,6 +192,22 @@ rows on loaded pages. Context switches reset pending source attachments.
 inserts more than 60 unrelated documents and checks filtered cursor traversal.
 CI, deployment and actual production flow remain required.
 
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
+
 ## Multipage letterhead regression (synthetic production CV)
 
 The actual production fixture split the word "Tworzenie" around background
@@ -217,3 +233,9 @@ The renderer preserves text order, explicit bold/italic emphasis, headings, nest
 Validation: 24 focused backend tests plus 10 sanitizer checks, 2 frontend tests including real Tiptap edit/reload, TypeScript, Ruff and a single Alembic head `0289_cv_approved_docx`. The model-free two-page synthetic fixture was rendered in bundled LibreOffice and both pages visually checked: full repeating letterhead, body clear of artwork, compact unsplit consent, explicit edits and emphasis. Font fallback remains a limitation versus the user's Word installation. PostgreSQL selection/approval/source-deletion/download lifecycle is extended for hosted CI; it has not been run locally. A mistaken broad local security selection reached 5 DB-dependent cases and failed against deliberately unavailable localhost:1; targeted host-only selection subsequently passed.
 
 This is a partial delivery of CV-02/CV-10: standalone approval/version sharing, full semantic verification, and the full production UI acceptance remain open. No real candidate or client recipe was changed.
+
+### CV-09 / required Champion admission — partial delivery
+
+Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
+
+The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. Depends on the explicit upload/history package #1450.

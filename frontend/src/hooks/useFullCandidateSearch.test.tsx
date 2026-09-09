@@ -15,7 +15,7 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); sessionStorage.clear(); });
 
 test("starts only explicitly, prevents duplicate clicks and ignores a cleared request", async () => {
   let resolve!: (value: CandidateSearchStarted) => void;
@@ -69,4 +69,66 @@ test("changing a filter resets the page and reads the same run without another A
   rerender({ skill: "python" });
   await waitFor(() => expect(candidateSearchApi.page).toHaveBeenLastCalledWith("filtered", expect.objectContaining({ skill: "python", offset: 0 }), expect.any(AbortSignal)));
   expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+});
+
+test("saved request restores the shared run instead of an older tab-local snapshot", async () => {
+  const key = "nexus-full-job:7:42";
+  sessionStorage.setItem(key, "old-radar-run");
+  localStorage.setItem(key, "new-pipeline-run");
+  const { result } = renderHook(() => useFullCandidateSearch({ storageKey: key, shareAcrossTabs: true }), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.runId).toBe("new-pipeline-run"));
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(candidateSearchApi.start).not.toHaveBeenCalled();
+});
+
+test("another tab replaces the run and resets pagination without starting AI; other actors are ignored", async () => {
+  const key = "nexus-full-job:7:42";
+  localStorage.setItem(key, "first");
+  const { result } = renderHook(() => useFullCandidateSearch({ storageKey: key, shareAcrossTabs: true }), { wrapper: Wrapper });
+  await waitFor(() => expect(result.current.runId).toBe("first"));
+  act(() => result.current.setOffset(20));
+  act(() => {
+    localStorage.setItem(key, "second");
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: "second", storageArea: localStorage }));
+  });
+  await waitFor(() => expect(result.current.runId).toBe("second"));
+  expect(result.current.offset).toBe(0);
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key: "nexus-full-job:8:42", newValue: "other-user", storageArea: localStorage })));
+  expect(result.current.runId).toBe("second");
+  act(() => {
+    localStorage.removeItem(key);
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: null, storageArea: localStorage }));
+  });
+  await waitFor(() => expect(result.current.runId).toBeNull());
+  expect(candidateSearchApi.start).not.toHaveBeenCalled();
+});
+
+test("two consumers in the same document share an explicitly started run", async () => {
+  vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "shared", state: "queued", population: 60, brief_status: "provided", versions: {} });
+  const options = { storageKey: "nexus-full-job:7:42", shareAcrossTabs: true };
+  const a = renderHook(() => useFullCandidateSearch(options), { wrapper: Wrapper });
+  const b = renderHook(() => useFullCandidateSearch(options), { wrapper: Wrapper });
+  await act(async () => { await a.result.current.start({ job_id: 42 }); });
+  await waitFor(() => expect(b.result.current.runId).toBe("shared"));
+  expect(a.result.current.runId).toBe("shared");
+  expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+});
+
+test("a late start response cannot replace a newer shared run from another tab", async () => {
+  let resolve!: (value: CandidateSearchStarted) => void;
+  vi.mocked(candidateSearchApi.start).mockReturnValue(new Promise(done => { resolve = done; }));
+  const key = "nexus-full-job:7:42";
+  const { result } = renderHook(() => useFullCandidateSearch({ storageKey: key, shareAcrossTabs: true }), { wrapper: Wrapper });
+  let pending!: ReturnType<typeof result.current.start>;
+  act(() => { pending = result.current.start({ job_id: 42 }); });
+  act(() => {
+    localStorage.setItem(key, "newer-run");
+    window.dispatchEvent(new StorageEvent("storage", { key, storageArea: localStorage }));
+  });
+  await act(async () => {
+    resolve({ run_id: "late-old-run", state: "queued", population: 60, brief_status: "provided", versions: {} });
+    await pending;
+  });
+  expect(result.current.runId).toBe("newer-run");
+  expect(localStorage.getItem(key)).toBe("newer-run");
 });
