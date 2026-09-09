@@ -251,7 +251,9 @@ def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
+def rerender_docx_from_payload(
+    render_payload: dict[str, Any], *, require_consent: bool = False
+) -> bytes:
     """Re-render a previously generated CV from its saved ``render_payload``.
 
     Deterministic — no Claude call. Deep-copies because ``render_cv_to_bytes``
@@ -263,6 +265,15 @@ def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
     z drugiego i każdego kolejnego pliku.
     """
     payload = hydrate_consent_screenshot(copy.deepcopy(render_payload))
+    if require_consent:
+        consent = payload.get("consent_screenshot") or {}
+        image_bytes = consent.get("_bytes")
+        if not image_bytes:
+            raise ValueError("Nie można zapisać CV bez dołączonego obrazu zgody.")
+        from PIL import Image
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.verify()
     return render_cv_to_bytes(payload, TEMPLATE_PATH)
 
 

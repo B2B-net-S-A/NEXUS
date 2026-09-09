@@ -51,9 +51,26 @@ async def test_finalized_docx_includes_consent_before_being_archived(monkeypatch
         db, 11, result=result, consent_screenshot=consent
     )
     assert render.call_args.args[0]["consent_screenshot"] == consent
+    assert render.call_args.kwargs == {"require_consent": True}
     assert row.docx_content == b"with-consent"
     assert row.docx_sha256 == hashlib.sha256(b"with-consent").hexdigest()
     assert (
         row.render_payload["artifact_provenance"]["generated_docx_sha256"]
         == row.docx_sha256
     )
+
+
+@pytest.mark.parametrize("image_bytes", [None, b"invalid-image"])
+def test_strict_archive_stops_when_consent_cannot_be_loaded(monkeypatch, image_bytes):
+    from app.services.cv_generator_b2b import standalone_service as service
+
+    monkeypatch.setattr(
+        service,
+        "hydrate_consent_screenshot",
+        lambda payload: {"consent_screenshot": {"_bytes": image_bytes}},
+    )
+    render = Mock(side_effect=AssertionError("Incomplete consent reached renderer"))
+    monkeypatch.setattr(service, "render_cv_to_bytes", render)
+    with pytest.raises((ValueError, OSError)):
+        service.rerender_docx_from_payload({}, require_consent=True)
+    render.assert_not_called()

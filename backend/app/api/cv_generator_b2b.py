@@ -401,7 +401,7 @@ async def _finalize_success(
     final_docx = result.docx_bytes
     if consent_screenshot:
         final_docx = await run_in_threadpool(
-            rerender_docx_from_payload, result.render_payload
+            rerender_docx_from_payload, result.render_payload, require_consent=True
         )
     row.docx_content = final_docx
     row.docx_sha256 = hashlib.sha256(final_docx).hexdigest()
