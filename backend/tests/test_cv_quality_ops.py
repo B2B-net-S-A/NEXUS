@@ -205,3 +205,18 @@ def test_stale_runtime_never_creates_task(tmp_path):
     api = FakeApi()
     assert execute(api, tmp_path, health=lambda: "old") == 2
     assert api.calls == []
+
+
+def test_runner_cancellation_exits_polling_and_cleans_up_owned_task(tmp_path):
+    class CancelledApi(FakeApi):
+        def request(self, method, path, data=None):
+            if path.endswith("/executions"):
+                raise ops.Interrupted("runner_interrupted")
+            return super().request(method, path, data)
+
+    api = CancelledApi()
+    assert execute(api, tmp_path) == 2
+    state = json.loads((tmp_path / "transport.json").read_text())
+    assert state["outcome"] == "runner_interrupted"
+    assert state["cleanup"] == "confirmed"
+    assert api.calls[-1] == ("DELETE", "/tasks/owned-task")

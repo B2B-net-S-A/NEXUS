@@ -29,6 +29,10 @@ class OpsError(Exception):
     """Only fixed error codes may be printed; never remote bodies or URLs."""
 
 
+class Interrupted(OpsError):
+    """Cancellation must escape the transient network retry loop."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, new_url):
         # Do not forward the Coolify bearer token to a redirect target.
@@ -310,6 +314,8 @@ def run(
         while clock() < deadline:
             try:
                 executions = api.request("GET", f"{api.tasks}/{task_id}/executions")
+            except Interrupted:
+                raise
             except OpsError:
                 sleep(20)
                 continue  # Same handle; never launch again after transport failure.
@@ -357,7 +363,7 @@ def main():
         fingerprint = hashlib.sha256(corpus.read_bytes()).hexdigest()
 
         def interrupted(_signum, _frame):
-            raise OpsError("runner_interrupted")
+            raise Interrupted("runner_interrupted")
 
         signal.signal(signal.SIGTERM, interrupted)
         signal.signal(signal.SIGINT, interrupted)
