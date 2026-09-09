@@ -1810,7 +1810,9 @@ async def list_generated_cvs(
             created_at=r.created_at.isoformat() if r.created_at else None,
             created_by_name=creator_name,
             can_download=r.status == "ready" and r.render_payload is not None,
-            can_delete=is_admin or r.created_by == current_user.id,
+            can_delete=(is_admin or r.created_by == current_user.id)
+            and r.status != "processing"
+            and job_status not in {"queued", "running"},
         )
         for r, creator_name, job_status, client_name in rows
     ]
