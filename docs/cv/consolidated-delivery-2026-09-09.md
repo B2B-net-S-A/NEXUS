@@ -486,3 +486,16 @@ Dowody lokalne: test handlera bez ponownego źródła/kwoty/background task,
 test wyboru tabeli preview zamiast generated, test błędu 410 i ponownego kliknięcia,
 TypeScript. Test PostgreSQL usunięcia podglądu dodany, ale jeszcze niewykonany
 w hosted CI. Jedna końcowa rewizja Alembic: 0299. Brak dowodu produkcyjnego.
+# Awaryjne przygotowanie schematu przed startem API
+
+`entrypoint.sh` wywołuje `app.services.cv_schema_bootstrap` przed uvicorn.
+Moduł w jednej transakcji pod blokadą PostgreSQL tworzy brakujące tabele
+0290/0295/0297 przez kanoniczne migracje oraz uzupełnia kolumny i ograniczenia
+0291–0299. Nie zmienia historycznego bookmarka Alembic ani danych kandydatów.
+Błąd kończy start aplikacji zamiast uruchamiać worker na niekompletnym schemacie.
+
+Test hosted buduje osobny minimalny schemat sprzed zmian, uruchamia bootstrap
+dwukrotnie i sprawdza kolumny, FK oraz rzeczywiste odrzucenie wersji bez właściciela,
+z dwoma właścicielami i duplikatu numeru wersji. Całość wycofuje transakcję.
+Test dodany w 55ff8f7f/23cc8e2f; oczekuje na wysłanie i wykonanie CI.
+Lokalnie sprawdzono Ruff i składnię bash. Nie jest to dowód migracji produkcji.
