@@ -15,7 +15,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
-| CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Pending |
+| CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Private source snapshots, durable leased jobs, recovery, shared capacity and queue status implemented. Job and initial admission share a transaction; its hosted tests are pending. Request idempotency, retention and production restart proof remain open |
 | CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
 | CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
 | CV-12 | Complete facts extracted independently of display limits/omitted sections | Separate source extraction and cited ledger implemented; full history retained before client/editorial limits. Real-model completeness benchmark pending |
@@ -24,9 +24,19 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Removed rigid career/role/biggest-company and MUST-list instructions; final source review added. Rewrite/quality evaluation still pending |
 | CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Typed reviewed role translations implemented, arbitrary legacy substitutions skipped with warnings, unsafe publication blocked. CI, deployment and final factual review acceptance pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
-| CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Recipe snapshot, language check and draft cap implemented; source snapshot, DOCX and complete validation still pending |
+| CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Frozen source/recipe, exact downloadable DOCX bytes with integrity check and presentation feedback implemented. Free-text instructions and unknown date formats explicitly require human review. Complete recipe feedback, visual comparison and DL acceptance remain open |
 | CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Filename validation implemented locally; configuration review/publication and production verification pending |
-| CV-20 | Shared deterministic policies and versioned source corpus; primary/fallback evaluations and DL acceptance evidence | Pending |
+| CV-20 | Shared deterministic policies and versioned source corpus; primary/fallback evaluations and DL acceptance evidence | Versioned full-document corpus and metered runner implemented. Local v2 has 40 output variants from 20 histories, including two English sources. Runner checks tenure and source role count and preserves interrupted operation receipts. Actual primary/fallback runs, OCR coverage and DL acceptance remain open |
+
+## Current evidence boundary
+
+PR #1444 remains the single delivery PR. CI run 34398548856 passed all four
+backend shards and frontend build for `e731a3c6`. This confirms the tests at that
+revision, not semantic model quality or production behavior. Transactional
+admission and deletion safeguards at `46fcc91a` are in the next CI run
+34402465751, still in progress at this update. Later corpus/runner changes are
+local on the same branch and have host-native tests only. No completion or
+production deployment is claimed for this consolidated PR.
 
 ## Verification ledger
 
