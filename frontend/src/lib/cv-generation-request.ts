@@ -30,10 +30,21 @@ export async function withCvGenerationRequest<T>(path: string, data: object | Fo
   key ??= crypto.randomUUID();
   pending.set(storageKey, key);
   try { sessionStorage.setItem(storageKey, key); } catch { /* Memory fallback. */ }
-  const result = await send(key);
-  // Only a received success resolves uncertainty. A later deliberate generation
-  // gets a new key, even if its inputs are identical.
-  pending.delete(storageKey);
-  try { sessionStorage.removeItem(storageKey); } catch { /* Memory fallback. */ }
-  return result;
+  const clear = () => {
+    pending.delete(storageKey);
+    try { sessionStorage.removeItem(storageKey); } catch { /* Memory fallback. */ }
+  };
+  try {
+    const result = await send(key);
+    clear();
+    return result;
+  } catch (error) {
+    // A received 410 confirms that this attempt's result no longer exists.
+    // Surface the error; only another deliberate click starts a new attempt.
+    if (error && typeof error === "object" && "response" in error) {
+      const response = error.response;
+      if (response && typeof response === "object" && "status" in response && response.status === 410) clear();
+    }
+    throw error;
+  }
 }

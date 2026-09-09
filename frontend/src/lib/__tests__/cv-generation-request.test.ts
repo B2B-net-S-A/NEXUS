@@ -33,3 +33,16 @@ it("different bytes with the same filename create different attempts", async () 
   }
   expect(keys[0]).not.toBe(keys[1]);
 });
+
+it("does not automatically retry a deleted result but allows a new deliberate attempt", async () => {
+  const {withCvGenerationRequest} = await import("../cv-generation-request");
+  const keys: string[] = [];
+  const gone = {response: {status: 410}};
+  await expect(withCvGenerationRequest("/preview", {candidate_id: 1}, async key => {
+    keys.push(key); throw gone;
+  })).rejects.toBe(gone);
+  expect(keys).toHaveLength(1);
+  expect(sessionStorage.length).toBe(0);
+  await withCvGenerationRequest("/preview", {candidate_id: 1}, async key => keys.push(key));
+  expect(keys[1]).not.toBe(keys[0]);
+});
