@@ -265,3 +265,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Removed the legacy 300-character description / 500-character requirement truncation and invented seniority hints from _build_job_query. The legacy endpoint now constructs its retrieval document with the same full request builder as Radar and canonical fit, including reviewed requirements. Weight selection remains the scorer's responsibility.
 - Sixteen native requirement tests pass. The new regression checks both long-field tails, an approved OR group, nice-to-have and a new tail edit changing the query. Ruff and diff checks pass. This fixes the query context only; legacy ranking mode, full-pool quality, operational proof, hosted CI and production delivery still require completion.
+
+### Increment: compatibility endpoint keeps explicit location semantics
+
+- /ai-matches no longer uses job.location as an implicit hard filter. Omitted location keeps unknown-location candidates eligible for ranking; an explicit location still filters. Removed the shared-engine branch's second query-text assignment so retrieval receives the canonical full document already built for the request.
+- Nineteen native location/endpoint tests pass, including the actual handler with a located request and known/unknown-location candidates, explicit filter behavior and verification of the full document sent to retrieval. Provider/gate/scorer are controlled in this transport regression, so it is not production scoring-quality evidence. Ruff/diff checks pass; hosted CI and delivery remain open.

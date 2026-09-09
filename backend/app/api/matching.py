@@ -629,9 +629,8 @@ async def get_ai_matches(
         min_score: minimum match score (0-1) a candidate must reach to be shown.
         limit:     hard cap on the number of results (payload safety bound).
         location:  restrict results to candidates whose location matches this
-                   place (city/region, substring-tolerant). Falls back to the
-                   job's own ``location`` when omitted. Empty when neither is
-                   set → no location filter (legacy behaviour preserved).
+                   place (city/region, substring-tolerant). Only an explicit
+                   value activates this filter; job location remains a fit input.
     """
     shared_engine = bool(getattr(settings, "AI_MATCHES_SHARED_ENGINE", False))
     max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
@@ -687,9 +686,8 @@ async def get_ai_matches(
     }
 
     # ── Location filter ──────────────────────────────────────────────────────
-    # Explicit query param wins; otherwise fall back to the job's own location
-    # (which is empty for ~99% of Traffit-imported jobs, hence the param).
-    requested_location = (location or "").strip() or (job.location or "").strip()
+    # Match Radar/C2: only an explicit query creates a hard location filter.
+    requested_location = (location or "").strip()
     requested_tokens = _location_tokens(requested_location)
     location_active = bool(requested_tokens)
     # When filtering by location, widen the retrieval pool so the located subset
@@ -709,14 +707,6 @@ async def get_ai_matches(
     )
     from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
     from app.services.retrieval_pool import retrieve_candidate_pool
-
-    if shared_engine:
-        # Ten sam dokument zapytania, którym pulę pobiera pozostałych pięć
-        # powierzchni. Inny tekst = inna pula = „wspólny silnik", który i tak
-        # ogląda innych ludzi niż lista obok.
-        from app.services.embedding_service import _build_job_text
-
-        query_text = _build_job_text(job, max_field_chars=None)
 
     # Pull a wide pool so "show all who match" isn't artificially capped by
     # retrieval. The threshold filter below — not a fixed top-K — decides
