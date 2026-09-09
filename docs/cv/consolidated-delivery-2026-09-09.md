@@ -471,3 +471,18 @@ mock-only inference. It does not establish production network/restart behavior.
 The next pushed revision a0a18ddb has CI 34415126821 in progress, CI Gate
 34415126803 queued and review 34415126907 in progress at this checkpoint.
 No merge, production deployment or model-quality acceptance is claimed.
+# Retry podglądu recepty — migracja 0299
+
+Podgląd reguł korzysta z tego samego mechanizmu kluczy ponowienia co generacja.
+Autoryzacja klienta i związku kandydat–rekrutacja poprzedza odczyt receipt.
+Pierwsze żądanie zapisuje receipt wraz z zadaniem i obciążeniem dwóch wariantów;
+ponowienie zwraca wcześniejszy podgląd przed źródłami i naliczeniem limitu.
+Usunięcie podglądu zeruje FK, zachowując receipt; ponowienie daje 410. Panel
+usuwa wtedy lokalny klucz, pokazuje błąd i dopiero następne świadome kliknięcie
+rozpoczyna nową próbę. Błąd sieci nadal zachowuje klucz; nie ma automatycznej
+płatnej regeneracji po 410.
+
+Dowody lokalne: test handlera bez ponownego źródła/kwoty/background task,
+test wyboru tabeli preview zamiast generated, test błędu 410 i ponownego kliknięcia,
+TypeScript. Test PostgreSQL usunięcia podglądu dodany, ale jeszcze niewykonany
+w hosted CI. Jedna końcowa rewizja Alembic: 0299. Brak dowodu produkcyjnego.
