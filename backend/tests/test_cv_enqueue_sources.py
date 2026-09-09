@@ -1,6 +1,7 @@
 """Admission and both language renders share owned source/policy values."""
 
 from dataclasses import asdict, replace
+from datetime import date
 import json
 from io import BytesIO
 from types import SimpleNamespace
@@ -161,7 +162,13 @@ async def test_second_language_and_requirement_map_do_not_reload_changed_inputs(
     monkeypatch.setattr(api, "_finalize_success", finalize)
     monkeypatch.setattr(api, "_create_pending_row", AsyncMock(return_value=12))
     monkeypatch.setattr(
-        api, "_charge_second_language_or_note", AsyncMock(return_value=True)
+        api,
+        "_charge_second_language_or_note",
+        AsyncMock(
+            return_value=api.QuotaState(
+                2, 100, date(2026, 9, 1), "00000000-0000-4000-8000-000000000002"
+            )
+        ),
     )
     mapping = AsyncMock()
     monkeypatch.setattr(requirement_map, "ensure_requirement_map", mapping)
