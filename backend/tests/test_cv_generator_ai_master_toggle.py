@@ -115,7 +115,27 @@ def test_both_generation_endpoints_pass_through_the_gate():
     )
 
     for name, fn in found.items():
-        assert _GATE in _awaited_names(fn), (
-            f"{name}() nie woła {_GATE}() — najdroższe wywołanie Claude'a "
-            "w produkcie znowu stoi poza kwotą, kill-switchem i ai_usage_log."
+        admissions = [
+            node.value
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Await)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "persist_job"
+        ]
+        assert len(admissions) == 1, f"{name}: expected one durable admission"
+        callback = next(
+            (kw.value for kw in admissions[0].keywords if kw.arg == "charge"), None
+        )
+        assert isinstance(callback, ast.Lambda), (
+            f"{name}: missing mandatory quota callback"
+        )
+        call = callback.body
+        assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+        assert call.func.id == _GATE, f"{name}: wrong quota gate"
+        assert [ast.unparse(arg) for arg in call.args] == ["db", "current_user.id"], (
+            f"{name}: admission must use the authenticated user and request session"
+        )
+        assert not callback.args.args, (
+            f"{name}: callback cannot require unsupplied arguments"
         )
