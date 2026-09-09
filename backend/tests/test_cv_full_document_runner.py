@@ -1,3 +1,7 @@
+import asyncio
+from contextlib import asynccontextmanager
+from copy import deepcopy
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -66,3 +70,47 @@ async def test_wrong_revision_stops_before_receipt_and_quota(tmp_path, monkeypat
             tmp_path, identity="123-1", expected_sha="b" * 40, limit=2, models="primary"
         )
     claim.assert_not_called()
+
+
+async def test_cancellation_preserves_admitted_operation_without_success(
+    tmp_path, monkeypatch
+):
+    sha = "a" * 40
+    monkeypatch.setenv("GIT_SHA", sha)
+    monkeypatch.setenv("CV_B2B_MODEL", "original-model")
+    monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "original-fallback")
+    monkeypatch.setattr(runner, "claim_run", AsyncMock(return_value=None))
+    checkpoints = []
+
+    async def checkpoint(path, report, key):
+        checkpoints.append(deepcopy(report))
+
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    @asynccontextmanager
+    async def admission(*args):
+        yield SimpleNamespace(operation_id="admitted-operation")
+
+    def cancelled(*args):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(runner, "checkpoint", checkpoint)
+    monkeypatch.setattr(runner, "AsyncSessionLocal", session)
+    monkeypatch.setattr(runner, "ai_feature", admission)
+    monkeypatch.setattr(runner, "generate_case", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run(
+            tmp_path, identity="124-1", expected_sha=sha, limit=1, models="primary"
+        )
+
+    assert checkpoints[-1]["complete"] is False
+    assert checkpoints[-1]["results"] == []
+    assert checkpoints[-1]["human_accepted"] is None
+    assert checkpoints[-1]["in_progress"]["operation_id"] == "admitted-operation"
+    assert checkpoints[-1]["in_progress"]["case_id"]
+    assert checkpoints[-1]["in_progress"]["requested_model"] == "original-model"
+    assert checkpoints[-2]["in_progress"] == checkpoints[-1]["in_progress"]
+    assert os.environ["CV_B2B_MODEL"] == "original-model"
+    assert os.environ["CV_B2B_FALLBACK_MODELS"] == "original-fallback"
