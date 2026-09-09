@@ -1,5 +1,6 @@
 "use client";
 
+import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -1874,7 +1875,10 @@ function GeneratedCvPreviewModal({
           breakPages: true,
           useBase64URL: true,
         });
-        if (!cancelled) setStatus("ready");
+        if (!cancelled) {
+          alignB2bLetterheadPreview(host);
+          setStatus("ready");
+        }
       } catch {
         if (!cancelled) setStatus("error");
       }
