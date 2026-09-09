@@ -1623,6 +1623,10 @@ async def generate_from_upload(
     """
     # A user explicitly binds the uploaded file; never match by parsed name.
     # Derive the client from a verified candidate-stage pair before rule/quota reads.
+    # Candidate-only upload is a deliberate standalone association under
+    # CandidateWriteAccess. It reads uploaded bytes, not that person's recruitment
+    # documents or notes, and grants no job binding. Selecting a stage requires
+    # membership below; do not infer a job from the candidate's other applications.
     job_id = None
     if stage_id is not None:
         if candidate_id is None:
