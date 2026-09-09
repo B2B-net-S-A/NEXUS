@@ -31,14 +31,14 @@ async def test_only_exact_associated_intact_version_can_be_selected(case):
     db = SimpleNamespace(
         scalar=AsyncMock(return_value=None if case == "missing" else version)
     )
-    if case == "valid":
+    if case in ("valid", "unassigned"):
         assert await approved_version_for_generation(db, generated, 12) is version
     else:
         with pytest.raises(HTTPException) as error:
             await approved_version_for_generation(db, generated, 12)
         assert error.value.status_code == (404 if case == "missing" else 409)
     if case == "unassigned":
-        db.scalar.assert_not_awaited()
+        assert "candidate_stage_cv_id IS NULL" in str(db.scalar.call_args.args[0])
     else:
         sql = str(db.scalar.call_args.args[0].compile())
         assert "generated_document_id =" in sql
@@ -76,6 +76,7 @@ async def test_public_link_uses_selected_approval_without_original_claims(
         expires_at=None,
     )
     version = SimpleNamespace(
+        template="standard",
         content_html="<p>Approved edit</p>",
         language="en",
         candidate_first_name="Approved",
@@ -134,5 +135,5 @@ async def test_version_list_scopes_metadata_without_loading_artifacts(monkeypatc
     assert "content_html" not in sql
     doc.candidate_id = None
     db.execute.reset_mock()
-    assert await api.list_generated_approved_versions(7, user, db) == []
-    db.execute.assert_not_awaited()
+    assert await api.list_generated_approved_versions(7, user, db) == [{"id": 12}]
+    assert "generated_owner_id =" in str(db.execute.call_args.args[0])

@@ -12,22 +12,30 @@ from app.models.recruitment_pipeline import CandidateStage
 
 async def approved_version_for_generation(db, generated, version_id: int):
     """Caller authorizes generated first; never substitute another/latest version."""
-    if generated.candidate_id is None or generated.job_id is None:
-        raise HTTPException(409, "CV nie jest przypisane do procesu zatwierdzania.")
-    version = await db.scalar(
-        select(CvDocumentVersion)
-        .join(
-            CandidateStageCV,
-            CandidateStageCV.id == CvDocumentVersion.candidate_stage_cv_id,
-        )
-        .join(CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id)
-        .where(
-            CvDocumentVersion.id == version_id,
-            CvDocumentVersion.generated_document_id == generated.id,
-            CandidateStage.candidate_id == generated.candidate_id,
-            CandidateStage.job_id == generated.job_id,
-        )
+    query = select(CvDocumentVersion).where(
+        CvDocumentVersion.id == version_id,
+        CvDocumentVersion.generated_document_id == generated.id,
     )
+    if generated.candidate_id is None or generated.job_id is None:
+        query = query.where(CvDocumentVersion.candidate_stage_cv_id.is_(None))
+    else:
+        query = (
+            query.outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.id == CvDocumentVersion.candidate_stage_cv_id,
+            )
+            .outerjoin(
+                CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
+            )
+            .where(
+                CvDocumentVersion.candidate_stage_cv_id.is_(None)
+                | (
+                    (CandidateStage.candidate_id == generated.candidate_id)
+                    & (CandidateStage.job_id == generated.job_id)
+                )
+            )
+        )
+    version = await db.scalar(query)
     if version is None:
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji tego CV.")
     if (

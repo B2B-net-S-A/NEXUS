@@ -9,6 +9,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    CheckConstraint,
+    Index,
+    text,
     LargeBinary,
     JSON,
 )
@@ -19,11 +22,29 @@ from app.core.database import Base
 
 class CvDocumentVersion(Base):
     __tablename__ = "cv_document_versions"
-    __table_args__ = (UniqueConstraint("candidate_stage_cv_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint("candidate_stage_cv_id", "version"),
+        CheckConstraint(
+            "(candidate_stage_cv_id IS NOT NULL) <> (generated_owner_id IS NOT NULL)",
+            name="ck_cv_version_owner",
+        ),
+        Index(
+            "uq_cv_generated_version",
+            "generated_owner_id",
+            "version",
+            unique=True,
+            postgresql_where=text("candidate_stage_cv_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    candidate_stage_cv_id: Mapped[int] = mapped_column(
-        ForeignKey("candidate_stage_cvs.id", ondelete="CASCADE"), index=True
+    candidate_stage_cv_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidate_stage_cvs.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+    generated_owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cv_generated_documents.id", ondelete="CASCADE"), nullable=True
     )
     generated_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("cv_generated_documents.id", ondelete="SET NULL"), nullable=True

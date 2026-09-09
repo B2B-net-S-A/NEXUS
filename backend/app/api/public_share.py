@@ -442,7 +442,9 @@ async def get_public_generated_cv(
         # Never expose titles or facts from the superseded generated payload.
         payload = {
             "language": approved.language,
-            "candidate_name": approved.candidate_first_name,
+            "candidate_name": ("Candidate" if approved.language == "en" else "Kandydat")
+            if approved.template == "blind"
+            else approved.candidate_first_name,
             "position": approved.job_title,
         }
 

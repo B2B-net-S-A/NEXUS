@@ -85,6 +85,18 @@ function CvGeneratedShareModalContent({
     enabled: open,
   });
 
+  const approveMutation = useMutation({
+    mutationFn: () => cvGeneratedShareApi.approve(generatedId as number),
+    onSuccess: async (res) => {
+      await versionsQuery.refetch();
+      setSelectedVersion(String(res.data.document_version_id));
+    },
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      showToast(detail ?? "Nie udało się zatwierdzić CV", "error");
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: () => {
       if (!selected) throw new Error("Wybierz zatwierdzoną wersję CV.");
@@ -171,7 +183,12 @@ function CvGeneratedShareModalContent({
               {versionsQuery.isError ? (
                 <p role="alert" className="text-sm text-destructive">Nie udało się pobrać wersji. <button type="button" className="underline" onClick={() => versionsQuery.refetch()}>Spróbuj ponownie</button></p>
               ) : !versionsQuery.isLoading && !versionsQuery.data?.length ? (
-                <p className="text-sm text-muted-foreground">Brak zatwierdzonych wersji. Zatwierdź to CV w procesie rekrutacyjnym przed utworzeniem linku.</p>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Brak zatwierdzonych wersji. Po sprawdzeniu wygenerowanego dokumentu zatwierdź go do udostępnienia.</p>
+                  <Button variant="outline" onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
+                    {approveMutation.isPending ? "Zatwierdzanie…" : "Zatwierdź wygenerowane CV"}
+                  </Button>
+                </div>
               ) : null}
             </div>
             <div className="grid grid-cols-2 gap-3">

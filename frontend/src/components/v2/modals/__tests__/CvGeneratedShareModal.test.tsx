@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CvGeneratedShareModal } from "../CvGeneratedShareModal";
 
-const api = vi.hoisted(() => ({ approvedVersions: vi.fn(), list: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
+const api = vi.hoisted(() => ({ approve: vi.fn(), approvedVersions: vi.fn(), list: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
 vi.mock("@/lib/api", () => ({ cvGeneratedShareApi: api }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 beforeEach(() => {
@@ -31,4 +31,20 @@ it("requires an explicit approved version and clears it when the document change
   expect(screen.getByRole("button", { name: "Wygeneruj link" })).toBeDisabled();
   expect(screen.getByLabelText("Zatwierdzona wersja CV")).toHaveValue("");
   expect(api.create).toHaveBeenCalledTimes(1);
+});
+
+it("can approve an upload without a recruitment stage and share that approval", async () => {
+  api.approvedVersions.mockResolvedValue({ data: [] });
+  api.approve.mockImplementation(async () => {
+    api.approvedVersions.mockResolvedValue({ data: [{ id: 21, version: 1, language: "pl", approved_at: "2026-09-09T12:00:00Z", job_title: "Engineer" }] });
+    return { data: { document_version_id: 21, version: 1 } };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><CvGeneratedShareModal generatedId={8} onClose={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Zatwierdź wygenerowane CV" }));
+  await waitFor(() => expect(screen.getByLabelText("Zatwierdzona wersja CV")).toHaveValue("21"));
+  await user.click(screen.getByRole("button", { name: "Wygeneruj link" }));
+  await waitFor(() => expect(api.create).toHaveBeenCalledWith(8, 14, undefined, 21));
+  expect(api.approve).toHaveBeenCalledWith(8);
 });

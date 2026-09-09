@@ -209,3 +209,24 @@ currently directs users to process approval; this is not the intended final stan
 workflow. The backend's optional version argument also still permits old callers to
 create an unpinned link; enforce approved-only creation once both approval ownership
 paths are connected. No production completion is claimed.
+
+
+### Standalone approval ownership and artifact preservation
+
+Migration 0294 permits an approval to belong either to a pipeline CV or directly
+to a generation (exclusive ownership check). A separate cascading owner reference
+preserves pipeline approvals when their generation is deleted while removing
+standalone approvals with their owner. Standalone approval is authorized, locks the
+generation, validates the archived DOCX hash and generation factual-review hash,
+and freezes client-safe HTML plus those exact DOCX bytes. Repeated approval reuses
+version 1. The share modal can now approve and select an unedited standalone upload.
+Version lookup/listing accepts both owners with generation/context filtering.
+
+Host evidence: 14 Python cases, two React interaction cases, TypeScript and Ruff
+passed. Tests use mock persistence; hosted migration/relational evidence is pending.
+Previous pushed head dd288a5d completed all CI shards and frontend build in run
+34405938149. This is not evidence for changes after that head.
+
+Remaining: standalone manual editing/new drafts and approved-only API enforcement,
+plus full real-model/visual acceptance and other open CV-01..20 requirements. No
+production completion is claimed.

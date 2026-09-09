@@ -2009,6 +2009,36 @@ async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> 
     )
 
 
+@router.post("/generated/{generated_id}/approve")
+async def approve_generated_cv(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await _load_generated_document(db, generated_id, current_user, write=True)
+    row = await db.scalar(
+        select(CvGeneratedDocument)
+        .where(CvGeneratedDocument.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(404, "Nie znaleziono CV.")
+    from app.services.cv_standalone_approval import approve_unchanged_generation
+
+    version = await approve_unchanged_generation(db, row, current_user.id)
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=row.id,
+            action="cv_generated_approved",
+            user_id=current_user.id,
+            details={"document_version_id": version.id},
+        )
+    )
+    await db.commit()
+    return {"document_version_id": version.id, "version": version.version}
+
+
 @router.get("/generated/{generated_id}/approved-versions")
 async def list_generated_approved_versions(
     generated_id: int,
@@ -2016,8 +2046,6 @@ async def list_generated_approved_versions(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     row = await _load_generated_document(db, generated_id, current_user, write=True)
-    if row.candidate_id is None or row.job_id is None:
-        return []
     from app.models.cv_document_version import CvDocumentVersion
     from app.models.candidate_stage_cv import CandidateStageCV
 
@@ -2031,18 +2059,22 @@ async def list_generated_approved_versions(
                     CvDocumentVersion.language,
                     CvDocumentVersion.job_title,
                 )
-                .join(
+                .outerjoin(
                     CandidateStageCV,
                     CandidateStageCV.id == CvDocumentVersion.candidate_stage_cv_id,
                 )
-                .join(
+                .outerjoin(
                     CandidateStage,
                     CandidateStage.id == CandidateStageCV.candidate_stage_id,
                 )
                 .where(
                     CvDocumentVersion.generated_document_id == row.id,
-                    CandidateStage.candidate_id == row.candidate_id,
-                    CandidateStage.job_id == row.job_id,
+                    (CvDocumentVersion.generated_owner_id == row.id)
+                    | (
+                        (CandidateStage.candidate_id == row.candidate_id)
+                        & (CandidateStage.job_id == row.job_id)
+                        & CvDocumentVersion.candidate_stage_cv_id.is_not(None)
+                    ),
                 )
                 .order_by(
                     CvDocumentVersion.approved_at.desc(), CvDocumentVersion.id.desc()

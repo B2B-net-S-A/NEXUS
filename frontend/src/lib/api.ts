@@ -5338,6 +5338,7 @@ export interface CvGeneratedApprovedVersion {
 }
 
 export const cvGeneratedShareApi = {
+  approve: (generatedId: number) => api.post<{ document_version_id: number; version: number }>(`/api/cv-generator/generated/${generatedId}/approve`),
   approvedVersions: (generatedId: number) =>
     api.get<CvGeneratedApprovedVersion[]>(`/api/cv-generator/generated/${generatedId}/approved-versions`),
   // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
