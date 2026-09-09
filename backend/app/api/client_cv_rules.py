@@ -1348,11 +1348,12 @@ def _variant(value: Optional[dict]) -> Optional[PreviewVariant]:
     )
 
 
-def _preview_read(row: ClientCvRulePreview) -> PreviewRead:
+def _preview_read(row: ClientCvRulePreview, *, durable: bool = False) -> PreviewRead:
     status_value = row.status
     error_message = row.error_message
     if (
         status_value == "processing"
+        and not durable
         and row.created_at is not None
         and datetime.now(timezone.utc) - row.created_at > PREVIEW_STALE_AFTER
     ):
@@ -1698,7 +1699,7 @@ async def enqueue_client_cv_rule_preview(
     await db.commit()
     await db.refresh(row)
     background_tasks.add_task(execute_job, durable_id)
-    return _preview_read(row)
+    return _preview_read(row, durable=True)
 
 
 @router.get(
@@ -1715,7 +1716,12 @@ async def get_client_cv_rule_preview(
     row = await db.get(ClientCvRulePreview, preview_id)
     if row is None or row.client_id != client_id:
         raise HTTPException(status_code=404, detail="Podgląd nie istnieje.")
-    return _preview_read(row)
+    from app.models.cv_generation_job import CvGenerationJob
+
+    durable_id = await db.scalar(
+        select(CvGenerationJob.id).where(CvGenerationJob.preview_id == row.id)
+    )
+    return _preview_read(row, durable=durable_id is not None)
 
 
 # ── Przegląd zbiorczy ────────────────────────────────────────────────────────

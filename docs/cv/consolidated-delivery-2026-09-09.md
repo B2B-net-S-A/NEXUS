@@ -61,3 +61,27 @@ Wybór źródła jest wspólnym komponentem i hookiem także w starszym CVGenera
 Podgląd korzysta z tego samego wyboru konkretnego pliku co generator. API przechwytuje źródła przed rezerwacją dwóch jednostek, sprawdza czytelność pliku i zgodność kandydata/procesu/klienta, a potem przekazuje snapshot do workera. Oba warianty używają tych samych bajtów i jednego zestawu faktów. Normalna ścieżka workera nie odczytuje ponownie bieżącego CV; zgodność starszych bezpośrednich wywołań zachowano przez opcjonalny argument. Snapshot nadal znajduje się w pamięci procesu — trwałe zadania i odtworzenie po restarcie pozostają osobnym, otwartym wymaganiem.
 
 19 testów publikacji/gotowości/wyboru oraz test interfejsu podglądu przeszły; TypeScript i Ruff bez błędów. Test backendowy weryfikuje brak ponownego odczytu źródła, test UI wymaga wyboru pliku i sprawdza przekazanie jego ID. Test API z bazą używa poprawnego syntetycznego DOCX i będzie wykonany w hosted CI.
+
+## Durable generation work (branch only, not production acceptance)
+
+Commits 99887af5 through c5a4514f introduce a versioned private input format,
+SHA-256 integrity checks, a job table (0290), atomic lease claims, renewal,
+queued-attempt recovery and expired-owner write fencing. Normal candidate,
+upload and client-rule preview admission now save captured inputs before
+returning 202. Both language result IDs belong to their parent attempt. An
+expired running attempt is interrupted rather than automatically making a new
+paid provider request. Preview reads no longer invent a failure at 15 minutes
+for a durable attempt.
+
+Evidence: focused host-native snapshot, SQLite state-transition, executor and
+admission tests passed. Separate PostgreSQL concurrent-claim tests are added;
+CI on cdd7eb8d had lint/migrations, frontend typecheck and secret scanning green
+at inspection, while full backend shards were still running. These are not
+restart or real-provider acceptance tests.
+
+Still required before this is complete: real restart/concurrent-worker proof,
+retry/idempotency/progress UI and API, storage failure before quota admission,
+input retention/orphan cleanup, transitional legacy processing rows, and full
+coverage of cancellation during the secondary provider call. Snapshot schema
+compatibility across deployments and exact model/prompt/template provenance
+also remain to be completed. Do not treat CV-09 or either audit as closed.

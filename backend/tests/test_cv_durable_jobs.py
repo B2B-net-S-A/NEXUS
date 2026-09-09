@@ -94,3 +94,24 @@ async def test_second_document_is_registered_under_same_owner():
         with pytest.raises(RuntimeError, match="already has"):
             await register_second_document(db, 13)
     assert record.second_generated_id == 12
+
+
+def test_live_durable_preview_does_not_report_arbitrary_fifteen_minute_failure():
+    from datetime import datetime, timedelta, timezone
+    from app.api.client_cv_rules import _preview_read
+
+    row = SimpleNamespace(
+        id=12,
+        client_id=5,
+        candidate_id=2,
+        stage_id=3,
+        language="pl",
+        status="processing",
+        error_message=None,
+        prompt_block=None,
+        with_rule=None,
+        without_rule=None,
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=30),
+    )
+    assert _preview_read(row, durable=True).status == "processing"
+    assert _preview_read(row).status == "failed"  # Legacy work has no lease.
