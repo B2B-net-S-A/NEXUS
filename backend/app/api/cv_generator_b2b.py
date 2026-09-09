@@ -513,12 +513,11 @@ def _second_language(rule, language: str) -> Optional[str]:
 
 async def _charge_second_language_or_note(
     db: AsyncSession, *, first_generated_id: int, user_id: int
-) -> bool:
+) -> QuotaState | None:
     """Obciąż kwotę za drugą wersję; przy odmowie dopisz uwagę do pierwszego
     wiersza zamiast padać — druga wersja jest wygodą, pierwsza już powstała."""
     try:
-        await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
-        return True
+        return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
     except AIQuotaExceeded as exc:
         row = await db.get(CvGeneratedDocument, first_generated_id)
         if row is not None:
@@ -529,7 +528,7 @@ async def _charge_second_language_or_note(
                 + " — wygeneruj ją ręcznie.",
             ]
         await db.commit()
-        return False
+        return None
 
 
 # ── Background generation jobs ─────────────────────────────────────────────
@@ -633,9 +632,10 @@ async def _run_generate_new_job(
         # awaria — porażka drugiej nie dotyka pierwszej.
         second = _second_language(rule_snapshot, language) if finalized else None
         if second is not None:
-            if not await _charge_second_language_or_note(
+            second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
-            ):
+            )
+            if second_quota is None:
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
             second_id = await _create_pending_row(
@@ -653,14 +653,17 @@ async def _run_generate_new_job(
             )
             await db.commit()
             try:
-                second_result = await generate_cv_from_candidate_source(
-                    source,
-                    language=second,  # type: ignore[arg-type]
-                    blind_cv=blind_cv,
-                    content_mode=content_mode,
-                    client_rule=rule_snapshot,
-                    project_ref=project_ref or None,
-                )
+                with declared_call(
+                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                ):
+                    second_result = await generate_cv_from_candidate_source(
+                        source,
+                        language=second,  # type: ignore[arg-type]
+                        blind_cv=blind_cv,
+                        content_mode=content_mode,
+                        client_rule=rule_snapshot,
+                        project_ref=project_ref or None,
+                    )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)
                 await db.commit()
@@ -831,9 +834,10 @@ async def _run_generate_upload_job(
         if second is not None:
             import dataclasses
 
-            if not await _charge_second_language_or_note(
+            second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
-            ):
+            )
+            if second_quota is None:
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
             second_payload = dataclasses.replace(payload, language=second)  # type: ignore[arg-type]
@@ -852,9 +856,12 @@ async def _run_generate_upload_job(
             )
             await db.commit()
             try:
-                second_result = await run_in_threadpool(
-                    generate_cv_from_uploads, second_payload
-                )
+                with declared_call(
+                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                ):
+                    second_result = await run_in_threadpool(
+                        generate_cv_from_uploads, second_payload
+                    )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)
                 await db.commit()
