@@ -3,13 +3,15 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CvRulePreviewTab } from "./CvRulePreviewTab";
 
-const mocks = vi.hoisted(() => ({ enqueue: vi.fn(async () => ({id: 9})) }));
+const mocks = vi.hoisted(() => ({ enqueue: vi.fn(async () => ({id: 9})), preview: vi.fn(), download: vi.fn(), blob: new Blob(["exact-artifact"]) }));
+vi.mock("@/lib/cv-generator", async (original) => ({...await original<typeof import("@/lib/cv-generator")>(), downloadBlob: mocks.download}));
 vi.mock("@/lib/cv-rules", () => ({cvRulesApi: {
   promptPreview: vi.fn(async () => ({block: "Presentation only", is_active: true})),
   enqueuePreview: mocks.enqueue,
-  getPreview: vi.fn(),
+  getPreview: mocks.preview,
 }}));
 vi.mock("@/lib/api", () => ({extractErrorMsg: String, default: {get: vi.fn(async (url: string) => {
+  if (url.includes("/docx/")) return {data: mocks.blob};
   if (url.endsWith("/cv-sources")) return {data: [{id: 72, filename: "chosen.docx", is_primary: false, uploaded_at: null}]};
   if (url.endsWith("/recruitments")) return {data: [{stage_id: 3, job_id: 4, client_id: 26, job_title: "Synthetic job", ready: true, stage: "Nowy"}]};
   return {data: [{id: 2, full_name: "Synthetic Candidate"}]};
@@ -32,5 +34,19 @@ describe("Rule preview source selection", () => {
       candidate_id: 2, stage_id: 3, cv_document_id: 72, language: "pl",
     }));
     await waitFor(() => expect(onPreviewId).toHaveBeenCalledWith(9));
+  });
+});
+
+
+describe("Rule preview artifact download", () => {
+  it("downloads the selected variant from its authenticated endpoint", async () => {
+    const variant = {payload: {name: "Synthetic"}, filename: "with-rule.docx", warnings: [], can_download: true};
+    mocks.preview.mockResolvedValue({id: 9, status: "ready", with_rule: variant, without_rule: {...variant, filename: "without-rule.docx"}});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    render(<QueryClientProvider client={queryClient}><CvRulePreviewTab clientId={26} dirty={false} previewId={9} onPreviewId={vi.fn()} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", {name: "Pobierz DOCX — bez reguły"}));
+    await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(mocks.blob, "without-rule.docx"));
+    const {default: api} = await import("@/lib/api");
+    expect(api.get).toHaveBeenCalledWith("/api/clients/26/cv-rule/preview/9/docx/without_rule", {responseType: "blob"});
   });
 });

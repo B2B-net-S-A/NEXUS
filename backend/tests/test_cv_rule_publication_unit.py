@@ -155,15 +155,18 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(
     current_rule = AsyncMock(side_effect=AssertionError("must not read current rule"))
     monkeypatch.setattr(api, "_rule_for", current_rule)
     generate = AsyncMock(
-        return_value=GenerationResult(
-            candidate_name="Test",
-            filename="test.docx",
-            docx_bytes=b"docx",
-            warnings=[],
-            processing_time_ms=1,
-            render_payload={},
-            job_id=1,
-        )
+        side_effect=[
+            GenerationResult(
+                candidate_name="Test",
+                filename=f"{variant}.docx",
+                docx_bytes=variant.encode(),
+                warnings=[],
+                processing_time_ms=1,
+                render_payload={},
+                job_id=1,
+            )
+            for variant in ("with-rule", "without-rule")
+        ]
     )
     source = SimpleNamespace(
         cv_bytes=b"cv", cv_filename="cv.docx", screening_notes_text="notes"
@@ -183,6 +186,14 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(
         source=source if captured else None,
     )
     assert row.status == "ready"
+    import hashlib
+
+    assert row.with_rule_docx == b"with-rule"
+    assert row.without_rule_docx == b"without-rule"
+    assert row.with_rule["docx_sha256"] == hashlib.sha256(b"with-rule").hexdigest()
+    assert (
+        row.without_rule["docx_sha256"] == hashlib.sha256(b"without-rule").hexdigest()
+    )
     if captured:
         load_source.assert_not_awaited()
     else:
