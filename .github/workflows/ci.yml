@@ -85,6 +85,17 @@ jobs:
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
           CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
         run: alembic -c alembic/alembic.ini upgrade heads
+      - name: Native CV OCR acceptance
+        if: strategy.job-index == 0
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
+          REQUIRE_NATIVE_CV_OCR: "1"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-pol tesseract-ocr-eng poppler-utils fonts-dejavu-core
+          python -m pytest tests/test_cv_ocr_native.py -q
       - name: Pytest (unit + in-process integration)
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
