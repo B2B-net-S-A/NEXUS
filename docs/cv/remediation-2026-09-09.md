@@ -192,6 +192,22 @@ rows on loaded pages. Context switches reset pending source attachments.
 inserts more than 60 unrelated documents and checks filtered cursor traversal.
 CI, deployment and actual production flow remain required.
 
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
+
 ## Multipage letterhead regression (synthetic production CV)
 
 The actual production fixture split the word "Tworzenie" around background
@@ -207,3 +223,9 @@ library and the new helper. Header is complete. 17 focused backend regressions,
 preview DOM regression and type-check pass. Hosted CI/deployment/production
 browser proof remain pending. This fixes letterhead layout, not unsupported
 AI claims, font availability or complete Word/browser pagination parity.
+
+### CV-09 / required Champion admission — partial delivery
+
+Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
+
+The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. Depends on the explicit upload/history package #1450.
