@@ -498,8 +498,11 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         charged: list[tuple[str, int]] = []
         remaining = 1
 
-        async def fake_charge(db, feature, user_id=None, *, units=1):
+        async def fake_charge(
+            db, feature, user_id=None, *, units=1, commit_with_caller=False
+        ):
             nonlocal remaining
+            assert commit_with_caller is True
             from app.services.ai_quota import AIQuotaExceeded
 
             if remaining < units:
@@ -592,7 +595,6 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert r.status_code == 422, r.text
         assert "nie jest gotowa" in r.json()["detail"]
         assert charged == []
-
 
         async def fake_readiness(db, candidate_id, **kwargs):
             return [
