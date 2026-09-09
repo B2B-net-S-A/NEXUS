@@ -40,6 +40,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 const RULE = makeCvRule({
+  glossary_options: [{ kind: "role_translation", from: "Business Analyst", to: "Analityk Biznesowy", source_language: "en", target_language: "pl" }],
   client_id: 5,
   edit_revision: 4,
   client_name: "KIR",
@@ -125,11 +126,8 @@ describe("CvRuleEditor", () => {
     // Sekcja do pominięcia + słownik.
     fireEvent.click(screen.getByLabelText("Języki"));
     fireEvent.click(screen.getByRole("button", { name: "Dodaj parę" }));
-    fireEvent.change(screen.getByLabelText("Słownik 1: z"), {
-      target: { value: "Business Analyst" },
-    });
-    fireEvent.change(screen.getByLabelText("Słownik 1: na"), {
-      target: { value: "Analityk Biznesowy" },
+    fireEvent.change(screen.getByLabelText("Tłumaczenie stanowiska 1"), {
+      target: { value: "0" },
     });
 
     fireEvent.change(screen.getByLabelText("Co pogrubiać"), { target: { value: "explicit" } });
@@ -241,6 +239,19 @@ describe("CvRuleEditor", () => {
     expect(await screen.findByText(/dopisuje fakty — zostanie zignorowana/)).toBeInTheDocument();
     expect(screen.getByText(/1 OK · 1 do przepisania/)).toBeInTheDocument();
     expect(screen.getByText(/Jeśli kandydat ma Kubernetes/)).toBeInTheDocument();
+  });
+
+  it("pokazuje niedozwolony stary wpis i pozwala zastąpić go tłumaczeniem", async () => {
+    mocks.get.mockResolvedValueOnce({ data: {
+      ...RULE, glossary: [{ from: "Python", to: "Rust" }],
+    } });
+    renderEditor();
+    const select = await screen.findByLabelText("Tłumaczenie stanowiska 1");
+    expect(select).toHaveValue("-1");
+    expect(screen.getByText("Niedozwolony wpis: Python → Rust")).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "0" } });
+    expect(select).toHaveValue("0");
+    expect(screen.queryByText("Niedozwolony wpis: Python → Rust")).not.toBeInTheDocument();
   });
 
   it("usuwanie ma dwustopniowe potwierdzenie w komponencie", async () => {
