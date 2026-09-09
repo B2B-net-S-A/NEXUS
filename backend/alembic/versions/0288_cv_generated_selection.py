@@ -29,7 +29,16 @@ def upgrade():
         ),
     )
 
+    op.create_index(
+        "ix_candidate_stage_cvs_generated_document_id",
+        "candidate_stage_cvs",
+        ["generated_document_id"],
+    )
+
 
 def downgrade():
+    op.drop_index(
+        "ix_candidate_stage_cvs_generated_document_id", table_name="candidate_stage_cvs"
+    )
     op.drop_column("candidate_stage_cvs", "branded_from_generator")
     op.drop_column("candidate_stage_cvs", "generated_document_id")
