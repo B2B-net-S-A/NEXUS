@@ -35,21 +35,31 @@ async def load_draft(db, generated):
         return draft
     if generated.status != "ready" or not generated.render_payload:
         raise HTTPException(409, "CV nie jest gotowe do edycji.")
-    try:
-        template, consent, metadata = await run_in_threadpool(
-            generated_assets, generated
-        )
-    except CvAssetsError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    public = build_public_payload(generated.render_payload)
-    html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
-    metadata.update(capture_editor_origin(html, generated.render_payload))
     latest = await db.scalar(
         select(CvDocumentVersion)
         .where(CvDocumentVersion.generated_owner_id == generated.id)
         .order_by(CvDocumentVersion.version.desc())
         .limit(1)
     )
+    public = build_public_payload(generated.render_payload)
+    try:
+        if latest is not None:
+            from app.services.cv_document_assets import approved_assets
+
+            template, consent, metadata = approved_assets(latest)
+            html = latest.content_html
+            public["language"] = latest.language or public["language"]
+            public["blind"] = latest.template == "blind"
+        else:
+            template, consent, metadata = await run_in_threadpool(
+                generated_assets, generated
+            )
+            html = sanitize_cv_html(
+                render_interactive_html(public, [], document_only=True)
+            )
+            metadata.update(capture_editor_origin(html, generated.render_payload))
+    except CvAssetsError as exc:
+        raise HTTPException(422, str(exc)) from exc
     draft = CvGeneratedDraft(
         generated_document_id=generated.id,
         edit_revision=0,
@@ -141,6 +151,9 @@ async def finalize(db, draft, expected_revision, html, user_id):
         **approval_provenance(cleaned, draft.branded_render_metadata),
         "content_review": review,
         "requires_content_review": False,
+        "consent_sha256": hashlib.sha256(draft.branded_consent_content).hexdigest()
+        if draft.branded_consent_content
+        else None,
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(draft.branded_template_content).hexdigest(),
     }
@@ -150,6 +163,8 @@ async def finalize(db, draft, expected_revision, html, user_id):
         version=draft.branded_version,
         content_html=cleaned,
         content_sha256=hashlib.sha256(cleaned.encode()).hexdigest(),
+        template_content=draft.branded_template_content,
+        consent_content=draft.branded_consent_content,
         docx_content=docx,
         docx_sha256=hashlib.sha256(docx).hexdigest(),
         docx_filename=draft.branded_docx_filename,

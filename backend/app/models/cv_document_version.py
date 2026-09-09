@@ -49,6 +49,8 @@ class CvDocumentVersion(Base):
     generated_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("cv_generated_documents.id", ondelete="SET NULL"), nullable=True
     )
+    template_content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    consent_content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     docx_content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     docx_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     docx_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)

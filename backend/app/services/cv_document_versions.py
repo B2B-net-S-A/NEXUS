@@ -41,6 +41,8 @@ async def freeze_approved_version(
             version=csv.branded_version,
             generated_document_id=csv.generated_document_id,
             content_html=html,
+            template_content=csv.branded_template_content,
+            consent_content=csv.branded_consent_content,
             docx_content=docx_content,
             docx_sha256=hashlib.sha256(docx_content).hexdigest()
             if docx_content

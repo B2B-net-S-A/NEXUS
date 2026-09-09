@@ -48,6 +48,21 @@ async def approve_unchanged_generation(db, generated, user_id):
         raise HTTPException(
             409, "To CV ma zapisany szkic. Zatwierdź jego treść w edytorze."
         )
+    from starlette.concurrency import run_in_threadpool
+    from app.services.cv_document_assets import generated_assets, CvAssetsError
+
+    try:
+        template, consent, assets = await run_in_threadpool(generated_assets, generated)
+    except CvAssetsError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    expected_template = (generated.render_payload.get("artifact_provenance") or {}).get(
+        "template_sha256"
+    )
+    if expected_template and expected_template != assets["template_sha256"]:
+        raise HTTPException(
+            409, "Szablon tej generacji nie jest już dostępny. Wygeneruj CV ponownie."
+        )
+    metadata.update(assets)
     version = CvDocumentVersion(
         generated_owner_id=generated.id,
         generated_document_id=generated.id,
@@ -55,6 +70,8 @@ async def approve_unchanged_generation(db, generated, user_id):
         version=1,
         content_html=html,
         content_sha256=hashlib.sha256(html.encode()).hexdigest(),
+        template_content=template,
+        consent_content=consent,
         docx_content=generated.docx_content,
         docx_sha256=generated.docx_sha256,
         docx_filename=generated.filename,

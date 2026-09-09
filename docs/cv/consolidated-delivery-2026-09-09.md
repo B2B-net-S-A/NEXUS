@@ -315,3 +315,21 @@ still resolved through the generation asset loader during import; complete immut
 asset transfer across versions remains to be checked. CI 34407704731 for 96d9ff50
 completed successfully (all backend shards and frontend build). Subsequent editor
 and import changes require a new CI run.
+
+
+### Immutable rendering assets attached to approvals
+
+Migration 0296 stores template and consent bytes with approved versions. Pipeline
+and standalone edited finalization preserve those assets and hashes. Unchanged
+standalone approval also captures its assets and rejects a template hash mismatch
+against recorded generation provenance. Pipeline import of an approved revision and
+reopening a standalone approval use the version's assets directly, never current
+storage/template files. Missing historical assets yield an explicit error while
+existing approved downloads remain available; no historical bytes are fabricated.
+
+Twenty-nine focused tests pass, including corrupt-asset refusal and reopening while
+the live asset loader is forced to fail. Ruff passes and Alembic has single head
+0296. PostgreSQL migration and real UI proof are still pending. CI 34409180558 is
+running for earlier pushed head 2d5a3c80; CI Gate 34409180592 is successful.
+This does not close remaining generation-time source/asset retention, legacy approval,
+async review, full quality corpus or production acceptance requirements.

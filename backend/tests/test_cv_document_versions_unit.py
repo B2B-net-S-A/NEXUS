@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -220,6 +221,16 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
 
     resolver = AsyncMock(
         return_value=SimpleNamespace(
+            template_content=b"frozen template",
+            consent_content=None,
+            render_metadata={
+                "template_sha256": __import__("hashlib")
+                .sha256(b"frozen template")
+                .hexdigest(),
+                "consent_sha256": None,
+            },
+            language="en",
+            template="blind",
             id=81,
             content_html="<p>Approved <b>Python</b> edit</p>",
             content_sha256="h" * 64,

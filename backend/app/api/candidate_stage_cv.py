@@ -449,33 +449,41 @@ async def select_generated_cv(
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
-    try:
-        template, consent, metadata = await run_in_threadpool(
-            generated_assets, generated
-        )
-    except CvAssetsError as error:
-        raise HTTPException(422, str(error)) from error
-    public = build_public_payload(generated.render_payload)
-    html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     from app.services.cv_approval_provenance import capture_editor_origin
 
-    metadata.update(capture_editor_origin(html, generated.render_payload))
+    public = build_public_payload(generated.render_payload)
+    approved = None
     if payload.document_version_id is not None:
         from app.services.cv_generated_approval import approved_version_for_generation
 
         approved = await approved_version_for_generation(
             db, generated, payload.document_version_id
         )
-        html = sanitize_cv_html(approved.content_html)
-        # This starts a new draft from the selected approved text. Keep provenance
-        # explicit; the original generation verdict must not cover edited content.
-        metadata.update(
-            {
-                "source_document_version_id": approved.id,
-                "source_document_content_sha256": approved.content_sha256,
-                "source_document_docx_sha256": approved.docx_sha256,
-            }
-        )
+    try:
+        if approved is not None:
+            from app.services.cv_document_assets import approved_assets
+
+            template, consent, metadata = approved_assets(approved)
+            html = sanitize_cv_html(approved.content_html)
+            public["language"] = approved.language or public["language"]
+            public["blind"] = approved.template == "blind"
+            metadata.update(
+                {
+                    "source_document_version_id": approved.id,
+                    "source_document_content_sha256": approved.content_sha256,
+                    "source_document_docx_sha256": approved.docx_sha256,
+                }
+            )
+        else:
+            template, consent, metadata = await run_in_threadpool(
+                generated_assets, generated
+            )
+            html = sanitize_cv_html(
+                render_interactive_html(public, [], document_only=True)
+            )
+            metadata.update(capture_editor_origin(html, generated.render_payload))
+    except CvAssetsError as error:
+        raise HTTPException(422, str(error)) from error
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
@@ -762,6 +770,7 @@ async def finalize_branded_cv(
     csv.branded_snapshot_size_bytes = size
 
     csv.branded_docx_filename = docx_filename
+    csv.branded_template_content = template
     csv.branded_render_metadata = metadata
     version = await freeze_approved_version(
         db,

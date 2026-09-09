@@ -47,3 +47,22 @@ def generated_assets(generated):
         "consent_sha256": hashlib.sha256(consent).hexdigest() if consent else None,
     }
     return template, consent, metadata
+
+
+def approved_assets(version):
+    """No live-template/storage fallback for a selected immutable approval."""
+    template = version.template_content
+    consent = version.consent_content
+    metadata = dict(version.render_metadata or {})
+    if not template:
+        raise CvAssetsError(
+            "Ta wersja nie ma zapisanych zasobów edycji. Pobierz zatwierdzony DOCX albo wybierz pierwotną generację jako nowy szkic."
+        )
+    if hashlib.sha256(template).hexdigest() != metadata.get("template_sha256"):
+        raise CvAssetsError("Nie można potwierdzić szablonu zatwierdzonej wersji CV.")
+    digest = hashlib.sha256(consent).hexdigest() if consent else None
+    if digest != metadata.get("consent_sha256"):
+        raise CvAssetsError(
+            "Nie można potwierdzić załącznika zgody zatwierdzonej wersji CV."
+        )
+    return template, consent, metadata

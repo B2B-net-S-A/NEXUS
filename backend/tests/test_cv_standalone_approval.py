@@ -25,6 +25,8 @@ async def test_standalone_approval_freezes_verified_artifact(case):
         }
     doc = SimpleNamespace(
         id=7,
+        client_id=None,
+        client_rule_version=None,
         status="ready",
         render_payload=payload,
         docx_content=b"exact docx",
