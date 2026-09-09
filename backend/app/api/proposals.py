@@ -132,7 +132,9 @@ async def _hydrate_current_items(db, job, snap, *, context_stale=False):
             item.breakdown = {
                 "candidate_id": item.candidate.id,
                 "total": None,
-                "measurement": "context_changed" if context_stale else "candidate_changed",
+                "measurement": "context_changed"
+                if context_stale
+                else "candidate_changed",
                 "eligibility": item.eligibility,
             }
         else:
