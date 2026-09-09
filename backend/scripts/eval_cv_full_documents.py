@@ -136,6 +136,8 @@ async def run(
         "requested_models": requested,
         "case_offset": offset,
         "case_limit": limit,
+        "corpus_case_count": len(manifest["cases"]),
+        "covers_full_corpus": offset == 0 and limit == len(manifest["cases"]),
         "requested_case_ids": [
             case["id"] for case in manifest["cases"][offset : offset + limit]
         ],

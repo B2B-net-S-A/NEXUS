@@ -249,6 +249,8 @@ async def test_finished_run_links_model_artifacts_from_root_report(
     report = checkpoints[-1]
     assert report["case_offset"] == offset
     assert report["case_limit"] == 1
+    assert report["corpus_case_count"] == 40
+    assert report["covers_full_corpus"] is False
     assert report["requested_case_ids"] == [
         "career_change-pl" if offset == 0 else "career_change-en"
     ]
