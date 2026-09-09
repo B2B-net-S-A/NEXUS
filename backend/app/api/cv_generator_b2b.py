@@ -525,6 +525,9 @@ async def _charge_second_language_or_note(
 ) -> QuotaState | None:
     """Obciąż kwotę za drugą wersję; przy odmowie dopisz uwagę do pierwszego
     wiersza zamiast padać — druga wersja jest wygodą, pierwsza już powstała."""
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     try:
         return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
     except AIQuotaExceeded as exc:

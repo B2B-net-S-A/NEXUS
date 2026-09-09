@@ -99,3 +99,51 @@ async def test_reaper_preserves_queued_and_live_work_and_fences_expired_owner():
         async with AsyncSessionLocal() as db:
             await db.execute(delete(CvGenerationJob).where(CvGenerationJob.id.in_(ids)))
             await db.commit()
+
+
+async def test_failure_preserves_ready_first_language_and_finishes_second():
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services.cv_generator_b2b.durable_jobs import fail_unfinished_outputs
+
+    async with AsyncSessionLocal() as db:
+        first = CvGeneratedDocument(
+            candidate_name="Synthetic", filename="first.docx", status="ready"
+        )
+        second = CvGeneratedDocument(
+            candidate_name="Synthetic", filename="", status="processing"
+        )
+        db.add_all([first, second])
+        await db.flush()
+        ids = [first.id, second.id]
+        job = CvGenerationJob(
+            kind="upload",
+            status="running",
+            generated_id=first.id,
+            second_generated_id=second.id,
+            input_storage_key="test-only/no-object",
+            input_sha256="c" * 64,
+        )
+        db.add(job)
+        await db.flush()
+        job_id = job.id
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            await fail_unfinished_outputs(db, job_id)
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            first = await db.get(CvGeneratedDocument, ids[0])
+            second = await db.get(CvGeneratedDocument, ids[1])
+            assert first.status == "ready"
+            assert first.filename == "first.docx"
+            assert second.status == "failed"
+            assert second.error_message
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CvGenerationJob).where(CvGenerationJob.id == job_id)
+            )
+            await db.execute(
+                delete(CvGeneratedDocument).where(CvGeneratedDocument.id.in_(ids))
+            )
+            await db.commit()

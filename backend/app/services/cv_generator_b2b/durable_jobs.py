@@ -177,16 +177,16 @@ async def execute_job(job_id: int):
         failed = True
         logger.exception("CV durable job failed: id=%s", job_id)
         async with AsyncSessionLocal() as db:
-            document = await db.get(
-                ClientCvRulePreview if kind == "preview" else CvGeneratedDocument,
-                preview_id if kind == "preview" else generated_id,
-            )
-            if document is not None and document.status == "processing":
-                document.status = "failed"
-                document.error_message = (
-                    "Generacja przerwana. Sprawdź wynik przed ponowieniem."
-                )
-                await db.commit()
+            # Update every unfinished result, including a second language, only
+            # while this attempt still owns the lease. Otherwise the reaper owns it.
+            with owned_job(job_id, token):
+                try:
+                    await lock_owned_job(db)
+                except RuntimeError:
+                    await db.rollback()
+                else:
+                    await fail_unfinished_outputs(db, job_id)
+                    await db.commit()
     finally:
         for task in (work, renewal):
             if task is not None:
@@ -278,3 +278,40 @@ async def recovery_loop():
         for task in active:
             task.cancel()
         await asyncio.gather(*active, return_exceptions=True)
+
+
+async def fail_unfinished_outputs(db, job_id: int):
+    """Preserve ready artifacts while terminating all unfinished outputs."""
+    from sqlalchemy import update
+
+    outputs = (
+        select(CvGenerationJob.generated_id)
+        .where(CvGenerationJob.id == job_id)
+        .union(
+            select(CvGenerationJob.second_generated_id).where(
+                CvGenerationJob.id == job_id
+            )
+        )
+    )
+    await db.execute(
+        update(CvGeneratedDocument)
+        .where(
+            CvGeneratedDocument.id.in_(outputs),
+            CvGeneratedDocument.status == "processing",
+        )
+        .values(
+            status="failed",
+            error_message="Generacja przerwana. Sprawdź wynik przed ponowieniem.",
+        )
+    )
+    previews = select(CvGenerationJob.preview_id).where(CvGenerationJob.id == job_id)
+    await db.execute(
+        update(ClientCvRulePreview)
+        .where(
+            ClientCvRulePreview.id.in_(previews),
+            ClientCvRulePreview.status == "processing",
+        )
+        .values(
+            status="failed", error_message="Generacja CV próbnego została przerwana."
+        )
+    )

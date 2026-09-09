@@ -201,3 +201,31 @@ async def test_rejected_admission_removes_only_new_snapshot(monkeypatch):
     charge.assert_awaited_once()
     delete.assert_called_once_with("test-only-new-snapshot")
     db.add.assert_not_called()
+
+
+async def test_expired_worker_does_not_charge_for_second_language(monkeypatch):
+    from app.services.cv_generator_b2b.job_leases import owned_job
+
+    db = AsyncMock()
+    db.scalar.return_value = None
+    charge = AsyncMock()
+    monkeypatch.setattr(api, "check_and_increment", charge)
+    with owned_job(21, "expired"):
+        with pytest.raises(RuntimeError, match="lease lost"):
+            await api._charge_second_language_or_note(
+                db, first_generated_id=11, user_id=7
+            )
+    charge.assert_not_awaited()
+
+
+async def test_failure_includes_secondary_output_without_overwriting_ready_cv():
+    db = AsyncMock()
+    await jobs.fail_unfinished_outputs(db, 21)
+    assert db.execute.await_count == 2
+    generated = str(db.execute.call_args_list[0].args[0].compile())
+    assert "second_generated_id" in generated
+    assert "generated_id" in generated
+    assert "status =" in generated
+    values = db.execute.call_args_list[0].args[0].compile().params
+    assert "processing" in values.values()
+    assert "failed" in values.values()
