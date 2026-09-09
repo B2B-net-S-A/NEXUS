@@ -40,6 +40,11 @@ def project(value, identity):
     if not isinstance(value, dict) or value.get("run_identity") != identity:
         raise ValueError("invalid receipt")
     output = {key: value[key] for key in TOP_FIELDS}
+    if "response_schema_sha256" in value:
+        digest = value["response_schema_sha256"]
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("invalid schema fingerprint")
+        output["response_schema_sha256"] = digest
     output["results"] = [
         {key: row[key] for key in RESULT_FIELDS} for row in value["results"]
     ]

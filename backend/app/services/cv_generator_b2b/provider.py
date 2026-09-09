@@ -135,6 +135,7 @@ def analyze_with_ai(
     system: str | None = None,
     *,
     model_override: str | None = None,
+    response_schema: dict[str, Any] | None = None,
 ) -> str:
     """Zawołaj model i zwróć tekst odpowiedzi. Sygnatura bez zmian.
 
@@ -179,6 +180,10 @@ def analyze_with_ai(
     if system:
         kwargs["system"] = system
         kwargs["cache_system"] = True
+    if response_schema is not None:
+        kwargs["output_config"] = {
+            "format": {"type": "json_schema", "schema": response_schema}
+        }
 
     try:
         text = call_claude_text(

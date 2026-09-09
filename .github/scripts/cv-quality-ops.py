@@ -271,6 +271,15 @@ def metric_report(message, config, corpus_hash):
             "run_identity": config["identity"],
             "corpus_sha256": corpus_hash,
             "prompt_sha256": checked(raw["prompt_sha256"], r"[a-f0-9]{64}"),
+            **(
+                {
+                    "response_schema_sha256": checked(
+                        raw["response_schema_sha256"], r"[a-f0-9]{64}"
+                    )
+                }
+                if "response_schema_sha256" in raw
+                else {}
+            ),
             "requested_models": models,
             "cases_per_model": config["count"],
             "complete": complete,
