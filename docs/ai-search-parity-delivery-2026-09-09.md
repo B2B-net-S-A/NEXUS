@@ -336,3 +336,11 @@ Added `Coolify Ops` action `candidate-index-audit`. After the expected backend r
 This action is audit-only: it does not enqueue repairs or delete index points. A reviewed fingerprint and exact manifest remain necessary for the separate repair CLI. The audit fails if SQL membership/content changed during scanning; successful output is still a reconciliation observation, not proof that a later repair finished.
 
 Validation: 18 host-native audit/transport tests passed. Covered successful report extraction, failed/timeout reports, duplicate cron ticks, command identity validation, population accounting, output redaction and owned-task cleanup on success/failure. Ruff passed. Production dispatch is pending deployment; no production audit was performed in this increment.
+
+### Exact-manifest production repair transport
+
+Added `Coolify Ops` action `candidate-index-repair` with `index_audit_identity=RUN_ID-ATTEMPT` and `index_fingerprint=SHA256`. These inputs identify the previously reviewed manifest; neither the workflow nor remote wrapper accepts a path or arbitrary command. The existing repair service verifies the manifest fingerprint, model/collection, complete audit and every targeted candidate version/content under locks before recording outbox intents. No orphan deletion or historical candidate rewrite occurs.
+
+The once-only remote wrapper invokes the existing CLI, returns only enqueue counters and preserves timeout as an unknown transaction outcome. A missing manifest (for example after container replacement) requires a fresh audit. Successful output says `state=enqueued`, not indexed: verify the index worker is enabled, observe queue processing, then run a new coverage audit and full search. Never treat scheduling or enqueueing alone as completed repair. Coolify task cleanup uses the operation's unique run identity and does not touch other crons.
+
+Validation: 26 host-native index audit/repair/transport tests passed; Ruff and diff checks passed. Tests cover command shape, exact manifest path, fingerprint receipt mismatch, once-only execution, missing manifest, timeout uncertainty, redaction and task cleanup for both operations on success/failure. No production dispatch or repair was performed. Hosted CI for the preceding SHA remained queued/pending at this checkpoint.

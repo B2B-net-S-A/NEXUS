@@ -81,8 +81,9 @@ def test_identity_cannot_change_command_or_output_path(tmp_path, identity):
 
 
 @pytest.mark.parametrize("success", [True, False])
+@pytest.mark.parametrize("mode", ["audit", "repair"])
 def test_transport_removes_only_its_task_on_success_or_failure(
-    tmp_path, monkeypatch, success
+    tmp_path, monkeypatch, success, mode
 ):
     from contextlib import contextmanager
 
@@ -94,10 +95,25 @@ def test_transport_removes_only_its_task_on_success_or_failure(
         "APP_UUID": "app",
         "CO_TOKEN": "test-only",
         "RUNNER_TEMP": str(tmp_path),
+        "INDEX_MODE": mode,
+        "INDEX_AUDIT_IDENTITY": "122-1" if mode == "repair" else "",
+        "INDEX_FINGERPRINT": "a" * 64 if mode == "repair" else "",
     }.items():
         monkeypatch.setenv(key, value)
     tasks = [{"uuid": "unrelated", "name": "normal-cron"}]
     report = {**manifest(), "ok": success, "orphan_points": 1}
+    if mode == "repair":
+        report = dict(
+            ok=success,
+            state="enqueued",
+            queued=2,
+            already_pending=0,
+            deleted=0,
+            orphans_reported_only=1,
+            fingerprint="a" * 64,
+            audit_identity="122-1",
+        )
+    prefix = ops.REPAIR_PREFIX if mode == "repair" else wrapper.PREFIX
     commands = []
 
     @contextmanager
@@ -112,7 +128,7 @@ def test_transport_removes_only_its_task_on_success_or_failure(
             tasks.pop()
             result = None
         elif req.full_url.endswith("/executions"):
-            result = [{"message": wrapper.PREFIX + json.dumps(report)}]
+            result = [{"message": prefix + json.dumps(report)}]
         else:
             result = tasks
         yield SimpleNamespace(read=lambda: json.dumps(result).encode())
@@ -120,12 +136,13 @@ def test_transport_removes_only_its_task_on_success_or_failure(
     monkeypatch.setattr(ops.urllib.request, "urlopen", request)
     if success:
         ops.main()
-        assert (tmp_path / "candidate-index-audit/report.json").exists()
+        assert (tmp_path / f"candidate-index-{mode}/report.json").exists()
     else:
         with pytest.raises(RuntimeError):
             ops.main()
-        assert not (tmp_path / "candidate-index-audit/report.json").exists()
+        assert not (tmp_path / f"candidate-index-{mode}/report.json").exists()
     assert tasks == [{"uuid": "unrelated", "name": "normal-cron"}]
-    assert commands == [
-        "cd /app && python -m scripts.run_candidate_index_audit_once --run-identity 123-1"
-    ]
+    expected = f"cd /app && python -m scripts.run_candidate_index_{mode}_once --run-identity 123-1"
+    if mode == "repair":
+        expected += " --audit-identity 122-1 --fingerprint " + "a" * 64
+    assert commands == [expected]
