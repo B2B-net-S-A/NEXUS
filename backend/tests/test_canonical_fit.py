@@ -39,7 +39,7 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
     from app.api import recommendations as api
     from app.services import match_score_cache
 
-    job = make_job(description="full request " * 2000)
+    job = make_job(description="full request " * 2000, location="Warszawa")
     candidates = [
         make_candidate(
             id=i,
@@ -118,6 +118,7 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
     assert result["matches"][1]["total_score"] is None
     assert result["matches"][1]["measurement"] == "stale"
     assert result["meta"]["degraded"]
+    assert result["location_filter"] is None
     legacy.assert_not_called()
 
 

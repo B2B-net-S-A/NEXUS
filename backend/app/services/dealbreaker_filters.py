@@ -130,13 +130,16 @@ class DealbreakerInputs:
     onsite_days_per_week: Optional[int] = None
     office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
     wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
+    exclude_unknown_skill_evidence: bool = False
 
     @property
     def requires_office_days(self) -> bool:
         return (self.onsite_days_per_week or 0) > 0
 
 
-def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
+def missing_must_skills(
+    candidate, must: Sequence[str], *, include_unknown: bool = False
+) -> list[str]:
     """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
 
     Pusta `must` → `[]` (nie ma czego wymagać). Kandydat bez ŻADNEGO sygnału
@@ -145,6 +148,9 @@ def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
     niedopasowania, tylko brakiem wiedzy. Porównanie idzie przez `skill_present`
     (tolerancja `postgresql`/`postgres`, `node.js`/`nodejs`) — TĘ SAMĄ funkcję,
     której używają chipy ✓/✗ na `/ai-matches`.
+
+    `include_unknown=True` implements an explicitly selected missing-proof
+    exclusion policy; it does not turn missing evidence into proven inability.
     """
     if not must:
         return []
@@ -152,7 +158,7 @@ def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
 
     cand_skills = candidate_skill_names(candidate)
     if not cand_skills:
-        return []
+        return list(must) if include_unknown else []
     return [m for m in must if not skill_present(m, cand_skills)]
 
 
@@ -553,7 +559,11 @@ def apply_dealbreakers(
         if budget_active and budget_excludes(candidate, effective_budget):
             result.hidden_over_budget += 1
             continue
-        if must_active and missing_must_skills(candidate, effective_inputs.must_skills):
+        if must_active and missing_must_skills(
+            candidate,
+            effective_inputs.must_skills,
+            include_unknown=effective_inputs.exclude_unknown_skill_evidence,
+        ):
             result.hidden_missing_must += 1
             continue
         if days_active and office_days_exceeded(

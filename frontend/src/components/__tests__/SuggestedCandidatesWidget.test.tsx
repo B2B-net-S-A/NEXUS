@@ -50,7 +50,7 @@ vi.mock("@/lib/candidate-search-api", () => ({
 }));
 
 vi.mock("@/components/v2/filters/LocationInput", () => ({
-  LocationInput: () => <input aria-label="Lokalizacja" />,
+  LocationInput: ({ value, placeholder }: { value: string; placeholder?: string }) => <input aria-label="Lokalizacja" value={value} placeholder={placeholder} readOnly />,
 }));
 
 vi.mock("@/components/v2/pages/candidate-list-helpers", () => ({
@@ -94,7 +94,7 @@ function candidateMatch(
 }
 
 function renderWidget(
-  props: { jobHasBudget?: boolean; readOnly?: boolean } = {},
+  props: { jobHasBudget?: boolean; readOnly?: boolean; defaultLocation?: string } = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -156,6 +156,14 @@ beforeEach(() => {
 });
 
 describe("SuggestedCandidatesWidget degraded recommendations", () => {
+  it("uses the request location as a suggestion, not an automatic hard filter", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot());
+    renderWidget({ defaultLocation: "Warszawa" });
+    expect(screen.getByRole("textbox", { name: "Lokalizacja" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Lokalizacja" })).toHaveAttribute("placeholder", "Lokalizacja (np. Warszawa)");
+    await screen.findByText("70/100");
+    expect(mocks.forJob).not.toHaveBeenCalled();
+  });
   it("preserves an unknown snapshot score without calling it zero or BM25", async () => {
     mocks.latest.mockResolvedValue({ data: {
       id: 99, job_id: 7, status: "ready", source: "manual_regenerate", top_k: 20,

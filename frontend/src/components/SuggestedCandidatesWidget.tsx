@@ -25,8 +25,7 @@ import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
   jobId: number;
-  /** Pre-fill the location filter (e.g. the job's own location). Optional —
-   *  imported jobs rarely carry one, so this is usually empty. */
+  /** Suggest a location in the placeholder; never enable a hard filter. */
   defaultLocation?: string | null;
   /** Czy oferta ma rozwiązywalny budżet PLN/h (jawne pole lub stawka
    *  Championa; `job.has_budget_hourly` z API). Domyślnie true — starsza
@@ -113,9 +112,7 @@ export function SuggestedCandidatesWidget({
   // Qdrant pool (located candidates are sparse — ~17% have any location) and
   // filters post-scoring, so we surface located candidates the score-ranked
   // snapshot would otherwise miss. LocationInput already debounces (300 ms).
-  const [locationFilter, setLocationFilter] = useState<string>(
-    () => defaultLocation?.trim() ?? "",
-  );
+  const [locationFilter, setLocationFilter] = useState("");
   const locationActive = locationFilter.trim().length > 0;
 
   // Dealbreaker-switche: budżet oferty działa Z AUTOMATU jako twardy sufit
@@ -447,7 +444,7 @@ export function SuggestedCandidatesWidget({
             <LocationInput
               value={locationFilter}
               onChange={setLocationFilter}
-              placeholder="Lokalizacja (np. Warszawa)"
+              placeholder={defaultLocation?.trim() ? `Lokalizacja (np. ${defaultLocation.trim()})` : "Lokalizacja (np. Warszawa)"}
             />
             {locationActive && (
               <select
@@ -565,6 +562,9 @@ export function SuggestedCandidatesWidget({
         </div>
       )}
 
+      <p className="mb-3 text-xs text-muted-foreground">
+        Brak potwierdzenia umiejętności domyślnie trafia do weryfikacji. Politykę wykluczania ustawisz we wspólnych wymaganiach requestu.
+      </p>
       {mode === "snapshot" && snapshot?.stale && (
         <div
           role="status"

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import require_candidate_read
 from app.api.deps import CurrentUser, get_db
+from app.api.section_access import require_section_access_any_read
 from app.api.talent_radar import TalentRadarSearchRequest
 from app.models.candidate_search_run import CandidateSearchRun
 from app.models.client import Client
@@ -33,7 +34,16 @@ from app.services.talent_radar_search import (
     shape_radar_candidate,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.sourcing,
+                ProductSection.pipeline,
+            )
+        )
+    ]
+)
 
 
 @router.get("/candidate-search/jobs/{job_id}/requirements")

@@ -188,9 +188,8 @@ async def recommend_candidates_for_job(
         max_length=120,
         description=(
             "Restrict results to candidates whose location matches this place "
-            "(city/region, substring-tolerant, blob-aware). Falls back to the "
-            "job's own location when omitted; empty when neither is set → no "
-            "filter (legacy behaviour preserved)."
+            "(city/region, substring-tolerant, blob-aware). Omitted means no "
+            "hard location filter; the request's location remains a fit signal."
         ),
     ),
     location_source: str = Query(
@@ -222,13 +221,11 @@ async def recommend_candidates_for_job(
             "wygrywa nad AUTO. Nieznana preferencja zawsze przechodzi."
         ),
     ),
-    exclude_missing_must: bool = Query(
-        True,
+    exclude_missing_must: Optional[bool] = Query(
+        None,
         description=(
-            "Dealbreaker (0278, domyślnie WŁĄCZONY): ukryj kandydatów, którym "
-            "brakuje choćby jednej technologii must-have (kolumna oferty albo "
-            "sekcja „Stack technologiczny” Championa). Kandydat bez żadnego "
-            "znanego sygnału umiejętności zawsze przechodzi."
+            "Pominięte: stosuj zapisaną politykę brakujących dowodów, domyślnie "
+            "do weryfikacji. Jawne true/false nadpisuje ją dla tego zapytania."
         ),
     ),
     exclude_office_days_exceeded: bool = Query(
@@ -300,7 +297,7 @@ async def _recommend_candidates_core(
     location_source: str = "all",
     exclude_over_budget: bool = True,
     exclude_remote_only: Optional[bool] = None,
-    exclude_missing_must: bool = True,
+    exclude_missing_must: bool | None = None,
     exclude_office_days_exceeded: bool = True,
     exclude_office_city_mismatch: bool = True,
 ) -> dict:
@@ -318,9 +315,8 @@ async def _recommend_candidates_core(
     )
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
-    # Explicit query param wins; otherwise fall back to the job's own location
-    # (empty for ~99.6% of imported jobs, hence the param).
-    requested_location = (location or "").strip() or (job.location or "").strip()
+    # Only an explicit query filter is hard; the job location remains a fit input.
+    requested_location = (location or "").strip()
     requested_tokens = location_tokens(requested_location)
     location_active = bool(requested_tokens)
 
@@ -488,15 +484,17 @@ async def _recommend_candidates_core(
     # wszystkie powierzchnie liczą te trzy rubryki identycznie.
     from app.services.dealbreaker_filters import (
         apply_dealbreakers,
-        dealbreaker_inputs_for_job,
     )
+    from app.services.requirement_contract import search_dealbreaker_inputs
 
     dealbreakers = apply_dealbreakers(
         candidates,
-        inputs=dealbreaker_inputs_for_job(job),
+        inputs=search_dealbreaker_inputs(
+            job, exclude_missing_must=exclude_missing_must
+        ),
         exclude_over_budget=exclude_over_budget,
         exclude_remote_only=exclude_remote_only,
-        exclude_missing_must=exclude_missing_must,
+        exclude_missing_must=exclude_missing_must is not False,
         exclude_office_days_exceeded=exclude_office_days_exceeded,
         exclude_office_city_mismatch=exclude_office_city_mismatch,
     )

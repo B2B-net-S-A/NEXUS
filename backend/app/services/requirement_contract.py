@@ -62,6 +62,28 @@ def requirements_for_job(job) -> MatchingRequirements:
     )
 
 
+def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
+    """Shared default policy; an explicit request filter may override it.
+
+    Clearing the gate changes no scoring requirement or evidence. Missing
+    proof stays reviewable unless exclusion was selected explicitly.
+    """
+    from dataclasses import replace
+    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+
+    inputs = dealbreaker_inputs_for_job(job)
+    exclude = (
+        requirements_for_job(job).missing_evidence_policy == "exclude"
+        if exclude_missing_must is None
+        else exclude_missing_must
+    )
+    return (
+        replace(inputs, exclude_unknown_skill_evidence=True)
+        if exclude
+        else replace(inputs, must_skills=())
+    )
+
+
 def invalidate_changed_requirements(job, updates: dict) -> None:
     """An edited source must not remain masked by previously reviewed criteria."""
     if "matching_requirements" in updates:

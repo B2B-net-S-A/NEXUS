@@ -120,6 +120,7 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         "request_schema": "request-full-v2",
         "result_schema": "full-result-filters-v1",
         "fit_profile": "base-fit-v1",
+        "evidence_gate": "review-policy-v2",
     }
     fingerprint = hashlib.sha256(
         json.dumps(

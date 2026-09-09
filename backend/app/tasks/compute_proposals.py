@@ -183,8 +183,8 @@ async def compute_proposal_for_job(
             from app.services.dealbreaker_filters import (
                 DealbreakerResult,
                 apply_dealbreakers,
-                dealbreaker_inputs_for_job,
             )
+            from app.services.requirement_contract import search_dealbreaker_inputs
 
             snap.hidden = DealbreakerResult().hidden_meta()
             breakdowns: list = []
@@ -223,7 +223,7 @@ async def compute_proposal_for_job(
                 # co do tego, kogo ukrywają.
                 dealbreakers = apply_dealbreakers(
                     candidates,
-                    inputs=dealbreaker_inputs_for_job(job),
+                    inputs=search_dealbreaker_inputs(job),
                 )
                 candidates = dealbreakers.kept
                 snap.hidden = dealbreakers.hidden_meta()

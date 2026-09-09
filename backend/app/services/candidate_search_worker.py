@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 from datetime import datetime, timezone
 
 from app.core.database import AsyncSessionLocal
@@ -19,14 +18,12 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
     from app.api.matching import _gate_and_dealbreakers
-    from app.services.dealbreaker_filters import (
-        dealbreaker_inputs_for_job,
-        rate_fit_status,
-    )
+    from app.services.dealbreaker_filters import rate_fit_status
     from app.services.location_utils import location_tokens
     from app.services.requirement_contract import (
         requirements_for_job,
         evaluate_requirements,
+        search_dealbreaker_inputs,
     )
     from app.services.canonical_fit import score_pair
 
@@ -34,11 +31,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         candidates = await load_snapshot_batch(db, batch)
     target = request.as_job()
     criteria = requirements_for_job(target)
-    inputs = dealbreaker_inputs_for_job(target)
-    # Missing proof is reviewable by default. Only an explicit saved policy
-    # permits exclusion on absent skill evidence; other hard gates still apply.
-    if criteria.missing_evidence_policy != "exclude":
-        inputs = replace(inputs, must_skills=())
+    inputs = search_dealbreaker_inputs(target)
     with stage("eligibility"):
         kept, annotations, _, _, _ = await _gate_and_dealbreakers(
             db,
