@@ -1295,30 +1295,30 @@ function NewModeForm({
                 variant="warning"
                 title="Nie można wygenerować CV"
                 description={
-                  <div className="space-y-1">
-                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
+                  <span className="block space-y-1">
+                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <span className="block" key={problem}>{problem}</span>) : <>
                     {!selectedRecruitment.has_cv && (
-                      <div>
+                      <span className="block">
                         Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
                         dodaj plik w zakładce Dokumenty na profilu kandydata.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_champion && (
-                      <div>
+                      <span className="block">
                         Brakuje Profilu Championa (must-have, nice-to-have,
                         kontekst projektu). Uzupełnij go na karcie rekrutacji zanim
                         wygenerujesz CV.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_notes && (
-                      <div>
+                      <span className="block">
                         Brak notatek z rozmów — wymagana co najmniej jedna:
                         screening, transkrypt rozmowy CloudTalk albo notatka
                         procesu.
-                      </div>
+                      </span>
                     )}
                     </>}
-                  </div>
+                  </span>
                 }
               />
             )}
