@@ -1,0 +1,7 @@
+# Saved-job draft follow-up (A06)
+
+The second audit acceptance pass found the existing-job modal still initialized seniority to senior, despite the global new-job generator being corrected. This route calls the factual template endpoint, not the model-backed new-job generator.
+
+The modal now uses only a supported saved level or an explicit unspecified option. It identifies its output as a template-based draft, supports editing before explicit save, invalidates the preview on source-field changes and retains the editor when its text is cleared. The existing-job header action is labelled Szkic ogłoszenia. Save waits for the actual description PATCH: failure retains the draft and displays a retryable error instead of silently closing. Only description is patched; no seniority, requirements or pay fields are written by applying the draft.
+
+The modal was extracted from the large job page to exercise the real form. Six focused interaction tests passed: no invented seniority, preserved OR/negation, saved/cleared and unsupported seniority, edited apply, failed-save retention/retry and preview invalidation. Typecheck passed; ESLint had no errors and only existing job-page warnings. Hosted CI and production Chrome verification remain required. No real recruitment description has been replaced during acceptance.

@@ -15,7 +15,6 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
 import api, {
   postingsApi,
-  aiWriterApi,
   matchingApi,
   phase3Api,
   recommendationsApi,
@@ -26,6 +25,7 @@ import api, {
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
 import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
 import {
   countContractStages,
@@ -48,7 +48,7 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail, Target, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail, Target, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
@@ -406,182 +406,6 @@ function PostingsSection({
 }
 
 // ── AI Job Writer Modal ───────────────────────────────────────────────────────
-
-function AIJobWriterModal({
-  job,
-  onClose,
-  onUse,
-}: {
-  job: any;
-  onClose: () => void;
-  onUse: (desc: string) => void;
-}) {
-  const [title, setTitle] = useState(job?.title || "");
-  const [clientName, setClientName] = useState(job?.client?.name || "");
-  const [seniority, setSeniority] = useState("senior");
-  const [requirements, setRequirements] = useState(job?.requirements || "");
-  const [generated, setGenerated] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const handleGenerate = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const { data } = await aiWriterApi.generateJobDescription({
-        title,
-        client_name: clientName || undefined,
-        requirements: requirements || undefined,
-        seniority,
-      });
-      setGenerated(data.description);
-    } catch (e: any) {
-      setError(e.response?.data?.detail || "Błąd generowania ogłoszenia");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCopy = async () => {
-    if (!generated) return;
-    await navigator.clipboard.writeText(generated);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl my-4">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
-          <div className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-bold text-foreground">AI Ogłoszenie</h2>
-          </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Form */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Tytuł stanowiska</label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="np. Angular Developer"
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Klient</label>
-              <input
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="np. Nordea"
-                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">Poziom seniority</label>
-            <div className="flex gap-2">
-              {["junior", "mid", "senior", "lead"].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSeniority(s)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${
-                    seniority === s
-                      ? "bg-primary text-white"
-                      : "border border-border text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {s === "lead" ? "Lead" : s.charAt(0).toUpperCase() + s.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1">
-              Wymagania / kluczowe umiejętności
-            </label>
-            <textarea
-              value={requirements}
-              onChange={(e) => setRequirements(e.target.value)}
-              rows={4}
-              placeholder="Angular 14+&#10;RxJS&#10;TypeScript&#10;Agile/Scrum&#10;Komunikatywny angielski"
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-            />
-            <p className="text-xs text-muted-foreground mt-0.5">Wpisz wymagania po jednym w linii</p>
-          </div>
-
-          {error && (
-            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
-
-          <button
-            onClick={handleGenerate}
-            disabled={!title.trim() || isLoading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            {isLoading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Generuję...
-              </>
-            ) : (
-              <>
-                <Wand2 className="w-4 h-4" />
-                Generuj ogłoszenie
-              </>
-            )}
-          </button>
-
-          {/* Generated output */}
-          {generated && (
-            <div className="border border-border rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border dark:border-border">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Wygenerowane ogłoszenie
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCopy}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-border rounded-lg hover:bg-card text-muted-foreground transition-colors"
-                  >
-                    {copied ? (
-                      <><Check className="w-3.5 h-3.5 text-emerald-500" /> Skopiowano</>
-                    ) : (
-                      <><Copy className="w-3.5 h-3.5" /> Kopiuj</>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => { onUse(generated); onClose(); }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-                  >
-                    Użyj jako opis
-                  </button>
-                </div>
-              </div>
-              <div className="p-4 max-h-72 overflow-y-auto">
-                <pre className="text-xs text-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                  {generated}
-                </pre>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Phase 4: AI criteria / scoring actions ──────────────────────────────────
 
@@ -2319,12 +2143,8 @@ export default function JobDetailPage() {
 
   const handleUseDescription = useCallback(async (description: string) => {
     if (!canWritePipeline) return;
-    try {
-      await api.patch(`/api/jobs/${id}`, { description });
-      queryClient.invalidateQueries({ queryKey: ["job", id] });
-    } catch (e) {
-      // silent — user can copy manually
-    }
+    await api.patch(`/api/jobs/${id}`, { description });
+    await queryClient.invalidateQueries({ queryKey: ["job", id] });
   }, [canWritePipeline, id, queryClient]);
 
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
