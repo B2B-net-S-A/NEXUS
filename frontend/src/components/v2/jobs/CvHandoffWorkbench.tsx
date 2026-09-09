@@ -226,11 +226,20 @@ export function CvHandoffWorkbench({
   const [clientRateUnit, setClientRateUnit] = useState<RateUnit>("monthly");
   const [shareDays, setShareDays] = useState(14);
   const [createLink, setCreateLink] = useState(true);
-  const [lastShareSuffix, setLastShareSuffix] = useState<string | null>(null);
+  const [handoffResults, setHandoffResults] = useState<Array<{
+    stageId: number; candidateName: string; jobTitle: string; suffix: string;
+  }>>([]);
+  const resultsRef = useRef(handoffResults);
+  const actionStageRef = useRef<number | null>(null);
+  const lastShareSuffix = [...handoffResults].reverse().find((r) => r.stageId === selectedStageId)?.suffix ?? null;
+  const rememberLink = (result: (typeof handoffResults)[number]) => {
+    resultsRef.current = [...resultsRef.current, result];
+    setHandoffResults(resultsRef.current);
+  };
   useEffect(() => {
     setClientRate("");
     setClientRateUnit("monthly");
-    setLastShareSuffix(null);
+    setCreateLink(!resultsRef.current.some((r) => r.stageId === selectedStageId));
     setDockTab("send");
   }, [selectedStageId]);
 
@@ -248,7 +257,7 @@ export function CvHandoffWorkbench({
   // bramka jest widoczna z powodem, a nie niespodzianką po kliknięciu.
   const linkBlockedReason = brandedFinalized
     ? null
-    : "Link dla klienta wymaga sfinalizowanego CV brandowanego — utwórz je poniżej albo wyślij bez linku.";
+    : "Link dla klienta wymaga sfinalizowanego CV brandowanego — utwórz je poniżej albo oznacz etap bez tworzenia linku.";
   const willCreateLink = createLink && brandedFinalized;
 
   // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
@@ -305,6 +314,7 @@ export function CvHandoffWorkbench({
       if (!selected || !cvSentCol || stageId == null) {
         throw new Error("Brak etapu docelowego.");
       }
+      actionStageRef.current = stageId;
       const plan: CvHandoffPlan = {
         clientRate: canWriteClientRate && clientRateValid
           ? {
@@ -332,7 +342,9 @@ export function CvHandoffWorkbench({
             stageId,
             expiresInDays,
           );
-          return { shareUrlSuffix: res.data?.share_url_suffix ?? null };
+          const suffix = res.data?.share_url_suffix ?? null;
+          if (suffix) rememberLink({ stageId, candidateName: fullName, jobTitle: jobLabel, suffix });
+          return { shareUrlSuffix: suffix };
         },
         move: async () => {
           await pipelineApi.move({
@@ -345,7 +357,7 @@ export function CvHandoffWorkbench({
       });
     },
     onSuccess: (result) => {
-      setLastShareSuffix(result.shareUrlSuffix);
+      // The one-time link was retained as soon as it was created, before moving.
       const summary = describeCvHandoffSuccess(result, extractErrorMsg);
       // Stawka pada PO ruchu (jak na tablicy): ruch jest faktem, ale rekruter
       // musi wiedzieć, że stawki nie ma — stąd ton błędu, nie sukcesu.
@@ -358,13 +370,12 @@ export function CvHandoffWorkbench({
         if (e.shareUrlSuffix) {
           // Sekret tokenu v2 jest zwracany RAZ — pokazujemy go w doku
           // i odznaczamy „Utwórz link", żeby ponowienie nie wystawiło drugiego.
-          setLastShareSuffix(e.shareUrlSuffix);
-          setCreateLink(false);
+          if (selectedStageId === actionStageRef.current) setCreateLink(false);
         }
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
       }
-      showError(extractErrorMsg(e) || "Nie udało się wysłać CV do klienta.");
+      showError(extractErrorMsg(e) || "Nie udało się przygotować przekazania CV.");
     },
   });
 
@@ -414,12 +425,37 @@ export function CvHandoffWorkbench({
   })();
 
   const dockTabs: DockTabItem[] = [
-    { value: "send", label: "Wyślij" },
+    { value: "send", label: "Przekazanie" },
     { value: "links", label: "Linki i historia" },
   ];
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+      {handoffResults.length > 0 && (
+        <section className="space-y-3 rounded-xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-3" aria-label="Utworzone linki do CV">
+          <h3 className="text-sm font-semibold">Utworzone linki do CV</h3>
+          <p className="text-xs text-muted-foreground">Linki pozostają tutaj po zmianie etapu i wyborze kolejnego kandydata. Ten ekran nie wysyła wiadomości do klienta. Skopiuj link przed opuszczeniem tej strony.</p>
+          {handoffResults.map((result, index) => (
+            <div key={index} className="space-y-2 rounded-lg border border-border p-3">
+              <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
+              <code className="block break-all text-xs">{typeof window !== "undefined" ? window.location.origin : ""}{result.suffix}</code>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    if (!navigator.clipboard) throw new Error("clipboard unavailable");
+                    await navigator.clipboard.writeText(`${window.location.origin}${result.suffix}`);
+                    showSuccess("Link skopiowany.");
+                  } catch { showError("Nie udało się skopiować linku. Zaznacz widoczny adres ręcznie."); }
+                }}>Kopiuj link: {result.candidateName}</Button>
+                <a className="inline-flex items-center rounded-lg border border-border px-3 text-xs"
+                  href={`mailto:?subject=${encodeURIComponent(`CV kandydata: ${result.candidateName} — ${result.jobTitle}`)}&body=${encodeURIComponent(`Dzień dobry,\n\nCV kandydata ${result.candidateName}: ${typeof window !== "undefined" ? window.location.origin : ""}${result.suffix}\n`)}`}>
+                  Przygotuj wiadomość
+                </a>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {/* ── Szyna: kolejka + reguły klienta ─────────────────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
@@ -1015,11 +1051,6 @@ export function CvHandoffWorkbench({
                     {linkBlockedReason}
                   </p>
                 )}
-                {lastShareSuffix && (
-                  <p className="break-all text-[11px] text-muted-foreground">
-                    Ostatni link: <code>{lastShareSuffix}</code>
-                  </p>
-                )}
               </DockSection>
 
               {!readOnly && (
@@ -1034,7 +1065,7 @@ export function CvHandoffWorkbench({
                       onClick={() => sendMut.mutate()}
                     >
                       <Send className="h-3.5 w-3.5" />
-                      Wyślij klientowi i przenieś na „CV Wysłane”
+                      {willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}
                     </Button>
                     <Button
                       size="sm"
@@ -1044,7 +1075,7 @@ export function CvHandoffWorkbench({
                       title={
                         lastShareSuffix
                           ? "Kopiuje pełny adres linku do schowka"
-                          : "Link powstaje przy wysyłce — wtedy da się go skopiować"
+                          : "Link powstaje po kliknięciu „Utwórz link” — wtedy da się go skopiować"
                       }
                       onClick={() => {
                         if (!lastShareSuffix || typeof window === "undefined")
@@ -1070,11 +1101,9 @@ export function CvHandoffWorkbench({
                     </a>
                   </DockActions>
                   <p className="text-[11px] text-muted-foreground">
-                    Kolejność: link → zmiana etapu → stawka do klienta. Link musi
-                    powstać przed ruchem (ruch tworzy nowy etap bez CV), a stawka
-                    po nim (zapisuje się na najnowszym etapie). Po ruchu:
-                    auto-dodanie do talent poola i powiadomienia stage’owe — jak
-                    dziś.
+                    Ta akcja zmienia status w pipeline. Wiadomość wyślij osobno,
+                    korzystając z przygotowanego linku. Przycisk „Mail do klienta”
+                    otwiera szkic wiadomości w Twoim programie pocztowym.
                   </p>
                 </>
               )}

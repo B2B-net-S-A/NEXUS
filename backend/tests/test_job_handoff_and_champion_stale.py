@@ -132,7 +132,7 @@ async def test_handoff_binds_recruiter_and_creates_snapshot(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     # Keep the background compute offline + fast.
-    from app.services import embedding_service, match_score_cache
+    from app.services import embedding_service, canonical_fit
 
     async def _empty(*_a, **_k):
         return []
@@ -142,7 +142,7 @@ async def test_handoff_binds_recruiter_and_creates_snapshot(
 
     monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
     monkeypatch.setattr(embedding_service, "embed_job", _noop)
-    monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", _empty)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
 
     job_id = await _seed_job(champion=_READY_CHAMPION)
     recruiter_id = await _seed_recruiter()

@@ -80,7 +80,7 @@ async def test_regenerate_blocked_for_non_member_recruiter(app_client: AsyncClie
 async def test_regenerate_allowed_for_member_recruiter(
     app_client: AsyncClient, monkeypatch
 ):
-    from app.services import embedding_service, match_score_cache
+    from app.services import embedding_service, canonical_fit
 
     async def _empty(*_a, **_k):
         return []
@@ -90,7 +90,7 @@ async def test_regenerate_allowed_for_member_recruiter(
 
     monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
     monkeypatch.setattr(embedding_service, "embed_job", _noop)
-    monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", _empty)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
 
     headers, uid = await _seed_recruiter(app_client)
     job_id = await _seed_job(owner_id=uid)  # recruiter owns the job → member

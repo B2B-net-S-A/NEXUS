@@ -10,7 +10,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Signed upload receipt binds owner, candidate/stage/client or uploaded CV bytes/client. UI resets and ignores late responses. Local regressions pass; CI/deploy/production proof pending |
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
-| CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Pending |
+| CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Pending |
@@ -22,7 +22,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Pending |
 | CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
 | CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Pending |
-| CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Pending |
+| CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Typed reviewed role translations implemented, arbitrary legacy substitutions skipped with warnings, unsafe publication blocked. CI, deployment and final factual review acceptance pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
 | CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Recipe snapshot, language check and draft cap implemented; source snapshot, DOCX and complete validation still pending |
 | CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Filename validation implemented locally; configuration review/publication and production verification pending |
@@ -101,3 +101,36 @@ concurrency, old/new token pinning and migration tests are required in hosted
 CI. A local attempt at 6 DB model tests returned connection-refused against the
 deliberately unavailable test DB; it provides no DB acceptance evidence. No
 local Docker was used. Production validation remains outstanding.
+
+## Handoff result package
+
+One-time share links are retained with the candidate/job context immediately
+after creation, independently of the selected stage. They remain visible after
+the candidate leaves the queue, after moving to another candidate and after the
+queue becomes empty. Copy and mail-draft actions use the captured context.
+No email is sent by stage movement; labels explicitly describe link creation and
+status changes. Tokens are held only in this mounted screen, not local storage;
+full-page reload or navigation recovery is not claimed.
+
+23 focused component tests pass, including the original queue-depletion audit
+regression, two consecutive candidates and existing partial-failure behavior.
+TypeScript passes. Production interaction and hosted CI remain required.
+
+## Safe language aliases package
+
+The glossary now accepts reviewed `role_translation` pairs for whole position
+fields, with a fixed source/target language. Runtime never substitutes inside
+skills, certificates, summaries or responsibilities and never strips seniority
+from compound titles. Only catalog entries matching the generated document's
+language reach the editorial prompt or deterministic translation.
+
+Legacy arbitrary pairs remain visible in drafts/history, are ignored with a
+generation warning, and block publication until replaced or removed. The editor
+selects from the server catalog instead of free text. No client recipe is
+operationally edited by the deployment. The initial catalog has five PL/EN role
+pairs; additional equivalents require explicit review. This closes arbitrary
+glossary rewriting, not hallucinations originating in free-form instructions or
+model output, which remain the final factual gate's responsibility.
+
+Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
+hosted CI and production interaction still pending. No local Docker.

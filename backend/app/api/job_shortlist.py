@@ -187,13 +187,36 @@ async def list_shortlist(
     await ensure_job_read_access(db, current_user, job_id)
     rows = (
         await db.execute(
-            select(JobShortlistEntry, Candidate.name, Candidate.lastname)
+            select(JobShortlistEntry, Candidate)
             .join(Candidate, Candidate.id == JobShortlistEntry.candidate_id)
             .where(JobShortlistEntry.job_id == job_id)
             .order_by(JobShortlistEntry.created_at.desc())
         )
     ).all()
-    return [_to_response(entry, name, lastname) for entry, name, lastname in rows]
+    if not rows:
+        return []
+    from app.services.canonical_fit import score_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    profile = await resolve_active_profile(
+        db, user_id=current_user.id, client_id=job.client_id
+    )
+    context = build_request_context(job, profile)
+    fits = await score_candidates(db, context, [candidate for _, candidate in rows])
+    by_id = {fit.breakdown.candidate_id: fit for fit in fits}
+    responses = []
+    for entry, candidate in rows:
+        response = _to_response(entry, candidate.name, candidate.lastname)
+        fit = by_id.get(candidate.id)
+        response.fit_score = fit.fit_score if fit else None
+        response.fit_measurement = fit.measurement if fit else "not_measured"
+        response.fit_context_fingerprint = context.fingerprint
+        responses.append(response)
+    return responses
 
 
 @router.patch(

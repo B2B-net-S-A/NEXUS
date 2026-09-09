@@ -28,6 +28,8 @@ name: Coolify Ops
 #                                    wymaga fingerprintu i jawnego potwierdzenia.
 #  10. action=nexus-data-correction-audit → read-only plan korekty z Nexus.xlsx.
 #  11. action=nexus-data-correction-apply → dokładny, zatwierdzony plan korekty.
+#  13. action=candidate-index-audit → full SQL/index ID and content audit (read-only).
+#  14. action=candidate-index-repair → enqueue the exact reviewed audit manifest.
 #  12. action=migration-receipts  → paragony jednorazowych migracji naprawczych
 #                                   (read-only; liczniki i ID, zero kwot i nazwisk).
 #
@@ -40,8 +42,16 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
+        options: [candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
         default: list
+      index_audit_identity:
+        description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
+        required: false
+        default: ""
+      index_fingerprint:
+        description: "Exact reviewed audit fingerprint; queues only its repairs, never deletes points"
+        required: false
+        default: ""
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
         required: false
@@ -962,6 +972,33 @@ jobs:
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
           echo "zadanie $TASK_NAME skasowane"
+
+  candidate_index_audit:
+    name: Candidate index (${{ inputs.action == 'candidate-index-repair' && 'enqueue reviewed repair' || 'read-only audit' }})
+    if: ${{ inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: coolify-candidate-index-audit
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the selected fixed index operation
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          INDEX_MODE: ${{ inputs.action == 'candidate-index-repair' && 'repair' || 'audit' }}
+          INDEX_AUDIT_IDENTITY: ${{ inputs.index_audit_identity }}
+          INDEX_FINGERPRINT: ${{ inputs.index_fingerprint }}
+        run: python3 .github/scripts/candidate-index-audit-ops.py
+      - name: Preserve aggregate coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.action }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate-index-*/report.json
+          if-no-files-found: error
+          retention-days: 7
 
   # Audyt jest read-only. Apply ma trzy niezależne bezpieczniki: fingerprint
   # identyczny z audytem, jawne APPLY w dispatchu i repo secret ustawiony na

@@ -50,7 +50,7 @@ vi.mock("@/lib/candidate-search-api", () => ({
 }));
 
 vi.mock("@/components/v2/filters/LocationInput", () => ({
-  LocationInput: () => <input aria-label="Lokalizacja" />,
+  LocationInput: ({ value, placeholder }: { value: string; placeholder?: string }) => <input aria-label="Lokalizacja" value={value} placeholder={placeholder} readOnly />,
 }));
 
 vi.mock("@/components/v2/pages/candidate-list-helpers", () => ({
@@ -94,7 +94,7 @@ function candidateMatch(
 }
 
 function renderWidget(
-  props: { jobHasBudget?: boolean; readOnly?: boolean } = {},
+  props: { jobHasBudget?: boolean; readOnly?: boolean; defaultLocation?: string } = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -156,6 +156,27 @@ beforeEach(() => {
 });
 
 describe("SuggestedCandidatesWidget degraded recommendations", () => {
+  it("uses the request location as a suggestion, not an automatic hard filter", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot());
+    renderWidget({ defaultLocation: "Warszawa" });
+    expect(screen.getByRole("textbox", { name: "Lokalizacja" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Lokalizacja" })).toHaveAttribute("placeholder", "Lokalizacja (np. Warszawa)");
+    await screen.findByText("70/100");
+    expect(mocks.forJob).not.toHaveBeenCalled();
+  });
+  it("preserves an unknown snapshot score without calling it zero or BM25", async () => {
+    mocks.latest.mockResolvedValue({ data: {
+      id: 99, job_id: 7, status: "ready", source: "manual_regenerate", top_k: 20,
+      profile_id: 0, created_at: new Date().toISOString(), degraded: true,
+      candidates: [{ ...candidateMatch(null), breakdown: { ...BREAKDOWN, total: null } }],
+    } });
+    renderWidget();
+    expect(await screen.findByTestId("degraded-score-42")).toHaveTextContent("Ocena niepełna");
+    expect(screen.queryByText("0/100")).not.toBeInTheDocument();
+    expect(screen.queryByText("BM25 · tryb awaryjny")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
+  });
+
   it("renders BM25 explicitly without formatting null as a numeric score", async () => {
     mocks.forJob.mockResolvedValue({
       data: {
@@ -230,6 +251,37 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     expect(
       await screen.findByTestId("stale-ranking-notice"),
     ).toBeInTheDocument();
+  });
+
+  it("preserves current eligibility from a saved proposal", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot({ candidates: [{
+      ...candidateMatch(82, BREAKDOWN),
+      eligibility: { reason_code: "nda", reason: "Aktualna blokada", assignment_allowed: false,
+        visibility: "warn", severity: "hard", secondary: [] },
+    }] }));
+    renderWidget();
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktualna blokada");
+    expect(screen.getByText("Do shortlisty")).toBeDisabled();
+    expect(screen.getByText("Przypisz")).toBeDisabled();
+  });
+
+  it("shows a visible block and prevents shortlist and assignment actions", async () => {
+    mocks.forJob.mockResolvedValue(liveResponse([{
+      ...candidateMatch(82, BREAKDOWN),
+      eligibility: { reason_code: "nda", reason: "Aktywna blokada NDA", assignment_allowed: false,
+        visibility: "warn", severity: "hard", secondary: [] },
+    }]));
+    renderWidget();
+    fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktywna blokada NDA");
+    const shortlist = screen.getByText("Do shortlisty");
+    const assign = screen.getByText("Przypisz");
+    expect(shortlist).toBeDisabled();
+    expect(assign).toBeDisabled();
+    fireEvent.click(shortlist);
+    fireEvent.click(assign);
+    expect(mocks.shortlistAdd).not.toHaveBeenCalled();
+    expect(mocks.assignToJob).not.toHaveBeenCalled();
   });
 
   it("primary action adds the candidate to the shortlist, not the pipeline", async () => {

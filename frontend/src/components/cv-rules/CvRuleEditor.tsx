@@ -350,6 +350,7 @@ export function CvRuleEditor({
                 form={form}
                 set={set}
                 clientId={clientId}
+                glossaryOptions={rule?.glossary_options ?? []}
                 filenamePreview={!dirty && !rule?.draft_payload ? rule?.filename_preview : null}
               />
               <div className="rounded-md border border-dashed p-3">

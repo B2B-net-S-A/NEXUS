@@ -631,3 +631,5 @@ from app.models.ai_metering import AIOperation, AIProviderCall, AIGenerationLeas
 from app.models.ai_metering import AISpendAlert  # noqa: F401
 
 from app.models.cv_document_version import CvDocumentVersion  # noqa: F401
+from app.models.candidate_search_run import CandidateSearchRun, CandidateSearchResult  # noqa: F401
+from app.models.requirement_verification import RequirementVerification  # noqa: F401

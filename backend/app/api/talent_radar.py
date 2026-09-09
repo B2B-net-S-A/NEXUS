@@ -24,6 +24,7 @@ from app.api.deps import get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.rate_limit import limiter
 from app.services import champion_view
+from app.schemas.matching_requirements import MatchingRequirements
 from app.services.talent_radar_search import (
     normalize_skill_names,
     shape_radar_candidate,
@@ -88,6 +89,7 @@ class TalentRadarSearchRequest(BaseModel):
     must_skills: Optional[list[str]] = Field(default=None, max_length=50)
     nice_skills: Optional[list[str]] = Field(default=None, max_length=50)
     requirements_reviewed: bool = False
+    matching_requirements: Optional[MatchingRequirements] = None
 
 
 @router.post("/talent-radar/interpret")
@@ -104,9 +106,13 @@ async def interpret_requirements(
                 client_id=payload.client_id,
                 text=payload.text,
                 title=payload.title,
+                requirements_reviewed=payload.requirements_reviewed,
                 champion_profile=payload.champion_profile,
                 must_skills=normalize_skill_names(payload.must_skills),
                 nice_skills=normalize_skill_names(payload.nice_skills),
+                matching_requirements=payload.matching_requirements.model_dump()
+                if payload.matching_requirements is not None
+                else None,
             )
         )
     )
@@ -149,6 +155,9 @@ async def talent_radar_search(
                 # wprost, z pominięciem parsowania profilu.
                 must_skills=normalize_skill_names(payload.must_skills),
                 nice_skills=normalize_skill_names(payload.nice_skills),
+                matching_requirements=payload.matching_requirements.model_dump()
+                if payload.matching_requirements is not None
+                else None,
                 requirements_reviewed=payload.requirements_reviewed,
             ),
         )

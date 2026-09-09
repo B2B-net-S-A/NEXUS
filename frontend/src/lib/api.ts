@@ -1007,6 +1007,8 @@ export const matchingApi = {
           // C2 workspace: candidate hourly rate (compared with the job budget
           // in the dock), current role + company (row subtitle). Nullable.
           expected_rate_hourly?: number | null;
+          expected_rate_currency?: string | null;
+          expected_rate_unit?: "hour" | null;
           current_title?: string | null;
           current_company?: string | null;
         };
@@ -1040,13 +1042,13 @@ export const matchingApi = {
         location: opts?.location?.trim() || undefined,
       },
     }),
-  // Hybrid AI match scores (0-100) for the candidates currently in a job's
-  // pipeline — powers the score ring on kanban cards. Cache-first server-side.
+  // Shared base fit (0-100); pipeline membership also includes unknown scores.
   pipelineScores: (jobId: number) =>
     api.get<{
       job_id: number;
       profile_id: number;
       scores: Record<string, number>;
+      pipeline_candidate_ids: number[];
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
@@ -2529,9 +2531,8 @@ export interface ScoreBreakdown {
   gap_nice: string[];
   penalties: string[];
   /**
-   * Phase 14: bonus za obecność kandydata w semantycznie podobnych
-   * historycznych projektach. Wchodzi do `total`, więc MUSI być widoczny w
-   * rozbiciu — inaczej suma warstw nie zgadza się z totalem (M3-SCORE-01).
+   * Legacy payloads may contain a historical bonus. Current base-fit paths
+   * keep this zero and report process history separately.
    */
   historical_boost?: number;
   historical_sources_count?: number;
@@ -2559,6 +2560,7 @@ export interface CandidateMatch {
    * calibrated 0-100 match score and must not be presented as one.
    */
   total_score: number | null;
+  eligibility?: MatchEligibility | null;
   breakdown?: ScoreBreakdown | null;
 }
 
@@ -3837,8 +3839,9 @@ export interface ProposalCandidateItem {
     status: string | null;
     champion: boolean | null;
   };
-  total_score: number;
-  breakdown: ScoreBreakdown;
+  eligibility?: MatchEligibility | null;
+  total_score: number | null;
+  breakdown: Omit<ScoreBreakdown, "total"> & { total: number | null };
 }
 
 export interface ProposalSnapshot {

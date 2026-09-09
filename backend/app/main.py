@@ -48,6 +48,7 @@ from app.api import (
     dashboard,
     search,
 )
+from app.api import candidate_search, requirement_verifications
 from app.api import activities
 from app.api import admin
 from app.api import admin_section_permissions
@@ -670,6 +671,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
+    from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -702,6 +704,7 @@ async def lifespan(app: FastAPI):
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
     app.state.background_tasks = {
+        "candidate_search": asyncio.create_task(candidate_search_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1349,6 +1352,10 @@ app.include_router(
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 app.include_router(cv_match_preview.router, prefix="/api", tags=["recommendations"])
 app.include_router(talent_radar.router, prefix="/api", tags=["talent-radar"])
+app.include_router(candidate_search.router, prefix="/api", tags=["candidate-search"])
+app.include_router(
+    requirement_verifications.router, prefix="/api", tags=["candidate-search"]
+)
 app.include_router(phase3_actions.router, prefix="/api", tags=["recommendations"])
 app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])

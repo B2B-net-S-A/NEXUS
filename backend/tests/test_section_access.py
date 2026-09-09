@@ -8,8 +8,11 @@ from app.api.section_access import (
     ProductSection,
     SectionAccess,
     require_section_access,
+    require_section_access_any_read,
     section_access_for_user,
 )
+
+
 from app.models.user import UserRole
 from app.services.section_permissions import (
     ROLE_SECTION_ACCESS,
@@ -171,9 +174,7 @@ async def test_delivery_dependency_is_read_only_for_talent_community_manager() -
     assert getattr(exc_info.value, "status_code", None) == 403
     assert exc_info.value.detail["code"] == "section_access_denied"
 
-    assert (
-        await dependency(_request("PATCH", "/api/contracts/42/status"), tcm) is tcm
-    )
+    assert await dependency(_request("PATCH", "/api/contracts/42/status"), tcm) is tcm
     with pytest.raises(HTTPException):
         await dependency(_request("PATCH", "/api/contracts/42"), tcm)
     with pytest.raises(HTTPException):
@@ -394,6 +395,35 @@ def test_core_sourcing_pipeline_insights_and_finance_routers_have_section_guard(
                 "require_section_access" in dependency.dependency.__qualname__
                 for dependency in router.dependencies
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sourcing,pipeline,allowed",
+    [(0, 0, False), (1, 0, True), (0, 1, True), (0, 2, True)],
+)
+async def test_shared_search_requires_read_in_at_least_one_section(
+    monkeypatch, sourcing, pipeline, allowed
+):
+    import app.api.section_access as access
+
+    user = SimpleNamespace(id=1)
+    levels = {
+        ProductSection.sourcing: SectionAccess(sourcing),
+        ProductSection.pipeline: SectionAccess(pipeline),
+    }
+    monkeypatch.setattr(
+        access, "section_access_for_user", lambda _user, section: levels[section]
+    )
+    guard = require_section_access_any_read(
+        ProductSection.sourcing, ProductSection.pipeline
+    )
+    if allowed:
+        assert await guard(user) is user
+    else:
+        with pytest.raises(HTTPException) as error:
+            await guard(user)
+        assert error.value.status_code == 403
 
 
 @pytest.mark.asyncio

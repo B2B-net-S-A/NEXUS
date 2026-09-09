@@ -33,6 +33,16 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/full-candidate-search-api", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/full-candidate-search-api")>(),
+  candidateSearchApi: {
+    start: async ({ radar }: { radar: unknown }) => { await mocks.search(radar); return { run_id: "run", state: "queued" }; },
+    page: async () => ({ run_id: "run", state: "complete", versions: {}, results: [],
+      counts: { population: 0, pending: 0, evaluated: 0, failed: 0, eligible: 0, excluded: 0, needs_verification: 0 },
+      ranking_complete: true, total_after_threshold: 0, next_offset: null }),
+  },
+}));
+
 vi.mock("@/lib/talent-radar-api", () => ({
   talentRadarApi: {
     interpret: async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
@@ -122,6 +132,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     // „albo-albo"), a test przewraca się na szukaniu pola, nie na tym,
     // czego pilnuje.
     sessionStorage.clear();
+    sessionStorage.clear();
     vi.clearAllMocks();
     mocks.search.mockResolvedValue({
       results: [],
@@ -144,7 +155,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
       await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
     }
-    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
+    await user.click(await screen.findByRole("button", { name: /Szukaj w całej bazie/ }));
 
     await waitFor(() => expect(mocks.search).toHaveBeenCalled());
     expect(mocks.search.mock.calls[0][0]).toMatchObject({
@@ -169,7 +180,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
       await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
     }
-    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
+    await user.click(await screen.findByRole("button", { name: /Szukaj w całej bazie/ }));
 
     await waitFor(() => expect(mocks.search).toHaveBeenCalled());
     const body = mocks.search.mock.calls[0][0];
@@ -185,7 +196,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     await user.clear(await screen.findByLabelText("Obowiązkowe"));
     await user.clear(screen.getByLabelText("Dodatkowe"));
     await user.type(screen.getByLabelText("Dodatkowe"), "Python");
-    await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
+    await user.click(screen.getByRole("button", { name: /Szukaj w całej bazie/ }));
     await waitFor(() => expect(mocks.search).toHaveBeenCalled());
     expect(mocks.search.mock.calls[0][0]).toMatchObject({ must_skills: [], nice_skills: ["Python"], requirements_reviewed: true });
   });

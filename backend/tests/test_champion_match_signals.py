@@ -69,7 +69,7 @@ def test_salary_in_champion_budget_scores_full(flag_on):
     cand = _cand(expected_rate_hourly=120)
     res = _score_salary(cand, job)
     assert res.points == res.max_points
-    assert "w budżecie Championa" in res.reason
+    assert "w budżecie requestu" in res.reason
 
 
 def test_salary_overshoot_decays_linearly_to_zero_at_30_percent(flag_on):

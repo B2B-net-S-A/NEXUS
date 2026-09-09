@@ -29,6 +29,16 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("@/lib/full-candidate-search-api", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/full-candidate-search-api")>(),
+  candidateSearchApi: {
+    start: async ({ radar }: { radar: unknown }) => { await mocks.search(radar); return { run_id: "run", state: "queued" }; },
+    page: async () => ({ run_id: "run", state: "complete", versions: {}, results: [],
+      counts: { population: 0, pending: 0, evaluated: 0, failed: 0, eligible: 0, excluded: 0, needs_verification: 0 },
+      ranking_complete: true, total_after_threshold: 0, next_offset: null }),
+  },
+}));
+
 vi.mock("@/lib/talent-radar-api", () => ({
   talentRadarApi: {
     interpret: async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
@@ -91,12 +101,13 @@ async function searchOnce() {
   if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
       await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
     }
-    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
+    await user.click(await screen.findByRole("button", { name: /Szukaj w całej bazie/ }));
   return user;
 }
 
 describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -108,12 +119,12 @@ describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
     await searchOnce();
 
     expect(
-      await screen.findByText("Wyszukiwanie nie doszło do skutku"),
+      await screen.findByText(/Nie udało się odczytać wyszukiwania/),
     ).toBeInTheDocument();
     // Ekran startowy to twierdzenie „jeszcze nic nie zrobiłeś" — po nieudanej
     // próbie jest nieprawdą.
     expect(
-      screen.queryByText("Zacznij od wklejenia requestu"),
+      screen.queryByText(/Sprawdź wymagania i uruchom wyszukiwanie/),
     ).not.toBeInTheDocument();
     // Toast zostaje jako natychmiastowy sygnał — nie zastępujemy go, dokładamy.
     expect(mocks.showError).toHaveBeenCalled();
@@ -125,17 +136,17 @@ describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
     );
 
     const user = await searchOnce();
-    await screen.findByText("Wyszukiwanie nie doszło do skutku");
+    await screen.findByText(/Nie udało się odczytać wyszukiwania/);
 
     await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
 
     await waitFor(() =>
       expect(
-        screen.queryByText("Wyszukiwanie nie doszło do skutku"),
+        screen.queryByText(/Nie udało się odczytać wyszukiwania/),
       ).not.toBeInTheDocument(),
     );
     expect(
-      screen.getByText("Zacznij od wklejenia requestu"),
+      screen.getByText(/Sprawdź wymagania i uruchom wyszukiwanie/),
     ).toBeInTheDocument();
   });
 });
