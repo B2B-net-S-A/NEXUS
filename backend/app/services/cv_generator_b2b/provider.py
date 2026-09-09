@@ -70,6 +70,9 @@ PROMPT_NAME = "cv_b2b_extraction"
 # addendum do promptu bazowego; kwoty wymuszające wypełniacz zamienione na
 # górne limity — przy ubogim CV model zwraca tyle, ile jest w źródle.
 # v8: evidence-led summaries; no total-career-to-role instruction or MUST list quota.
+# v9: extract complete source history before applying client display limits.
+# v10: independent editorial contract consumes frozen source facts instead of
+# reusing the raw extraction contract; extraction JSON size is bounded separately.
 PROMPT_VERSION = 10
 
 
