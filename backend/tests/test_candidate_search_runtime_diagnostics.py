@@ -21,6 +21,27 @@ def transport():
     return module
 
 
+def test_workflow_diagnostic_mode_is_an_opt_in_of_the_existing_audit():
+    import yaml
+
+    path = Path(__file__).resolve().parents[2] / ".github/workflows/coolify-ops.yml"
+    workflow = yaml.safe_load(path.read_text())
+    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    option = dispatch["inputs"]["candidate_search_diagnostics"]
+    assert option["type"] == "boolean" and option["default"] is False
+    assert "candidate-search-diagnostics" not in dispatch["inputs"]["action"]["options"]
+    job = workflow["jobs"]["candidate_index_audit"]
+    step = next(step for step in job["steps"] if "INDEX_MODE" in step.get("env", {}))
+    assert (
+        "inputs.action == 'candidate-index-audit' && inputs.candidate_search_diagnostics && 'diagnostics'"
+        in step["env"]["INDEX_MODE"]
+    )
+    assert (
+        "inputs.action == 'candidate-index-repair' && 'repair'"
+        in step["env"]["INDEX_MODE"]
+    )
+
+
 def sample_report():
     return {
         "ok": True,

@@ -21,7 +21,7 @@ export interface VerifyRequirementInput {
   usage_context: string;
   verified_at: string;
 }
-const path = (jobId: number, candidateId: number) => `/candidate-search/jobs/${jobId}/candidates/${candidateId}/verifications`;
+const path = (jobId: number, candidateId: number) => `/api/candidate-search/jobs/${jobId}/candidates/${candidateId}/verifications`;
 export const requirementVerificationsApi = {
   read: async (jobId: number, candidateId: number) => (await api.get<RequirementVerificationData>(path(jobId, candidateId))).data,
   save: async (jobId: number, candidateId: number, body: VerifyRequirementInput) => (await api.post<{ id: number; status: VerificationStatus; candidate_version: string }>(path(jobId, candidateId), body)).data,
