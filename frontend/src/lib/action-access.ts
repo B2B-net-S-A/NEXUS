@@ -1,11 +1,13 @@
 import type { UserRole } from "@/store/auth";
 
-export type ProductAction = "b2b_contract_generator";
+export type ProductAction =
+  "b2b_contract_generator" | "b2b_signature_confirmation";
 export type ActionAccess = "none" | "view" | "generate" | "manage";
 export type UserActionOverrideAccess = ActionAccess | "inherit";
 
 export const PRODUCT_ACTIONS: readonly ProductAction[] = [
   "b2b_contract_generator",
+  "b2b_signature_confirmation",
 ];
 
 export const ACTION_ACCESS_RANK: Record<ActionAccess, number> = {
@@ -19,15 +21,39 @@ export const ROLE_ACTION_ACCESS: Record<
   UserRole,
   Record<ProductAction, ActionAccess>
 > = {
-  admin: { b2b_contract_generator: "manage" },
-  finance: { b2b_contract_generator: "manage" },
-  head_of_recruitment: { b2b_contract_generator: "manage" },
-  delivery_lead: { b2b_contract_generator: "manage" },
-  talent_community_manager: { b2b_contract_generator: "view" },
-  tac: { b2b_contract_generator: "manage" },
-  recruiter: { b2b_contract_generator: "manage" },
-  sourcer: { b2b_contract_generator: "manage" },
-  user: { b2b_contract_generator: "view" },
+  admin: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "manage",
+  },
+  finance: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "none",
+  },
+  head_of_recruitment: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "none",
+  },
+  delivery_lead: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "manage",
+  },
+  talent_community_manager: {
+    b2b_contract_generator: "view",
+    b2b_signature_confirmation: "manage",
+  },
+  tac: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "manage",
+  },
+  recruiter: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "none",
+  },
+  sourcer: {
+    b2b_contract_generator: "manage",
+    b2b_signature_confirmation: "none",
+  },
+  user: { b2b_contract_generator: "view", b2b_signature_confirmation: "none" },
 };
 
 export interface ActionUser {

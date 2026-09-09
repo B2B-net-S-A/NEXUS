@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   LockKeyhole,
@@ -130,10 +126,15 @@ const ACTION_LABELS: Record<
   ProductAction,
   { label: string; description: string }
 > = {
+  b2b_signature_confirmation: {
+    label: "Oznaczanie podpisu umowy B2B",
+    description:
+      "Potwierdzenie podpisu obu stron i automatyczne powiązanie zatrudnienia. Wymaga podglądu generatora oraz odczytu Sourcingu. TCM obsługuje cały rejestr; pozostałe role zachowują zakres rekrutacji, a DL/TAC także przypisanie klienta.",
+  },
   b2b_contract_generator: {
     label: "Generator umów B2B",
     description:
-      "Podgląd rejestru, generowanie dokumentów ze stawką i zarządzanie umowami",
+      "Podgląd: lista umów. Generowanie: tworzenie i pobieranie dokumentów ze stawką. Zarządzanie: dodatkowo zmiana statusu, edycja i usuwanie w dozwolonym zakresie. Oznaczanie podpisu ustawiasz osobno.",
   },
 };
 
@@ -149,6 +150,15 @@ const ACTION_OVERRIDE_LABELS: Record<UserActionOverrideAccess, string> = {
   ...ACTION_ACCESS_LABELS,
 };
 
+function actionAccessLabel(
+  action: ProductAction,
+  access: UserActionOverrideAccess,
+): string {
+  if (action === "b2b_signature_confirmation" && access === "manage")
+    return "Dozwolone";
+  return ACTION_OVERRIDE_LABELS[access];
+}
+
 const ACTION_BADGE_VARIANTS: Record<ActionAccess, BadgeProps["variant"]> = {
   none: "neutral",
   view: "info",
@@ -157,13 +167,12 @@ const ACTION_BADGE_VARIANTS: Record<ActionAccess, BadgeProps["variant"]> = {
 };
 
 function responseStatus(error: unknown): number | null {
-  const status = (error as { response?: { status?: unknown } })?.response?.status;
+  const status = (error as { response?: { status?: unknown } })?.response
+    ?.status;
   return typeof status === "number" ? status : null;
 }
 
-function emptyUserDraft(
-  user: UserSectionPermissions,
-): UserDraft {
+function emptyUserDraft(user: UserSectionPermissions): UserDraft {
   return Object.fromEntries(
     PRODUCT_SECTIONS.map((section) => [
       section,
@@ -247,10 +256,16 @@ function AccessBadge({ access }: { access: SectionAccess }) {
   );
 }
 
-function ActionAccessBadge({ access }: { access: ActionAccess }) {
+function ActionAccessBadge({
+  access,
+  action,
+}: {
+  access: ActionAccess;
+  action: ProductAction;
+}) {
   return (
     <Badge variant={ACTION_BADGE_VARIANTS[access]}>
-      {ACTION_ACCESS_LABELS[access]}
+      {actionAccessLabel(action, access)}
     </Badge>
   );
 }
@@ -262,7 +277,12 @@ interface AccessSelectProps {
   ariaLabel: string;
 }
 
-function AccessSelect({ value, onChange, disabled, ariaLabel }: AccessSelectProps) {
+function AccessSelect({
+  value,
+  onChange,
+  disabled,
+  ariaLabel,
+}: AccessSelectProps) {
   return (
     <select
       value={value}
@@ -310,11 +330,13 @@ function OverrideSelect({
 }
 
 function ActionAccessSelect({
+  action,
   value,
   onChange,
   disabled,
   ariaLabel,
 }: {
+  action: ProductAction;
   value: ActionAccess;
   onChange: (value: ActionAccess) => void;
   disabled?: boolean;
@@ -329,19 +351,27 @@ function ActionAccessSelect({
       className="h-9 w-full min-w-40 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
     >
       <option value="none">Brak</option>
-      <option value="view">Podgląd rejestru</option>
-      <option value="generate">Generowanie</option>
-      <option value="manage">Zarządzanie</option>
+      {action === "b2b_signature_confirmation" ? (
+        <option value="manage">Dozwolone</option>
+      ) : (
+        <>
+          <option value="view">Podgląd rejestru</option>
+          <option value="generate">Generowanie</option>
+          <option value="manage">Zarządzanie</option>
+        </>
+      )}
     </select>
   );
 }
 
 function ActionOverrideSelect({
+  action,
   value,
   onChange,
   disabled,
   ariaLabel,
 }: {
+  action: ProductAction;
   value: UserActionOverrideAccess;
   onChange: (value: UserActionOverrideAccess) => void;
   disabled?: boolean;
@@ -359,9 +389,15 @@ function ActionOverrideSelect({
     >
       <option value="inherit">Dziedzicz z roli</option>
       <option value="none">Brak</option>
-      <option value="view">Podgląd rejestru</option>
-      <option value="generate">Generowanie</option>
-      <option value="manage">Zarządzanie</option>
+      {action === "b2b_signature_confirmation" ? (
+        <option value="manage">Dozwolone</option>
+      ) : (
+        <>
+          <option value="view">Podgląd rejestru</option>
+          <option value="generate">Generowanie</option>
+          <option value="manage">Zarządzanie</option>
+        </>
+      )}
     </select>
   );
 }
@@ -464,7 +500,9 @@ function RolePermissionsEditor({
       setConfirmOpen(false);
       setConflict(false);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin-section-permissions"],
+        }),
         queryClient.invalidateQueries({
           queryKey: ["admin-user-section-permissions"],
         }),
@@ -522,9 +560,9 @@ function RolePermissionsEditor({
 
   const confirmationChanges = [
     ...changes.map((change) => {
-      const previous = policyByRole(policy).get(change.role)?.permissions[
-        change.section
-      ] ?? "none";
+      const previous =
+        policyByRole(policy).get(change.role)?.permissions[change.section] ??
+        "none";
       return {
         key: `${change.role}:${change.section}`,
         title: `${ROLE_LABELS[change.role] ?? change.role} · ${SECTION_LABELS[change.section].label}`,
@@ -540,8 +578,8 @@ function RolePermissionsEditor({
       return {
         key: `${change.role}:action:${change.action}`,
         title: `${ROLE_LABELS[change.role] ?? change.role} · ${ACTION_LABELS[change.action].label}`,
-        before: ACTION_ACCESS_LABELS[previous],
-        after: ACTION_ACCESS_LABELS[change.access],
+        before: actionAccessLabel(change.action, previous),
+        after: actionAccessLabel(change.action, change.access),
       };
     }),
   ];
@@ -564,7 +602,10 @@ function RolePermissionsEditor({
                 Rola
               </TableHead>
               {PRODUCT_SECTIONS.map((section) => (
-                <TableHead key={section} className="min-w-36 normal-case tracking-normal">
+                <TableHead
+                  key={section}
+                  className="min-w-36 normal-case tracking-normal"
+                >
                   <span className="text-xs text-foreground">
                     {SECTION_LABELS[section].short}
                   </span>
@@ -574,7 +615,8 @@ function RolePermissionsEditor({
           </TableHeader>
           <TableBody>
             {orderedRoles.map((rolePolicy) => {
-              const rowLocked = rolePolicy.locked || rolePolicy.role === "admin";
+              const rowLocked =
+                rolePolicy.locked || rolePolicy.role === "admin";
               return (
                 <TableRow key={rolePolicy.role}>
                   <TableCell className="sticky left-0 z-10 bg-card">
@@ -671,15 +713,22 @@ function RolePermissionsEditor({
             <TableRow>
               <TableHead className="min-w-52">Rola</TableHead>
               {PRODUCT_ACTIONS.map((action) => (
-                <TableHead key={action} className="min-w-56 normal-case tracking-normal">
+                <TableHead
+                  key={action}
+                  className="min-w-56 normal-case tracking-normal"
+                >
                   {ACTION_LABELS[action].label}
+                  <p className="mt-1 text-xs font-normal text-muted-foreground">
+                    {ACTION_LABELS[action].description}
+                  </p>
                 </TableHead>
               ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {orderedRoles.map((rolePolicy) => {
-              const rowLocked = rolePolicy.locked || rolePolicy.role === "admin";
+              const rowLocked =
+                rolePolicy.locked || rolePolicy.role === "admin";
               return (
                 <TableRow key={`action:${rolePolicy.role}`}>
                   <TableCell className="font-medium">
@@ -688,6 +737,7 @@ function RolePermissionsEditor({
                   {PRODUCT_ACTIONS.map((action) => (
                     <TableCell key={action}>
                       <ActionAccessSelect
+                        action={action}
                         value={
                           actionDraft[rolePolicy.role]?.[action] ??
                           rolePolicy.action_permissions?.[action] ??
@@ -699,6 +749,19 @@ function RolePermissionsEditor({
                         disabled={rowLocked}
                         ariaLabel={`${ROLE_LABELS[rolePolicy.role] ?? rolePolicy.role}: ${ACTION_LABELS[action].label}`}
                       />
+                      {action === "b2b_signature_confirmation" &&
+                      (actionDraft[rolePolicy.role]?.[action] ??
+                        rolePolicy.action_permissions?.[action]) === "manage" &&
+                      ((draft[rolePolicy.role]?.sourcing ??
+                        rolePolicy.permissions.sourcing) === "none" ||
+                        (actionDraft[rolePolicy.role]?.b2b_contract_generator ??
+                          rolePolicy.action_permissions
+                            ?.b2b_contract_generator) === "none") ? (
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                          Dostęp zablokowany: nadaj co najmniej Odczyt Sourcingu
+                          i Podgląd rejestru generatora.
+                        </p>
+                      ) : null}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -846,7 +909,9 @@ function UserPermissionsEditor({
         draftState.key !== selectedDraftKey ||
         changesCount === 0
       ) {
-        throw new Error("Uprawnienia zostały odświeżone. Sprawdź zmiany ponownie.");
+        throw new Error(
+          "Uprawnienia zostały odświeżone. Sprawdź zmiany ponownie.",
+        );
       }
       return adminApi.updateUserSectionPermissions(
         selectedUser.user_id,
@@ -863,7 +928,9 @@ function UserPermissionsEditor({
         queryClient.invalidateQueries({
           queryKey: ["admin-user-section-permissions"],
         }),
-        queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin-section-permissions"],
+        }),
       ]);
       showSuccess(
         response.data.invalidated_users > 0
@@ -879,7 +946,9 @@ function UserPermissionsEditor({
           queryClient.invalidateQueries({
             queryKey: ["admin-user-section-permissions"],
           }),
-          queryClient.invalidateQueries({ queryKey: ["admin-section-permissions"] }),
+          queryClient.invalidateQueries({
+            queryKey: ["admin-section-permissions"],
+          }),
         ]);
         showError(
           "Ktoś zmienił uprawnienia w międzyczasie. Wczytano aktualną wersję — sprawdź wyjątek ponownie.",
@@ -907,17 +976,19 @@ function UserPermissionsEditor({
           key: change.section,
           title: SECTION_LABELS[change.section].label,
           before:
-            OVERRIDE_LABELS[selectedUser.overrides[change.section] ?? "inherit"],
+            OVERRIDE_LABELS[
+              selectedUser.overrides[change.section] ?? "inherit"
+            ],
           after: OVERRIDE_LABELS[change.access],
         })),
         ...actionChanges.map((change) => ({
           key: `action:${change.action}`,
           title: ACTION_LABELS[change.action].label,
-          before:
-            ACTION_OVERRIDE_LABELS[
-              selectedUser.action_overrides?.[change.action] ?? "inherit"
-            ],
-          after: ACTION_OVERRIDE_LABELS[change.access],
+          before: actionAccessLabel(
+            change.action,
+            selectedUser.action_overrides?.[change.action] ?? "inherit",
+          ),
+          after: actionAccessLabel(change.action, change.access),
         })),
       ]
     : [];
@@ -965,7 +1036,10 @@ function UserPermissionsEditor({
         />
       ) : users.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
-          <UsersRound className="mx-auto size-8 text-muted-foreground" aria-hidden />
+          <UsersRound
+            className="mx-auto size-8 text-muted-foreground"
+            aria-hidden
+          />
           <p className="mt-3 text-sm font-medium text-foreground">
             Nie znaleziono użytkowników
           </p>
@@ -988,7 +1062,10 @@ function UserPermissionsEditor({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => {
-                      if (entry.user_id !== selectedUser?.user_id && !discardDraft()) {
+                      if (
+                        entry.user_id !== selectedUser?.user_id &&
+                        !discardDraft()
+                      ) {
                         return;
                       }
                       setSelectedUserId(entry.user_id);
@@ -1041,7 +1118,8 @@ function UserPermissionsEditor({
                   </div>
                   {selectedUser.locked ? (
                     <Badge variant="neutral" className="ml-auto">
-                      <LockKeyhole className="size-3" aria-hidden /> Konto chronione
+                      <LockKeyhole className="size-3" aria-hidden /> Konto
+                      chronione
                     </Badge>
                   ) : null}
                 </div>
@@ -1117,7 +1195,10 @@ function UserPermissionsEditor({
                           <p className="text-sm font-medium text-foreground">
                             {ACTION_LABELS[action].label}
                           </p>
-                          <ActionAccessBadge access={effective} />
+                          <ActionAccessBadge
+                            access={effective}
+                            action={action}
+                          />
                           <span className="text-[11px] text-muted-foreground">
                             {override === "inherit" ? "z roli" : "wyjątek"}
                           </span>
@@ -1127,6 +1208,7 @@ function UserPermissionsEditor({
                         </p>
                       </div>
                       <ActionOverrideSelect
+                        action={action}
                         value={override}
                         onChange={(access) =>
                           selectedDraftKey &&
@@ -1224,7 +1306,9 @@ export function PermissionsTab() {
             <ShieldCheck className="size-5" aria-hidden />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Dostęp do sekcji NEXUS</h3>
+            <h3 className="font-semibold text-foreground">
+              Dostęp do sekcji NEXUS
+            </h3>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Ustaw domyślny poziom dla roli albo nadpisz go dla jednej osoby.
               Indywidualny wyjątek zastępuje wynik wszystkich ról użytkownika.

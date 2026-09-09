@@ -2120,3 +2120,36 @@ async def test_confirming_signature_does_not_reopen_a_closed_contract(
     assert generated["closure_reason"] == "resignation_before_signing"
     # Sam podpis został odnotowany — blokujemy tylko zmianę statusu handlowego.
     assert generated["signature_status"] == "signed_both"
+
+
+@pytest.mark.asyncio
+async def test_tcm_confirms_without_document_management_and_override_revokes(app_client):
+    from app.models.section_permission import UserActionOverride
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    headers = await _headers_for_role(app_client, UserRole.talent_community_manager)
+    user_id = int(headers["X-Test-User-Id"])
+    listing = await app_client.get("/api/b2b-generator/generated?limit=200", headers=headers)
+    assert listing.status_code == 200, listing.text
+    item = next(item for item in listing.json() if item["id"] == scenario["generated_id"])
+    assert item["can_confirm_signed"] is True
+    assert item["can_edit"] is False
+    assert item["can_change_status"] is False
+
+    async with AsyncSessionLocal() as db:
+        db.add(UserActionOverride(user_id=user_id, action="b2b_signature_confirmation", access="none"))
+        await db.commit()
+    denied = await _confirm(app_client, headers, scenario["generated_id"])
+    assert denied.status_code == 403, denied.text
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (0, 0, 0)
+    async with AsyncSessionLocal() as db:
+        override = await db.get(UserActionOverride, (user_id, "b2b_signature_confirmation"))
+        await db.delete(override)
+        await db.commit()
+    confirmed = await _confirm(app_client, headers, scenario["generated_id"])
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["generated_contract"]["signature_status"] == "signed_both"
+    replay = await _confirm(app_client, headers, scenario["generated_id"])
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["outcome"] == "already_processed"

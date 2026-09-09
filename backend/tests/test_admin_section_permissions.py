@@ -229,8 +229,8 @@ async def test_user_action_override_is_audited_and_returned_in_auth_snapshot(
     assert users.status_code == 200, users.text
     [row] = users.json()["users"]
     assert row["action_overrides"] == {"b2b_contract_generator": "generate"}
-    assert row["inherited_action_permissions"] == {"b2b_contract_generator": "manage"}
-    assert row["effective_action_permissions"] == {"b2b_contract_generator": "generate"}
+    assert row["inherited_action_permissions"]["b2b_contract_generator"] == "manage"
+    assert row["effective_action_permissions"]["b2b_contract_generator"] == "generate"
     assert row["effective_permissions"]["finance"] == "none"
 
     login = await app_client.post(
@@ -246,9 +246,7 @@ async def test_user_action_override_is_audited_and_returned_in_auth_snapshot(
         "/api/auth/me", headers={"Authorization": f"Bearer {access_token}"}
     )
     assert me.status_code == 200, me.text
-    assert me.json()["effective_action_access"] == {
-        "b2b_contract_generator": "generate"
-    }
+    assert me.json()["effective_action_access"]["b2b_contract_generator"] == "generate"
     assert me.json()["effective_section_access"]["finance"] == "none"
 
     generate = await app_client.post(
@@ -599,3 +597,32 @@ async def test_admin_cannot_remove_or_deactivate_own_administrator_access(
         json={"is_active": False},
     )
     assert deactivate.status_code == 400
+
+
+async def test_admin_can_configure_signature_and_generator_independently(
+    app_client, app_auth_headers, permission_target
+):
+    policy = (await app_client.get("/api/admin/section-permissions", headers=app_auth_headers)).json()
+    response = await app_client.put(
+        f"/api/admin/section-permissions/users/{permission_target['id']}",
+        headers=app_auth_headers,
+        json={"revision": policy["revision"], "action_changes": [
+            {"action": "b2b_contract_generator", "access": "view"},
+            {"action": "b2b_signature_confirmation", "access": "manage"},
+        ]},
+    )
+    assert response.status_code == 200, response.text
+    users = await app_client.get("/api/admin/section-permissions/users", headers=app_auth_headers, params={"search": permission_target["email"]})
+    [user] = users.json()["users"]
+    assert user["effective_action_permissions"] == {
+        "b2b_contract_generator": "view", "b2b_signature_confirmation": "manage"
+    }
+    assert user["effective_permissions"]["finance"] == "none"
+    response = await app_client.put(
+        f"/api/admin/section-permissions/users/{permission_target['id']}",
+        headers=app_auth_headers,
+        json={"revision": response.json()["revision"], "action_changes": [
+            {"action": "b2b_signature_confirmation", "access": "none"},
+        ]},
+    )
+    assert response.status_code == 200, response.text
