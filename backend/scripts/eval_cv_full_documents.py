@@ -9,12 +9,15 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+from io import BytesIO
 import json
 import unicodedata
 import re
 import os
 from pathlib import Path
 import time
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
 
 from sqlalchemy import select
 
@@ -31,6 +34,51 @@ from app.services.cv_generator_b2b.standalone_service import (
 )
 from scripts.eval_cv_factual_gate import checkpoint, claim_run, run_key, write_report
 from scripts.prepare_cv_document_corpus import prepare
+
+
+def check_rendered_claims(docx_bytes: bytes, forbidden: list[str]) -> dict:
+    """Catch known corpus regressions in visible text, including split Word runs.
+
+    This is a literal regression check, not semantic hallucination acceptance.
+    Unreadable artifacts cannot pass it. Source metadata is deliberately excluded.
+    """
+
+    def normalized(value):
+        return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    try:
+        with ZipFile(BytesIO(docx_bytes)) as archive:
+            names = archive.namelist()
+            if "word/document.xml" not in names:
+                raise ValueError("Missing document body")
+            paragraphs = []
+            for name in names:
+                if name == "word/document.xml" or re.fullmatch(
+                    r"word/(?:header|footer)\d+\.xml", name
+                ):
+                    root = ElementTree.fromstring(archive.read(name))
+                    for paragraph in root.iter(f"{ns}p"):
+                        paragraphs.append(
+                            "".join(
+                                (node.text or "") if node.tag == f"{ns}t" else " "
+                                for node in paragraph.iter()
+                                if node.tag in {f"{ns}t", f"{ns}tab", f"{ns}br"}
+                            )
+                        )
+        rendered = normalized("\n".join(paragraphs))
+        found = [claim for claim in forbidden if normalized(claim) in rendered]
+        return {
+            "rendered_text_readable": bool(rendered),
+            "known_unsupported_claims_found": found,
+            "known_unsupported_claims_absent": bool(rendered) and not found,
+        }
+    except (BadZipFile, ElementTree.ParseError, KeyError, ValueError):
+        return {
+            "rendered_text_readable": False,
+            "known_unsupported_claims_found": [],
+            "known_unsupported_claims_absent": False,
+        }
 
 
 def generate_case(case, directory):
@@ -97,6 +145,9 @@ def generate_case(case, directory):
         "tenure_matches": actual_months == expected if expected is not None else None,
         "warnings_count": len(result.warnings),
         "human_accepted": None,
+        **check_rendered_claims(
+            result.docx_bytes, case["expected"].get("unsupported_claims", [])
+        ),
     }
 
 
@@ -259,6 +310,7 @@ async def run(
                 and row.get("tenure_matches") is not False
                 and row.get("source_role_count_matches") is True
                 and row.get("required_source_facts_preserved") is True
+                and row.get("known_unsupported_claims_absent") is True
                 for row in report["results"]
             )
             else 1

@@ -178,9 +178,20 @@ def test_full_source_role_count_cannot_be_replaced_by_displayed_roles(
 
 
 @pytest.mark.parametrize("offset", [0, 1])
+@pytest.mark.parametrize("invented_claim", [False, True])
 async def test_finished_run_links_model_artifacts_from_root_report(
-    tmp_path, monkeypatch, offset
+    tmp_path, monkeypatch, offset, invented_claim
 ):
+    from io import BytesIO
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph(
+        "11 lat doświadczenia jako analityk" if invented_claim else "Analityk"
+    )
+    output = BytesIO()
+    document.save(output)
+    docx_bytes = output.getvalue()
     sha = "a" * 40
     monkeypatch.setenv("GIT_SHA", sha)
     monkeypatch.setenv("CV_B2B_MODEL", "primary-model")
@@ -221,7 +232,7 @@ async def test_finished_run_links_model_artifacts_from_root_report(
         "generate_cv_from_uploads",
         Mock(
             return_value=SimpleNamespace(
-                docx_bytes=b"synthetic",
+                docx_bytes=docx_bytes,
                 warnings=[],
                 render_payload={
                     "source_facts": {
@@ -235,17 +246,14 @@ async def test_finished_run_links_model_artifacts_from_root_report(
             )
         ),
     )
-    assert (
-        await runner.run(
-            tmp_path,
-            identity="125-1",
-            expected_sha=sha,
-            limit=1,
-            models="primary",
-            offset=offset,
-        )
-        == 0
-    )
+    assert await runner.run(
+        tmp_path,
+        identity="125-1",
+        expected_sha=sha,
+        limit=1,
+        models="primary",
+        offset=offset,
+    ) == (1 if invented_claim else 0)
     report = checkpoints[-1]
     assert report["case_offset"] == offset
     assert report["case_limit"] == 1
@@ -258,7 +266,7 @@ async def test_finished_run_links_model_artifacts_from_root_report(
     assert report["complete"] is True
     assert report["human_accepted"] is None
     row = report["results"][0]
-    assert (tmp_path / row["artifact"]).read_bytes() == b"synthetic"
+    assert (tmp_path / row["artifact"]).read_bytes() == docx_bytes
     assert (tmp_path / row["payload_artifact"]).is_file()
     assert row["artifact"].startswith("model-0/")
 
@@ -282,3 +290,40 @@ async def test_invalid_range_stops_before_receipt_or_generation(
         )
     claim.assert_not_awaited()
     generate.assert_not_called()
+
+
+def test_rendered_claim_check_reads_split_runs_tables_and_headers():
+    from io import BytesIO
+    from docx import Document
+
+    document = Document()
+    paragraph = document.add_table(rows=1, cols=1).cell(0, 0).paragraphs[0]
+    paragraph.add_run("11 lat ").bold = True
+    paragraph.add_run("doświadczenia jako analityk")
+    document.sections[0].header.paragraphs[0].text = "Certified architect"
+    output = BytesIO()
+    document.save(output)
+    forbidden = ["11 lat doświadczenia jako analityk", "certified architect"]
+    result = runner.check_rendered_claims(output.getvalue(), forbidden)
+    assert result["rendered_text_readable"] is True
+    assert result["known_unsupported_claims_found"] == forbidden
+    assert result["known_unsupported_claims_absent"] is False
+
+
+def test_rendered_claim_check_passes_readable_document_without_known_claim():
+    from io import BytesIO
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("Analityk z trzyletnim doświadczeniem.")
+    output = BytesIO()
+    document.save(output)
+    result = runner.check_rendered_claims(output.getvalue(), ["11 lat doświadczenia"])
+    assert result["known_unsupported_claims_absent"] is True
+
+
+@pytest.mark.parametrize("content", [b"broken zip", b""])
+def test_unreadable_document_cannot_pass_claim_check(content):
+    result = runner.check_rendered_claims(content, [])
+    assert result["rendered_text_readable"] is False
+    assert result["known_unsupported_claims_absent"] is False

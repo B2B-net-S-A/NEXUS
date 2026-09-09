@@ -46,3 +46,18 @@ Odbiór Delivery Leada musi dotyczyć konkretnych plików i recept klientów.
 Transport pełnych artefaktów z właściwego runtime i uruchomienie tej procedury
 pozostają otwarte. Obecny workflow `eval-cv-quality` obsługuje tylko diagnostykę
 weryfikatora faktów i nie uruchamia powyższego polecenia.
+
+### Known unsupported claims in rendered documents
+
+The runner checks each case's `unsupported_claims` against visible DOCX body,
+header and footer text, including table cells and claims split across Word runs.
+A known claim or an unreadable/empty artifact makes the batch unsuccessful.
+Reports include `rendered_text_readable`, `known_unsupported_claims_found` and
+`known_unsupported_claims_absent`. This literal regression check does not prove
+absence of paraphrased hallucinations; full semantic and human review remain
+required. Source-ledger contents are not treated as rendered candidate claims.
+
+Host-native validation: 22 runner tests passed, including complete batch return
+codes with and without an invented career-duration claim in a real DOCX file.
+No live provider evaluation was performed for this change. Read-only staging
+status run 34417172000 still reported `exited:unhealthy` on another task's branch.
