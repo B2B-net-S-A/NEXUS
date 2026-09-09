@@ -207,6 +207,9 @@ class GeneratedCvItem(BaseModel):
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
     status: str = "ready"
+    job_status: Optional[
+        Literal["queued", "running", "complete", "failed", "interrupted"]
+    ] = None
     error_message: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     created_at: Optional[str] = None
@@ -1733,6 +1736,8 @@ async def list_generated_cvs(
     saved ``render_payload`` (rows from before this feature have none);
     ``can_delete`` whether the current user may remove the row (author or admin).
     """
+    from app.models.cv_generation_job import CvGenerationJob
+
     filters = [job_read_scope_clause(current_user, CvGeneratedDocument.job_id)]
     if candidate_id is not None:
         filters.append(CvGeneratedDocument.candidate_id == candidate_id)
@@ -1749,6 +1754,14 @@ async def list_generated_cvs(
             select(
                 CvGeneratedDocument,
                 User.name,
+                select(CvGenerationJob.status)
+                .where(
+                    (CvGenerationJob.generated_id == CvGeneratedDocument.id)
+                    | (CvGenerationJob.second_generated_id == CvGeneratedDocument.id)
+                )
+                .correlate(CvGeneratedDocument)
+                .limit(1)
+                .scalar_subquery(),
                 func.coalesce(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
@@ -1775,6 +1788,7 @@ async def list_generated_cvs(
             content_mode=r.content_mode,
             filename=r.filename,
             status=r.status,
+            job_status=job_status,
             error_message=r.error_message,
             warnings=list(r.warnings or []),
             created_at=r.created_at.isoformat() if r.created_at else None,
@@ -1782,7 +1796,7 @@ async def list_generated_cvs(
             can_download=r.status == "ready" and r.render_payload is not None,
             can_delete=is_admin or r.created_by == current_user.id,
         )
-        for r, creator_name, client_name in rows
+        for r, creator_name, job_status, client_name in rows
     ]
 
 

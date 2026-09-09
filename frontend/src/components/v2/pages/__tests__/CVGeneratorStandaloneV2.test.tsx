@@ -408,3 +408,18 @@ describe("Explicit CV source selection", () => {
     ));
   });
 });
+
+describe("durable generation status", () => {
+  it("distinguishes queued and interrupted work in history", async () => {
+    setSourcingAccess("write");
+    getMock.mockReset();
+    getMock.mockImplementation(async (url) => ({data: String(url) === "/api/cv-generator/generated" ? [
+      {id: 901, candidate_name: "Queued Person", language: "pl", mode: "upload", status: "processing", job_status: "queued", filename: "", can_download: false, can_delete: false},
+      {id: 902, candidate_name: "Interrupted Person", language: "en", mode: "upload", status: "failed", job_status: "interrupted", filename: "", error_message: "Generacja przerwana", can_download: false, can_delete: false},
+    ] : []}));
+    renderPage();
+    expect(await screen.findByText("Oczekuje w kolejce")).toBeInTheDocument();
+    expect(screen.getByText("Przerwano")).toBeInTheDocument();
+    expect(screen.getByText("Generacja przerwana")).toBeInTheDocument();
+  });
+});

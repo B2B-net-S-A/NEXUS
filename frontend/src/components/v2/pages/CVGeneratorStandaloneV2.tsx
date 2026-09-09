@@ -109,6 +109,7 @@ type GeneratedCvItem = {
   mode: string;
   filename: string;
   status: "processing" | "ready" | "failed";
+  job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
   error_message?: string | null;
   warnings?: string[];
   created_at?: string | null;
@@ -1775,13 +1776,13 @@ function GeneratedCvRow({
             {item.status === "processing" && (
               <Badge variant="warning" className="flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Generuję…
+                {item.job_status === "queued" ? "Oczekuje w kolejce" : "Generuję…"}
               </Badge>
             )}
             {item.status === "failed" && (
               <Badge variant="danger" className="flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" />
-                Błąd
+                {item.job_status === "interrupted" ? "Przerwano" : "Błąd"}
               </Badge>
             )}
             {item.status === "ready" && warnings.length > 0 && (
