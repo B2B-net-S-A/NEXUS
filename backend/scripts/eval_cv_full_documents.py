@@ -9,6 +9,8 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import json
+import unicodedata
 import re
 import os
 from pathlib import Path
@@ -70,6 +72,18 @@ def generate_case(case, directory):
     source_roles = source_document.get("experience")
     actual_roles = len(source_roles) if isinstance(source_roles, list) else None
     expected = case["expected"]["career_months"]
+
+    # These are source-ledger checks, not translated presentation checks.
+    # A matching role count alone cannot prove that named source facts survived.
+    def normalized(value):
+        return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+    source_text = normalized(json.dumps(source_document, ensure_ascii=False))
+    missing_source_facts = [
+        fact
+        for fact in case["expected"].get("must_preserve", [])
+        if normalized(fact) not in source_text
+    ]
     return {
         "outcome": "generated",
         "artifact": output.name,
@@ -78,6 +92,8 @@ def generate_case(case, directory):
         "career_months": actual_months,
         "source_roles": actual_roles,
         "source_role_count_matches": actual_roles == case["expected"]["source_roles"],
+        "missing_required_source_facts": missing_source_facts,
+        "required_source_facts_preserved": not missing_source_facts,
         "tenure_matches": actual_months == expected if expected is not None else None,
         "warnings_count": len(result.warnings),
         "human_accepted": None,
@@ -224,6 +240,7 @@ async def run(
                 and row["metering_complete"]
                 and row.get("tenure_matches") is not False
                 and row.get("source_role_count_matches") is True
+                and row.get("required_source_facts_preserved") is True
                 for row in report["results"]
             )
             else 1

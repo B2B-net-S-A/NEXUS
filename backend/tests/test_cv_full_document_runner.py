@@ -44,6 +44,37 @@ def test_changed_input_stops_before_paid_generation(tmp_path, monkeypatch):
     generate.assert_not_called()
 
 
+def test_matching_role_count_does_not_hide_missing_named_source_facts(
+    tmp_path, monkeypatch
+):
+    case = runner.prepare(tmp_path)["cases"][0]
+    monkeypatch.setattr(
+        runner,
+        "generate_cv_from_uploads",
+        Mock(
+            return_value=SimpleNamespace(
+                docx_bytes=b"synthetic",
+                warnings=[],
+                render_payload={
+                    "source_facts": {
+                        "document": {
+                            "name": "Zofia Testowa",
+                            "experience": [
+                                {"company": "Wrong employer"},
+                                {"company": "Other"},
+                            ],
+                        }
+                    }
+                },
+            )
+        ),
+    )
+    report = runner.generate_case(case, tmp_path)
+    assert report["source_role_count_matches"] is True
+    assert report["required_source_facts_preserved"] is False
+    assert report["missing_required_source_facts"] == ["Firma Testowa 1"]
+
+
 async def test_existing_receipt_prevents_replay_even_if_previous_run_incomplete(
     tmp_path, monkeypatch
 ):
@@ -194,7 +225,10 @@ async def test_finished_run_links_model_artifacts_from_root_report(
                 render_payload={
                     "source_facts": {
                         "tenure": {"career_months": 132},
-                        "document": {"experience": [{}, {}]},
+                        "document": {
+                            "name": "Zofia Testowa",
+                            "experience": [{"company": "Firma Testowa 1"}, {}],
+                        },
                     }
                 },
             )
