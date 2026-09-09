@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import AsyncMock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 import pytest
@@ -74,6 +74,19 @@ def test_stored_metadata_contains_binding_without_reusable_token():
     assert receipt["binding"]["uploaded_by"] == 7
     assert receipt["binding"]["subject"] == CONTEXT
     assert token not in str(receipt)
+
+
+def test_open_legacy_form_receives_refresh_instruction_instead_of_reusing_its_key():
+    with pytest.raises(HTTPException) as error:
+        api._verified_consent(
+            SimpleNamespace(requires_rodo_consent_block=True),
+            "",
+            "cv/old.png",
+            7,
+            CONTEXT,
+        )
+    assert error.value.status_code == 422
+    assert "Odśwież formularz" in error.value.detail
 
 
 @pytest.mark.parametrize("mode", ["new", "upload"])

@@ -1163,8 +1163,8 @@ async def upload_consent_screenshot(
 def _verified_consent(
     rule, token: str, legacy_key: str, user_id: int, context: dict
 ) -> dict | None:
-    _require_consent_screenshot(rule, token)
     if not token and not legacy_key:
+        _require_consent_screenshot(rule, "")
         return None
     try:
         receipt = consent_binding.verify(token, user_id, context)
