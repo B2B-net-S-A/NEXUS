@@ -42,7 +42,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
+        options: [candidate-search-diagnostics, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -165,7 +165,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    if: ${{ !startsWith(inputs.action, 'candidate-') && !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -974,8 +974,8 @@ jobs:
           echo "zadanie $TASK_NAME skasowane"
 
   candidate_index_audit:
-    name: Candidate index (${{ inputs.action == 'candidate-index-repair' && 'enqueue reviewed repair' || 'read-only audit' }})
-    if: ${{ inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair' }}
+    name: Candidate search (${{ inputs.action }})
+    if: ${{ inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair' || inputs.action == 'candidate-search-diagnostics' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -988,7 +988,7 @@ jobs:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-          INDEX_MODE: ${{ inputs.action == 'candidate-index-repair' && 'repair' || 'audit' }}
+          INDEX_MODE: ${{ inputs.action == 'candidate-search-diagnostics' && 'diagnostics' || inputs.action == 'candidate-index-repair' && 'repair' || 'audit' }}
           INDEX_AUDIT_IDENTITY: ${{ inputs.index_audit_identity }}
           INDEX_FINGERPRINT: ${{ inputs.index_fingerprint }}
         run: python3 .github/scripts/candidate-index-audit-ops.py
