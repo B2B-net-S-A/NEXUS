@@ -190,11 +190,18 @@ def test_broken_cap_value_does_not_disable_the_ceiling() -> None:
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])
-def test_lower_modes_get_an_addendum_and_tailored_does_not(language: str) -> None:
-    """ "tailored" to prompt bazowy; basic/polished dokładają ograniczenia."""
-    tailored = get_prompt(language, False, "tailored")
-    for mode in ("basic", "polished"):
-        assert len(get_prompt(language, False, mode)) > len(tailored)
+def test_editorial_modes_have_distinct_source_fact_policies(language: str) -> None:
+    prompts = [get_prompt(language, False, mode) for mode in CONTENT_MODES]
+    assert len(set(prompts)) == 3
+    for prompt in prompts:
+        assert "<source_facts>" in prompt
+        assert "<cv>" not in prompt
+        assert "<screening_notes>" not in prompt
+    assert "minimal wording changes" in get_prompt(language, False, "basic")
+    assert "reusable CV" in get_prompt(language, False, "polished")
+    assert "prioritize relevant existing facts" in get_prompt(
+        language, False, "tailored"
+    )
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])
@@ -225,18 +232,13 @@ def test_truth_ceiling_is_identical_in_every_mode(language: str, mode: str) -> N
     byłyby licencją na zmyślanie — a to jest właśnie zarzut klienta.
     """
     prompt = get_prompt(language, False, mode)
-    if language == "pl":
-        needles = [
-            "NIE wymyślaj certyfikatów",
-            "NIGDY nie wymyślaj ani nie szacuj liczb",
-            "NIE dedukuj ani nie dodawaj technologii",
-        ]
-    else:
-        needles = [
-            "DO NOT fabricate certifications",
-            "NEVER invent or estimate numbers",
-            "DO NOT deduce or add technologies",
-        ]
+    needles = [
+        "Every candidate claim must follow from source_facts.document",
+        "certification level and role ownership",
+        "Never invent outcomes, metrics",
+        "not professional delivery or completed achievements",
+        "Do not sum overlapping",
+    ]
     for needle in needles:
         assert needle.lower() in prompt.lower(), f"{mode}/{language}: brak „{needle}”"
 

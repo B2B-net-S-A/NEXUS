@@ -631,7 +631,7 @@ def get_prompt(
     blind_cv: bool = False,
     content_mode: str = DEFAULT_CONTENT_MODE,
 ) -> str:
-    """Return the extraction system prompt for the given language.
+    """Return the independent editorial system prompt for the given language.
 
     Args:
         language: 'pl' or 'en'.
@@ -651,16 +651,14 @@ def get_prompt(
     The addenda are appended base → content mode → blind, so the blind rules get
     the last word: anonymization must survive whatever the mode asked for.
     """
-    addendum_pl, addendum_en = _CONTENT_MODE_ADDENDA.get(
-        content_mode, _CONTENT_MODE_ADDENDA[DEFAULT_CONTENT_MODE]
-    )
+    from .editorial_prompt import editorial_prompt
+
+    prompt = editorial_prompt(language, content_mode)
 
     if language == "en":
-        prompt = EXTRACTION_PROMPT_EN + addendum_en + EDITORIAL_SOURCE_ADDENDUM
         if blind_cv:
             prompt += BLIND_ADDENDUM_EN
     else:
-        prompt = EXTRACTION_PROMPT_PL + addendum_pl + EDITORIAL_SOURCE_ADDENDUM
         if blind_cv:
             prompt += BLIND_ADDENDUM_PL
     return prompt
