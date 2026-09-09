@@ -20,3 +20,25 @@ describe("B2B letterhead preview", () => {
     host.remove();
   });
 });
+
+it("preserves declared point widths despite the global responsive image rule and aligns the footer", () => {
+  const host = document.createElement("div");
+  host.innerHTML = `<section class="docx" style="width:794px;padding-left:94px">
+    <header><div style="position:relative;width:0px;height:0px"><img style="width:598.95pt;max-width:100%"></div></header>
+    <footer><div style="position:relative;width:793px;height:96px;float:left"><img style="width:594.6pt;max-width:100%"></div></footer>
+    <article><img style="width:598.95pt;max-width:100%"></article>
+  </section>`;
+  document.body.append(host);
+  alignB2bLetterheadPreview(host);
+  const header = host.querySelector<HTMLElement>("header div")!;
+  const footer = host.querySelector<HTMLElement>("footer div")!;
+  expect(header.style.transform).toBe("translateX(-94px)");
+  expect(footer.style.transform).toBe("translateX(-94px)");
+  expect(header.querySelector("img")!.style.maxWidth).toBe("none");
+  expect(footer.querySelector("img")!.style.maxWidth).toBe("none");
+  expect(host.querySelector<HTMLElement>("article img")!.style.maxWidth).toBe("100%");
+  const first = host.innerHTML;
+  alignB2bLetterheadPreview(host);
+  expect(host.innerHTML).toBe(first);
+  host.remove();
+});
