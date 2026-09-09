@@ -980,6 +980,10 @@ async def upsert_consumption(
     pozostałość i tak jest przeliczana od zera po zapisie.
     """
     month_bounds(period_month)  # walidacja kształtu, zanim cokolwiek zapiszemy
+    if order.order_group_id is not None:
+        budget_group = await db.get(ClientOrderGroup, order.order_group_id)
+        if budget_group is not None and budget_group.md_budget_mode is not None:
+            budget_group.md_budget_mode_locked = True
     value = quantize_md(md_reported)
 
     previous_raw = await db.scalar(

@@ -245,7 +245,9 @@ async def materialize_group_for_activated_order(
                 "Budżet kosztowy różni się od istniejącego zamówienia o tym numerze"
             )
     elif explicit_type == OrderType.md:
-        if client_uses_shared_md_pool(order.client_id):
+        if group.md_budget_mode is not None:
+            pass  # Explicit choice belongs to this order, not its client.
+        elif client_uses_shared_md_pool(order.client_id):
             if not uses_shared_md_pool(group):
                 raise ValueError(
                     "Zamówienie MD tego klienta wymaga wspólnego budżetu MD"
@@ -367,13 +369,17 @@ async def materialize_group_for_activated_order(
     # CORS — u użytkownika „Network Error" w środku aktywacji zamówienia.
     _assert_fits_order_rate_column(order.md_rate_cost, "kosztowa")
     _assert_fits_order_rate_column(order.md_rate_revenue, "przychodowa")
-    order.rate_candidate = order.md_rate_cost
-    order.rate_client = order.md_rate_revenue
+    order.rate_candidate = convert_order_rate(
+        candidate_rate, unit, RateUnit.daily, order.billing_hours_per_month or 160
+    )
+    order.rate_client = convert_order_rate(
+        order.rate_client, unit, RateUnit.daily, order.billing_hours_per_month or 160
+    )
     order.rate_unit = RateUnit.daily
     order.billing_hours_per_month = 160
-    order.currency = "PLN"
-    order.rate_client_currency = "PLN"
-    order.rate_candidate_currency = "PLN"
+    order.currency = client_currency
+    order.rate_client_currency = client_currency
+    order.rate_candidate_currency = candidate_currency
     if explicit_type == OrderType.cost or uses_shared_md_pool(group):
         # Budżet kosztowy oraz klientowa wspólna pula MD mieszkają na grupie;
         # pozostawienie kopii na linii stworzyłoby dwa niezależne liczniki.

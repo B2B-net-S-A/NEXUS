@@ -40,11 +40,13 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 
+GROUP_STATUS_DRAFT = "draft"
 GROUP_STATUS_ACTIVE = "active"
 GROUP_STATUS_SCHEDULED = "scheduled"
 GROUP_STATUS_COMPLETED = "completed"
 GROUP_STATUS_EXHAUSTED = "exhausted"
 GROUP_STATUSES: tuple[str, ...] = (
+    GROUP_STATUS_DRAFT,
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_SCHEDULED,
     GROUP_STATUS_COMPLETED,
@@ -52,6 +54,7 @@ GROUP_STATUSES: tuple[str, ...] = (
 )
 
 GROUP_STATUS_LABELS: dict[str, str] = {
+    GROUP_STATUS_DRAFT: "Draft",
     GROUP_STATUS_ACTIVE: "Aktywne",
     GROUP_STATUS_SCHEDULED: "Przyszłe",
     GROUP_STATUS_COMPLETED: "Zakończone",
@@ -64,6 +67,10 @@ class ClientOrderGroup(Base, TimestampMixin):
 
     __tablename__ = "client_order_groups"
     __table_args__ = (
+        CheckConstraint(
+            "md_budget_mode IS NULL OR (order_type = 'md' AND ((md_budget_mode = 'shared' AND is_md_budget_based = TRUE) OR (md_budget_mode = 'per_person' AND is_md_budget_based = FALSE)))",
+            name="ck_client_order_groups_md_mode",
+        ),
         CheckConstraint(
             "order_type IS NULL OR order_type IN ('cost', 'md')",
             name="ck_client_order_groups_order_type",
@@ -93,7 +100,7 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_dates",
         ),
         CheckConstraint(
-            "status IN ('active', 'scheduled', 'completed', 'exhausted')",
+            "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')",
             name="ck_client_order_groups_status",
         ),
         # Zamówienie kosztowe jest albo kompletne, albo go nie ma. Kwota bez
@@ -174,6 +181,12 @@ class ClientOrderGroup(Base, TimestampMixin):
     oznacza grupę historyczną, której zachowanie wyznaczają istniejące flagi i
     polityki klientowe; migracja nie klasyfikuje jej wstecz.
     """
+    md_budget_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """Explicit choice for new MD orders; NULL preserves historical behavior."""
+    md_budget_mode_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
