@@ -457,6 +457,13 @@ async def select_generated_cv(
         raise HTTPException(422, str(error)) from error
     public = build_public_payload(generated.render_payload)
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
+    from app.services.cv_approval_provenance import capture_editor_origin
+
+    metadata.update(
+        capture_editor_origin(
+            html, generated.render_payload.get("factual_verification")
+        )
+    )
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
@@ -703,8 +710,11 @@ async def finalize_branded_cv(
     docx_filename = (
         csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
     )
+    from app.services.cv_approval_provenance import approval_provenance
+
     metadata = {
         **(csv.branded_render_metadata or {}),
+        **approval_provenance(csv.branded_draft_html, csv.branded_render_metadata),
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(template).hexdigest(),
         "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()
