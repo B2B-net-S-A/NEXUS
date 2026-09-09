@@ -765,7 +765,8 @@ _UPDATE_CANDIDATE_ADOPT = text(
 )
 
 
-# Lista `DO UPDATE SET` niżej MUSI równać się `SYNC_WRITABLE`
+# Lista `DO UPDATE SET` niżej MUSI równać się sumie `SYNC_WRITABLE`
+# i ograniczonego unieważnienia `SYNC_SOURCE_INVALIDATABLE`
 # z `app/services/job_column_ownership.py` — pilnuje tego
 # `tests/test_job_column_ownership.py`. Dopisanie tu kolumny bez decyzji
 # „czyja ona jest" znaczyłoby, że sync po cichu nadpisuje pracę zrobioną
