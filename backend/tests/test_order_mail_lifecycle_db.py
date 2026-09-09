@@ -196,6 +196,8 @@ async def test_error_in_second_person_rolls_back_first_person(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations():
+    from app.models.dr_przetargi import DrPrzetargiProject
+
     async with AsyncSessionLocal() as db:
         no_history = Client(name=f"Inactive membership {uuid.uuid4().hex}")
         history = Client(
@@ -216,6 +218,8 @@ async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations()
                 )
             )
         await db.flush()
+        db.add(DrPrzetargiProject(name="Soft client relation", client_id=no_history.id))
+        await db.flush()
         before = set(db.dirty), set(db.deleted)
         plan = await client_inventory(db)
         assert no_history.id in [r["id"] for r in plan["blocked"]]
@@ -223,6 +227,12 @@ async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations()
         assert active.id not in [r["id"] for values in plan.values() for r in values]
         assert any(
             r["table"] == "client_portfolio_scopes"
+            for c in plan["blocked"]
+            if c["id"] == no_history.id
+            for r in c["dependencies"]
+        )
+        assert any(
+            r["table"] == "dr_przetargi_projects"
             for c in plan["blocked"]
             if c["id"] == no_history.id
             for r in c["dependencies"]

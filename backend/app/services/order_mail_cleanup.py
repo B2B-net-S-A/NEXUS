@@ -118,6 +118,30 @@ async def client_inventory(db):
             )
         )
     ).all()
+    fk_pairs = {(spec["table"], spec["column"]) for spec in specs}
+    for table, column in sorted(columns):
+        if (column == "client_id" or column.endswith("_client_id")) and (
+            table,
+            column,
+        ) not in fk_pairs:
+            table, column = _validate_identifier(table), _validate_identifier(column)
+            for cid, count in (
+                await db.execute(
+                    text(
+                        f'SELECT c.id, count(*) FROM "{table}" r JOIN clients c '
+                        f'ON r."{column}"::text=c.id::text WHERE c.id = ANY(:target_ids) GROUP BY c.id'
+                    ),
+                    {"target_ids": target_ids},
+                )
+            ).all():
+                refs[cid].append(
+                    {
+                        "table": table,
+                        "column": column,
+                        "count": count,
+                        "description": f"Powiązanie bez klucza obcego: {table}.{column}",
+                    }
+                )
     by_table = defaultdict(set)
     for table, column in columns:
         by_table[table].add(column)
@@ -310,6 +334,23 @@ async def apply_cleanup_plan(db, expected_fingerprint):
     # Hold all inventoried tables against concurrent changes until commit.
     # Short, explicit maintenance only; polling never takes this table lock.
     specs = await _direct_client_fk_specs(db)
+    # Include tables with soft client links or polymorphic references in the
+    # same lock set as foreign keys, closing their check/delete race as well.
+    soft_tables = (
+        await db.scalars(
+            text(r"""
+        SELECT DISTINCT c.table_name FROM information_schema.columns c
+        WHERE c.table_schema=current_schema() AND (
+            c.column_name='client_id' OR c.column_name LIKE '%\_client\_id' OR
+            (c.column_name LIKE '%\_type' AND EXISTS (
+                SELECT 1 FROM information_schema.columns i WHERE
+                i.table_schema=c.table_schema AND i.table_name=c.table_name AND
+                i.column_name=left(c.column_name,length(c.column_name)-5)||'_id'
+            ))
+        )
+    """)
+        )
+    ).all()
     tables = sorted(
         {
             "clients",
@@ -318,6 +359,7 @@ async def apply_cleanup_plan(db, expected_fingerprint):
             "candidates",
             "order_mail_documents",
             *(s["table"] for s in specs),
+            *soft_tables,
         }
     )
     await db.execute(text("SET LOCAL lock_timeout = '5s'"))
