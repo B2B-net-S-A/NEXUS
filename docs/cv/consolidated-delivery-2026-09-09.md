@@ -85,3 +85,27 @@ input retention/orphan cleanup, transitional legacy processing rows, and full
 coverage of cancellation during the secondary provider call. Snapshot schema
 compatibility across deployments and exact model/prompt/template provenance
 also remain to be completed. Do not treat CV-09 or either audit as closed.
+
+## Client-rule preview artifacts and feedback
+
+Branch commits 8ded0718–3598578b add exact binary DOCX storage for both preview
+variants (0291), SHA-256 verification on authenticated download, and buttons in
+the existing comparison. Download does not call a model or render a replacement.
+A missing historical artifact is explicitly unavailable. Unit tests cover both
+variants, wrong-client/denied access, corruption and missing artifacts; the
+component test checks the selected endpoint, response blob and filename.
+
+Preview feedback checks actual role/bullet/length/omission outcomes against the
+captured recipe. It distinguishes satisfied limits, conflicts and absent content.
+Descriptive instructions are explicitly marked for human review, not certified
+as applied. Component coverage includes conflict and manual-review labels.
+Date-format, glossary, highlighting and other recipe feedback coverage remains
+incomplete. Real generated-document visual comparison and Delivery Lead
+acceptance are still required; CV-18 is not closed.
+
+Input persistence now precedes quota admission in all three paths. The actual
+quota state is recorded on the durable job and restored at execution. Failure to
+upload inputs prevents admission; rejection cleans only its newly uploaded
+snapshot. Transaction failure after admission and general orphan/retention
+handling remain open. Main fetched at this check remained 561f02ca; branch
+migration graph has one head, 0291_cv_preview_docx.

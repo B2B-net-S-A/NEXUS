@@ -50,3 +50,21 @@ describe("Rule preview artifact download", () => {
     expect(api.get).toHaveBeenCalledWith("/api/clients/26/cv-rule/preview/9/docx/without_rule", {responseType: "blob"});
   });
 });
+
+describe("Rule preview feedback", () => {
+  it("shows a failed limit and leaves descriptive instructions for human review", async () => {
+    mocks.preview.mockResolvedValue({id: 10, status: "ready", with_rule: {
+      payload: {name: "Synthetic"}, filename: "cv.docx", warnings: [],
+      rule_feedback: [
+        {field: "max_roles", label: "Limit stanowisk", status: "conflict"},
+        {field: "instructions", label: "Instrukcje opisowe", status: "needs_review"},
+        {field: "max_bullet_chars", label: "Długość punktów", status: "not_applicable"},
+      ],
+    }, without_rule: {payload: {name: "Synthetic"}, warnings: []}});
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    render(<QueryClientProvider client={queryClient}><CvRulePreviewTab clientId={26} dirty={false} previewId={10} onPreviewId={vi.fn()} /></QueryClientProvider>);
+    expect(await screen.findByText("Limit stanowisk: niezgodność — sprawdź")).toBeInTheDocument();
+    expect(screen.getByText("Instrukcje opisowe: ocena ręczna")).toBeInTheDocument();
+    expect(screen.getByText("Długość punktów: brak treści do zastosowania")).toBeInTheDocument();
+  });
+});
