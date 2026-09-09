@@ -8,20 +8,24 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateSearchAccess
-from app.api.deps import get_db
+from app.api.candidate_access import require_candidate_read
+from app.api.deps import CurrentUser, get_db
 from app.api.talent_radar import TalentRadarSearchRequest
 from app.models.candidate_search_run import CandidateSearchRun
 from app.models.client import Client
 from app.models.job import Job
 from app.models.user import User
 from app.services import candidate_search_store as store
-from app.services.full_candidate_scan import CandidateSnapshot, load_snapshot_batch
 from app.services.request_matching_context import (
     RequestMatchingContext,
     build_request_context,
 )
-from app.services.scoring_service import resolve_active_profile
+from app.services.scoring_service import job_skill_requirements, resolve_active_profile
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.talent_radar_search import (
     RadarQuery,
     build_ephemeral_job,
@@ -29,6 +33,17 @@ from app.services.talent_radar_search import (
 )
 
 router = APIRouter()
+
+
+def _search_access(user):
+    if (
+        max(
+            section_access_for_user(user, ProductSection.sourcing),
+            section_access_for_user(user, ProductSection.pipeline),
+        )
+        < SectionAccess.read
+    ):
+        raise HTTPException(403, "Brak dostępu do wyszukiwania kandydatów")
 
 
 class StartSearchRequest(BaseModel):
@@ -45,6 +60,8 @@ class StartSearchRequest(BaseModel):
 async def _authorized_job(db, user, job_id):
     from app.api.jobs import _assert_delivery_lead_job_visible, _delivery_lead_job_pairs
 
+    if section_access_for_user(user, ProductSection.pipeline) < SectionAccess.read:
+        raise HTTPException(403, "Brak dostępu do rekrutacji")
     job = await db.get(Job, job_id)
     if job is None:
         raise HTTPException(404, "Rekrutacja nie istnieje")
@@ -55,9 +72,10 @@ async def _authorized_job(db, user, job_id):
 @router.post("/candidate-search/runs", status_code=202)
 async def start_search(
     payload: StartSearchRequest,
-    user: CandidateSearchAccess,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    _search_access(user)
     if payload.job_id is not None:
         job = await _authorized_job(db, user, payload.job_id)
     else:
@@ -106,12 +124,16 @@ async def start_search(
 @router.get("/candidate-search/runs/{run_id}")
 async def search_results(
     run_id: str,
-    user: CandidateSearchAccess,
+    user: CurrentUser,
+    include_candidate_details: bool = False,
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     min_score: float = Query(0, ge=0, le=100),
     db: AsyncSession = Depends(get_db),
 ):
+    _search_access(user)
+    if include_candidate_details:
+        await require_candidate_read(user)
     run = await store.owned_run(db, run_id, user.id)
     if run is None:
         raise HTTPException(404, "Wyszukiwanie nie istnieje")
@@ -138,20 +160,24 @@ async def search_results(
             "results": [],
             "versions": run.version_trace,
         }
-    if await store.population_changed(db, run.id):
-        raise HTTPException(
-            409, "Baza kandydatów zmieniła się. Uruchom wyszukiwanie ponownie."
-        )
+    data_changed = await store.population_changed(db, run.id)
     rows, total = await store.result_page(
         db, run.id, offset=offset, limit=limit, min_score=min_score
     )
-    current = await load_snapshot_batch(
-        db, [CandidateSnapshot(r.candidate_id, r.candidate_version) for r in rows]
-    )
-    if len(current) != len(rows):
-        raise HTTPException(
-            409, "Dane kandydatów zmieniły się. Uruchom wyszukiwanie ponownie."
+    from app.models.candidate import Candidate
+
+    current = {
+        candidate.id: candidate
+        for candidate in (
+            await db.execute(
+                select(Candidate).where(
+                    Candidate.id.in_([r.candidate_id for r in rows])
+                )
+            )
         )
+        .scalars()
+        .all()
+    }
     from app.services.pipeline_eligibility import evaluate_candidates_for_job
     from app.services.candidate_job_eligibility import Visibility
 
@@ -161,13 +187,24 @@ async def search_results(
     results = []
     for row in rows:
         decision = decisions.get(row.candidate_id)
-        if decision is None or decision.visibility == Visibility.hidden:
-            raise HTTPException(
-                409,
-                "Dopuszczalność kandydatów zmieniła się. Uruchom wyszukiwanie ponownie.",
-            )
+        if (
+            row.candidate_id not in current
+            or decision is None
+            or decision.visibility == Visibility.hidden
+        ):
+            data_changed = True
+            continue
+        row_changed = str(current[row.candidate_id].updated_at) != row.candidate_version
+        data_changed = data_changed or row_changed
         breakdown = deepcopy((row.evidence or {}).get("breakdown") or {})
-        breakdown["total"] = row.fit_score
+        requirements = deepcopy((row.evidence or {}).get("requirements", []))
+        if row_changed:
+            # Snapshot facts must not appear as current positive evidence.
+            breakdown = {}
+            for requirement in requirements:
+                requirement.update(status="unknown", matched=[], stale=True)
+        fit_score = None if row_changed else row.fit_score
+        breakdown["total"] = fit_score
         # Both entrances share the same conservative financial redaction.
         breakdown["salary"] = {
             "points": None,
@@ -177,13 +214,31 @@ async def search_results(
         }
         from app.api.matching import _eligibility_annotation
 
+        details = None
+        if include_candidate_details:
+            from app.api.matching import _build_match_info
+            from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+
+            labels = job_skill_requirements(context.as_job())
+            details = _build_match_info(
+                current[row.candidate_id],
+                labels["must"],
+                labels["nice"],
+                score=(fit_score or 0) / 100,
+                inputs=dealbreaker_inputs_for_job(context.as_job()),
+            )
+            details["match_score"] = fit_score / 100 if fit_score is not None else None
+            details["eligibility"] = _eligibility_annotation(decision)
+            details["breakdown"] = breakdown
+            details["total_score"] = fit_score
         results.append(
             {
+                "match": details,
                 "candidate": shape_radar_candidate(current[row.candidate_id]),
-                "fit_score": row.fit_score,
-                "measurement": row.measurement,
+                "fit_score": fit_score,
+                "measurement": "stale" if row_changed else row.measurement,
                 "breakdown": breakdown,
-                "requirements": (row.evidence or {}).get("requirements", []),
+                "requirements": requirements,
                 "eligibility": _eligibility_annotation(decision),
             }
         )
@@ -198,5 +253,7 @@ async def search_results(
         "request_fingerprint": run.request_fingerprint,
         "brief_status": context.brief_status,
         "coverage_complete": counts["failed"] == 0,
-        "ranking_complete": run.state == "complete",
+        "ranking_complete": run.state == "complete" and not data_changed,
+        "data_changed": data_changed,
+        "criteria": job_skill_requirements(context.as_job()),
     }
