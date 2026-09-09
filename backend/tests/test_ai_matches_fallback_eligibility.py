@@ -498,7 +498,10 @@ async def test_missing_must_hides_on_both_branches(
     assert java_only_id not in _ids(body_fallback), (
         "kandydat bez wymaganego must-have (python) nie może przejść fallbacku"
     )
-    assert body_fallback["meta"]["hidden"]["missing_must"] == 1
+    # SQL fallback includes other fixtures in the shared database. This known
+    # exclusion must be counted; the exact count is checked below against the
+    # two-ID semantic pool. Unrelated rows may legitimately add exclusions.
+    assert body_fallback["meta"]["hidden"]["missing_must"] >= 1
     warn_match = _match(body_fallback, warn_id)
     assert warn_match is not None, (
         "warn bez sygnału umiejętności musi zostać widoczny — must-have jest "

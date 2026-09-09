@@ -119,7 +119,7 @@ async def test_old_flag_off_cannot_restore_legacy_score(
     assert body["search_type"] == "semantic+composite"
     row = next(m for m in body["matches"] if m["candidate"]["id"] == cand_id)
     assert row["total_score"] is not None
-    assert row["match_score"] == pytest.approx(row["total_score"] / 100)
+    assert row["match_score"] == round(row["total_score"] / 100, 4)
 
 
 @pytest.mark.integration
