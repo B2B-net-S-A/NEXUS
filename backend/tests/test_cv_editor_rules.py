@@ -81,3 +81,26 @@ def test_list_paragraph_and_consent_are_not_double_counted():
         check_editor_rules(content, metadata({"why_points_max": 1}))["status"]
         == "checked"
     )
+
+
+def test_paragraph_duties_do_not_falsely_certify_client_limits():
+    content = '<h2 data-cv-section="experience">Experience</h2><p data-cv-section="role">Engineer</p><p>First duty</p><p>Second duty</p>'
+    report = check_editor_rules(content, metadata({"max_bullets_per_role": 1}))
+    assert report["status"] == "needs_review"
+    assert "max_bullets_per_role" not in report["checked_fields"]
+    assert "max_bullets_per_role" in report["manual_fields"]
+
+
+@pytest.mark.parametrize("limit", [1, 2])
+def test_typed_duties_count_paragraphs_but_not_employer(limit):
+    content = '<h2 data-cv-section="experience">Experience</h2><p data-cv-section="role">Engineer</p><p data-cv-section="employer">Company</p><p data-cv-section="duties_label">Responsibilities</p><p>First duty</p><p>Second duty</p><p data-cv-section="technologies">Python</p>'
+    if limit == 1:
+        with pytest.raises(HTTPException):
+            check_editor_rules(content, metadata({"max_bullets_per_role": limit}))
+    else:
+        assert (
+            check_editor_rules(content, metadata({"max_bullets_per_role": limit}))[
+                "status"
+            ]
+            == "checked"
+        )

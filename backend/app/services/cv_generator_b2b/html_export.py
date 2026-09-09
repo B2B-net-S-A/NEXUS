@@ -242,16 +242,16 @@ def render_interactive_html(
                 f'<div class="job" id="exp-{i}">'
                 f'<p class="job-head" data-cv-section="role"><b>{_esc(job.get("position"))}</b> '
                 f'<span class="job-dates">{_esc(job.get("dates"))}</span></p>'
-                f'<p class="job-co">{_esc(job.get("company"))}'
+                f'<p class="job-co" data-cv-section="employer">{_esc(job.get("company"))}'
                 + (f" · {_esc(job.get('industry'))}" if job.get("industry") else "")
                 + "</p>"
                 + (
-                    f'<p class="lbl">{_esc(t["responsibilities"])}</p><ul>{resp}</ul>'
+                    f'<p class="lbl" data-cv-section="duties_label">{_esc(t["responsibilities"])}</p><ul>{resp}</ul>'
                     if resp
                     else ""
                 )
                 + (
-                    f'<p class="lbl">{_esc(t["technologies"])} '
+                    f'<p class="lbl" data-cv-section="technologies">{_esc(t["technologies"])} '
                     f'<span class="tech">{_bold(tech, patterns)}</span></p>'
                     if tech
                     else ""

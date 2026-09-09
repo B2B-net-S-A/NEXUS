@@ -28,3 +28,25 @@ it("keeps section and role markers through an actual Tiptap roundtrip", () => {
   expect(reopened.getHTML()).toBe(output);
   editor.destroy(); reopened.destroy();
 });
+
+it("preserves duty boundaries when a bullet list becomes paragraphs", () => {
+  const options = { extensions: [StarterKit, CvEditorSection] };
+  const editor = new Editor({ ...options, content: '<h2 data-cv-section="experience">Experience</h2><p data-cv-section="role">Engineer</p><p data-cv-section="employer">Company</p><p data-cv-section="duties_label">Responsibilities</p><ul><li>First duty</li><li>Second duty</li></ul><p data-cv-section="technologies">Python</p>' });
+  let dutyPosition = 0;
+  let dutyEnd = 0;
+  editor.state.doc.descendants((node, position) => {
+    if (node.isText && node.text === "First duty") dutyPosition = position;
+    if (node.isText && node.text === "Second duty") dutyEnd = position + node.nodeSize;
+  });
+  editor.commands.setTextSelection({ from: dutyPosition, to: dutyEnd });
+  editor.commands.toggleBulletList();
+  const output = editor.getHTML();
+  expect(output).not.toContain("<ul>");
+  expect(output).toContain("<p>First duty</p><p>Second duty</p>");
+  for (const marker of ["employer", "duties_label", "technologies"]) {
+    expect(output).toContain(`data-cv-section="${marker}"`);
+  }
+  const reopened = new Editor({ ...options, content: output });
+  expect(reopened.getHTML()).toBe(output);
+  editor.destroy(); reopened.destroy();
+});

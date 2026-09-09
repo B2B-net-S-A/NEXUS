@@ -1,6 +1,6 @@
 import { Extension } from "@tiptap/core";
 
-const sections = new Set(["rodo", "why_points", "education", "skills", "certifications", "languages", "experience", "role"]);
+const sections = new Set(["rodo", "why_points", "education", "skills", "certifications", "languages", "experience", "role", "employer", "duties_label", "technologies"]);
 
 /** Keep structural CV markers and consent presentation through real edits. */
 export const CvEditorSection = Extension.create({

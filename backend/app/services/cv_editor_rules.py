@@ -40,9 +40,11 @@ def check_editor_rules(content_html, metadata):
     }
     active = any(limits.values()) or bool(rule.get("omit_sections"))
     checked = []
+    ambiguous_responsibilities = False
     if active:
         root = html.fragment_fromstring(content_html, create_parent="div")
         section, role = None, None
+        duties = False
         sections, roles, summary = set(), [], []
         for node in root.iter():
             if node.tag == "h2":
@@ -54,6 +56,7 @@ def check_editor_rules(content_html, metadata):
                     )
                 sections.add(section)
                 role = None
+                duties = False
             elif node.get("data-cv-section") == "role":
                 if section != "experience":
                     raise HTTPException(
@@ -61,6 +64,13 @@ def check_editor_rules(content_html, metadata):
                     )
                 role = []
                 roles.append(role)
+                duties = False
+            elif section == "experience" and node.get("data-cv-section") in {
+                "employer",
+                "duties_label",
+                "technologies",
+            }:
+                duties = node.get("data-cv-section") == "duties_label"
             elif (
                 section == "why_points"
                 and node.tag in {"p", "h1", "h3", "h4", "h5", "h6", "pre"}
@@ -82,6 +92,19 @@ def check_editor_rules(content_html, metadata):
                             "Przywróć oznaczenie stanowiska przed punktami obowiązków.",
                         )
                     role.append(text)
+            elif (
+                section == "experience"
+                and node.tag in {"p", "h1", "h3", "h4", "h5", "h6", "pre"}
+                and not any(parent.tag == "li" for parent in node.iterancestors())
+                and node.get("data-cv-section") != "rodo"
+                and node.text_content().strip()
+            ):
+                # Editor paragraphs may be company metadata or converted duties.
+                # Without a typed distinction, list counts cannot certify limits.
+                if duties and role is not None:
+                    role.append(" ".join(node.text_content().split()))
+                else:
+                    ambiguous_responsibilities = True
         if not sections:
             raise HTTPException(
                 422, "Brak oznaczonych sekcji do sprawdzenia reguł klienta."
@@ -119,7 +142,10 @@ def check_editor_rules(content_html, metadata):
         for field, passed, message in checks:
             if not passed:
                 raise HTTPException(422, message)
-            if rule.get(field):
+            if rule.get(field) and not (
+                ambiguous_responsibilities
+                and field in {"max_bullets_per_role", "max_bullet_chars"}
+            ):
                 checked.append(field)
     manual = [
         field
@@ -134,6 +160,12 @@ def check_editor_rules(content_html, metadata):
         )
         if rule.get(field)
     ]
+    if ambiguous_responsibilities:
+        manual.extend(
+            field
+            for field in ("max_bullets_per_role", "max_bullet_chars")
+            if rule.get(field)
+        )
     return {
         "status": "needs_review" if manual else "checked",
         "checked_fields": checked,
