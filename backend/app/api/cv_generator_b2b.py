@@ -64,6 +64,11 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     CandidateWriteAccess,
 )
+from app.api.recruitment_access import (
+    ensure_job_membership,
+    ensure_job_read_access,
+    job_read_scope_clause,
+)
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
@@ -308,6 +313,7 @@ async def _create_pending_row(
     user_id: int,
     content_mode: str,
     client_id: int | None = None,
+    job_id: int | None = None,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
@@ -319,7 +325,7 @@ async def _create_pending_row(
     """
     row = CvGeneratedDocument(
         candidate_id=candidate_id,
-        job_id=None,
+        job_id=job_id,
         client_id=client_id,
         candidate_name=candidate_name or "Generowanie…",
         position=position,
@@ -626,6 +632,7 @@ async def _run_generate_new_job(
                 user_id=user_id,
                 content_mode=content_mode,
                 client_id=client_id,
+                job_id=result.job_id,
             )
             await db.commit()
             try:
@@ -999,10 +1006,12 @@ async def list_candidate_recruitments(
     """Return all recruitment processes the candidate participates in, with
     readiness flags (champion present, screening notes present)."""
 
-    del current_user
-
     try:
-        readiness = await list_recruitments_with_readiness(db, candidate_id)
+        readiness = await list_recruitments_with_readiness(
+            db,
+            candidate_id,
+            job_scope=job_read_scope_clause(current_user, CandidateStage.job_id),
+        )
     except StandaloneGenerationError as err:
         raise HTTPException(
             status_code=_error_status(err.code), detail=err.message
@@ -1180,6 +1189,16 @@ async def generate(
     if candidate is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
 
+    # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia zgłaszałyby
+    # „brak notatek" dla cudzego etapu zamiast 404.
+    stage = await db.get(CandidateStage, payload.stage_id)
+    if stage is None or stage.candidate_id != payload.candidate_id:
+        raise HTTPException(
+            status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+        )
+
+    await ensure_job_membership(db, current_user, stage.job_id)
+
     # Klienta wyprowadza SERWER z rekrutacji — front go nie wybiera. Jawna
     # wartość w żądaniu jest tylko asercją; rozjazd oznacza, że rekruter widzi
     # inne reguły (nazwa pliku, język), niż zostałyby zastosowane.
@@ -1208,14 +1227,6 @@ async def generate(
     # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
     # `generate_cv_for_candidate` już na tę wartość.
     effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
-
-    # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia zgłaszałyby
-    # „brak notatek" dla cudzego etapu zamiast 404.
-    stage = await db.get(CandidateStage, payload.stage_id)
-    if stage is None or stage.candidate_id != payload.candidate_id:
-        raise HTTPException(
-            status_code=404, detail="Rekrutacja nie należy do tego kandydata."
-        )
 
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
     if rule_snapshot is not None and (
@@ -1254,6 +1265,7 @@ async def generate(
         user_id=current_user.id,
         content_mode=effective_mode,
         client_id=client_id,
+        job_id=stage.job_id,
     )
     # Commit before scheduling/returning so the row is visible to both the poll
     # and the background job (which opens its own session).
@@ -1435,6 +1447,18 @@ async def generate_from_upload(
 # ── Saved-CV list („Wygenerowane CV") ──────────────────────────────────────
 
 
+async def _load_generated_document(
+    db: AsyncSession, generated_id: int, user: User, *, write: bool = False
+) -> CvGeneratedDocument:
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if row.job_id is not None:
+        guard = ensure_job_membership if write else ensure_job_read_access
+        await guard(db, user, row.job_id)
+    return row
+
+
 @router.get("/generated", response_model=list[GeneratedCvItem])
 async def list_generated_cvs(
     current_user: CandidateDocumentAccess,
@@ -1463,6 +1487,7 @@ async def list_generated_cvs(
             )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
+            .where(job_read_scope_clause(current_user, CvGeneratedDocument.job_id))
             .order_by(CvGeneratedDocument.created_at.desc())
             .limit(limit)
         )
@@ -1505,9 +1530,7 @@ async def download_generated_cv(
     have no payload → 422 asking to generate again. Used for both inline preview
     and explicit download in the panel.
     """
-    row = await db.get(CvGeneratedDocument, generated_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    row = await _load_generated_document(db, generated_id, current_user, write=False)
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -1549,10 +1572,7 @@ async def download_generated_cv_html(
     dokument. Bez mapy plik degraduje do samego widoku klasycznego. Chat
     celowo nieobecny — wymaga serwera, żyje na linku /cv/i/{{token}}.
     """
-    del current_user  # auth only — spójnie z /docx
-    row = await db.get(CvGeneratedDocument, generated_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    row = await _load_generated_document(db, generated_id, current_user, write=False)
     if row.status != "ready" or not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -1593,9 +1613,7 @@ async def delete_generated_cv(
     Only the list entry is deleted; nothing irreplaceable is lost — the CV can be
     regenerated from the candidate's recruitment at any time.
     """
-    row = await db.get(CvGeneratedDocument, generated_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    row = await _load_generated_document(db, generated_id, current_user, write=True)
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
         raise HTTPException(
             status_code=403,
@@ -1671,9 +1689,7 @@ async def create_generated_cv_share_token(
     raz. Przed wystawieniem — ostatnia linia obrony przed wysyłką CV osoby
     z wetem HM (ten sam gate co przy brandowanym CV).
     """
-    row = await db.get(CvGeneratedDocument, generated_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    row = await _load_generated_document(db, generated_id, current_user, write=True)
     if row.status != "ready" or not row.render_payload:
         raise HTTPException(
             status_code=409,
@@ -1754,7 +1770,7 @@ async def list_generated_cv_share_tokens(
     db: AsyncSession = Depends(get_db),
 ) -> list[CvGeneratedShareListItem]:
     """Lista linków (aktywnych i odwołanych) dla tego CV — bez sekretów."""
-    del current_user  # auth only — spójnie z resztą panelu generatora
+    await _load_generated_document(db, generated_id, current_user)
     rows = (
         (
             await db.execute(
@@ -1804,6 +1820,9 @@ async def revoke_generated_cv_share_token(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Token nie znaleziony")
+    await _load_generated_document(
+        db, row.generated_document_id, current_user, write=True
+    )
     if row.revoked:
         return {"ok": True, "already_revoked": True}
     row.revoked = True
