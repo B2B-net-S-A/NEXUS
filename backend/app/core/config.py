@@ -39,9 +39,14 @@ class Settings(BaseSettings):
     # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
     # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
     VOYAGE_MODEL: str = "voyage-3-large"
-    # Explicit model -> USD per million embedding tokens, from the operator's
-    # current provider tariff. Missing tariff means unknown cost, never $0.
-    AI_SEARCH_EMBEDDING_PRICES: dict[str, float] = {}
+    # Estimated USD per million embedding tokens (not invoice totals).
+    # Public list prices verified 2026-09-09: https://docs.voyageai.com/docs/pricing
+    # Env JSON replaces this map for negotiated tariffs; {} disables estimates.
+    # Models absent from the map remain unpriced, never implicitly $0.
+    AI_SEARCH_EMBEDDING_PRICES: dict[str, float] = {
+        "voyage-3": 0.06,
+        "voyage-3-large": 0.18,
+    }
     # Rozmiar wektora NIE jest tu konfigurowalny — jedynym źródłem prawdy jest
     # `embedding_service.VECTOR_SIZE = 1024`, którym utworzono kolekcje Qdranta.
     # Dawne pole `EMBEDDING_DIMENSION` nie było czytane nigdzie: operator, który

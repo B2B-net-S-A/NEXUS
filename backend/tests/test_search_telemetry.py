@@ -16,6 +16,38 @@ def record(tokens=100, failed=False, model="test-model"):
     record_embedding_attempt(model=model, tokens=tokens, failed=failed, elapsed_ms=10)
 
 
+@pytest.mark.parametrize(
+    ("override", "expected_cost"),
+    [(None, 0.00006), ('{"voyage-3": 0.12}', 0.00012), ("{}", None)],
+)
+def test_production_model_list_price_and_operator_overrides(
+    monkeypatch, override, expected_cost
+):
+    from app.core.config import Settings
+
+    monkeypatch.delenv("AI_SEARCH_EMBEDDING_PRICES", raising=False)
+    if override is not None:
+        monkeypatch.setenv("AI_SEARCH_EMBEDDING_PRICES", override)
+    configured = Settings(_env_file=None, DEBUG=True)
+    monkeypatch.setattr(
+        settings, "AI_SEARCH_EMBEDDING_PRICES", configured.AI_SEARCH_EMBEDDING_PRICES
+    )
+    meter = SearchTelemetry()
+    with meter.activate(), stage("query_embedding"):
+        record(1000, model="voyage-3")
+    result = meter.snapshot()
+    if expected_cost is None:
+        assert result["estimated_cost_usd"] is None
+        assert not result["cost_complete"]
+    else:
+        assert result["estimated_cost_usd"] == pytest.approx(expected_cost)
+        assert result["cost_complete"]
+    # A new or unknown model must still make the total explicitly incomplete.
+    with meter.activate(), stage("query_embedding"):
+        record(1000, model="unknown-future-model")
+    assert meter.snapshot()["estimated_cost_usd"] is None
+
+
 def test_unknown_usage_and_unpriced_models_never_claim_zero_total(monkeypatch):
     monkeypatch.setattr(settings, "AI_SEARCH_EMBEDDING_PRICES", {"test-model": 2.0})
     meter = SearchTelemetry()
