@@ -316,7 +316,17 @@ function CVBrandedEditContent({
  {data?.presentation_review?.status === "needs_review" && <p className="px-5 py-2 text-xs text-muted-foreground">
  {data.presentation_review.reason === "rule_snapshot_unavailable"
    ? "Brak potwierdzonej kopii reguł klienta dla tego CV. Sprawdź wymagania klienta przed zatwierdzeniem."
-   : "Swobodne instrukcje klienta, format dat, tłumaczenia i pogrubienia wymagają ręcznej oceny przed zatwierdzeniem. Automatyczna kontrola obejmuje skonfigurowane limity i sekcje."}
+   : `Przed zatwierdzeniem sprawdź ręcznie: ${(data.presentation_review.manual_fields ?? []).map(field => ({
+       generator_instructions: "instrukcje klienta",
+       generator_instructions_en: "instrukcje klienta dla wersji angielskiej",
+       notes: "uwagi klienta",
+       date_format: "format dat",
+       glossary: "tłumaczenia",
+       highlight_policy: "zasady pogrubień",
+       highlight_terms: "wyróżnione słowa",
+       max_bullets_per_role: "liczbę obowiązków w opisach stanowisk",
+       max_bullet_chars: "długość opisów obowiązków",
+     } as Record<string, string>)[field] ?? "dodatkową regułę klienta").join(", ") || "reguły klienta"}. Automatyczna kontrola nie potwierdziła tych reguł.`}
  </p>}
  {data?.from_generator && <p className="px-5 py-2 text-xs text-muted-foreground">
  Wybrano wynik generatora {data.generated_document_id != null ? `#${data.generated_document_id}` : "(źródło usunięte)"}.
