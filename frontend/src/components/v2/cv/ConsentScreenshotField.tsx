@@ -9,7 +9,7 @@
  * wziąć obrazu. To pole zamyka tę lukę.
  *
  * Plik idzie do magazynu obiektów OSOBNYM żądaniem, a do generacji trafia sam
- * klucz. Dzięki temu obie ścieżki generacji — JSON-owa `/generate` i multipart
+ * podpisane przypisanie załącznika. Dzięki temu obie ścieżki generacji — JSON-owa `/generate` i multipart
  * `/generate-upload` — mają jeden mechanizm, a obraz nie puchnie w base64
  * w ciele requestu ani w logach.
  */
@@ -24,10 +24,23 @@ import { cn } from "@/lib/utils";
 export const CONSENT_ACCEPT = "image/png,image/jpeg,image/webp";
 const MAX_MB = 8;
 
+export interface ConsentContext {
+  candidateId?: number;
+  stageId?: number;
+  clientId?: number | null;
+  cvFile?: File | null;
+}
+
+function sameContext(a: ConsentContext, b: ConsentContext) {
+  return a.candidateId === b.candidateId && a.stageId === b.stageId &&
+    a.clientId === b.clientId && a.cvFile === b.cvFile;
+}
+
 interface Props {
-  /** Klucz w magazynie — `null` dopóki nic nie wgrano. */
+  /** Podpisane przypisanie załącznika do źródła i klienta. */
   value: string | null;
-  onChange: (storageKey: string | null, filename: string | null) => void;
+  onChange: (consentToken: string | null, filename: string | null) => void;
+  context: ConsentContext;
   required: boolean;
   disabled?: boolean;
 }
@@ -36,6 +49,7 @@ export function ConsentScreenshotField({
   value,
   onChange,
   required,
+  context,
   disabled = false,
 }: Props) {
   const inputId = useId();
@@ -43,6 +57,21 @@ export function ConsentScreenshotField({
   const [name, setName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const requestVersion = useRef(0);
+  const hasSubject = !!context.cvFile || !!(context.candidateId && context.stageId);
+
+  useEffect(() => {
+    requestVersion.current += 1;
+    setName(null);
+    setError(null);
+    setBusy(false);
+    onChangeRef.current(null, null);
+    return () => { requestVersion.current += 1; };
+  }, [context.candidateId, context.stageId, context.clientId, context.cvFile]);
 
   // Wyczyszczenie klucza przez rodzica (np. reset formularza) musi zabrać także
   // nazwę pliku — inaczej pole twierdzi, że coś jest wgrane, choć klucza nie ma.
@@ -51,7 +80,10 @@ export function ConsentScreenshotField({
   }, [value]);
 
   const handleFile = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || !hasSubject || disabled) return;
+    const submittedContext = context;
+    const version = ++requestVersion.current;
+    const stillCurrent = () => version === requestVersion.current && sameContext(submittedContext, contextRef.current);
     setError(null);
     if (file.size > MAX_MB * 1024 * 1024) {
       setError(`Zrzut jest za duży (limit ${MAX_MB} MB).`);
@@ -61,7 +93,16 @@ export function ConsentScreenshotField({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await api.post<{ storage_key: string; filename: string }>(
+      if (context.cvFile) {
+        const digest = await crypto.subtle.digest("SHA-256", await context.cvFile.arrayBuffer());
+        fd.append("cv_sha256", Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""));
+      } else {
+        fd.append("candidate_id", String(context.candidateId));
+        fd.append("stage_id", String(context.stageId));
+      }
+      if (context.clientId != null) fd.append("client_id", String(context.clientId));
+      if (!stillCurrent()) return;
+      const res = await api.post<{ consent_token: string; filename: string }>(
         "/api/cv-generator/consent-screenshot",
         fd,
         // Wspólna instancja axiosa domyślnie wysyła JSON; FormData wymaga
@@ -69,19 +110,25 @@ export function ConsentScreenshotField({
         // nie sparsuje uploadu i zwróci 422.
         { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
       );
+      if (!stillCurrent()) return;
+      if (!res.data.consent_token) throw new Error("Missing consent binding");
       setName(res.data.filename || file.name);
-      onChange(res.data.storage_key, res.data.filename || file.name);
+      onChange(res.data.consent_token, res.data.filename || file.name);
     } catch (err) {
       const detail = await extractErrorDetail(err);
+      if (!stillCurrent()) return;
       setError(detail || "Nie udało się wgrać zrzutu.");
       onChange(null, null);
     } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
+      if (stillCurrent()) {
+        setBusy(false);
+        if (inputRef.current) inputRef.current.value = "";
+      }
     }
   };
 
   const clear = () => {
+    requestVersion.current += 1;
     setName(null);
     setError(null);
     onChange(null, null);
@@ -99,6 +146,7 @@ export function ConsentScreenshotField({
           ? "Ten klient wymaga zrzutu maila ze zgodą kandydata — trafi automatycznie na koniec CV."
           : "Opcjonalnie — jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
       </p>
+      {!hasSubject && <p className="text-[11px] text-muted-foreground">Najpierw wybierz osobę i rekrutację albo wgraj plik CV.</p>}
 
       {value ? (
         <div
@@ -126,7 +174,7 @@ export function ConsentScreenshotField({
             id={inputId}
             type="file"
             accept={CONSENT_ACCEPT}
-            disabled={disabled || busy}
+            disabled={disabled || busy || !hasSubject}
             onChange={(e) => void handleFile(e.target.files?.[0])}
             className="sr-only"
           />
@@ -135,7 +183,7 @@ export function ConsentScreenshotField({
             className={cn(
               "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium",
               "border-border bg-card hover:bg-muted",
-              (disabled || busy) && "pointer-events-none opacity-60",
+              (disabled || busy || !hasSubject) && "pointer-events-none opacity-60",
               required && !value && "border-destructive/40",
             )}
           >

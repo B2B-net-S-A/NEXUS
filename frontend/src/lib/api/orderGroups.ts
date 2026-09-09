@@ -71,6 +71,10 @@ export type OrderOffboardingResolutionInput =
     };
 
 export interface OrderLineRead {
+  source_rate_cost?: number | null;
+  source_rate_revenue?: number | null;
+  rate_candidate_currency?: string | null;
+  rate_client_currency?: string | null;
   id: number;
   group_id: number | null;
   contract_id: number;
@@ -106,9 +110,12 @@ export interface OrderLineRead {
   offboarding_case?: OrderOffboardingCaseRead | null;
 }
 
-export type OrderGroupStatus = "active" | "scheduled" | "completed" | "exhausted";
+export type OrderGroupStatus =
+  "draft" | "active" | "scheduled" | "completed" | "exhausted";
 
 export interface OrderGroupRead {
+  md_budget_mode?: "per_person" | "shared" | null;
+  md_budget_mode_locked?: boolean;
   id: number;
   client_id: number;
   order_number: string;
@@ -125,8 +132,7 @@ export interface OrderGroupRead {
   closure_reason: string | null;
 
   is_cost_based: boolean;
-  /** Flaga kompatybilności dla istniejących wspólnych pul MD.
-   *  Nowe jawne `order_type="md"` zawsze mają budżet per linia. */
+  /** Flaga przechowywania wspólnej puli; nowe zamówienia mają jawny md_budget_mode. */
   is_md_budget_based: boolean;
   /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa
    *  „zużyciem" wartość, która maleje — czyli resztę; jedno pole podpisane
@@ -244,6 +250,8 @@ export interface ConsultantOptionsResponse {
 }
 
 export interface OrderLineInput {
+  rate_candidate_currency?: string | null;
+  rate_client_currency?: string | null;
   /** Dokładnie jedno z pól: kontrakt u tego klienta ALBO osoba z bazy Nexus. */
   contract_id?: number | null;
   candidate_id?: number | null;
@@ -259,14 +267,18 @@ export interface OrderLineInput {
 }
 
 export interface OrderGroupInput {
+  md_consumption_month?: string;
+  md_consumption_value?: number;
+  status?: "draft" | "active";
+  md_budget_mode?: "per_person" | "shared" | null;
+  md_budget_mode_locked?: boolean;
   order_type?: Exclude<OrderType, "periodic">;
   order_number: string;
   start_date: string;
   end_date?: string | null;
   notes?: string | null;
   is_cost_based?: boolean;
-  /** Tylko kompatybilność odczytu/edycji istniejącej wspólnej puli.
-   *  Frontend nie ustawia tej flagi dla nowych zamówień MD. */
+  /** Wspólna pula MD na poziomie zamówienia. */
   is_md_budget_based?: boolean;
   budget_amount?: number | null;
   md_budget_total?: number | null;
@@ -274,6 +286,11 @@ export interface OrderGroupInput {
 }
 
 export interface OrderGroupPatch {
+  md_consumption_month?: string;
+  md_consumption_value?: number;
+  status?: "draft" | "active";
+  md_budget_mode?: "per_person" | "shared" | null;
+  md_budget_mode_locked?: boolean;
   order_number?: string;
   start_date?: string;
   end_date?: string | null;
@@ -300,6 +317,8 @@ export interface OrderGroupExtendInput {
 }
 
 export interface OrderLinePatch {
+  rate_candidate_currency?: string | null;
+  rate_client_currency?: string | null;
   rate_cost?: number;
   rate_revenue?: number;
   input_mode?: OrderInputMode;
@@ -323,9 +342,7 @@ export type ImportRowStatus = "applied" | "needs_assignment" | "unmatched";
  *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
  *  innym niż „nie udało się dopasować". */
 export type ImportCostStatus =
-  | "applied"
-  | "unmatched_number"
-  | "unmatched_consultant";
+  "applied" | "unmatched_number" | "unmatched_consultant";
 
 export interface ImportLineOption {
   order_id: number;
@@ -370,7 +387,11 @@ export interface ImportSummary {
 
 export interface ImportDetail extends ImportSummary {
   rows: ImportRow[];
-  skipped_rows: Array<{ row: number; reason: string; consultant_name?: string }>;
+  skipped_rows: Array<{
+    row: number;
+    reason: string;
+    consultant_name?: string;
+  }>;
   sheet_name: string | null;
 }
 

@@ -9,7 +9,7 @@ import { useAuthStore } from "@/store/auth";
 // The page GETs the generated-CV list on mount and POSTs the multipart upload.
 const getMock = vi.fn((..._args: unknown[]) => Promise.resolve({ data: [] }));
 const postMock = vi.fn((..._args: unknown[]) =>
-  Promise.resolve({ data: { id: 1, status: "processing", candidate_name: "x" } }),
+  Promise.resolve<{ data: unknown }>({ data: { id: 1, status: "processing", candidate_name: "x" } }),
 );
 vi.mock("@/lib/api", () => ({
   default: {
@@ -276,4 +276,39 @@ describe("CVGeneratorStandaloneV2 — sourcing read-only", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByTitle("Usuń z listy")).not.toBeInTheDocument();
   });
+});
+
+it("does not send person A's consent when generating the next uploaded CV", async () => {
+  const { webcrypto } = await import("node:crypto");
+  vi.stubGlobal("crypto", webcrypto);
+  try {
+    setSourcingAccess("write");
+    getMock.mockReset().mockResolvedValue({ data: [] });
+    postMock.mockReset().mockImplementation((url) => Promise.resolve(
+      String(url).endsWith("consent-screenshot")
+        ? { data: { consent_token: "person-a-token", filename: "a-consent.png" } }
+        : { data: { id: 1, status: "processing", candidate_name: "Synthetic" } },
+    ));
+    renderPage();
+    await openUploadMode();
+    const sourceA = new File(["A"], "a.pdf");
+    Object.defineProperty(sourceA, "arrayBuffer", { value: async () => new Uint8Array([65]).buffer });
+    drop(cvInput(), sourceA);
+    confirmOutsideAssignment();
+    drop(fileInput("image/png,image/jpeg,image/webp"), new File(["png"], "a.png", { type: "image/png" }));
+    await screen.findByTestId("consent-screenshot-attached");
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/i }));
+    await waitFor(() => expect(postMock.mock.calls.filter(([url]) => String(url).endsWith("generate-upload"))).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId("consent-screenshot-attached")).not.toBeInTheDocument());
+
+    drop(cvInput(), new File(["B"], "b.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/i }));
+    await waitFor(() => expect(postMock.mock.calls.filter(([url]) => String(url).endsWith("generate-upload"))).toHaveLength(2));
+    const uploads = postMock.mock.calls.filter(([url]) => String(url).endsWith("generate-upload"));
+    expect((uploads[0][1] as FormData).get("consent_screenshot_token")).toBe("person-a-token");
+    expect((uploads[1][1] as FormData).get("consent_screenshot_token")).toBeNull();
+    expect((uploads[1][1] as FormData).get("consent_screenshot_key")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

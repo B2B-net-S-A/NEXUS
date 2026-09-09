@@ -197,7 +197,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const user = setupUser();
     const onSubmit = renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Adam Zielinski/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Adam Zielinski/ }),
+    );
     await fillRates(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
 
@@ -213,7 +215,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const user = setupUser();
     const onSubmit = renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
     await fillRates(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
 
@@ -226,7 +230,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const user = setupUser();
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
@@ -298,7 +304,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     } as never);
     renderModal(onSubmit);
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
@@ -317,7 +325,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(46.59);
   });
 
-  it("pokazuje walutę kontraktu i stosuje przekazany kurs dopiero do zapisu PLN/MD", async () => {
+  it("zachowuje walutę i surową stawkę kontraktu, przekazując konwersję PLN backendowi", async () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
@@ -337,7 +345,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     } as never);
     renderModal(onSubmit);
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     expect(
       screen.getByRole("textbox", { name: "Stawka kosztowa (EUR) *" }),
@@ -348,21 +358,21 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     expect(
       within(costUnits).getByRole("button", { name: "godzinowa (EUR/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      screen.getByText(/Zapis w PLN\/MD: 3400 zł \(kurs EUR→PLN: 4\.25\)/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Zapis w EUR\/MD: 800 EUR/)).toBeInTheDocument();
 
     await fillRevenueAndBudget(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
 
-    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(3400);
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(800);
   });
 
   it("pozwala zmienić podpowiedzianą stawkę tylko dla tej linii", async () => {
     const user = setupUser();
     const onSubmit = renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
     const cost = screen.getByRole("textbox", { name: /Stawka kosztowa/ });
     await user.clear(cost);
     await user.type(cost, "575");
@@ -388,7 +398,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     } as never);
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     expect(screen.getByRole("status")).toHaveTextContent(
       /kontrakty z różnymi stawkami/i,
@@ -402,7 +414,9 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const user = setupUser();
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Adam Zielinski/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Adam Zielinski/ }),
+    );
 
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
@@ -414,18 +428,24 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const user = setupUser();
     renderModal();
 
-    await user.click(await screen.findByRole("button", { name: /Adam Zielinski/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Adam Zielinski/ }),
+    );
     expect(screen.getByText(/założy go w statusie/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Zmień" }));
-    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
     expect(screen.queryByText(/założy go w statusie/)).not.toBeInTheDocument();
   });
 
   it("awaria pobrania listy renderuje błąd z ponowieniem, NIE pustkę", async () => {
     // Pusta lista czyta się jak „nie ma takiej osoby w bazie" i kończy
     // założeniem duplikatu — awaria musi mieć własną gałąź.
-    vi.mocked(orderGroupsApi.consultantOptions).mockRejectedValue(new Error("boom"));
+    vi.mocked(orderGroupsApi.consultantOptions).mockRejectedValue(
+      new Error("boom"),
+    );
     renderModal();
 
     expect(
@@ -462,7 +482,10 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     renderModal();
 
     await screen.findByText("Adam Zielinski");
-    await user.type(screen.getByRole("textbox", { name: /Szukaj konsultanta/ }), "Adam Zielinski");
+    await user.type(
+      screen.getByRole("textbox", { name: /Szukaj konsultanta/ }),
+      "Adam Zielinski",
+    );
 
     await waitFor(() =>
       expect(orderGroupsApi.consultantOptions).toHaveBeenCalledWith(
@@ -489,10 +512,11 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
 
     await screen.findByText("Adam Zielinski");
     await fillRates(user);
-    expect(screen.getByRole("button", { name: "Dodaj konsultanta" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Dodaj konsultanta" }),
+    ).toBeDisabled();
   });
 });
-
 
 // ── PDF + odczyt danych (ticket §4-5) ────────────────────────────────────────
 
@@ -673,7 +697,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
     );
     // „Liczba MD" jest też etykietą radia trybu budżetu — bierzemy POLE.
-    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
+      "60",
+    );
     expect(
       screen.queryByText(/Odczytane dane różnią się od wpisanych/i),
     ).not.toBeInTheDocument();
@@ -757,7 +783,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
     );
-    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
+      "60",
+    );
 
     await user.click(screen.getByRole("button", { name: "Zmień" }));
     await user.click(
@@ -769,7 +797,12 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     await user.click(extractButton);
     await waitFor(() =>
-      expect(dlPortalApi.extractOrderPdf).toHaveBeenNthCalledWith(2, 7, file, 9),
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenNthCalledWith(
+        2,
+        7,
+        file,
+        9,
+      ),
     );
     await waitFor(() =>
       expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1400"),
@@ -805,7 +838,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150");
 
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
-    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(1200);
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(
+      1200,
+    );
   });
 
   it("automatycznie zmienia jednostkę pozycji i przelicza drugą stawkę", async () => {
@@ -830,9 +865,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
 
-    expect(
-      await screen.findByRole("status"),
-    ).toHaveTextContent(
+    expect(await screen.findByRole("status")).toHaveTextContent(
       /Jednostkę stawki zmieniono na godzinową na podstawie dodanej pozycji/i,
     );
     expect(
@@ -940,9 +973,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
-    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
-      "",
-    );
+    expect(
+      screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+    ).toHaveValue("");
   });
 
   it("ponowny niejednoznaczny odczyt usuwa wyłącznie poprzednie dane automatyczne", async () => {
@@ -958,7 +991,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
           rate_unit: null,
           md_total: null,
           uncertain: true,
-          uncertain_reasons: ["Nie znaleziono jednoznacznej pozycji konsultanta"],
+          uncertain_reasons: [
+            "Nie znaleziono jednoznacznej pozycji konsultanta",
+          ],
         }) as never,
       );
     const user = setupUser();
@@ -980,9 +1015,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
     expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
-    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
-      "",
-    );
+    expect(
+      screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+    ).toHaveValue("");
     expect(screen.getByLabelText(/Start/i)).toHaveValue(GROUP.start_date);
   });
 
@@ -1006,14 +1041,14 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     );
 
     await user.click(screen.getByRole("radio", { name: /Kwota zamówienia/i }));
-    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
-      "60",
-    );
+    expect(
+      screen.getByRole("textbox", { name: "Kwota zamówienia" }),
+    ).toHaveValue("60");
     addPdf("B-nowy.pdf");
 
-    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
-      "60",
-    );
+    expect(
+      screen.getByRole("textbox", { name: "Kwota zamówienia" }),
+    ).toHaveValue("60");
   });
 
   it("pyta przed zamianą ręcznej kwoty zamówienia na liczbę MD z PDF", async () => {
@@ -1047,9 +1082,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
         name: /Nie — zostaw wpisane ręcznie/i,
       }),
     );
-    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
-      "60",
-    );
+    expect(
+      screen.getByRole("textbox", { name: "Kwota zamówienia" }),
+    ).toHaveValue("60");
   });
 
   it("respektuje miesięczną jednostkę PDF i zapisuje stawkę po konwersji do MD", async () => {
@@ -1114,17 +1149,19 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
     );
-    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
-    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
-      "2026-09-30",
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
+      "60",
     );
+    expect(
+      screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+    ).toHaveValue("2026-09-30");
 
     addPdf("B.pdf");
     expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
     expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
-    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
-      "",
-    );
+    expect(
+      screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+    ).toHaveValue("");
 
     await user.click(button);
     expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
@@ -1133,10 +1170,13 @@ describe("ConsultantLineModal — odczyt PDF", () => {
   });
 
   it("odrzuca spóźniony wynik poprzedniego pliku tej samej osoby", async () => {
-    let resolveFirst: ((value: ReturnType<typeof extraction>) => void) | undefined;
-    const firstResponse = new Promise<ReturnType<typeof extraction>>((resolve) => {
-      resolveFirst = resolve;
-    });
+    let resolveFirst:
+      ((value: ReturnType<typeof extraction>) => void) | undefined;
+    const firstResponse = new Promise<ReturnType<typeof extraction>>(
+      (resolve) => {
+        resolveFirst = resolve;
+      },
+    );
     vi.mocked(dlPortalApi.extractOrderPdf).mockReturnValueOnce(
       firstResponse as never,
     );
@@ -1149,7 +1189,9 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
-    await waitFor(() => expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledOnce(),
+    );
 
     addPdf("aktualny-B.pdf");
     await act(async () => {
@@ -1167,8 +1209,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
   it("porównuje odpowiedź z ręcznymi zmianami wykonanymi podczas requestu", async () => {
     let resolveExtraction:
-      | ((value: ReturnType<typeof extraction>) => void)
-      | undefined;
+      ((value: ReturnType<typeof extraction>) => void) | undefined;
     const response = new Promise<ReturnType<typeof extraction>>((resolve) => {
       resolveExtraction = resolve;
     });
@@ -1251,13 +1292,15 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
     await user.click(
-      await screen.findByRole("button", { name: /Nie — zostaw wpisane ręcznie/i }),
+      await screen.findByRole("button", {
+        name: /Nie — zostaw wpisane ręcznie/i,
+      }),
     );
 
     expect(revenue).toHaveValue("1200");
   });
 
-  it("baner „Sprawdź dane!\" pojawia się przy niepewnym odczycie", async () => {
+  it('baner „Sprawdź dane!" pojawia się przy niepewnym odczycie', async () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction({
         uncertain: true,
@@ -1286,9 +1329,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
         rate_client: null,
         md_total: null,
         uncertain: true,
-        uncertain_reasons: [
-          "Nie znaleziono jednoznacznej pozycji konsultanta",
-        ],
+        uncertain_reasons: ["Nie znaleziono jednoznacznej pozycji konsultanta"],
       }) as never,
     );
     const user = setupUser();
@@ -1461,5 +1502,42 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(
       screen.queryByRole("textbox", { name: "Pozostałe MD" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("waluty zapisanej linii", () => {
+  it("nie dzieli kwoty PLN przez surową stawkę EUR w podglądzie", async () => {
+    const user = setupUser();
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, source_rate_revenue: 218.75, rate_client_currency: "EUR",
+        input_mode: "amount", input_value: 35000 },
+    });
+    expect(screen.getByText(/Budżet MD zostanie obliczony po zapisaniu według kursu EUR\/PLN/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Waluta stawki przychodowej" }), "PLN");
+    expect(screen.getByText(/Budżet MD: 160 MD/)).toBeInTheDocument();
+  });
+
+  it.each([false, true])("zachowuje EUR i układ dwóch kolumn (kosztowe=%s)", async (isCost) => {
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), { ...GROUP, is_cost_based: isCost }, {
+      line: { ...LINE, source_rate_cost: 176, source_rate_revenue: 218.75,
+        rate_candidate_currency: "EUR", rate_client_currency: "EUR" },
+    });
+    const cost = screen.getByRole("textbox", { name: /Stawka kosztowa/ });
+    const revenue = screen.getByRole("textbox", { name: /Stawka przychodowa/ });
+    const costCurrency = screen.getByRole("combobox", { name: "Waluta stawki kosztowej" });
+    const revenueCurrency = screen.getByRole("combobox", { name: "Waluta stawki przychodowej" });
+    expect(cost).toHaveValue("176");
+    expect(revenue).toHaveValue("218.75");
+    expect(costCurrency).toHaveValue("EUR");
+    expect(revenueCurrency).toHaveValue("EUR");
+    expect(cost.parentElement).toContainElement(costCurrency);
+    expect(revenue.parentElement).toContainElement(revenueCurrency);
+    await user.selectOptions(revenueCurrency, "USD");
+    expect(revenue).toHaveValue("218.75");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      rate_cost: 176, rate_revenue: 218.75, rate_candidate_currency: "EUR", rate_client_currency: "USD",
+    }));
   });
 });

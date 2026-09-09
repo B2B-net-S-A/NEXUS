@@ -13,7 +13,7 @@
  *    dostać 422, to strata czasu rekrutera na wolnym łączu.
  */
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,11 +44,11 @@ describe("ConsentScreenshotField", () => {
 
   it("po wgraniu oddaje rodzicowi klucz z magazynu, nie plik", async () => {
     mocks.post.mockResolvedValue({
-      data: { storage_key: "zgody/abc.png", filename: "zgoda.png" },
+      data: { consent_token: "zgody/abc.png", filename: "zgoda.png" },
     });
     const onChange = vi.fn();
     render(
-      <ConsentScreenshotField value={null} onChange={onChange} required={false} />,
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={onChange} required={false} />,
     );
 
     await userEvent.upload(
@@ -67,7 +67,7 @@ describe("ConsentScreenshotField", () => {
     });
     const onChange = vi.fn();
     render(
-      <ConsentScreenshotField value={null} onChange={onChange} required />,
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={onChange} required />,
     );
 
     await userEvent.upload(screen.getByLabelText(/zrzut zgody/i), pngFile());
@@ -82,7 +82,7 @@ describe("ConsentScreenshotField", () => {
   it("za duży plik odpada lokalnie, bez wysyłki", async () => {
     const onChange = vi.fn();
     render(
-      <ConsentScreenshotField value={null} onChange={onChange} required={false} />,
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={onChange} required={false} />,
     );
 
     await userEvent.upload(
@@ -96,12 +96,12 @@ describe("ConsentScreenshotField", () => {
 
   it("wymóg klienta jest widoczny w treści pola", () => {
     const { rerender } = render(
-      <ConsentScreenshotField value={null} onChange={vi.fn()} required={false} />,
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={vi.fn()} required={false} />,
     );
     expect(screen.getByText(/Opcjonalnie/i)).toBeInTheDocument();
 
     rerender(
-      <ConsentScreenshotField value={null} onChange={vi.fn()} required />,
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={vi.fn()} required />,
     );
     expect(screen.getByText(/Ten klient wymaga/i)).toBeInTheDocument();
   });
@@ -109,7 +109,7 @@ describe("ConsentScreenshotField", () => {
   it("wgrany zrzut pokazuje nazwę pliku i daje go usunąć", async () => {
     const onChange = vi.fn();
     render(
-      <ConsentScreenshotField
+      <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }}
         value="zgody/abc.png"
         onChange={onChange}
         required
@@ -119,5 +119,33 @@ describe("ConsentScreenshotField", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /usuń zrzut/i }));
     expect(onChange).toHaveBeenCalledWith(null, null);
+  });
+
+  it("ignores a late upload response after switching candidate and client", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.post.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const onChange = vi.fn();
+    const { rerender } = render(<ConsentScreenshotField
+      context={{ candidateId: 1, stageId: 2, clientId: 3 }}
+      value={null} onChange={onChange} required />);
+    await userEvent.upload(screen.getByLabelText(/zrzut zgody/i), pngFile());
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    const form = mocks.post.mock.calls[0][1] as FormData;
+    expect(form.get("candidate_id")).toBe("1");
+    expect(form.get("stage_id")).toBe("2");
+    expect(form.get("client_id")).toBe("3");
+
+    rerender(<ConsentScreenshotField context={{ candidateId: 4, stageId: 5, clientId: 6 }}
+      value={null} onChange={onChange} required />);
+    onChange.mockClear();
+    await act(async () => { finish({ data: { consent_token: "person-a-token", filename: "a.png" } }); });
+    expect(onChange).not.toHaveBeenCalledWith("person-a-token", "a.png");
+    expect(screen.queryByTestId("consent-screenshot-attached")).not.toBeInTheDocument();
+  });
+
+  it("requires a source before allowing a consent upload", () => {
+    render(<ConsentScreenshotField context={{ clientId: 3 }}
+      value={null} onChange={vi.fn()} required />);
+    expect(screen.getByLabelText(/zrzut zgody/i)).toBeDisabled();
   });
 });
