@@ -645,11 +645,7 @@ async def get_ai_matches(
     max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
     # The compatibility score is always canonical fit / 100, regardless of
     # old deployment flags. Keep the explicit 0..1 API threshold contract.
-    threshold = (
-        min_score
-        if min_score is not None
-        else settings.RECOMMENDATION_MIN_SCORE / 100.0
-    )
+    threshold = min_score if min_score is not None else 0.0
     # This compatibility endpoint still bounds discovery membership; the
     # durable candidate-search API owns exhaustive population scanning.
     pool_size = settings.MATCH_POOL_SIZE

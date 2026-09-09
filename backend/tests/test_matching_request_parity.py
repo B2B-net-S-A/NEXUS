@@ -45,16 +45,22 @@ async def test_compatibility_endpoint_only_filters_explicit_location(
 
     async def score(db, **kwargs):
         return [
-            {"candidate": {"id": c.id, "location": c.location}, "match_score": 0.8}
+            {"candidate": {"id": c.id, "location": c.location}, "match_score": 0.05}
             for c in kwargs["ordered"]
         ], False
 
     monkeypatch.setattr(matching, "_gate_and_dealbreakers", gate)
     monkeypatch.setattr(matching, "_shared_engine_matches", score)
     result = await matching.get_ai_matches(
-        job.id, SimpleNamespace(id=1), min_score=0, limit=20, location=location, db=db
+        job.id,
+        SimpleNamespace(id=1),
+        min_score=None,
+        limit=20,
+        location=location,
+        db=db,
     )
     assert [m["candidate"]["id"] for m in result["matches"]] == expected
+    assert result["min_score"] == 0.0
     assert result["location_filter"] == location
     assert retrieval.call_args.args[1] == matching._build_job_query(job)
     assert "Django na końcu" in retrieval.call_args.args[1]

@@ -182,12 +182,7 @@ async def test_min_score_keeps_its_zero_to_one_meaning_under_flag(
 async def test_default_threshold_follows_the_sibling_list_under_flag(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Domyślna podłoga to `RECOMMENDATION_MIN_SCORE/100`, nie 0.5.
-
-    Bez tego domyślne `AI_MATCH_MIN_SCORE=0.5` odsiałoby każdy kompozyt poniżej
-    50/100 — czyli WIĘKSZOŚĆ realnych dopasowań, bo kompozyt hybrydowy ma niski
-    zakres bezwzględny (stąd `RECOMMENDATION_MIN_SCORE=40`).
-    """
+    """Default membership matches full search, without a hidden score floor."""
     job_id, cand_id, _ = shared_engine_fixture
     monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id)
@@ -198,9 +193,7 @@ async def test_default_threshold_follows_the_sibling_list_under_flag(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["min_score"] == pytest.approx(
-        settings.RECOMMENDATION_MIN_SCORE / 100.0, abs=0.001
-    )
+    assert resp.json()["min_score"] == 0.0
 
 
 @pytest.mark.integration

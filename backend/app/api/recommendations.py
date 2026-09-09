@@ -169,7 +169,7 @@ async def recommend_candidates_for_job(
         le=100.0,
         description=(
             "Minimum hybrid score (0-100) a candidate must reach to be shown. "
-            "Defaults to settings.RECOMMENDATION_MIN_SCORE. Lower = show more."
+            "Defaults to 0, matching full Radar/pipeline search. Lower = show more."
         ),
     ),
     include_breakdown: bool = Query(True),
@@ -521,13 +521,8 @@ async def _recommend_candidates_core(
         boost_map = {}
     _annotate_historical_context(breakdowns, boost_map)
 
-    # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
-    # `top_k` now acts purely as a payload safety cap. The hybrid composite is a
-    # ranking signal with a low absolute range, so the default threshold is low
-    # (see settings.RECOMMENDATION_MIN_SCORE for calibration notes).
-    threshold = (
-        min_score if min_score is not None else settings.RECOMMENDATION_MIN_SCORE
-    )
+    # Match full Radar/C2: a score only filters membership when requested.
+    threshold = min_score if min_score is not None else 0.0
     # Preserve unknown measurements for review, after all measured fits.
     breakdowns = [
         fit.breakdown

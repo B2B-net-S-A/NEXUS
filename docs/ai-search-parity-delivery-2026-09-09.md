@@ -317,3 +317,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - CI and CI Gate now use workflow/PR concurrency groups and cancel superseded PR runs. Non-PR runs use unique run IDs and never cancel one another, preserving independent main/deployment gates. Existing old runs without a group may still need completion/cancellation; this is not a claim the queue is drained.
 - Parsed both YAML files and compared every job/trigger with HEAD: unchanged. Four existing CI coverage/encryption contract tests pass, one skipped. Diff check passes. Latest checks still require actual hosted execution; no test or protection was bypassed.
+
+### Increment: no implicit score floor across request search surfaces
+
+- Compatibility AI Matching and live recommendations now default to a zero threshold, matching full Radar/C2. Explicit caller thresholds keep their existing scale and effect. Proposal snapshots retain top-ranked canonical fits without the former hidden 40-point floor; policy v6 invalidates older floor-truncated snapshots. Payload/retrieval limits remain explicit and unchanged.
+- Eighteen native endpoint/proposal contract tests pass (six integration scenarios deferred). The endpoint regression now uses a 5/100 result and omitted threshold across semantic/fallback branches and both obsolete-flag settings. Ruff/diff checks pass. This aligns default score filtering, not bounded discovery with exhaustive membership; latest CI, quality/index and production requirements remain outstanding.

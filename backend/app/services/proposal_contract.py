@@ -2,7 +2,7 @@
 
 import hashlib
 
-PROPOSAL_INPUT_VERSION = "proposal-canonical-fit-v5"
+PROPOSAL_INPUT_VERSION = "proposal-canonical-fit-v6"
 
 
 def proposal_fingerprint(query_text: str) -> str:

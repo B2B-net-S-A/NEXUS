@@ -238,17 +238,9 @@ async def compute_proposal_for_job(
                         boost_map = {}
                     _annotate_historical_context(breakdowns, boost_map)
 
-                    # Persist ALL candidates that fit (score >= threshold),
-                    # ranked best-first — not a fixed top-K. `top_k` is now just
-                    # a payload safety cap. Mirrors the live /recommendations
-                    # endpoint so the snapshot and fallback paths agree on
-                    # "who matches".
-                    breakdowns = [
-                        fit.breakdown
-                        for fit in fits
-                        if fit.fit_score is None
-                        or fit.fit_score >= settings.RECOMMENDATION_MIN_SCORE
-                    ][:top_k]
+                    # Same no-threshold default as full Radar/C2 and live
+                    # recommendations. top_k only limits the stored payload.
+                    breakdowns = [fit.breakdown for fit in fits][:top_k]
 
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]
