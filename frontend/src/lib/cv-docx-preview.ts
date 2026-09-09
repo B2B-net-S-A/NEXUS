@@ -13,8 +13,9 @@ export function alignB2bLetterheadPreview(host: HTMLElement): void {
       // wrapNone is represented as a zero-size positioned drawing wrapper.
       if (style.position !== "relative" || parseFloat(style.width) !== 0 || parseFloat(style.height) !== 0) continue;
       const image = drawing.querySelector("img");
-      if (!image || parseFloat(getComputedStyle(image).width) < pageWidth * 0.8) continue;
-      if (!Number.isFinite(parseFloat(getComputedStyle(image).width))) continue;
+      if (!image) continue;
+      const imageWidth = parseFloat(getComputedStyle(image).width);
+      if (!Number.isFinite(imageWidth) || imageWidth < pageWidth * 0.8) continue;
       // The renderer forces drawings inline-block; centered header paragraphs
       // otherwise add half a text column to the page-relative offset.
       drawing.style.display = "block";

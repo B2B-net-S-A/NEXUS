@@ -55,3 +55,12 @@ def test_plain_document_and_foreground_logo_are_unchanged():
     original = doc._element.xml, doc.sections[0].header._element.xml
     normalize_letterhead_layout(doc)
     assert (doc._element.xml, doc.sections[0].header._element.xml) == original
+
+
+def test_missing_page_size_does_not_crash_or_reposition_artwork():
+    doc = Document(TEMPLATE)
+    section = doc.sections[0]
+    section._sectPr.remove(section._sectPr.find(qn("w:pgSz")))
+    original = doc._element.xml, section.header._element.xml
+    normalize_letterhead_layout(doc)
+    assert (doc._element.xml, section.header._element.xml) == original

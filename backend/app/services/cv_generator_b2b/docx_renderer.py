@@ -1325,6 +1325,9 @@ def normalize_letterhead_layout(doc: Any) -> None:
             inherited_headers[ref.get(qn("w:type")) or "default"] = (
                 doc.part.related_parts[ref.get(qn("r:id"))]
             )
+        page_width = int(section.page_width or 0)
+        if page_width <= 0:
+            continue  # No reliable frame for classifying full-page artwork.
         reserved_top = int(section.top_margin or 0)
         for part in inherited_headers.values():
             for anchor in part.element.findall(".//wp:anchor", ns):
@@ -1337,7 +1340,7 @@ def normalize_letterhead_layout(doc: Any) -> None:
                 # inline signature, consent image or another positioned object.
                 if (
                     anchor.get("behindDoc") != "1"
-                    or int(extent.get("cx", "0")) < int(section.page_width) * 0.8
+                    or int(extent.get("cx", "0")) < page_width * 0.8
                 ):
                     continue
                 x = horizontal.find("wp:posOffset", ns)
