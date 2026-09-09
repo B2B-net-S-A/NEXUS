@@ -110,6 +110,7 @@ from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_cv_rule import ClientCvRule
 from app.models.client_cv_rule_event import ClientCvRuleEvent
+from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
@@ -397,6 +398,7 @@ __all__ = [
     "ClientContractTerms",
     "ClientCvRule",
     "ClientCvRuleEvent",
+    "ClientCvRulePublication",
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",

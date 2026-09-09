@@ -50,6 +50,8 @@ export interface GlossaryEntry {
 
 /** Odpowiedź `GET /api/clients/{id}/cv-rule` (także dla klienta bez reguły). */
 export interface ClientCvRule {
+  edit_revision?: number;
+  draft_payload?: Partial<ClientCvRulePayload> | null;
   client_id: number;
   client_name: string | null;
   filename_pattern: string | null;
@@ -105,6 +107,7 @@ export interface CvRulesOverview {
 
 /** Payload `PUT /api/clients/{id}/cv-rule`. */
 export interface ClientCvRulePayload {
+  expected_revision?: number;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
   cv_language: CvRuleLanguage | null;
@@ -210,18 +213,32 @@ export const cvRulesApi = {
   save: async (clientId: number, payload: ClientCvRulePayload) =>
     (await api.put<ClientCvRule>(`/api/clients/${clientId}/cv-rule`, payload))
       .data,
-  confirm: async (clientId: number) =>
-    (await api.post<ClientCvRule>(`/api/clients/${clientId}/cv-rule/confirm`))
+  confirm: async (clientId: number, expectedRevision: number) =>
+    (await api.post<ClientCvRule>(`/api/clients/${clientId}/cv-rule/confirm`, null, {
+      params: { expected_revision: expectedRevision },
+    }))
       .data,
-  remove: async (clientId: number) => {
-    await api.delete(`/api/clients/${clientId}/cv-rule`);
+  remove: async (clientId: number, expectedRevision: number) => {
+    await api.delete(`/api/clients/${clientId}/cv-rule`, {
+      params: { expected_revision: expectedRevision },
+    });
   },
-  copyFrom: async (clientId: number, sourceClientId: number) =>
+  copyFrom: async (clientId: number, sourceClientId: number, expectedRevision: number) =>
     (
       await api.post<ClientCvRule>(
         `/api/clients/${clientId}/cv-rule/copy-from/${sourceClientId}`,
+        null, { params: { expected_revision: expectedRevision } },
       )
     ).data,
+  versions: async (clientId: number) =>
+    (await api.get<Array<{ version: number; published_at: string | null }>>(
+      `/api/clients/${clientId}/cv-rule/versions`,
+    )).data,
+  restore: async (clientId: number, version: number, expectedRevision: number) =>
+    (await api.post<ClientCvRule>(
+      `/api/clients/${clientId}/cv-rule/versions/${version}/restore`, null,
+      { params: { expected_revision: expectedRevision } },
+    )).data,
   history: async (clientId: number) =>
     (await api.get<RuleEvent[]>(`/api/clients/${clientId}/cv-rule/history`))
       .data,
@@ -300,7 +317,8 @@ export interface CvRuleForm {
   cv_interactive_enabled: boolean;
 }
 
-export function ruleToForm(rule: ClientCvRule): CvRuleForm {
+export function ruleToForm(published: ClientCvRule): CvRuleForm {
+  const rule = { ...published, ...published.draft_payload };
   return {
     filename_pattern: rule.filename_pattern ?? "",
     spaces_to_underscores: rule.spaces_to_underscores,
@@ -409,7 +427,8 @@ export const RULE_EVENT_LABELS: Record<string, string> = {
   saved_and_confirmed: "Zapisano i zatwierdzono",
   confirmed: "Zatwierdzono",
   deleted: "Usunięto regułę",
-  copied: "Skopiowano z innego klienta",
+  copied: "Skopiowano z innego klienta do szkicu",
+  restored: "Przywrócono opublikowaną wersję do szkicu",
 };
 
 export const RULE_FIELD_LABELS: Record<string, string> = {

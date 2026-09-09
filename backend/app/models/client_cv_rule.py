@@ -13,11 +13,11 @@ Agricole w ogóle nie istnieje (standardy siedzą w sekcji 6), a szablon PFRON-u
 niesie błąd copy-paste z Nordei. Parser oparty na numerze nagłówka nie
 znalazłby tego pierwszego i utrwalił drugi — po cichu, w obie strony.
 
-``confirmed_at IS NULL`` znaczy **propozycja, która NIE obowiązuje**. Migracja
-zasiewa 14 reguł, ale dopasowanie szablonu do wiersza w ``clients`` nie jest
-1:1 (samych bytów „BNP" jest w bazie siedem), więc zasiane reguły czekają na
-zatwierdzenie przez człowieka. To jest cały mechanizm „ekranu weryfikacji" —
-jedna kolumna nullable zamiast osobnego stanu.
+``confirmed_at IS NULL`` means a never-published proposal. For active rules,
+columns hold the published recipe while ``draft_payload`` holds independent
+edits including client flags. Publication applies the whole recipe atomically;
+``edit_revision`` protects editors from stale writes. Immutable publications
+retain previous recipes for explicit restoration.
 """
 
 from datetime import datetime
@@ -184,6 +184,14 @@ class ClientCvRule(Base, TimestampMixin):
     date_format: Mapped[Optional[str]] = mapped_column(String(16))
     glossary: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
+    )
+
+    # Draft edits never replace the published recipe or live client flags.
+    draft_payload: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    edit_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
 
     # Numer wersji bumpowany przy KAŻDYM zapisie zmieniającym treść reguły.
