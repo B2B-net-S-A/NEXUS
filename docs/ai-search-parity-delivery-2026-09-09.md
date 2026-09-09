@@ -260,3 +260,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Frontend job 102419760814 failed with an unhandled ReferenceError: window is not defined from Toast.tsx timeout after teardown. ToastProvider now tracks and cancels timers at unmount and explicit dismissal; naturally expired timers remove their handles. Existing notification timing and context identity remain unchanged.
 - Five toast accessibility/lifecycle/context tests, TypeScript and ESLint pass. The new test covers three notification types, early dismissal, natural expiration and zero remaining timers at unmount. This fixes the observed CI cause; it is not yet proof of a green hosted suite.
+
+### Increment: legacy retrieval keeps the full canonical request
+
+- Removed the legacy 300-character description / 500-character requirement truncation and invented seniority hints from _build_job_query. The legacy endpoint now constructs its retrieval document with the same full request builder as Radar and canonical fit, including reviewed requirements. Weight selection remains the scorer's responsibility.
+- Sixteen native requirement tests pass. The new regression checks both long-field tails, an approved OR group, nice-to-have and a new tail edit changing the query. Ruff and diff checks pass. This fixes the query context only; legacy ranking mode, full-pool quality, operational proof, hosted CI and production delivery still require completion.

@@ -400,31 +400,13 @@ async def _gate_and_dealbreakers(
 
 
 def _build_job_query(job: Job) -> str:
-    """Build a semantic query string from job fields."""
-    parts: list[str] = []
+    """Use the same complete request document as Radar and canonical fit."""
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import DEFAULT_PROFILE
 
-    if job.title:
-        parts.append(job.title)
-
-    # Extract required skills from requirements text and JSONB
-    if job.requirements:
-        parts.append(job.requirements[:500])
-
-    if job.description:
-        parts.append(job.description[:300])
-
-    # Add seniority hint
-    title_lower = (job.title or "").lower()
-    if "senior" in title_lower:
-        parts.append("senior experienced engineer")
-    elif "junior" in title_lower:
-        parts.append("junior developer entry level")
-    elif "lead" in title_lower or "architect" in title_lower:
-        parts.append("lead architect technical leadership")
-    elif "mid" in title_lower:
-        parts.append("mid level developer")
-
-    return " ".join(p for p in parts if p.strip())
+    # Weight selection does not change the document. The actual fit scorer
+    # resolves the viewer's profile separately; no surface-specific hints.
+    return build_request_context(job, DEFAULT_PROFILE).query_text
 
 
 def _parse_required_skills(job: Job) -> list[str]:

@@ -187,3 +187,25 @@ async def test_shared_gate_rejects_incomplete_eligibility_decisions(
             ordered=[make_candidate(id=1), make_candidate(id=2)],
             now=now,
         )
+
+
+def test_legacy_query_preserves_request_tail_and_reviewed_alternatives():
+    from app.api.matching import _build_job_query
+    from tests.test_scoring_service import make_job
+
+    contract = explicit_contract(["Python lub Java"], ["Kubernetes"], reviewed=True)
+    target = make_job(
+        title="Backend Developer",
+        description="Wprowadzenie " * 500 + "Projekt rozliczeń w Django",
+        requirements="Informacje " * 500 + "Wymagane doświadczenie z PostgreSQL",
+        matching_requirements=contract.model_dump(),
+        requirements_reviewed=True,
+    )
+    query = _build_job_query(target)
+    assert "Projekt rozliczeń w Django" in query
+    assert "Wymagane doświadczenie z PostgreSQL" in query
+    assert "python lub java" in query.lower()
+    assert "kubernetes" in query.lower()
+    target.description += " Dodatkowo RabbitMQ"
+    assert _build_job_query(target) != query
+    assert "RabbitMQ" in _build_job_query(target)
