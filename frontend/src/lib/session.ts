@@ -124,6 +124,10 @@ export function clearSessionArtifacts(): void {
   clearTalentRadarSession();
   if (typeof window !== "undefined") {
     try {
+      for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
+        const key = window.localStorage.key(i);
+        if (key?.startsWith("nexus-full-job:")) window.localStorage.removeItem(key);
+      }
       for (let i = window.sessionStorage.length - 1; i >= 0; i -= 1) {
         const key = window.sessionStorage.key(i);
         if (key && ["nexus-full-job:", "nexus-full-radar:", "nexus-radar-request:", "nexus-radar-mode:"].some(prefix => key.startsWith(prefix))) window.sessionStorage.removeItem(key);
