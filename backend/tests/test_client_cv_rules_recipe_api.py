@@ -537,7 +537,7 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         from types import SimpleNamespace
 
-        async def fake_readiness(db, candidate_id):
+        async def fake_readiness(db, candidate_id, **kwargs):
             return [
                 SimpleNamespace(
                     stage_id=stage_id,

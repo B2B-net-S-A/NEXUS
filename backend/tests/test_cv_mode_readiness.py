@@ -55,8 +55,9 @@ def test_exact_notes_threshold_is_ready_without_optional_champion():
         ("basic", "tailored", "polished", "polished"),
     ],
 )
+@pytest.mark.parametrize("variant", ["published", "draft", "without_rule"])
 async def test_readiness_resolves_published_mode_then_client_cap(
-    monkeypatch, requested, locked, cap, expected
+    monkeypatch, requested, locked, cap, expected, variant
 ):
     client = SimpleNamespace(cv_content_mode_cap=cap, name="Test", display_name=None)
     job = SimpleNamespace(
@@ -91,7 +92,24 @@ async def test_readiness_resolves_published_mode_then_client_cap(
         content_mode_locked=bool(locked),
     )
     monkeypatch.setattr(svc, "snapshot_rule", lambda row: rule)
-    rows = await svc.list_recruitments_with_readiness(db, 1, content_mode=requested)
+    overrides = {}
+    if variant == "draft":
+        overrides = {
+            "rule_overrides": {
+                3: replace(rule, content_mode="tailored", content_mode_locked=True)
+            },
+            "content_mode_cap_overrides": {3: None},
+        }
+        expected = "tailored"
+    elif variant == "without_rule":
+        overrides = {
+            "rule_overrides": {3: None},
+            "content_mode_cap_overrides": {3: None},
+        }
+        expected = requested
+    rows = await svc.list_recruitments_with_readiness(
+        db, 1, content_mode=requested, **overrides
+    )
     assert rows[0].content_mode == expected
     assert rows[0].ready == (expected != "tailored")
 

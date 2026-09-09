@@ -236,3 +236,14 @@ Lista rekrutacji, walidacja przed kwotą i worker rozróżniają Przepisanie/Red
 Weryfikacja: 78 testów backendu (w tym 15 nowych przypadków gotowości/workera/polityki), 15 testów strony, TypeScript i Ruff. Brak lokalnej bazy lub wywołań modeli. CI i odbiór produkcyjny jeszcze wymagane. Pakiet zależy od preflight uploadu #1459 i historii/kontekstu #1450.
 
 CV-08 nadal częściowe: jawny wybór i zamrożenie pełnych źródeł do zadania pozostają otwarte. Minimalna liczba znaków jest istniejącym kontraktem klienta; nie stanowi potwierdzenia jakości screeningu. Nowe ustalenia audytu o podsumowaniach AI i pytaniach jako dowodach wymagają osobnej poprawy źródeł oraz bramki faktów.
+
+### CV-18: trial admission uses the exact recipe snapshot
+
+Preview readiness previously used published client settings while its worker
+used the saved draft. It now validates both variants before quota: the frozen
+draft (including content ceiling and required inputs) and the explicit unruled
+baseline. Internal readiness overrides are client-scoped and preserve normal
+published behavior for all other callers. Missing inputs identify the failing
+variant. Twenty-six focused tests cover mode/cap resolution and both rejection
+paths; hosted API coverage is retained. This does not yet freeze candidate
+sources or reuse one extracted fact ledger across variants.

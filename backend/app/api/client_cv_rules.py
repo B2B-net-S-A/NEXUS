@@ -1493,6 +1493,40 @@ async def _run_rule_preview_job_inner(
         await db.commit()
 
 
+async def _require_preview_inputs(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    candidate_id: int,
+    stage_id: int,
+    recipe_snapshot: dict,
+) -> None:
+    frozen = ClientCvRule()
+    _apply_payload(frozen, ClientCvRulePayload(**recipe_snapshot))
+    variants = (
+        ("Z regułą", snapshot_rule(frozen), recipe_snapshot.get("cv_content_mode_cap")),
+        ("Bez reguły", None, None),
+    )
+    for label, rule, cap in variants:
+        readiness = await list_recruitments_with_readiness(
+            db,
+            candidate_id,
+            rule_overrides={client_id: rule},
+            content_mode_cap_overrides={client_id: cap},
+        )
+        match = next((r for r in readiness if r.stage_id == stage_id), None)
+        if match is None or not match.ready:
+            missing = (
+                match.missing_inputs if match is not None else ["aktywna rekrutacja"]
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=f"Ta rekrutacja nie jest gotowa do generacji ({label}) — brakuje: "
+                + ", ".join(missing)
+                + ".",
+            )
+
+
 @router.post(
     "/clients/{client_id}/cv-rule/preview",
     response_model=PreviewRead,
@@ -1532,24 +1566,6 @@ async def enqueue_client_cv_rule_preview(
             status_code=422,
             detail="Wybrana rekrutacja należy do innego klienta niż ta reguła.",
         )
-    # Gotowość rekrutacji (CV, Champion, notatki) PRZED naliczeniem kwoty —
-    # inaczej DL płaci dwie generacje za wiersz „failed".
-    readiness = await list_recruitments_with_readiness(db, payload.candidate_id)
-    match = next((r for r in readiness if r.stage_id == payload.stage_id), None)
-    if match is None or not match.ready:
-        missing = []
-        if match is None or not match.has_cv:
-            missing.append("CV w systemie")
-        if match is None or not match.has_champion:
-            missing.append("Profil Championa")
-        if match is None or not match.has_notes:
-            missing.append("notatki z rozmów")
-        raise HTTPException(
-            status_code=422,
-            detail="Ta rekrutacja nie jest gotowa do generacji — brakuje: "
-            + ", ".join(missing)
-            + ".",
-        )
     await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
     await db.refresh(client)
     rule = await _rule_for(db, client_id)
@@ -1566,6 +1582,13 @@ async def enqueue_client_cv_rule_preview(
     if rule is None:
         recipe_snapshot = _recipe_payload(ClientCvRulePayload(), client)
     _validated_recipe(recipe_snapshot)
+    await _require_preview_inputs(
+        db,
+        client_id=client_id,
+        candidate_id=payload.candidate_id,
+        stage_id=payload.stage_id,
+        recipe_snapshot=recipe_snapshot,
+    )
     # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
     # kolejnego — bez osobnego crona.
     from sqlalchemy import delete as sa_delete

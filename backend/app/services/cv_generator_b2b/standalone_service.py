@@ -1664,6 +1664,8 @@ async def list_recruitments_with_readiness(
     *,
     job_scope=None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    rule_overrides: dict[int, CvRuleSnapshot | None] | None = None,
+    content_mode_cap_overrides: dict[int, str | None] | None = None,
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1764,6 +1766,10 @@ async def list_recruitments_with_readiness(
             )
         ).all()
         client_rules = {row.client_id: snapshot_rule(row) for row in rows}
+    # Internal preview snapshots override published policy for explicitly named clients.
+    # A None value intentionally tests the variant without a client rule.
+    if rule_overrides:
+        client_rules.update(rule_overrides)
 
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
@@ -1773,7 +1779,11 @@ async def list_recruitments_with_readiness(
         locked_mode, _ = resolve_content_mode(rule, content_mode)
         effective_mode, _ = apply_content_mode_cap(
             locked_mode,
-            getattr(job.client, "cv_content_mode_cap", None) if job else None,
+            content_mode_cap_overrides[job.client_id]
+            if job
+            and content_mode_cap_overrides is not None
+            and job.client_id in content_mode_cap_overrides
+            else (getattr(job.client, "cv_content_mode_cap", None) if job else None),
         )
         minimum = (rule.require_screening_notes_min_chars or 0) if rule else 0
 
