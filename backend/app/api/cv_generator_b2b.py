@@ -400,15 +400,35 @@ async def _finalize_success(
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
     final_docx = result.docx_bytes
+    frozen_consent = None
     if consent_screenshot:
-        final_docx = await run_in_threadpool(
-            rerender_docx_from_payload, result.render_payload, require_consent=True
+        from copy import deepcopy
+        from app.services.cv_generator_b2b.standalone_service import (
+            hydrate_consent_screenshot,
         )
+
+        hydrated = await run_in_threadpool(
+            hydrate_consent_screenshot, deepcopy(result.render_payload)
+        )
+        frozen_consent = (hydrated.get("consent_screenshot") or {}).get("_bytes")
+        if not frozen_consent:
+            raise ValueError("Nie można zapisać CV bez dołączonego obrazu zgody.")
+        final_docx = await run_in_threadpool(
+            rerender_docx_from_payload,
+            hydrated,
+            require_consent=True,
+            template_bytes=getattr(result, "template_bytes", None),
+        )
+    row.consent_content = frozen_consent
     row.docx_content = final_docx
+    row.template_content = getattr(result, "template_bytes", None)
     row.docx_sha256 = hashlib.sha256(final_docx).hexdigest()
     if isinstance(row.render_payload, dict):
         provenance = dict(row.render_payload.get("artifact_provenance") or {})
         provenance["generated_docx_sha256"] = row.docx_sha256
+        provenance["consent_sha256"] = (
+            hashlib.sha256(frozen_consent).hexdigest() if frozen_consent else None
+        )
         row.render_payload = {**row.render_payload, "artifact_provenance": provenance}
     row.warnings = list(result.warnings or [])
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
@@ -1844,7 +1864,11 @@ async def list_generated_cvs(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
             )
-            .options(defer(CvGeneratedDocument.docx_content))
+            .options(
+                defer(CvGeneratedDocument.docx_content),
+                defer(CvGeneratedDocument.template_content),
+                defer(CvGeneratedDocument.consent_content),
+            )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
             .where(*filters)

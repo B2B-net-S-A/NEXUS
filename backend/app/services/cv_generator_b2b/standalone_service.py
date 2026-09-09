@@ -220,6 +220,7 @@ class GenerationResult:
     # Claude. ``job_id`` is set in New mode (None for manual upload).
     render_payload: dict[str, Any]
     job_id: int | None = None
+    template_bytes: bytes | None = None
 
 
 def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
@@ -252,7 +253,10 @@ def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def rerender_docx_from_payload(
-    render_payload: dict[str, Any], *, require_consent: bool = False
+    render_payload: dict[str, Any],
+    *,
+    require_consent: bool = False,
+    template_bytes: bytes | None = None,
 ) -> bytes:
     """Re-render a previously generated CV from its saved ``render_payload``.
 
@@ -274,7 +278,10 @@ def rerender_docx_from_payload(
 
         with Image.open(BytesIO(image_bytes)) as image:
             image.verify()
-    return render_cv_to_bytes(payload, TEMPLATE_PATH)
+    return render_cv_to_bytes(
+        payload,
+        BytesIO(template_bytes) if template_bytes is not None else TEMPLATE_PATH,
+    )
 
 
 @dataclass(frozen=True)
@@ -1833,6 +1840,7 @@ def _run_generation_pipeline(
         processing_time_ms=duration_ms,
         render_payload=render_payload,
         job_id=job_id,
+        template_bytes=template_bytes,
     )
 
 

@@ -6,6 +6,34 @@ from app.services.cv_document_assets import approved_assets, CvAssetsError
 from app.services import cv_generated_editor
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_generation_assets_reject_template_drift_before_editing(monkeypatch, changed):
+    from app.services import cv_document_assets
+
+    monkeypatch.setattr(
+        cv_document_assets,
+        "default_template",
+        lambda: b"changed" if changed else b"original",
+    )
+    generated = SimpleNamespace(
+        id=7,
+        client_id=None,
+        client_rule_version=None,
+        render_payload={
+            "artifact_provenance": {
+                "template_sha256": hashlib.sha256(b"original").hexdigest(),
+            }
+        },
+    )
+    if changed:
+        with pytest.raises(CvAssetsError, match="Szablon zmienił"):
+            cv_document_assets.generated_assets(generated)
+    else:
+        template, consent, metadata = cv_document_assets.generated_assets(generated)
+        assert template == b"original" and consent is None
+        assert metadata["template_sha256"] == hashlib.sha256(template).hexdigest()
+
+
 def version():
     return SimpleNamespace(
         version=2,
@@ -19,6 +47,26 @@ def version():
             "consent_sha256": hashlib.sha256(b"saved consent").hexdigest(),
         },
     )
+
+
+def test_saved_generation_template_survives_live_template_change(monkeypatch):
+    from app.services import cv_document_assets
+
+    live = Mock(side_effect=AssertionError("must use the saved template"))
+    monkeypatch.setattr(cv_document_assets, "default_template", live)
+    generated = SimpleNamespace(
+        id=7,
+        client_id=None,
+        client_rule_version=None,
+        template_content=b"original",
+        render_payload={
+            "artifact_provenance": {
+                "template_sha256": hashlib.sha256(b"original").hexdigest(),
+            }
+        },
+    )
+    assert cv_document_assets.generated_assets(generated)[0] == b"original"
+    live.assert_not_called()
 
 
 @pytest.mark.parametrize("field", [None, "template_content", "consent_content"])

@@ -33,6 +33,11 @@ async def test_download_uses_exact_stored_bytes_without_rerender(monkeypatch, ca
 
 
 async def test_finalized_docx_includes_consent_before_being_archived(monkeypatch):
+    from app.services import object_storage
+
+    monkeypatch.setattr(
+        object_storage, "download_cv", Mock(return_value=b"consent-image")
+    )
     row = SimpleNamespace(job_id=None)
     db = AsyncMock()
     db.get.return_value = row
@@ -50,8 +55,13 @@ async def test_finalized_docx_includes_consent_before_being_archived(monkeypatch
     assert await api._finalize_success(
         db, 11, result=result, consent_screenshot=consent
     )
-    assert render.call_args.args[0]["consent_screenshot"] == consent
-    assert render.call_args.kwargs == {"require_consent": True}
+    assert render.call_args.args[0]["consent_screenshot"] == {
+        **consent,
+        "_bytes": b"consent-image",
+    }
+    assert render.call_args.kwargs == {"require_consent": True, "template_bytes": None}
+    assert row.consent_content == b"consent-image"
+    assert "_bytes" not in row.render_payload["consent_screenshot"]
     assert row.docx_content == b"with-consent"
     assert row.docx_sha256 == hashlib.sha256(b"with-consent").hexdigest()
     assert (
@@ -117,6 +127,12 @@ async def test_real_archived_docx_keeps_consent_when_storage_later_fails(monkeyp
             for name in document.namelist()
             if name.startswith("word/media/")
         )
+    assert row.consent_content == consent_bytes
+    assert (
+        row.render_payload["artifact_provenance"]["consent_sha256"]
+        == hashlib.sha256(consent_bytes).hexdigest()
+    )
+    storage.assert_called_once_with("synthetic/consent.png")
     storage.reset_mock(side_effect=True)
     storage.side_effect = OSError("Storage unavailable after finalization")
     monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=row))

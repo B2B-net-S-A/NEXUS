@@ -16,11 +16,21 @@ def default_template() -> bytes:
 
 
 def generated_assets(generated):
-    template = default_template()
+    template = getattr(generated, "template_content", None)
+    if template is None:
+        template = default_template()
     payload = generated.render_payload
+    expected_template = (payload.get("artifact_provenance") or {}).get(
+        "template_sha256"
+    )
+    if expected_template and hashlib.sha256(template).hexdigest() != expected_template:
+        raise CvAssetsError(
+            "Szablon zmienił się od wygenerowania CV. Pobierz zapisany DOCX; "
+            "otwarcie edycji wymaga oryginalnego szablonu."
+        )
     screenshot = payload.get("consent_screenshot")
-    consent = None
-    if screenshot:
+    consent = getattr(generated, "consent_content", None)
+    if screenshot and consent is None:
         key = screenshot.get("storage_key") if isinstance(screenshot, dict) else None
         if not key:
             raise CvAssetsError(
@@ -36,6 +46,11 @@ def generated_assets(generated):
             ) from error
         if not consent:
             raise CvAssetsError("Załącznik zgody jest pusty. Wybór CV zatrzymany.")
+    provenance = payload.get("artifact_provenance") or {}
+    if "consent_sha256" in provenance:
+        actual = hashlib.sha256(consent).hexdigest() if consent else None
+        if actual != provenance["consent_sha256"]:
+            raise CvAssetsError("Nie można potwierdzić oryginalnego załącznika zgody.")
     metadata = {
         "source_generated_id": generated.id,
         "source_payload_sha256": hashlib.sha256(

@@ -78,6 +78,10 @@ class CvGeneratedDocument(Base, TimestampMixin):
     )
     docx_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     docx_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    consent_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    template_content: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True
+    )
 
     # Uwagi Claude + seatbelt (fabrykacja / nakładające się daty). Wcześniej
     # wracały nagłówkiem X-Generator-Warnings; przy generacji w tle nie ma już
