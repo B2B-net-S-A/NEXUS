@@ -1460,7 +1460,6 @@ async def generate(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
     generated_id = await _create_pending_row(
@@ -1483,8 +1482,8 @@ async def generate(
         generated_id=generated_id,
         kind="new",
         user_id=current_user.id,
+        charge=lambda: _charge_cv_generation_quota(db, current_user.id),
         inputs=dict(
-            quota_state=quota_state,
             quota_user_id=current_user.id,
             source=source,
             rule_snapshot=rule_snapshot,
@@ -1661,7 +1660,6 @@ async def generate_from_upload(
         await run_in_threadpool(validate_upload_inputs, gen_payload)
     except StandaloneGenerationError as error:
         raise HTTPException(422, error.message) from error
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     # Provisional label until Claude parses the real name out of the CV.
     provisional = Path(cv_file.filename or "").stem or "Nowe CV"
@@ -1685,8 +1683,8 @@ async def generate_from_upload(
         generated_id=generated_id,
         kind="upload",
         user_id=current_user.id,
+        charge=lambda: _charge_cv_generation_quota(db, current_user.id),
         inputs=dict(
-            quota_state=quota_state,
             quota_user_id=current_user.id,
             payload=gen_payload,
             user_id=current_user.id,

@@ -6,7 +6,7 @@ never automatically replayed: its last provider request may already be billed.
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -44,6 +44,7 @@ class CvGenerationJob(Base, TimestampMixin):
     )
     input_storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
     input_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_snapshot: Mapped[dict | None] = mapped_column(JSON())
     lease_token: Mapped[str | None] = mapped_column(String(36))
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True

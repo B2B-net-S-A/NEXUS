@@ -20,6 +20,7 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
         input_sha256=digest,
         generated_id=11 if kind == "upload" else None,
         preview_id=12 if kind == "preview" else None,
+        quota_snapshot=None,
         kind=kind,
     )
     document = SimpleNamespace(status="ready")
@@ -115,3 +116,47 @@ def test_live_durable_preview_does_not_report_arbitrary_fifteen_minute_failure()
     )
     assert _preview_read(row, durable=True).status == "processing"
     assert _preview_read(row).status == "failed"  # Legacy work has no lease.
+
+
+@pytest.mark.parametrize("storage_failure", [False, True])
+async def test_input_is_saved_before_admission_and_quota_is_persisted(
+    monkeypatch, storage_failure
+):
+    from datetime import date
+    from fastapi import HTTPException
+    from app.services.ai_quota import QuotaState
+
+    events = []
+
+    def upload(*args):
+        events.append("upload")
+        if storage_failure:
+            raise OSError("storage unavailable")
+        return "test-only-new-object"
+
+    async def charge():
+        events.append("charge")
+        return QuotaState(2, 10, date(2026, 9, 1), "operation")
+
+    monkeypatch.setattr(jobs.object_storage, "upload_cv", upload)
+    db = AsyncMock()
+    db.add = Mock()
+    if storage_failure:
+        with pytest.raises(HTTPException) as exc:
+            await jobs.persist_job(
+                db, kind="upload", generated_id=11, user_id=7, inputs={}, charge=charge
+            )
+        assert exc.value.status_code == 503
+        assert events == ["upload"]
+        db.add.assert_not_called()
+    else:
+        await jobs.persist_job(
+            db, kind="upload", generated_id=11, user_id=7, inputs={}, charge=charge
+        )
+        assert events == ["upload", "charge"]
+        assert db.add.call_args.args[0].quota_snapshot == {
+            "used": 2,
+            "limit": 10,
+            "period_start": "2026-09-01",
+            "operation_id": "operation",
+        }

@@ -1,9 +1,11 @@
 """Persisted CV inputs and a database-claimed background executor."""
 
 import asyncio
+from datetime import date
 from contextlib import suppress
 import logging
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
@@ -12,6 +14,7 @@ from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generation_job import CvGenerationJob
 from app.services import object_storage
+from app.services.ai_quota import QuotaState
 from app.services.cv_generator_b2b.job_leases import (
     claim_job,
     finish_job,
@@ -34,6 +37,7 @@ async def persist_job(
     inputs: dict,
     generated_id: int | None = None,
     preview_id: int | None = None,
+    charge=None,
 ) -> int:
     """Caller commits job and result placeholder together, before scheduling."""
     if (kind == "preview") != (preview_id is not None) or (
@@ -41,8 +45,33 @@ async def persist_job(
     ):
         raise ValueError("CV job must reference exactly its result type")
     raw, digest = serialize_job_inputs(kind, inputs)
-    key = await run_in_threadpool(
-        object_storage.upload_cv, raw, "cv-job-input.json", "application/json"
+    try:
+        key = await run_in_threadpool(
+            object_storage.upload_cv, raw, "cv-job-input.json", "application/json"
+        )
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            "Nie udało się zapisać wejścia generacji. Limit AI nie został naliczony.",
+        ) from exc
+    try:
+        quota = await charge() if charge is not None else None
+    except Exception:
+        # This fresh object has never been referenced by a committed job.
+        try:
+            await run_in_threadpool(object_storage.delete_cv, key)
+        except Exception:
+            logger.exception("Could not remove rejected CV input snapshot")
+        raise
+    quota_snapshot = (
+        None
+        if quota is None
+        else {
+            "used": quota.used,
+            "limit": quota.limit,
+            "period_start": quota.period_start.isoformat(),
+            "operation_id": quota.operation_id,
+        }
     )
     job = CvGenerationJob(
         generated_id=generated_id,
@@ -52,6 +81,7 @@ async def persist_job(
         status="queued",
         input_storage_key=key,
         input_sha256=digest,
+        quota_snapshot=quota_snapshot,
     )
     db.add(job)
     await db.flush()
@@ -86,6 +116,7 @@ async def execute_job(job_id: int):
             job.kind,
         )
         preview_id = job.preview_id
+        quota_snapshot = job.quota_snapshot
     renewal = asyncio.create_task(_renew(job_id, token))
     work = None
     failed = False
@@ -94,6 +125,13 @@ async def execute_job(job_id: int):
         stored_kind, inputs = deserialize_job_inputs(raw, digest)
         if stored_kind != kind or kind not in {"new", "upload", "preview"}:
             raise ValueError("CV job kind mismatch")
+        if quota_snapshot is not None:
+            inputs["quota_state"] = QuotaState(
+                used=quota_snapshot["used"],
+                limit=quota_snapshot["limit"],
+                period_start=date.fromisoformat(quota_snapshot["period_start"]),
+                operation_id=quota_snapshot["operation_id"],
+            )
         with owned_job(job_id, token):
             if kind == "preview":
                 from app.api.client_cv_rules import _run_rule_preview_job

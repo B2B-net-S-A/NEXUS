@@ -38,6 +38,7 @@ def upgrade():
         sa.Column("status", sa.String(16), nullable=False),
         sa.Column("input_storage_key", sa.String(500), nullable=False),
         sa.Column("input_sha256", sa.String(64), nullable=False),
+        sa.Column("quota_snapshot", sa.JSON()),
         sa.Column("lease_token", sa.String(36)),
         sa.Column("lease_expires_at", sa.DateTime(timezone=True)),
         sa.Column("finished_at", sa.DateTime(timezone=True)),

@@ -101,7 +101,11 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     monkeypatch.setattr(api, "_create_pending_row", pending)
     from app.services.cv_generator_b2b import durable_jobs
 
-    persisted = AsyncMock(return_value=21)
+    async def persist(*args, **kwargs):
+        await kwargs["charge"]()
+        return 21
+
+    persisted = AsyncMock(side_effect=persist)
     monkeypatch.setattr(durable_jobs, "persist_job", persisted)
     monkeypatch.setattr(durable_jobs, "execute_job", worker)
     async with AsyncClient(

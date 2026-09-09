@@ -1646,24 +1646,27 @@ async def enqueue_client_cv_rule_preview(
             < datetime.now(timezone.utc) - PREVIEW_RETENTION,
         )
     )
-    try:
-        # Both variants belong to one admission decision. Metering commits
-        # independently: business rollback cannot undo a first single-unit charge.
-        # Reject insufficient capacity before recording either preview variant.
-        quota_state = await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
-        )
-    except AIQuotaExceeded as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "feature": exc.feature.value,
-                "reason": exc.reason,
-                "used": exc.used,
-                "limit": exc.limit,
-            },
-        ) from exc
+
+    async def charge_preview():
+        try:
+            # Both variants belong to one admission decision. Metering commits
+            # independently: business rollback cannot undo a first single-unit charge.
+            # Reject insufficient capacity before recording either preview variant.
+            return await check_and_increment(
+                db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
+            )
+        except AIQuotaExceeded as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "feature": exc.feature.value,
+                    "reason": exc.reason,
+                    "used": exc.used,
+                    "limit": exc.limit,
+                },
+            ) from exc
+
     row = ClientCvRulePreview(
         client_id=client_id,
         candidate_id=payload.candidate_id,
@@ -1682,6 +1685,7 @@ async def enqueue_client_cv_rule_preview(
         kind="preview",
         preview_id=row.id,
         user_id=current_user.id,
+        charge=charge_preview,
         inputs=dict(
             client_id=client_id,
             candidate_id=payload.candidate_id,
@@ -1691,7 +1695,6 @@ async def enqueue_client_cv_rule_preview(
             # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
             # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
             # ustawiony przez handler nie dożywa do `BackgroundTasks`.
-            quota_state=quota_state,
             quota_user_id=current_user.id,
             source=source,
         ),
