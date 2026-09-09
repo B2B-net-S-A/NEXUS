@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -157,6 +157,7 @@ export function CvHandoffWorkbench({
   readOnly,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
+  const queryClient = useQueryClient();
 
   const queue = useMemo(() => selectVerifiedQueue(columns), [columns]);
   const cvSentCol = useMemo(
@@ -216,6 +217,23 @@ export function CvHandoffWorkbench({
     queryKey: ["cv-branded", stageId],
     queryFn: () => candidateStageCvApi.branded.get(stageId!).then((r) => r.data),
     enabled: stageId != null,
+  });
+  const [pendingGenerated, setPendingGenerated] = useState<{
+    id: number; filename: string; stageId: number; revision: number;
+  } | null>(null);
+  const selectedStageRef = useRef(stageId);
+  selectedStageRef.current = stageId;
+  useEffect(() => { setPendingGenerated(null); setOpenBranded(false); }, [stageId]);
+  const selectGeneratedMut = useMutation({
+    mutationFn: (choice: NonNullable<typeof pendingGenerated>) =>
+      candidateStageCvApi.branded.selectGenerated(choice.stageId, choice.id, choice.revision),
+    onSuccess: (response, choice) => {
+      queryClient.setQueryData(["cv-branded", choice.stageId], response.data);
+      if (selectedStageRef.current === choice.stageId) {
+        setPendingGenerated(null);
+        setOpenBranded(true);
+      }
+    },
   });
   const brandedStatus = brandedQuery.data?.status ?? "none";
   const brandedFinalized = brandedStatus === "finalized";
@@ -707,15 +725,41 @@ export function CvHandoffWorkbench({
               >
                 <CVGeneratorStandaloneV2
                   embedded
+                  selectedGeneratedId={brandedQuery.data?.generated_document_id}
+                  onSelectForRecruitment={readOnly || !brandedQuery.data || openBranded ? undefined : (item) => {
+                    selectGeneratedMut.reset();
+                    setPendingGenerated({ ...item, stageId: stageId!, revision: brandedQuery.data!.edit_revision });
+                  }}
                   prefillCandidateId={selected.item.candidate_id}
                   prefillCandidateName={fullName}
                   prefillJobId={jobId}
                 />
+                {pendingGenerated?.stageId === stageId && (
+                  <div className="mt-3 rounded-md border p-3 text-sm" role="region" aria-label="Wybór CV do rekrutacji">
+                    <p>Wczytać „{pendingGenerated.filename}” do edycji i zatwierdzenia?</p>
+                    <p className="my-2 text-xs text-muted-foreground">
+                      Zastąpi to bieżący szkic. Zatwierdzone wersje i dotychczasowe linki zachowają swoją treść.
+                    </p>
+                    {selectGeneratedMut.isError && <p role="alert" className="mb-2 text-destructive">
+                      Nie udało się wybrać CV. Odśwież dane rekrutacji — szkic mógł zmienić się w innej sesji.
+                    </p>}
+                    <Button size="sm" disabled={selectGeneratedMut.isPending}
+                      onClick={() => selectGeneratedMut.mutate(pendingGenerated)}>
+                      {selectGeneratedMut.isPending ? "Wczytywanie…" : "Zastąp szkic i otwórz edytor"}
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={selectGeneratedMut.isPending}
+                      onClick={() => setPendingGenerated(null)}>Anuluj</Button>
+                  </div>
+                )}
               </WorkbenchCard>
             </div>
 
             {/* Snapshoty tej rekrutacji — te same modale, co na profilu. */}
-            <WorkbenchCard title="Snapshoty tej rekrutacji">
+            <WorkbenchCard title="CV tej rekrutacji">
+              {brandedQuery.data?.from_generator && <p className="mb-2 text-xs text-muted-foreground">
+                Wybrany wynik generatora {brandedQuery.data.generated_document_id != null ? `#${brandedQuery.data.generated_document_id}` : "(źródło usunięte)"} · wersja {brandedQuery.data.version}.
+                Edytor, zatwierdzenie i link rekrutacji korzystają z tego szkicu.
+              </p>}
               {originalQuery.isLoading ? (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…

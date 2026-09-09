@@ -196,6 +196,44 @@ model output, which remain the final factual gate's responsibility.
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
 
+## CV-02 — explicit generated document selection (partial delivery)
+
+A recruitment draft can now explicitly select a completed generated document for
+that exact candidate and job. Selection checks the draft revision under the stage
+row lock, preserves an earlier approval and its links, and imports the same
+client-safe body used by HTML export, including technology emphasis. The selected
+source ID is captured on approval. Template/language changes cannot silently
+replace a selected document with a fresh rendering of the candidate profile;
+users generate and choose a replacement instead. Deleting the source does not
+remove this protection.
+
+Validation: 28 focused backend tests and 38 frontend tests pass; TypeScript,
+Ruff and one Alembic head pass. Hosted API lifecycle test covers selection,
+immediate approval of current edited content, reselection and the original
+public link. PostgreSQL lifecycle/migration execution and production interaction
+remain required.
+
+This is not completion of CV-02/CV-10: DOCX export after manual editing, immutable
+approved DOCX bytes, standalone approval and one version across standalone
+interactive links still require implementation. Imported HTML uses the existing
+HTML export presentation, not the original DOCX letterhead/consent image layout.
+
+
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
 
 ## Upload association and complete history
 
@@ -257,3 +295,38 @@ confirmed. The inactive quality branch now distinguishes invalid JSON, schema,
 and claim coverage using fixed codes only; no raw response is logged. These
 protocol failures never count as successful semantic rejections. 44 focused gate
 and transport tests pass. No live activation or further model run is implied.
+
+### CV-18: trial admission uses the exact recipe snapshot
+
+Preview readiness previously used published client settings while its worker
+used the saved draft. It now validates both variants before quota: the frozen
+draft (including content ceiling and required inputs) and the explicit unruled
+baseline. Internal readiness overrides are client-scoped and preserve normal
+published behavior for all other callers. Missing inputs identify the failing
+variant. Twenty-six focused tests cover mode/cap resolution and both rejection
+paths; hosted API coverage is retained. This does not yet freeze candidate
+sources or reuse one extracted fact ledger across variants.
+
+### CV-09 / CV-18: one admission for both preview variants
+
+The client-rule trial previously admitted two single-unit operations sequentially,
+although metering commits independently of the business transaction. With one
+unit remaining, the second refusal left the first charge behind without a preview.
+The handler now requests `units=2` once and passes that operation to the worker.
+Two focused service tests cover insufficient and exactly sufficient capacity;
+the hosted API lifecycle additionally checks 503 without a charge or generation,
+then successful generation of both variants with one two-unit admission.
+This does not establish global concurrent quota serialization or refund behavior
+for provider failures, and does not complete durable jobs or same-facts previews.
+
+### CV-18: one captured candidate source for both variants
+
+Candidate generation now separates source loading from rendering. The preview
+loads file bytes, notes, identity and recruitment context once, then passes the
+same frozen value object to both variants. Champion data is serialized inside
+that snapshot and rebuilt per renderer, so mutable DTO fields cannot leak from
+one variant to the other. Ordinary generation uses the same loader and renderer.
+85 mode/source regressions and 19 snapshot/publication/preview/quota tests pass.
+The API lifecycle keeps hosted coverage. The snapshot currently lives in worker
+memory: durable enqueue-time inputs and one shared extracted fact ledger are
+still open requirements. This package includes the two-unit admission fix.

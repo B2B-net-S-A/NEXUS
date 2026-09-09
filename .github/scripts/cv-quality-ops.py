@@ -59,7 +59,7 @@ def configuration(env):
         f"if mkdir /tmp/nexus-cv-quality-once-{identity} 2>/dev/null; then "
         f"cd /app && bash scripts/run_cv_quality_once.sh {run} {attempt} {models} {count} {sha}; fi"
     )
-    return {
+    config = {
         "name": PREFIX + identity,
         "identity": identity,
         "sha": sha,
@@ -67,6 +67,27 @@ def configuration(env):
         "models": models,
         "command": command,
     }
+    if env.get("RECOVER_RUN_ID"):
+        source = checked(env["RECOVER_RUN_ID"], r"[1-9][0-9]{0,19}-[1-9][0-9]{0,2}")
+        source_sha = checked(env.get("RECOVER_SOURCE_SHA"), r"[a-f0-9]{40}")
+        config.update(
+            {
+                "deployment_sha": sha,
+                "sha": source_sha,
+                "identity": source,
+                "command": recovery_command(identity, source),
+            }
+        )
+    return config
+
+
+def recovery_command(identity, source):
+    checked(identity, r"[1-9][0-9]{0,19}-[1-9][0-9]{0,2}")
+    checked(source, r"[1-9][0-9]{0,19}-[1-9][0-9]{0,2}")
+    return (
+        f"if mkdir /tmp/nexus-cv-quality-once-{identity} 2>/dev/null; then "
+        f"cd /app && python -m scripts.read_cv_quality_report {source}; fi"
+    )
 
 
 def atomic_json(path, value):
@@ -143,6 +164,12 @@ def metric_report(message, config, corpus_hash):
         exit_code = int(re.search(r"CV_QUALITY_EXIT=([0-9]{1,3})", message).group(1))
         if not isinstance(raw, dict) or not isinstance(raw.get("results"), list):
             raise ValueError
+        if raw.get("stop_reason") in {
+            "receipt_missing",
+            "receipt_read_failed",
+            "receipt_invalid",
+        }:
+            raise OpsError(raw["stop_reason"])
         rows = []
         for row in raw["results"]:
             # Explicit metric projection: no source text or model explanations.
@@ -291,7 +318,7 @@ def run(
 
     try:
         atomic_json(state_path, state)
-        if health() != config["sha"]:
+        if health() != config.get("deployment_sha", config["sha"]):
             raise OpsError("deployment_revision_mismatch")
         if any(str(row.get("name", "")).startswith(PREFIX) for row in api.inventory()):
             raise OpsError("previous_eval_task_requires_inspection")

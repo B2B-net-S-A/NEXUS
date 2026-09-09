@@ -757,3 +757,75 @@ async def test_competing_cv_saves_have_exactly_one_winner(app_client, app_auth_h
     stored = (await app_client.get(url, headers=app_auth_headers)).json()
     assert stored["content_html"] == winner["content_html"]
     assert stored["edit_revision"] == original["edit_revision"] + 1
+
+
+async def test_selected_generated_document_is_edited_approved_and_pinned_to_link(
+    app_client, app_auth_headers
+):
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    sid, cid, jid = await _seed_full_stage()
+    base = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(base, headers=app_auth_headers)).json()
+    async with AsyncSessionLocal() as db:
+        source = CvGeneratedDocument(
+            candidate_id=cid,
+            job_id=jid,
+            candidate_name="Synthetic",
+            filename="selected.docx",
+            status="ready",
+            render_payload={
+                "name": "Synthetic",
+                "why_points": ["Chosen Python result"],
+                "highlight_keywords": ["Python"],
+            },
+        )
+        db.add(source)
+        await db.commit()
+        generated_id = source.id
+    choice = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "generated_document_id": generated_id,
+        },
+    )
+    assert choice.status_code == 200, choice.text
+    selected = choice.json()
+    assert "Chosen <b>Python</b> result" in selected["content_html"]
+    assert "Acme Corp" not in selected["content_html"]  # no profile regeneration
+    edited = selected["content_html"].replace("Chosen", "Reviewed")
+    approved = await app_client.post(
+        base + "/finalize",
+        headers=app_auth_headers,
+        json={"expected_revision": selected["edit_revision"], "content_html": edited},
+    )
+    assert approved.status_code == 200, approved.text
+    link = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/share-token", headers=app_auth_headers
+    )
+    assert link.status_code == 201, link.text
+    token = link.json()["token"]
+    async with AsyncSessionLocal() as db:
+        version = await db.get(
+            CvDocumentVersion, approved.json()["document_version_id"]
+        )
+        assert version.generated_document_id == generated_id
+        assert version.content_html == edited
+    replacement = await app_client.post(
+        base + "/select-generated",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": approved.json()["edit_revision"],
+            "generated_document_id": generated_id,
+        },
+    )
+    assert replacement.status_code == 200, replacement.text
+    assert (
+        replacement.json()["version"] == 2 and replacement.json()["status"] == "draft"
+    )
+    public = await app_client.get(f"/api/public/cv/{token}")
+    assert public.status_code == 200, public.text
+    assert "Reviewed <b>Python</b> result" in public.json()["cv_html"]
+    assert "Chosen" not in public.json()["cv_html"]

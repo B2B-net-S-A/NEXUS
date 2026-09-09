@@ -78,7 +78,8 @@ from app.services.cv_generator_b2b.client_rules import (
 )
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
-    generate_cv_for_candidate,
+    generate_cv_from_candidate_source,
+    load_candidate_generation_source,
     list_recruitments_with_readiness,
 )
 from app.services.section_permissions import (
@@ -1452,18 +1453,20 @@ async def _run_rule_preview_job_inner(
             frozen = ClientCvRule()
             _apply_payload(frozen, recipe)
             snap = snapshot_rule(frozen)
-            with_rule = await generate_cv_for_candidate(
+            source = await load_candidate_generation_source(
                 db,
                 candidate_id=candidate_id,
                 stage_id=stage_id,
+                language=language,
+            )
+            with_rule = await generate_cv_from_candidate_source(
+                source,
                 language=language,  # type: ignore[arg-type]
                 client_rule=snap,
                 client_policy_override=row.recipe_snapshot,
             )
-            without_rule = await generate_cv_for_candidate(
-                db,
-                candidate_id=candidate_id,
-                stage_id=stage_id,
+            without_rule = await generate_cv_from_candidate_source(
+                source,
                 language=language,  # type: ignore[arg-type]
                 client_rule=None,
                 client_policy_override={"cv_content_mode_cap": None},
@@ -1491,6 +1494,40 @@ async def _run_rule_preview_job_inner(
         row.status = "ready"
         row.error_message = None
         await db.commit()
+
+
+async def _require_preview_inputs(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    candidate_id: int,
+    stage_id: int,
+    recipe_snapshot: dict,
+) -> None:
+    frozen = ClientCvRule()
+    _apply_payload(frozen, ClientCvRulePayload(**recipe_snapshot))
+    variants = (
+        ("Z regułą", snapshot_rule(frozen), recipe_snapshot.get("cv_content_mode_cap")),
+        ("Bez reguły", None, None),
+    )
+    for label, rule, cap in variants:
+        readiness = await list_recruitments_with_readiness(
+            db,
+            candidate_id,
+            rule_overrides={client_id: rule},
+            content_mode_cap_overrides={client_id: cap},
+        )
+        match = next((r for r in readiness if r.stage_id == stage_id), None)
+        if match is None or not match.ready:
+            missing = (
+                match.missing_inputs if match is not None else ["aktywna rekrutacja"]
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=f"Ta rekrutacja nie jest gotowa do generacji ({label}) — brakuje: "
+                + ", ".join(missing)
+                + ".",
+            )
 
 
 @router.post(
@@ -1532,24 +1569,6 @@ async def enqueue_client_cv_rule_preview(
             status_code=422,
             detail="Wybrana rekrutacja należy do innego klienta niż ta reguła.",
         )
-    # Gotowość rekrutacji (CV, Champion, notatki) PRZED naliczeniem kwoty —
-    # inaczej DL płaci dwie generacje za wiersz „failed".
-    readiness = await list_recruitments_with_readiness(db, payload.candidate_id)
-    match = next((r for r in readiness if r.stage_id == payload.stage_id), None)
-    if match is None or not match.ready:
-        missing = []
-        if match is None or not match.has_cv:
-            missing.append("CV w systemie")
-        if match is None or not match.has_champion:
-            missing.append("Profil Championa")
-        if match is None or not match.has_notes:
-            missing.append("notatki z rozmów")
-        raise HTTPException(
-            status_code=422,
-            detail="Ta rekrutacja nie jest gotowa do generacji — brakuje: "
-            + ", ".join(missing)
-            + ".",
-        )
     await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
     await db.refresh(client)
     rule = await _rule_for(db, client_id)
@@ -1566,6 +1585,13 @@ async def enqueue_client_cv_rule_preview(
     if rule is None:
         recipe_snapshot = _recipe_payload(ClientCvRulePayload(), client)
     _validated_recipe(recipe_snapshot)
+    await _require_preview_inputs(
+        db,
+        client_id=client_id,
+        candidate_id=payload.candidate_id,
+        stage_id=payload.stage_id,
+        recipe_snapshot=recipe_snapshot,
+    )
     # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
     # kolejnego — bez osobnego crona.
     from sqlalchemy import delete as sa_delete
@@ -1578,15 +1604,11 @@ async def enqueue_client_cv_rule_preview(
         )
     )
     try:
-        # Dwie generacje (z regułą i bez) = DWA obciążenia cv_generator
-        # (kontrakt billingowy: per generację). Naliczamy sekwencyjnie PRZED
-        # zakolejkowaniem: jeśli limit skończy się na drugim, rollback cofa oba,
-        # więc DL dostaje pełny podgląd albo czyste 503 — nigdy połowy.
-        await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
-        )
+        # Both variants belong to one admission decision. Metering commits
+        # independently: business rollback cannot undo a first single-unit charge.
+        # Reject insufficient capacity before recording either preview variant.
         quota_state = await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
+            db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
         )
     except AIQuotaExceeded as exc:
         await db.rollback()

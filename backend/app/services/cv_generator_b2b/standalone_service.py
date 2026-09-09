@@ -20,7 +20,7 @@ import re
 import time
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -48,6 +48,7 @@ from app.services.cv_generator_b2b.provider import (
 )
 from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
+    ChampionParseDiagnostics,
     build_champion_section,
     from_nexus_job,
     parse_champion_from_docx_bytes,
@@ -1780,6 +1781,8 @@ async def list_recruitments_with_readiness(
     *,
     job_scope=None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    rule_overrides: dict[int, CvRuleSnapshot | None] | None = None,
+    content_mode_cap_overrides: dict[int, str | None] | None = None,
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1880,6 +1883,10 @@ async def list_recruitments_with_readiness(
             )
         ).all()
         client_rules = {row.client_id: snapshot_rule(row) for row in rows}
+    # Internal preview snapshots override published policy for explicitly named clients.
+    # A None value intentionally tests the variant without a client rule.
+    if rule_overrides:
+        client_rules.update(rule_overrides)
 
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
@@ -1889,7 +1896,11 @@ async def list_recruitments_with_readiness(
         locked_mode, _ = resolve_content_mode(rule, content_mode)
         effective_mode, _ = apply_content_mode_cap(
             locked_mode,
-            getattr(job.client, "cv_content_mode_cap", None) if job else None,
+            content_mode_cap_overrides[job.client_id]
+            if job
+            and content_mode_cap_overrides is not None
+            and job.client_id in content_mode_cap_overrides
+            else (getattr(job.client, "cv_content_mode_cap", None) if job else None),
         )
         minimum = (rule.require_screening_notes_min_chars or 0) if rule else 0
 
@@ -2086,33 +2097,40 @@ def champion_present(job: Job | None) -> bool:
 # ── Main entrypoint ────────────────────────────────────────────────────────
 
 
-async def generate_cv_for_candidate(
+@dataclass(frozen=True)
+class CandidateGenerationSource:
+    """Owned immutable source values, reusable across comparison variants."""
+
+    cv_bytes: bytes
+    cv_filename: str
+    champion_json: str
+    has_champion: bool
+    screening_notes_text: str
+    source_warnings: tuple[str, ...]
+    fallback_name: str | None
+    job_id: int
+    job_title: str
+    client_content_mode_cap: str | None
+    candidate_id: int
+    stage_id: int
+    cv_document_id: int | None
+
+    def champion(self) -> ChampionProfileForPrompt:
+        # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
+        data = json.loads(self.champion_json)
+        data["diagnostics"] = ChampionParseDiagnostics(**data["diagnostics"])
+        return ChampionProfileForPrompt(**data)
+
+
+async def load_candidate_generation_source(
     db: AsyncSession,
     *,
     candidate_id: int,
     stage_id: int,
     language: Language = "pl",
-    blind_cv: bool = False,
-    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
-    client_rule: CvRuleSnapshot | None = None,
-    project_ref: str | None = None,
-    client_policy_override: dict[str, Any] | None = None,
-) -> GenerationResult:
-    """Generate the B2B-formatted CV for ``candidate_id`` using the champion
-    + notes context tied to the given ``stage_id``.
-
-    Validates the readiness contract documented in
-    :class:`StandaloneGenerationError`. Raises with a specific ``code`` so
-    the API layer can map to the right HTTP status.
-
-    ``content_mode`` is clamped to the recruiting client's ceiling
-    (``Client.cv_content_mode_cap``) before it reaches the pipeline, so a
-    commitment made to a client holds regardless of what the recruiter picks
-    in the UI.
-    """
-    request_id = f"cvgen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
-    started_at = time.time()
-
+) -> CandidateGenerationSource:
+    """Read the chosen file, recruitment context and notes once; no provider calls."""
+    request_id = f"cvsource_{uuid.uuid4().hex[:12]}"
     candidate = await db.get(Candidate, candidate_id)
     if candidate is None:
         raise StandaloneGenerationError(
@@ -2139,34 +2157,7 @@ async def generate_cv_for_candidate(
             message=f"Stage {stage_id} has no linked job",
         )
 
-    # Blokada trybu z reguły klienta (0267) — zablokowany tryb NADPISUJE
-    # żądanie rekrutera; kafelki w UI są wyłączone, ale kontrakt trzyma serwer.
-    locked_mode, was_forced = resolve_content_mode(client_rule, content_mode)
-    if was_forced:
-        logger.info(
-            "[cv_b2b][%s] content_mode forced %s→%s by client rule",
-            request_id,
-            normalize_content_mode(content_mode),
-            locked_mode,
-        )
-    # Per-client ceiling. NULL cap (the default everywhere) = no ceiling, so
-    # nothing changes for clients we have made no promise to.
     client = await db.get(Client, job.client_id) if job.client_id else None
-    effective_mode, was_capped = apply_content_mode_cap(
-        locked_mode,
-        client_policy_override.get("cv_content_mode_cap")
-        if client_policy_override is not None
-        else getattr(client, "cv_content_mode_cap", None),
-    )
-    if was_capped:
-        logger.info(
-            "[cv_b2b][%s] content_mode capped %s→%s by client %s",
-            request_id,
-            normalize_content_mode(content_mode),
-            effective_mode,
-            job.client_id,
-        )
-
     # ── 1. CV file ────────────────────────────────────────────────────────
     cv_doc_q = (
         select(CandidateDocument)
@@ -2221,18 +2212,6 @@ async def generate_cv_for_candidate(
             message="CV kandydata jest puste (brak storage_key i file_content).",
         )
 
-    # ── 2. Champion ───────────────────────────────────────────────────────
-    if (
-        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
-    ) and not _champion_present(job):
-        raise StandaloneGenerationError(
-            code="no_champion",
-            message=(
-                "Profil Championa dla tej rekrutacji jest pusty. Uzupełnij "
-                "must-have / nice-to-have / kontekst projektu przed generacją CV."
-            ),
-        )
-
     champion_dto = from_nexus_job(
         must_skills=job.must_skills,
         nice_skills=job.nice_skills,
@@ -2240,7 +2219,6 @@ async def generate_cv_for_candidate(
         requirements=job.requirements,
     )
 
-    # ── 3. Screening notes — scoped to THIS recruitment ──────────────────
     source_warnings: list[str] = []
     screening_notes_text = await collect_screening_notes_text(
         db,
@@ -2250,39 +2228,106 @@ async def generate_cv_for_candidate(
         warnings=source_warnings,
         language=language,
     )
+    return CandidateGenerationSource(
+        cv_bytes=bytes(cv_bytes),
+        cv_filename=cv_doc.filename or "cv.pdf",
+        champion_json=json.dumps(asdict(champion_dto), ensure_ascii=False),
+        has_champion=_champion_present(job),
+        screening_notes_text=screening_notes_text,
+        source_warnings=tuple(source_warnings),
+        fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
+        job_id=job.id,
+        job_title=job.title,
+        client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
+        candidate_id=candidate_id,
+        stage_id=stage_id,
+        cv_document_id=getattr(cv_doc, "id", None),
+    )
+
+
+async def generate_cv_from_candidate_source(
+    source: CandidateGenerationSource,
+    *,
+    language: Language = "pl",
+    blind_cv: bool = False,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
+) -> GenerationResult:
+    """Apply one variant's policy to already captured source values, with no DB reads."""
+    locked_mode, _ = resolve_content_mode(client_rule, content_mode)
+    effective_mode, _ = apply_content_mode_cap(
+        locked_mode,
+        client_policy_override.get("cv_content_mode_cap")
+        if client_policy_override is not None
+        else source.client_content_mode_cap,
+    )
+    if (
+        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
+    ) and not source.has_champion:
+        raise StandaloneGenerationError(
+            code="no_champion",
+            message="Profil Championa dla tej rekrutacji jest pusty. Uzupełnij go przed generacją CV.",
+        )
     minimum = (client_rule.require_screening_notes_min_chars or 0) if client_rule else 0
-    if len(screening_notes_text.strip()) < minimum:
+    if len(source.screening_notes_text.strip()) < minimum:
         raise StandaloneGenerationError(
             code="no_notes",
-            message=(
-                f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} "
-                f"znaków, dostępne {len(screening_notes_text.strip())}."
-            ),
+            message=f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} znaków, dostępne {len(source.screening_notes_text.strip())}.",
         )
-
-    # ── 4-6. Sync pipeline in a worker thread — event loop stays free ────
-    fallback_name = f"{candidate.name} {candidate.lastname}".strip() or None
+    started_at = time.time()
+    request_id = f"cvgen_{int(started_at * 1000)}_{uuid.uuid4().hex[:6]}"
     result = await run_in_threadpool(
         lambda: _run_generation_pipeline(
-            cv_bytes=cv_bytes,
-            cv_filename=cv_doc.filename or "cv.pdf",
-            champion_dto=champion_dto,
-            screening_notes_text=screening_notes_text,
+            cv_bytes=source.cv_bytes,
+            cv_filename=source.cv_filename,
+            champion_dto=source.champion(),
+            screening_notes_text=source.screening_notes_text,
             language=language,
             blind_cv=blind_cv,
             request_id=request_id,
-            fallback_name=fallback_name,
+            fallback_name=source.fallback_name,
             started_at=started_at,
-            job_id=job.id,
-            job_title=job.title,
+            job_id=source.job_id,
+            job_title=source.job_title,
             content_mode=effective_mode,
             client_rule=client_rule,
             project_ref=project_ref,
         )
     )
-    if source_warnings:
-        result.warnings.extend(source_warnings)
+    if source.source_warnings:
+        result.warnings.extend(source.source_warnings)
     return result
+
+
+async def generate_cv_for_candidate(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    stage_id: int,
+    language: Language = "pl",
+    blind_cv: bool = False,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
+) -> GenerationResult:
+    source = await load_candidate_generation_source(
+        db,
+        candidate_id=candidate_id,
+        stage_id=stage_id,
+        language=language,
+    )
+    return await generate_cv_from_candidate_source(
+        source,
+        language=language,
+        blind_cv=blind_cv,
+        content_mode=content_mode,
+        client_rule=client_rule,
+        project_ref=project_ref,
+        client_policy_override=client_policy_override,
+    )
 
 
 # ── Old mode: manual upload (1:1 with external CV-Generator) ──────────────

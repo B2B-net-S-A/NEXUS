@@ -92,7 +92,7 @@ function renderHub(overrides: Partial<React.ComponentProps<typeof SourcingHub>> 
       </SourcingHub>
     </QueryClientProvider>,
   );
-  return { onTabChange };
+  return { onTabChange, client };
 }
 
 describe("SourcingHub", () => {
@@ -131,19 +131,19 @@ describe("SourcingHub", () => {
   });
 
   it("karta AI Matching liczy w rankingu / ukryto / shortlistę", async () => {
-    renderHub();
+    renderHub({ searchSummary: { total: 59964, excluded: 1036, strong: null } });
 
     const card = await screen.findByTestId("sourcing-ai-matching-card");
-    await waitFor(() => expect(mocks.getMatches).toHaveBeenCalledWith(7));
 
     await waitFor(() => {
-      expect(within(card).getByText("3")).toBeInTheDocument(); // w rankingu
+      expect(within(card).getByText("59964")).toBeInTheDocument(); // full population, not bounded matches
     });
-    expect(within(card).getByText("2")).toBeInTheDocument(); // ukryto = 1 + 1
+    expect(within(card).getByText("1036")).toBeInTheDocument(); // all exclusion reasons
     expect(within(card).getByText("0")).toBeInTheDocument(); // shortlista pusta
     expect(within(card).getByText("w rankingu")).toBeInTheDocument();
     expect(within(card).getByText("ukryto")).toBeInTheDocument();
     expect(within(card).getByText("shortlista")).toBeInTheDocument();
+    expect(mocks.getMatches).not.toHaveBeenCalled();
   });
 
   it("karta Podobne projekty liczy kandydatów z candidates-from-similar", async () => {
@@ -189,7 +189,7 @@ describe("SourcingHub", () => {
     );
   });
 
-  it("„Odśwież propozycje” woła proposalsApi.regenerate i odświeża ai-matches", async () => {
+  it("„Odśwież propozycje” odświeża snapshot bez uruchamiania innego rankingu", async () => {
     renderHub();
 
     await userEvent.click(
@@ -198,8 +198,7 @@ describe("SourcingHub", () => {
 
     await waitFor(() => expect(mocks.regenerate).toHaveBeenCalledWith(7));
     await waitFor(() => expect(mocks.showSuccess).toHaveBeenCalled());
-    // Regeneracja refetchuje ranking — drugie wywołanie ai-matches.
-    await waitFor(() => expect(mocks.getMatches.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(mocks.getMatches).not.toHaveBeenCalled();
   });
 
   it("readOnly ukrywa „Odśwież propozycje”, ale liczniki i nawigacja zostają", async () => {
@@ -214,13 +213,13 @@ describe("SourcingHub", () => {
     expect(onTabChange).toHaveBeenCalledWith("manual-search");
   });
 
-  it("stan awarii: ai-matches padnięte pokazuje „—” zamiast liczb, reszta huba działa dalej", async () => {
+  it("brak pełnego podsumowania pokazuje „—”, reszta huba działa dalej", async () => {
     mocks.getMatches.mockRejectedValue(new Error("500"));
 
     renderHub();
 
     const card = await screen.findByTestId("sourcing-ai-matching-card");
-    await waitFor(() => expect(mocks.getMatches).toHaveBeenCalled());
+    expect(mocks.getMatches).not.toHaveBeenCalled();
 
     await waitFor(() => {
       expect(within(card).getAllByText("—").length).toBeGreaterThanOrEqual(2);
