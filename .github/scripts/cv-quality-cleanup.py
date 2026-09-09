@@ -29,18 +29,25 @@ def cleanup(api, identity):
         r"bash scripts/run_cv_quality_once.sh ([1-9][0-9]*) ([1-9][0-9]*) (primary|all) ([1-9][0-9]?) ([a-f0-9]{40}); fi$",
         command,
     )
-    if not match or match.group(1, 2) != (run, attempt):
-        raise ops.OpsError("foreign_command")
-    config = ops.configuration(
-        {
-            "OPS_RUN_ID": run,
-            "OPS_RUN_ATTEMPT": attempt,
-            "EVAL_MODELS": match[3],
-            "EVAL_CASES": match[4],
-            "EXPECTED_SHA": match[5],
-        }
+    recovery = re.search(
+        r"python -m scripts.read_cv_quality_report ([1-9][0-9]{0,19}-[1-9][0-9]{0,2}); fi$",
+        command,
     )
-    if command != config["command"]:
+    if recovery:
+        expected_command = ops.recovery_command(identity, recovery[1])
+    else:
+        if not match or match.group(1, 2) != (run, attempt):
+            raise ops.OpsError("foreign_command")
+        expected_command = ops.configuration(
+            {
+                "OPS_RUN_ID": run,
+                "OPS_RUN_ATTEMPT": attempt,
+                "EVAL_MODELS": match[3],
+                "EVAL_CASES": match[4],
+                "EXPECTED_SHA": match[5],
+            }
+        )["command"]
+    if command != expected_command:
         raise ops.OpsError("foreign_command")
     task_id = ops.checked(rows[0].get("uuid"), r"[A-Za-z0-9-]{1,80}")
     executions = api.request("GET", f"{api.tasks}/{task_id}/executions")
