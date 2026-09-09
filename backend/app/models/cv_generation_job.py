@@ -29,6 +29,9 @@ class CvGenerationJob(Base, TimestampMixin):
     generated_id: Mapped[int | None] = mapped_column(
         ForeignKey("cv_generated_documents.id", ondelete="CASCADE"), unique=True
     )
+    second_generated_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cv_generated_documents.id", ondelete="SET NULL"), unique=True
+    )
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )

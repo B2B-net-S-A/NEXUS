@@ -20,6 +20,12 @@ def upgrade():
             unique=True,
         ),
         sa.Column(
+            "second_generated_id",
+            sa.Integer(),
+            sa.ForeignKey("cv_generated_documents.id", ondelete="SET NULL"),
+            unique=True,
+        ),
+        sa.Column(
             "created_by", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")
         ),
         sa.Column("kind", sa.String(10), nullable=False),

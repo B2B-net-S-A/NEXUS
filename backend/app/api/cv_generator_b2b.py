@@ -371,6 +371,9 @@ async def _finalize_success(
     it can be re-downloaded/previewed later without another Claude call. Returns
     ``False`` when the row vanished (recruiter deleted it mid-generation).
     """
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return False
@@ -487,6 +490,9 @@ async def _run_declared(fn, *args, quota_state=None, quota_user_id=None, **kwarg
 
 async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
     """Mark a „processing" row „failed" with the reason. No-op if it's gone."""
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return
@@ -662,6 +668,11 @@ async def _run_generate_new_job(
                 client_id=client_id,
                 job_id=result.job_id,
             )
+            from app.services.cv_generator_b2b.job_leases import (
+                register_second_document,
+            )
+
+            await register_second_document(db, second_id)
             await db.commit()
             try:
                 with declared_call(
@@ -875,6 +886,11 @@ async def _run_generate_upload_job(
                 content_mode=payload.content_mode,
                 client_id=first_row.client_id if first_row else None,
             )
+            from app.services.cv_generator_b2b.job_leases import (
+                register_second_document,
+            )
+
+            await register_second_document(db, second_id)
             await db.commit()
             try:
                 with declared_call(

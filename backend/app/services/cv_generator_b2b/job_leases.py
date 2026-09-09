@@ -1,5 +1,8 @@
 """Atomic database transitions; no provider call can run before a claim commits."""
 
+from contextvars import ContextVar
+from contextlib import contextmanager
+
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -92,3 +95,55 @@ async def interrupt_expired_jobs(db) -> list[int]:
         .returning(CvGenerationJob.id)
     )
     return list(result.scalars().all())
+
+
+# The context propagates to the worker task and threadpool, but contains no PII.
+
+_active_owner: ContextVar[tuple[int, str] | None] = ContextVar(
+    "cv_job_owner", default=None
+)
+
+
+@contextmanager
+def owned_job(job_id: int, token: str):
+    reset = _active_owner.set((job_id, token))
+    try:
+        yield
+    finally:
+        _active_owner.reset(reset)
+
+
+async def lock_owned_job(db):
+    """Fence result writes in the same transaction as their subsequent commit."""
+    from sqlalchemy import select
+
+    owner = _active_owner.get()
+    if owner is None:
+        return (
+            None  # Legacy direct callers; durable execution always installs ownership.
+        )
+    job_id, token = owner
+    job = await db.scalar(
+        select(CvGenerationJob)
+        .where(
+            CvGenerationJob.id == job_id,
+            CvGenerationJob.status == "running",
+            CvGenerationJob.lease_token == token,
+            CvGenerationJob.lease_expires_at > datetime.now(timezone.utc),
+        )
+        .with_for_update()
+    )
+    if job is None:
+        raise RuntimeError("CV job lease lost before write")
+    return job
+
+
+async def register_second_document(db, generated_id: int):
+    job = await lock_owned_job(db)
+    if job is not None:
+        if (
+            job.second_generated_id is not None
+            and job.second_generated_id != generated_id
+        ):
+            raise RuntimeError("CV job already has a second language document")
+        job.second_generated_id = generated_id

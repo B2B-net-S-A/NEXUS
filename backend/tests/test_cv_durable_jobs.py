@@ -15,6 +15,7 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
     raw, digest = serialize_job_inputs("upload", {"user_id": 7, "quota_state": None})
     record = SimpleNamespace(
         input_storage_key="private-test-key",
+        second_generated_id=None,
         input_sha256=digest,
         generated_id=11,
         kind="upload",
@@ -52,3 +53,36 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
             finish.assert_not_awaited()
         else:
             assert finish.call_args.kwargs == {"failed": True}
+
+
+async def test_lost_owner_cannot_publish_generated_content(monkeypatch):
+    from app.services.cv_generator_b2b.job_leases import owned_job
+
+    db = AsyncMock()
+    db.scalar.return_value = None  # Lease expired or belongs to a different worker.
+    with owned_job(21, "expired-owner"):
+        with pytest.raises(RuntimeError, match="lease lost"):
+            await api._finalize_success(db, 11, result=SimpleNamespace())
+    db.get.assert_not_awaited()
+    statement = db.scalar.call_args.args[0]
+    sql = str(statement.compile())
+    assert "FOR UPDATE" in sql
+    assert "lease_token =" in sql
+    assert "lease_expires_at >" in sql
+
+
+async def test_second_document_is_registered_under_same_owner():
+    from app.services.cv_generator_b2b.job_leases import (
+        owned_job,
+        register_second_document,
+    )
+
+    db = AsyncMock()
+    record = SimpleNamespace(second_generated_id=None)
+    db.scalar.return_value = record
+    with owned_job(21, "owner"):
+        await register_second_document(db, 12)
+        assert record.second_generated_id == 12
+        with pytest.raises(RuntimeError, match="already has"):
+            await register_second_document(db, 13)
+    assert record.second_generated_id == 12

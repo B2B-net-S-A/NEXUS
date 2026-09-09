@@ -15,6 +15,7 @@ from app.services.cv_generator_b2b.job_leases import (
     claim_job,
     finish_job,
     heartbeat_job,
+    owned_job,
 )
 from app.services.cv_generator_b2b.job_snapshot import (
     deserialize_job_inputs,
@@ -81,7 +82,8 @@ async def execute_job(job_id: int):
         if stored_kind != kind or kind not in {"new", "upload"}:
             raise ValueError("CV job kind mismatch")
         worker = _run_generate_new_job if kind == "new" else _run_generate_upload_job
-        work = asyncio.create_task(_run_declared(worker, generated_id, **inputs))
+        with owned_job(job_id, token):
+            work = asyncio.create_task(_run_declared(worker, generated_id, **inputs))
         done, _ = await asyncio.wait(
             {work, renewal}, return_when=asyncio.FIRST_COMPLETED
         )
@@ -90,7 +92,17 @@ async def execute_job(job_id: int):
         await work
         async with AsyncSessionLocal() as db:
             document = await db.get(CvGeneratedDocument, generated_id)
-            failed = document is None or document.status != "ready"
+            job = await db.get(CvGenerationJob, job_id)
+            second = (
+                await db.get(CvGeneratedDocument, job.second_generated_id)
+                if job.second_generated_id
+                else None
+            )
+            failed = (
+                document is None
+                or document.status != "ready"
+                or (second is not None and second.status != "ready")
+            )
     except asyncio.CancelledError:
         # Leave running lease for the reaper: outcome of a provider call is unknown.
         raise
@@ -141,8 +153,14 @@ async def recovery_loop():
                 async with AsyncSessionLocal() as db:
                     expired = await interrupt_expired_jobs(db)
                     if expired:
-                        documents = select(CvGenerationJob.generated_id).where(
-                            CvGenerationJob.id.in_(expired)
+                        documents = (
+                            select(CvGenerationJob.generated_id)
+                            .where(CvGenerationJob.id.in_(expired))
+                            .union(
+                                select(CvGenerationJob.second_generated_id).where(
+                                    CvGenerationJob.id.in_(expired)
+                                )
+                            )
                         )
                         await db.execute(
                             update(CvGeneratedDocument)
