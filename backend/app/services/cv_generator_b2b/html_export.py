@@ -188,7 +188,7 @@ def render_interactive_html(
     if p.get("education"):
         rows = "".join(
             (
-                f'<div class="edu"><span class="edu-dates">{_esc(e.get("dates"))}</span>'
+                f'<div class="edu"><span class="edu-dates">{_esc(e.get("dates"))}</span> '
                 f"<span><b>{_esc(e.get('institution'))}</b>"
                 + (f" — {_esc(e.get('degree'))}" if e.get("degree") else "")
                 + (f" · {_esc(e.get('location'))}" if e.get("location") else "")
@@ -234,7 +234,7 @@ def render_interactive_html(
             tech = ", ".join(job.get("technologies", []))
             jobs.append(
                 f'<div class="job" id="exp-{i}">'
-                f'<div class="job-head"><b>{_esc(job.get("position"))}</b>'
+                f'<div class="job-head"><b>{_esc(job.get("position"))}</b> '
                 f'<span class="job-dates">{_esc(job.get("dates"))}</span></div>'
                 f'<p class="job-co">{_esc(job.get("company"))}'
                 + (f" · {_esc(job.get('industry'))}" if job.get("industry") else "")
