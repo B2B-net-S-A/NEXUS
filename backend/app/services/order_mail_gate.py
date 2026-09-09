@@ -15,11 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Iterable, Mapping, Optional
+from typing import Mapping, Optional
 
 from app.services.order_mail_planner import AUTO_ACTIONS, DocumentProposal
 from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
-from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
+from app.services.order_pdf_parser import (
+    ConsultantOrderRow,
+    OrderExtraction,
+    _names_exactly_equivalent,
+)
 
 VERDICT_AUTO = "auto"
 VERDICT_REVIEW = "review"
@@ -63,8 +67,37 @@ class GateVerdict:
         return self.verdict == VERDICT_AUTO
 
 
-def _rates_of(rows: Iterable[ConsultantOrderRow]) -> list[Decimal]:
-    return sorted(r.rate_client for r in rows if r.rate_client is not None)
+def _row_evidence_reasons(
+    rows: list[ConsultantOrderRow], evidence: tuple[ConsultantOrderRow, ...]
+) -> list[str]:
+    """Confirm each person's own rate/unit, never a sorted bag of amounts."""
+    if not evidence:
+        return ["Brak niezależnego potwierdzenia osób i stawek z pól dokumentu PDF"]
+    if len(rows) != len(evidence):
+        return [f"Liczba osób z modelu ({len(rows)}) ≠ z tabeli ({len(evidence)})"]
+    reasons = []
+    used: set[int] = set()
+    for row in rows:
+        matches = [
+            i
+            for i, source in enumerate(evidence)
+            if _names_exactly_equivalent(row.consultant_name, source.consultant_name)
+        ]
+        if len(matches) != 1 or matches[0] in used:
+            reasons.append(
+                f"„{row.consultant_name}”: brak jednoznacznego potwierdzenia osoby w polach PDF"
+            )
+            continue
+        index = matches[0]
+        used.add(index)
+        source = evidence[index]
+        if source.uncertain or source.rate_client is None or source.rate_unit is None:
+            reasons.append(f"„{row.consultant_name}”: niepewny odczyt stawki z pól PDF")
+        if (row.rate_client, row.rate_unit) != (source.rate_client, source.rate_unit):
+            reasons.append(
+                f"„{row.consultant_name}”: stawka lub jednostka z modelu nie zgadza się z polem PDF tej osoby"
+            )
+    return reasons
 
 
 def evaluate(inp: GateInput) -> GateVerdict:
@@ -114,18 +147,7 @@ def evaluate(inp: GateInput) -> GateVerdict:
         reasons.append(
             "Numer zamówienia bez potwierdzenia etykietą (proweniencja modelu)"
         )
-    llm_rates = _rates_of(ex.consultant_rows)
-    det_rates = _rates_of(inp.deterministic_rows)
-    if not inp.deterministic_rows:
-        reasons.append("Polityka nie potwierdza wierszy osób deterministycznie")
-    elif len(inp.deterministic_rows) != len(ex.consultant_rows):
-        reasons.append(
-            f"Liczba osób z modelu ({len(ex.consultant_rows)}) ≠ z tabeli ({len(inp.deterministic_rows)})"
-        )
-    elif llm_rates != det_rates:
-        reasons.append(
-            "Stawki z modelu nie zgadzają się ze stawkami z tabeli dokumentu"
-        )
+    reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
     if ex.uncertain:
         details = [f"Odczyt niepewny: {r}" for r in ex.uncertain_reasons[:3]]
         reasons.extend(details or ["Odczyt oznaczony jako niepewny"])
