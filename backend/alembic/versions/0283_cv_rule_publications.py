@@ -1,15 +1,15 @@
 """Separate CV rule drafts from published recipes.
 
-Revision ID: 0282_cv_rule_publications
-Revises: 0281_candidate_skill_audit_index
+Revision ID: 0283_cv_rule_publications
+Revises: 0282_b2b_signature_permission
 """
 
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "0282_cv_rule_publications"
-down_revision = "0281_candidate_skill_audit_index"
+revision = "0283_cv_rule_publications"
+down_revision = "0282_b2b_signature_permission"
 branch_labels = None
 depends_on = None
 
