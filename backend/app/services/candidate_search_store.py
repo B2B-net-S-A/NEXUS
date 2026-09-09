@@ -182,11 +182,30 @@ async def save_metrics(db, run_id: str, token: str, metrics: dict):
     await db.flush()
 
 
+EXCLUSION_CATEGORIES = (
+    "over_budget",
+    "missing_must",
+    "office_days_exceeded",
+    "office_city_mismatch",
+    "remote_only",
+    "eligibility_hidden",
+)
+
+
 async def run_counts(db, run_id: str) -> dict:
     row = (
         (
             await db.execute(
                 select(
+                    *[
+                        func.count()
+                        .filter(
+                            CandidateSearchResult.eligible.is_(False),
+                            CandidateSearchResult.exclusion_reasons[0].astext == reason,
+                        )
+                        .label(f"excluded_{reason}")
+                        for reason in EXCLUSION_CATEGORIES
+                    ],
                     func.count().label("population"),
                     func.count()
                     .filter(CandidateSearchResult.state == "pending")
@@ -221,7 +240,13 @@ async def run_counts(db, run_id: str) -> dict:
         .mappings()
         .one()
     )
-    return dict(row)
+    counts = dict(row)
+    reasons = {
+        reason: counts.pop(f"excluded_{reason}") for reason in EXCLUSION_CATEGORIES
+    }
+    reasons["unknown"] = counts["excluded"] - sum(reasons.values())
+    counts["exclusion_reasons"] = reasons
+    return counts
 
 
 async def finish_run(db, run_id: str, token: str):

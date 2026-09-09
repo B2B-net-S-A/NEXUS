@@ -63,6 +63,7 @@ export interface CandidateSearchPage {
     eligible: number;
     strong?: number;
     excluded: number;
+    exclusion_reasons?: Record<string, number>;
     needs_verification: number;
   };
   results: CandidateSearchRow[];

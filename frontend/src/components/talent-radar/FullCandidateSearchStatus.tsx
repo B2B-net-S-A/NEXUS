@@ -3,6 +3,16 @@
 import { Button } from "@/components/ui/button";
 import { searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 
+const exclusionLabels: Record<string, string> = {
+  over_budget: "Powyżej budżetu",
+  missing_must: "Brak potwierdzenia must-have — wybrano wykluczanie",
+  office_days_exceeded: "Za dużo wymaganych dni w biurze",
+  office_city_mismatch: "Niezgodne miasto biura",
+  remote_only: "Wyłącznie praca zdalna",
+  eligibility_hidden: "Wykluczenie według reguł dopuszczalności",
+  unknown: "Brak zapisanej szczegółowej przyczyny",
+};
+
 /** Same population/coverage vocabulary in Radar and the recruitment pipeline. */
 export function FullCandidateSearchStatus({ data, offset, onPage, fetching = false }: {
   data: CandidateSearchPage;
@@ -18,6 +28,11 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
     {active && <progress className="w-full" aria-label="Postęp przeglądu" value={counts.population - counts.pending} max={counts.population || 1} />}
     {!active && <>
       <p>Widoczni po filtrach: {counts.eligible}. Wykluczeni: {counts.excluded}. Ocena niepełna: {counts.needs_verification}.</p>
+      {counts.exclusion_reasons && <ul aria-label="Przyczyny wykluczenia" className="text-sm text-muted-foreground">
+        {Object.entries(counts.exclusion_reasons).filter(([, count]) => count > 0).map(([reason, count]) =>
+          <li key={reason}>{exclusionLabels[reason] ?? exclusionLabels.unknown}: {count}</li>
+        )}
+      </ul>}
       {!data.ranking_complete && <p className="text-amber-700">Ranking nie jest kompletny. Niepełna ocena nie oznacza zerowego dopasowania.</p>}
       {data.data_changed && <p className="text-amber-700">Dane zmieniły się od przeglądu. Uruchom wyszukiwanie ponownie, aby uzyskać aktualny ranking.</p>}
       {data.brief_status === "title_only" && <p className="text-amber-700">Ocena wstępna — request zawiera tylko nazwę roli. Uzupełnij wymagania.</p>}

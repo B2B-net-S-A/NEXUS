@@ -285,3 +285,9 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Dealbreaker results now carry candidate-to-primary-reason mappings while preserving the existing counters and precedence. The shared gate optionally returns those mappings plus the privacy-preserving eligibility_hidden category. Full scan rows persist the actual category instead of always recording eligibility_or_filter. Blocked/warn candidates remain visible under existing rules.
 - Fifty-one native gate/filter/worker tests pass, including reconciliation of a budget exclusion and a hidden candidate without duplicate counting. Ruff/diff checks pass. Aggregated API/UI reason counters and validation on a full production run remain required. Earlier CI shards 0 and 2 passed; remaining hosted acceptance and deployment are not complete.
+
+### Increment: shared exclusion counters in API and UI
+
+- The existing aggregate SQL count query now counts allowlisted primary exclusion categories. Empty/legacy/unrecognized reasons are reconciled into unknown, so categories sum to excluded and never double-count a candidate. No candidate identity or private restriction reason is added to this aggregate response.
+- Radar and pipeline share the same labelled counters, including explicit missing-proof exclusion and a separate missing-details category for old results. Zero categories are omitted visually.
+- Nine frontend status/result tests, typecheck, ESLint and Ruff/diff checks pass. The PostgreSQL store scenario now checks primary-reason precedence and empty/legacy categories; execution is deferred to hosted CI. Earlier CI shards 0/2 passed, 1/3 were still running. Production counters/coverage, other audit acceptance and delivery remain open.

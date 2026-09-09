@@ -83,6 +83,28 @@ async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
             cand.updated_at = datetime.now(timezone.utc) + timedelta(seconds=1)
             await db.flush()
             assert await store.population_changed(db, run.id)
+            # Counters classify one primary reason per excluded row. Old or
+            # unknown reason payloads remain accounted for instead of vanishing.
+            from sqlalchemy import update
+            from app.models.candidate_search_run import CandidateSearchResult
+
+            for reasons, expected in [
+                (["over_budget", "missing_must"], "over_budget"),
+                ([], "unknown"),
+                (["old_policy"], "unknown"),
+            ]:
+                await db.execute(
+                    update(CandidateSearchResult)
+                    .where(
+                        CandidateSearchResult.run_id == run.id,
+                        CandidateSearchResult.candidate_id == cand.id,
+                    )
+                    .values(eligible=False, exclusion_reasons=reasons)
+                )
+                totals = await store.run_counts(db, run.id)
+                assert totals["excluded"] == 1
+                assert sum(totals["exclusion_reasons"].values()) == 1
+                assert totals["exclusion_reasons"][expected] == 1
         finally:
             await db.rollback()
 

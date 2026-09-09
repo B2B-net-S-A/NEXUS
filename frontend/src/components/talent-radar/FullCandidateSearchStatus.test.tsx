@@ -36,3 +36,12 @@ test("observed usage with configured pricing shows estimated API cost", () => {
   render(<FullCandidateSearchStatus data={{ ...page, metrics: { elapsed_ms: 1000, cost_complete: true, estimated_cost_usd: 0.000246 } }} offset={0} onPage={vi.fn()} />);
   expect(screen.getByText(/Szacowany koszt API: 0.000246 USD/)).toBeVisible();
 });
+
+
+test("shows primary exclusion totals without treating missing proof as confirmed failure", () => {
+  render(<FullCandidateSearchStatus data={{ ...page, counts: { ...page.counts, exclusion_reasons: { over_budget: 3, missing_must: 5, unknown: 2, remote_only: 0 } } }} offset={0} onPage={vi.fn()} />);
+  expect(screen.getByText("Powyżej budżetu: 3")).toBeVisible();
+  expect(screen.getByText("Brak potwierdzenia must-have — wybrano wykluczanie: 5")).toBeVisible();
+  expect(screen.getByText("Brak zapisanej szczegółowej przyczyny: 2")).toBeVisible();
+  expect(screen.queryByText("Wyłącznie praca zdalna: 0")).not.toBeInTheDocument();
+});
