@@ -13,7 +13,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
-| CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Pending |
+| CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
 | CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Pending |
 | CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
@@ -102,6 +102,23 @@ CI. A local attempt at 6 DB model tests returned connection-refused against the
 deliberately unavailable test DB; it provides no DB acceptance evidence. No
 local Docker was used. Production validation remains outstanding.
 
+## Generator recruitment resource scope
+
+Job-associated generator documents use the existing pipeline resource guards.
+Readiness and document history are SQL-filtered before returning results or
+applying the history limit. Generation checks the stage/candidate pair and job
+membership before client rules, source reads or quota. Pending rows, including
+the automatic second language, carry job_id before background work finishes.
+DOCX/HTML, sharing, share history, revocation and deletion use one scoped loader.
+Finance keeps organization-wide read access; that read bypass does not grant
+job commands. Existing unassociated uploads remain globally available under
+the candidate role/section guard. Legacy null-job records cannot be assigned to
+a recruitment without evidence; no guessed backfill is performed.
+
+163 focused host tests pass (including 14 new scope cases). A separate hosted
+PostgreSQL test covers real membership, scope before LIMIT and Finance readiness
+reads. No local database or Docker was used. Operational production authorization
+checks and hosted CI remain required.
 ## Handoff result package
 
 One-time share links are retained with the candidate/job context immediately
@@ -134,3 +151,20 @@ model output, which remain the final factual gate's responsibility.
 
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
+
+
+## Multipage letterhead regression (synthetic production CV)
+
+The actual production fixture split the word "Tworzenie" around background
+artwork on page 2. The renderer now reserves the artwork band and removes tight
+wrapping, preserving image bytes and native page coordinates. Negative column
+coordinates were rejected after rendered inspection showed disappearing headers
+on continuation pages. The standalone browser preview corrects its own missing
+page-origin and centered-inline wrapper behavior.
+
+Verification: two rendered pages inspected using bundled LibreOffice; local
+Chrome rendered the actual synthetic DOCX with the production docx-preview
+library and the new helper. Header is complete. 17 focused backend regressions,
+preview DOM regression and type-check pass. Hosted CI/deployment/production
+browser proof remain pending. This fixes letterhead layout, not unsupported
+AI claims, font availability or complete Word/browser pagination parity.

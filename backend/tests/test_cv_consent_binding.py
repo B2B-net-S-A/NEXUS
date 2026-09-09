@@ -2,6 +2,8 @@
 
 import hashlib
 from types import SimpleNamespace
+
+from app.models.user import User, UserRole
 from typing import get_args
 from unittest.mock import AsyncMock
 
@@ -103,7 +105,7 @@ async def test_generation_rejects_foreign_attachment_before_quota_and_background
     db.execute.return_value = SimpleNamespace(scalar_one_or_none=lambda: 3)
     app.dependency_overrides[api.get_db] = lambda: db
     app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
-        lambda: SimpleNamespace(id=7)
+        lambda: User(id=7, role=UserRole.admin, roles=[UserRole.admin.value])
     )
     monkeypatch.setattr(api, "resolve_client_rule", AsyncMock(return_value=None))
     charge = AsyncMock(
@@ -147,7 +149,7 @@ async def test_upload_issues_receipt_for_declared_cv_bytes_and_real_operator(
     app.state.limiter = api.limiter
     app.dependency_overrides[api.get_db] = lambda: AsyncMock()
     app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
-        lambda: SimpleNamespace(id=7)
+        lambda: User(id=7, role=UserRole.admin, roles=[UserRole.admin.value])
     )
     monkeypatch.setattr(api.object_storage, "is_available", lambda: True)
     monkeypatch.setattr(

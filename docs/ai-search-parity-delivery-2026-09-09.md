@@ -422,3 +422,11 @@ Authenticated production Chrome exercised the global new-job generator with a sy
 The description stayed unchanged until explicit apply. After applying within the unsaved form, requirements remained unchanged, both salary fields remained empty and seniority remained unspecified. The form was cancelled without creating a recruitment. Evidence: private `generator-factual-draft-prod-20260909.json`. This is one live A06 regression, not a comprehensive quality benchmark.
 
 CI Gate on diagnostic revision `3cc7465e` flagged a synthetic all-a UUID fixture as a Fireflies key. The fixture now constructs a deterministic UUID from integer 1, preserving the same contract without suppressing the scanner. Nine diagnostic tests passed after the correction. Hosted checks must pass on the corrected revision before delivery.
+
+### Follow-up delivery and continued repair, 15:30 UTC
+
+PR #1454 passed full CI `34366806178` and Gate `34366806046`, merged as `c369a728ef2e003adbd74b8b4a40d1686c3d83dc`, and was deployed by `34369193369`. Health/deep returned that exact revision; Alembic database/code matched `0287_cv_document_versions`. Authenticated Chrome reload of job 565252 showed 59,934 in the outer header, sourcing card and inner header, with 30 exclusions and unknown strong-count summaries. The existing full-search snapshot was restored without starting another scan; visual review confirmed the incomplete-ranking and title-only warnings.
+
+Read-only audit `34368872192-1` found 4,900 current profiles and 55,064 wrong/unknown-model profiles, with unchanged population 59,964 and 1,932 orphan points. Its database snapshot was unchanged and fingerprint was `66080579c713860524f22c2c37d30d36a6651aa02cf2a8c47bdb78de669d8eef`. No duplicate repair or orphan deletion was submitted.
+
+Diagnostic revision `0e5ba22d` passed full CI `34366871949`, including all four shards and aggregate gate, and Gate `34366872080`. Main then required a conflict resolution in the Coolify action list and queue-job predicate. The merge retains diagnostic/index operations and the independently added CV inspection/cleanup actions. All 58 focused native operational tests passed and the combined workflow parsed successfully. The merged revision requires fresh hosted CI before delivery; production diagnostics have not yet been dispatched.

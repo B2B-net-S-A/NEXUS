@@ -1646,7 +1646,7 @@ async def _candidate_has_supported_cv(db: AsyncSession, candidate_id: int) -> bo
 
 
 async def list_recruitments_with_readiness(
-    db: AsyncSession, candidate_id: int
+    db: AsyncSession, candidate_id: int, *, job_scope=None
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1671,6 +1671,8 @@ async def list_recruitments_with_readiness(
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
+    if job_scope is not None:
+        stages_q = stages_q.where(job_scope)
     stages = (await db.scalars(stages_q)).all()
 
     if not stages:

@@ -1,5 +1,7 @@
 "use client";
 
+import { summarizeFullSearch, type FullSearchSummary } from "@/lib/full-search-summary";
+
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 import { SavedRequestRequirements } from "@/components/talent-radar/SavedRequestRequirements";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
@@ -36,7 +38,7 @@ import {
   selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
-import { buildJobHeaderKpis, type JobRankingSummary } from "@/lib/job-header-kpis";
+import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
@@ -819,15 +821,14 @@ function AIMatchingSection({
     filters: { skill: skillFilter ?? undefined, rate: rateFilter, stage: stageFilter, location: locationFilter.trim() },
   });
   const data = useMemo(() => fullSearchJobMatches(fullSearch.data, jobId, locationFilter.trim(), minScorePct ?? 0), [fullSearch.data, jobId, locationFilter, minScorePct]);
+  const searchSummary = useMemo(() => summarizeFullSearch(fullSearch.data, Boolean(fullSearch.error)), [fullSearch.data, fullSearch.error]);
   const isLoading = fullSearch.running;
   const isError = Boolean(fullSearch.error);
   const refetch = () => fullSearch.start({ job_id: jobId });
   useEffect(() => { fullSearch.setMinScore(minScorePct ?? 0); }, [minScorePct, fullSearch.setMinScore]);
   useEffect(() => {
-    const page = fullSearch.data;
-    queryClient.setQueryData(["full-search-summary", actorId, jobId],
-      !fullSearch.error && page?.ranking_complete && page.counts.strong != null ? { total: page.counts.eligible, strong: page.counts.strong } : null);
-  }, [fullSearch.data, fullSearch.error, actorId, jobId, queryClient]);
+    queryClient.setQueryData(["full-search-summary", actorId, jobId], searchSummary);
+  }, [searchSummary, actorId, jobId, queryClient]);
 
   // Wspólny kanon z sekcją „Kandydaci z podobnych projektów": bulk-proposals
   // dedupuje (już-w-pipeline → total_added=0) i wybiera pierwszy nie-terminalny
@@ -958,7 +959,7 @@ function AIMatchingSection({
 
   // All search filters run against the complete snapshot before LIMIT/OFFSET.
   const filtered = matches;
-  const strongCount = fullSearch.data?.counts.strong;
+  const strongCount = searchSummary?.strong;
   const inProcessCount = pipelineSet.size;
 
   // Zaznaczenie do doku liczy się WZGLĘDEM widocznej listy: kandydat
@@ -1048,7 +1049,7 @@ function AIMatchingSection({
             <div className="flex items-center gap-4 text-center">
               <div>
                 <div className="text-base font-bold tabular-nums text-foreground">
-                  {isLoading || !fullSearch.data ? "—" : fullSearch.data.counts.eligible}
+                  {searchSummary?.total ?? "—"}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   w rankingu
@@ -1056,7 +1057,7 @@ function AIMatchingSection({
               </div>
               <div>
                 <div className="text-base font-bold tabular-nums text-success">
-                  {isLoading || !fullSearch.data?.ranking_complete ? "—" : strongCount}
+                  {strongCount ?? "—"}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   ≥ 75 pkt
@@ -2270,11 +2271,9 @@ export default function JobDetailPage() {
   // odpalałoby Qdranta przy każdym wejściu na dowolną zakładkę rekrutacji —
   // także tam, gdzie rankingu nikt nie ogląda. Brak w cache'u = „—", nie zero.
   //
-  // Trzeci segment klucza jest pusty celowo: to ranking NIEFILTROWANY, ten sam,
-  // który pobiera `SourcingHub`. Wariant z filtrem lokalizacji (którego używa
-  // `AIMatchingSection` niżej) odpowiada na inne pytanie niż „ilu kandydatów
-  // jest w rankingu tej rekrutacji".
-  const { data: ranking = null } = useQuery<JobRankingSummary | null>({
+  // The full-search publisher shares actor-scoped population totals. Incomplete
+  // measurements keep the strong-match count unknown without hiding coverage.
+  const { data: ranking = null } = useQuery<FullSearchSummary | null>({
     queryKey: ["full-search-summary", authUser?.id, Number(id)],
     queryFn: async () => null,
     enabled: false,
@@ -2588,6 +2587,7 @@ export default function JobDetailPage() {
           job={job}
           readOnly={!canWritePipeline}
           onTabChange={setActiveTab}
+          searchSummary={ranking}
         >
           {/* Warsztat dopasowań C2 — „kto pasuje do tej oferty". Widoczny dla
               wszystkich ról; akcje respektują readOnly. Narzędzia AI (kryteria,
