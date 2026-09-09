@@ -636,3 +636,5 @@ from app.models.candidate_search_run import CandidateSearchRun, CandidateSearchR
 from app.models.requirement_verification import RequirementVerification  # noqa: F401
 
 from app.models.cv_generated_draft import CvGeneratedDraft  # noqa: F401
+
+from app.models.cv_generation_request import CvGenerationRequest  # noqa: F401

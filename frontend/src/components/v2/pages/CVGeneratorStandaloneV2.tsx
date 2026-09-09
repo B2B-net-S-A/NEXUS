@@ -1,5 +1,6 @@
 "use client";
 
+import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
@@ -486,9 +487,7 @@ export function CVGeneratorStandaloneV2({
       if (!candidate || !selectedRecruitment || !selectedSource) {
         throw new Error("Missing inputs");
       }
-      const res = await api.post<EnqueuedResponse>(
-        "/api/cv-generator/generate",
-        {
+      const payload = {
           candidate_id: candidate.id,
           cv_document_id: selectedSource.id,
           stage_id: selectedRecruitment.stage_id,
@@ -501,9 +500,10 @@ export function CVGeneratorStandaloneV2({
           blind_cv: blindCv,
           content_mode: contentMode,
           consent_screenshot_token: consentKey ?? "",
-        },
-        { timeout: 30_000 },
-      );
+      };
+      const res = await withCvGenerationRequest("/api/cv-generator/generate", payload,
+        key => api.post<EnqueuedResponse>("/api/cv-generator/generate", payload,
+          { timeout: 30_000, headers: { "Idempotency-Key": key } }));
       return res.data;
     },
     onSuccess: (data) => {
@@ -540,7 +540,7 @@ export function CVGeneratorStandaloneV2({
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
       if (consentKey) fd.append("consent_screenshot_token", consentKey);
-      const res = await api.post<EnqueuedResponse>(
+      const res = await withCvGenerationRequest("/api/cv-generator/generate-upload", fd, key => api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
         fd,
         {
@@ -548,10 +548,10 @@ export function CVGeneratorStandaloneV2({
           // an explicit multipart Content-Type so axios fills in the boundary,
           // otherwise FastAPI can't parse the upload (422). Matches every other
           // upload in the app.
-          headers: { "Content-Type": "multipart/form-data" },
+          headers: { "Content-Type": "multipart/form-data", "Idempotency-Key": key },
           timeout: 60_000,
         },
-      );
+      ));
       return res.data;
     },
     onSuccess: (data) => {

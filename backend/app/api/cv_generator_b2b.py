@@ -1386,6 +1386,21 @@ async def generate(
             ),
         )
 
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        request.headers.get("Idempotency-Key"),
+        "new",
+        payload.model_dump(mode="json"),
+    )
+    if previous is not None:
+        await db.commit()
+        return GenerateEnqueuedResponse(
+            id=previous.id, status="processing", candidate_name=previous.candidate_name
+        )
+
     rule = await resolve_client_rule(db, client_id)
     rule_snapshot = snapshot_rule(rule)
     _enforce_client_language(rule_snapshot, payload.language)
@@ -1525,6 +1540,8 @@ async def generate(
             consent_screenshot=consent,
         ),
     )
+    if receipt is not None:
+        receipt.generated_id = generated_id
     await db.commit()
     background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
@@ -1612,6 +1629,48 @@ async def generate_from_upload(
     if candidate_id is not None and await db.get(Candidate, candidate_id) is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
 
+    cv_bytes = await cv_file.read(MAX_UPLOAD_BYTES + 1)
+    champion_bytes: bytes | None = None
+    champion_filename: str | None = None
+    if champion_file is not None and champion_file.filename:
+        champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
+        champion_filename = champion_file.filename
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        request.headers.get("Idempotency-Key"),
+        "upload",
+        {
+            "cv_sha256": hashlib.sha256(cv_bytes).hexdigest(),
+            "cv_filename": cv_file.filename,
+            "champion_sha256": hashlib.sha256(champion_bytes).hexdigest()
+            if champion_bytes is not None
+            else None,
+            "champion_filename": champion_filename,
+            "client_id": client_id,
+            "candidate_id": candidate_id,
+            "stage_id": stage_id,
+            "job_id": job_id,
+            "position": position,
+            "project_ref": project_ref,
+            "language": language,
+            "blind_cv": blind_cv,
+            "content_mode": content_mode,
+            "screening_notes": screening_notes,
+            "must_requirements": must_requirements,
+            "nice_requirements": nice_requirements,
+            "consent_screenshot_key": consent_screenshot_key,
+            "consent_screenshot_token": consent_screenshot_token,
+        },
+    )
+    if previous is not None:
+        await db.commit()
+        return GenerateEnqueuedResponse(
+            id=previous.id, status="processing", candidate_name=previous.candidate_name
+        )
+
     # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
     # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
     # więc obietnica złożona klientowi działała dla 0,1% generacji.
@@ -1651,7 +1710,6 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    cv_bytes = await cv_file.read(MAX_UPLOAD_BYTES + 1)
     consent = _verified_consent(
         rule,
         consent_screenshot_token,
@@ -1661,11 +1719,6 @@ async def generate_from_upload(
             cv_sha256=hashlib.sha256(cv_bytes).hexdigest(), client_id=client_id
         ),
     )
-    champion_bytes: bytes | None = None
-    champion_filename: str | None = None
-    if champion_file is not None and champion_file.filename:
-        champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
-        champion_filename = champion_file.filename
 
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
@@ -1718,6 +1771,8 @@ async def generate_from_upload(
             consent_screenshot=consent,
         ),
     )
+    if receipt is not None:
+        receipt.generated_id = generated_id
     await db.commit()
     background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(

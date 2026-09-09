@@ -52,7 +52,7 @@ def source():
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "missing", "corrupt", "changed_context", "changed_file"]
+    "failure", [None, "missing", "corrupt", "changed_context", "changed_file", "replay"]
 )
 async def test_source_is_captured_before_charge_and_scheduled_as_value(
     monkeypatch, failure
@@ -113,6 +113,19 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     persisted = AsyncMock(side_effect=persist)
     monkeypatch.setattr(durable_jobs, "persist_job", persisted)
     monkeypatch.setattr(durable_jobs, "execute_job", worker)
+    if failure == "replay":
+        from app.services.cv_generator_b2b import request_receipts
+
+        monkeypatch.setattr(
+            request_receipts,
+            "reserve_request",
+            AsyncMock(
+                return_value=(
+                    Mock(),
+                    SimpleNamespace(id=42, candidate_name="Synthetic Person"),
+                )
+            ),
+        )
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -120,7 +133,15 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
             "/cv-generator/generate",
             json={"candidate_id": 2, "stage_id": 3, "cv_document_id": 9},
         )
-    if failure:
+    if failure == "replay":
+        assert response.status_code == 202, response.text
+        assert response.json()["id"] == 42
+        assert order == []
+        pending.assert_not_awaited()
+        persisted.assert_not_awaited()
+        worker.assert_not_awaited()
+        db.commit.assert_awaited_once()
+    elif failure:
         assert response.status_code == (
             409 if failure in {"changed_context", "changed_file"} else 422
         ), response.text

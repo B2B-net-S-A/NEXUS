@@ -428,3 +428,21 @@ missing/nonpositive selection and a changed captured file before charging or enq
 The CV-08 table entry was refreshed; hosted exact-head and production proof remain
 pending. Older open clients must refresh after eventual deployment. No deployment
 has occurred for this consolidated PR.
+# Ponowienia żądań generowania — walidacja lokalna
+
+Panel wysyła `Idempotency-Key` dla generacji ze wskazanego dokumentu i uploadu.
+Klucz niepewnej próby jest zachowywany w sessionStorage według skrótu wejścia
+(w tym faktycznych bajtów plików), bez zapisywania treści CV. Odebrany sukces
+usuwa klucz, aby kolejne świadome generowanie było nową próbą.
+Backend po autoryzacji serializuje ten sam klucz użytkownika blokadą transakcyjną
+PostgreSQL. Receipt, dokument, zadanie i naliczenie limitu zatwierdzane są w tej
+samej transakcji; ponowienie zwraca poprzedni dokument przed ładowaniem źródeł,
+naliczeniem i uruchomieniem zadania. Zmienione wejście daje 409, usunięty wynik
+410. Migracja 0297 nie przypisuje kluczy historycznym żądaniom.
+
+Dowody lokalne: 17 testów receipt/enqueue (w tym HTTP replay bez ponownego
+naliczenia i zadania), 2 testy frontendowe (odzyskanie po przeładowaniu modułu,
+rozróżnienie zawartości plików), Ruff. Testy jednostkowe nie dowodzą zachowania
+konkurujących transakcji PostgreSQL ani rzeczywistej awarii sieci na produkcji.
+Klienci API bez nagłówka zachowują wcześniejsze zachowanie; preview pozostaje
+poza tym mechanizmem. Te ograniczenia wymagają dalszej weryfikacji CV-09.
