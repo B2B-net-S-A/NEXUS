@@ -446,3 +446,17 @@ rozróżnienie zawartości plików), Ruff. Testy jednostkowe nie dowodzą zachow
 konkurujących transakcji PostgreSQL ani rzeczywistej awarii sieci na produkcji.
 Klienci API bez nagłówka zachowują wcześniejsze zachowanie; preview pozostaje
 poza tym mechanizmem. Te ograniczenia wymagają dalszej weryfikacji CV-09.
+# Oryginalne zasoby generacji — migracja 0298
+
+Nowe generacje zapisują bajty szablonu użytego przez renderer oraz obraz zgody
+użyty do końcowego DOCX. Obraz pobierany jest raz, jego skrót trafia do provenance,
+a binarne zasoby do oddzielnych kolumn pomijanych na liście historii. Edytor
+używa zapisanych zasobów i sprawdza ich skróty. Legacy bez zapisanych zasobów
+nadal wymaga aktualnego pliku lub magazynu; znana zmiana szablonu jest odrzucana.
+Nie wykonano historycznego backfillu ani wdrożenia migracji na produkcji.
+
+Walidacja lokalna: 28 testów archiwizacji i zgód, w tym rzeczywisty DOCX z tym
+samym obrazem co zapisany załącznik; testy zasobów obejmują niedostępny magazyn
+i uszkodzoną kopię zgody. Alembic ma jedną końcową rewizję 0298.
+CI Gate dla d2495aa0: 34413855623 success; główne CI 34413855594 jeszcze trwa
+i nie obejmuje tej nowej paczki zasobów. Pełna ocena jakości modelowej pozostaje otwarta.

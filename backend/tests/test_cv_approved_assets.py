@@ -49,6 +49,34 @@ def version():
     )
 
 
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_saved_consent_is_verified_without_storage(monkeypatch, corrupt):
+    from app.services import cv_document_assets, object_storage
+
+    unavailable = Mock(side_effect=OSError("storage unavailable"))
+    monkeypatch.setattr(object_storage, "download_cv", unavailable)
+    generated = SimpleNamespace(
+        id=7,
+        client_id=None,
+        client_rule_version=None,
+        template_content=b"template",
+        consent_content=b"changed" if corrupt else b"original image",
+        render_payload={
+            "consent_screenshot": {"storage_key": "deleted-key"},
+            "artifact_provenance": {
+                "template_sha256": hashlib.sha256(b"template").hexdigest(),
+                "consent_sha256": hashlib.sha256(b"original image").hexdigest(),
+            },
+        },
+    )
+    if corrupt:
+        with pytest.raises(CvAssetsError, match="załącznika zgody"):
+            cv_document_assets.generated_assets(generated)
+    else:
+        assert cv_document_assets.generated_assets(generated)[1] == b"original image"
+    unavailable.assert_not_called()
+
+
 def test_saved_generation_template_survives_live_template_change(monkeypatch):
     from app.services import cv_document_assets
 
