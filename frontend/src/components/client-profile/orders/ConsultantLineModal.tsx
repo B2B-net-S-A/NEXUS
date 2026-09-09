@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FileSearch } from "lucide-react";
 
+import { OrderCurrencySelect } from "@/components/orders/OrderRateUnitToggle";
 import { AppModal, FileDropZone } from "@/components/ds";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import {
@@ -23,7 +24,6 @@ import {
   convertRate,
   rateUnitLabel,
   toMdRate,
-  toPlnMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -67,6 +67,8 @@ function isIncompleteProfileNameError(err: unknown): boolean {
 }
 
 export interface LineFormValues {
+  rate_candidate_currency?: string;
+  rate_client_currency?: string;
   /** Dokładnie jedno z pól. `contract_id` — osoba ma już kontrakt u tego
    *  klienta; `candidate_id` — osoba z bazy Nexus, kontrakt założy serwer. */
   contract_id?: number | null;
@@ -168,7 +170,6 @@ function RateUnitToggle({
   );
 }
 
-
 export function ConsultantLineModal({
   open,
   onOpenChange,
@@ -187,11 +188,12 @@ export function ConsultantLineModal({
   const [rateRevenue, setRateRevenue] = useState("");
   // Jednostka WPROWADZANIA, niezależna dla każdej stawki: kosztowa przychodzi
   // zwykle z kontraktu (godzinowa), przychodowa z zamówienia klienta (MD).
-  // Wartość ZAPISYWANA jest zawsze w PLN/MD — przełącznik i waluta dotyczą
-  // wyłącznie tego, co operator widzi i wpisuje.
+  // Wysyłamy stawkę MD w wybranej walucie. Backend zachowuje ją wraz
+  // z walutą i oblicza osobno pomocniczą stawkę PLN/MD.
   const [costUnit, setCostUnit] = useState<RateUnit>("md");
   const [costCurrency, setCostCurrency] = useState("PLN");
-  const [costRateToPln, setCostRateToPln] = useState(1);
+  const [revenueCurrency, setRevenueCurrency] = useState("PLN");
+  const [, setCostRateToPln] = useState(1);
   const [revenueUnit, setRevenueUnit] = useState<RateUnit>("md");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
   const [inputValue, setInputValue] = useState("");
@@ -227,9 +229,8 @@ export function ConsultantLineModal({
   } | null>(null);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
-  const [autoExtracted, setAutoExtracted] = useState<AutoExtractedValues | null>(
-    null,
-  );
+  const [autoExtracted, setAutoExtracted] =
+    useState<AutoExtractedValues | null>(null);
   // Odpowiedź sieciowa musi porównać się ze stanem z chwili ODPOWIEDZI, nie ze
   // stanem zamkniętym w async handlerze przy starcie requestu. Użytkownik może
   // w tym czasie poprawić pole ręcznie i taka zmiana wymaga dialogu konfliktu.
@@ -414,13 +415,18 @@ export function ConsultantLineModal({
     setExtracting(false);
     if (!open) return;
     setPerson(null);
-    setRateCost(line?.rate_cost != null ? String(line.rate_cost) : "");
-    setRateRevenue(line?.rate_revenue != null ? String(line.rate_revenue) : "");
+    const sourceCost = line?.source_rate_cost ?? line?.rate_cost;
+    setRateCost(sourceCost != null ? String(sourceCost) : "");
+    const sourceRevenue = line?.source_rate_revenue ?? line?.rate_revenue;
+    setRateRevenue(sourceRevenue != null ? String(sourceRevenue) : "");
     // Wartości z API są w zł/MD, więc formularz otwiera się w tej jednostce —
     // inaczej pierwszy render pokazywałby liczbę ośmiokrotnie za dużą pod
     // etykietą „zł/h”.
     setCostUnit("md");
-    setCostCurrency("PLN");
+    setCostCurrency(
+      line?.rate_candidate_currency ?? "PLN",
+    );
+    setRevenueCurrency(line?.rate_client_currency ?? "PLN");
     setCostRateToPln(1);
     setRevenueUnit("md");
     setInputMode(line?.input_mode ?? "md");
@@ -709,25 +715,10 @@ export function ConsultantLineModal({
     const rate = revenue === null ? null : toMdRate(revenue, revenueUnit);
     if (value === null) return null;
     if (inputMode === "md") return value;
+    if (revenueCurrency !== "PLN") return null;
     if (rate === null || rate <= 0) return null;
     return value / rate;
-  }, [inputValue, rateRevenue, revenueUnit, inputMode]);
-
-  // Kwota, która NAPRAWDĘ pójdzie do bazy — pokazywana przy każdej konwersji
-  // jednostki lub waluty. Bez tego formularz prosiłby o zaufanie zamiast
-  // pokazać wynik finansowy przed zapisem.
-  const rateCostAsPlnMd = useMemo(() => {
-    const parsed = parseDecimalInput(rateCost);
-    return parsed === null
-      ? null
-      : toPlnMdRate(parsed, costUnit, costRateToPln);
-  }, [rateCost, costUnit, costRateToPln]);
-  const costNeedsConversion =
-    costUnit !== "md" || costCurrency !== "PLN" || costRateToPln !== 1;
-  const rateRevenueAsMd = useMemo(() => {
-    const parsed = parseDecimalInput(rateRevenue);
-    return parsed === null ? null : toMdRate(parsed, revenueUnit);
-  }, [rateRevenue, revenueUnit]);
+  }, [inputValue, rateRevenue, revenueUnit, inputMode, revenueCurrency]);
 
   const canSubmit =
     !submitting &&
@@ -745,10 +736,9 @@ export function ConsultantLineModal({
     // oddaje `null` — pusta stawka jechała wtedy do API jako
     // `rate_cost: null`. W praktyce zasłaniał to `canSubmit`, ale bramka
     // i ładunek to dwa różne miejsca: rozjazd między nimi byłby cichy.
-    const costMd = toPlnMdRate(
+    const costMd = toMdRate(
       parseDecimalInput(rateCost) ?? Number.NaN,
       costUnit,
-      costRateToPln,
     );
     const revenueMd = toMdRate(
       parseDecimalInput(rateRevenue) ?? Number.NaN,
@@ -768,6 +758,8 @@ export function ConsultantLineModal({
           : { candidate_id: person?.candidate_id }),
       // ZAWSZE zł/MD — jednostka rozliczeniowa modułu. Przełącznik zmienia
       // tylko to, w czym operator wpisuje.
+      rate_candidate_currency: costCurrency,
+      rate_client_currency: revenueCurrency,
       rate_cost: costMd,
       rate_revenue: revenueMd,
       ...(costBased || sharedMdBased
@@ -783,10 +775,10 @@ export function ConsultantLineModal({
       open={open}
       onOpenChange={onOpenChange}
       size="lg"
-      title={editing ? "Edytuj linię konsultanta" : "Dodaj konsultanta do zamówienia"}
-      description={
-        group ? `Zamówienie nr ${group.order_number}` : undefined
+      title={
+        editing ? "Edytuj linię konsultanta" : "Dodaj konsultanta do zamówienia"
       }
+      description={group ? `Zamówienie nr ${group.order_number}` : undefined}
       footer={
         <>
           <button
@@ -864,6 +856,11 @@ export function ConsultantLineModal({
                     : "1000"
               }
             />
+            <OrderCurrencySelect
+              value={costCurrency}
+              onChange={setCostCurrency}
+              label="Waluta stawki kosztowej"
+            />
             <RateUnitToggle
               id="line-cost-unit"
               unit={costUnit}
@@ -874,13 +871,11 @@ export function ConsultantLineModal({
               currency={costCurrency}
               ariaLabel="Jednostka stawki kosztowej"
             />
-            {costNeedsConversion ? (
+            {costUnit !== "md" ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Zapis w PLN/MD:{" "}
-                {rateCostAsPlnMd === null ? "—" : `${rateCostAsPlnMd} zł`}
-                {costCurrency !== "PLN"
-                  ? ` (kurs ${costCurrency}→PLN: ${costRateToPln})`
-                  : null}
+                Zapis w {costCurrency}/MD:{" "}
+                {toMdRate(parseDecimalInput(rateCost) ?? 0, costUnit)}{" "}
+                {costCurrency === "PLN" ? "zł" : costCurrency}
               </p>
             ) : null}
             {/* Obie flagi wracają z backendu NIEZALEŻNIE od siebie:
@@ -929,6 +924,11 @@ export function ConsultantLineModal({
               className={inputClass}
               placeholder={revenueUnit === "hour" ? "150" : "1200"}
             />
+            <OrderCurrencySelect
+              value={revenueCurrency}
+              onChange={setRevenueCurrency}
+              label="Waluta stawki przychodowej"
+            />
             <RateUnitToggle
               id="line-revenue-unit"
               unit={revenueUnit}
@@ -936,15 +936,9 @@ export function ConsultantLineModal({
               value={rateRevenue}
               onValueChange={setRateRevenue}
               units={REVENUE_RATE_UNITS}
-              currency="PLN"
+              currency={revenueCurrency}
               ariaLabel="Jednostka stawki przychodowej"
             />
-            {revenueUnit === "hour" ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Zapis w zł/MD:{" "}
-                {rateRevenueAsMd === null ? "—" : `${rateRevenueAsMd} zł`}
-              </p>
-            ) : null}
             {grossConversion ? (
               <p role="status" className="mt-1 text-xs text-primary">
                 Z dokumentu: {grossConversion.gross} PLN/h brutto →{" "}
@@ -989,7 +983,9 @@ export function ConsultantLineModal({
             placeholder={inputMode === "md" ? "50" : "60000"}
           />
           <p className="mt-2 text-xs text-muted-foreground">
-            {inputMode === "amount"
+            {inputMode === "amount" && revenueCurrency !== "PLN"
+              ? `Budżet MD zostanie obliczony po zapisaniu według kursu ${revenueCurrency}/PLN.`
+              : inputMode === "amount"
               ? `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD (kwota ÷ stawka przychodowa)`
               : `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD`}
           </p>

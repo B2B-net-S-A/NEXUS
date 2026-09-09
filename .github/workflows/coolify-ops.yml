@@ -40,7 +40,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop]
+        options: [list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -80,6 +80,15 @@ on:
       # `command` świadomie NIE MA: to kanał wykonania na prodzie, a wejście
       # tekstowe wprost przekładałoby uprawnienie „odpal eval" na „odpal cokolwiek
       # w kontenerze z bazą kandydatów". Sama komenda jest zaszyta w job `eval`.
+      cv_eval_models:
+        description: "CV synthetic diagnostics: primary or all configured models"
+        type: choice
+        options: [primary, all]
+        default: primary
+      cv_eval_cases:
+        description: "CV synthetic cases per model (1-40; partial runs are not a full benchmark)"
+        required: false
+        default: "40"
       eval_set:
         description: "Zamrożony zbiór ofert: A (strojenie) albo B (holdout potwierdzający)"
         type: choice
@@ -1048,7 +1057,7 @@ jobs:
 
   eval:
     name: Matching eval A/B (prod)
-    if: ${{ startsWith(inputs.action, 'eval') }}
+    if: ${{ inputs.action == 'eval-ab' || inputs.action == 'eval-read' || inputs.action == 'eval-stop' }}
     runs-on: ubuntu-latest
     # Budżet wyprowadzony z jedynego znanego punktu odniesienia: cotygodniowy
     # strażnik (app/tasks/weekly_eval.py) daje 3600 s JEDNEMU biegowi na tych
@@ -1265,3 +1274,33 @@ jobs:
             | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | length) else 1 end')
           [ "$still" = "0" ] || { echo "::error::zadanie nadal istnieje — skasuj ręcznie w panelu"; exit 1; }
           echo "zadanie skasowane"
+
+  cv-quality:
+    name: CV synthetic factual review diagnostics
+    if: inputs.action == 'eval-cv-quality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: coolify-cv-quality
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Evaluate the deployed verifier on synthetic sources
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          OPS_RUN_ID: ${{ github.run_id }}
+          OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_SHA: ${{ github.sha }}
+          EVAL_MODELS: ${{ inputs.cv_eval_models }}
+          EVAL_CASES: ${{ inputs.cv_eval_cases }}
+        run: python3 .github/scripts/cv-quality-ops.py
+      - name: Preserve metrics and task cleanup receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cv-quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cv-quality/
+          if-no-files-found: error
+          retention-days: 7

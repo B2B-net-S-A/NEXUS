@@ -627,7 +627,12 @@ async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch
     matches: list[LineMatch] = []
     for order in result.scalars():
         group = order.order_group
-        if group is None or not is_multi_consultant_client(order.client_id):
+        if group is None or (
+            not is_multi_consultant_client(order.client_id)
+            and group.md_budget_mode != "per_person"
+        ):
+            continue
+        if group.status != GROUP_STATUS_ACTIVE:
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (
@@ -980,6 +985,10 @@ async def upsert_consumption(
     pozostałość i tak jest przeliczana od zera po zapisie.
     """
     month_bounds(period_month)  # walidacja kształtu, zanim cokolwiek zapiszemy
+    if order.order_group_id is not None:
+        budget_group = await db.get(ClientOrderGroup, order.order_group_id)
+        if budget_group is not None and budget_group.md_budget_mode is not None:
+            budget_group.md_budget_mode_locked = True
     value = quantize_md(md_reported)
 
     previous_raw = await db.scalar(

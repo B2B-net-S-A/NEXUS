@@ -40,11 +40,13 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 
+GROUP_STATUS_DRAFT = "draft"
 GROUP_STATUS_ACTIVE = "active"
 GROUP_STATUS_SCHEDULED = "scheduled"
 GROUP_STATUS_COMPLETED = "completed"
 GROUP_STATUS_EXHAUSTED = "exhausted"
 GROUP_STATUSES: tuple[str, ...] = (
+    GROUP_STATUS_DRAFT,
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_SCHEDULED,
     GROUP_STATUS_COMPLETED,
@@ -52,6 +54,7 @@ GROUP_STATUSES: tuple[str, ...] = (
 )
 
 GROUP_STATUS_LABELS: dict[str, str] = {
+    GROUP_STATUS_DRAFT: "Draft",
     GROUP_STATUS_ACTIVE: "Aktywne",
     GROUP_STATUS_SCHEDULED: "Przyszłe",
     GROUP_STATUS_COMPLETED: "Zakończone",
@@ -65,23 +68,16 @@ class ClientOrderGroup(Base, TimestampMixin):
     __tablename__ = "client_order_groups"
     __table_args__ = (
         CheckConstraint(
+            "md_budget_mode IS NULL OR (order_type = 'md' AND ((md_budget_mode = 'shared' AND is_md_budget_based = TRUE) OR (md_budget_mode = 'per_person' AND is_md_budget_based = FALSE)))",
+            name="ck_client_order_groups_md_mode",
+        ),
+        CheckConstraint(
             "order_type IS NULL OR order_type IN ('cost', 'md')",
             name="ck_client_order_groups_order_type",
         ),
         CheckConstraint(
-            # Schemat pilnuje spójności typu z flagami i NIC WIĘCEJ. Do 0263
-            # ten więz kodował też `client_id IN (155, 38339)`, czyli
-            # rozstrzygał w bazie, kto jest Lotte Wedel i Cyfrowym Polsatem —
-            # a tożsamość tych klientów aplikacja traktuje jako podmienialną
-            # (autouse fixture w `tests/conftest.py` odpina bramki, żeby
-            # 155. testowy klient nie dostał cudzej polityki). Baza nie
-            # widziała tej podmiany, więc oba źródła prawdy się rozjeżdżały
-            # i zapis kończył się 500 w środku aktywacji szkicu.
-            #
-            # Reguła „wspólną pulę MD mają wyłącznie CP i Lotte Wedel" żyje
-            # w aplikacji, w obu miejscach zapisu: dwa jawne 422
-            # w `api/client_order_groups.py` oraz wyprowadzenie flagi
-            # z `client_uses_shared_md_pool` w `order_group_materializer`.
+            # Historical flags remain intact; explicit md_budget_mode
+            # selects the scope of newly created MD orders.
             "order_type IS NULL OR "
             "(order_type = 'cost' AND is_cost_based = TRUE "
             "AND is_md_budget_based = FALSE) OR "
@@ -93,7 +89,7 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_dates",
         ),
         CheckConstraint(
-            "status IN ('active', 'scheduled', 'completed', 'exhausted')",
+            "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')",
             name="ck_client_order_groups_status",
         ),
         # Zamówienie kosztowe jest albo kompletne, albo go nie ma. Kwota bez
@@ -174,6 +170,12 @@ class ClientOrderGroup(Base, TimestampMixin):
     oznacza grupę historyczną, której zachowanie wyznaczają istniejące flagi i
     polityki klientowe; migracja nie klasyfikuje jej wstecz.
     """
+    md_budget_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """Explicit choice for new MD orders; NULL preserves historical behavior."""
+    md_budget_mode_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -216,11 +218,8 @@ class ClientOrderGroup(Base, TimestampMixin):
     is_md_budget_based: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
-    """Klientowo ograniczona, wspólna pula MD całego zamówienia.
-
-    Zwykły jawny ``order_type='md'`` nie ustawia tej flagi: jego budżet mieszka
-    na każdej linii konsultanta. ``True`` jest wyłącznie świadomym wariantem
-    Cyfrowego Polsatu i Lotte Wedel, także dla nowo tworzonych zamówień.
+    """Storage flag for a shared pool. New orders use md_budget_mode;
+    historical rows retain their client-specific interpretation.
     """
 
     md_budget_total: Mapped[Optional[Decimal]] = mapped_column(

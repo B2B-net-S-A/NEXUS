@@ -76,6 +76,14 @@ export function orderGroupAnchorId(groupId: number): string {
 /** Żądanie „pokaż zamówienie X" płynące z wpisu `transfer_md`.
  *  `nonce` jest nośnikiem POWTÓRZENIA: samo id nie zmienia stanu, więc drugie
  *  kliknięcie tego samego numeru (po odjechaniu wzrokiem) przepadałoby po cichu. */
+function displayLineRate(line: OrderLineRead, side: "cost" | "revenue") {
+  const currency = (side === "cost" ? line.rate_candidate_currency : line.rate_client_currency) ?? "PLN";
+  const amount = side === "cost" ? (line.source_rate_cost ?? line.rate_cost) : (line.source_rate_revenue ?? line.rate_revenue);
+  if (amount == null) return "—";
+  if (currency === "PLN") return `${formatPLN(amount)}/MD`;
+  return `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 3 }).format(amount)} ${currency}/MD`;
+}
+
 export interface OrderGroupFocusRequest {
   groupId: number;
   nonce: number;
@@ -375,15 +383,13 @@ function OrderLineRow({
         <span className="text-muted-foreground" title="Stawka kosztowa">
           koszt.{" "}
           <span className="font-medium text-foreground">
-            {line.rate_cost === null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
+            {displayLineRate(line, "cost")}
           </span>
         </span>
         <span className="text-muted-foreground" title="Stawka przychodowa">
           przych.{" "}
           <span className="font-medium text-foreground">
-            {line.rate_revenue === null
-              ? "—"
-              : `${formatPLN(line.rate_revenue)}/MD`}
+            {displayLineRate(line, "revenue")}
           </span>
         </span>
       </div>
@@ -718,10 +724,10 @@ export function OrderGroupCard({
   // Sprawa pending pozostaje na widoku głównym do czasu decyzji, ale nie jest
   // już liczona jako aktywna obsada w awatarach nagłówka.
   const currentLines = sortedLines.filter(
-    (line) => line.is_active || line.offboarding_case?.status === "pending",
+    (line) => line.is_active || (group.status === "draft" && line.status === "draft") || line.offboarding_case?.status === "pending",
   );
   const completedLines = sortedLines.filter(
-    (line) => !line.is_active && line.offboarding_case?.status !== "pending",
+    (line) => !line.is_active && !(group.status === "draft" && line.status === "draft") && line.offboarding_case?.status !== "pending",
   );
   const isActive = group.status === "active";
 
@@ -854,7 +860,7 @@ export function OrderGroupCard({
                     completedLines.length === 0 && "sr-only",
                   )}
                 >
-                  Aktywna obsada
+                  {group.status === "draft" ? "Konsultanci w szkicu" : "Aktywna obsada"}
                 </h4>
                 {currentLines.length === 0 ? (
                   <p className="py-3 text-sm text-muted-foreground">

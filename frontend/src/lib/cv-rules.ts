@@ -52,6 +52,7 @@ export interface GlossaryEntry {
 
 /** Odpowiedź `GET /api/clients/{id}/cv-rule` (także dla klienta bez reguły). */
 export interface ClientCvRule {
+  glossary_options?: (GlossaryEntry & { kind: "role_translation"; source_language: string; target_language: string })[];
   highlight_policy?: CvHighlightPolicy;
   highlight_terms?: string[];
   edit_revision?: number;

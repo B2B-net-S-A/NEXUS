@@ -53,6 +53,7 @@ from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
 from app.models.user import User
+from app.services.cv_generator_b2b.language_aliases import alias_catalog, resolve_alias
 from app.services.client_access import (
     deny,
     resolve_client_access,
@@ -149,6 +150,7 @@ _POLICY_PREFIX = "WERYFIKUJ: domknięto politykę prezentacji klienta w kodzie:"
 
 
 class GlossaryEntry(BaseModel):
+    kind: Literal["role_translation"] = "role_translation"
     from_: str = Field(alias="from", min_length=1, max_length=80)
     to: str = Field(min_length=1, max_length=80)
 
@@ -158,6 +160,17 @@ class GlossaryEntry(BaseModel):
 class ClientCvRulePayload(BaseModel):
     """Wejście edycji reguły. Wszystkie pola opcjonalne — pusty wzór znaczy
     „ten klient nie ma własnej nazwy pliku", nie „błąd"."""
+
+    @model_validator(mode="after")
+    def _safe_aliases_for_publication(self) -> "ClientCvRulePayload":
+        if self.confirm and any(
+            resolve_alias(entry.from_, entry.to) is None for entry in self.glossary
+        ):
+            raise ValueError(
+                "Słownik zawiera niedozwoloną zamianę. Wybierz tłumaczenie "
+                "stanowiska z katalogu albo usuń wpis przed publikacją."
+            )
+        return self
 
     highlight_policy: Literal[
         "none", "technologies", "must", "must_nice", "explicit"
@@ -323,6 +336,7 @@ class ClientCvRulePayload(BaseModel):
 
 
 class ClientCvRuleRead(BaseModel):
+    glossary_options: list[dict[str, str]] = Field(default_factory=alias_catalog)
     highlight_policy: str = "technologies"
     highlight_terms: list[str] = Field(default_factory=list)
     edit_revision: int = 0
@@ -725,7 +739,7 @@ def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     rule.why_points_max = payload.why_points_max
     rule.date_format = payload.date_format
     rule.glossary = [
-        {"from": entry.from_.strip(), "to": entry.to.strip()}
+        {"kind": entry.kind, "from": entry.from_.strip(), "to": entry.to.strip()}
         for entry in payload.glossary
     ] or None
 

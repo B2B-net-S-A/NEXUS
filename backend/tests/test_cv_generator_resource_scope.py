@@ -146,3 +146,26 @@ async def test_pending_document_scoped_before_worker_finishes():
     )
     assert rows[0].job_id == 45
     assert rows[0].status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_consent_binding_checks_scope_before_upload(monkeypatch):
+    stage = SimpleNamespace(candidate_id=2, job_id=45)
+    db = SimpleNamespace(get=AsyncMock(return_value=stage))
+    upload = SimpleNamespace(read=AsyncMock())
+    monkeypatch.setattr(
+        recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
+    )
+    with pytest.raises(HTTPException) as exc:
+        await api.upload_consent_screenshot.__wrapped__(
+            Request({"type": "http"}),
+            user(),
+            upload,
+            candidate_id=2,
+            stage_id=3,
+            client_id=None,
+            cv_sha256=None,
+            db=db,
+        )
+    assert exc.value.status_code == 403
+    upload.read.assert_not_awaited()

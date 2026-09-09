@@ -87,6 +87,7 @@ from app.services.ai_quota import (
     check_and_increment,
     declared_call,
 )
+from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.client_rules import (
     required_input_problems,
     resolve_client_rule,
@@ -162,10 +163,10 @@ class GenerateRequest(BaseModel):
     # Defaults to "polished", never "tailored": the most-positioned variant has
     # to be an explicit choice. May be lowered by the client's cap.
     content_mode: ContentMode = DEFAULT_CONTENT_MODE
-    # Klucz zrzutu zgody z `POST /consent-screenshot`. Wymagany dla klientów
-    # z `requires_rodo_consent_block` (dziś PKO BP) — patrz
-    # `_require_consent_screenshot`.
+    # Legacy storage keys require a matching signed receipt; they cannot
+    # authorize attachment reuse on their own. New clients send only the token.
     consent_screenshot_key: str = Field(default="", max_length=500)
+    consent_screenshot_token: str = Field(default="", max_length=4096)
 
 
 class GeneratedCvItem(BaseModel):
@@ -1073,6 +1074,7 @@ def _sniff_image_type(content: bytes) -> Optional[str]:
 class ConsentScreenshotResponse(BaseModel):
     storage_key: str
     filename: str
+    consent_token: str
 
 
 @router.post("/consent-screenshot", response_model=ConsentScreenshotResponse)
@@ -1081,15 +1083,49 @@ async def upload_consent_screenshot(
     request: Request,
     current_user: CandidateWriteAccess,
     file: Annotated[UploadFile, File(description="Zrzut ekranu ze zgodą kandydata")],
+    candidate_id: Optional[int] = Form(None, ge=1),
+    stage_id: Optional[int] = Form(None, ge=1),
+    client_id: Optional[int] = Form(None, ge=1),
+    cv_sha256: Optional[str] = Form(None, pattern=r"^[a-f0-9]{64}$"),
+    db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
-    """Wgraj zrzut zgody i zwróć klucz do przekazania przy generacji CV.
+    """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
 
     Osobny endpoint, a nie pole w `/generate`, bo ta ścieżka przyjmuje JSON —
     obraz w base64 puchnie o jedną trzecią i ląduje w logach requestów. Przy
-    okazji ten sam klucz obsługuje obie ścieżki generacji (`/generate`
+    okazji ten sam format przypisania obsługuje obie ścieżki generacji (`/generate`
     i `/generate-upload`) jednym mechanizmem.
     """
-    content = await file.read()
+    if cv_sha256:
+        if candidate_id is not None or stage_id is not None:
+            raise HTTPException(
+                status_code=422, detail="Wybierz jeden rodzaj źródła CV."
+            )
+        if client_id is not None and await db.get(Client, client_id) is None:
+            raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        context = consent_binding.subject(cv_sha256=cv_sha256, client_id=client_id)
+    else:
+        if candidate_id is None or stage_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Najpierw wybierz kandydata i rekrutację albo wgraj plik CV.",
+            )
+        stage = await db.get(CandidateStage, stage_id)
+        if stage is None or stage.candidate_id != candidate_id:
+            raise HTTPException(
+                status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+            )
+        await ensure_job_membership(db, current_user, stage.job_id)
+        job = await db.get(Job, stage.job_id)
+        if job is None or (client_id is not None and job.client_id != client_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Kontekst klienta uległ zmianie. Odśwież formularz.",
+            )
+        context = consent_binding.subject(
+            candidate_id=candidate_id, stage_id=stage_id, client_id=job.client_id
+        )
+    content = await file.read(CONSENT_SCREENSHOT_MAX_BYTES + 1)
     if not content:
         raise HTTPException(status_code=422, detail="Plik jest pusty.")
     if len(content) > CONSENT_SCREENSHOT_MAX_BYTES:
@@ -1127,18 +1163,32 @@ async def upload_consent_screenshot(
         filename,
         sniffed,
     )
-    return ConsentScreenshotResponse(storage_key=key, filename=filename)
+    return ConsentScreenshotResponse(
+        storage_key=key,
+        filename=filename,
+        consent_token=consent_binding.issue(key, current_user.id, context),
+    )
 
 
-def _consent_payload(storage_key: str) -> dict:
-    """Kształt zapisywany w `render_payload` — SAM klucz magazynu.
-
-    Bez osobnego `filename`: klucz i tak niesie nazwę pliku
-    (`cv/RRRR/MM/<uuid>-zgoda.png`), a pole dublujące ją było puste na ścieżce
-    `/generate`, bo front przesyła tam wyłącznie klucz. Pole, które w połowie
-    wywołań kłamie, jest gorsze niż jego brak.
-    """
-    return {"storage_key": storage_key}
+def _verified_consent(
+    rule, token: str, legacy_key: str, user_id: int, context: dict
+) -> dict | None:
+    if not token and not legacy_key:
+        _require_consent_screenshot(rule, "")
+        return None
+    try:
+        receipt = consent_binding.verify(token, user_id, context)
+        if legacy_key and receipt["storage_key"] != legacy_key:
+            raise ValueError
+        return receipt
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Zrzut zgody nie jest przypisany do bieżącego CV, osoby lub klienta albo wygasł. "
+                "Odśwież formularz i wgraj zgodę ponownie."
+            ),
+        ) from None
 
 
 def _require_consent_screenshot(rule, storage_key: str) -> None:
@@ -1221,12 +1271,21 @@ async def generate(
     rule = await resolve_client_rule(db, client_id)
     rule_snapshot = snapshot_rule(rule)
     _enforce_client_language(rule_snapshot, payload.language)
-    _require_consent_screenshot(rule, payload.consent_screenshot_key)
 
     # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
     # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
     # `generate_cv_for_candidate` już na tę wartość.
     effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
+
+    consent = _verified_consent(
+        rule,
+        payload.consent_screenshot_token,
+        payload.consent_screenshot_key,
+        current_user.id,
+        consent_binding.subject(
+            candidate_id=candidate.id, stage_id=stage.id, client_id=client_id
+        ),
+    )
 
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
     if rule_snapshot is not None and (
@@ -1285,11 +1344,7 @@ async def generate(
         content_mode=effective_mode,
         client_id=client_id,
         project_ref=payload.project_ref or "",
-        consent_screenshot=(
-            _consent_payload(payload.consent_screenshot_key)
-            if payload.consent_screenshot_key.strip()
-            else None
-        ),
+        consent_screenshot=consent,
     )
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=candidate_name
@@ -1334,6 +1389,7 @@ async def generate_from_upload(
     # Klucz z `POST /consent-screenshot`, nie kolejny `UploadFile`: obie ścieżki
     # generacji mają wtedy JEDEN mechanizm zamiast dwóch rozjeżdżających się.
     consent_screenshot_key: str = Form("", max_length=500),
+    consent_screenshot_token: str = Form("", max_length=4096),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateEnqueuedResponse:
     """1:1 odpowiednik external ``POST /api/v1/generate`` (multipart wariant),
@@ -1360,7 +1416,6 @@ async def generate_from_upload(
         rule = await resolve_client_rule(db, client_id)
         rule_snapshot = snapshot_rule(rule)
         _enforce_client_language(rule_snapshot, language)
-        _require_consent_screenshot(rule, consent_screenshot_key)
         # Blokada trybu (0267) PRZED sufitem — zablokowany tryb nadpisuje
         # żądanie, sufit nadal wygrywa z blokadą.
         locked_mode, _forced = resolve_content_mode(rule_snapshot, content_mode)
@@ -1385,8 +1440,17 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
     cv_bytes = await cv_file.read()
+    consent = _verified_consent(
+        rule,
+        consent_screenshot_token,
+        consent_screenshot_key,
+        current_user.id,
+        consent_binding.subject(
+            cv_sha256=hashlib.sha256(cv_bytes).hexdigest(), client_id=client_id
+        ),
+    )
+    quota_state = await _charge_cv_generation_quota(db, current_user.id)
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
     if champion_file is not None and champion_file.filename:
@@ -1433,11 +1497,7 @@ async def generate_from_upload(
         quota_user_id=current_user.id,
         payload=gen_payload,
         user_id=current_user.id,
-        consent_screenshot=(
-            _consent_payload(consent_screenshot_key)
-            if consent_screenshot_key.strip()
-            else None
-        ),
+        consent_screenshot=consent,
     )
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=provisional
