@@ -129,7 +129,12 @@ def source_leaves(data: dict) -> dict[str, str]:
     return leaves
 
 
+MAX_EXTRACTION_RESPONSE_CHARS = 8_000_000
+
+
 def validate_extraction(response: str, sources: dict[str, str]) -> dict:
+    if len(response) > MAX_EXTRACTION_RESPONSE_CHARS:
+        raise SourceFactsError("oversized_extraction_response")
     try:
         extracted = Extraction.model_validate_json(response)
     except ValidationError:

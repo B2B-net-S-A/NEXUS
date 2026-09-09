@@ -1,20 +1,8 @@
-"""Claude extraction prompts — evolved from the external CV-Generator port.
+"""Editorial prompt entry point and retained legacy extraction prompt constants.
 
-Two prompts: Polish (`EXTRACTION_PROMPT_PL`) and English (`EXTRACTION_PROMPT_EN`).
-Both instruct Claude to return strict JSON describing a candidate's CV in the
-B2B Network template shape (name, position, why_points, education, skills,
-certifications, languages, experience, optional warnings).
-
-The prompt is sent as the Claude ``system`` param (prompt-cached); candidate
-data (CV text, screening notes, champion profile) travels in the user message
-wrapped in ``<cv>`` / ``<screening_notes>`` / ``<champion_profile>`` tags and
-is explicitly declared as data, not instructions — a CV is a file fully
-controlled by the candidate, so it must never be able to steer the model.
-
-On top of each base prompt ``get_prompt`` may append addenda: the content mode
-('basic' / 'polished' / 'tailored') and the blind-CV anonymization. A content
-mode only regulates how much PRESENTATION work is allowed — the ceiling on what
-may be written at all (the anti-fabrication rules) is identical in all three.
+get_prompt uses the independent source-facts editorial contract, then appends
+language-specific anonymization rules. Legacy constants remain for compatibility;
+they are not concatenated into the active editorial system prompt.
 """
 
 from __future__ import annotations
@@ -631,25 +619,9 @@ def get_prompt(
     blind_cv: bool = False,
     content_mode: str = DEFAULT_CONTENT_MODE,
 ) -> str:
-    """Return the independent editorial system prompt for the given language.
+    """Edit extracted facts in the requested mode; append blind rules last.
 
-    Args:
-        language: 'pl' or 'en'.
-        blind_cv: when True, appends the anonymization addendum so the model
-            keeps company/university names out of free text — the render-time
-            mask only covers structured fields, free text must be handled here.
-        content_mode: how much PRESENTATION work the model may do. It never
-            changes how much it may *add* — the anti-fabrication ceiling is
-            identical in all three modes, only the polishing differs:
-            'basic' transcribes the source (no sales tone, source spelling of
-            technologies, no offer-driven positioning), 'polished' (default)
-            keeps the language polishing but drops the Champion Profile
-            tailoring so one CV fits many processes, 'tailored' is the full
-            base prompt including positioning against the client's profile.
-            An unknown value falls back to the default 'polished'.
-
-    The addenda are appended base → content mode → blind, so the blind rules get
-    the last word: anonymization must survive whatever the mode asked for.
+    Unknown modes use polished presentation. No mode may add candidate facts.
     """
     from .editorial_prompt import editorial_prompt
 

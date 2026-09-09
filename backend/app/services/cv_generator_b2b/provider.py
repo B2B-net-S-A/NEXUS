@@ -70,7 +70,7 @@ PROMPT_NAME = "cv_b2b_extraction"
 # addendum do promptu bazowego; kwoty wymuszające wypełniacz zamienione na
 # górne limity — przy ubogim CV model zwraca tyle, ile jest w źródle.
 # v8: evidence-led summaries; no total-career-to-role instruction or MUST list quota.
-PROMPT_VERSION = 9
+PROMPT_VERSION = 10
 
 
 class CVGeneratorAIError(RuntimeError):

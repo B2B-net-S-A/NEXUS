@@ -204,3 +204,14 @@ def test_unreadable_full_extraction_cannot_fall_back_to_truncated_history(monkey
         )
     assert error.value.code == "source_extraction_failed"
     assert edited == []
+
+
+
+def test_oversized_response_is_rejected_before_json_model_allocation(monkeypatch):
+    from unittest.mock import Mock
+
+    parse = Mock(side_effect=AssertionError("Oversized input reached JSON parser"))
+    monkeypatch.setattr(facts.Extraction, "model_validate_json", parse)
+    with pytest.raises(facts.SourceFactsError):
+        facts.validate_extraction(" " * (facts.MAX_EXTRACTION_RESPONSE_CHARS + 1), {})
+    parse.assert_not_called()
