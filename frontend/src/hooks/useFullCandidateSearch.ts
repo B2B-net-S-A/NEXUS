@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { candidateSearchApi, searchIsRunning, type StartCandidateSearch } from "@/lib/full-candidate-search-api";
+import { candidateSearchApi, searchIsRunning, type StartCandidateSearch, type CandidateSearchFilters } from "@/lib/full-candidate-search-api";
 
 /** Explicit start only: changing form fields must never launch a paid scan. */
-export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey }: { includeCandidateDetails?: boolean; storageKey?: string } = {}) {
+export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey, filters = {} }: { includeCandidateDetails?: boolean; storageKey?: string; filters?: CandidateSearchFilters } = {}) {
   const [runId, setRunId] = useState<string | null>(null);
-  const [offset, setOffset] = useState(0);
+  const filterKey = JSON.stringify(filters);
+  const [cursor, setCursor] = useState({ filterKey, offset: 0 });
+  const offset = cursor.filterKey === filterKey ? cursor.offset : 0;
+  const setOffset = useCallback((value: number) => setCursor({ filterKey, offset: value }), [filterKey]);
   const [minScore, setMinScore] = useState(0);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<unknown>(null);
@@ -15,8 +18,9 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
   const inFlight = useRef(false);
   useEffect(() => {
     generation.current += 1;
+    setStartError(null);
     setRunId(null);
-    setOffset(0);
+    setCursor({ filterKey: "", offset: 0 });
     if (!storageKey) return;
     try {
       const saved = sessionStorage.getItem(storageKey);
@@ -24,10 +28,10 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     } catch { /* Storage may be disabled; live search still works. */ }
   }, [storageKey]);
   const page = useQuery({
-    queryKey: ["candidate-search", runId, offset, minScore, includeCandidateDetails],
+    queryKey: ["candidate-search", runId, offset, minScore, includeCandidateDetails, filters],
     enabled: runId !== null,
     queryFn: ({ signal }) => candidateSearchApi.page(runId!, {
-      offset, limit: 20, min_score: minScore, include_candidate_details: includeCandidateDetails,
+      ...filters, offset, limit: 20, min_score: minScore, include_candidate_details: includeCandidateDetails,
     }, signal),
     refetchInterval: query => searchIsRunning(query.state.data?.state) ? 1500 : false,
     retry: false,
@@ -38,7 +42,7 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
   const clear = useCallback(() => {
     generation.current += 1;
     setRunId(null);
-    setOffset(0);
+    setCursor({ filterKey: "", offset: 0 });
     setStartError(null);
     if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
   }, [storageKey]);
@@ -50,7 +54,7 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     setStarting(true);
     setStartError(null);
     setRunId(null);
-    setOffset(0);
+    setCursor({ filterKey: "", offset: 0 });
     if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
     try {
       const run = await candidateSearchApi.start(request);
@@ -68,9 +72,14 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     }
   }, [storageKey]);
 
+  const changeMinScore = useCallback((value: number) => {
+    setMinScore(value);
+    setCursor({ filterKey: "", offset: 0 });
+  }, []);
+
   return {
     start, clear, runId, offset, setOffset,
-    setMinScore: (value: number) => { setMinScore(value); setOffset(0); },
+    setMinScore: changeMinScore,
     minScore, data: page.data,
     error: startError ?? page.error,
     starting,

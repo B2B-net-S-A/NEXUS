@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
@@ -129,6 +130,10 @@ async def search_results(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     min_score: float = Query(0, ge=0, le=100),
+    skill: str = "",
+    rate: Literal["all", "in", "over", "unknown"] = "all",
+    stage: Literal["all", "in", "out"] = "all",
+    location: str = "",
     db: AsyncSession = Depends(get_db),
 ):
     _search_access(user)
@@ -161,8 +166,19 @@ async def search_results(
             "versions": run.version_trace,
         }
     data_changed = await store.population_changed(db, run.id)
+    from app.services.full_search_filters import ResultFilters
+
+    if stage != "all" and run.job_id is None:
+        raise HTTPException(422, "Filtr procesu wymaga zapisanej rekrutacji")
     rows, total = await store.result_page(
-        db, run.id, offset=offset, limit=limit, min_score=min_score
+        db,
+        run.id,
+        offset=offset,
+        limit=limit,
+        min_score=min_score,
+        filters=ResultFilters(
+            skill=skill, rate=rate, stage=stage, location=location, job_id=run.job_id
+        ),
     )
     from app.models.candidate import Candidate
 
@@ -231,6 +247,22 @@ async def search_results(
             details["eligibility"] = _eligibility_annotation(decision)
             details["breakdown"] = breakdown
             details["total_score"] = fit_score
+            for level, matched_key, unknown_key in (
+                ("must", "matching_skills", "gaps"),
+                ("nice", "nice_matching", "nice_gaps"),
+            ):
+                details[matched_key] = [
+                    " lub ".join(r["any_of"])
+                    for r in requirements
+                    if r["level"] == level and r["status"] == "met"
+                ]
+                details[unknown_key] = [
+                    " lub ".join(r["any_of"])
+                    for r in requirements
+                    if r["level"] == level and r["status"] != "met"
+                ]
+            # Missing evidence is a review item; the run's explicit policy owns exclusion.
+            details["missing_must"] = []
         results.append(
             {
                 "match": details,
@@ -242,11 +274,14 @@ async def search_results(
                 "eligibility": _eligibility_annotation(decision),
             }
         )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+
     return {
         "run_id": run.id,
         "state": run.state,
         "counts": counts,
         "results": results,
+        "budget_hourly": resolve_job_budget_hourly(job),
         "total_after_threshold": total,
         "next_offset": offset + limit if offset + limit < total else None,
         "versions": run.version_trace,

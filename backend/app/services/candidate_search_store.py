@@ -191,6 +191,12 @@ async def run_counts(db, run_id: str) -> dict:
                     .filter(CandidateSearchResult.eligible.is_(True))
                     .label("eligible"),
                     func.count()
+                    .filter(
+                        CandidateSearchResult.eligible.is_(True),
+                        CandidateSearchResult.fit_score >= 75,
+                    )
+                    .label("strong"),
+                    func.count()
                     .filter(CandidateSearchResult.eligible.is_(False))
                     .label("excluded"),
                     func.count()
@@ -234,7 +240,13 @@ async def owned_run(db, run_id: str, actor_id: int):
 
 
 async def result_page(
-    db, run_id: str, *, offset: int = 0, limit: int = 20, min_score: float = 0
+    db,
+    run_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 20,
+    min_score: float = 0,
+    filters=None,
 ):
     if offset < 0 or not 1 <= limit <= 100 or not 0 <= min_score <= 100:
         raise ValueError("Invalid page")
@@ -247,6 +259,8 @@ async def result_page(
             CandidateSearchResult.fit_score >= min_score,
         ),
     )
+    if filters is not None:
+        conditions = (*conditions, *filters.conditions())
     total = await db.scalar(
         select(func.count()).select_from(CandidateSearchResult).where(*conditions)
     )

@@ -113,6 +113,7 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
     versions = {
         **current_version_trace().as_dict(),
         "request_schema": "request-full-v1",
+        "result_schema": "full-result-filters-v1",
         "fit_profile": "base-fit-v1",
     }
     fingerprint = hashlib.sha256(

@@ -18,7 +18,11 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
     from app.api.matching import _gate_and_dealbreakers
-    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+    from app.services.dealbreaker_filters import (
+        dealbreaker_inputs_for_job,
+        rate_fit_status,
+    )
+    from app.services.location_utils import location_tokens
     from app.services.requirement_contract import (
         explicit_contract,
         stored_contract,
@@ -73,6 +77,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             profile=request.profile(),
             base_fit=True,
         )
+        requirements = evaluate_requirements(criteria, candidate)
         results.append(
             CandidateEvaluation(
                 cid,
@@ -82,7 +87,16 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                 measurement.status,
                 evidence={
                     "breakdown": breakdown.as_dict(),
-                    "requirements": evaluate_requirements(criteria, candidate),
+                    "requirements": requirements,
+                    "filters": {
+                        "skills": [
+                            " lub ".join(r["any_of"]).lower()
+                            for r in requirements
+                            if r["status"] == "met"
+                        ],
+                        "rate": rate_fit_status(candidate, inputs),
+                        "locations": sorted(location_tokens(candidate.location)),
+                    },
                     "eligibility": annotations.get(cid),
                     "brief_status": request.brief_status,
                 },

@@ -1,4 +1,4 @@
-import { api, type CandidateMatch, type MatchEligibility } from "@/lib/api";
+import { api, type matchingApi, type MatchEligibility } from "@/lib/api";
 import type { TalentRadarCandidate, TalentRadarSearchRequest } from "@/lib/talent-radar-api";
 
 export type SearchState = "queued" | "running" | "complete" | "partial";
@@ -14,9 +14,18 @@ export interface CandidateSearchStarted {
   versions: Record<string, string>;
 }
 
+export type FullCandidateMatch = Awaited<ReturnType<typeof matchingApi.getMatches>>["data"]["matches"][number];
+
+export interface CandidateSearchFilters {
+  skill?: string;
+  rate?: "all" | "in" | "over" | "unknown";
+  stage?: "all" | "in" | "out";
+  location?: string;
+}
+
 export interface CandidateSearchRow {
   candidate: TalentRadarCandidate;
-  match: CandidateMatch | null;
+  match: FullCandidateMatch | null;
   fit_score: number | null;
   measurement: "measured" | "unavailable" | "missing_index" | "stale";
   requirements: Array<{
@@ -41,11 +50,13 @@ export interface CandidateSearchPage {
     evaluated: number;
     /** Visible after filters, including warnings; not permission to assign. */
     eligible: number;
+    strong?: number;
     excluded: number;
     needs_verification: number;
   };
   results: CandidateSearchRow[];
   versions: Record<string, string>;
+  budget_hourly?: number | null;
   total_after_threshold?: number;
   next_offset?: number | null;
   request_fingerprint?: string;
@@ -59,7 +70,7 @@ export interface CandidateSearchPage {
 export const candidateSearchApi = {
   start: (request: StartCandidateSearch) =>
     api.post<CandidateSearchStarted>("/api/candidate-search/runs", request).then(r => r.data),
-  page: (runId: string, options: {
+  page: (runId: string, options: CandidateSearchFilters & {
     offset?: number;
     limit?: number;
     min_score?: number;

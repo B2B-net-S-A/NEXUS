@@ -1,5 +1,8 @@
 "use client";
 
+import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
+import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
+import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -32,7 +35,7 @@ import {
   selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
-import { buildJobHeaderKpis, summarizeRanking } from "@/lib/job-header-kpis";
+import { buildJobHeaderKpis, type JobRankingSummary } from "@/lib/job-header-kpis";
 import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
@@ -798,25 +801,29 @@ function AIMatchingSection({
     staleTime: 30_000,
   });
   const shortlistCount = shortlistCountQuery.data?.length ?? 0;
-  // Location filter — restricts matches to candidates whose location matches.
-  // Pre-fill from the job's own location when it has one (rare for imported
-  // jobs), otherwise the recruiter types a city (e.g. "Warszawa").
-  const [locationFilter, setLocationFilter] = useState<string>(
-    () => formatCandidateLocation(job?.location) ?? "",
-  );
+  // Optional result filter; job location remains a scoring input, not an implicit exclusion.
+  const [locationFilter, setLocationFilter] = useState("");
   // Lista matchy nie odświeża się po dodaniu, więc trzymamy lokalny set już
   // dodanych — wyszarza przycisk i blokuje przypadkowe duplikaty.
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
   const [addingId, setAddingId] = useState<number | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["ai-matches", jobId, locationFilter.trim()],
-    queryFn: () =>
-      matchingApi
-        .getMatches(jobId, { location: locationFilter.trim() || undefined })
-        .then((r) => r.data),
-    staleTime: 60_000,
+  const actorId = useAuthStore(s => s.user?.id);
+  const fullSearch = useFullCandidateSearch({
+    includeCandidateDetails: true,
+    storageKey: actorId ? `nexus-full-job:${actorId}:${jobId}` : undefined,
+    filters: { skill: skillFilter ?? undefined, rate: rateFilter, stage: stageFilter, location: locationFilter.trim() },
   });
+  const data = useMemo(() => fullSearchJobMatches(fullSearch.data, jobId, locationFilter.trim(), minScorePct ?? 0), [fullSearch.data, jobId, locationFilter, minScorePct]);
+  const isLoading = fullSearch.running;
+  const isError = Boolean(fullSearch.error);
+  const refetch = () => fullSearch.start({ job_id: jobId });
+  useEffect(() => { fullSearch.setMinScore(minScorePct ?? 0); }, [minScorePct, fullSearch.setMinScore]);
+  useEffect(() => {
+    const page = fullSearch.data;
+    queryClient.setQueryData(["full-search-summary", actorId, jobId],
+      !fullSearch.error && page?.ranking_complete && page.counts.strong != null ? { total: page.counts.eligible, strong: page.counts.strong } : null);
+  }, [fullSearch.data, fullSearch.error, actorId, jobId, queryClient]);
 
   // Wspólny kanon z sekcją „Kandydaci z podobnych projektów": bulk-proposals
   // dedupuje (już-w-pipeline → total_added=0) i wybiera pierwszy nie-terminalny
@@ -920,7 +927,7 @@ function AIMatchingSection({
   // uznane za zdrowe to rodzina „semantic*" (`semantic`, `semantic+rerank`).
   const degraded =
     data?.meta?.degraded === true ||
-    (searchType != null && !searchType.startsWith("semantic"));
+    (searchType != null && !searchType.startsWith("semantic") && searchType !== "full_population");
   // `semantic_unavailable` (padł Qdrant/Voyage) vs `no_semantic_hits`
   // (rekrutacja nie ma jeszcze trafień w indeksie) — dla rekrutera to dwie
   // różne instrukcje, więc nie zlewamy ich w jeden komunikat.
@@ -946,42 +953,13 @@ function AIMatchingSection({
   const niceSkills: string[] = data?.nice_skills ?? [];
   const budgetHourly = data?.meta?.budget_hourly ?? null;
 
-  // Próg wyniku: domyślnie z odpowiedzi (min_score), edytowalny suwakiem lewej
-  // kolumny. Filtrowanie po stronie klienta — nie odpytujemy backendu ponownie.
-  const baseThresholdPct = Math.round((data?.min_score ?? 0.6) * 100);
+  // Same default threshold as Radar; unknown measurements stay in the result.
+  const baseThresholdPct = 0;
   const effThresholdPct = minScorePct ?? baseThresholdPct;
 
-  const filtered = useMemo(() => {
-    return matches.filter((m: any) => {
-      const pct = Math.round((m.match_score ?? 0) * 100);
-      if (pct < effThresholdPct) return false;
-      if (skillFilter && !(m.matching_skills ?? []).includes(skillFilter)) {
-        return false;
-      }
-      if (rateFilter !== "all") {
-        const band = matchingRateBand(m.rate_fit);
-        if (band !== rateFilter) return false;
-      }
-      if (stageFilter !== "all") {
-        const inPipe = pipelineSet.has(m.candidate?.id);
-        if (stageFilter === "in" && !inPipe) return false;
-        if (stageFilter === "out" && inPipe) return false;
-      }
-      return true;
-    });
-  }, [
-    matches,
-    effThresholdPct,
-    skillFilter,
-    rateFilter,
-    stageFilter,
-    pipelineSet,
-    budgetHourly,
-  ]);
-
-  const strongCount = matches.filter(
-    (m: any) => (m.match_score ?? 0) >= 0.75,
-  ).length;
+  // All search filters run against the complete snapshot before LIMIT/OFFSET.
+  const filtered = matches;
+  const strongCount = fullSearch.data?.counts.strong;
   const inProcessCount = pipelineSet.size;
 
   // Zaznaczenie do doku liczy się WZGLĘDEM widocznej listy: kandydat
@@ -1070,7 +1048,7 @@ function AIMatchingSection({
             <div className="flex items-center gap-4 text-center">
               <div>
                 <div className="text-base font-bold tabular-nums text-foreground">
-                  {isLoading ? "—" : matches.length}
+                  {isLoading || !fullSearch.data ? "—" : fullSearch.data.counts.eligible}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   w rankingu
@@ -1078,7 +1056,7 @@ function AIMatchingSection({
               </div>
               <div>
                 <div className="text-base font-bold tabular-nums text-success">
-                  {isLoading ? "—" : strongCount}
+                  {isLoading || !fullSearch.data?.ranking_complete ? "—" : strongCount}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   ≥ 75 pkt
@@ -1314,10 +1292,8 @@ function AIMatchingSection({
                   "Wyszukiwanie..."
                 ) : (
                   <>
-                    Ranking · <strong>{filtered.length}</strong>
-                    {filtered.length !== matches.length
-                      ? ` z ${matches.length}`
-                      : ""}
+                    Ranking · <strong>{fullSearch.data?.total_after_threshold ?? "—"}</strong>
+                    {fullSearch.data && ` · na stronie: ${matches.length}`}
                   </>
                 )}
               </span>
@@ -1361,12 +1337,15 @@ function AIMatchingSection({
               </div>
               <button
                 onClick={() => refetch()}
-                className="whitespace-nowrap text-xs text-primary hover:underline"
+                disabled={fullSearch.running}
+                className="whitespace-nowrap text-xs text-primary hover:underline disabled:opacity-50"
               >
-                Odśwież
+                {fullSearch.runId ? "Uruchom ponownie" : "Szukaj w całej bazie"}
               </button>
             </div>
           </div>
+
+          {!isError && fullSearch.data && <FullCandidateSearchStatus data={fullSearch.data} offset={fullSearch.offset} onPage={fullSearch.setOffset} fetching={fullSearch.fetching} />}
 
           {degraded && (
             <div
@@ -1448,12 +1427,12 @@ function AIMatchingSection({
               <p className="text-sm">
                 {locationActive
                   ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
-                  : "Brak pasujących kandydatów w bazie"}
+                  : !fullSearch.runId ? "Uruchom wyszukiwanie w całej bazie" : "Brak dostępnych wyników na tej stronie"}
               </p>
               <p className="text-xs text-muted-foreground">
                 {locationActive
                   ? "Zmień lub wyczyść filtr lokalizacji powyżej"
-                  : "Dodaj kandydatów do systemu i uruchom indeksowanie"}
+                  : "Wyszukiwanie korzysta z tych samych kryteriów i punktacji co Talent Radar."}
               </p>
             </div>
           ) : filtered.length === 0 ? (
@@ -1576,9 +1555,9 @@ function AIMatchingSection({
                         </div>
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${scoreColor}`}
-                          title="Wynik dopasowania (0–100)"
+                          title={pct == null ? "Ocena niepełna" : "Wynik dopasowania (0–100)"}
                         >
-                          {pct == null ? "—" : pct}
+                          {pct == null ? "Ocena niepełna" : pct}
                         </span>
                       </div>
 
@@ -1883,10 +1862,10 @@ function JobMatchDock({
       <div>
         <div className="flex items-end gap-2">
           <span className={`text-3xl font-bold tabular-nums ${gaugeColor}`}>
-            {pct == null ? "—" : pct}
+            {pct == null ? "Ocena niepełna" : pct}
           </span>
           <span className="pb-1 text-xs text-muted-foreground">
-            / 100 · dopasowanie do tej rekrutacji
+            {pct == null ? "" : "/ 100 · dopasowanie do tej rekrutacji"}
           </span>
         </div>
         <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
@@ -1942,13 +1921,13 @@ function JobMatchDock({
               <CoverageRow key={`m-${s}`} label={s} tag="must" hit />
             ))}
             {mustGaps.map((s) => (
-              <CoverageRow key={`mg-${s}`} label={`${s} — brak w CV`} tag="must" />
+              <CoverageRow key={`mg-${s}`} label={`${s} — brak potwierdzenia`} tag="must" />
             ))}
             {niceMatching.map((s) => (
               <CoverageRow key={`n-${s}`} label={s} tag="nice" hit />
             ))}
             {niceGaps.map((s) => (
-              <CoverageRow key={`ng-${s}`} label={`${s} — brak w CV`} tag="nice" />
+              <CoverageRow key={`ng-${s}`} label={`${s} — brak potwierdzenia`} tag="nice" />
             ))}
           </div>
         </div>
@@ -2294,16 +2273,11 @@ export default function JobDetailPage() {
   // który pobiera `SourcingHub`. Wariant z filtrem lokalizacji (którego używa
   // `AIMatchingSection` niżej) odpowiada na inne pytanie niż „ilu kandydatów
   // jest w rankingu tej rekrutacji".
-  const { data: cachedMatches } = useQuery({
-    queryKey: ["ai-matches", Number(id), ""],
-    queryFn: () => matchingApi.getMatches(Number(id)).then((r) => r.data),
+  const { data: ranking = null } = useQuery<JobRankingSummary | null>({
+    queryKey: ["full-search-summary", authUser?.id, Number(id)],
+    queryFn: async () => null,
     enabled: false,
-    staleTime: 60_000,
   });
-  const ranking = useMemo(
-    () => summarizeRanking(cachedMatches?.matches),
-    [cachedMatches],
-  );
   const headerKpis = useMemo(
     () =>
       buildJobHeaderKpis({
