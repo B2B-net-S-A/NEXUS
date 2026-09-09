@@ -74,6 +74,21 @@ def _semantic_hits(monkeypatch, cand_id: int, *, score: float = 0.9, unknown=Fal
     samo wywołanie).
     """
 
+    from app.services.full_search_measurement import VectorMeasurement
+
+    async def query_vector(_text):
+        return [1.0, 0.0]
+
+    async def measurements(_vector, candidates):
+        return {
+            c.id: VectorMeasurement(None, "missing_index")
+            if unknown
+            else VectorMeasurement(score, "measured")
+            for c in candidates
+        }
+
+    monkeypatch.setattr("app.services.canonical_fit.request_vector", query_vector)
+    monkeypatch.setattr("app.services.canonical_fit.measure_candidates", measurements)
     row = {"candidate_id": cand_id, "score": score}
     if unknown:
         row = {"candidate_id": cand_id, "score": 0.0, "semantic_unknown": True}
@@ -208,11 +223,14 @@ async def test_unmeasured_cosine_is_degraded_but_still_scored_under_flag(
 
     resp = await app_client.get(
         f"/api/jobs/{job_id}/ai-matches",
-        params={"min_score": 0.0, "limit": 50},
+        params={"min_score": 1.0, "limit": 50},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
+    row = next(m for m in body["matches"] if m["candidate"]["id"] == cand_id)
+    assert row["match_score"] is None
+    assert row["total_score"] is None
     assert body["meta"]["degraded"] is True
     assert body["meta"]["reason"] == "semantic_unavailable"
 
@@ -229,6 +247,12 @@ async def test_provider_outage_still_falls_back_under_flag(
     monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
     from app.services.embedding_service import SemanticSearchUnavailable
+
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.services.canonical_fit.request_vector", AsyncMock(return_value=None)
+    )
 
     async def _outage(*_a, **_kw):
         raise SemanticSearchUnavailable("qdrant down")
@@ -261,9 +285,9 @@ def test_shared_engine_branch_stays_outside_any_swallowing_try():
     import ast
     import pathlib
 
-    source = (pathlib.Path(__file__).resolve().parents[1] / "app/api/matching.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        pathlib.Path(__file__).resolve().parents[1] / "app/api/matching.py"
+    ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     handler = next(
         n

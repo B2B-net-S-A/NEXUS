@@ -530,27 +530,10 @@ async def _shared_engine_matches(
     elig_annotations: dict[int, dict],
     query_text: str,
 ) -> tuple[list[dict], bool]:
-    """Policz wiersze `/ai-matches` KOMPOZYTEM 0–100, nie surowym kosinusem.
+    """Render canonical base fit on the legacy 0–1 response scale.
 
-    Zwraca ``(matches, reranked)`` — wiersze posortowane malejąco po kompozycie,
-    z ``match_score`` przeliczonym na skalę 0–1 (``total / 100``).
-
-    DLACZEGO to w ogóle istnieje: zakładka rekrutacji renderuje dwie listy
-    („Ranking" z `/recommendations` i „Shortlista" z `/ai-matches`) opisane tym
-    samym słowem „dopasowanie", a liczone dwoma różnymi silnikami — jedna
-    kompozytem ważonym profilem (60 pkt semantyki + umiejętności + lokalizacja
-    + dostępność + sygnały Championa), druga surowym kosinusem z Qdranta.
-    Kolejność potrafiła się różnić na tych samych danych, bez żadnego sygnału
-    dla rekrutera, że ogląda dwie różne miary.
-
-    Ta funkcja NIE zmienia kontraktu odpowiedzi: `match_score` zostaje na skali
-    0–1, bo czytają go `MatchScoreBar` (×100), parametr `min_score` (ge=0, le=1)
-    i zamrożony `JobShortlist.score_snapshot`. Zmienia się to, CO ta liczba
-    znaczy — i dlatego siedzi za flagą do czasu A/B.
-
-    Zapisu do cache'u nie ma, gdy któremuś kandydatowi nie zmierzono kosinusu
-    (M3-CACHE-01): kompozyt z neutralną warstwą semantyczną nie może przeżyć
-    awarii dostawcy jako wynik „świeży".
+    Retrieval scores select identities only. A missing verified measurement
+    stays null, and a surface-specific reranker cannot reorder canonical fit.
     """
 
     from app.api.recommendations import (
@@ -558,22 +541,17 @@ async def _shared_engine_matches(
         _score_breakdown_payload,
     )
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-    from app.services.match_score_cache import bulk_get_or_compute
+    from app.services.canonical_fit import score_candidates
+    from app.services.request_matching_context import build_request_context
     from app.services.scoring_service import resolve_active_profile
     from app.services.similar_job_candidates import fetch_historical_boost_map
 
     profile = await resolve_active_profile(
         db, user_id=current_user.id, client_id=job.client_id
     )
-    breakdowns = await bulk_get_or_compute(
-        job,
-        ordered,
-        db,
-        similarity_map=similarity_map,
-        profile=profile,
-        allow_cache_write=not semantic_unknown_ids,
-        semantic_unavailable_ids=semantic_unknown_ids,
-    )
+    context = build_request_context(job, profile)
+    fits = await score_candidates(db, context, ordered)
+    breakdowns = [fit.breakdown for fit in fits]
 
     # History is separate process context, as in /recommendations.
     try:
@@ -584,40 +562,45 @@ async def _shared_engine_matches(
     _annotate_historical_context(breakdowns, boost_map)
 
     by_id = {c.id: c for c in ordered}
-    scored = [(b, by_id[b.candidate_id]) for b in breakdowns if b.candidate_id in by_id]
-
-    reranked = False
-    top_n = int(getattr(settings, "AI_MATCHES_RERANK_TOP_N", 0) or 0)
-    if top_n > 0 and len(scored) > 1:
-        from app.services.embedding_service import _build_candidate_text
-
-        head, tail = scored[:top_n], scored[top_n:]
-        docs = [_build_candidate_text(c)[:4000] for _, c in head]
-        pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
-        if pairs and any(score != 1.0 for _, score in pairs):
-            # Rerank przestawia KOLEJNOŚĆ czołówki; `match_score` zostaje
-            # kompozytem, bo wynik rerankera żyje na innej skali niż próg.
-            head = [head[idx] for idx, _ in pairs]
-            scored = head + tail
-            reranked = True
+    fits.sort(
+        key=lambda fit: (
+            fit.fit_score is None,
+            -(fit.fit_score or 0),
+            fit.breakdown.candidate_id,
+        )
+    )
 
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
     matches: list[dict] = []
-    for b, c in scored:
+    for fit in fits:
+        b = fit.breakdown
+        c = by_id.get(b.candidate_id)
+        if c is None:
+            continue
         m = _build_match_info(
             c,
             required_skills,
             nice_skills=nice_skills,
-            score=round(b.total / 100.0, 4),
+            score=0.0,
             inputs=rubric_inputs,
         )
         m["eligibility"] = elig_annotations.get(c.id)
-        m["total_score"] = round(b.total, 1)
-        m["breakdown"] = _score_breakdown_payload(b, include_finance=include_finance)
+        m["match_score"] = (
+            round(fit.fit_score / 100.0, 4) if fit.fit_score is not None else None
+        )
+        m["total_score"] = fit.fit_score
+        m["measurement"] = fit.measurement
+        m["context_fingerprint"] = context.fingerprint
+        m["versions"] = context.versions
+        m["breakdown"] = (
+            _score_breakdown_payload(b, include_finance=include_finance)
+            if fit.fit_score is not None
+            else None
+        )
         matches.append(m)
-    return matches, reranked
+    return matches, False
 
 
 @router.get("/jobs/{job_id}/ai-matches")
@@ -636,13 +619,10 @@ async def get_ai_matches(
     """
     GET /api/jobs/{job_id}/ai-matches
 
-    Returns **all** candidates that match the job (score >= ``min_score``),
-    ranked best-first, using Qdrant semantic search + optional Voyage rerank.
-    Falls back to tag-based matching if Qdrant is unavailable.
-
-    Replaces the old hard top-10 behaviour: the result set is now bounded only
-    by the match threshold and a safety cap (``MATCH_MAX_RESULTS``), so a job
-    with 60 genuine fits shows all 60 instead of an arbitrary first 10.
+    Return a bounded discovery pool, filtered by score and response limit.
+    This compatibility endpoint does not claim exhaustive population coverage;
+    full-population Radar/C2 searches use the durable candidate-search API.
+    Shared-engine rows use canonical base fit, including null measurements.
 
     Query params (all optional; default to runtime-tunable settings):
         min_score: minimum match score (0-1) a candidate must reach to be shown.
@@ -733,7 +713,7 @@ async def get_ai_matches(
         # ogląda innych ludzi niż lista obok.
         from app.services.embedding_service import _build_job_text
 
-        query_text = _build_job_text(job)
+        query_text = _build_job_text(job, max_field_chars=None)
 
     # Pull a wide pool so "show all who match" isn't artificially capped by
     # retrieval. The threshold filter below — not a fixed top-K — decides
@@ -810,9 +790,8 @@ async def get_ai_matches(
         if not shared_engine:
             # Stara ścieżka porównuje kosinus WPROST z progiem, więc 0.0 jako
             # „nie wiem" udawałoby zmierzony brak dopasowania. Wspólny silnik
-            # takich wierszy nie odrzuca: `bulk_get_or_compute` zna stan „brak
-            # pomiaru" (`semantic_unavailable_ids`) i liczy warstwę semantyczną
-            # neutralnie zamiast obwiniać profil kandydata.
+            # takich wierszy nie odrzuca: ponawia dokładny pomiar przez
+            # canonical_fit i zachowuje null, jeśli pomiar nadal jest niedostępny.
             hits = [h for h in hits if h["candidate_id"] not in semantic_unknown_ids]
 
     if hits:
@@ -880,10 +859,12 @@ async def get_ai_matches(
                     for m in matches
                     if _location_matches(requested_tokens, m["candidate"]["location"])
                 ]
-            matches = [m for m in matches if m["match_score"] >= threshold][
-                :max_results
-            ]
-            degraded = bool(semantic_unknown_ids)
+            degraded = any(m["match_score"] is None for m in matches)
+            matches = [
+                m
+                for m in matches
+                if m["match_score"] is None or m["match_score"] >= threshold
+            ][:max_results]
             return {
                 "job_id": job_id,
                 "job_title": job.title,
@@ -1008,27 +989,51 @@ async def get_ai_matches(
             eligibility_filtered,
         )
 
-    matches = []
-    for c in all_candidates:
-        # Location filter (when active): skip non-matching candidates up front.
-        if location_active and not _location_matches(requested_tokens, c.location):
-            continue
-        match = _build_match_info(
-            c,
-            required_skills,
+    if shared_engine:
+        matches, _ = await _shared_engine_matches(
+            db,
+            job=job,
+            ordered=all_candidates,
+            similarity_map={},
+            semantic_unknown_ids={c.id for c in all_candidates},
+            current_user=current_user,
+            required_skills=required_skills,
             nice_skills=nice_skills,
-            score=None,
-            inputs=rubric_inputs,
+            rubric_inputs=rubric_inputs,
+            elig_annotations=elig_annotations,
+            query_text=query_text,
         )
-        match["eligibility"] = elig_annotations.get(c.id)
-        # No required_skills → score is a profile-completeness proxy; keep the
-        # threshold floor so junk profiles don't surface as "matches".
-        if match["match_score"] >= threshold:
-            matches.append(match)
+        matches = [
+            m
+            for m in matches
+            if (
+                not location_active
+                or _location_matches(requested_tokens, m["candidate"]["location"])
+            )
+            and (m["match_score"] is None or m["match_score"] >= threshold)
+        ][:max_results]
+    else:
+        matches = []
+        for c in all_candidates:
+            # Location filter (when active): skip non-matching candidates up front.
+            if location_active and not _location_matches(requested_tokens, c.location):
+                continue
+            match = _build_match_info(
+                c,
+                required_skills,
+                nice_skills=nice_skills,
+                score=None,
+                inputs=rubric_inputs,
+            )
+            match["eligibility"] = elig_annotations.get(c.id)
+            # No required_skills → score is a profile-completeness proxy; keep the
+            # threshold floor so junk profiles don't surface as "matches".
+            if match["match_score"] >= threshold:
+                matches.append(match)
 
-    # Sort by score desc, show all who clear the threshold (capped).
-    matches.sort(key=lambda x: x["match_score"], reverse=True)
-    matches = matches[:max_results]
+        # Sort by score desc, show all who clear the threshold (capped).
+        matches.sort(key=lambda x: x["match_score"], reverse=True)
+        matches = matches[:max_results]
 
     # `meta.degraded` — strona rekrutacji ma gotowy baner „wyszukiwanie
     # semantyczne niedostępne" wpięty dokładnie w ten klucz, tylko backend go

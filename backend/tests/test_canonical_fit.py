@@ -135,3 +135,131 @@ def test_snapshot_hydration_preserves_unknown_score():
     assert len(rows) == 1
     assert rows[0].total_score is None
     assert rows[0].breakdown["measurement"] == "missing_index"
+
+
+@pytest.mark.asyncio
+async def test_legacy_c2_shared_engine_uses_exact_fit_and_stable_order(monkeypatch):
+    from app.api import matching
+    from app.services import match_score_cache, scoring_service, similar_job_candidates
+
+    job = make_job(description="X" * 9000 + "TAIL_C2", client_id=8)
+    candidates = [
+        make_candidate(
+            id=i,
+            name="Test",
+            lastname="Candidate",
+            email=None,
+            phone=None,
+            status=SimpleNamespace(value="active"),
+            competence_category=None,
+            tags=[],
+            ai_summary=None,
+            avatar_url=None,
+        )
+        for i in [3, 2, 1]
+    ]
+    profile = AsyncMock(return_value=DEFAULT_PROFILE)
+    monkeypatch.setattr(scoring_service, "resolve_active_profile", profile)
+    monkeypatch.setattr(
+        similar_job_candidates,
+        "fetch_historical_boost_map",
+        AsyncMock(return_value={2: 8}),
+    )
+    legacy = AsyncMock(side_effect=AssertionError("legacy cache must not be used"))
+    monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", legacy)
+    query = AsyncMock(return_value=[1, 0])
+    monkeypatch.setattr(fit, "request_vector", query)
+    measurements = {
+        1: VectorMeasurement(0.1, "measured"),
+        2: VectorMeasurement(0.1, "measured"),
+        3: VectorMeasurement(None, "stale"),
+    }
+    monkeypatch.setattr(fit, "measure_candidates", AsyncMock(return_value=measurements))
+    rerank = AsyncMock(side_effect=AssertionError("fit order must be authoritative"))
+    monkeypatch.setattr(matching, "rerank_or_passthrough", rerank)
+    monkeypatch.setattr(matching.settings, "AI_MATCHES_RERANK_TOP_N", 20)
+    rows, reranked = await matching._shared_engine_matches(
+        None,
+        job=job,
+        ordered=candidates,
+        similarity_map={1: 0.99, 2: 0.5, 3: 0.99},
+        semantic_unknown_ids={1},
+        current_user=SimpleNamespace(id=42, get_all_roles=lambda: []),
+        required_skills=[],
+        nice_skills=[],
+        rubric_inputs=None,
+        elig_annotations={},
+        query_text="truncated",
+    )
+    expected = await fit.score_pair(
+        None,
+        build_request_context(job, DEFAULT_PROFILE),
+        candidates[-1],
+        measurements[1],
+    )
+    assert [row["candidate"]["id"] for row in rows] == [1, 2, 3]
+    assert rows[0]["total_score"] == expected.fit_score
+    assert rows[0]["match_score"] == pytest.approx(expected.fit_score / 100, abs=0.0001)
+    assert rows[2]["total_score"] is None and rows[2]["match_score"] is None
+    assert rows[2]["breakdown"] is None and rows[2]["measurement"] == "stale"
+    assert rows[0]["context_fingerprint"] == rows[2]["context_fingerprint"]
+    assert "TAIL_C2" in query.call_args.args[0]
+    profile.assert_awaited_once_with(None, user_id=42, client_id=8)
+    legacy.assert_not_awaited()
+    rerank.assert_not_awaited()
+    assert reranked is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hits", [[], [{"candidate_id": 1, "score": 0.99}]])
+async def test_c2_unknown_measurement_survives_threshold_in_both_discovery_paths(
+    monkeypatch, hits
+):
+    from app.api import matching
+    from app.services import retrieval_pool
+    from app.services.dealbreaker_filters import DealbreakerInputs
+
+    from app.models.job import Job
+
+    job = Job(id=7, client_id=8, title="Python", location=None)
+    candidate = make_candidate(id=1)
+    db = AsyncMock()
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: job),
+        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [candidate])),
+    ]
+    monkeypatch.setattr(matching.settings, "AI_MATCHES_SHARED_ENGINE", True)
+    monkeypatch.setattr(
+        retrieval_pool, "retrieve_candidate_pool", AsyncMock(return_value=hits)
+    )
+    monkeypatch.setattr(
+        matching,
+        "_gate_and_dealbreakers",
+        AsyncMock(return_value=([candidate], {}, {}, 0, DealbreakerInputs())),
+    )
+    scorer = AsyncMock(
+        return_value=(
+            [
+                {
+                    "candidate": {"id": 1, "location": None},
+                    "match_score": None,
+                    "total_score": None,
+                    "measurement": "missing_index",
+                }
+            ],
+            False,
+        )
+    )
+    monkeypatch.setattr(matching, "_shared_engine_matches", scorer)
+    result = await matching.get_ai_matches(
+        7,
+        current_user=SimpleNamespace(id=42),
+        min_score=1.0,
+        limit=20,
+        location=None,
+        db=db,
+    )
+    assert len(result["matches"]) == 1
+    assert result["matches"][0]["match_score"] is None
+    assert result["meta"]["degraded"] is True
+    scorer.assert_awaited_once()
