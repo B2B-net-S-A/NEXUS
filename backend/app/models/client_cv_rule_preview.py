@@ -13,7 +13,16 @@ jest dokumentem do wysłania, nie ma pliku ani udostępniania, a na liście
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    LargeBinary,
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -52,6 +61,12 @@ class ClientCvRulePreview(Base):
     )
     without_rule: Mapped[Optional[dict]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    with_rule_docx: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary(), nullable=True
+    )
+    without_rule_docx: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary(), nullable=True
     )
     # Dokładny blok reguł, jaki dostał model — bez tajemnic.
     prompt_block: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

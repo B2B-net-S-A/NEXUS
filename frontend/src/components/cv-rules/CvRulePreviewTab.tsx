@@ -19,6 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
+import { downloadBlob } from "@/lib/cv-generator";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 import {
   cvRulesApi,
@@ -47,9 +48,6 @@ interface Props {
   onPreviewId: (id: number | null) => void;
 }
 
-// Po tym czasie backend i tak pokazuje „processing" jako awarię (restart
-// serwera w trakcie zadania); dalsze odpytywanie byłoby pętlą bez końca.
-const POLL_CAP_MS = 15 * 60 * 1000;
 
 type Payload = Record<string, unknown>;
 
@@ -77,10 +75,12 @@ function VariantColumn({
   title,
   variant,
   other,
+  onDownload,
 }: {
   title: string;
   variant: PreviewVariant | null;
   other: PreviewVariant | null;
+  onDownload: () => void;
 }) {
   const payload = (variant?.payload ?? null) as Payload | null;
   const otherPayload = (other?.payload ?? null) as Payload | null;
@@ -103,6 +103,7 @@ function VariantColumn({
   return (
     <div className="space-y-3 rounded-md border p-3 text-sm">
       <h4 className="font-semibold">{title}</h4>
+      {variant?.can_download && <Button type="button" variant="outline" size="sm" onClick={onDownload}>Pobierz DOCX — {title.toLowerCase()}</Button>}
       <p>
         <span className="text-xs text-muted-foreground">Stanowisko: </span>
         {String(payload.position ?? "—")}
@@ -220,8 +221,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
     refetchInterval: (q) => {
       const data = q.state.data;
       if (data?.status !== "processing") return false;
-      const started = data.created_at ? new Date(data.created_at).getTime() : Date.now();
-      return Date.now() - started < POLL_CAP_MS ? 4000 : false;
+      return 4000;
     },
   });
   const preview: RulePreview | undefined = previewQuery.data;
@@ -244,6 +244,16 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
       setEnqueueError(extractErrorMsg(err) || "Nie udało się uruchomić CV próbnego.");
     } finally {
       setEnqueuing(false);
+    }
+  };
+
+  const downloadPreview = async (variant: "with_rule" | "without_rule") => {
+    if (!preview) return;
+    try {
+      const response = await api.get(`/api/clients/${clientId}/cv-rule/preview/${preview.id}/docx/${variant}`, {responseType: "blob"});
+      downloadBlob(response.data as Blob, preview[variant]?.filename || "cv-probne.docx");
+    } catch (error) {
+      setEnqueueError(extractErrorMsg(error) || "Nie udało się pobrać DOCX podglądu.");
     }
   };
 
@@ -397,11 +407,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
         {preview?.status === "ready" ? (
           <div className="grid gap-3 md:grid-cols-2">
             <VariantColumn
+              onDownload={() => void downloadPreview("with_rule")}
               title="Z regułą"
               variant={preview.with_rule}
               other={preview.without_rule}
             />
             <VariantColumn
+              onDownload={() => void downloadPreview("without_rule")}
               title="Bez reguły"
               variant={preview.without_rule}
               other={preview.with_rule}

@@ -26,6 +26,7 @@ w ``client_cv_rule_events`` — bez tego reklamacja klienta jest nie do
 prześledzenia.
 """
 
+import hashlib
 import logging
 from contextlib import nullcontext
 import re
@@ -487,6 +488,8 @@ class PreviewRequest(BaseModel):
 
 
 class PreviewVariant(BaseModel):
+    can_download: bool = False
+    docx_sha256: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
     warnings: list[str] = Field(default_factory=list)
     filename: Optional[str] = None
@@ -1342,6 +1345,8 @@ def _variant(value: Optional[dict]) -> Optional[PreviewVariant]:
     if not value:
         return None
     return PreviewVariant(
+        can_download=bool(value.get("docx_sha256")),
+        docx_sha256=value.get("docx_sha256"),
         payload=value.get("payload"),
         warnings=list(value.get("warnings") or []),
         filename=value.get("filename"),
@@ -1503,12 +1508,16 @@ async def _run_rule_preview_job_inner(
         from app.services.cv_generator_b2b.job_leases import lock_owned_job
 
         await lock_owned_job(db)
+        row.with_rule_docx = with_rule.docx_bytes
+        row.without_rule_docx = without_rule.docx_bytes
         row.with_rule = {
+            "docx_sha256": hashlib.sha256(with_rule.docx_bytes).hexdigest(),
             "payload": with_rule.render_payload,
             "warnings": list(with_rule.warnings or []),
             "filename": with_rule.filename,
         }
         row.without_rule = {
+            "docx_sha256": hashlib.sha256(without_rule.docx_bytes).hexdigest(),
             "payload": without_rule.render_payload,
             "warnings": list(without_rule.warnings or []),
             "filename": without_rule.filename,
@@ -1802,3 +1811,41 @@ async def cv_rules_overview(
         else []
     )
     return CvRulesOverview(rules=rules, unassigned_templates=unassigned)
+
+
+@router.get("/clients/{client_id}/cv-rule/preview/{preview_id}/docx/{variant}")
+async def download_rule_preview_docx(
+    client_id: int,
+    preview_id: int,
+    variant: Literal["with_rule", "without_rule"],
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import Response
+    from urllib.parse import quote
+
+    await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
+    row = await db.get(ClientCvRulePreview, preview_id)
+    if row is None or row.client_id != client_id:
+        raise HTTPException(404, "Podgląd nie istnieje.")
+    content = row.with_rule_docx if variant == "with_rule" else row.without_rule_docx
+    metadata = row.with_rule if variant == "with_rule" else row.without_rule
+    if row.status != "ready" or not content or not metadata:
+        raise HTTPException(
+            409, "Ten podgląd nie ma zapisanego pliku DOCX. Uruchom nową próbę."
+        )
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != metadata.get("docx_sha256"):
+        raise HTTPException(409, "Nie można potwierdzić integralności pliku podglądu.")
+    filename = metadata.get("filename") or "cv-probne.docx"
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(filename, safe=""),
+            "Cache-Control": "no-store",
+            "X-Content-SHA256": digest,
+        },
+    )

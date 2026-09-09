@@ -193,6 +193,8 @@ export interface PromptPreview {
 }
 
 export interface PreviewVariant {
+  can_download?: boolean;
+  docx_sha256?: string | null;
   payload: Record<string, unknown> | null;
   warnings: string[];
   filename: string | null;
