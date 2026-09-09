@@ -49,6 +49,14 @@ describe("JobShortlistPanel", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("separates current fit from archived scores and missing measurements", async () => {
+    list.mockResolvedValue([entry({ fit_score: 63.4 }), entry({ id: 2, candidate_id: 6, fit_score: null })]);
+    render(<JobShortlistPanel jobId={10} />);
+    expect(await screen.findByTestId("shortlist-fit-1")).toHaveTextContent("63.4/100");
+    expect(screen.getByTestId("shortlist-fit-2")).toHaveTextContent("Ocena niepełna");
+    expect(screen.getAllByText("Archiwalna: 82")).toHaveLength(2);
+  });
+
   it("lists entries with a promote action and the count", async () => {
     list.mockResolvedValue([entry()]);
     render(<JobShortlistPanel jobId={10} />);
@@ -57,7 +65,7 @@ describe("JobShortlistPanel", () => {
     );
     expect(screen.getByText(/Shortlista/)).toBeInTheDocument();
     expect(screen.getByText("(1)")).toBeInTheDocument();
-    expect(screen.getByText("82")).toBeInTheDocument();
+    expect(screen.getByText("Archiwalna: 82")).toBeInTheDocument();
     expect(screen.getByText("Do rekrutacji")).toBeInTheDocument();
   });
 

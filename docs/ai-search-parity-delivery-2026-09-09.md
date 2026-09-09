@@ -185,3 +185,9 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Proposal generation captures each candidate's SQL version before scoring and stores it with the result. Reads compare that version with the current profile: changed or unversioned candidates receive null fit and no old skill breakdown, ordered after current measured rows. The response marks the ranking stale/degraded when these rows occur; policy v4 invalidates old snapshots.
 - Eight native proposal contract/current-data tests pass. The new regression reads a snapshot, updates a candidate version, reads again and checks loss of the old numeric/skill claims, retained current scores, stable null ordering and non-mutation of stored history. Ruff and diff checks pass. This is conservative version-based invalidation; it does not yet cover all non-candidate dependencies or repair/recompute the full ranking automatically. Full audit and deployment requirements remain open.
+
+### Increment: shortlist separates current canonical fit from archived score
+
+- Shortlist reads now calculate the same canonical pair fit with the full current request and viewer's active profile. Response fields distinguish nullable current fit, measurement state and context fingerprint from the original score snapshot. Empty lists do not call the scoring providers.
+- The panel displays current fit on the 0–100 scale, shows incomplete measurements explicitly and labels the stored score archival. Process evaluation/outreach remain separate.
+- Seven native canonical/shortlist tests and ten panel tests pass; typecheck, Ruff and diff checks pass. The handler regression compares its actual fit with the shared pair scorer, exercises a missing index and preserves the unrelated archived value. Full hosted shortlist/access regression still required. This read currently recomputes fit; reusable versioned results/latency/cost, remaining audit work and deployment proof remain open.
