@@ -56,3 +56,14 @@ def test_entrypoint_recovery_seed_is_complete_and_fail_closed() -> None:
             ProductAction.b2b_contract_generator
         ].name
         assert f"('{role.value}', 'b2b_contract_generator', '{access}')" in seed
+
+
+def test_signature_recovery_uses_migration_only_when_policy_is_missing() -> None:
+    entrypoint = (BACKEND_ROOT / "entrypoint.sh").read_text()
+    block = entrypoint.split("python - <<'PY_SIGNATURE_POLICY'", 1)[1].split("\nPY_SIGNATURE_POLICY", 1)[0]
+    compile(block, "signature-policy-entrypoint", "exec")
+    assert "0282_b2b_signature_permission.py" in block
+    assert "if not ready:" in block
+    assert "pg_get_constraintdef(oid)" in block
+    assert "migration.upgrade()" in block
+    assert "FOR UPDATE" in block
