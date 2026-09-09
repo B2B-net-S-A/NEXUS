@@ -312,3 +312,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - AI writer requests only the description field it actually consumes, avoiding generated titles/requirements/pay/benefits that are discarded. Explicit user criteria and empty unapproved compensation/benefits remain server-controlled.
 - Empty, non-object or non-text descriptions now fail instead of producing a successful blank draft; the existing route maps provider failures to an explicit unavailable response. Thirteen native writer tests pass, including malformed payloads, prompt output fields and preserved supplied criteria. Ruff/diff checks pass. This validates transport/grounding boundaries, not factual accuracy of actual model prose; live quality review remains required. Latest CI was still queued.
+
+### CI queue prevention for subsequent revisions
+
+- CI and CI Gate now use workflow/PR concurrency groups and cancel superseded PR runs. Non-PR runs use unique run IDs and never cancel one another, preserving independent main/deployment gates. Existing old runs without a group may still need completion/cancellation; this is not a claim the queue is drained.
+- Parsed both YAML files and compared every job/trigger with HEAD: unchanged. Four existing CI coverage/encryption contract tests pass, one skipped. Diff check passes. Latest checks still require actual hosted execution; no test or protection was bypassed.

@@ -11,6 +11,12 @@ on:
   pull_request:
     branches: [main]
 
+# A new PR revision supersedes older test runs of that same PR. Main uses
+# a unique run key so production gates never cancel one another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Pytest podzielony na 4 shardy = 4 OSOBNE runnery, każdy z własnym
   # postgresem i sekwencyjnym pytestem. Pomiar na 3 shardach (run 31246862557):
