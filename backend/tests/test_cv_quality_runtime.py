@@ -102,7 +102,14 @@ def test_corpus_and_scoring_do_not_count_protocol_errors_as_rejection():
     )
     assert runner.score(True, "accepted")
     assert runner.score(False, "semantic_rejection")
-    for failure in ("invalid_review", "invalid_evidence", "provider_error"):
+    for failure in (
+        "invalid_review",
+        "invalid_evidence",
+        "provider_error",
+        "invalid_json",
+        "invalid_schema",
+        "invalid_coverage",
+    ):
         assert not runner.score(False, failure)
         assert not runner.score(True, failure)
 
