@@ -46,6 +46,10 @@ class ClientCvRule(Base, TimestampMixin):
     __tablename__ = "client_cv_rules"
     __table_args__ = (
         CheckConstraint(
+            "highlight_policy IN ('none', 'technologies', 'must', 'must_nice', 'explicit')",
+            name="ck_cv_highlight_policy",
+        ),
+        CheckConstraint(
             "cv_language IS NULL OR cv_language IN ('pl', 'en')",
             name="ck_client_cv_rules_language",
         ),
@@ -183,6 +187,16 @@ class ClientCvRule(Base, TimestampMixin):
     why_points_max: Mapped[Optional[int]] = mapped_column(Integer)
     date_format: Mapped[Optional[str]] = mapped_column(String(16))
     glossary: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+
+    highlight_policy: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="technologies",
+        server_default="technologies",
+    )
+    highlight_terms: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql")
     )
 

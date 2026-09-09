@@ -132,12 +132,18 @@ describe("CvRuleEditor", () => {
       target: { value: "Analityk Biznesowy" },
     });
 
+    fireEvent.change(screen.getByLabelText("Co pogrubiać"), { target: { value: "explicit" } });
+    fireEvent.change(screen.getByLabelText("Wyróżniane technologie — po jednej w wierszu"), {
+      target: { value: "Python\nSQL" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz i włącz regułę" }));
 
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
     const [url, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
     expect(url).toBe("/api/clients/5/cv-rule");
     expect(body.confirm).toBe(true);
+    expect(body.highlight_policy).toBe("explicit");
+    expect(body.highlight_terms).toEqual(["Python", "SQL"]);
     expect(body.content_mode).toBe("basic");
     expect(body.content_mode_locked).toBe(true);
     expect(body.require_project_ref).toBe(true);
