@@ -18,6 +18,7 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.user import User
 from app.services import candidate_search_store as store
+from app.services.search_eligibility_freshness import eligibility_fingerprint
 from app.services.request_matching_context import (
     RequestMatchingContext,
     build_request_context,
@@ -131,7 +132,10 @@ async def start_search(
         job_id=payload.job_id,
         request_fingerprint=context.fingerprint,
         request_context=context.as_dict(),
-        version_trace=context.versions,
+        version_trace={
+            **context.versions,
+            "eligibility_fingerprint": await eligibility_fingerprint(db, job=job),
+        },
     )
     await db.commit()
     return {
@@ -188,6 +192,10 @@ async def search_results(
             "versions": run.version_trace,
         }
     data_changed = await store.population_changed(db, run.id)
+    current_eligibility = await eligibility_fingerprint(db, job=job)
+    data_changed = data_changed or current_eligibility != (run.version_trace or {}).get(
+        "eligibility_fingerprint"
+    )
     from app.services.full_search_filters import ResultFilters
 
     if stage != "all" and run.job_id is None:

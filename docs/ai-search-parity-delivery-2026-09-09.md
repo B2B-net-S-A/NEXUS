@@ -322,3 +322,9 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Compatibility AI Matching and live recommendations now default to a zero threshold, matching full Radar/C2. Explicit caller thresholds keep their existing scale and effect. Proposal snapshots retain top-ranked canonical fits without the former hidden 40-point floor; policy v6 invalidates older floor-truncated snapshots. Payload/retrieval limits remain explicit and unchanged.
 - Eighteen native endpoint/proposal contract tests pass (six integration scenarios deferred). The endpoint regression now uses a 5/100 result and omitted threshold across semantic/fallback branches and both obsolete-flag settings. Ruff/diff checks pass. This aligns default score filtering, not bounded discovery with exhaustive membership; latest CI, quality/index and production requirements remain outstanding.
+
+### Full-population eligibility freshness
+
+Search start records a hash of all effective client conflicts and manager veto candidate IDs. Completed reads compare it across the entire scope, so an off-page block addition/removal or time-based expiry invalidates ranking completeness. Candidate status/preferences remain covered by population version checks; displayed rows still receive live eligibility enforcement. Old runs without the fingerprint are marked changed. This is detection, not automatic recomputation, and concurrent changes after a read remain possible.
+
+Validation: 15 native freshness/API tests passed, including unchanged visible candidates with changed off-page policy. Existing database manager-verdict scenarios now also compare full-scope and candidate-scoped results; execution is left to hosted CI. Ruff passed. Production verification remains pending.

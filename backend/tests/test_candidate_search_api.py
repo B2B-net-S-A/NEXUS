@@ -30,11 +30,13 @@ async def test_details_require_candidate_read_before_loading_any_results(monkeyp
     "old_block,new_block", [(False, False), (False, True), (True, False)]
 )
 @pytest.mark.parametrize("changed", [True, False])
+@pytest.mark.parametrize("off_page_policy_changed", [True, False])
 async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evidence(
     monkeypatch,
     changed,
     old_block,
     new_block,
+    off_page_policy_changed,
 ):
     from app.services import pipeline_eligibility
 
@@ -84,7 +86,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         client_id=job.client_id,
         request_context=context.as_dict(),
         request_fingerprint=context.fingerprint,
-        version_trace=context.versions,
+        version_trace={**context.versions, "eligibility_fingerprint": "initial"},
         state="complete",
         metrics={"cost_complete": False},
     )
@@ -96,6 +98,11 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         eligible=1,
         excluded=0,
         needs_verification=0,
+    )
+    monkeypatch.setattr(
+        api,
+        "eligibility_fingerprint",
+        AsyncMock(return_value="changed" if off_page_policy_changed else "initial"),
     )
     monkeypatch.setattr(api.store, "owned_run", AsyncMock(return_value=run))
     monkeypatch.setattr(api.store, "run_counts", AsyncMock(return_value=counts))
@@ -124,8 +131,12 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=db
     )
     assert result["coverage_complete"]
-    assert result["data_changed"] == (changed or old_block != new_block)
-    assert result["ranking_complete"] == (not changed and old_block == new_block)
+    assert result["data_changed"] == (
+        changed or old_block != new_block or off_page_policy_changed
+    )
+    assert result["ranking_complete"] == (
+        not changed and old_block == new_block and not off_page_policy_changed
+    )
     assert result["results"][0]["eligibility"] == _eligibility_annotation(
         decision(new_block)
     )
