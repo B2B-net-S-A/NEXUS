@@ -487,7 +487,14 @@ class PreviewRequest(BaseModel):
     language: Literal["pl", "en"] = "pl"
 
 
+class RuleFeedbackItem(BaseModel):
+    field: str
+    label: str
+    status: Literal["satisfied", "not_applicable", "conflict", "needs_review"]
+
+
 class PreviewVariant(BaseModel):
+    rule_feedback: list[RuleFeedbackItem] = Field(default_factory=list)
     can_download: bool = False
     docx_sha256: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
@@ -1345,6 +1352,7 @@ def _variant(value: Optional[dict]) -> Optional[PreviewVariant]:
     if not value:
         return None
     return PreviewVariant(
+        rule_feedback=value.get("rule_feedback") or [],
         can_download=bool(value.get("docx_sha256")),
         docx_sha256=value.get("docx_sha256"),
         payload=value.get("payload"),
@@ -1510,7 +1518,12 @@ async def _run_rule_preview_job_inner(
         await lock_owned_job(db)
         row.with_rule_docx = with_rule.docx_bytes
         row.without_rule_docx = without_rule.docx_bytes
+        from app.services.cv_generator_b2b.rule_feedback import presentation_feedback
+
         row.with_rule = {
+            "rule_feedback": presentation_feedback(
+                with_rule.render_payload or {}, snap
+            ),
             "docx_sha256": hashlib.sha256(with_rule.docx_bytes).hexdigest(),
             "payload": with_rule.render_payload,
             "warnings": list(with_rule.warnings or []),

@@ -103,6 +103,11 @@ function VariantColumn({
   return (
     <div className="space-y-3 rounded-md border p-3 text-sm">
       <h4 className="font-semibold">{title}</h4>
+      {!!variant?.rule_feedback?.length && <ul className="space-y-1 text-xs" aria-label="Kontrola reguł prezentacji">
+        {variant.rule_feedback.map((item, index) => <li key={`${item.field}-${index}`}>
+          {item.label}: {{satisfied: "zgodne", not_applicable: "brak treści do zastosowania", conflict: "niezgodność — sprawdź", needs_review: "ocena ręczna"}[item.status]}
+        </li>)}
+      </ul>}
       {variant?.can_download && <Button type="button" variant="outline" size="sm" onClick={onDownload}>Pobierz DOCX — {title.toLowerCase()}</Button>}
       <p>
         <span className="text-xs text-muted-foreground">Stanowisko: </span>

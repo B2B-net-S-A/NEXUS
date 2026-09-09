@@ -193,6 +193,7 @@ export interface PromptPreview {
 }
 
 export interface PreviewVariant {
+  rule_feedback?: {field: string; label: string; status: "satisfied" | "not_applicable" | "conflict" | "needs_review"}[];
   can_download?: boolean;
   docx_sha256?: string | null;
   payload: Record<string, unknown> | null;
