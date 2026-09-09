@@ -87,4 +87,48 @@ async def test_history_and_readiness_share_pipeline_scope():
         with pytest.raises(HTTPException) as exc:
             await api._load_generated_document(db, other_doc.id, owner)
         assert exc.value.status_code == 403
+        # More than a global history page must not hide this candidate's CV.
+        for i in range(65):
+            db.add(
+                CvGeneratedDocument(
+                    candidate_name=f"Other {i}",
+                    filename="other.docx",
+                    created_by=outsider.id,
+                    job_id=other_job.id,
+                )
+            )
+        newer_own = CvGeneratedDocument(
+            candidate_id=candidate.id,
+            job_id=own_job.id,
+            candidate_name="Own upload",
+            filename="own.docx",
+            created_by=owner.id,
+            mode="upload",
+        )
+        db.add(newer_own)
+        await db.flush()
+        first_page = await api.list_generated_cvs(
+            owner, db, limit=1, candidate_id=candidate.id, job_id=own_job.id
+        )
+        assert [r.id for r in first_page] == [newer_own.id]
+        second_page = await api.list_generated_cvs(
+            owner,
+            db,
+            limit=1,
+            candidate_id=candidate.id,
+            job_id=own_job.id,
+            before_id=first_page[-1].id,
+        )
+        assert [r.id for r in second_page] == [own_doc.id]
+        assert (
+            await api.list_generated_cvs(
+                owner,
+                db,
+                limit=1,
+                candidate_id=candidate.id,
+                job_id=own_job.id,
+                before_id=own_doc.id,
+            )
+            == []
+        )
         await db.rollback()

@@ -7,7 +7,7 @@ import { CVGeneratorStandaloneV2 } from "../CVGeneratorStandaloneV2";
 import { useAuthStore } from "@/store/auth";
 
 // The page GETs the generated-CV list on mount and POSTs the multipart upload.
-const getMock = vi.fn((..._args: unknown[]) => Promise.resolve({ data: [] }));
+const getMock = vi.fn((..._args: unknown[]): Promise<{data: unknown}> => Promise.resolve({ data: [] }));
 const postMock = vi.fn((..._args: unknown[]) =>
   Promise.resolve<{ data: unknown }>({ data: { id: 1, status: "processing", candidate_name: "x" } }),
 );
@@ -42,14 +42,14 @@ function setSourcingAccess(
   });
 }
 
-function renderPage() {
+function renderPage(props: import("../CVGeneratorStandaloneV2").CVGeneratorStandaloneV2Props = {}) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <CVGeneratorStandaloneV2 />
+        <CVGeneratorStandaloneV2 {...props} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -311,4 +311,41 @@ it("does not send person A's consent when generating the next uploaded CV", asyn
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+describe("CV upload context and server history", () => {
+  beforeEach(() => {
+    setSourcingAccess("write");
+    getMock.mockReset();
+    getMock.mockResolvedValue({ data: [] });
+    postMock.mockReset();
+    postMock.mockResolvedValue({ data: {id: 500, status: "processing", candidate_name: "Synthetic"} });
+  });
+  it("sends the pipeline candidate and exact recruitment with the uploaded CV", async () => {
+    getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/recruitments") ? [{stage_id: 30, job_id: 40, job_title: "Test job", client_id: 5, client_name: "Test client", ready: true}] : String(url).includes("cv-rule") ? null : []}) as never);
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
+    await openUploadMode();
+    await screen.findByText("Klient rekrutacji: Test client");
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    fireEvent.click(screen.getByRole("button", {name: /Generuj CV/i}));
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const form = postMock.mock.calls.find(([url]) => String(url).endsWith("/generate-upload"))![1] as FormData;
+    expect(form.get("candidate_id")).toBe("2");
+    expect(form.get("stage_id")).toBe("30");
+    expect(form.get("client_id")).toBe("5");
+    expect(getMock).toHaveBeenCalledWith("/api/cv-generator/generated", {params:{candidate_id:2,job_id:40,before_id:undefined,limit:60}});
+  });
+  it("loads older documents using the same server filters and a cursor", async () => {
+    const row = (id: number) => ({id,candidate_name:`Document ${id}`, language:"pl",mode:"upload",status:"ready",filename:"cv.docx",warnings:[],can_download:false,can_delete:false});
+    getMock.mockImplementation(async (url, options) => {
+      if (String(url) !== "/api/cv-generator/generated") return {data: []};
+      const cursor = (options as {params:{before_id?:number}}).params.before_id;
+      return {data: cursor ? [row(50)] : Array.from({length:60},(_,i)=>row(200-i))};
+    });
+    renderPage({embedded:true,prefillCandidateId:2,prefillJobId:40});
+    fireEvent.click(await screen.findByRole("button", {name:"Pokaż starsze CV"}));
+    expect(await screen.findByText("Document 50")).toBeInTheDocument();
+    expect(getMock).toHaveBeenCalledWith("/api/cv-generator/generated", {params:{candidate_id:2,job_id:40,before_id:141,limit:60}});
+    expect(screen.queryByRole("button",{name:"Pokaż starsze CV"})).not.toBeInTheDocument();
+  });
 });
