@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
@@ -40,7 +41,7 @@ def sample_report():
         ),
         "recent_runs": [
             {
-                "run_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "run_id": str(UUID(int=1)),
                 "state": "complete",
                 "population": 2,
                 "query_characters": 300,
