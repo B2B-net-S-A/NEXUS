@@ -262,6 +262,20 @@ async def rubric_labels_fixture():
         await db.flush()
 
         job = Job(
+            requirements_reviewed=True,
+            matching_requirements={
+                "version": 1,
+                "reviewed": True,
+                "missing_evidence_policy": "exclude",
+                "all_of": [
+                    {
+                        "any_of": ["python"],
+                        "level": "must",
+                        "source": "manual",
+                        "evidence": "",
+                    }
+                ],
+            },
             title=f"AIMatch RowLabels Job {unique}",
             client_id=client.id,
             description="Python backend engineer",
@@ -345,7 +359,7 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     monkeypatch,
 ):
     job_id, ok_id, warn_id, _client_id = rubric_labels_fixture
-    monkeypatch.setattr(settings, "AI_MATCH_POOL_SIZE", 100_000)
+    monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
     # ── gałąź fallback (droga 3: pusty wynik Qdranta, cicho) ────────────────
     async def _no_hits(*_a, **_kw):
@@ -404,7 +418,7 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     )
     assert resp_semantic.status_code == 200, resp_semantic.text
     body_semantic = resp_semantic.json()
-    assert body_semantic["search_type"] == "semantic"
+    assert body_semantic["search_type"] == "semantic+composite"
     ok_row2 = _match(body_semantic, ok_id)
     assert ok_row2 is not None
     assert ok_row2["rate_fit"] == "ok"

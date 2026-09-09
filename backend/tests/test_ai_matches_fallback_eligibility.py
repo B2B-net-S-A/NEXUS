@@ -134,7 +134,7 @@ def _widen_pool(monkeypatch) -> None:
     kolejności kolekcji. Podniesienie puli zdejmuje tę zmienną; nie zmienia
     niczego, co test bada (bramka działa na tym, co do puli weszło).
     """
-    monkeypatch.setattr(settings, "AI_MATCH_POOL_SIZE", 100_000)
+    monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
 
 @pytest.mark.integration
@@ -403,6 +403,20 @@ async def gated_missing_must_fixture():
 
         job = Job(
             title=f"AIMatch MissingMust Job {unique}",
+            requirements_reviewed=True,
+            matching_requirements={
+                "version": 1,
+                "reviewed": True,
+                "missing_evidence_policy": "exclude",
+                "all_of": [
+                    {
+                        "any_of": ["python"],
+                        "level": "must",
+                        "source": "manual",
+                        "evidence": "",
+                    }
+                ],
+            },
             client_id=client.id,
             description="Python backend engineer",
             requirements="python",
@@ -510,7 +524,7 @@ async def test_missing_must_hides_on_both_branches(
     )
     assert resp_semantic.status_code == 200, resp_semantic.text
     body_semantic = resp_semantic.json()
-    assert body_semantic["search_type"] == "semantic"
+    assert body_semantic["search_type"] == "semantic+composite"
     assert java_only_id not in _ids(body_semantic)
     assert body_semantic["meta"]["hidden"]["missing_must"] == 1
     warn_match2 = _match(body_semantic, warn_id)

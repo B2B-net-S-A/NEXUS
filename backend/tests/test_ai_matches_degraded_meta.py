@@ -65,7 +65,7 @@ async def degraded_fixture():
 def _widen_pool(monkeypatch) -> None:
     """Fallback bierze `LIMIT effective_pool` BEZ `ORDER BY` — patrz siostrzany
     test bramki dopuszczalności."""
-    monkeypatch.setattr(settings, "AI_MATCH_POOL_SIZE", 100_000)
+    monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
 
 @pytest.mark.integration
@@ -140,6 +140,18 @@ async def test_healthy_semantic_ranking_is_not_flagged(
 ):
     """Zdrowa ścieżka NIE może krzyczeć — baner na każdej liście przestaje znaczyć."""
     job_id, cand_id, _client_id = degraded_fixture
+
+    from unittest.mock import AsyncMock
+    from app.services.full_search_measurement import VectorMeasurement
+
+    monkeypatch.setattr(
+        "app.services.canonical_fit.request_vector", AsyncMock(return_value=[1, 0])
+    )
+
+    async def measured(_vector, candidates):
+        return {c.id: VectorMeasurement(0.91, "measured") for c in candidates}
+
+    monkeypatch.setattr("app.services.canonical_fit.measure_candidates", measured)
 
     async def _one_hit(*_a, **_kw):
         return [{"candidate_id": cand_id, "score": 0.91}]
