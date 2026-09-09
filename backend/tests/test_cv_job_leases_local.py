@@ -30,6 +30,10 @@ def session():
     engine = create_engine("sqlite://")
     # SQLite foreign keys are intentionally not enabled: these tests create only
     # attempt rows; production foreign keys are exercised against PostgreSQL.
+    # SQLite only exercises sequential state transitions; the advisory lock
+    # race is covered by the PostgreSQL test, not emulated here.
+    with engine.connect() as connection:
+        connection.connection.create_function("pg_advisory_xact_lock", 1, lambda key: 0)
     CvGenerationJob.__table__.create(engine)
     with engine.connect() as connection:
         yield SessionAdapter(connection)

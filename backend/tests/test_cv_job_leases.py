@@ -147,3 +147,41 @@ async def test_failure_preserves_ready_first_language_and_finishes_second():
                 delete(CvGeneratedDocument).where(CvGeneratedDocument.id.in_(ids))
             )
             await db.commit()
+
+
+async def test_concurrent_claims_share_global_capacity_and_resume_after_finish():
+    from app.services.cv_generator_b2b.job_leases import MAX_RUNNING_JOBS
+
+    async with AsyncSessionLocal() as db:
+        jobs = [
+            CvGenerationJob(
+                kind="upload",
+                status="queued",
+                input_storage_key="test-only/capacity",
+                input_sha256="d" * 64,
+            )
+            for _ in range(MAX_RUNNING_JOBS + 3)
+        ]
+        db.add_all(jobs)
+        await db.flush()
+        ids = [job.id for job in jobs]
+        await db.commit()
+
+    async def claim(job_id):
+        async with AsyncSessionLocal() as db:
+            return await claim_job(db, job_id)
+
+    try:
+        tokens = await asyncio.gather(*(claim(job_id) for job_id in ids))
+        admitted = [(job_id, token) for job_id, token in zip(ids, tokens) if token]
+        queued = [job_id for job_id, token in zip(ids, tokens) if token is None]
+        assert len(admitted) == MAX_RUNNING_JOBS
+        assert len(queued) == 3
+        assert await claim(queued[0]) is None
+        async with AsyncSessionLocal() as db:
+            assert await finish_job(db, *admitted[0])
+        assert await claim(queued[0]) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(CvGenerationJob).where(CvGenerationJob.id.in_(ids)))
+            await db.commit()

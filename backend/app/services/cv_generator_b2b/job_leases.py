@@ -6,14 +6,30 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
 from app.models.cv_generation_job import CvGenerationJob
 
 LEASE_SECONDS = 180
+MAX_RUNNING_JOBS = 4
+# Stable lock namespace, shared by HTTP background tasks and recovery workers.
+CLAIM_LOCK_KEY = 0x43564A4F42
 
 
 async def claim_job(db, job_id: int) -> str | None:
+    # Serialize admission across processes. The lock is transaction scoped and
+    # released by the claim commit, never held during model or storage calls.
+    await db.execute(select(func.pg_advisory_xact_lock(CLAIM_LOCK_KEY)))
+    running = (
+        await db.execute(
+            select(func.count())
+            .select_from(CvGenerationJob)
+            .where(CvGenerationJob.status == "running")
+        )
+    ).scalar_one()
+    if running >= MAX_RUNNING_JOBS:
+        await db.commit()
+        return None
     token = str(uuid4())
     result = await db.execute(
         update(CvGenerationJob)
