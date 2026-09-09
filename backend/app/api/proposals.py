@@ -153,6 +153,9 @@ async def get_latest_proposal(
         raise HTTPException(
             status_code=404, detail="No proposal snapshot yet for this job"
         )
+    from app.services.proposal_contract import snapshot_is_stale_for_viewer
+
+    context_stale = await snapshot_is_stale_for_viewer(db, snap, job, current_user.id)
     items = await _hydrate_current_items(db, job, snap)
     return ProposalSnapshotResponse(
         id=snap.id,
@@ -164,7 +167,7 @@ async def get_latest_proposal(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
-        stale=snapshot_is_stale(snap),
+        stale=context_stale,
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=items,

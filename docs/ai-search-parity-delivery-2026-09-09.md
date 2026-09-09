@@ -175,3 +175,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Shard 2 of CI 34327444464 failed only `test_every_cache_writer_reads_the_unknown_semantics_signal`: its textual guard still classified the migrated digest as a legacy cache writer. Updated the guard to inspect actual calls in all four migrated consumers, require canonical measurement and reject old cache APIs. The existing retrieval zero/unknown behavior tests remain intact.
 - All five tests in the regression file pass natively. The preceding CI result does not validate later commits; a new full required CI pass is still necessary.
+
+### Increment: snapshot freshness is checked against the viewer's context
+
+- Latest proposal reads compare the stored full-context fingerprint with the current request and active user/client/global weight profile, rather than relying only on the stored stale flag/version prefix. A changed request tail or another viewer's different profile therefore marks the ranking stale even if no invalidation job ran. Pending and already-obsolete snapshots do not incur profile/context work.
+- Seven native proposal contract/current-eligibility tests pass, including long-tail edits, changed viewer weights, scope arguments and unchanged-context freshness. Ruff and diff checks pass. This exposes stale score context; candidate-version freshness, canonical reuse and the rest of the audit remain open.
