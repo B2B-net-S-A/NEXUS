@@ -11,8 +11,7 @@ generacja, inna osoba płaci (DL przy setupie, nie rekruter przy każdym CV).
 Model z ``CLAUDE_MODEL_CV_BULK`` (Haiku) — zadanie klasyfikacyjne, nie
 generacyjne, i nie ma sensu płacić stawki Sonneta.
 
-Wynik jest OPINIĄ, nie bramką: lint nie blokuje zapisu. Twardą granicę trzyma
-prompt generatora (instrukcja dopisująca fakty jest tam ignorowana); lint ma
+Wynik jest OPINIĄ, nie bramką: lint nie blokuje zapisu. Kontrola końcowych faktów w generatorze pozostaje osobną bramką; lint ma
 tę granicę pokazać wcześniej, żeby DL nie pisał reguł, które nie działają.
 """
 
@@ -75,47 +74,77 @@ def split_instruction_lines(text: str) -> list[str]:
     return lines
 
 
+LINT_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["ok", "adds_facts", "unclear"],
+                    },
+                    "reason": {"type": "string"},
+                    "suggestion": {"type": "string"},
+                },
+                "required": ["index", "verdict", "reason", "suggestion"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
 def _coerce(items: object, lines: list[str]) -> list[LintFinding]:
+    """A malformed/ambiguous review cannot lend any line an 'ok' verdict."""
     out: list[LintFinding] = []
     seen: set[int] = set()
-    if isinstance(items, list):
+    valid = isinstance(items, list) and len(items) == len(lines)
+    if valid:
         for item in items:
-            if not isinstance(item, dict):
-                continue
-            try:
-                index = int(item.get("index"))
-            except (TypeError, ValueError):
-                continue
-            if index < 0 or index >= len(lines) or index in seen:
-                continue
-            verdict = str(item.get("verdict") or "unclear")
-            if verdict not in ("ok", "adds_facts", "unclear"):
-                verdict = "unclear"
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"index", "verdict", "reason", "suggestion"}
+                or type(item["index"]) is not int
+                or item["index"] not in range(len(lines))
+                or item["index"] in seen
+                or item["verdict"] not in ("ok", "adds_facts", "unclear")
+                or not isinstance(item["reason"], str)
+                or not item["reason"].strip()
+                or len(item["reason"]) > 500
+                or not isinstance(item["suggestion"], str)
+                or len(item["suggestion"]) > 500
+            ):
+                valid = False
+                break
+            index = item["index"]
             seen.add(index)
             out.append(
                 LintFinding(
-                    index=index,
-                    line=lines[index],
-                    verdict=verdict,  # type: ignore[arg-type]
-                    reason=str(item.get("reason") or "").strip()[:500],
-                    suggestion=str(item.get("suggestion") or "").strip()[:500],
+                    index,
+                    lines[index],
+                    item["verdict"],
+                    item["reason"].strip(),
+                    item["suggestion"].strip(),
                 )
             )
-    # Linie, o których model zapomniał, nie mogą wyglądać jak „ok" — to jest
-    # dokładnie ten rodzaj ciszy, przed którym lint ma chronić.
-    for index, line in enumerate(lines):
-        if index not in seen:
-            out.append(
-                LintFinding(
-                    index=index,
-                    line=line,
-                    verdict="unclear",
-                    reason="Model nie ocenił tej linii — sprawdź ją ręcznie.",
-                    suggestion="",
-                )
+    if not valid:
+        return [
+            LintFinding(
+                index,
+                line,
+                "unclear",
+                "Odpowiedź oceny jest niekompletna lub nieprawidłowa — ponów ocenę instrukcji.",
+                "",
             )
-    out.sort(key=lambda f: f.index)
-    return out
+            for index, line in enumerate(lines)
+        ]
+    return sorted(out, key=lambda finding: finding.index)
 
 
 def lint_instructions(text: str, *, request_id: str) -> list[LintFinding]:
@@ -133,15 +162,19 @@ def lint_instructions(text: str, *, request_id: str) -> list[LintFinding]:
             request_id,
             system=LINT_SYSTEM_PROMPT,
             model_override=model_for(AIFeatureKey.cv_rule_lint),
+            response_schema=LINT_RESPONSE_SCHEMA,
         )
     except CVGeneratorAIError as err:
         logger.warning("[cv_rule_lint][%s] model call failed: %s", request_id, err)
         raise
-    cleaned = re.sub(r"```json\n?|```\n?", "", raw).strip()
     try:
-        parsed = json.loads(cleaned)
+        parsed = json.loads(raw)
     except json.JSONDecodeError:
         logger.warning("[cv_rule_lint][%s] unparseable model output", request_id)
         parsed = {}
-    items = parsed.get("items") if isinstance(parsed, dict) else None
+    items = (
+        parsed["items"]
+        if isinstance(parsed, dict) and set(parsed) == {"items"}
+        else None
+    )
     return _coerce(items, lines)
