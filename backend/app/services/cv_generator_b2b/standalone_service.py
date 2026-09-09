@@ -60,6 +60,7 @@ from app.services.cv_generator_b2b.client_rules import (
     build_filename as build_client_filename,
     build_prompt_blocks,
     resolve_content_mode,
+    snapshot_rule,
     rule_reminders,
 )
 from app.services.cv_generator_b2b.docx_renderer import (
@@ -272,10 +273,30 @@ class RecruitmentReadiness:
     # Wyprowadzany z oferty, nigdy nie wybierany ręcznie w tym trybie.
     client_id: int | None = None
     client_name: str | None = None
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE
+    required_champion: bool = False
+    required_notes_min_chars: int = 0
+
+    @property
+    def missing_inputs(self) -> list[str]:
+        problems = []
+        if not self.has_cv:
+            problems.append("Dodaj CV w formacie PDF/DOCX na profilu kandydata.")
+        if (
+            self.required_champion or self.content_mode == "tailored"
+        ) and not self.has_champion:
+            problems.append(
+                "Uzupełnij Profil Championa na karcie rekrutacji — wymaga go tryb lub reguła klienta."
+            )
+        if self.notes_chars < self.required_notes_min_chars:
+            problems.append(
+                f"Uzupełnij notatki z rozmów: wymagane {self.required_notes_min_chars} znaków, dostępne {self.notes_chars}."
+            )
+        return problems
 
     @property
     def ready(self) -> bool:
-        return self.has_champion and self.has_notes and self.has_cv
+        return not self.missing_inputs
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -1646,7 +1667,11 @@ async def _candidate_has_supported_cv(db: AsyncSession, candidate_id: int) -> bo
 
 
 async def list_recruitments_with_readiness(
-    db: AsyncSession, candidate_id: int, *, job_scope=None
+    db: AsyncSession,
+    candidate_id: int,
+    *,
+    job_scope=None,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1736,24 +1761,29 @@ async def list_recruitments_with_readiness(
         for stage in latest_per_job.values()
         if stage.job is not None and stage.job.client_id
     }
-    notes_min_clients: set[int] = set()
+    client_rules = {}
     if client_ids:
-        notes_min_clients = set(
-            (
-                await db.scalars(
-                    select(ClientCvRule.client_id).where(
-                        ClientCvRule.client_id.in_(client_ids),
-                        ClientCvRule.confirmed_at.is_not(None),
-                        ClientCvRule.require_screening_notes_min_chars > 0,
-                    )
+        rows = (
+            await db.scalars(
+                select(ClientCvRule).where(
+                    ClientCvRule.client_id.in_(client_ids),
+                    ClientCvRule.confirmed_at.is_not(None),
                 )
-            ).all()
-        )
+            )
+        ).all()
+        client_rules = {row.client_id: snapshot_rule(row) for row in rows}
 
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
         job = stage.job
         has_champion = _champion_present(job)
+        rule = client_rules.get(job.client_id) if job else None
+        locked_mode, _ = resolve_content_mode(rule, content_mode)
+        effective_mode, _ = apply_content_mode_cap(
+            locked_mode,
+            getattr(job.client, "cv_content_mode_cap", None) if job else None,
+        )
+        minimum = (rule.require_screening_notes_min_chars or 0) if rule else 0
 
         first_moved = first_moved_per_job.get(stage.job_id)
         window_start = (
@@ -1774,7 +1804,7 @@ async def list_recruitments_with_readiness(
         )
 
         notes_chars = 0
-        if has_notes and job is not None and job.client_id in notes_min_clients:
+        if has_notes and job is not None and minimum > 0:
             notes_chars = len(
                 (
                     await collect_screening_notes_text(
@@ -1792,6 +1822,10 @@ async def list_recruitments_with_readiness(
                 has_champion=has_champion,
                 has_notes=has_notes,
                 has_cv=has_cv,
+                content_mode=effective_mode,
+                required_champion=effective_mode == "tailored"
+                or bool(rule and rule.require_champion),
+                required_notes_min_chars=minimum,
                 notes_chars=notes_chars,
                 client_id=job.client_id if job else None,
                 client_name=(
@@ -2058,7 +2092,9 @@ async def generate_cv_for_candidate(
         )
 
     # ── 2. Champion ───────────────────────────────────────────────────────
-    if not _champion_present(job):
+    if (
+        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
+    ) and not _champion_present(job):
         raise StandaloneGenerationError(
             code="no_champion",
             message=(
@@ -2078,13 +2114,13 @@ async def generate_cv_for_candidate(
     screening_notes_text = await collect_screening_notes_text(
         db, candidate_id=candidate_id, stage=stage, job=job
     )
-    if not screening_notes_text:
+    minimum = (client_rule.require_screening_notes_min_chars or 0) if client_rule else 0
+    if len(screening_notes_text.strip()) < minimum:
         raise StandaloneGenerationError(
             code="no_notes",
             message=(
-                "Brak notatek z rozmowy dla tej rekrutacji. Wymagana jest "
-                "co najmniej jedna: notatka ze screeningu, transkrypt rozmowy "
-                "albo notatka procesu."
+                f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} "
+                f"znaków, dostępne {len(screening_notes_text.strip())}."
             ),
         )
 

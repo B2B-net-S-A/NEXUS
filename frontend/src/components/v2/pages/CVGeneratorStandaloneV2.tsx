@@ -266,11 +266,12 @@ export function CVGeneratorStandaloneV2({
   });
 
   const recruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments", candidate?.id],
+    queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
     queryFn: async () => {
       if (!candidate) return [] as RecruitmentOption[];
       const res = await api.get<RecruitmentOption[]>(
         `/api/cv-generator/candidates/${candidate.id}/recruitments`,
+        {params: {content_mode: contentMode}},
       );
       return res.data;
     },
@@ -1271,12 +1272,14 @@ function NewModeForm({
                   ok={selectedRecruitment.has_cv}
                 />
                 <ReadyBadge
-                  label="Profil Championa"
+                  label={selectedRecruitment.required_champion === false ? "Profil Championa (opcjonalny)" : "Profil Championa"}
                   ok={selectedRecruitment.has_champion}
+                  optional={selectedRecruitment.required_champion === false}
                 />
                 <ReadyBadge
-                  label="Notatki z rozmów"
+                  label={selectedRecruitment.required_notes_min_chars === 0 ? "Notatki z rozmów (opcjonalne)" : "Notatki z rozmów"}
                   ok={selectedRecruitment.has_notes}
+                  optional={selectedRecruitment.required_notes_min_chars === 0}
                 />
               </div>
             )}
@@ -1287,6 +1290,7 @@ function NewModeForm({
                 title="Nie można wygenerować CV"
                 description={
                   <div className="space-y-1">
+                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
                     {!selectedRecruitment.has_cv && (
                       <div>
                         Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
@@ -1307,6 +1311,7 @@ function NewModeForm({
                         procesu.
                       </div>
                     )}
+                    </>}
                   </div>
                 }
               />
@@ -1677,17 +1682,17 @@ function FileDropZone({
 
 // ── Inline UI helpers ──────────────────────────────────────────────────────
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolean; optional?: boolean }) {
   return (
     <Badge
-      variant={ok ? "success" : "warning"}
+      variant={ok ? "success" : optional ? "neutral" : "warning"}
       className={cn("flex items-center gap-1")}
     >
       {ok ? (
         <CheckCircle2 className="h-3 w-3" />
-      ) : (
+      ) : !optional ? (
         <AlertTriangle className="h-3 w-3" />
-      )}
+      ) : null}
       {label}
     </Badge>
   );

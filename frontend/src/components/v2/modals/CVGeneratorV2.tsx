@@ -90,10 +90,11 @@ export function CVGeneratorV2({
   const softWarnings = warnings.filter((w) => !isCertainWarning(w));
 
   const recruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments-modal", candidateId],
+    queryKey: ["cv-gen-recruitments-modal", candidateId, contentMode],
     queryFn: async () => {
       const res = await api.get<RecruitmentOption[]>(
         `/api/cv-generator/candidates/${candidateId}/recruitments`,
+        { params: { content_mode: contentMode } },
       );
       return res.data;
     },
@@ -324,11 +325,13 @@ export function CVGeneratorV2({
                         ok={selectedRecruitment.has_cv}
                       />
                       <ReadyBadge
-                        label="Profil Championa"
+                        label={selectedRecruitment.required_champion === false ? "Profil Championa (opcjonalny)" : "Profil Championa"}
+                        optional={selectedRecruitment.required_champion === false}
                         ok={selectedRecruitment.has_champion}
                       />
                       <ReadyBadge
-                        label="Notatki z rozmów"
+                        label={selectedRecruitment.required_notes_min_chars === 0 ? "Notatki z rozmów (opcjonalne)" : "Notatki z rozmów"}
+                        optional={selectedRecruitment.required_notes_min_chars === 0}
                         ok={selectedRecruitment.has_notes}
                       />
                     </div>
@@ -340,6 +343,7 @@ export function CVGeneratorV2({
                     >
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <div className="space-y-1">
+                        {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
                         {!selectedRecruitment.has_cv && (
                           <div>
                             Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
@@ -358,6 +362,7 @@ export function CVGeneratorV2({
                             screening, transkrypt CloudTalk albo notatka procesu.
                           </div>
                         )}
+                        </>}
                       </div>
                     </div>
                   )}
@@ -442,17 +447,17 @@ export function CVGeneratorV2({
   );
 }
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolean; optional?: boolean }) {
   return (
     <Badge
-      variant={ok ? "success" : "warning"}
+      variant={ok ? "success" : optional ? "neutral" : "warning"}
       className={cn("flex items-center gap-1")}
     >
       {ok ? (
         <CheckCircle2 className="h-3 w-3" />
-      ) : (
+      ) : !optional ? (
         <AlertTriangle className="h-3 w-3" />
-      )}
+      ) : null}
       {label}
     </Badge>
   );

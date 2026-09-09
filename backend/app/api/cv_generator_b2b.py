@@ -146,6 +146,10 @@ class RecruitmentOption(BaseModel):
     # minimum, a front ma to pokazać PRZED kliknięciem (0267).
     notes_chars: int = 0
     ready: bool
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE
+    required_champion: bool = False
+    required_notes_min_chars: int = 0
+    missing_inputs: list[str] = Field(default_factory=list)
     # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
     client_id: Optional[int] = None
     client_name: Optional[str] = None
@@ -1010,6 +1014,7 @@ async def list_candidate_recruitments(
     candidate_id: int,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> list[RecruitmentOption]:
     """Return all recruitment processes the candidate participates in, with
     readiness flags (champion present, screening notes present)."""
@@ -1019,6 +1024,7 @@ async def list_candidate_recruitments(
             db,
             candidate_id,
             job_scope=job_read_scope_clause(current_user, CandidateStage.job_id),
+            content_mode=content_mode,
         )
     except StandaloneGenerationError as err:
         raise HTTPException(
@@ -1036,6 +1042,10 @@ async def list_candidate_recruitments(
             has_cv=r.has_cv,
             notes_chars=r.notes_chars,
             ready=r.ready,
+            content_mode=r.content_mode,
+            required_champion=r.required_champion,
+            required_notes_min_chars=r.required_notes_min_chars,
+            missing_inputs=r.missing_inputs,
             client_id=r.client_id,
             client_name=r.client_name,
         )
@@ -1283,6 +1293,10 @@ async def generate(
     # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
     # `generate_cv_for_candidate` już na tę wartość.
     effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
+    client = await db.get(Client, client_id) if client_id else None
+    effective_mode, _capped = apply_content_mode_cap(
+        effective_mode, getattr(client, "cv_content_mode_cap", None)
+    )
 
     consent = _verified_consent(
         rule,
@@ -1295,15 +1309,24 @@ async def generate(
     )
 
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
-    if rule_snapshot is not None and (
-        rule_snapshot.require_screening_notes_min_chars
-        or rule_snapshot.require_project_ref
-        or rule_snapshot.require_champion
+    if effective_mode == "tailored" or (
+        rule_snapshot is not None
+        and (
+            rule_snapshot.require_screening_notes_min_chars
+            or rule_snapshot.require_project_ref
+            or rule_snapshot.require_champion
+        )
     ):
         job = await db.get(Job, stage.job_id)
         notes_chars = await screening_notes_char_count(
             db, candidate_id=payload.candidate_id, stage_id=payload.stage_id
         )
+        if effective_mode == "tailored" and not champion_present(job):
+            _reject_missing_inputs(
+                [
+                    "Tryb dopasowany wymaga Profilu Championa. Uzupełnij go lub wybierz Przepisanie/Redakcję, jeśli reguła klienta na to pozwala."
+                ]
+            )
         _reject_missing_inputs(
             required_input_problems(
                 rule_snapshot,

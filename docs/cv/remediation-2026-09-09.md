@@ -191,3 +191,10 @@ AI claims, font availability or complete Word/browser pagination parity.
 Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
 
 The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. Depends on the explicit upload/history package #1450.
+# CV-08: gotowość zależna od trybu — 9 września, 17:44 CEST
+
+Lista rekrutacji, walidacja przed kwotą i worker rozróżniają Przepisanie/Redakcję od trybu Pod rekrutację. Neutralne tryby nie wymagają Championa ani notatek, chyba że opublikowana reguła klienta nakłada taki wymóg. Tryb dopasowany wymaga Championa. Lista stosuje najpierw blokadę reguły, następnie sufit klienta; przekazuje konkretne braki i minimalną długość notatek. Oba formularze odświeżają gotowość po zmianie trybu i pokazują opcjonalne źródła bez ostrzeżenia.
+
+Weryfikacja: 78 testów backendu (w tym 15 nowych przypadków gotowości/workera/polityki), 15 testów strony, TypeScript i Ruff. Brak lokalnej bazy lub wywołań modeli. CI i odbiór produkcyjny jeszcze wymagane. Pakiet zależy od preflight uploadu #1459 i historii/kontekstu #1450.
+
+CV-08 nadal częściowe: jawny wybór i zamrożenie pełnych źródeł do zadania pozostają otwarte. Minimalna liczba znaków jest istniejącym kontraktem klienta; nie stanowi potwierdzenia jakości screeningu. Nowe ustalenia audytu o podsumowaniach AI i pytaniach jako dowodach wymagają osobnej poprawy źródeł oraz bramki faktów.
