@@ -38,6 +38,10 @@ class ClientCvRulePreview(Base):
     language: Mapped[str] = mapped_column(
         String(2), nullable=False, default="pl", server_default="pl"
     )
+    # Complete draft recipe/flags captured at enqueue; never re-read live rules.
+    recipe_snapshot: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
     # processing | ready | failed
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="processing", server_default="processing"
