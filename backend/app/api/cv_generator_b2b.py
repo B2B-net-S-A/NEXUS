@@ -1894,14 +1894,33 @@ async def delete_generated_cv(
 ) -> Response:
     """Remove a row from the „Wygenerowane CV" list (author or admin only).
 
-    Only the list entry is deleted; nothing irreplaceable is lost — the CV can be
-    regenerated from the candidate's recruitment at any time.
+    Active work must finish first: deleting its parent cascades the durable job
+    and could orphan a second-language result. Regeneration is a new AI call.
     """
     row = await _load_generated_document(db, generated_id, current_user, write=True)
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
         raise HTTPException(
             status_code=403,
             detail="Możesz usunąć tylko CV, które samodzielnie wygenerowałeś.",
+        )
+    from app.models.cv_generation_job import CvGenerationJob
+    from sqlalchemy import or_
+
+    active_job = await db.scalar(
+        select(CvGenerationJob.id)
+        .where(
+            or_(
+                CvGenerationJob.generated_id == row.id,
+                CvGenerationJob.second_generated_id == row.id,
+            ),
+            CvGenerationJob.status.in_(("queued", "running")),
+        )
+        .limit(1)
+    )
+    if row.status == "processing" or active_job is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Generacja CV nadal trwa. Usuń dokument po zakończeniu obu wersji językowych.",
         )
     await db.delete(row)
     await db.commit()

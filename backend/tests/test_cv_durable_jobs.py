@@ -229,3 +229,33 @@ async def test_failure_includes_secondary_output_without_overwriting_ready_cv():
     values = db.execute.call_args_list[0].args[0].compile().params
     assert "processing" in values.values()
     assert "failed" in values.values()
+
+
+@pytest.mark.parametrize(
+    "status,active",
+    [("processing", None), ("ready", 21), ("failed", 21), ("ready", None)],
+)
+async def test_deletion_preserves_active_job_and_second_language(
+    monkeypatch, status, active
+):
+    from fastapi import HTTPException
+
+    row = SimpleNamespace(id=11, status=status, created_by=7)
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=row))
+    user = SimpleNamespace(id=7, has_role=Mock(return_value=True))
+    db = AsyncMock()
+    db.scalar.return_value = active
+    if status == "processing" or active is not None:
+        with pytest.raises(HTTPException) as error:
+            await api.delete_generated_cv(11, user, db)
+        assert error.value.status_code == 409
+        db.delete.assert_not_awaited()
+        db.commit.assert_not_awaited()
+    else:
+        result = await api.delete_generated_cv(11, user, db)
+        assert result.status_code == 204
+        db.delete.assert_awaited_once_with(row)
+        db.commit.assert_awaited_once()
+    sql = str(db.scalar.call_args.args[0].compile())
+    assert "second_generated_id" in sql
+    assert "generated_id" in sql
