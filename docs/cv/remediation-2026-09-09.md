@@ -20,7 +20,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
 | CV-12 | Complete facts extracted independently of display limits/omitted sections | Pending |
 | CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Pending |
-| CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Pending |
+| CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
 | CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Pending |
 | CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
@@ -51,3 +51,15 @@ Hosted acceptance includes publish → draft → stale edit rejection → publis
 restore → publish and two competing initial saves. Local unit tests verify
 mutation isolation and immutable snapshot contents; they do not replace DB
 transaction or migration verification.
+
+
+## Highlighting package
+
+Highlight policy is independent of narrative mode: candidate technologies,
+MUST, MUST+NICE, explicit technology list, or none. Selection checks lexical
+presence in the source and the technology taxonomy. It is not semantic proof of
+competence or claim truth; CV-13 remains responsible for that gate.
+DOCX, downloadable HTML and public text runs use the same matcher. Public runs
+are derived after privacy projection and are not added to AI input payloads.
+Ambiguous Polish uses of Jest are excluded unless a testing context is present.
+Keyword formatting leaves structural heading styles intact.

@@ -411,6 +411,9 @@ async def get_public_generated_cv(
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
     payload = build_public_payload(doc.render_payload)
+    from app.services.cv_generator_b2b.format_annotations import text_annotations
+
+    payload["text_runs"] = text_annotations(payload)
 
     db.add(
         Activity(
