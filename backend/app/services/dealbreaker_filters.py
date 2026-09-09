@@ -498,6 +498,7 @@ class DealbreakerResult:
     hidden_office_days_exceeded: int = 0
     hidden_office_city_mismatch: int = 0
     hidden_remote_only: int = 0
+    exclusion_reasons: dict[int, str] = field(default_factory=dict)
 
     def hidden_meta(self) -> dict:
         # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
@@ -583,6 +584,8 @@ def apply_dealbreakers(
     for candidate in candidates:
         if budget_active and budget_excludes(candidate, effective_budget):
             result.hidden_over_budget += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "over_budget"
             continue
         if must_active and missing_must_skills(
             candidate,
@@ -592,11 +595,15 @@ def apply_dealbreakers(
             verification_fingerprint=effective_inputs.verification_fingerprint,
         ):
             result.hidden_missing_must += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "missing_must"
             continue
         if days_active and office_days_exceeded(
             candidate, effective_inputs.onsite_days_per_week
         ):
             result.hidden_office_days_exceeded += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "office_days_exceeded"
             continue
         if city_active and office_city_mismatch(
             candidate,
@@ -604,9 +611,13 @@ def apply_dealbreakers(
             required_days=effective_inputs.onsite_days_per_week,
         ):
             result.hidden_office_city_mismatch += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "office_city_mismatch"
             continue
         if exclude_remote_only and remote_only_refuses_office(candidate):
             result.hidden_remote_only += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "remote_only"
             continue
         result.kept.append(candidate)
     return result

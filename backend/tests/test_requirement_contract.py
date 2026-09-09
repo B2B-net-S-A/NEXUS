@@ -209,3 +209,47 @@ def test_legacy_query_preserves_request_tail_and_reviewed_alternatives():
     target.description += " Dodatkowo RabbitMQ"
     assert _build_job_query(target) != query
     assert "RabbitMQ" in _build_job_query(target)
+
+
+@pytest.mark.asyncio
+async def test_shared_gate_records_primary_exclusion_reason_without_double_count(
+    monkeypatch,
+):
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.candidate_job_eligibility import (
+        EligibilityInput,
+        evaluate_eligibility,
+    )
+    from tests.test_scoring_service import make_job, make_candidate
+
+    now = datetime.now(timezone.utc)
+    target = make_job(budget_max=100)
+    candidates = [
+        make_candidate(id=1, expected_rate_hourly=200, expected_rate_currency="PLN"),
+        make_candidate(id=2),
+    ]
+    clean = evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
+    hidden = evaluate_eligibility(
+        EligibilityInput(candidate_status="blacklisted"), now=now
+    )
+    monkeypatch.setattr(
+        "app.api.matching.evaluate_candidates_for_job",
+        AsyncMock(return_value={1: clean, 2: hidden}),
+    )
+    reasons = {}
+    from app.services.dealbreaker_filters import DealbreakerInputs
+
+    kept, _, counts, filtered, _ = await _gate_and_dealbreakers(
+        None,
+        job=target,
+        ordered=candidates,
+        now=now,
+        inputs=DealbreakerInputs(budget_hourly=100),
+        exclusion_reasons=reasons,
+    )
+    assert not kept
+    assert reasons == {1: "over_budget", 2: "eligibility_hidden"}
+    assert counts["over_budget"] == 1
+    assert filtered == 1

@@ -282,6 +282,7 @@ async def _gate_and_dealbreakers(
     exclude_missing_must: bool = True,
     exclude_office_days_exceeded: bool = True,
     exclude_office_city_mismatch: bool = True,
+    exclusion_reasons: dict[int, str] | None = None,
 ) -> tuple[list[Candidate], dict[int, dict], dict, int, DealbreakerInputs]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
@@ -345,6 +346,14 @@ async def _gate_and_dealbreakers(
         )
     ]
     eligibility_filtered = len(ordered) - len(visible)
+    if exclusion_reasons is not None:
+        exclusion_reasons.update(
+            {
+                c.id: "eligibility_hidden"
+                for c in ordered
+                if decisions[c.id].visibility == Visibility.hidden
+            }
+        )
 
     # Dealbreakery (budżet / zdalnie) NIE mogą wchłonąć kandydatów `warn`
     # (assignment_allowed=False: aktywny konflikt klienta / NDA / konkurent /
@@ -386,6 +395,8 @@ async def _gate_and_dealbreakers(
         exclude_office_days_exceeded=exclude_office_days_exceeded,
         exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
+    if exclusion_reasons is not None:
+        exclusion_reasons.update(db_res.exclusion_reasons)
     kept_dealbreakable_ids = {c.id for c in db_res.kept}
     # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,
     # nie-`warn` tylko jeśli przeszły dealbreakery.

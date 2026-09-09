@@ -39,6 +39,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     target = request.as_job()
     criteria = requirements_for_job(target)
     inputs = search_dealbreaker_inputs(target)
+    exclusion_reasons = {}
     with stage("eligibility"):
         kept, annotations, _, _, _ = await _gate_and_dealbreakers(
             db,
@@ -46,6 +47,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             ordered=list(candidates.values()),
             now=datetime.now(timezone.utc),
             inputs=inputs,
+            exclusion_reasons=exclusion_reasons,
         )
     visible = {candidate.id for candidate in kept}
     with stage("retrieval") as outcome:
@@ -64,7 +66,9 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
                     False,
                     None,
                     "unavailable",
-                    exclusion_reasons=("eligibility_or_filter",),
+                    exclusion_reasons=(
+                        exclusion_reasons.get(cid, "eligibility_or_filter"),
+                    ),
                 )
             )
             continue

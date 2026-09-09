@@ -280,3 +280,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Updated hosted compatibility scenarios to widen the actual MATCH_POOL_SIZE and expect semantic+composite. Must-have exclusion and rubric-label fixtures now explicitly select reviewed exclusion, preserving their intended hard-filter assertions without reinstating silent default exclusion. Healthy-ranking fixture supplies a successful exact vector measurement as well as retrieval hits; a hit alone no longer proves measured fit.
 - Twenty-six native row-label/handler tests pass (one DB integration case excluded in that selection); Ruff/diff checks pass. The edited DB scenarios await hosted execution. Earlier CI 34337354217 shard 0 completed successfully; other backend shards were still running. Full latest-head CI, production and all audit acceptance remain open.
+
+### Increment: persist specific full-scan exclusion categories
+
+- Dealbreaker results now carry candidate-to-primary-reason mappings while preserving the existing counters and precedence. The shared gate optionally returns those mappings plus the privacy-preserving eligibility_hidden category. Full scan rows persist the actual category instead of always recording eligibility_or_filter. Blocked/warn candidates remain visible under existing rules.
+- Fifty-one native gate/filter/worker tests pass, including reconciliation of a budget exclusion and a hidden candidate without duplicate counting. Ruff/diff checks pass. Aggregated API/UI reason counters and validation on a full production run remain required. Earlier CI shards 0 and 2 passed; remaining hosted acceptance and deployment are not complete.
