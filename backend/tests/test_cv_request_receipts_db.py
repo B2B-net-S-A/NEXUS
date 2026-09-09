@@ -1,0 +1,88 @@
+"""Hosted PostgreSQL proof for concurrent enqueue receipts and rollback."""
+
+import asyncio
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import delete, select, func
+
+from app.core.database import AsyncSessionLocal
+from app.models.user import User
+from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generation_request import CvGenerationRequest
+from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+
+@pytest.mark.parametrize("commit_first", [True, False])
+async def test_competing_receipt_observes_commit_or_recovers_rollback(commit_first):
+    key = str(uuid4())
+    generated_ids = []
+    async with AsyncSessionLocal() as seed:
+        user = User(email=f"cv-retry-{key}@example.test", name="Retry fixture")
+        seed.add(user)
+        await seed.commit()
+        user_id = user.id
+    try:
+        async with AsyncSessionLocal() as first, AsyncSessionLocal() as second:
+            receipt, previous = await reserve_request(first, user_id, key, "new", {})
+            assert previous is None
+            document = CvGeneratedDocument(
+                candidate_name="Retry fixture",
+                filename="retry.docx",
+                mode="upload",
+                status="processing",
+            )
+            first.add(document)
+            await first.flush()
+            original_id = document.id
+            generated_ids.append(original_id)
+            receipt.generated_id = original_id
+            await first.flush()
+            competing = asyncio.create_task(
+                reserve_request(second, user_id, key, "new", {})
+            )
+            try:
+                # The held transaction lock must prevent a competing reservation.
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(competing), timeout=0.1)
+                if commit_first:
+                    await first.commit()
+                else:
+                    await first.rollback()
+                retried, replay = await asyncio.wait_for(competing, timeout=10)
+                if commit_first:
+                    assert replay.id == original_id
+                    assert retried.generated_id == original_id
+                else:
+                    assert replay is None
+                    assert retried.generated_id is None
+                await second.commit()
+            finally:
+                if not competing.done():
+                    competing.cancel()
+                    await asyncio.gather(competing, return_exceptions=True)
+        async with AsyncSessionLocal() as check:
+            assert (
+                await check.scalar(
+                    select(func.count())
+                    .select_from(CvGenerationRequest)
+                    .where(
+                        CvGenerationRequest.user_id == user_id,
+                    )
+                )
+                == 1
+            )
+            assert (
+                await check.get(CvGeneratedDocument, original_id) is not None
+                if commit_first
+                else await check.get(CvGeneratedDocument, original_id) is None
+            )
+    finally:
+        async with AsyncSessionLocal() as cleanup:
+            await cleanup.execute(delete(User).where(User.id == user_id))
+            await cleanup.execute(
+                delete(CvGeneratedDocument).where(
+                    CvGeneratedDocument.id.in_(generated_ids)
+                )
+            )
+            await cleanup.commit()
