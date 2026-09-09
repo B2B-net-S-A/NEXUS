@@ -189,7 +189,9 @@ async def test_apply_creates_active_order_with_pdf_and_syncs_contract(seeded):
             date(2031, 4, 1),
             date(2031, 6, 30),
         )
-        assert order.rate_client == Decimal("950.00") and order.rate_candidate is None
+        assert order.rate_client == Decimal(
+            "950.00"
+        ) and order.rate_candidate == Decimal("700")
         assert order.rate_unit == RateUnit.daily
         assert order.file_path and order.filename == "zam.pdf"
         assert doc.applied_order_id == order.id and doc.applied_by_user_id is None
@@ -324,9 +326,10 @@ async def test_notify_review_falls_back_to_admins(seeded):
 
 
 @pytest.mark.asyncio
-async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
-    """Wiersz 1 zapisany, wiersz 2 pada → outcome zostaje needs_review; drugi
-    „Zastosuj" nie może założyć wierszowi 1 drugiego zamówienia."""
+async def test_stale_proposal_is_replanned_and_reapply_does_not_duplicate_orders(
+    seeded,
+):
+    """Stale targets are discarded; retries never duplicate the current source row."""
     async with AsyncSessionLocal() as db:
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
         good = dict(doc.proposal["rows"][0])
@@ -336,8 +339,8 @@ async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
 
         first = await apply_document(db, doc, actor_user_id=None)
         await db.commit()
-        assert first.ok is False
-        assert first.rows[0].order_id and first.rows[1].error
+        assert first.ok is True
+        assert len(first.rows) == 1 and first.rows[0].order_id
 
         second = await apply_document(db, doc, actor_user_id=None)
         await db.commit()
@@ -479,3 +482,28 @@ async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
         assert doc.client_id == seeded["client_id"]
         assert doc.applied_order_id is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_auto_verdict_applies_without_another_click(
+    seeded, app_client, monkeypatch
+):
+    from app.api import order_mail_queue as queue
+    from app.services.order_mail_apply import ApplyResult, AppliedRow
+
+    async def certain(db, doc):
+        doc.gate_verdict = "auto"
+        doc.gate_reasons = []
+
+    async def write(db, doc, *, actor_user_id):
+        assert actor_user_id is None
+        return ApplyResult(rows=[AppliedRow(row_index=0, action="new")])
+
+    monkeypatch.setattr(queue, "refresh_review_plan", certain)
+    monkeypatch.setattr(queue, "apply_document", write)
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["outcome"] == "auto_applied"

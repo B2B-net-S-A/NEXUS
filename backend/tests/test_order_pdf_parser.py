@@ -1369,6 +1369,7 @@ class TestPfronOrderPolicy:
             source="claude",
         )
         document = (
+            "Data rozpoczęcia wykonywania Prac przez Specjalistę: 01.09.2026\n"
             "Termin wykonania Prac: od 01.09.2026 do 31.12.2026 "
             "z możliwością przedłużenia. Stawka 1230 PLN brutto."
         )

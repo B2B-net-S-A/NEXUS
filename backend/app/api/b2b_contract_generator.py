@@ -1972,6 +1972,12 @@ async def confirm_generated_contract_fully_signed(
         row.contract_id = result.contract.id
         row.signed_at = datetime.now(timezone.utc)
         row.signed_by_user_id = current_user.id
+        await db.flush()
+        from app.services.order_mail_signature import complete_signed_mail_drafts
+
+        await complete_signed_mail_drafts(
+            db, result.contract.id, actor_id=current_user.id
+        )
         if row.render_payload is not None:
             row.render_payload = {
                 **row.render_payload,

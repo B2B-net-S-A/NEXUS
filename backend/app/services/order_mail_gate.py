@@ -1,14 +1,8 @@
-"""Bramka auto-zapisu — osiem warunków, wszystkie naraz; CZYSTA funkcja.
+"""Pure decision: an automatic verdict always goes to the shared writer.
 
-Decyzja właściciela: pewne → zapis bez człowieka, niepewne → kolejka. Ciężar
-idzie więc w definicję „pewne". Brak choćby jednego warunku → ``review``
-z listą powodów po polsku (to one mówią operatorowi, czego szukać).
-
-Czysta i bez bazy, bo to jest miejsce, które trzeba móc przetestować na całym
-korpusie bez Postgresa i bez skrzynki. Startuje w TRYBIE CIENIA
-(``ORDER_MAIL_AUTOAPPLY_ENABLED=false``): werdykt i powód lądują w dzienniku,
-nic nie jest zapisywane — po dwóch tygodniach jest tabela „co poszłoby
-automatem i czy słusznie".
+Review reasons describe source ambiguity, incomplete data, conflicting people,
+rate outliers or an actual incompatible order. A missing or ended engagement
+is a normal lifecycle state, not a reason to stop a complete order.
 """
 
 from __future__ import annotations
@@ -107,9 +101,7 @@ def evaluate(inp: GateInput) -> GateVerdict:
 
     # 0) przełączniki
     if prop.client_id in inp.excluded_client_ids:
-        reasons.append(
-            "Klient wykluczony z automatu (ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS)"
-        )
+        reasons.append("Automatyczny zapis jest wyłączony dla tego klienta")
 
     # 1) NIP albo jednoznaczny marker/domena PFRON i aktywny rekord z bazy.
     trusted_pfron = (
@@ -119,37 +111,35 @@ def evaluate(inp: GateInput) -> GateVerdict:
     )
     if inp.identification_method != "registry_id" and not trusted_pfron:
         reasons.append(
-            "Klient rozpoznany bez numeru rejestrowego (marker/domena) — nie jest to dowód"
+            "Nie potwierdzono jednoznacznie klienta numerem rejestrowym ani zatwierdzoną regułą dokumentu"
         )
 
     # 2) własna polityka + odczyt modelem (fallback regexowy nigdy nie autozapisuje)
     if not inp.policies_applied:
         reasons.append("Klient nie ma własnej polityki odczytu")
     if ex.source != "claude":
-        reasons.append(f"Odczyt bez modelu (source={ex.source}) — fallback awaryjny")
+        reasons.append("Odczyt awaryjny — sprawdź zgodność pól z PDF")
 
-    # 3) + 4) osoby: dokładne, jednoznaczne, jeden żywy kontrakt
+    # 3) + 4) exact person, or an initial draft; ambiguous people/contracts block
     if not inp.resolved:
         reasons.append("Brak osób do dopasowania")
     for res in inp.resolved:
-        if res.match_kind != MATCH_EXACT:
+        if res.match_kind not in (MATCH_EXACT, "none"):
             reasons.append(f"„{res.row_name}”: {res.reason}")
-        elif not res.has_single_live_contract:
+        elif len(res.live_contract_ids) > 1:
             reasons.append(
-                f"„{res.row_name}”: {len(res.live_contract_ids)} żywych kontraktów u klienta"
-                if res.live_contract_ids
-                else f"„{res.row_name}”: brak żywego (active/ending) kontraktu — automat nie wskrzesza"
+                f"„{res.row_name}”: kilka aktywnych kontraktów — wybierz właściwy"
             )
 
     # 5) proweniencja: numer i okres z etykiet (confidence 1.0 = polityka), stawki
     #    wierszy potwierdzone deterministycznym ekstraktorem
     if ex.confidence.get("title") != 1.0:
         reasons.append(
-            "Numer zamówienia bez potwierdzenia etykietą (proweniencja modelu)"
+            "Numer zamówienia nie został potwierdzony w oznaczonym polu dokumentu"
         )
     reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
     if ex.uncertain:
-        details = [f"Odczyt niepewny: {r}" for r in ex.uncertain_reasons[:3]]
+        details = [f"Odczyt niepewny: {r}" for r in ex.uncertain_reasons]
         reasons.extend(details or ["Odczyt oznaczony jako niepewny"])
 
     # 6) kompletność tekstu
@@ -183,17 +173,16 @@ def evaluate(inp: GateInput) -> GateVerdict:
     for row_prop in prop.rows:
         if row_prop.action not in AUTO_ACTIONS:
             reasons.append(
-                f"„{row_prop.row_name}”: {row_prop.action} — "
-                + "; ".join(row_prop.reasons or ["poza zakresem automatu"])
+                f"„{row_prop.row_name}”: "
+                + "; ".join(
+                    row_prop.reasons or ["Nie ustalono jednoznacznego miejsca zapisu"]
+                )
             )
         if not row_prop.start_date or not row_prop.end_date:
             reasons.append(
                 f"„{row_prop.row_name}”: okres niepełny w dokumencie (od {row_prop.start_date or '—'} do {row_prop.end_date or '—'})"
             )
 
-    if not inp.autoapply_enabled and not reasons:
-        # Tryb cienia: werdykt „auto" zapisujemy, ale zapis się nie odbywa.
-        return GateVerdict(VERDICT_AUTO, [])
     return GateVerdict(
         VERDICT_AUTO if not reasons else VERDICT_REVIEW, _dedupe(reasons)
     )

@@ -157,7 +157,7 @@ def _pick_contract(
         return None, live_ids
     drafts = [c for c in person.contracts if c.status == "draft"]
     if drafts:
-        return drafts[0], live_ids
+        return (drafts[0] if len(drafts) == 1 else None), live_ids
     ended = sorted(
         (c for c in person.contracts if c.status == "ended"),
         key=lambda c: c.end_date or date.min,

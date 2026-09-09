@@ -142,3 +142,13 @@ async def list_order_mail_documents(
             for r in rows
         ],
     }
+
+
+@router.get("/cleanup-receipt")
+async def cleanup_receipt(_admin: AdminUser, db: AsyncSession = Depends(get_db)):
+    """Durable lists A/B and repair results, available only to administrators."""
+    from app.models.app_setting import AppSetting
+    from app.services.order_mail_cleanup import RECEIPT_KEY
+
+    receipt = await db.get(AppSetting, RECEIPT_KEY)
+    return receipt.value if receipt else {"status": "not_run"}

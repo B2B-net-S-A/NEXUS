@@ -436,6 +436,19 @@ async def process_pdf_bytes(
     row.client_id = client_id
 
     policies = active_policies(client_id) if client_id is not None else []
+    if any(p.key == "nordea" for p in policies):
+        from app.services.order_policies.nordea import non_order_reason
+
+        reason = non_order_reason(doc.text)
+        if reason:
+            row.outcome = "dismissed"
+            row.client_policy = "Nordea"
+            row.extraction = None
+            row.proposal = None
+            row.gate_verdict = None
+            row.gate_reasons = [reason]
+            row.document_meta = {"ignored_non_order": True, "reason": reason}
+            return row
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
     extraction = await parse_order_document(
         prepare_parser_text(doc.text, policies), all_rows=True
@@ -457,25 +470,26 @@ async def process_pdf_bytes(
 
     # ── Bramka automatu: resolver → planer → werdykt (zawsze zapisany) ──────
     await _plan_and_gate(db, row, extraction, doc, policies, client_id, ident.method)
-    if row.gate_verdict == GATE_AUTO and settings.ORDER_MAIL_AUTOAPPLY_ENABLED:
+    if row.gate_verdict == GATE_AUTO:
         from app.services.order_mail_apply import apply_document  # cykl importów
 
+        db.add(row)
+        await db.flush()
         result = await apply_document(db, row, actor_user_id=None)
         row.outcome = OUTCOME_AUTO_APPLIED if result.ok else OUTCOME_NEEDS_REVIEW
         if not result.ok:
+            row.gate_verdict = "review"
+            row.gate_reasons = [
+                "Nie udało się zapisać zamówienia: "
+                + (result.error or "; ".join(r.error for r in result.rows if r.error))
+            ]
             row.error = (
                 result.error or "; ".join(r.error for r in result.rows if r.error)
             )[:2000]
     return row
 
 
-async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
-    """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
-
-    PFRON ponownie rozpoznaje aktywnego klienta i pola ze źródłowego PDF-a.
-    Pozostali klienci zachowują numer i okres. Bez modelu i auto-zapisu.
-    """
-
+def restore_extraction(data):
     def restore(cls, data):
         values = {
             f.name: data[f.name] for f in dataclasses.fields(cls) if f.name in data
@@ -491,11 +505,22 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
                 values[key] = Decimal(str(values[key]))
         return cls(**values)
 
-    extraction = restore(OrderExtraction, row.extraction or {})
+    extraction = restore(OrderExtraction, data or {})
     extraction.consultant_rows = [
         restore(ConsultantOrderRow, value)
-        for value in (row.extraction or {}).get("consultant_rows", [])
+        for value in (data or {}).get("consultant_rows", [])
     ]
+    return extraction
+
+
+async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
+    """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
+
+    PFRON ponownie rozpoznaje aktywnego klienta i pola ze źródłowego PDF-a.
+    Pozostali klienci zachowują numer i okres. Bez modelu i auto-zapisu.
+    """
+
+    extraction = restore_extraction(row.extraction)
     path = storage_service.get_order_mail_attachment_path(row.storage_path)
     doc = await run_in_threadpool(
         extract_order_text, str(path), row.attachment_name or "zamowienie.pdf"
@@ -525,6 +550,11 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     if any(p.key == "nordea" for p in policies):
         # Stary model mógł dodać osoby z summary. Przeliczenie korzysta z
         # właściwej tabeli PDF-a, zachowując zaakceptowany numer i okres.
+        extraction, _ = apply_policies(
+            extraction,
+            PolicyContext(document_text=doc.text, filename=row.attachment_name),
+            policies,
+        )
         extraction.consultant_rows = policy_by_key("nordea").extract_rows(doc.text)
     extraction = apply_rate_kind(extraction, doc.text, policies)
     row.extraction = extraction_to_json(extraction)
@@ -541,8 +571,8 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     row.error = None
 
 
-async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
-    """Dopasuj osoby do rostera, zaplanuj zapis, oceń bramką; zapisz na wierszu."""
+async def current_proposal(db, extraction, client_id):
+    from app.services.order_types import suggested_order_type
     from app.models.client_order import ClientOrder
     from app.models.contract import Contract
     from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
@@ -575,6 +605,10 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
                     end_date=o.end_date,
                     order_group_id=o.order_group_id,
                     has_file=bool(o.file_path),
+                    rate_client=o.rate_client,
+                    rate_unit=o.rate_unit.value
+                    if hasattr(o.rate_unit, "value")
+                    else o.rate_unit,
                 )
             )
         contracts = (
@@ -607,6 +641,15 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
         existing_orders_by_contract=existing,
         is_group_client=is_multi_consultant_client(client_id),
         today=datetime.now(timezone.utc).date(),
+        order_type=(await suggested_order_type(db, client_id)).value,
+    )
+    return proposal, resolved, current_rates
+
+
+async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
+    """Dopasuj osoby do rostera, zaplanuj zapis, oceń bramką; zapisz na wierszu."""
+    proposal, resolved, current_rates = await current_proposal(
+        db, extraction, client_id
     )
     det_rows: list = []
     for policy in policies:
@@ -958,7 +1001,7 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
     return {
         "enabled": bool(settings.ORDER_MAIL_INGEST_ENABLED),
         "interval_minutes": poll_interval_minutes(),
-        "autoapply_enabled": bool(settings.ORDER_MAIL_AUTOAPPLY_ENABLED),
+        "autoapply_enabled": True,
         "running": running,
         "started_at": _iso(state.get("last_run_started_at")),
         "interrupted": last_status == "running" and not running,

@@ -50,7 +50,7 @@ export interface OrderMailExtraction {
 export interface OrderMailProposalRow {
   row_index: number;
   row_name: string;
-  action: "fill_draft" | "future" | "new" | "revision" | "overlap" | "group" | "skip";
+  action: "fill_draft" | "new_draft" | "reactivate" | "unchanged" | "future" | "new" | "revision" | "overlap" | "group" | "skip";
   candidate_id: number | null;
   contract_id: number | null;
   target_order_id: number | null;
@@ -157,6 +157,9 @@ export const orderMailApi = {
 
 export const ORDER_MAIL_ACTION_LABEL: Record<OrderMailProposalRow["action"], string> = {
   fill_draft: "Uzupełni szkic",
+  new_draft: "Nowy kontraktor — utworzy draft",
+  reactivate: "Powrót — uaktywni zakończone zamówienie",
+  unchanged: "Zamówienie już zapisane — dane zgodne",
   future: "Nowe zamówienie (przyszłe)",
   new: "Nowe zamówienie",
   revision: "Rewizja istniejącego — porównaj",

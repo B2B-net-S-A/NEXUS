@@ -1,0 +1,36 @@
+name: Order mail one-off cleanup
+on:
+  workflow_dispatch:
+    inputs:
+      fingerprint:
+        description: "Pusty = audyt bez zapisu. SHA256 zatwierdzonego audytu = jednorazowe wykonanie."
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: order-mail-cleanup-20260909
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Audit or apply the exact one-off plan
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          PLAN_FINGERPRINT: ${{ inputs.fingerprint }}
+          OPS_RUN_ID: ${{ github.run_id }}
+          OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 .github/scripts/order-mail-cleanup-ops.py
+      - name: Preserve lists and per-client review reasons
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: order-mail-cleanup-${{ github.run_id }}
+          path: ${{ runner.temp }}/order-mail-cleanup/report.json
+          retention-days: 7
+          if-no-files-found: error

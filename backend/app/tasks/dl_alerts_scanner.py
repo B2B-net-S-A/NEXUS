@@ -35,6 +35,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
@@ -92,7 +93,16 @@ async def rule_draft_consultant_unassigned(
     result = await db.execute(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract).selectinload(Contract.candidate))
-        .where(ClientOrder.status == ClientOrderStatus.draft)
+        .where(
+            ClientOrder.status == ClientOrderStatus.draft,
+            ~select(Activity.id)
+            .where(
+                Activity.entity_type == "client_order",
+                Activity.entity_id == ClientOrder.id,
+                Activity.action == "order_mail_new_draft",
+            )
+            .exists(),
+        )
     )
     orders = list(result.scalars())
     names = await _client_names(db, {o.client_id for o in orders})

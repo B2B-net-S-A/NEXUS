@@ -59,9 +59,9 @@ def old_extraction():
 @pytest.mark.parametrize(
     "filename,expected",
     [
-        (FILENAME, "34"),
-        ("ZLECENIE NR 0034.pdf", "0034"),
-        ("Zlecenie nr. 34.pdf", "34"),
+        (FILENAME, "Zlecenie nr 34"),
+        ("ZLECENIE NR 0034.pdf", "Zlecenie nr 0034"),
+        ("Zlecenie nr. 34.pdf", "Zlecenie nr 34"),
         ("Zlecenie_nr_34_Test.pdf", None),
         ("Umowa 2026-000008-PZP Zapotrzebowanie nr 1.pdf", None),
         ("Zlecenie nr 34 i Zlecenie nr 35.pdf", None),
@@ -111,9 +111,14 @@ def test_pfron_corrects_document_and_row_and_preserves_unrelated_warning():
     for _ in range(2):
         apply_pfron_order_policy(result, TEXT, filename=FILENAME)
         apply_document_rate_kind(result, TEXT)
-        assert result.title == "34"
+        assert result.title == "Zlecenie nr 34"
         assert result.end_date == result.consultant_rows[0].end_date == "2026-09-30"
-        assert result.confidence == {"title": 1.0, "end_date": 1.0}
+        assert result.confidence == {
+            "title": 1.0,
+            "start_date": 1.0,
+            "end_date": 1.0,
+            "rate_unit": 1.0,
+        }
         assert result.consultant_rows[0].rate_client == Decimal("80.00")
         assert result.uncertain_reasons == ["Nieczytelny numer VAT klienta"]
 
@@ -124,7 +129,7 @@ def test_filename_is_passed_only_to_pfron_policy(monkeypatch):
         PolicyContext(document_text=TEXT, filename=FILENAME),
         active_policies(122),
     )
-    assert applied == ["PFRON"] and result.title == "34"
+    assert applied == ["PFRON"] and result.title == "Zlecenie nr 34"
     other = old_extraction()
     apply_policies(other, PolicyContext(document_text=TEXT, filename=FILENAME), [])
     assert other.title.startswith("Zapotrzebowanie")
@@ -134,11 +139,11 @@ def test_filename_is_passed_only_to_pfron_policy(monkeypatch):
 @pytest.mark.parametrize("method", ["marker", "sender_domain"])
 def test_only_verified_pfron_identity_waives_registry_reason(method):
     inp = _gate_input(identification_method=method, policies_applied=("PFRON",))
-    assert any("numeru rejestrowego" in r for r in evaluate(inp).reasons)
+    assert any("numerem rejestrowym" in r for r in evaluate(inp).reasons)
     confirmed = replace(inp, trusted_policy_identity="pfron")
-    assert not any("numeru rejestrowego" in r for r in evaluate(confirmed).reasons)
+    assert not any("numerem rejestrowym" in r for r in evaluate(confirmed).reasons)
     other = replace(confirmed, policies_applied=("Nordea",))
-    assert any("numeru rejestrowego" in r for r in evaluate(other).reasons)
+    assert any("numerem rejestrowym" in r for r in evaluate(other).reasons)
 
 
 @pytest.mark.asyncio
@@ -202,7 +207,7 @@ async def test_refresh_pfron_reidentifies_and_reapplies_fields_without_model_or_
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", True)
     await svc.refresh_review_plan(db, row)
     assert row.client_id == 122
-    assert row.extraction["title"] == "34"
+    assert row.extraction["title"] == "Zlecenie nr 34"
     assert row.extraction["end_date"] == "2026-09-30"
     assert row.extraction["consultant_rows"][0]["end_date"] == "2026-09-30"
     assert not row.extraction["uncertain_reasons"]

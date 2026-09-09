@@ -39,6 +39,7 @@ from app.services.order_policies._shared import (
 from app.services.order_pdf_parser import (
     _fold_policy_text,
     apply_consultant_row_match,
+    nordea_call_off_agreement_number,
 )
 
 _FRAME_TOKEN_RE = re.compile(r"\b[A-Z]{1,3}\d{5,}\b")
@@ -77,6 +78,40 @@ def order_text_only(text: str) -> str:
     return text
 
 
+def non_order_reason(text: str) -> Optional[str]:
+    """Classify the attachment before stripping certificates or calling a model.
+
+    A combined PDF may contain both a real CoA and signature pages. Inspect
+    the retained order section so the certificate never hides a valid order.
+    Filename and email subject are deliberately not evidence.
+    """
+    body = order_text_only(text)
+    certificate = bool(
+        re.search(
+            r"Certificate\s+of\s+Completion|Record\s+Tracking|Signer\s+Events",
+            text or "",
+            re.I,
+        )
+    )
+    order_signal = bool(
+        extract_rows(body)
+        or any(initial_term(body))
+        or call_off_number_interleaved(body)
+        or nordea_call_off_agreement_number(body)
+        or re.search(
+            r"\b(?:order|zamówienie|zamowienie|CoA)\s*(?:number|nr\.?)?\s*[:#]?\s*\d{3,}",
+            body,
+            re.I,
+        )
+        or re.search(r"\bRate\s*:\s*\d+[,.]\d+", body, re.I)
+    )
+    if certificate and not (_ORDER_TITLE_RE.search(body) or extract_rows(body)):
+        return "Certyfikat podpisu DocuSign — dokument nie jest zamówieniem"
+    if not order_signal and not extract_rows(body):
+        return "Dokument Nordea bez danych charakterystycznych dla zamówienia"
+    return None
+
+
 def parser_text(text: str) -> str:
     """Model dostaje osobę i surową stawkę; kolumna limitu nie jest wejściem."""
     text = order_text_only(text)
@@ -105,6 +140,7 @@ def _resolved_reason(reason: str) -> bool:
         re.search(r"\b(?:brutto|netto|gross|net)\b", folded)
         or re.search(r"\b(?:quantity|md_total|subtotal)\b", folded)
         or re.search(r"(?:liczb\w*|ilos\w*|pul\w*)\s+(?:md|godzin\w*)\b", folded)
+        or "mozna by je wyliczyc z kwoty i stawki, ale to niedozwolone" in folded
         or ("stawk" in folded and "jednost" in folded)
         or ("rate" in folded and "unit" in folded)
     )

@@ -1,23 +1,8 @@
-"""Plan zapisu zamówienia z maila — CZYSTY (bez bazy): co i gdzie powstałoby.
+"""Pure order lifecycle plan, shared by ingestion, refresh and the writer.
 
-Klasyfikacja z ticketu §3, per osoba:
-* konsultant ma DRAFT (szkic-zaślepkę „(bez numeru)" albo szkic bez okresu)
-  → ``fill_draft``: uzupełniamy ten szkic zamiast zakładać nowy rekord;
-* konsultant ma AKTYWNE zamówienie, a nowe jest jego kontynuacją na nowy
-  okres (start po końcu dotychczasowego) → ``future``: nowe zamówienie z
-  przyszłą datą startu;
-* brak zamówienia → ``new``.
-
-Do tego dwa przypadki, których ticket nie nazywa, a korpus ma:
-* ``revision`` — zamówienie o tym numerze już istnieje u tego kontraktu
-  (Fieldglass „Rev. 13" zmienia okres istniejącego, BIK ma numer długi
-  ``4500030751`` i krótki ``30751``) → zawsze kolejka z diffem;
-* ``overlap`` — nowy okres nachodzi na otwarte zamówienie o innym numerze →
-  kolejka (addytywność: automat nie skraca ani nie nakłada).
-
-Klient wielo-konsultantowy (grupa nad ``client_orders``) → ``group`` — writer
-v1 obsługuje wyłącznie zamówienia samodzielne, więc grupa idzie do kolejki
-z opisem linii. BIK/Polsat/Polkomtel i tak nie mają okresu w dokumencie.
+Existing live orders take priority over drafts. A first order creates a draft,
+any single existing draft is filled, a completed order is reused with history.
+Actual period overlaps, ambiguous targets and revisions require review.
 """
 
 from __future__ import annotations
@@ -25,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+import re
 from typing import Optional
 
 from app.services.order_mail_resolver import ResolvedConsultant
@@ -33,11 +19,23 @@ from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 ACTION_FILL_DRAFT = "fill_draft"
 ACTION_FUTURE = "future"
 ACTION_NEW = "new"
+ACTION_NEW_DRAFT = "new_draft"
+ACTION_REACTIVATE = "reactivate"
+ACTION_UNCHANGED = "unchanged"
 ACTION_REVISION = "revision"
 ACTION_OVERLAP = "overlap"
 ACTION_GROUP = "group"
 ACTION_SKIP = "skip"
-AUTO_ACTIONS = frozenset({ACTION_FILL_DRAFT, ACTION_FUTURE, ACTION_NEW})
+AUTO_ACTIONS = frozenset(
+    {
+        ACTION_FILL_DRAFT,
+        ACTION_FUTURE,
+        ACTION_NEW,
+        ACTION_NEW_DRAFT,
+        ACTION_REACTIVATE,
+        ACTION_UNCHANGED,
+    }
+)
 
 PLACEHOLDER_TITLE = "(bez numeru)"
 
@@ -51,6 +49,8 @@ class ExistingOrder:
     end_date: Optional[date]
     order_group_id: Optional[int] = None
     has_file: bool = False
+    rate_client: Optional[Decimal] = None
+    rate_unit: Optional[str] = None
 
 
 @dataclass
@@ -68,6 +68,9 @@ class RowProposal:
     rate_unit: Optional[str] = None
     md_total: Optional[str] = None
     reasons: list[str] = field(default_factory=list)
+    previous_end_date: Optional[str] = None
+    order_type: str = "periodic"
+    total_value: Optional[str] = None
 
 
 @dataclass
@@ -102,6 +105,11 @@ def _number_variants(title: Optional[str]) -> set[str]:
 
 
 def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
+    # PFRON's labelled title is the same identity as its historical bare number.
+    # Strip only this explicit prefix; generic short digit extraction would
+    # conflate unrelated order numbers such as ABC/22 and DEF/22.
+    a = re.sub(r"^zlecenie\s+nr\.?\s+", "", (a or "").strip(), flags=re.I)
+    b = re.sub(r"^zlecenie\s+nr\.?\s+", "", (b or "").strip(), flags=re.I)
     va, vb = _number_variants(a), _number_variants(b)
     if not va or not vb:
         return False
@@ -115,11 +123,7 @@ def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
 
 
 def _is_draft_shell(order: ExistingOrder) -> bool:
-    return order.status == "draft" and (
-        order.title.strip() == PLACEHOLDER_TITLE
-        or not order.title.strip()
-        or order.start_date is None
-    )
+    return order.status == "draft"
 
 
 def _period_for_row(
@@ -148,6 +152,7 @@ def plan_document(
     existing_orders_by_contract: dict[int, list[ExistingOrder]],
     is_group_client: bool,
     today: date,
+    order_type: Optional[str] = None,
 ) -> DocumentProposal:
     rows = extraction.consultant_rows
     proposal = DocumentProposal(
@@ -177,16 +182,17 @@ def plan_document(
             rate_client=str(rate) if rate is not None else None,
             rate_unit=unit,
             md_total=str(md) if md is not None else None,
+            order_type=order_type or ("md" if is_group_client else "periodic"),
+            total_value=str(extraction.total_value)
+            if extraction.total_value is not None
+            else None,
         )
-        if not res.is_unique_person or res.contract_id is None:
-            rp.reasons.append(res.reason or "Nie ustalono osoby/kontraktu")
+        if res.match_kind == "none":
+            rp.action = ACTION_NEW_DRAFT
             proposal.rows.append(rp)
             continue
-        if is_group_client:
-            rp.action = ACTION_GROUP
-            rp.reasons.append(
-                "Klient wielo-konsultantowy — linia grupy zamówień (zapis ręczny w v1)"
-            )
+        if not res.is_unique_person or res.contract_id is None:
+            rp.reasons.append(res.reason or "Nie ustalono osoby/kontraktu")
             proposal.rows.append(rp)
             continue
         if not start:
@@ -195,7 +201,44 @@ def plan_document(
             continue
 
         existing = existing_orders_by_contract.get(res.contract_id, [])
-        same_number = [o for o in existing if titles_collide(o.title, extraction.title)]
+        new_start = date.fromisoformat(start)
+        completed_return = [
+            o
+            for o in existing
+            if o.status == "completed" and o.end_date and o.end_date < new_start
+        ]
+        if completed_return and not any(
+            o.status in ("active", "paused", "draft") for o in existing
+        ):
+            target = max(completed_return, key=lambda o: (o.end_date, o.id))
+            rp.action = ACTION_REACTIVATE
+            rp.target_order_id = target.id
+            rp.previous_end_date = _iso(target.end_date)
+            rp.reasons.append(
+                f"Powrót po {(new_start - target.end_date).days} dniach od zakończenia poprzedniego zamówienia"
+            )
+            proposal.rows.append(rp)
+            continue
+        same_number = [
+            o
+            for o in existing
+            if o.status != "draft" and titles_collide(o.title, extraction.title)
+        ]
+        if len(same_number) == 1:
+            target = same_number[0]
+            target_unit = {"hourly": "hour", "daily": "day", "monthly": "month"}.get(
+                target.rate_unit, target.rate_unit
+            )
+            if (
+                target.start_date,
+                _iso(target.end_date),
+                target.rate_client,
+                target_unit,
+            ) == (new_start, end, rate, unit):
+                rp.action = ACTION_UNCHANGED
+                rp.target_order_id = target.id
+                proposal.rows.append(rp)
+                continue
         if same_number:
             rp.action = ACTION_REVISION
             rp.target_order_id = same_number[0].id
@@ -206,14 +249,28 @@ def plan_document(
             proposal.rows.append(rp)
             continue
 
+        open_live = [o for o in existing if o.status in ("active", "paused")]
         shells = [o for o in existing if _is_draft_shell(o)]
-        if shells:
+        if len(shells) > 1 and not open_live:
+            rp.reasons.append("Więcej niż jeden draft tej osoby — wybierz zamówienie")
+            proposal.rows.append(rp)
+            continue
+        if shells and not open_live:
+            if shells[0].order_group_id is not None and not titles_collide(
+                shells[0].title, extraction.title
+            ):
+                rp.action = ACTION_GROUP
+                rp.reasons.append(
+                    "Szkic należy do istniejącej grupy o innym numerze — potwierdź przypisanie"
+                )
+                proposal.rows.append(rp)
+                continue
             rp.action = ACTION_FILL_DRAFT
             rp.target_order_id = shells[0].id
             proposal.rows.append(rp)
             continue
 
-        open_orders = [o for o in existing if o.status in ("active", "paused", "draft")]
+        open_orders = open_live
         new_start = date.fromisoformat(start)
         overlapping = [
             o

@@ -172,6 +172,7 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
         extraction, TEXT, filename="Zlecenie nr 31 Krzysztof Pala.pdf"
     )
     db = AsyncMock()
+    db.scalar.return_value = None
     db.execute.return_value = Mock(
         scalars=Mock(return_value=Mock(all=Mock(return_value=[])))
     )
@@ -193,6 +194,7 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
 
 
 @pytest.mark.parametrize("marking", ["", "netto brutto", "brutto netto"])
-def test_missing_or_conflicting_vat_marking_requires_review(marking):
+def test_pfron_labelled_rate_always_uses_requested_gross_rule(marking):
     rows = pfron_extract_rows(TEXT.replace("brutto", marking))
-    assert rows[0].uncertain
+    assert not rows[0].uncertain
+    assert rows[0].rate_client == Decimal("120.00")

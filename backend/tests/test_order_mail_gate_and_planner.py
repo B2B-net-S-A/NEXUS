@@ -18,11 +18,10 @@ from app.services.order_mail_gate import (
 from app.services.order_mail_planner import (
     ACTION_FILL_DRAFT,
     ACTION_FUTURE,
-    ACTION_GROUP,
     ACTION_NEW,
+    ACTION_NEW_DRAFT,
     ACTION_OVERLAP,
     ACTION_REVISION,
-    ACTION_SKIP,
     ExistingOrder,
     plan_document,
     titles_collide,
@@ -322,7 +321,7 @@ class TestPlanner:
             is_group_client=True,
             today=TODAY,
         )
-        assert [r.action for r in p.rows] == [ACTION_GROUP, ACTION_SKIP]
+        assert [r.action for r in p.rows] == [ACTION_NEW, ACTION_NEW_DRAFT]
 
 
 # ── Bramka ───────────────────────────────────────────────────────────────────
@@ -377,9 +376,6 @@ class TestGate:
                     _resolved(0, "Jan Kowalski", contract_id=None, live=(10, 11)),
                 )
             ),
-            "ended": dict(
-                resolved=(_resolved(0, "Jan Kowalski", live=(), status="ended"),)
-            ),
             "title_model": dict(
                 extraction=_extraction([_row("Jan Kowalski")], conf_title=0.9)
             ),
@@ -425,7 +421,7 @@ class TestGate:
         resolved = (
             _resolved(0, "Jan Kowalski"),
             ResolvedConsultant(
-                1, "Nikt Nieznany", MATCH_NONE, reason="Brak takiej osoby"
+                1, "Nikt Nieznany", MATCH_AMBIGUOUS, reason="Pasują dwie osoby"
             ),
         )
         ex = _extraction(rows)
