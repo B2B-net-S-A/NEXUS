@@ -78,7 +78,8 @@ from app.services.cv_generator_b2b.client_rules import (
 )
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
-    generate_cv_for_candidate,
+    generate_cv_from_candidate_source,
+    load_candidate_generation_source,
     list_recruitments_with_readiness,
 )
 from app.services.section_permissions import (
@@ -1452,18 +1453,20 @@ async def _run_rule_preview_job_inner(
             frozen = ClientCvRule()
             _apply_payload(frozen, recipe)
             snap = snapshot_rule(frozen)
-            with_rule = await generate_cv_for_candidate(
+            source = await load_candidate_generation_source(
                 db,
                 candidate_id=candidate_id,
                 stage_id=stage_id,
+                language=language,
+            )
+            with_rule = await generate_cv_from_candidate_source(
+                source,
                 language=language,  # type: ignore[arg-type]
                 client_rule=snap,
                 client_policy_override=row.recipe_snapshot,
             )
-            without_rule = await generate_cv_for_candidate(
-                db,
-                candidate_id=candidate_id,
-                stage_id=stage_id,
+            without_rule = await generate_cv_from_candidate_source(
+                source,
                 language=language,  # type: ignore[arg-type]
                 client_rule=None,
                 client_policy_override={"cv_content_mode_cap": None},

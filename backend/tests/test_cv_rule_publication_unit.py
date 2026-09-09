@@ -162,11 +162,17 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypat
             job_id=1,
         )
     )
-    monkeypatch.setattr(api, "generate_cv_for_candidate", generate)
+    source = object()
+    load_source = AsyncMock(return_value=source)
+    monkeypatch.setattr(api, "load_candidate_generation_source", load_source)
+    monkeypatch.setattr(api, "generate_cv_from_candidate_source", generate)
     await api._run_rule_preview_job_inner(
         1, client_id=26, candidate_id=2, stage_id=3, language="en"
     )
     assert row.status == "ready"
+    load_source.assert_awaited_once()
+    assert generate.await_count == 2
+    assert all(call.args == (source,) for call in generate.call_args_list)
     assert generate.call_args_list[0].kwargs["client_rule"].cv_language == "en"
     assert (
         generate.call_args_list[0].kwargs["client_policy_override"][

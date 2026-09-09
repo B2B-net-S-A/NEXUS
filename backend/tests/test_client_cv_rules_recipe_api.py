@@ -504,7 +504,7 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         seen_rules: list[object] = []
 
-        async def fake_generate(db, *, candidate_id, stage_id, language="pl", **kw):
+        async def fake_generate(source, *, language="pl", **kw):
             seen_rules.append(kw.get("client_rule"))
             from app.services.cv_generator_b2b.standalone_service import (
                 GenerationResult,
@@ -520,7 +520,14 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
                 job_id=stage_id,
             )
 
-        monkeypatch.setattr(api_module, "generate_cv_for_candidate", fake_generate)
+        from unittest.mock import AsyncMock
+
+        frozen_source = object()
+        load_source = AsyncMock(return_value=frozen_source)
+        monkeypatch.setattr(api_module, "load_candidate_generation_source", load_source)
+        monkeypatch.setattr(
+            api_module, "generate_cv_from_candidate_source", fake_generate
+        )
 
         # Rekrutacja bez CV / Championa / notatek → 422 PRZED kwotą (prawdziwa
         # gotowość: kandydat testowy nie ma nic z tych trzech).
