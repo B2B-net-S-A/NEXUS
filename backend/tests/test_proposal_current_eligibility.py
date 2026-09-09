@@ -119,3 +119,47 @@ async def test_changed_candidate_score_is_not_presented_as_current(monkeypatch):
     assert changed.breakdown["total"] is None
     assert "matching_must" not in changed.breakdown
     assert snap.breakdowns[0]["total"] == 90
+
+
+@pytest.mark.asyncio
+async def test_changed_request_clears_scores_and_evidence_but_keeps_current_visibility(
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    candidates = {
+        i: Candidate(id=i, name="Test", lastname="Candidate", updated_at=now)
+        for i in [1, 2]
+    }
+    snap = SimpleNamespace(
+        breakdowns=[
+            {
+                "candidate_id": 2,
+                "total": 95,
+                "candidate_version": str(now),
+                "matching_must": ["Python"],
+            },
+            {"candidate_id": 1, "total": 80, "candidate_version": str(now)},
+        ]
+    )
+    clean = evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
+    blocked = evaluate_eligibility(
+        EligibilityInput(candidate_status="active", rejected_by_hiring_manager=True),
+        now=now,
+    )
+    monkeypatch.setattr(
+        proposals, "_load_snapshot_candidates", AsyncMock(return_value=candidates)
+    )
+    monkeypatch.setattr(
+        "app.services.pipeline_eligibility.evaluate_candidates_for_job",
+        AsyncMock(return_value={1: clean, 2: blocked}),
+    )
+    items = await proposals._hydrate_current_items(
+        None, SimpleNamespace(id=7), snap, context_stale=True
+    )
+    assert [item.candidate.id for item in items] == [1, 2]
+    assert all(item.total_score is None for item in items)
+    assert all(item.breakdown["measurement"] == "context_changed" for item in items)
+    assert all("matching_must" not in item.breakdown for item in items)
+    assert items[1].eligibility["assignment_allowed"] is False
+    assert snap.breakdowns[0]["total"] == 95
+    assert snap.breakdowns[0]["matching_must"] == ["Python"]

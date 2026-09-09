@@ -99,7 +99,7 @@ async def _load_snapshot_candidates(
     return {c.id: c for c in result.scalars().all()}
 
 
-async def _hydrate_current_items(db, job, snap):
+async def _hydrate_current_items(db, job, snap, *, context_stale=False):
     """Recheck visibility on every read; stored annotations are historical only."""
     from datetime import datetime, timezone
     from app.api.matching import _eligibility_annotation
@@ -123,7 +123,8 @@ async def _hydrate_current_items(db, job, snap):
         candidate = visible[item.candidate.id]
         saved_version = item.breakdown.get("candidate_version")
         if (
-            not saved_version
+            context_stale
+            or not saved_version
             or candidate.updated_at is None
             or saved_version != str(candidate.updated_at)
         ):
@@ -131,7 +132,7 @@ async def _hydrate_current_items(db, job, snap):
             item.breakdown = {
                 "candidate_id": item.candidate.id,
                 "total": None,
-                "measurement": "candidate_changed",
+                "measurement": "context_changed" if context_stale else "candidate_changed",
                 "eligibility": item.eligibility,
             }
         else:
@@ -178,7 +179,7 @@ async def get_latest_proposal(
     from app.services.proposal_contract import snapshot_is_stale_for_viewer
 
     context_stale = await snapshot_is_stale_for_viewer(db, snap, job, current_user.id)
-    items = await _hydrate_current_items(db, job, snap)
+    items = await _hydrate_current_items(db, job, snap, context_stale=context_stale)
     candidates_stale = any(
         item.breakdown.get("measurement") == "candidate_changed" for item in items
     )
@@ -191,7 +192,7 @@ async def get_latest_proposal(
         profile_id=snap.profile_id,
         created_at=snap.created_at,
         error_message=snap.error_message,
-        degraded=snap.degraded or candidates_stale,
+        degraded=snap.degraded or context_stale or candidates_stale,
         stale=context_stale or candidates_stale,
         hidden=snap.hidden,
         run_id=snap.run_id,

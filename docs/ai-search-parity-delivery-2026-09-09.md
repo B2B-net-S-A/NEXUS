@@ -235,3 +235,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - GitHub reported PR 1428 CONFLICTING; the current main is 4ddd5bef. Merged main into the isolated task branch and retained both independent section-access test groups. All 27 section-access tests pass; Ruff passes on the merged guard/tests.
 - Main introduced a separate 0282 signature-permission migration. Added a no-op merge revision joining it with 0283 requirement verifications, preserving both existing migration histories and all parent operations. This requires hosted upgrade/downgrade validation; local Alembic topology verification is not proof of database migration execution.
+
+### Increment: obsolete proposal context cannot expose current numeric fit
+
+- Latest proposal reads now pass the current request/profile freshness decision into hydration. Stale context clears numeric fit and old requirement breakdowns, marks context_changed and degraded, and retains current eligibility annotations. Null rows use stable candidate ordering; archived database snapshots are untouched.
+- Nine native proposal freshness/eligibility tests pass, including changed-context clearing with unchanged candidate versions and continued assignment blocking. Ruff and diff checks pass. Hosted CI 34337354217 and gate 34337354219 started for 42ecdf80 after resolving the PR merge conflict; no full-CI success or production deployment is claimed.
