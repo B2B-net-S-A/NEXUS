@@ -2020,6 +2020,7 @@ async def approve_generated_cv(
         select(CvGeneratedDocument)
         .where(CvGeneratedDocument.id == generated_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise HTTPException(404, "Nie znaleziono CV.")

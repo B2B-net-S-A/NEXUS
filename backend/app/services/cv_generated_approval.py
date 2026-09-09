@@ -17,7 +17,10 @@ async def approved_version_for_generation(db, generated, version_id: int):
         CvDocumentVersion.generated_document_id == generated.id,
     )
     if generated.candidate_id is None or generated.job_id is None:
-        query = query.where(CvDocumentVersion.candidate_stage_cv_id.is_(None))
+        query = query.where(
+            CvDocumentVersion.candidate_stage_cv_id.is_(None),
+            CvDocumentVersion.generated_owner_id == generated.id,
+        )
     else:
         query = (
             query.outerjoin(
@@ -28,7 +31,7 @@ async def approved_version_for_generation(db, generated, version_id: int):
                 CandidateStage, CandidateStage.id == CandidateStageCV.candidate_stage_id
             )
             .where(
-                CvDocumentVersion.candidate_stage_cv_id.is_(None)
+                (CvDocumentVersion.generated_owner_id == generated.id)
                 | (
                     (CandidateStage.candidate_id == generated.candidate_id)
                     & (CandidateStage.job_id == generated.job_id)

@@ -230,3 +230,19 @@ Previous pushed head dd288a5d completed all CI shards and frontend build in run
 Remaining: standalone manual editing/new drafts and approved-only API enforcement,
 plus full real-model/visual acceptance and other open CV-01..20 requirements. No
 production completion is claimed.
+
+
+### Relational approval verification prepared
+
+Added four hosted database cases: standalone deletion cascade, pipeline approval
+retention after generation deletion, rejection of ownerless approvals, and the HTTP
+approve/retry/list/share/public-view roundtrip with blind identity and chat exclusion.
+They are collected successfully and Ruff passes; execution against PostgreSQL is
+pending hosted CI. The roundtrip uses synthetic archived bytes and a synthetic
+verification receipt, so it does not prove rendering quality or model accuracy.
+
+Approval refreshes the locked generation from the database (`populate_existing`)
+before validating it, and approved-version resolution explicitly checks the standalone
+owner ID as well as the source generation ID. Fourteen focused local unit cases
+still pass. CI run 34407704731 for pushed head 96d9ff50 was verified in progress;
+these additional checks are not part of that head yet.
