@@ -42,7 +42,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality]
+        options: [candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -90,6 +90,14 @@ on:
       # `command` świadomie NIE MA: to kanał wykonania na prodzie, a wejście
       # tekstowe wprost przekładałoby uprawnienie „odpal eval" na „odpal cokolwiek
       # w kontenerze z bazą kandydatów". Sama komenda jest zaszyta w job `eval`.
+      cv_eval_source_sha:
+        description: "Original evaluated SHA (required only for recovering an existing receipt)"
+        type: string
+        required: false
+      cv_eval_run_identity:
+        description: "Existing CV diagnostic run and attempt to inspect (e.g. 34362429205-1); read-only"
+        required: false
+        default: ""
       cv_eval_models:
         description: "CV synthetic diagnostics: primary or all configured models"
         type: choice
@@ -165,7 +173,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    if: ${{ !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1314,7 +1322,7 @@ jobs:
 
   cv-quality:
     name: CV synthetic factual review diagnostics
-    if: inputs.action == 'eval-cv-quality'
+    if: inputs.action == 'eval-cv-quality' || inputs.action == 'recover-cv-quality'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     concurrency:
@@ -1322,7 +1330,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Evaluate the deployed verifier on synthetic sources
+      - name: Evaluate synthetic sources or recover an existing metric receipt
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -1330,9 +1338,25 @@ jobs:
           OPS_RUN_ID: ${{ github.run_id }}
           OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
           EXPECTED_SHA: ${{ github.sha }}
+          OPS_ACTION: ${{ inputs.action }}
+          RECOVER_RUN_ID: ${{ inputs.action == 'recover-cv-quality' && inputs.cv_eval_run_identity || '' }}
+          RECOVER_SOURCE_SHA: ${{ inputs.cv_eval_source_sha }}
           EVAL_MODELS: ${{ inputs.cv_eval_models }}
           EVAL_CASES: ${{ inputs.cv_eval_cases }}
-        run: python3 .github/scripts/cv-quality-ops.py
+        run: |
+          if [ "$OPS_ACTION" = "recover-cv-quality" ] && [ -z "$RECOVER_RUN_ID" ]; then
+            echo "Missing receipt identity"
+            exit 2
+          fi
+          python3 .github/scripts/cv-quality-ops.py
+      - name: Recover cleanup after runner interruption
+        if: always()
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          INSPECT_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: python3 .github/scripts/cv-quality-cleanup.py
       - name: Preserve metrics and task cleanup receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1341,3 +1365,33 @@ jobs:
           path: ${{ runner.temp }}/cv-quality/
           if-no-files-found: error
           retention-days: 7
+
+  cv-quality-inspect:
+    name: Inspect existing CV diagnostic (read-only)
+    if: inputs.action == 'inspect-cv-quality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read sanitized execution metadata
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          INSPECT_RUN_ID: ${{ inputs.cv_eval_run_identity }}
+        run: python3 .github/scripts/cv-quality-inspect.py
+
+  cv-quality-cleanup:
+    name: Clean up stopped CV diagnostic
+    if: inputs.action == 'cleanup-cv-quality'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Remove only the stopped diagnostic with the exact command
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          INSPECT_RUN_ID: ${{ inputs.cv_eval_run_identity }}
+        run: python3 .github/scripts/cv-quality-cleanup.py

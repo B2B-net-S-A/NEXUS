@@ -61,12 +61,12 @@ export interface JobHeaderKpi {
  */
 export const STRONG_MATCH_SCORE = 75;
 
-/** Ranking C2 wyliczony z cache'u zapytania `["ai-matches", jobId, ""]`. */
+/** Population summary from the explicit full-search run. */
 export interface JobRankingSummary {
   /** Ilu kandydatów jest w rankingu. */
   total: number;
   /** Ilu ma wynik ≥ {@link STRONG_MATCH_SCORE}. */
-  strong: number;
+  strong: number | null;
 }
 
 /**

@@ -28,4 +28,6 @@ echo "CV_QUALITY_EXIT=$rc"
 cleanup
 trap - EXIT
 echo '===NEXUS-CV-QUALITY-END==='
-exit "$rc"
+# Coolify may replace all stdout with a generic exception for a nonzero
+# process exit. Preserve the report; the caller evaluates CV_QUALITY_EXIT.
+exit 0

@@ -365,7 +365,9 @@ async def _finalize_success(
     # identifiable (the DOCX itself remains anonymized on re-render).
     row.candidate_name = str(payload.get("name") or result.candidate_name)
     row.position = payload.get("position")
-    row.job_id = result.job_id
+    # Upload parsing has no recruitment context; retain the authorized enqueue binding.
+    if result.job_id is not None:
+        row.job_id = result.job_id
     row.filename = result.filename
     # Zrzut zgody kandydata (wymóg PKO BP) doklejamy do payloadu, a nie do
     # osobnej kolumny: DOCX jest re-renderowany z payloadu przy KAŻDYM pobraniu,
@@ -818,7 +820,8 @@ async def _run_generate_upload_job(
             second_id = await _create_pending_row(
                 db,
                 mode="upload",
-                candidate_id=None,
+                candidate_id=first_row.candidate_id if first_row else None,
+                job_id=first_row.job_id if first_row else None,
                 candidate_name=first_row.candidate_name if first_row else "Kandydat",
                 position=payload.position or None,
                 language=second,
@@ -1369,6 +1372,8 @@ async def generate_from_upload(
     # robionych poza konkretnym zleceniem, a wymuszony wybór zamieniłby brak
     # wiedzy w zgadywanie. Bez klienta wszystko działa jak dotąd.
     client_id: Optional[int] = Form(None),
+    candidate_id: Annotated[Optional[int], Form(ge=1)] = None,
+    stage_id: Annotated[Optional[int], Form(ge=1)] = None,
     # Upload nie ma oferty, więc stanowisko i numer projektu — jedyne źródła
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy pliku — podaje rekruter.
     position: str = Form("", max_length=300),
@@ -1398,9 +1403,37 @@ async def generate_from_upload(
     Old-mode: user wgrywa CV ręcznie, opcjonalnie DOCX championa i notatki ze
     screeningu. Bajty plików czytamy tu (``UploadFile`` nie przeżyje requestu)
     i przekazujemy do zadania w tle, dzięki czemu rekruter może zamknąć kartę —
-    wynik ląduje na liście „Wygenerowane CV". Poza wpisem audytowym nic nie
-    trafia do NEXUS DB.
+    wynik ląduje na liście „Wygenerowane CV" z jawnie wybranym przypisaniem
+    do osoby i rekrutacji. Dane źródłowe nadal pochodzą z wgranego pliku.
     """
+    # A user explicitly binds the uploaded file; never match by parsed name.
+    # Derive the client from a verified candidate-stage pair before rule/quota reads.
+    job_id = None
+    if stage_id is not None:
+        if candidate_id is None:
+            raise HTTPException(
+                status_code=422, detail="Wybierz kandydata dla rekrutacji."
+            )
+        stage = await db.get(CandidateStage, stage_id)
+        if stage is None or stage.candidate_id != candidate_id:
+            raise HTTPException(
+                status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+            )
+        await ensure_job_membership(db, current_user, stage.job_id)
+        job = await db.get(Job, stage.job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404, detail="Rekrutacja nie została znaleziona."
+            )
+        if client_id is not None and client_id != job.client_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Klient nie zgadza się z rekrutacją. Odśwież formularz.",
+            )
+        job_id, client_id = job.id, job.client_id
+    if candidate_id is not None and await db.get(Candidate, candidate_id) is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
+
     # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
     # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
     # więc obietnica złożona klientowi działała dla 0,1% generacji.
@@ -1478,7 +1511,8 @@ async def generate_from_upload(
     generated_id = await _create_pending_row(
         db,
         mode="upload",
-        candidate_id=None,
+        candidate_id=candidate_id,
+        job_id=job_id,
         candidate_name=provisional,
         position=position or None,
         language=language,
@@ -1524,6 +1558,9 @@ async def list_generated_cvs(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(60, ge=1, le=200),
+    candidate_id: Annotated[Optional[int], Query(ge=1)] = None,
+    job_id: Annotated[Optional[int], Query(ge=1)] = None,
+    before_id: Annotated[Optional[int], Query(ge=1)] = None,
 ):
     """Recently generated CVs for the panel list (newest first).
 
@@ -1533,6 +1570,14 @@ async def list_generated_cvs(
     saved ``render_payload`` (rows from before this feature have none);
     ``can_delete`` whether the current user may remove the row (author or admin).
     """
+    filters = [job_read_scope_clause(current_user, CvGeneratedDocument.job_id)]
+    if candidate_id is not None:
+        filters.append(CvGeneratedDocument.candidate_id == candidate_id)
+    if job_id is not None:
+        await ensure_job_read_access(db, current_user, job_id)
+        filters.append(CvGeneratedDocument.job_id == job_id)
+    if before_id is not None:
+        filters.append(CvGeneratedDocument.id < before_id)
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
@@ -1547,8 +1592,8 @@ async def list_generated_cvs(
             )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
-            .where(job_read_scope_clause(current_user, CvGeneratedDocument.job_id))
-            .order_by(CvGeneratedDocument.created_at.desc())
+            .where(*filters)
+            .order_by(CvGeneratedDocument.id.desc())
             .limit(limit)
         )
     ).all()
