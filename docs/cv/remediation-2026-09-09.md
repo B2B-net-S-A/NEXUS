@@ -224,16 +224,6 @@ preview DOM regression and type-check pass. Hosted CI/deployment/production
 browser proof remain pending. This fixes letterhead layout, not unsupported
 AI claims, font availability or complete Word/browser pagination parity.
 
-### CV-02/CV-10 — approved DOCX snapshots and draft review (2026-09-09)
-
-The pipeline can download a draft DOCX from the current unsaved editor content before approval. Approval renders that exact sanitized content once and freezes its DOCX bytes, SHA-256, filename and renderer/asset metadata on the immutable version. Later downloads never query the generator or rerun a model. Selecting a generated document freezes its template and consent image; missing selected consent blocks the selection. Older HTML-only approvals are not retroactively represented as reviewed DOCX files.
-
-The renderer preserves text order, explicit bold/italic emphasis, headings, nested lists and merged table cells. It rejects remote images and invalid overlapping table spans instead of silently dropping their contents. An editor extension keeps the consent paragraph style through actual Tiptap serialization. Full HTML imports remove head/style/script contents before sanitization so CSS cannot become visible CV text.
-
-Validation: 24 focused backend tests plus 10 sanitizer checks, 2 frontend tests including real Tiptap edit/reload, TypeScript, Ruff and a single Alembic head `0289_cv_approved_docx`. The model-free two-page synthetic fixture was rendered in bundled LibreOffice and both pages visually checked: full repeating letterhead, body clear of artwork, compact unsplit consent, explicit edits and emphasis. Font fallback remains a limitation versus the user's Word installation. PostgreSQL selection/approval/source-deletion/download lifecycle is extended for hosted CI; it has not been run locally. A mistaken broad local security selection reached 5 DB-dependent cases and failed against deliberately unavailable localhost:1; targeted host-only selection subsequently passed.
-
-This is a partial delivery of CV-02/CV-10: standalone approval/version sharing, full semantic verification, and the full production UI acceptance remain open. No real candidate or client recipe was changed.
-
 ### CV-09 / required Champion admission — partial delivery
 
 Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
