@@ -108,6 +108,14 @@ def test_missing_selected_consent_blocks_selection(monkeypatch):
 
 
 async def test_approval_freezes_actual_edits_and_download_never_rerenders(monkeypatch):
+    from app.services import cv_approval_review
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        cv_approval_review,
+        "review_for_approval",
+        AsyncMock(return_value={"status": "verified"}),
+    )
     csv, db, user, _, loader = context(monkeypatch)
     result = await api.finalize_branded_cv(
         2,

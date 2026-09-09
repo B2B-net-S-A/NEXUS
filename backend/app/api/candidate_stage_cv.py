@@ -703,6 +703,12 @@ async def finalize_branded_cv(
     # Render the exact submitted/sanitized content once, before approval. The
     # stored bytes are subsequently downloaded without accessing live sources.
     docx, template = await _render_editor_docx(csv, csv.branded_draft_html)
+    from app.services.cv_approval_review import review_for_approval
+
+    content_review = await review_for_approval(
+        db, csv, csv.branded_draft_html, current_user.id
+    )
+
     docx_filename = (
         csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
     )
@@ -711,6 +717,8 @@ async def finalize_branded_cv(
     metadata = {
         **(csv.branded_render_metadata or {}),
         **approval_provenance(csv.branded_draft_html, csv.branded_render_metadata),
+        "content_review": content_review,
+        "requires_content_review": False,
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(template).hexdigest(),
         "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()

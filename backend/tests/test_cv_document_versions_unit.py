@@ -56,6 +56,14 @@ def context(monkeypatch, status="draft"):
 
 
 async def test_finalization_saves_submitted_content_and_freezes_it(monkeypatch):
+    from app.services import cv_approval_review
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        cv_approval_review,
+        "review_for_approval",
+        AsyncMock(return_value={"status": "verified"}),
+    )
     csv, db, user, blobs, loader = context(monkeypatch)
     result = await api.finalize_branded_cv(
         2,
