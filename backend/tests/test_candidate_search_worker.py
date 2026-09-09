@@ -104,3 +104,60 @@ async def test_query_failure_is_checkpointed_and_population_still_accounted(
         assert save_batch.call_args.kwargs["error_code"] == "RuntimeError"
         assert save_batch.call_args.kwargs["metrics"]["stages"]["batch"]["failed"] == 1
     finish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slow_stage", ["query", "batch"])
+async def test_timeout_cancels_slow_work_and_checkpoints_incomplete_result(
+    monkeypatch, slow_stage
+):
+    import asyncio
+
+    context = build_request_context(make_job(), DEFAULT_PROFILE)
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.get.return_value = SimpleNamespace(
+        request_context=context.as_dict(), metrics={}
+    )
+    monkeypatch.setattr(worker, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(worker.store, "claim_run", AsyncMock(return_value="lease"))
+    checkpoint, save, finish = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(worker.store, "save_metrics", checkpoint)
+    monkeypatch.setattr(worker.store, "save_batch", save)
+    monkeypatch.setattr(worker.store, "finish_run", finish)
+    monkeypatch.setattr(
+        worker.store,
+        "pending_batch",
+        AsyncMock(side_effect=[[CandidateSnapshot(1, "v1")], []]),
+    )
+    cancelled = asyncio.Event()
+
+    async def slow(*args):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(worker, "QUERY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(worker, "BATCH_TIMEOUT_SECONDS", 0.01)
+    query = AsyncMock(
+        side_effect=slow if slow_stage == "query" else None, return_value=[1, 0]
+    )
+    evaluate = AsyncMock(
+        side_effect=slow if slow_stage == "batch" else None, return_value=[]
+    )
+    monkeypatch.setattr(worker, "request_vector", query)
+    monkeypatch.setattr(worker, "evaluate_batch", evaluate)
+    await worker.execute_run("run")
+    assert cancelled.is_set()
+    query.assert_awaited_once()
+    evaluate.assert_awaited_once()
+    finish.assert_awaited_once()
+    if slow_stage == "query":
+        assert evaluate.call_args.args[3] is None
+        assert checkpoint.call_args.args[3]["stages"]["query_embedding"]["failed"] == 1
+    else:
+        session.rollback.assert_awaited_once()
+        assert save.call_args.args[4] == []
+        assert save.call_args.kwargs["error_code"] == "TimeoutError"
+        assert save.call_args.kwargs["metrics"]["stages"]["batch"]["failed"] == 1

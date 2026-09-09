@@ -14,6 +14,13 @@ from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
 
 
+# Leave time to roll back and persist an explicit incomplete result before
+# the 300s query lease / 120s batch lease expires. These are execution bounds,
+# not a promise of provider latency or a complete ranking after a timeout.
+QUERY_TIMEOUT_SECONDS = 240
+BATCH_TIMEOUT_SECONDS = 90
+
+
 async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     # Reuse the established visibility policy, including visible assignment
     # blocks and the invariant that global blacklist remains hidden.
@@ -111,7 +118,8 @@ async def execute_run(run_id: str):
         await db.commit()
     with telemetry.activate(), stage("query_embedding") as outcome:
         try:
-            vector = await request_vector(request.query_text)
+            async with asyncio.timeout(QUERY_TIMEOUT_SECONDS):
+                vector = await request_vector(request.query_text)
             outcome["failed"] = vector is None
         except Exception:
             # Account for the population as unknown instead of retrying a
@@ -131,7 +139,8 @@ async def execute_run(run_id: str):
             error_code = None
             try:
                 with telemetry.activate(), stage("batch"):
-                    evaluations = await evaluate_batch(db, request, batch, vector)
+                    async with asyncio.timeout(BATCH_TIMEOUT_SECONDS):
+                        evaluations = await evaluate_batch(db, request, batch, vector)
             except Exception as exc:
                 # Do not persist provider text or candidate data in errors.
                 await db.rollback()

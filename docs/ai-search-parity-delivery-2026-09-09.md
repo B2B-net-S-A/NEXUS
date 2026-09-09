@@ -250,3 +250,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - The common search gate now rejects missing/null decisions for any requested candidate before producing visible/assignable results. Previously a partial decision map let the omitted candidate through without an annotation. Full-search execution records the failed batch without fabricated evaluations; synchronous consumers receive an error.
 - Eighteen native contract/worker tests pass. Coverage includes absent and null decisions plus worker persistence of a failed eligibility batch, failed-stage telemetry and sanitized error code. Ruff and diff checks pass. CI 34337354217 was verified still running; latest-head runs were queued. Production and full-audit completion remain unproven.
+
+### Increment: bounded worker evaluation before lease expiry
+
+- Query embedding and batch evaluation now have cooperative asyncio deadlines of 240s and 90s, below their 300s and 120s leases. This leaves a persistence margin instead of allowing an indefinitely awaited provider to consume the lease and trigger repeated work. Query timeout proceeds with unknown semantic measurement; batch timeout rolls back and saves an explicit failed batch, with no invented scores.
+- Five worker tests pass, including actual cancellation of indefinitely awaiting coroutines in both stages, single invocation, failure telemetry and sanitized TimeoutError checkpoint. Ruff and diff checks pass. These cooperative limits cannot preempt blocking CPU code or guarantee database availability; production throughput/p95 and full completeness still require measurement. No production execution or completion is claimed.
