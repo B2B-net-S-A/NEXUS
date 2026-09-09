@@ -460,3 +460,14 @@ samym obrazem co zapisany załącznik; testy zasobów obejmują niedostępny mag
 i uszkodzoną kopię zgody. Alembic ma jedną końcową rewizję 0298.
 CI Gate dla d2495aa0: 34413855623 success; główne CI 34413855594 jeszcze trwa
 i nie obejmuje tej nowej paczki zasobów. Pełna ocena jakości modelowej pozostaje otwarta.
+# Hosted receipt concurrency evidence — d2495aa0
+
+CI 34413855594 finished successfully for d2495aa0. Its shard 0 log explicitly
+reports both `test_competing_receipt_observes_commit_or_recovers_rollback[True]`
+and `[False]` as PASSED: a competing request reuses the committed document or
+reserves a fresh receipt after rollback. This is PostgreSQL evidence, not a
+mock-only inference. It does not establish production network/restart behavior.
+
+The next pushed revision a0a18ddb has CI 34415126821 in progress, CI Gate
+34415126803 queued and review 34415126907 in progress at this checkpoint.
+No merge, production deployment or model-quality acceptance is claimed.
