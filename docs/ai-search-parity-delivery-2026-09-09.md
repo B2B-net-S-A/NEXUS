@@ -400,3 +400,45 @@ After C2 finished loading for job 14, it displayed five must skills (including S
 GitHub could not start CI for `75a9c225` because main advanced to `76a2ffca` with an overlapping Coolify Ops action list (CV quality evaluation). The merge retains both candidate-index actions and `eval-cv-quality`, including their separate inputs and jobs. New order migration `0285_md_budget_mode` is joined to the search/CV history by schema-neutral `0286_merge_search_orders`; no parent migration is rewritten.
 
 Validation: all 38 native index-audit/repair/CV-quality operational tests passed, the combined workflow parses and retains all three actions, Ruff/format/diff checks passed, and Alembic reports the single head `0286_merge_search_orders`. Hosted migration execution and full CI remain required on the resolved revision. No operational job or production repair was dispatched.
+
+### Production delivery, exhaustive coverage and index repair
+
+PR #1428 merged as `39fdc7ba98b2956c04bdaaa986074f5795cca07e` after full CI `34347730877` and CI Gate `34347730874` passed on `83229dfc`. Main CI `34362221709` and Gate `34362221719` also passed. Deploy `34362412872` completed successfully; API health/deep served descendant `ba05436f8f0ddbcaea6d7a551d0405b334e97ba7`, and Alembic database/code both reported the single head `0286_merge_search_orders`.
+
+Authenticated Chrome exercised saved job 14 in both C2 and Radar. Each evaluated all 59,964 SQL population members, retaining 58,485 and excluding 1,479 (1,449 remote-only, 30 eligibility). Both preserved 58,485 incomplete evaluations, equal first-page name order and functional second pages. Radar page IDs were 1–20 then 21–40. C2 elapsed time was 280 s; Radar 439 s including its queue wait. Numeric-fit parity and matching quality are **not proven** by these unknown-score results. Radar displayed unknown cost; C2 displayed zero, which requires inspection of actual provider attempts rather than assuming successful free inference.
+
+Exact index audit `34363016584-1` found all 59,964 records had wrong/unknown model provenance and 1,932 orphan points. The unchanged-database manifest fingerprint was `071b872d90bfcef5ea61d9fd718bfde54a72a37c598aeb405f8181cab0f787fa`. Authorized repair `34363925361-1` enqueued exactly 59,964, already pending 0, deleted 0; orphan points were reported only. Fresh audits found 100 current (`34364169078-1`), then 500 current and 59,464 still wrong/unknown (`34364556761-1`). This proves worker progress, not completed repair. No duplicate repair was submitted.
+
+### Runtime diagnostics for acceptance evidence
+
+Added fixed Coolify Ops action `candidate-search-diagnostics`: read-only queue/model/worker/tariff settings, a bounded projection of the latest ten search runs and measurement states, the existing 24-hour cost/p95 report, and one fixed synthetic query-vector probe. The probe never sends candidate or request text. A once-only directory prevents repeated provider calls by cron ticks. Reports omit credentials, candidate/user IDs, source text and exception messages; the transport independently projects and validates allowed aggregate fields. Index actions no longer schedule the unrelated empty queue-ops job.
+
+Validation: 27 native diagnostic/audit/repair operational tests passed, including invalid numeric data rejection, private-field removal, once-only probing, failure redaction, observed token accounting and owned-task cleanup. Ruff/format/diff checks and workflow parsing passed. Hosted CI and deployed execution of this follow-up remain required. Original A01–A12 acceptance remains open, especially finished index reconciliation, numeric parity, frozen human quality labels, tariff and measured latency/cost.
+
+### Live factual job-draft regression
+
+Authenticated production Chrome exercised the global new-job generator with a synthetic Software Developer draft: maintenance of an existing API, remote work, Python or Java, Django explicitly not required, SQL optional, and unspecified experience, client, benefits and pay. Priority was Critical while draft seniority remained unspecified. The returned source was AI; its text preserved the alternative, negation and optional skill, left seniority/experience/pay/benefits unspecified, and was labelled a draft for review.
+
+The description stayed unchanged until explicit apply. After applying within the unsaved form, requirements remained unchanged, both salary fields remained empty and seniority remained unspecified. The form was cancelled without creating a recruitment. Evidence: private `generator-factual-draft-prod-20260909.json`. This is one live A06 regression, not a comprehensive quality benchmark.
+
+CI Gate on diagnostic revision `3cc7465e` flagged a synthetic all-a UUID fixture as a Fireflies key. The fixture now constructs a deterministic UUID from integer 1, preserving the same contract without suppressing the scanner. Nine diagnostic tests passed after the correction. Hosted checks must pass on the corrected revision before delivery.
+
+### Follow-up delivery and continued repair, 15:30 UTC
+
+PR #1454 passed full CI `34366806178` and Gate `34366806046`, merged as `c369a728ef2e003adbd74b8b4a40d1686c3d83dc`, and was deployed by `34369193369`. Health/deep returned that exact revision; Alembic database/code matched `0287_cv_document_versions`. Authenticated Chrome reload of job 565252 showed 59,934 in the outer header, sourcing card and inner header, with 30 exclusions and unknown strong-count summaries. The existing full-search snapshot was restored without starting another scan; visual review confirmed the incomplete-ranking and title-only warnings.
+
+Read-only audit `34368872192-1` found 4,900 current profiles and 55,064 wrong/unknown-model profiles, with unchanged population 59,964 and 1,932 orphan points. Its database snapshot was unchanged and fingerprint was `66080579c713860524f22c2c37d30d36a6651aa02cf2a8c47bdb78de669d8eef`. No duplicate repair or orphan deletion was submitted.
+
+Diagnostic revision `0e5ba22d` passed full CI `34366871949`, including all four shards and aggregate gate, and Gate `34366872080`. Main then required a conflict resolution in the Coolify action list and queue-job predicate. The merge retains diagnostic/index operations and the independently added CV inspection/cleanup actions. All 58 focused native operational tests passed and the combined workflow parsed successfully. The merged revision requires fresh hosted CI before delivery; production diagnostics have not yet been dispatched.
+
+### Diagnostic dispatch without changing the shared action list
+
+Main `fff38105` added CV recovery operations while the diagnostic CI was running, causing another conflict in the shared one-line action list and queue predicate. The final interface now leaves both main-owned lines intact: dispatch `Coolify Ops` with `action=candidate-index-audit` and `candidate_search_diagnostics=true`. The new boolean defaults to false, so ordinary audits and reviewed repairs retain their previous behavior. Diagnostic mode still runs the same fixed once-only runtime command and closed aggregate transport. It adds no arbitrary command input. Earlier references to a separate `candidate-search-diagnostics` action describe an unshipped intermediate interface and are superseded by this input.
+
+All CV recovery/inspection/cleanup operations from main are retained. PR #1456 passed complete CI `34368170920` and Gate `34368170886`, then merged as `bd4874318abefab93a0af070177b7f960223a62b`; its production delivery remains under observation. The combined diagnostic revision still requires fresh hosted checks before merge.
+
+### Exact archived score-parity evidence
+
+The same diagnostic report now compares up to three distinct same-actor/request pairs from its ten most recent finished runs. It reports equal population membership and ordering, changed candidate versions, eligibility differences, measured-pair count, maximum raw score difference and the 0.1-point tolerance. Full archived parity additionally requires complete measured rankings and unchanged context/versions. It cannot mistake equal unknown scores or a small measured subset for a complete ranking. No candidate IDs, actors or source text leave the closed aggregate projection.
+
+All 77 native comparison/runtime/index/CV operational tests passed on the combined code, including execution of the real snapshot SELECT against isolated native SQLite data. Ruff/format/diff checks passed. Archived comparison is not proof of initiating screen, current freshness or recruiter relevance; production run IDs must still be connected to observed UI interactions. This tooling is included in PR #1452, not a separate pending feature branch.

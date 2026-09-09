@@ -52,6 +52,11 @@ on:
         description: "Exact reviewed audit fingerprint; queues only its repairs, never deletes points"
         required: false
         default: ""
+      candidate_search_diagnostics:
+        description: "Runtime queue/model/cost report and one synthetic query probe (candidate-index-audit only)"
+        type: boolean
+        required: false
+        default: false
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
         required: false
@@ -982,7 +987,7 @@ jobs:
           echo "zadanie $TASK_NAME skasowane"
 
   candidate_index_audit:
-    name: Candidate index (${{ inputs.action == 'candidate-index-repair' && 'enqueue reviewed repair' || 'read-only audit' }})
+    name: Candidate index (${{ inputs.action == 'candidate-index-audit' && inputs.candidate_search_diagnostics && 'runtime diagnostics' || inputs.action == 'candidate-index-repair' && 'enqueue reviewed repair' || 'read-only audit' }})
     if: ${{ inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -996,7 +1001,7 @@ jobs:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-          INDEX_MODE: ${{ inputs.action == 'candidate-index-repair' && 'repair' || 'audit' }}
+          INDEX_MODE: ${{ inputs.action == 'candidate-index-audit' && inputs.candidate_search_diagnostics && 'diagnostics' || inputs.action == 'candidate-index-repair' && 'repair' || 'audit' }}
           INDEX_AUDIT_IDENTITY: ${{ inputs.index_audit_identity }}
           INDEX_FINGERPRINT: ${{ inputs.index_fingerprint }}
         run: python3 .github/scripts/candidate-index-audit-ops.py

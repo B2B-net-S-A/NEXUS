@@ -20,7 +20,7 @@ function RequestResults({ job }: { job: JobRef }) {
   const canEdit = useCapability("job.update");
   const canVerify = useCanVerifyRequirements();
   const canOpenProfile = useCapability("nav.candidates");
-  const search = useFullCandidateSearch({ storageKey: actorId ? `nexus-full-job:${actorId}:${job.id}` : undefined });
+  const search = useFullCandidateSearch({ shareAcrossTabs: true, storageKey: actorId ? `nexus-full-job:${actorId}:${job.id}` : undefined });
   return <div className="space-y-4">
     <p className="font-medium">{job.title}{job.client_name ? ` · ${job.client_name}` : ""}</p>
     <p className="text-sm text-muted-foreground">Klient, hiring manager, budżet, lokalizacja i wymagania pochodzą z zapisanej rekrutacji.</p>
