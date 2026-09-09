@@ -16,17 +16,34 @@ class VectorMeasurement:
 
 
 def cosine(left, right) -> float | None:
-    if not isinstance(right, list) or len(left) != len(right) or not left:
+    if (
+        not isinstance(left, list)
+        or not isinstance(right, list)
+        or len(left) != len(right)
+        or not left
+    ):
         return None
-    if not all(math.isfinite(v) for v in [*left, *right]):
+    if not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        for v in [*left, *right]
+    ):
         return None
-    denominator = math.sqrt(
-        math.fsum(v * v for v in left) * math.fsum(v * v for v in right)
-    )
-    if denominator == 0:
+    left_norm, right_norm = math.hypot(*left), math.hypot(*right)
+    if (
+        not left_norm
+        or not right_norm
+        or not math.isfinite(left_norm)
+        or not math.isfinite(right_norm)
+    ):
         return None
+    # Normalize before products so a malformed huge coordinate cannot overflow
+    # a whole batch or be reported as a measured zero.
     return max(
-        -1.0, min(1.0, math.fsum(a * b for a, b in zip(left, right)) / denominator)
+        -1.0,
+        min(
+            1.0,
+            math.fsum((a / left_norm) * (b / right_norm) for a, b in zip(left, right)),
+        ),
     )
 
 

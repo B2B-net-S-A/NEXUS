@@ -11,6 +11,9 @@ def test_exact_cosine_and_invalid_dimensions():
     assert measure.cosine([1, 0], [0, 1]) == 0
     assert measure.cosine([1, 0], [1]) is None
     assert measure.cosine([1, 0], [0, 0]) is None
+    assert measure.cosine([1, 0], ["bad", 0]) is None
+    assert measure.cosine([1, 0], [True, 0]) is None
+    assert measure.cosine([1e308, 0], [1e308, 0]) == 1
 
 
 @pytest.mark.asyncio

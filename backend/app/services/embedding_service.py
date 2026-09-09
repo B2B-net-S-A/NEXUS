@@ -614,7 +614,9 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
                         payload={
                             "candidate_id": candidate_id,
                             "content_hash": hashlib.sha256(text.encode()).hexdigest(),
-                            "embedding_model": _voyage_model(),
+                            "embedding_model": _voyage_model()
+                            if settings.VOYAGE_API_KEY
+                            else "unverified-provider",
                             "competence_category": candidate.competence_category or "",
                         },
                     )
