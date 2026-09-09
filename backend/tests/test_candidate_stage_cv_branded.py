@@ -625,10 +625,10 @@ async def test_revoke_share_token_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_public_cv_404_when_csv_no_longer_finalized(
+async def test_legacy_public_cv_404_when_csv_no_longer_finalized(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Symuluj reset draftu po share-create — public endpoint już nie działa."""
+    """Legacy unbound links still fail closed when their live draft is reset."""
     sid, _, _ = await _seed_full_stage()
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
@@ -646,8 +646,17 @@ async def test_public_cv_404_when_csv_no_longer_finalized(
         )
     ).json()["token"]
 
-    # Manualnie zresetuj status — symulacja administratora
+    # Model a pre-versioning token. Newly issued links are deliberately pinned
+    # and remain on the approved version, covered by the version lifecycle test.
     async with AsyncSessionLocal() as db:
+        unbound = await db.execute(
+            update(CVShareToken)
+            .where(
+                CVShareToken.token_sha256 == hashlib.sha256(tok.encode()).hexdigest()
+            )
+            .values(document_version_id=None)
+        )
+        assert unbound.rowcount == 1
         await db.execute(
             update(CandidateStageCV)
             .where(CandidateStageCV.candidate_stage_id == sid)
