@@ -526,3 +526,22 @@ editor on initial failure, disables template/language changes without data and
 provides an explicit read retry. Three component tests and TypeScript passed.
 This is error recovery, not the complete guided legacy regeneration workflow.
 No production deployment or actual provider quality acceptance is claimed.
+
+## Source continuity and extraction fixes — 2026-09-10
+
+The completed bilingual job previously cascaded away when its primary generated
+CV was deleted, leaving the surviving language without its frozen review source.
+The deletion handler now locks the shared job and transfers its primary reference
+to the surviving language before deleting the original document (3650d340).
+26 durable-job unit tests passed. The real PostgreSQL foreign-key regression
+(f461472d) covers deletion of either language but has only been collected locally;
+its hosted execution is still required.
+
+Approval now extracts source text before AI admission (d3026ae1), preventing a
+failed file read from consuming review quota. DOCX extraction (554d79c1) now reads
+paragraphs and tables in document order, recursively retains nested cells and
+avoids duplicate merged-cell text. Previously all tables followed all paragraphs,
+which could separate duties from their employer/date heading. Corrupt DOCX files
+now raise the expected extraction error. Real DOCX fixture and approval checks:
+18 passed; existing full pipeline regression module: 126 passed. This proves
+extraction/control behavior, not real-model semantic quality or production use.
