@@ -39,3 +39,11 @@ Ocena instrukcji DL wymaga teraz kompletnej, jednoznacznej odpowiedzi o zadanym 
 `backend/scripts/eval_cv_full_documents.py` uruchamia zwykły pipeline uploadu na syntetycznym korpusie: ekstrakcja, redakcja, końcowa kontrola i DOCX. Wymaga dokładnego SHA, normalnego ai_feature/limitu oraz trwałej tożsamości próby. Nie ponawia próby z istniejącym paragonem, także niedokończonej. Modele primary/fallback sprawdza oddzielnie bez ukrytego fallbacku. Zapisuje DOCX, prywatny payload, czas, modele, tokeny i koszt; sprawdza oczekiwany staż, ale pozostawia human_accepted=null. Nie zapisuje kandydatów ani klientów.
 
 Runner i korpus mają 7 testów lokalnych, obejmujących zachowanie źródeł, zgodność/niezgodność stażu, zmianę wejścia oraz ochronę przed ponownym przyjęciem próby i błędnym SHA. Nie wykonano rzeczywistych wywołań: lokalne środowisko nie ma klucza dostawcy ani konfiguracji aplikacji. Podłączenie do kontrolowanego uruchomienia w środowisku aplikacji, eksport artefaktów, pomiar oraz odbiór wyników pozostają otwarte.
+
+## Ponowna weryfikacja produkcji
+
+Health i deep health potwierdziły zdrową wersję 561f02ca383a8c94cab5268839d434db4d043825; baza i kod mają migrację 0289_cv_approved_docx, bez osieroconych rewizji. W historii tego SHA są scalenia #1458, #1460 i #1461. Poprzedni nieudany deploy nie blokuje już ich obecności na produkcji.
+
+W uwierzytelnionym Chrome wykonano wybór konsultanta i procesu oraz zmianę Redakcja → Pod rekrutację, bez generowania ani zapisu danych kandydata. Etykiety źródeł zmieniają wymaganie Championa zgodnie z trybem; notatki pozostają opcjonalne przy braku reguły klienta. Wykryty sprzeczny, stały opis wymagający zawsze Championa i notatek poprawiono w tym PR. To dowód działania wyboru/etykiet, nie pełnego przepływu zatwierdzania DOCX.
+
+Diagnostyka Coolify list miała osobny błąd: pomijała /api/v1 przy budowie URL. Poprawiono prefiks zgodnie z istniejącym działającym deploy.yml. Składnia bash sprawdzona; potwierdzenie żądań w środowisku GitHub pozostaje po dostarczeniu tej zmiany. Nie zmieniano tokenów ani uprawnień.

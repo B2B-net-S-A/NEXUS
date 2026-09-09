@@ -214,7 +214,7 @@ jobs:
         #      zmienia się razem z formatem błędów Coolify.
         run: |
           set -uo pipefail
-          base="${CO_URL%/}"
+          base="${CO_URL%/}/api/v1"
           auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
           rc=0
 

@@ -1259,8 +1259,8 @@ function NewModeForm({
           <CardHeader>
             <CardTitle>Krok 2 — Proces rekrutacyjny</CardTitle>
             <CardDescription>
-              Wymagany Profil Championa oraz co najmniej jedna notatka z rozmowy
-              dla wybranego procesu.
+              Wymagane źródła zależą od trybu obróbki i reguły klienta.
+              Po wybraniu procesu zobaczysz, które dane są potrzebne.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
