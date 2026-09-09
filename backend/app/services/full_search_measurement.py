@@ -4,9 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import math
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from app.services import embedding_service as embeddings
+
+
+# Process-local and bounded: retain vectors, never plaintext requests or fit.
+# Candidate/index/eligibility changes are still checked on every measurement.
+_QUERY_CACHE_LIMIT = 128
+_QUERY_CACHE_TTL = 300
+_QUERY_VECTOR_VERSION = "chunk-8000-mean-v1"
+_query_cache: OrderedDict[tuple[str, str, str], tuple[float, tuple[float, ...]]] = (
+    OrderedDict()
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +60,18 @@ def cosine(left, right) -> float | None:
 
 
 async def request_vector(text: str) -> list[float] | None:
+    key = (
+        _QUERY_VECTOR_VERSION,
+        embeddings._voyage_model(),
+        hashlib.sha256(text.encode()).hexdigest(),
+    )
+    cached = _query_cache.get(key)
+    if cached is not None:
+        expires, vector = cached
+        if expires > time.monotonic():
+            _query_cache.move_to_end(key)
+            return list(vector)
+        del _query_cache[key]
     # Every character is represented, including requirements after long prose.
     # Bounded chunks avoid the provider's implicit truncation of long requests.
     chunks = [text[i : i + 8000] for i in range(0, len(text), 8000)]
@@ -65,7 +89,16 @@ async def request_vector(text: str) -> list[float] | None:
         return None
     vector = [math.fsum(v[i] for v in vectors) / len(vectors) for i in range(size)]
     norm = math.sqrt(math.fsum(v * v for v in vector))
-    return [v / norm for v in vector] if norm and math.isfinite(norm) else None
+    if not norm or not math.isfinite(norm):
+        return None
+    result = [v / norm for v in vector]
+    if cosine(result, result) is None:
+        return None
+    _query_cache[key] = (time.monotonic() + _QUERY_CACHE_TTL, tuple(result))
+    _query_cache.move_to_end(key)
+    while len(_query_cache) > _QUERY_CACHE_LIMIT:
+        _query_cache.popitem(last=False)
+    return result
 
 
 async def measure_candidates(query_vector, candidates) -> dict[int, VectorMeasurement]:
