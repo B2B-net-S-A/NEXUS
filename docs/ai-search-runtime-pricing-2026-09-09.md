@@ -24,3 +24,20 @@ had identical raw scores for all 7,949 pairs with valid measurements in both
 runs, but their full rankings were incomplete. Six partial searches yielded an
 observed p95 of 439,010.002 ms; this small sample does not prove a latency target
 or ranking quality. Recruiter-labelled quality evaluation is still required.
+
+## Healthy backlog pacing
+
+The subsequent audit `34384473176-1` found 16,850 current profiles and 43,114
+wrong/unknown-model profiles in the unchanged 59,964-record population. The
+worker previously paused for 30 seconds after every 50-record batch, even when
+the backlog remained large. It now uses `AI_INDEX_WORKER_BUSY_INTERVAL_SECONDS`
+(default 1, minimum 1) only after a full committed batch of successful events.
+Idle/partial batches, failed/dead events and database exceptions retain the
+normal pause. Processing, claims and provider retries remain sequential and
+unchanged; no additional repair is enqueued. Set both intervals equally to
+restore fixed pacing. Measure actual coverage growth and failures after deploy
+before revising the completion estimate.
+
+Pricing and pacing are delivered together in PR #1470; PR #1471 is superseded.
+All remaining code changes for this audit must stay in the same open PR per
+the user's instruction. Native combined validation: 31 focused tests passed.
