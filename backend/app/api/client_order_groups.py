@@ -3244,6 +3244,22 @@ async def update_line(
             data[field] = await _canonical_currency_rate(
                 db, raw, currency, line.start_date or group.start_date
             )
+        elif field in data:
+            # Cached clients send the legacy canonical PLN/MD values without
+            # currency metadata. Keep the saved currency and its raw snapshot.
+            currency = (getattr(line, currency_field) or line.currency or "PLN").upper()
+            if currency != "PLN":
+                fx = await rates_to_pln(
+                    db, {currency}, line.start_date or group.start_date
+                )
+                factor = fx.get(currency)
+                if factor is None or factor <= 0:
+                    raise HTTPException(422, detail=f"Brak kursu {currency}/PLN")
+                raw_rates[source_field] = (data[field] / factor).quantize(
+                    Decimal("0.001")
+                )
+            else:
+                raw_rates[source_field] = data[field]
     if raw_rates:
         # Both source sides are returned/sent as MD by the new editor.
         for source_field in ("rate_candidate", "rate_client"):

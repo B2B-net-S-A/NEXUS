@@ -197,6 +197,15 @@ async def test_new_line_currency_round_trip_without_silent_pln(
     )
     assert date_only.status_code == 200, date_only.text
     assert date_only.json()["rate_client_currency"] == "EUR"
+    legacy = await app_client.patch(
+        f"{url}/{group['id']}/lines/{line['id']}",
+        headers=app_auth_headers,
+        json={"rate_cost": 704, "rate_revenue": 875},
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["source_rate_cost"] == 176
+    assert legacy.json()["source_rate_revenue"] == 218.75
+    assert legacy.json()["rate_client_currency"] == "EUR"
 
 
 @pytest.mark.asyncio
