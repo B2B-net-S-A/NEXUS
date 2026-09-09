@@ -26,8 +26,10 @@ async def test_details_require_candidate_read_before_loading_any_results(monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("changed", [True, False])
 async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evidence(
     monkeypatch,
+    changed,
 ):
     from app.services import pipeline_eligibility
 
@@ -39,13 +41,20 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
     candidate.updated_at = datetime.now(timezone.utc)
     row = SimpleNamespace(
         candidate_id=candidate.id,
-        candidate_version=str(candidate.updated_at - timedelta(days=1)),
+        candidate_version=str(candidate.updated_at - timedelta(days=int(changed))),
         fit_score=91,
         measurement="measured",
         evidence={
             "breakdown": {"total": 91, "matching_must": ["python"]},
             "requirements": [
-                {"any_of": ["python"], "status": "met", "matched": ["python"]}
+                {
+                    "any_of": ["python"],
+                    "status": "met",
+                    "matched": ["python"],
+                    "candidate_evidence": "Private interview detail",
+                    "usage_context": "Private project",
+                    "verification_id": 9,
+                }
             ],
         },
     )
@@ -96,13 +105,19 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
     result = await api.search_results(
         "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=db
     )
-    assert result["data_changed"] and not result["ranking_complete"]
     assert result["coverage_complete"]
     item = result["results"][0]
-    assert item["fit_score"] is None and item["measurement"] == "stale"
-    assert "matching_must" not in item["breakdown"]
-    assert item["requirements"][0]["status"] == "unknown"
-    assert item["requirements"][0]["matched"] == []
+    if changed:
+        assert result["data_changed"] and not result["ranking_complete"]
+        assert item["fit_score"] is None and item["measurement"] == "stale"
+        assert "matching_must" not in item["breakdown"]
+        assert item["requirements"][0]["status"] == "unknown"
+        assert item["requirements"][0]["matched"] == []
+    else:
+        assert item["fit_score"] == 91
+        assert item["requirements"][0]["status"] == "met"
+    for private_key in ("candidate_evidence", "usage_context", "verification_id"):
+        assert private_key not in item["requirements"][0]
     assert item["match"] is None
     # Rendering the response must not mutate the persisted historical evidence.
     assert row.evidence["requirements"][0]["status"] == "met"

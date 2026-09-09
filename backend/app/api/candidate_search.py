@@ -247,7 +247,14 @@ async def search_results(
                     evidence_basis="no_evidence",
                     verified_at=None,
                     usage_context=None,
+                    candidate_evidence=None,
+                    verification_id=None,
                 )
+        if not include_candidate_details:
+            for requirement in requirements:
+                requirement.pop("candidate_evidence", None)
+                requirement.pop("usage_context", None)
+                requirement.pop("verification_id", None)
         fit_score = None if row_changed else row.fit_score
         breakdown["total"] = fit_score
         # Both entrances share the same conservative financial redaction.

@@ -131,6 +131,8 @@ class DealbreakerInputs:
     office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
     wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
     exclude_unknown_skill_evidence: bool = False
+    verification_job_id: Optional[int] = None
+    verification_fingerprint: Optional[str] = None
 
     @property
     def requires_office_days(self) -> bool:
@@ -138,7 +140,12 @@ class DealbreakerInputs:
 
 
 def missing_must_skills(
-    candidate, must: Sequence[str], *, include_unknown: bool = False
+    candidate,
+    must: Sequence[str],
+    *,
+    include_unknown: bool = False,
+    verification_job_id=None,
+    verification_fingerprint=None,
 ) -> list[str]:
     """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
 
@@ -156,10 +163,28 @@ def missing_must_skills(
         return []
     from app.services.scoring_service import candidate_skill_names, skill_present
 
+    from app.services.requirement_verification import reviewed_gate_status
+
     cand_skills = candidate_skill_names(candidate)
-    if not cand_skills:
-        return list(must) if include_unknown else []
-    return [m for m in must if not skill_present(m, cand_skills)]
+    missing = []
+    for label in must:
+        review = reviewed_gate_status(
+            candidate,
+            label,
+            job_id=verification_job_id,
+            fingerprint=verification_fingerprint,
+        )
+        if review == "met":
+            continue
+        if review == "not_met" or (review == "unknown" and include_unknown):
+            missing.append(label)
+        elif (
+            review is None
+            and (cand_skills or include_unknown)
+            and not skill_present(label, cand_skills)
+        ):
+            missing.append(label)
+    return missing
 
 
 def office_days_exceeded(candidate, required_days: Optional[int]) -> bool:
@@ -563,6 +588,8 @@ def apply_dealbreakers(
             candidate,
             effective_inputs.must_skills,
             include_unknown=effective_inputs.exclude_unknown_skill_evidence,
+            verification_job_id=effective_inputs.verification_job_id,
+            verification_fingerprint=effective_inputs.verification_fingerprint,
         ):
             result.hidden_missing_must += 1
             continue

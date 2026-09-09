@@ -15,6 +15,10 @@ from tests.test_scoring_service import make_candidate, make_job
 async def test_shortlist_current_fit_matches_pair_and_keeps_archive_separate(
     monkeypatch,
 ):
+    monkeypatch.setattr(
+        "app.services.requirement_verification.latest_verifications",
+        AsyncMock(return_value=[]),
+    )
     job = make_job(id=7, client_id=8, description="X" * 9000 + "Django")
     candidates = [
         make_candidate(id=i, name="Test", lastname="Candidate") for i in [1, 2]

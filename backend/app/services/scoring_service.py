@@ -1024,10 +1024,20 @@ def _score_skills(
     # column; without the fallbacks every required skill showed as a gap.
     cand_skills = candidate_skill_names(candidate)
 
-    must_match = [s for s in must if skill_present(s, cand_skills)]
-    must_gap = [s for s in must if not skill_present(s, cand_skills)]
-    nice_match = [s for s in nice if skill_present(s, cand_skills)]
-    nice_gap = [s for s in nice if not skill_present(s, cand_skills)]
+    from app.services.requirement_verification import reviewed_label_status
+
+    def matches(label, level):
+        reviewed = reviewed_label_status(candidate, job, label, level)
+        return (
+            reviewed == "met"
+            if reviewed is not None
+            else skill_present(label, cand_skills)
+        )
+
+    must_match = [s for s in must if matches(s, "must")]
+    must_gap = [s for s in must if not matches(s, "must")]
+    nice_match = [s for s in nice if matches(s, "nice")]
+    nice_gap = [s for s in nice if not matches(s, "nice")]
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice

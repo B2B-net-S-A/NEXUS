@@ -71,7 +71,14 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
     from dataclasses import replace
     from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
 
-    inputs = dealbreaker_inputs_for_job(job)
+    from app.services.requirement_verification import criteria_fingerprint
+
+    contract = requirements_for_job(job)
+    inputs = replace(
+        dealbreaker_inputs_for_job(job),
+        verification_job_id=getattr(job, "id", None),
+        verification_fingerprint=criteria_fingerprint(contract),
+    )
     exclude = (
         requirements_for_job(job).missing_evidence_policy == "exclude"
         if exclude_missing_must is None
@@ -118,8 +125,12 @@ def invalidate_changed_requirements(job, updates: dict) -> None:
         updates["requirements_reviewed"] = False
 
 
-def evaluate_requirements(contract: MatchingRequirements, candidate) -> list[dict]:
+def evaluate_requirements(
+    contract: MatchingRequirements, candidate, *, job_id=None
+) -> list[dict]:
     from app.services.scoring_service import candidate_skill_names, skill_present
+
+    from app.services.requirement_verification import reviewed_group
 
     skills = candidate_skill_names(candidate)
     results = []
@@ -142,6 +153,13 @@ def evaluate_requirements(contract: MatchingRequirements, candidate) -> list[dic
                 "candidate_updated_at": str(getattr(candidate, "updated_at", "")),
             }
         )
+        review = reviewed_group(candidate, contract, group, job_id=job_id)
+        if review:
+            results[-1].update(
+                **review,
+                evidence_basis="reviewed",
+                matched=found if review["status"] == "met" else [],
+            )
     return results
 
 

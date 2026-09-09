@@ -58,6 +58,9 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
     """
     if not candidates:
         return []
+    from app.services.requirement_verification import load_verified_requirements
+
+    await load_verified_requirements(db, context.as_job(), candidates)
     with stage("query_embedding") as outcome:
         try:
             vector = await request_vector(context.query_text)

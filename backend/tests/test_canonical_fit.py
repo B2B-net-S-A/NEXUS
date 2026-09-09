@@ -36,6 +36,10 @@ async def test_batch_and_pair_have_same_score_and_unknown_is_not_numeric(monkeyp
 
 @pytest.mark.asyncio
 async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.requirement_verification.latest_verifications",
+        AsyncMock(return_value=[]),
+    )
     from app.api import recommendations as api
     from app.services import match_score_cache
 

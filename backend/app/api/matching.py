@@ -328,6 +328,9 @@ async def _gate_and_dealbreakers(
         # który handler już wpisał do `rubrics`.
         return [], {}, empty_meta, 0, inputs or dealbreaker_inputs_for_job(job)
 
+    from app.services.requirement_verification import load_verified_requirements
+
+    await load_verified_requirements(db, job, ordered)
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=[c.id for c in ordered], now=now
     )

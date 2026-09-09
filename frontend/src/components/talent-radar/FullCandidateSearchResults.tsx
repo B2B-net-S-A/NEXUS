@@ -34,8 +34,9 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
           {row.fit_score !== null && <progress className="w-full" aria-label="Dopasowanie" value={row.fit_score} max={100} />}
           <ul className="space-y-1 text-sm">
             {row.requirements.filter(r => r.level === "must" || r.level === "nice").map((r, i) => <li key={`${r.level}-${i}`}>
-              {r.any_of.join(" lub ")} ({r.level === "must" ? "obowiązkowe" : "dodatkowe"}): {r.status === "met" ? "sygnał w profilu" : r.status === "not_met" ? "niespełnione" : "brak potwierdzenia"}
+              {r.any_of.join(" lub ")} ({r.level === "must" ? "obowiązkowe" : "dodatkowe"}): {r.status === "met" ? (r.evidence_basis === "reviewed" ? "potwierdzone w weryfikacji" : "sygnał w profilu") : r.status === "not_met" ? "niespełnione" : "brak potwierdzenia"}
               {r.status === "met" && !r.verified_at && " — do weryfikacji"}
+              {r.verified_at && ` — weryfikacja ${new Date(r.verified_at).toLocaleDateString("pl-PL")}`}
               {r.stale && " — dane zmienione"}
             </li>)}
           </ul>

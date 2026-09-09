@@ -64,7 +64,7 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         measurement = measurements[cid]
         fit = await score_pair(db, request, candidate, measurement)
         breakdown = fit.breakdown
-        requirements = evaluate_requirements(criteria, candidate)
+        requirements = evaluate_requirements(criteria, candidate, job_id=target.id)
         results.append(
             CandidateEvaluation(
                 cid,
