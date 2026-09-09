@@ -71,6 +71,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
+from app.models.cv_generation_job import CvGenerationJob  # noqa: F401
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
