@@ -499,3 +499,14 @@ dwukrotnie i sprawdza kolumny, FK oraz rzeczywiste odrzucenie wersji bez właśc
 z dwoma właścicielami i duplikatu numeru wersji. Całość wycofuje transakcję.
 Test dodany w 55ff8f7f/23cc8e2f; oczekuje na wysłanie i wykonanie CI.
 Lokalnie sprawdzono Ruff i składnię bash. Nie jest to dowód migracji produkcji.
+# Hosted asset retention evidence — a0a18ddb
+
+CI 34415126821 completed successfully for a0a18ddb, including all four backend
+shards and frontend build. Logs explicitly confirm the saved-template drift
+checks, saved consent with unavailable storage (valid and corrupt cases), and
+real DOCX archive retaining the consent image after storage failure. This proves
+those tests ran in hosted CI; it does not prove visual production acceptance.
+
+The new pushed head 0ca686fd is being checked by CI 34416542950, CI Gate
+34416542906 and review 34416542929. The new schema fallback and preview receipt
+PostgreSQL tests belong to this newer head and are not yet claimed as passed.
