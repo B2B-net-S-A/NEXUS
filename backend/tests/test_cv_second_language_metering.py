@@ -1,6 +1,7 @@
 """Both workers attribute the second provider call to its actual admission."""
 
 from datetime import date
+from uuid import uuid4
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -19,12 +20,8 @@ from tests.test_cv_enqueue_sources import source
 async def test_second_language_uses_its_own_operation_and_restores_parent(
     monkeypatch, mode, outcome
 ):
-    first = api.QuotaState(
-        1, 100, date(2026, 9, 1), "00000000-0000-4000-8000-000000000001"
-    )
-    second = api.QuotaState(
-        2, 100, date(2026, 9, 1), "00000000-0000-4000-8000-000000000002"
-    )
+    first = api.QuotaState(1, 100, date(2026, 9, 1), str(uuid4()))
+    second = api.QuotaState(2, 100, date(2026, 9, 1), str(uuid4()))
     db = AsyncMock()
     db.add = Mock()
     row = SimpleNamespace(
@@ -54,6 +51,9 @@ async def test_second_language_uses_its_own_operation_and_restores_parent(
     monkeypatch.setattr(api, "_create_pending_row", pending)
     monkeypatch.setattr(requirement_map, "ensure_requirement_map", AsyncMock())
     seen = []
+    facts = object()
+    prepare = Mock(return_value=facts)
+    monkeypatch.setattr(api, "prepare_source_facts", prepare)
 
     def render(language):
         seen.append((language, current_ai_call().state))
@@ -72,12 +72,15 @@ async def test_second_language_uses_its_own_operation_and_restores_parent(
         )
 
     async def generate_source(captured, **kwargs):
+        assert kwargs["prepared_source_facts"] is facts
         return render(kwargs["language"])
 
+    def generate_upload(payload, *, prepared_source_facts):
+        assert prepared_source_facts is facts
+        return render(payload.language)
+
     monkeypatch.setattr(api, "generate_cv_from_candidate_source", generate_source)
-    monkeypatch.setattr(
-        api, "generate_cv_from_uploads", lambda payload: render(payload.language)
-    )
+    monkeypatch.setattr(api, "generate_cv_from_uploads", generate_upload)
     monkeypatch.setattr(api, "_upload_requirements", lambda payload: [])
     rule = CvRuleSnapshot(
         filename_pattern=None,
@@ -110,6 +113,7 @@ async def test_second_language_uses_its_own_operation_and_restores_parent(
             )
         assert current_ai_call().state is first
     assert current_ai_call() is None
+    prepare.assert_called_once()
     charge.assert_awaited_once_with(db, api.AIFeatureKey.cv_generator, user_id=7)
     assert seen == (
         [("pl", first)] if outcome == "denied" else [("pl", first), ("en", second)]

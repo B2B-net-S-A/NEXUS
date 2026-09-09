@@ -2421,7 +2421,11 @@ def _validate_upload(
         )
 
 
-def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult:
+def generate_cv_from_uploads(
+    payload: UploadGenerationInput,
+    *,
+    prepared_source_facts: PreparedSourceFacts | None = None,
+) -> GenerationResult:
     """Generate the B2B CV from user-uploaded files (Old mode).
 
     1:1 with the external CV-Generator ``POST /api/v1/generate`` flow, sharing
@@ -2493,6 +2497,7 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         client_rule=payload.client_rule,
         project_ref=payload.project_ref or None,
         position_ref=payload.position or None,
+        prepared_source_facts=prepared_source_facts,
     )
 
 

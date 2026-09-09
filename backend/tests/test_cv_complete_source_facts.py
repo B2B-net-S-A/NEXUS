@@ -129,7 +129,8 @@ def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
             }
         )
 
-    def review(content, request_id, system):
+    def review(content, request_id, system, response_schema):
+        assert response_schema is gate.REVIEW_RESPONSE_SCHEMA
         data = json.loads(content)
         return json.dumps(
             {

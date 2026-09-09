@@ -113,6 +113,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     generate_cv_from_uploads,
     load_candidate_generation_source,
     list_recruitments_with_readiness,
+    prepare_source_facts,
     rerender_docx_from_payload,
     screening_notes_char_count,
 )
@@ -559,6 +560,13 @@ async def _run_generate_new_job(
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
         try:
+            source_facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=source.cv_bytes,
+                cv_filename=source.cv_filename,
+                screening_notes_text=source.screening_notes_text,
+                request_id=f"cvgen_source_{generated_id}",
+            )
             result = await generate_cv_from_candidate_source(
                 source,
                 language=language,
@@ -566,6 +574,7 @@ async def _run_generate_new_job(
                 content_mode=content_mode,
                 client_rule=rule_snapshot,
                 project_ref=project_ref or None,
+                prepared_source_facts=source_facts,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
@@ -663,6 +672,7 @@ async def _run_generate_new_job(
                         content_mode=content_mode,
                         client_rule=rule_snapshot,
                         project_ref=project_ref or None,
+                        prepared_source_facts=source_facts,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)
@@ -768,7 +778,16 @@ async def _run_generate_upload_job(
     """Background worker for Old-mode (manual upload) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await run_in_threadpool(generate_cv_from_uploads, payload)
+            source_facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=payload.cv_bytes,
+                cv_filename=payload.cv_filename,
+                screening_notes_text=payload.screening_notes or "",
+                request_id=f"cvgen_upload_source_{generated_id}",
+            )
+            result = await run_in_threadpool(
+                generate_cv_from_uploads, payload, prepared_source_facts=source_facts
+            )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
             await db.commit()
@@ -860,7 +879,9 @@ async def _run_generate_upload_job(
                     AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
                 ):
                     second_result = await run_in_threadpool(
-                        generate_cv_from_uploads, second_payload
+                        generate_cv_from_uploads,
+                        second_payload,
+                        prepared_source_facts=source_facts,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)

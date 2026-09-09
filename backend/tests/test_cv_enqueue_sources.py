@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, replace
 from datetime import date
+from uuid import uuid4
 import json
 from io import BytesIO
 from types import SimpleNamespace
@@ -164,14 +165,13 @@ async def test_second_language_and_requirement_map_do_not_reload_changed_inputs(
     monkeypatch.setattr(
         api,
         "_charge_second_language_or_note",
-        AsyncMock(
-            return_value=api.QuotaState(
-                2, 100, date(2026, 9, 1), "00000000-0000-4000-8000-000000000002"
-            )
-        ),
+        AsyncMock(return_value=api.QuotaState(2, 100, date(2026, 9, 1), str(uuid4()))),
     )
     mapping = AsyncMock()
     monkeypatch.setattr(requirement_map, "ensure_requirement_map", mapping)
+    facts = object()
+    prepare = Mock(return_value=facts)
+    monkeypatch.setattr(api, "prepare_source_facts", prepare)
     await api._run_generate_new_job(
         11,
         candidate_id=2,
@@ -193,5 +193,10 @@ async def test_second_language_and_requirement_map_do_not_reload_changed_inputs(
     assert all(
         call.kwargs["requirements"] == [{"name": "Python", "kind": "must"}]
         for call in mapping.call_args_list
+    )
+    prepare.assert_called_once()
+    assert all(
+        call.kwargs["prepared_source_facts"] is facts
+        for call in generate.call_args_list
     )
     forbidden.assert_not_awaited()
