@@ -56,7 +56,7 @@ async def _seed_candidate() -> int:
 
 def _patch_stack(monkeypatch, *, hits):
     """Stub retrieval (return ``hits``), embedding, and scoring."""
-    from app.services import embedding_service, match_score_cache
+    from app.services import embedding_service, canonical_fit
 
     async def _search(*_a, **_k):
         return hits
@@ -69,7 +69,7 @@ def _patch_stack(monkeypatch, *, hits):
 
     monkeypatch.setattr(embedding_service, "search_candidates_semantic", _search)
     monkeypatch.setattr(embedding_service, "embed_job", _noop_embed)
-    monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", _no_scores)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _no_scores)
 
 
 async def _run_compute(job_id: int):

@@ -50,6 +50,10 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  "candidate.requirement.verify": {
+    admin: true, head_of_recruitment: false, delivery_lead: true,
+    tac: true, recruiter: true, sourcer: true, user: false,
+  },
   // POST /api/jobs → TacPlus
   "job.create": {
     admin: true,
@@ -344,6 +348,7 @@ function talentCommunityManagerExpected(capability: Capability): boolean {
     "invite_link.create",
     "candidate.document.manage",
     "candidate.profile_fact.manage",
+    "candidate.requirement.verify",
     "dashboard.recruitment_stats.view",
     "nav.candidates",
     "nav.talents",
@@ -752,6 +757,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   Capability,
   { guards: readonly GuardRef[] } | { productDecision: string }
 > = {
+  "candidate.requirement.verify": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
   "job.create": { guards: [["deps", "TacPlus"]] },
   "job.update": { guards: [["deps", "TacPlus"]] },

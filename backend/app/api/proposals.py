@@ -25,6 +25,7 @@ from app.api.recruitment_access import ensure_job_membership, ensure_job_read_ac
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.services.proposal_contract import snapshot_is_stale
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -81,7 +82,7 @@ def _hydrate_items(
                     status=cand.status.value if cand.status else None,
                     champion=cand.champion,
                 ),
-                total_score=float(breakdown.get("total", 0.0)),
+                total_score=breakdown.get("total"),
                 breakdown=breakdown,
             )
         )
@@ -98,6 +99,57 @@ async def _load_snapshot_candidates(
     return {c.id: c for c in result.scalars().all()}
 
 
+async def _hydrate_current_items(db, job, snap, *, context_stale=False):
+    """Recheck visibility on every read; stored annotations are historical only."""
+    from datetime import datetime, timezone
+    from app.api.matching import _eligibility_annotation
+    from app.services.pipeline_eligibility import evaluate_candidates_for_job
+    from app.services.candidate_job_eligibility import Visibility
+
+    candidates = await _load_snapshot_candidates(db, snap)
+    if not candidates:
+        return []
+    decisions = await evaluate_candidates_for_job(
+        db, job=job, candidate_ids=list(candidates), now=datetime.now(timezone.utc)
+    )
+    visible = {
+        cid: candidate
+        for cid, candidate in candidates.items()
+        if cid in decisions and decisions[cid].visibility != Visibility.hidden
+    }
+    items = _hydrate_items(snap, visible)
+    for item in items:
+        item.eligibility = _eligibility_annotation(decisions[item.candidate.id])
+        candidate = visible[item.candidate.id]
+        saved_version = item.breakdown.get("candidate_version")
+        if (
+            context_stale
+            or not saved_version
+            or candidate.updated_at is None
+            or saved_version != str(candidate.updated_at)
+        ):
+            item.total_score = None
+            item.breakdown = {
+                "candidate_id": item.candidate.id,
+                "total": None,
+                "measurement": "context_changed"
+                if context_stale
+                else "candidate_changed",
+                "eligibility": item.eligibility,
+            }
+        else:
+            # Stored authorization is never current, even when fit is fresh.
+            item.breakdown = {**item.breakdown, "eligibility": item.eligibility}
+    items.sort(
+        key=lambda item: (
+            item.total_score is None,
+            -(item.total_score or 0),
+            item.candidate.id,
+        )
+    )
+    return items
+
+
 @router.get("/jobs/{job_id}/proposals/latest", response_model=ProposalSnapshotResponse)
 @limiter.limit("30/minute")
 async def get_latest_proposal(
@@ -111,7 +163,7 @@ async def get_latest_proposal(
     UI polls this while `status="pending"`. Returns 404 only if the job has
     never had a snapshot (e.g. legacy jobs created before Phase 13).
     """
-    await _ensure_job_exists(db, job_id)
+    job = await _ensure_job_exists(db, job_id)
     # Read scope preserves the normal membership boundary for operational
     # roles and adds Finance's organization-wide business-data view. The
     # regenerate command below deliberately keeps ensure_job_membership.
@@ -126,8 +178,13 @@ async def get_latest_proposal(
         raise HTTPException(
             status_code=404, detail="No proposal snapshot yet for this job"
         )
-    candidates_by_id = await _load_snapshot_candidates(db, snap)
-    items = _hydrate_items(snap, candidates_by_id)
+    from app.services.proposal_contract import snapshot_is_stale_for_viewer
+
+    context_stale = await snapshot_is_stale_for_viewer(db, snap, job, current_user.id)
+    items = await _hydrate_current_items(db, job, snap, context_stale=context_stale)
+    candidates_stale = any(
+        item.breakdown.get("measurement") == "candidate_changed" for item in items
+    )
     return ProposalSnapshotResponse(
         id=snap.id,
         job_id=snap.job_id,
@@ -137,8 +194,8 @@ async def get_latest_proposal(
         profile_id=snap.profile_id,
         created_at=snap.created_at,
         error_message=snap.error_message,
-        degraded=snap.degraded,
-        stale=snap.stale,
+        degraded=snap.degraded or context_stale or candidates_stale,
+        stale=context_stale or candidates_stale,
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=items,
@@ -184,7 +241,7 @@ async def list_proposals(
             candidate_count=len(r.candidate_ids or []),
             error_message=r.error_message,
             degraded=r.degraded,
-            stale=r.stale,
+            stale=snapshot_is_stale(r),
         )
         for r in rows
     ]
@@ -251,7 +308,7 @@ async def regenerate_proposals(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
-        stale=snap.stale,
+        stale=snapshot_is_stale(snap),
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=[],

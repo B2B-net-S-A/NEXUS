@@ -49,19 +49,18 @@ describe("ScoreBreakdownTooltip", () => {
     expect(screen.getByText(/blacklisted/)).toBeInTheDocument();
   });
 
-  // M3-SCORE-01: boost historyczny wchodzi do totalu — musi być widoczny,
-  // inaczej suma pokazanych warstw ≠ total („ukryte 5 pkt" z audytu).
-  it("shows historical boost row when boost > 0", () => {
+  it("shows process history separately without bonus points", () => {
     const withBoost: ScoreBreakdown = {
       ...FIXTURE,
       total: 83.5,
-      historical_boost: 5,
+      historical_boost: 0,
       historical_sources_count: 2,
     };
     render(<ScoreBreakdownTooltip breakdown={withBoost} />);
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText("Historia")).toBeInTheDocument();
-    expect(screen.getByText(/\+5\.0 pkt/)).toBeInTheDocument();
+    expect(screen.getByText(/bez wpływu na wynik/)).toBeInTheDocument();
+    expect(screen.queryByText(/\+.*pkt/)).not.toBeInTheDocument();
     expect(screen.getByText(/2 podobn/)).toBeInTheDocument();
   });
 
@@ -69,5 +68,12 @@ describe("ScoreBreakdownTooltip", () => {
     render(<ScoreBreakdownTooltip breakdown={FIXTURE} />);
     fireEvent.click(screen.getByRole("button"));
     expect(screen.queryByText("Historia")).not.toBeInTheDocument();
+  });
+
+  it("identifies a legacy bonus rather than claiming old totals exclude history", () => {
+    render(<ScoreBreakdownTooltip breakdown={{ ...FIXTURE, historical_boost: 10, historical_sources_count: 2 }} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText(/archiwalny bonus \+10.0 pkt — przelicz ocenę/)).toBeInTheDocument();
+    expect(screen.queryByText(/bez wpływu na wynik/)).not.toBeInTheDocument();
   });
 });

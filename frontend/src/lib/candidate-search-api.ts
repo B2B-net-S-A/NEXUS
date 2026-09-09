@@ -336,6 +336,9 @@ export interface ShortlistEntry {
   note?: string | null;
   next_action_at?: string | null;
   score_snapshot?: number | null;
+  fit_score?: number | null;
+  fit_measurement?: string;
+  fit_context_fingerprint?: string | null;
   version: number;
   promoted_to_pipeline_at?: string | null;
   created_at?: string | null;

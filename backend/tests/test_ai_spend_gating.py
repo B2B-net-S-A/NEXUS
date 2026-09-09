@@ -30,9 +30,10 @@ def test_generate_job_response_marks_its_source() -> None:
         ai_writer.GenerateJobRequest(title="Python Developer", seniority="senior")
     )
     assert mock.source == "template"
-    # Widełki w szablonie są WYMYŚLONE — to jest powód istnienia pola `source`.
-    assert mock.salary_range_suggestion
-    assert "(uzupełnij)" in mock.requirements
+    assert mock.salary_range_suggestion == ""
+    assert mock.requirements == ""
+    assert mock.benefits == ""
+    assert mock.nice_to_have == ""
 
 
 @pytest.mark.asyncio

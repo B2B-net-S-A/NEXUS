@@ -1,14 +1,4 @@
-"""Snapshot propozycji musi rankować TYM SAMYM wzorem co `/recommendations`.
-
-Widget „Sugerowani kandydaci" startuje w trybie snapshot i przełącza się na
-żywy endpoint dopiero po włączeniu filtra. Żywa ścieżka dokłada boost
-historyczny PRZED odcięciem po `RECOMMENDATION_MIN_SCORE`, snapshot nie
-dokładał go wcale — więc kandydat sprawdzony już na trzech podobnych
-projektach (28 + 15 = 43 przy progu 40) pojawiał się po wpisaniu miasta
-i znikał po wyczyszczeniu filtra, bez żadnej wskazówki, że to dwa różne wzory.
-
-Regresja jest CICHA: obie listy wyglądają poprawnie, różnią się składem.
-"""
+"""Snapshot history is separate from fit; no implicit score floor hides rows."""
 
 from __future__ import annotations
 
@@ -25,6 +15,7 @@ from app.models.client import Client
 from app.models.job import Job
 from app.models.proposal_snapshot import ProposalSnapshot, STATUS_READY
 from app.services.scoring_service import LayerResult, ScoreBreakdown
+from app.services.canonical_fit import CanonicalFit
 
 
 def _breakdown(candidate_id: int, job_id: int, total: float) -> ScoreBreakdown:
@@ -83,8 +74,19 @@ async def boost_fixture():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
+@pytest.mark.parametrize(
+    "base_score, measurement",
+    [
+        (0.0, "measured"),
+        (28.0, "measured"),
+        (48.0, "measured"),
+        (28.0, "missing_index"),
+    ],
+)
+async def test_snapshot_preserves_base_fit_without_hidden_score_floor(
     boost_fixture,
+    base_score,
+    measurement,
 ):
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
@@ -98,12 +100,11 @@ async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
         return [{"candidate_id": cand_id, "score": 0.8}]
 
     async def _scored(*_a, **_kw):
-        # 28 < RECOMMENDATION_MIN_SCORE (40) — bez boostu ten kandydat wypada.
-        return [_breakdown(cand_id, job_id, 28.0)]
+        return [CanonicalFit(_breakdown(cand_id, job_id, base_score), measurement)]
 
     with (
         patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool),
-        patch("app.services.match_score_cache.bulk_get_or_compute", new=_scored),
+        patch("app.services.canonical_fit.score_candidates", new=_scored),
         patch(
             "app.services.similar_job_candidates.fetch_historical_boost_map",
             new=AsyncMock(return_value={cand_id: 3}),
@@ -117,14 +118,12 @@ async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
         )
         assert snap is not None
         assert snap.status == STATUS_READY, snap.error_message
-        assert snap.candidate_ids == [cand_id], (
-            "kandydat sprawdzony na podobnych projektach wypadł ze snapshotu, "
-            "choć na żywym /recommendations przechodzi próg"
-        )
+        assert snap.candidate_ids == [cand_id]
         payload = snap.breakdowns[0]
-        assert payload["historical_boost"] == 15.0
+        assert payload["historical_boost"] == 0.0
         assert payload["historical_sources_count"] == 3
-        assert payload["total"] == 43.0
+        assert payload["total"] == (base_score if measurement == "measured" else None)
+        assert payload["measurement"] == measurement
 
 
 @pytest.mark.integration
@@ -143,14 +142,14 @@ async def test_boost_lookup_failure_does_not_fail_the_snapshot(boost_fixture):
         return [{"candidate_id": cand_id, "score": 0.8}]
 
     async def _scored(*_a, **_kw):
-        return [_breakdown(cand_id, job_id, 55.0)]
+        return [CanonicalFit(_breakdown(cand_id, job_id, 55.0), "measured")]
 
     async def _boom(*_a, **_kw):
         raise RuntimeError("qdrant down")
 
     with (
         patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool),
-        patch("app.services.match_score_cache.bulk_get_or_compute", new=_scored),
+        patch("app.services.canonical_fit.score_candidates", new=_scored),
         patch(
             "app.services.similar_job_candidates.fetch_historical_boost_map", new=_boom
         ),

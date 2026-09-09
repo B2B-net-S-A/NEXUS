@@ -33,11 +33,13 @@ describe("clearSessionArtifacts", () => {
     // Snapshot radaru niesie dane kandydatów — wylogowanie/martwa sesja nie
     // może zostawić go w karcie dla kolejnej zalogowanej osoby.
     sessionStorage.setItem("nexus_talent_radar_session_v1", "{}");
+    for (const key of ["nexus-full-job:7:42", "nexus-full-radar:7", "nexus-radar-request:7", "nexus-radar-mode:7"]) sessionStorage.setItem(key, "saved");
     sessionStorage.setItem("unrelated_session_key", "keep");
 
     clearSessionArtifacts();
 
     expect(sessionStorage.getItem("nexus_talent_radar_session_v1")).toBeNull();
+    for (const key of ["nexus-full-job:7:42", "nexus-full-radar:7", "nexus-radar-request:7", "nexus-radar-mode:7"]) expect(sessionStorage.getItem(key)).toBeNull();
     expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
   });
 

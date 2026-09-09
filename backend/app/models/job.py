@@ -156,6 +156,10 @@ class Job(Base, TimestampMixin):
 
     # Structured matching-criteria (must-have vs nice-to-have)
     # Shape: [{"name": str, "level": "expert|senior|mid|junior", "years": int, "category": str}, ...]
+    matching_requirements: Mapped[Optional[dict]] = mapped_column(JSONB)
+    requirements_reviewed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     must_skills: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
     nice_skills: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
 

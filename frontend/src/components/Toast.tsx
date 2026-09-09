@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { X, CheckCircle, AlertCircle, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/store/theme";
@@ -48,6 +48,20 @@ export function useToast(): ToastContextValue {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counterRef = useRef(0);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const activeTimers = timers.current;
+    return () => {
+      for (const timer of activeTimers.values()) clearTimeout(timer);
+      activeTimers.clear();
+    };
+  }, []);
+  const scheduleDismiss = useCallback((id: number, durationMs: number) => {
+    timers.current.set(id, setTimeout(() => {
+      timers.current.delete(id);
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, durationMs));
+  }, []);
   // In game mode, success toasts get a cheerful emoji (wording unchanged).
   const kidsMode = useThemeStore((s) => s.kidsMode);
 
@@ -57,10 +71,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     // Błędy muszą zdążyć być przeczytane — przy 3 s komunikat znikał zanim
     // user spojrzał (klik "Generuj CV" wyglądał wtedy jak martwy przycisk).
     const durationMs = type === "error" ? 8000 : 3000;
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, durationMs);
-  }, []);
+    scheduleDismiss(id, durationMs);
+  }, [scheduleDismiss]);
 
   const showSuccess = useCallback((message: string) => showToast(message, "success"), [showToast]);
   const showError = useCallback((message: string) => showToast(message, "error"), [showToast]);
@@ -79,11 +91,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           onAction: options.onAction,
         },
       ]);
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, durationMs);
+      scheduleDismiss(id, durationMs);
     },
-    []
+    [scheduleDismiss]
   );
 
   // Wartość kontekstu MUSI być memoizowana. Provider siedzi nad całą aplikacją
@@ -103,7 +113,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [showToast, showSuccess, showError, showActionToast]
   );
 
-  const dismiss = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const dismiss = (id: number) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   const handleAction = async (toast: Toast) => {
     if (!toast.onAction) return;

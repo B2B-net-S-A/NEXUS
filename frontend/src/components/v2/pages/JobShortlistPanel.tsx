@@ -206,9 +206,12 @@ export function JobShortlistPanel({
               >
                 {e.candidate_name} {e.candidate_lastname}
               </Link>
+              <span className="tabular-nums text-xs text-zinc-500 dark:text-zinc-400" data-testid={`shortlist-fit-${e.id}`}>
+                {typeof e.fit_score === "number" ? `${e.fit_score.toFixed(1)}/100` : "Ocena niepełna"}
+              </span>
               {typeof e.score_snapshot === "number" && (
-                <span className="tabular-nums text-xs text-zinc-500 dark:text-zinc-400">
-                  {e.score_snapshot}
+                <span className="text-xs text-muted-foreground" title="Zapis historyczny, nie aktualne dopasowanie do requestu">
+                  Archiwalna: {e.score_snapshot}
                 </span>
               )}
               {readOnly ? (

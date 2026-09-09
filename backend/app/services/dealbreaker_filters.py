@@ -67,13 +67,9 @@ def _candidate_rate_pln_hourly(candidate) -> Optional[float]:
     if rate is None:
         return None
     currency = getattr(candidate, "expected_rate_currency", None)
-    from app.services.candidate_profile_rate import (
-        is_canonical_profile_rate_currency,
-    )
-
-    if not is_canonical_profile_rate_currency(currency):
-        # Stawka w obcej walucie bez polityki przeliczenia — to jest
-        # „nie wiemy", nie „za drogo".
+    # Historical acceptance of an unlabeled profile amount is not evidence
+    # that it can be compared with this request's PLN budget.
+    if str(currency or "").strip().upper() != "PLN":
         return None
     try:
         value = float(rate)
@@ -134,13 +130,23 @@ class DealbreakerInputs:
     onsite_days_per_week: Optional[int] = None
     office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
     wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
+    exclude_unknown_skill_evidence: bool = False
+    verification_job_id: Optional[int] = None
+    verification_fingerprint: Optional[str] = None
 
     @property
     def requires_office_days(self) -> bool:
         return (self.onsite_days_per_week or 0) > 0
 
 
-def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
+def missing_must_skills(
+    candidate,
+    must: Sequence[str],
+    *,
+    include_unknown: bool = False,
+    verification_job_id=None,
+    verification_fingerprint=None,
+) -> list[str]:
     """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
 
     Pusta `must` → `[]` (nie ma czego wymagać). Kandydat bez ŻADNEGO sygnału
@@ -149,15 +155,36 @@ def missing_must_skills(candidate, must: Sequence[str]) -> list[str]:
     niedopasowania, tylko brakiem wiedzy. Porównanie idzie przez `skill_present`
     (tolerancja `postgresql`/`postgres`, `node.js`/`nodejs`) — TĘ SAMĄ funkcję,
     której używają chipy ✓/✗ na `/ai-matches`.
+
+    `include_unknown=True` implements an explicitly selected missing-proof
+    exclusion policy; it does not turn missing evidence into proven inability.
     """
     if not must:
         return []
     from app.services.scoring_service import candidate_skill_names, skill_present
 
+    from app.services.requirement_verification import reviewed_gate_status
+
     cand_skills = candidate_skill_names(candidate)
-    if not cand_skills:
-        return []
-    return [m for m in must if not skill_present(m, cand_skills)]
+    missing = []
+    for label in must:
+        review = reviewed_gate_status(
+            candidate,
+            label,
+            job_id=verification_job_id,
+            fingerprint=verification_fingerprint,
+        )
+        if review == "met":
+            continue
+        if review == "not_met" or (review == "unknown" and include_unknown):
+            missing.append(label)
+        elif (
+            review is None
+            and (cand_skills or include_unknown)
+            and not skill_present(label, cand_skills)
+        ):
+            missing.append(label)
+    return missing
 
 
 def office_days_exceeded(candidate, required_days: Optional[int]) -> bool:
@@ -338,6 +365,11 @@ def is_gate_eligible_must(name: str) -> bool:
     jako umiejętności — więc bramka ukrywała KAŻDEGO, kto ma jakiekolwiek
     umiejętności, i zostawiała listę pustą.
     """
+    from app.services.requirement_contract import alternatives
+
+    options = alternatives(name or "")
+    if len(options) > 1:
+        return all(is_gate_eligible_must(option) for option in options)
     text = (name or "").strip()
     if not text or len(text) > _GATE_MAX_CHARS:
         return False
@@ -390,7 +422,9 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     must_ignored = tuple(m for m in declared_must if m not in set(must))
 
     days = getattr(job, "onsite_days_per_week", None)
-    office_location = getattr(job, "location", None)
+    office_location = getattr(job, "office_location", None) or getattr(
+        job, "location", None
+    )
 
     if bool(getattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False)):
         from app.services import champion_view
@@ -410,7 +444,11 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
 
     office_tokens = frozenset(location_tokens(office_location))
     policy = resolve_effective_remote_policy(job)
-    wants_office = bool(days and days > 0) or policy in ("onsite", "hybrid")
+    wants_office = (
+        bool(days and days > 0)
+        or policy in ("onsite", "hybrid")
+        or bool(getattr(job, "exclude_remote_only", False))
+    )
 
     return DealbreakerInputs(
         budget_hourly=budget,
@@ -460,6 +498,7 @@ class DealbreakerResult:
     hidden_office_days_exceeded: int = 0
     hidden_office_city_mismatch: int = 0
     hidden_remote_only: int = 0
+    exclusion_reasons: dict[int, str] = field(default_factory=dict)
 
     def hidden_meta(self) -> dict:
         # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
@@ -545,14 +584,26 @@ def apply_dealbreakers(
     for candidate in candidates:
         if budget_active and budget_excludes(candidate, effective_budget):
             result.hidden_over_budget += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "over_budget"
             continue
-        if must_active and missing_must_skills(candidate, effective_inputs.must_skills):
+        if must_active and missing_must_skills(
+            candidate,
+            effective_inputs.must_skills,
+            include_unknown=effective_inputs.exclude_unknown_skill_evidence,
+            verification_job_id=effective_inputs.verification_job_id,
+            verification_fingerprint=effective_inputs.verification_fingerprint,
+        ):
             result.hidden_missing_must += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "missing_must"
             continue
         if days_active and office_days_exceeded(
             candidate, effective_inputs.onsite_days_per_week
         ):
             result.hidden_office_days_exceeded += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "office_days_exceeded"
             continue
         if city_active and office_city_mismatch(
             candidate,
@@ -560,9 +611,13 @@ def apply_dealbreakers(
             required_days=effective_inputs.onsite_days_per_week,
         ):
             result.hidden_office_city_mismatch += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "office_city_mismatch"
             continue
         if exclude_remote_only and remote_only_refuses_office(candidate):
             result.hidden_remote_only += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "remote_only"
             continue
         result.kept.append(candidate)
     return result

@@ -48,6 +48,7 @@ export type Capability =
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.profile_fact.manage"
+  | "candidate.requirement.verify"
   // ── Kuratela portfela klientów ─────────────────────────────────────────────
   | "client.portfolio.manage"
   // ── Imienne wyniki zespołu ─────────────────────────────────────────────────
@@ -168,6 +169,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // produktowa faktów globalnych jawnie dopuszcza tu HoR i sourcera.
   // Gdy backend rozdzieli odczyt od zapisu — rozdziel też ten wpis.
   "candidate.profile_fact.manage": OPERATIONAL,
+  "candidate.requirement.verify": ["admin", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer"],
 
   // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
   // (backend/app/api/client_directory.py). Przenoszenie klienta między
@@ -232,6 +234,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "invite_link.create": { section: "pipeline", required: "write" },
   "candidate.document.manage": { section: "sourcing", required: "write" },
   "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
+  "candidate.requirement.verify": { section: "sourcing", required: "write" },
   "client.portfolio.manage": { section: "delivery", required: "write" },
   "nav.candidates": { section: "sourcing", required: "read" },
   "nav.talents": { section: "sourcing", required: "read" },
@@ -261,6 +264,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "invite_link.create",
   "candidate.document.manage",
   "candidate.profile_fact.manage",
+  "candidate.requirement.verify",
   "client.portfolio.manage",
 ]);
 
