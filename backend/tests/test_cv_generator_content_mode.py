@@ -320,3 +320,33 @@ def test_used_mode_is_recorded_in_the_saved_payload(
 def test_each_mode_gets_its_own_system_prompt(mode: str, captured_prompt: dict) -> None:
     _, seen = _run(mode, captured_prompt)
     assert seen["system"] == get_prompt("pl", False, mode)
+
+
+@pytest.mark.parametrize("mode", ["basic", "polished", "tailored"])
+def test_champion_does_not_prioritize_trimmed_technologies_below_tailored(
+    captured_prompt, monkeypatch, mode
+):
+    technologies = [
+        "Python",
+        "SQL",
+        "Java",
+        "C++",
+        "Go",
+        "Rust",
+        "Ruby",
+        "C#",
+        ".NET",
+        "PHP",
+        "React",
+        "Vue",
+        "Kubernetes",
+    ]
+    payload = {
+        **_AI_JSON,
+        "experience": [{**_AI_JSON["experience"][0], "technologies": technologies}],
+    }
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    result, _ = _run(mode, captured_prompt)
+    selected = result.render_payload["experience"][0]["technologies"]
+    assert len(selected) == 12
+    assert ("Kubernetes" in selected) is (mode == "tailored")

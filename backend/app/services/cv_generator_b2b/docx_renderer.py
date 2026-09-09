@@ -916,6 +916,7 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
 
 
 def _unambiguous_tech_occurrence(text: str, match: re.Match[str]) -> bool:
+    """Currently scoped to Jest; other ambiguous names need separate evidence/tests."""
     if match.group().casefold() != "jest":
         return True
     # "Jest" is also the Polish verb "is", including at sentence start.

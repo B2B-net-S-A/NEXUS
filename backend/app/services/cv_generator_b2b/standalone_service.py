@@ -1504,7 +1504,7 @@ def _run_generation_pipeline(
     _cap_role_technologies(
         candidate_data,
         list(champion_dto.must_have) + list(champion_dto.nice_to_have)
-        if champion_dto
+        if champion_dto and mode == "tailored"
         else None,
     )
 
