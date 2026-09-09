@@ -641,6 +641,7 @@ function AIMatchingSection({
   const actorId = useAuthStore(s => s.user?.id);
   const fullSearch = useFullCandidateSearch({
     includeCandidateDetails: true,
+    shareAcrossTabs: true,
     storageKey: actorId ? `nexus-full-job:${actorId}:${jobId}` : undefined,
     filters: { skill: skillFilter ?? undefined, rate: rateFilter, stage: stageFilter, location: locationFilter.trim() },
   });
