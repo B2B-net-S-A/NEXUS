@@ -146,9 +146,14 @@ async def _load(world: dict, *, job_id_key: str = "target_job_id") -> dict:
 
     async with AsyncSessionLocal() as db:
         job = await db.scalar(select(Job).where(Job.id == world[job_id_key]))
-        return await load_manager_rejections(
+        scoped = await load_manager_rejections(
             db, job=job, candidate_ids=[world["candidate_id"]]
         )
+        # Each fixture has its own manager: full-scope freshness must derive
+        # exactly the same veto, including the negative policy scenarios.
+        complete = await load_manager_rejections(db, job=job, candidate_ids=None)
+        assert complete == scoped
+        return scoped
 
 
 async def _reject_after_interview(world: dict, *, reason_key: str) -> None:

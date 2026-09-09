@@ -97,6 +97,33 @@ def require_section_access(section: ProductSection):
     return _check
 
 
+def require_section_access_any_read(*sections: ProductSection):
+    """Admit a shared read workflow available from any of several sections.
+
+    Explicitly read-only even for POST searches; resource/write/PII gates are
+    still owned by the route. Existing method-based section gates are unchanged.
+    """
+    if not sections:
+        raise ValueError("At least one section is required")
+
+    async def _check(current_user: User = Depends(get_current_user)) -> User:
+        if not any(
+            section_access_for_user(current_user, section) >= SectionAccess.read
+            for section in sections
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "section_access_denied",
+                    "required": "read",
+                    "any_section": [section.value for section in sections],
+                },
+            )
+        return current_user
+
+    return _check
+
+
 DELIVERY_SECTION_DEPENDENCIES = [
     Depends(require_section_access(ProductSection.delivery))
 ]

@@ -48,6 +48,7 @@ from app.api import (
     dashboard,
     search,
 )
+from app.api import candidate_search, requirement_verifications
 from app.api import activities
 from app.api import admin
 from app.api import admin_section_permissions
@@ -670,6 +671,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
+    from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -702,6 +704,7 @@ async def lifespan(app: FastAPI):
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
     app.state.background_tasks = {
+        "candidate_search": asyncio.create_task(candidate_search_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1349,6 +1352,10 @@ app.include_router(
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 app.include_router(cv_match_preview.router, prefix="/api", tags=["recommendations"])
 app.include_router(talent_radar.router, prefix="/api", tags=["talent-radar"])
+app.include_router(candidate_search.router, prefix="/api", tags=["candidate-search"])
+app.include_router(
+    requirement_verifications.router, prefix="/api", tags=["candidate-search"]
+)
 app.include_router(phase3_actions.router, prefix="/api", tags=["recommendations"])
 app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])
@@ -2336,6 +2343,9 @@ async def api_health_deep_check():
     from app.models.client_cv_rule_event import ClientCvRuleEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.client_cv_rule_publication import ClientCvRulePublication
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.insights_scoring_config import InsightsScoringConfig
@@ -2449,6 +2459,9 @@ async def api_health_deep_check():
         ("client_cv_rule_events", ClientCvRuleEvent),
         ("client_cv_rule_previews", ClientCvRulePreview),
         ("client_cv_rule_publications", ClientCvRulePublication),
+        ("cv_document_versions", CvDocumentVersion),
+        ("candidate_stage_cvs", CandidateStageCV),
+        ("cv_share_tokens", CVShareToken),
         # 0272: karta klienta. Brak tabeli nie wywraca startu — wyszedłby dopiero
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),

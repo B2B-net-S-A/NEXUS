@@ -180,7 +180,7 @@ function renderWorkbench(
 
 async function sendButton() {
   return screen.findByRole("button", {
-    name: /Wyślij klientowi i przenieś na „CV Wysłane”/,
+    name: /(?:Utwórz link i oznacz|Oznacz) „CV Wysłane”/,
   });
 }
 
@@ -354,7 +354,7 @@ describe("CvHandoffWorkbench", () => {
     expect(msg).toContain("JUŻ ISTNIEJE");
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
     // Sekret tokenu jest zwracany RAZ — musi zostać na ekranie.
-    expect(await screen.findByText("abc123")).toBeTruthy();
+    expect(await screen.findByText(/abc123/)).toBeTruthy();
     expect(
       screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ }),
     ).not.toBeChecked();
@@ -420,7 +420,7 @@ describe("CvHandoffWorkbench", () => {
     renderWorkbench({ readOnly: true });
     expect(
       screen.queryByRole("button", {
-        name: /Wyślij klientowi i przenieś/,
+        name: /Utwórz link i oznacz/,
       }),
     ).toBeNull();
   });
@@ -466,7 +466,7 @@ describe("CvHandoffWorkbench", () => {
 
   it("dok ma zakładki makiety, a lista linków startuje dopiero po wejściu na nią", async () => {
     renderWorkbench();
-    expect(screen.getByRole("tab", { name: "Wyślij" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Przekazanie" })).toBeTruthy();
     expect(shareList).not.toHaveBeenCalled();
 
     await userEvent.click(
@@ -497,4 +497,50 @@ describe("CvHandoffWorkbench", () => {
     await waitFor(() => expect(shareRevokeAll).toHaveBeenCalled());
     expect(shareRevokeAll.mock.calls[0][0]).toBe(21);
   });
+});
+
+
+import {useState as useAuditState} from "react";
+
+it("successful move must preserve the one-time share link after queue refresh", async () => {
+  const qc = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  function AuditHost() {
+    const [remaining,setRemaining] = useAuditState(true);
+    return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
+      columns={columns(remaining ? [item()] : [])}
+      isLoading={false} isError={false} error={null} isSuccess
+      onRetry={()=>{}} onMoved={()=>setRemaining(false)} readOnly={false}/>;
+  }
+  render(<QueryClientProvider client={qc}><AuditHost/></QueryClientProvider>);
+  await userEvent.click(await readySendButton());
+  await screen.findByText(/Nikt nie czeka na wysyłkę CV/);
+  expect(shareCreate).toHaveBeenCalledOnce();
+  expect(move).toHaveBeenCalledOnce();
+  expect(screen.queryByText(/abc123/)).not.toBeNull();
+});
+
+it("retains each result with its original candidate when moving to the next one", async () => {
+  shareCreate.mockResolvedValueOnce({ data: { share_url_suffix: "/cv/first" } });
+  shareCreate.mockResolvedValueOnce({ data: { share_url_suffix: "/cv/second" } });
+  const qc = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  function Host() {
+    const [step, setStep] = useAuditState(0);
+    return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
+      columns={columns(step === 0 ? [item()] : step === 1 ? [item({id:22,candidate_id:122,name:"Anna",lastname:"Testowa"})] : [])}
+      isLoading={false} isError={false} error={null} isSuccess
+      onRetry={()=>{}} onMoved={()=>setStep((n)=>n+1)} readOnly={false}/>;
+  }
+  render(<QueryClientProvider client={qc}><Host/></QueryClientProvider>);
+  await userEvent.click(await readySendButton());
+  await screen.findByText(/\/cv\/first/);
+  await userEvent.click(await readySendButton());
+  await screen.findByText(/Nikt nie czeka na wysyłkę CV/);
+  const results = screen.getByRole("region", {name: "Utworzone linki do CV"});
+  expect(within(results).getByText(/\/cv\/first/)).toBeTruthy();
+  expect(within(results).getByText(/\/cv\/second/)).toBeTruthy();
+  expect(within(results).getByRole("button", {name:"Kopiuj link: Grzegorz Żebrowski"})).toBeTruthy();
+  expect(within(results).getByRole("button", {name:"Kopiuj link: Anna Testowa"})).toBeTruthy();
+  const drafts = within(results).getAllByRole("link", {name:"Przygotuj wiadomość"});
+  expect(decodeURIComponent(drafts[0].getAttribute("href")!)).toContain("Grzegorz Żebrowski");
+  expect(decodeURIComponent(drafts[1].getAttribute("href")!)).toContain("Anna Testowa");
 });

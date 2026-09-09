@@ -59,6 +59,7 @@ from app.services.cv_generator_b2b.client_rules import (
     build_filename as build_client_filename,
     build_prompt_blocks,
     resolve_content_mode,
+    snapshot_rule,
     rule_reminders,
 )
 from app.services.cv_generator_b2b.docx_renderer import (
@@ -279,10 +280,30 @@ class RecruitmentReadiness:
     # Wyprowadzany z oferty, nigdy nie wybierany ręcznie w tym trybie.
     client_id: int | None = None
     client_name: str | None = None
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE
+    required_champion: bool = False
+    required_notes_min_chars: int = 0
+
+    @property
+    def missing_inputs(self) -> list[str]:
+        problems = []
+        if not self.has_cv:
+            problems.append("Dodaj CV w formacie PDF/DOCX na profilu kandydata.")
+        if (
+            self.required_champion or self.content_mode == "tailored"
+        ) and not self.has_champion:
+            problems.append(
+                "Uzupełnij Profil Championa na karcie rekrutacji — wymaga go tryb lub reguła klienta."
+            )
+        if self.notes_chars < self.required_notes_min_chars:
+            problems.append(
+                f"Uzupełnij notatki z rozmów: wymagane {self.required_notes_min_chars} znaków, dostępne {self.notes_chars}."
+            )
+        return problems
 
     @property
     def ready(self) -> bool:
-        return self.has_champion and self.has_notes and self.has_cv
+        return not self.missing_inputs
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -392,16 +413,10 @@ def _champion_present(job: Job | None) -> bool:
 
 
 def _format_screening_note(note: ScreeningNote) -> str:
+    """Only candidate competencies; commercial judgments are not CV evidence."""
     parts: list[str] = []
-    if note.red_flags:
-        parts.append(f"Red flags: {note.red_flags.strip()}")
     if note.personality_notes:
         parts.append(f"Osobowość / soft skills: {note.personality_notes.strip()}")
-    if note.closing_strategy:
-        parts.append(f"Strategia closingu: {note.closing_strategy.strip()}")
-    if note.salary_expectation is not None:
-        cur = note.salary_currency or "PLN"
-        parts.append(f"Oczekiwana stawka: {note.salary_expectation} {cur}")
     if note.verified_skills:
         try:
             skill_lines: list[str] = []
@@ -420,8 +435,6 @@ def _format_screening_note(note: ScreeningNote) -> str:
                 parts.append("Zweryfikowane umiejętności: " + ", ".join(skill_lines))
         except Exception:  # noqa: BLE001 — verified_skills shape is JSONB-free
             pass
-    if note.overall_impression is not None:
-        parts.append(f"Ogólne wrażenie (1-5): {note.overall_impression}")
     return "\n".join(parts)
 
 
@@ -1748,7 +1761,11 @@ async def _candidate_has_supported_cv(db: AsyncSession, candidate_id: int) -> bo
 
 
 async def list_recruitments_with_readiness(
-    db: AsyncSession, candidate_id: int
+    db: AsyncSession,
+    candidate_id: int,
+    *,
+    job_scope=None,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1773,6 +1790,8 @@ async def list_recruitments_with_readiness(
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
+    if job_scope is not None:
+        stages_q = stages_q.where(job_scope)
     stages = (await db.scalars(stages_q)).all()
 
     if not stages:
@@ -1799,7 +1818,7 @@ async def list_recruitments_with_readiness(
         await db.scalars(
             select(Call.created_at).where(
                 Call.candidate_id == candidate_id,
-                (Call.transcript.isnot(None)) | (Call.summary.isnot(None)),
+                Call.transcript.isnot(None),
             )
         )
     ).all()
@@ -1836,24 +1855,29 @@ async def list_recruitments_with_readiness(
         for stage in latest_per_job.values()
         if stage.job is not None and stage.job.client_id
     }
-    notes_min_clients: set[int] = set()
+    client_rules = {}
     if client_ids:
-        notes_min_clients = set(
-            (
-                await db.scalars(
-                    select(ClientCvRule.client_id).where(
-                        ClientCvRule.client_id.in_(client_ids),
-                        ClientCvRule.confirmed_at.is_not(None),
-                        ClientCvRule.require_screening_notes_min_chars > 0,
-                    )
+        rows = (
+            await db.scalars(
+                select(ClientCvRule).where(
+                    ClientCvRule.client_id.in_(client_ids),
+                    ClientCvRule.confirmed_at.is_not(None),
                 )
-            ).all()
-        )
+            )
+        ).all()
+        client_rules = {row.client_id: snapshot_rule(row) for row in rows}
 
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
         job = stage.job
         has_champion = _champion_present(job)
+        rule = client_rules.get(job.client_id) if job else None
+        locked_mode, _ = resolve_content_mode(rule, content_mode)
+        effective_mode, _ = apply_content_mode_cap(
+            locked_mode,
+            getattr(job.client, "cv_content_mode_cap", None) if job else None,
+        )
+        minimum = (rule.require_screening_notes_min_chars or 0) if rule else 0
 
         first_moved = first_moved_per_job.get(stage.job_id)
         window_start = (
@@ -1874,7 +1898,7 @@ async def list_recruitments_with_readiness(
         )
 
         notes_chars = 0
-        if has_notes and job is not None and job.client_id in notes_min_clients:
+        if has_notes and job is not None and minimum > 0:
             notes_chars = len(
                 (
                     await collect_screening_notes_text(
@@ -1892,6 +1916,10 @@ async def list_recruitments_with_readiness(
                 has_champion=has_champion,
                 has_notes=has_notes,
                 has_cv=has_cv,
+                content_mode=effective_mode,
+                required_champion=effective_mode == "tailored"
+                or bool(rule and rule.require_champion),
+                required_notes_min_chars=minimum,
                 notes_chars=notes_chars,
                 client_id=job.client_id if job else None,
                 client_name=(
@@ -1908,9 +1936,19 @@ async def list_recruitments_with_readiness(
 
 
 async def collect_screening_notes_text(
-    db: AsyncSession, *, candidate_id: int, stage: CandidateStage, job: Job
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    stage: CandidateStage,
+    job: Job,
+    warnings: list[str] | None = None,
+    language: Language = "pl",
 ) -> str:
-    """Wszystkie notatki, które poszłyby do modelu dla TEJ rekrutacji.
+    """Materiały o kandydacie dopuszczone do modelu dla tej rekrutacji.
+
+    Strukturalne oceny handlowe są pomijane. Podsumowanie AI bez transkryptu
+    nie jest źródłem faktów; opcjonalna lista warnings informuje o pominięciu.
+    Ten sam tekst wyznacza minimum notatek przed przyjęciem generacji.
 
     Wyniesione z ``generate_cv_for_candidate``, bo tę samą sumę musi znać
     endpoint PRZED zakolejkowaniem generacji: reguła klienta może wymagać
@@ -1986,11 +2024,23 @@ async def collect_screening_notes_text(
             Call.created_at >= first_moved - _CALL_WINDOW_BEFORE_PIPELINE
         )
     calls = (await db.scalars(calls_q)).all()
+    omitted_summaries = 0
     for call in calls:
-        # Prefer transcript; fall back to AI-generated summary.
-        body = (call.transcript or call.summary or "").strip()
+        body = (call.transcript or "").strip()
         if body:
             screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
+        elif (call.summary or "").strip():
+            # An earlier model's assertion is not independent source evidence.
+            # Keep the summary on the call, but never launder it as a transcript.
+            omitted_summaries += 1
+    if omitted_summaries and warnings is not None:
+        warnings.append(
+            f"Sources: omitted {omitted_summaries} AI call summaries without a transcript. "
+            "Add verified screening notes if they contain relevant candidate facts."
+            if language == "en"
+            else f"Źródła: pominięto {omitted_summaries} podsumowań rozmów AI bez transkryptu. "
+            "Uzupełnij zweryfikowane notatki, jeśli zawierają istotne fakty o kandydacie."
+        )
 
     return "\n\n".join(screening_parts)
 
@@ -2158,7 +2208,9 @@ async def generate_cv_for_candidate(
         )
 
     # ── 2. Champion ───────────────────────────────────────────────────────
-    if not _champion_present(job):
+    if (
+        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
+    ) and not _champion_present(job):
         raise StandaloneGenerationError(
             code="no_champion",
             message=(
@@ -2175,22 +2227,28 @@ async def generate_cv_for_candidate(
     )
 
     # ── 3. Screening notes — scoped to THIS recruitment ──────────────────
+    source_warnings: list[str] = []
     screening_notes_text = await collect_screening_notes_text(
-        db, candidate_id=candidate_id, stage=stage, job=job
+        db,
+        candidate_id=candidate_id,
+        stage=stage,
+        job=job,
+        warnings=source_warnings,
+        language=language,
     )
-    if not screening_notes_text:
+    minimum = (client_rule.require_screening_notes_min_chars or 0) if client_rule else 0
+    if len(screening_notes_text.strip()) < minimum:
         raise StandaloneGenerationError(
             code="no_notes",
             message=(
-                "Brak notatek z rozmowy dla tej rekrutacji. Wymagana jest "
-                "co najmniej jedna: notatka ze screeningu, transkrypt rozmowy "
-                "albo notatka procesu."
+                f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} "
+                f"znaków, dostępne {len(screening_notes_text.strip())}."
             ),
         )
 
     # ── 4-6. Sync pipeline in a worker thread — event loop stays free ────
     fallback_name = f"{candidate.name} {candidate.lastname}".strip() or None
-    return await run_in_threadpool(
+    result = await run_in_threadpool(
         lambda: _run_generation_pipeline(
             cv_bytes=cv_bytes,
             cv_filename=cv_doc.filename or "cv.pdf",
@@ -2208,6 +2266,9 @@ async def generate_cv_for_candidate(
             project_ref=project_ref,
         )
     )
+    if source_warnings:
+        result.warnings.extend(source_warnings)
+    return result
 
 
 # ── Old mode: manual upload (1:1 with external CV-Generator) ──────────────

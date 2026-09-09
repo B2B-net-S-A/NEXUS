@@ -41,7 +41,15 @@ def test_is_due_weekly_monday_window(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fresh_top_filters_staged_and_floor(monkeypatch):
+@pytest.mark.parametrize(
+    ("scores", "expected"),
+    [
+        ({2: 70.0, 3: 40.0, 4: 60.0}, [(2, 70.0), (4, 60.0)]),
+        ({2: None, 3: 40.0, 4: 60.0}, [(4, 60.0)]),
+        ({2: 60.0, 3: 60.0, 4: 60.0}, [(2, 60.0), (3, 60.0), (4, 60.0)]),
+    ],
+)
+async def test_fresh_top_filters_staged_and_floor(monkeypatch, scores, expected):
     """Świeżość (spoza pipeline'u) + próg score + top-N — jedna ścieżka."""
     import app.tasks.match_digest as md
 
@@ -53,6 +61,7 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
     job = SimpleNamespace(
         id=77,
         title="Analityk",
+        description="A" * 9000 + "TAIL_DIGEST_REQUIREMENT",
         client_id=1,
         hiring_manager_contact_id=None,
         rate_budget_hourly=None,
@@ -63,11 +72,16 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
     async def fake_pool(
         db, text, top_k, query_variants=None, bm25_query=None, must_groups=None
     ):
+        assert "TAIL_DIGEST_REQUIREMENT" in text
         return [
             {"candidate_id": 1, "score": 0.9},  # staged — odpada
             {"candidate_id": 2, "score": 0.8},  # score 70 — wchodzi
             {"candidate_id": 3, "score": 0.7},  # score 40 — pod progiem
-            {"candidate_id": 4, "score": 0.6},  # score 60 — wchodzi
+            {
+                "candidate_id": 4,
+                "score": 0.6,
+                "semantic_unknown": True,
+            },  # score 60 — wchodzi
         ]
 
     class FakeResult:
@@ -100,13 +114,19 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
                 return FakeResult([1])
             return FakeResult([SimpleNamespace(id=cid) for cid in (2, 3, 4)])
 
-    async def fake_profile(db):
-        return "profil"
+    async def fake_profile(db, **kwargs):
+        from app.services.scoring_service import DEFAULT_PROFILE
 
-    async def fake_bulk(job_arg, candidates, db, *, similarity_map, profile):
-        scores = {2: 70.0, 3: 40.0, 4: 60.0}
+        assert kwargs == {"user_id": 42, "client_id": 1}
+        return DEFAULT_PROFILE
+
+    async def fake_bulk(db, context, candidates):
+        assert "TAIL_DIGEST_REQUIREMENT" in context.query_text
         return [
-            SimpleNamespace(candidate_id=c.id, total=scores[c.id]) for c in candidates
+            SimpleNamespace(
+                breakdown=SimpleNamespace(candidate_id=c.id), fit_score=scores[c.id]
+            )
+            for c in candidates
         ]
 
     async def passthrough_gate(db, *, job, candidates, now):
@@ -122,15 +142,12 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
     monkeypatch.setattr(
         "app.services.scoring_service.resolve_active_profile", fake_profile
     )
-    monkeypatch.setattr("app.services.match_score_cache.bulk_get_or_compute", fake_bulk)
-    monkeypatch.setattr(
-        "app.services.embedding_service._build_job_text", lambda j: "tekst"
-    )
+    monkeypatch.setattr("app.services.canonical_fit.score_candidates", fake_bulk)
     monkeypatch.setattr(settings, "MATCH_DIGEST_MIN_SCORE", 55.0, raising=False)
     monkeypatch.setattr(settings, "MATCH_DIGEST_TOP_N", 5, raising=False)
 
-    top = await md._fresh_top_matches(FakeDb(), job)
-    assert top == [(2, 70.0), (4, 60.0)], (
+    top = await md._fresh_top_matches(FakeDb(), job, user_id=42)
+    assert top == expected, (
         "staged odpada, pod progiem odpada, reszta malejąco po score"
     )
     assert _fresh_top_matches is md._fresh_top_matches
@@ -166,7 +183,10 @@ async def _seed_job(rate_budget_hourly: float | None = None) -> int:
 
 
 async def _seed_candidate(
-    *, status: str = "active", expected_rate_hourly: float | None = None
+    *,
+    status: str = "active",
+    expected_rate_hourly: float | None = None,
+    expected_rate_currency: str | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate, CandidateStatus
@@ -178,6 +198,7 @@ async def _seed_candidate(
             email=f"digest-{uuid.uuid4().hex[:8]}@example.com",
             status=CandidateStatus(status),
             expected_rate_hourly=expected_rate_hourly,
+            expected_rate_currency=expected_rate_currency,
         )
         db.add(candidate)
         await db.commit()
@@ -189,7 +210,7 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     """Podepnij pulę, profil i scoring; bramka i dealbreakery zostają PRAWDZIWE.
 
     `scored` jest listą, do której trafiają kandydaci przekazani do scoringu —
-    dzięki temu można asertować KOLEJNOŚĆ (bramka przed `bulk_get_or_compute`),
+    dzięki temu można asertować KOLEJNOŚĆ (bramka przed `score_candidates`),
     a nie tylko wynik. Sam wynik nie odróżnia „odfiltrowany" od „odfiltrowany
     po zapłaceniu za scoring i zatruciu cache".
     """
@@ -199,12 +220,19 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     ):
         return [{"candidate_id": cid, "score": 0.9} for cid in candidate_ids]
 
-    async def fake_profile(db):
-        return "profil"
+    async def fake_profile(db, **kwargs):
+        from app.services.scoring_service import DEFAULT_PROFILE
 
-    async def fake_bulk(job_arg, candidates, db, *, similarity_map, profile):
+        return DEFAULT_PROFILE
+
+    async def fake_bulk(db, context, candidates):
         scored.extend(candidates)
-        return [SimpleNamespace(candidate_id=c.id, total=90.0) for c in candidates]
+        return [
+            SimpleNamespace(
+                breakdown=SimpleNamespace(candidate_id=c.id), fit_score=90.0
+            )
+            for c in candidates
+        ]
 
     monkeypatch.setattr(
         "app.services.retrieval_pool.retrieve_candidate_pool", fake_pool
@@ -212,7 +240,7 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     monkeypatch.setattr(
         "app.services.scoring_service.resolve_active_profile", fake_profile
     )
-    monkeypatch.setattr("app.services.match_score_cache.bulk_get_or_compute", fake_bulk)
+    monkeypatch.setattr("app.services.canonical_fit.score_candidates", fake_bulk)
     monkeypatch.setattr(settings, "MATCH_DIGEST_MIN_SCORE", 55.0, raising=False)
     monkeypatch.setattr(settings, "MATCH_DIGEST_TOP_N", 5, raising=False)
 
@@ -253,17 +281,34 @@ async def test_known_rate_above_budget_is_dropped_unknown_passes(monkeypatch):
     from app.tasks.match_digest import _fresh_top_matches as fresh
 
     job_id = await _seed_job(rate_budget_hourly=120)
-    too_expensive = await _seed_candidate(expected_rate_hourly=250)
-    exactly_in = await _seed_candidate(expected_rate_hourly=120)
+    too_expensive = await _seed_candidate(
+        expected_rate_hourly=250, expected_rate_currency="PLN"
+    )
+    exactly_in = await _seed_candidate(
+        expected_rate_hourly=120, expected_rate_currency="PLN"
+    )
     unknown = await _seed_candidate()
+    unknown_currency = await _seed_candidate(expected_rate_hourly=250)
+    foreign_currency = await _seed_candidate(
+        expected_rate_hourly=250, expected_rate_currency="EUR"
+    )
     scored: list = []
-    _wire_digest(monkeypatch, [too_expensive, exactly_in, unknown], scored)
+    _wire_digest(
+        monkeypatch,
+        [too_expensive, exactly_in, unknown, unknown_currency, foreign_currency],
+        scored,
+    )
 
     async with AsyncSessionLocal() as db:
         job = await db.scalar(select(Job).where(Job.id == job_id))
         top = await fresh(db, job)
 
-    assert {cid for cid, _ in top} == {exactly_in, unknown}
+    assert {cid for cid, _ in top} == {
+        exactly_in,
+        unknown,
+        unknown_currency,
+        foreign_currency,
+    }
     assert too_expensive not in {c.id for c in scored}
 
 
@@ -324,3 +369,57 @@ async def test_empty_after_filters_sends_nothing(monkeypatch):
 
     assert top == []
     assert scored == [], "pusta lista nie może kosztować wywołania scoringu"
+
+
+@pytest.mark.asyncio
+async def test_digest_uses_each_recipient_profile_without_unknown_notification(
+    monkeypatch,
+):
+    import app.tasks.match_digest as md
+
+    job = SimpleNamespace(id=77, title="Python", recruiter_id=42, tac_id=43)
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [job]
+
+        def scalar_one_or_none(self):
+            return job
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def execute(self, stmt):
+            return Result()
+
+        async def commit(self):
+            pass
+
+    recipients = []
+    notifications = []
+
+    async def matches(db, request, *, user_id):
+        recipients.append(user_id)
+        return [(99, 78.0)] if user_id == 42 else []
+
+    async def emit(db, **payload):
+        notifications.append(payload)
+        return object()
+
+    monkeypatch.setattr(md, "AsyncSessionLocal", Db)
+    monkeypatch.setattr(md, "_fresh_top_matches", matches)
+    monkeypatch.setattr("app.services.notification_triggers.emit", emit)
+    stats = await md.run_match_digest()
+    assert recipients == [42, 43]
+    assert [item["user_id"] for item in notifications] == [42]
+    assert "78 pkt" in notifications[0]["message"]
+    assert stats["jobs_with_matches"] == 1
+    assert stats["notifications_sent"] == 1
+    assert stats["errors"] == 0

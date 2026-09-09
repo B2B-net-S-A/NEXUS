@@ -109,17 +109,18 @@ async def load_manager_rejections(
     db: AsyncSession,
     *,
     job: Job,
-    candidate_ids: Sequence[int],
+    candidate_ids: Sequence[int] | None,
 ) -> dict[int, ManagerVerdict]:
     """Return ``{candidate_id: most recent verdict}`` for ``job``'s manager.
 
+    ``candidate_ids=None`` explicitly requests all verdicts for freshness checks.
     Issues **no query at all** when the job has no hiring manager or there are
     no candidates to check, so the feature costs nothing on jobs where the
     manager field was never filled in.
     """
     manager_id = job.hiring_manager_contact_id
-    ids = {int(cid) for cid in candidate_ids}
-    if manager_id is None or not ids:
+    ids = None if candidate_ids is None else {int(cid) for cid in candidate_ids}
+    if manager_id is None or ids == set():
         return {}
 
     rejected = aliased(CandidateStage)
@@ -154,7 +155,7 @@ async def load_manager_rejections(
         # lose the veto.
         .outerjoin(Contact, Contact.id == Job.hiring_manager_contact_id)
         .where(
-            rejected.candidate_id.in_(ids),
+            rejected.candidate_id.in_(ids) if ids is not None else True,
             rejected.stage == PipelineStage.rejected,
             # Never let a job veto its own candidates — see module docstring.
             rejected.job_id != job.id,

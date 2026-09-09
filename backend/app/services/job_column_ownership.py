@@ -9,7 +9,8 @@ w NEXUSIE wracał do brzmienia z Traffita.
 
 Podział jest DEKLARACJĄ, nie mechanizmem: nic nie blokuje zapisu w runtime.
 Egzekwuje go `tests/test_job_column_ownership.py`, który czyta `_UPSERT_JOB`
-AST-em i porównuje jego listę `DO UPDATE SET` z `SYNC_WRITABLE` poniżej.
+porównując listę `DO UPDATE SET` z dozwolonymi zapisami i osobno sprawdzając
+ograniczone unieważnienie zatwierdzenia po zmianie źródła wymagań.
 Dlatego dopisanie kolumny do UPSERT-u bez dopisania jej tutaj kończy się
 czerwonym CI, a nie cichym nadpisywaniem cudzej pracy na produkcji.
 
@@ -57,9 +58,10 @@ SHARED_NEXUS_WINS: frozenset[str] = frozenset(
 # u klienta. `created_at` celowo NIE jest przez sync aktualizowane.
 SYNC_BOOKKEEPING: frozenset[str] = frozenset({"updated_at"})
 
-# Wszystko, czego sync NIE MOŻE tknąć. Praca NEXUSA: właściciele, Champion,
+# Treści, których sync NIE MOŻE zastąpić wartościami z Traffita: właściciele, Champion,
 # kryteria matchingu, wynik klasyfikacji, budżety, powód zamknięcia,
 # i „otwartość" w naszym rozumieniu (`is_open`).
+# Wyjątek unieważnienia zatwierdzenia opisuje SYNC_SOURCE_INVALIDATABLE poniżej.
 NEXUS_OWNED: frozenset[str] = frozenset(
     {
         "id",
@@ -82,6 +84,8 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "portals",
         "must_skills",
         "nice_skills",
+        "matching_requirements",
+        "requirements_reviewed",
         "seniority",
         "work_mode",
         "headcount",
@@ -102,8 +106,16 @@ NEXUS_OWNED: frozenset[str] = frozenset(
     }
 )
 
-# Dokładnie to, co wolno wymienić w `DO UPDATE SET` w `_UPSERT_JOB`.
+# Kolumny prowadzone lub uzupełniane przez sync.
 SYNC_WRITABLE: frozenset[str] = TRAFFIT_OWNED | SHARED_NEXUS_WINS | SYNC_BOOKKEEPING
+
+# Nadal należą do NEXUSA. Sync może jedynie unieważnić je (NULL / false), gdy
+# zmienia się tytuł będący źródłem wymagań; przy identycznym tytule MUSI zachować
+# zapis, również świadomie pustą listę. Wartości EXCLUDED nie mogą zastępować
+# tych pól. Testy wykonują rzeczywiste wyrażenia CASE z UPSERT-u.
+SYNC_SOURCE_INVALIDATABLE: frozenset[str] = frozenset(
+    {"matching_requirements", "requirements_reviewed"}
+)
 
 # Suma wszystkich kubełków — test porównuje ją z kolumnami modelu `Job`.
 ALL_CLASSIFIED: frozenset[str] = (

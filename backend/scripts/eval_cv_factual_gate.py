@@ -15,13 +15,16 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.ai_metering import AIProviderCall
+from app.models.app_setting import AppSetting
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_generator_b2b.factual_verification import (
     FactualVerificationError,
@@ -68,7 +71,54 @@ def write_report(path: Path, report: dict) -> None:
     temporary.replace(path)
 
 
-async def evaluate(output: Path, models: str, limit: int) -> int:
+def run_key(value: str) -> str:
+    if not re.fullmatch(r"[1-9][0-9]{0,19}-[1-9][0-9]{0,2}", value):
+        raise ValueError("Invalid evaluation run identity")
+    return "cv_quality_eval:" + value
+
+
+async def claim_run(key: str, report: dict) -> dict | None:
+    """A receipt survives application restarts; a cron tick cannot bill twice."""
+    async with AsyncSessionLocal() as db:
+        claimed = await db.scalar(
+            insert(AppSetting)
+            .values(key=key, value=report)
+            .on_conflict_do_nothing(index_elements=[AppSetting.key])
+            .returning(AppSetting.key)
+        )
+        await db.commit()
+        if claimed:
+            return None
+        return (await db.get(AppSetting, key)).value
+
+
+async def checkpoint(output: Path, report: dict, key: str | None) -> None:
+    write_report(output, report)
+    if key:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(AppSetting).where(AppSetting.key == key).values(value=report)
+            )
+            await db.commit()
+
+
+async def evaluate(
+    output: Path,
+    models: str,
+    limit: int,
+    identity: str | None = None,
+    expected_sha: str | None = None,
+) -> int:
+    if expected_sha and os.environ.get("GIT_SHA") != expected_sha:
+        write_report(
+            output,
+            {
+                "complete": False,
+                "stop_reason": "runtime_revision_mismatch",
+                "results": [],
+            },
+        )
+        return 2
     cases, corpus_hash = load_cases()
     requested_models = list(
         dict.fromkeys([_model(), *(_fallback_models() if models == "all" else [])])
@@ -80,6 +130,8 @@ async def evaluate(output: Path, models: str, limit: int) -> int:
     report = {
         "scope": "synthetic final-verifier diagnostics, not complete CV generation",
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "runtime_sha": os.environ.get("GIT_SHA", "unknown"),
+        "run_identity": identity,
         "corpus_sha256": corpus_hash,
         "prompt_sha256": hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest(),
         "requested_models": requested_models,
@@ -87,7 +139,14 @@ async def evaluate(output: Path, models: str, limit: int) -> int:
         "complete": False,
         "results": [],
     }
-    write_report(output, report)
+    key = run_key(identity) if identity else None
+    if key:
+        previous = await claim_run(key, report)
+        if previous is not None:
+            # Never restart an unfinished run based on a missing local file.
+            write_report(output, {**previous, "replayed_receipt": True})
+            return 2
+    await checkpoint(output, report, key)
     deadline = time.monotonic() + 1800
     try:
         for model in requested_models:
@@ -150,9 +209,7 @@ async def evaluate(output: Path, models: str, limit: int) -> int:
                         "provider_calls": len(calls),
                         "metering_complete": bool(calls)
                         and all(
-                            call.model
-                            and call.model != "unknown"
-                            and call.estimated_cost_usd is not None
+                            call.model == model and call.estimated_cost_usd is not None
                             for call in calls
                         ),
                         "input_tokens": sum(call.input_tokens for call in calls)
@@ -168,7 +225,7 @@ async def evaluate(output: Path, models: str, limit: int) -> int:
                         else None,
                     }
                 )
-                write_report(output, report)
+                await checkpoint(output, report, key)
         report["complete"] = True
         return (
             0
@@ -186,7 +243,7 @@ async def evaluate(output: Path, models: str, limit: int) -> int:
         report["finished_at"] = datetime.now(timezone.utc).isoformat()
         report["passed"] = sum(row["passed"] for row in report["results"])
         report["evaluated"] = len(report["results"])
-        write_report(output, report)
+        await checkpoint(output, report, key)
 
 
 def main() -> int:
@@ -195,12 +252,21 @@ def main() -> int:
     parser.add_argument("--models", choices=("primary", "all"), default="all")
     parser.add_argument("--limit", type=int, choices=range(1, 41), default=40)
     parser.add_argument("--output", type=Path, default=Path("/tmp/cv-gate-eval.json"))
+    parser.add_argument(
+        "--run-key",
+        help="GitHub run ID and attempt; repeat reads receipt without calling AI",
+    )
+    parser.add_argument(
+        "--expected-sha", help="Refuse provider calls on a different deployment"
+    )
     args = parser.parse_args()
     if args.validate_only:
         cases, fingerprint = load_cases()
         print(json.dumps({"cases": len(cases), "corpus_sha256": fingerprint}))
         return 0
-    return asyncio.run(evaluate(args.output, args.models, args.limit))
+    return asyncio.run(
+        evaluate(args.output, args.models, args.limit, args.run_key, args.expected_sha)
+    )
 
 
 if __name__ == "__main__":

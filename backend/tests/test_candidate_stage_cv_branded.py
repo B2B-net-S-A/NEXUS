@@ -39,6 +39,7 @@ Pokrycie:
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -51,11 +52,35 @@ from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.client import Client
 from app.models.cv_share_token import CVShareToken
+from app.models.cv_document_version import CvDocumentVersion
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+
+
+async def _draft_request_body(url, body=None):
+    sid = int(url.split("/stages/")[1].split("/")[0])
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        values = {"expected_revision": csv.edit_revision}
+        if url.endswith("/finalize"):
+            values["content_html"] = csv.branded_draft_html or " "
+        return {**values, **(body or {})}
+
+
+async def _patch(client, url, **kwargs):
+    kwargs["json"] = await _draft_request_body(url, kwargs.get("json"))
+    return await client.patch(url, **kwargs)
+
+
+async def _post(client, url, **kwargs):
+    if url.endswith("/cv/branded/finalize"):
+        kwargs["json"] = await _draft_request_body(url, kwargs.get("json"))
+    return await client.post(url, **kwargs)
 
 
 async def _expire_share_token(token: str) -> None:
@@ -197,7 +222,8 @@ async def test_patch_branded_saves_content(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
     custom = "<h1>Custom edit</h1><p>Modified by recruiter</p>"
-    res = await app_client.patch(
+    res = await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"content_html": custom},
@@ -214,7 +240,8 @@ async def test_patch_branded_swaps_template_rerenders(
     first = await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    res = await app_client.patch(
+    res = await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"template": "blind", "language": "en"},
@@ -231,7 +258,8 @@ async def test_patch_branded_rejects_both_branches(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     sid, _, _ = await _seed_full_stage()
-    res = await app_client.patch(
+    res = await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"content_html": "<p>x</p>", "template": "blind"},
@@ -244,7 +272,8 @@ async def test_patch_branded_rejects_empty_payload(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     sid, _, _ = await _seed_full_stage()
-    res = await app_client.patch(
+    res = await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={},
@@ -283,7 +312,8 @@ async def test_finalize_creates_snapshot_and_flips_status(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    res = await app_client.post(
+    res = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
@@ -300,7 +330,8 @@ async def test_finalize_409_when_not_draft(
 ):
     sid, _, _ = await _seed_full_stage()
     # Bez GET najpierw — status='none' → 409
-    res = await app_client.post(
+    res = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
@@ -315,12 +346,14 @@ async def test_finalize_immutable_after_finalize(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    first = await app_client.post(
+    first = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     assert first.status_code == 200
-    second = await app_client.post(
+    second = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
@@ -335,11 +368,13 @@ async def test_patch_branded_409_when_finalized(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
-    res = await app_client.patch(
+    res = await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"content_html": "<p>after-finalize edit</p>"},
@@ -380,7 +415,8 @@ async def test_branded_cv_isolated_between_stages(
     await app_client.get(
         f"/api/candidates/stages/{sid_a}/cv/branded", headers=app_auth_headers
     )
-    await app_client.patch(
+    await _patch(
+        app_client,
         f"/api/candidates/stages/{sid_a}/cv/branded",
         headers=app_auth_headers,
         json={"content_html": "<p>STAGE-A custom</p>"},
@@ -406,7 +442,8 @@ async def test_share_token_409_when_not_finalized(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )  # status='draft', NOT finalized
-    res = await app_client.post(
+    res = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/share-token",
         headers=app_auth_headers,
     )
@@ -421,11 +458,13 @@ async def test_share_token_returns_url_suffix(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
-    res = await app_client.post(
+    res = await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/share-token",
         headers=app_auth_headers,
     )
@@ -452,17 +491,20 @@ async def test_public_cv_returns_html_no_pii_keys(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.patch(
+    await _patch(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"template": "blind", "language": "pl"},
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     tok = (
-        await app_client.post(
+        await _post(
+            app_client,
             f"/api/candidates/stages/{sid}/cv/share-token",
             headers=app_auth_headers,
         )
@@ -497,12 +539,14 @@ async def test_public_cv_404_when_revoked(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     tok = (
-        await app_client.post(
+        await _post(
+            app_client,
             f"/api/candidates/stages/{sid}/cv/share-token",
             headers=app_auth_headers,
         )
@@ -524,12 +568,14 @@ async def test_public_cv_410_when_expired(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     tok = (
-        await app_client.post(
+        await _post(
+            app_client,
             f"/api/candidates/stages/{sid}/cv/share-token",
             headers=app_auth_headers,
         )
@@ -555,12 +601,14 @@ async def test_revoke_share_token_idempotent(
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     tok = (
-        await app_client.post(
+        await _post(
+            app_client,
             f"/api/candidates/stages/{sid}/cv/share-token",
             headers=app_auth_headers,
         )
@@ -577,27 +625,38 @@ async def test_revoke_share_token_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_public_cv_404_when_csv_no_longer_finalized(
+async def test_legacy_public_cv_404_when_csv_no_longer_finalized(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Symuluj reset draftu po share-create — public endpoint już nie działa."""
+    """Legacy unbound links still fail closed when their live draft is reset."""
     sid, _, _ = await _seed_full_stage()
     await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
-    await app_client.post(
+    await _post(
+        app_client,
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
     )
     tok = (
-        await app_client.post(
+        await _post(
+            app_client,
             f"/api/candidates/stages/{sid}/cv/share-token",
             headers=app_auth_headers,
         )
     ).json()["token"]
 
-    # Manualnie zresetuj status — symulacja administratora
+    # Model a pre-versioning token. Newly issued links are deliberately pinned
+    # and remain on the approved version, covered by the version lifecycle test.
     async with AsyncSessionLocal() as db:
+        unbound = await db.execute(
+            update(CVShareToken)
+            .where(
+                CVShareToken.token_sha256 == hashlib.sha256(tok.encode()).hexdigest()
+            )
+            .values(document_version_id=None)
+        )
+        assert unbound.rowcount == 1
         await db.execute(
             update(CandidateStageCV)
             .where(CandidateStageCV.candidate_stage_id == sid)
@@ -607,3 +666,94 @@ async def test_public_cv_404_when_csv_no_longer_finalized(
 
     pub = await app_client.get(f"/api/public/cv/{tok}")
     assert pub.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_atomic_current_content_and_old_links_survive_new_version(
+    app_client, app_auth_headers, legacy
+):
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    initial = (await app_client.get(url, headers=app_auth_headers)).json()
+    # No autosave request precedes approval: the body is newer than the DB.
+    approved = await app_client.post(
+        url + "/finalize",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": initial["edit_revision"],
+            "content_html": "<p>Approved first version</p>",
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    first = approved.json()
+    shared = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/share-token", headers=app_auth_headers
+    )
+    assert shared.status_code == 201, shared.text
+    token = shared.json()["token"]
+    if legacy:
+        async with AsyncSessionLocal() as db:
+            version = await db.get(CvDocumentVersion, first["document_version_id"])
+            await db.execute(
+                update(CVShareToken)
+                .where(CVShareToken.document_version_id == version.id)
+                .values(document_version_id=None)
+            )
+            await db.delete(version)
+            await db.commit()
+    draft = await app_client.post(
+        url + "/new-draft",
+        headers=app_auth_headers,
+        json={"expected_revision": first["edit_revision"]},
+    )
+    assert draft.status_code == 200, draft.text
+    assert draft.json()["version"] == 2
+    old_view = await app_client.get(f"/api/public/cv/{token}")
+    assert old_view.status_code == 200, old_view.text
+    assert "Approved first version" in old_view.json()["cv_html"]
+    second = await app_client.post(
+        url + "/finalize",
+        headers=app_auth_headers,
+        json={
+            "expected_revision": draft.json()["edit_revision"],
+            "content_html": "<p>Approved second version</p>",
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert (
+        second.json()["document_version_id"] != first["document_version_id"] or legacy
+    )
+    after = await app_client.get(f"/api/public/cv/{token}")
+    assert "Approved first version" in after.json()["cv_html"]
+    assert "second version" not in after.json()["cv_html"]
+    newer_share = await app_client.post(
+        f"/api/candidates/stages/{sid}/cv/share-token", headers=app_auth_headers
+    )
+    newer = await app_client.get(f"/api/public/cv/{newer_share.json()['token']}")
+    assert "Approved second version" in newer.json()["cv_html"]
+
+
+@pytest.mark.asyncio
+async def test_competing_cv_saves_have_exactly_one_winner(app_client, app_auth_headers):
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded"
+    original = (await app_client.get(url, headers=app_auth_headers)).json()
+    responses = await asyncio.gather(
+        *[
+            app_client.patch(
+                url,
+                headers=app_auth_headers,
+                json={
+                    "expected_revision": original["edit_revision"],
+                    "content_html": f"<p>{text}</p>",
+                },
+            )
+            for text in ["first writer", "second writer"]
+        ]
+    )
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    winner = next(r.json() for r in responses if r.status_code == 200)
+    stored = (await app_client.get(url, headers=app_auth_headers)).json()
+    assert stored["content_html"] == winner["content_html"]
+    assert stored["edit_revision"] == original["edit_revision"] + 1

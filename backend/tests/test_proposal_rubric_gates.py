@@ -38,6 +38,12 @@ async def rubric_gate_fixture():
             # Ustawione, żeby task nie wołał `embed_job` (i Voyage'a) na starcie.
             embedding_id="test-embedding",
             must_skills=[{"name": "python"}],
+            requirements_reviewed=True,
+            matching_requirements={
+                "reviewed": True,
+                "missing_evidence_policy": "exclude",
+                "all_of": [{"any_of": ["python"], "level": "must"}],
+            },
             onsite_days_per_week=3,
         )
         missing_must = Candidate(
@@ -96,9 +102,7 @@ async def test_snapshot_hides_missing_must_and_office_days_exceeded(
             {"candidate_id": exceeds_days_id, "score": 0.7},
         ]
 
-    with patch(
-        "app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool
-    ):
+    with patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool):
         await compute_proposal_for_job(snapshot_id, job_id, top_k=10)
 
     async with AsyncSessionLocal() as db:

@@ -1007,6 +1007,8 @@ export const matchingApi = {
           // C2 workspace: candidate hourly rate (compared with the job budget
           // in the dock), current role + company (row subtitle). Nullable.
           expected_rate_hourly?: number | null;
+          expected_rate_currency?: string | null;
+          expected_rate_unit?: "hour" | null;
           current_title?: string | null;
           current_company?: string | null;
         };
@@ -1040,13 +1042,13 @@ export const matchingApi = {
         location: opts?.location?.trim() || undefined,
       },
     }),
-  // Hybrid AI match scores (0-100) for the candidates currently in a job's
-  // pipeline — powers the score ring on kanban cards. Cache-first server-side.
+  // Shared base fit (0-100); pipeline membership also includes unknown scores.
   pipelineScores: (jobId: number) =>
     api.get<{
       job_id: number;
       profile_id: number;
       scores: Record<string, number>;
+      pipeline_candidate_ids: number[];
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
@@ -2529,9 +2531,8 @@ export interface ScoreBreakdown {
   gap_nice: string[];
   penalties: string[];
   /**
-   * Phase 14: bonus za obecność kandydata w semantycznie podobnych
-   * historycznych projektach. Wchodzi do `total`, więc MUSI być widoczny w
-   * rozbiciu — inaczej suma warstw nie zgadza się z totalem (M3-SCORE-01).
+   * Legacy payloads may contain a historical bonus. Current base-fit paths
+   * keep this zero and report process history separately.
    */
   historical_boost?: number;
   historical_sources_count?: number;
@@ -2559,6 +2560,7 @@ export interface CandidateMatch {
    * calibrated 0-100 match score and must not be presented as one.
    */
   total_score: number | null;
+  eligibility?: MatchEligibility | null;
   breakdown?: ScoreBreakdown | null;
 }
 
@@ -3837,8 +3839,9 @@ export interface ProposalCandidateItem {
     status: string | null;
     champion: boolean | null;
   };
-  total_score: number;
-  breakdown: ScoreBreakdown;
+  eligibility?: MatchEligibility | null;
+  total_score: number | null;
+  breakdown: Omit<ScoreBreakdown, "total"> & { total: number | null };
 }
 
 export interface ProposalSnapshot {
@@ -5173,6 +5176,8 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  edit_revision: number;
+  version: number;
   candidate_stage_id: number;
   status: CVBrandedStatus;
   content_html: string | null;
@@ -5189,6 +5194,9 @@ export interface CVBrandedState {
 }
 
 export interface CVBrandedFinalizeResponseT {
+  edit_revision: number;
+  version: number;
+  document_version_id: number;
   candidate_stage_id: number;
   status: CVBrandedStatus;
   snapshot_filename: string;
@@ -5239,8 +5247,8 @@ export const candidateStageCvApi = {
     update: (
       stageId: number,
       payload:
-        | { content_html: string }
-        | { template?: CVTemplate; language?: CVLanguage },
+        | { content_html: string; expected_revision: number }
+        | { template?: CVTemplate; language?: CVLanguage; expected_revision: number },
     ) =>
       api.patch<CVBrandedState>(
         `/api/candidates/stages/${stageId}/cv/branded`,
@@ -5248,10 +5256,12 @@ export const candidateStageCvApi = {
       ),
     // Finalizacja renderuje dokument po stronie serwera, a rekruter czeka na
     // plik — 120 s zamiast domyślnych 30 s (patrz `lib/http-timeouts.ts`).
-    finalize: (stageId: number) =>
+    newDraft: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/new-draft`, { expected_revision }),
+    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }) =>
       api.post<CVBrandedFinalizeResponseT>(
         `/api/candidates/stages/${stageId}/cv/branded/finalize`,
-        undefined,
+        payload,
         { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
       ),
   },

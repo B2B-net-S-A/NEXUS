@@ -1,8 +1,9 @@
 "use client";
 
+import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -201,6 +202,8 @@ export function CVGeneratorStandaloneV2({
   // klienta z jego aktywnego procesu. Plik CV nadal wgrywa rekruter; nic
   // z bazy kandydata nie idzie do modelu tą ścieżką.
   const [uploadCandidate, setUploadCandidate] = useState<CandidateOption | null>(null);
+  const [uploadStageId, setUploadStageId] = useState("");
+  const uploadBindingCandidateId = embedded ? prefillCandidateId : uploadCandidate?.id;
   const [uploadCandidateOpen, setUploadCandidateOpen] = useState(false);
   const [uploadCandidateQuery, setUploadCandidateQuery] = useState("");
   // Generacja bez klienta wymaga jawnego potwierdzenia — bez klienta ŻADNA
@@ -228,17 +231,23 @@ export function CVGeneratorStandaloneV2({
   // „Wygenerowane CV" — server-side list, survives navigation/refresh.
   const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
   const [shareItem, setShareItem] = useState<GeneratedCvItem | null>(null);
-  const generatedQuery = useQuery({
-    queryKey: ["cv-generated"],
-    queryFn: async () => {
-      const res = await api.get<GeneratedCvItem[]>("/api/cv-generator/generated");
+  const historyCandidateId = embedded ? prefillCandidateId : undefined;
+  const historyJobId = embedded ? prefillJobId : undefined;
+  const generatedQuery = useInfiniteQuery({
+    queryKey: ["cv-generated", historyCandidateId, historyJobId],
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last: GeneratedCvItem[]) => last.length === 60 ? last[last.length - 1].id : undefined,
+    queryFn: async ({ pageParam }) => {
+      const res = await api.get<GeneratedCvItem[]>("/api/cv-generator/generated", {
+        params: { candidate_id: historyCandidateId, job_id: historyJobId, before_id: pageParam, limit: 60 },
+      });
       return res.data;
     },
     staleTime: 15_000,
     // Generacja leci w tle — dopóki któreś CV jest „processing", odpytuj listę,
     // by wiersz sam przeskoczył na „ready"/„failed" bez odświeżania strony.
     refetchInterval: (query) =>
-      query.state.data?.some((r) => r.status === "processing") ? 4000 : false,
+      query.state.data?.pages.some((page) => page.some((r) => r.status === "processing")) ? 4000 : false,
   });
 
   // ── New mode queries ────────────────────────────────────────────────────
@@ -257,11 +266,12 @@ export function CVGeneratorStandaloneV2({
   });
 
   const recruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments", candidate?.id],
+    queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
     queryFn: async () => {
       if (!candidate) return [] as RecruitmentOption[];
       const res = await api.get<RecruitmentOption[]>(
         `/api/cv-generator/candidates/${candidate.id}/recruitments`,
+        {params: {content_mode: contentMode}},
       );
       return res.data;
     },
@@ -275,32 +285,32 @@ export function CVGeneratorStandaloneV2({
     );
   }, [recruitmentsQuery.data, stageId]);
 
-  // Lista wygenerowanych CV w kroku 06 dotyczy TEGO kandydata w TEJ rekrutacji.
-  // Wiersze z trybu upload nie mają `job_id` — zostają, bo powstały dla tej
-  // samej osoby i rekruter właśnie ich szuka. Poza trybem osadzonym lista jest
-  // nietknięta (moduł Generator CV pokazuje ostatnie generacje wszystkich).
-  const visibleGenerated = useMemo(() => {
-    const rows = generatedQuery.data ?? [];
-    if (!embedded || prefillCandidateId == null) return rows;
-    return rows.filter(
-      (r) =>
-        r.candidate_id === prefillCandidateId &&
-        (r.job_id == null || prefillJobId == null || r.job_id === prefillJobId),
-    );
-  }, [generatedQuery.data, embedded, prefillCandidateId, prefillJobId]);
+  const visibleGenerated = useMemo(
+    () => generatedQuery.data?.pages.flat() ?? [],
+    [generatedQuery.data],
+  );
 
   // ── Prefill z kroku 06 ──────────────────────────────────────────────────
   // Stosowany RAZ na kandydata (ref, nie efekt zależny od stanu): rekruter
   // może w osadzonym generatorze przełączyć się na kogoś innego albo na tryb
   // upload, a prefill nie ma go wtedy cofać. Wraca dopiero, gdy krok 06 wskaże
   // INNEGO kandydata.
-  const appliedPrefillRef = useRef<number | null>(null);
+  const appliedPrefillRef = useRef<string | null>(null);
   useEffect(() => {
     if (prefillCandidateId == null) return;
-    if (appliedPrefillRef.current === prefillCandidateId) return;
-    appliedPrefillRef.current = prefillCandidateId;
+    const contextKey = `${prefillCandidateId}:${prefillJobId ?? ""}`;
+    if (appliedPrefillRef.current === contextKey) return;
+    appliedPrefillRef.current = contextKey;
     const fullName = prefillCandidateName?.trim() || `#${prefillCandidateId}`;
     setMode("new");
+    setCvFile(null);
+    setChampionFile(null);
+    setScreeningNotes("");
+    setConsentKey(null);
+    setUploadCandidate(null);
+    setUploadStageId("");
+    setUploadClient(null);
+    setOutsideAssignment(false);
     setCandidate({
       id: prefillCandidateId,
       // Rozbicie na imię/nazwisko jest tu tylko etykietą — combobox pokazuje
@@ -310,7 +320,7 @@ export function CVGeneratorStandaloneV2({
       full_name: fullName,
     });
     setStageId("");
-  }, [prefillCandidateId, prefillCandidateName]);
+  }, [prefillCandidateId, prefillCandidateName, prefillJobId]);
 
   // Rekrutacja: dopiero gdy lista procesów kandydata dojdzie. Gdy tej oferty
   // nie ma na liście (np. etap nie kwalifikuje się do generacji), NIE zgadujemy
@@ -335,16 +345,21 @@ export function CVGeneratorStandaloneV2({
     staleTime: 30_000,
   });
   const uploadRecruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments", uploadCandidate?.id],
+    queryKey: ["cv-gen-recruitments", uploadBindingCandidateId],
     queryFn: async () => {
-      if (!uploadCandidate) return [] as RecruitmentOption[];
+      if (!uploadBindingCandidateId) return [] as RecruitmentOption[];
       const res = await api.get<RecruitmentOption[]>(
-        `/api/cv-generator/candidates/${uploadCandidate.id}/recruitments`,
+        `/api/cv-generator/candidates/${uploadBindingCandidateId}/recruitments`,
       );
       return res.data;
     },
-    enabled: !!uploadCandidate && mode === "old",
+    enabled: !!uploadBindingCandidateId && mode === "old",
   });
+  const uploadRecruitment = uploadRecruitmentsQuery.data?.find((r) =>
+    embedded ? r.job_id === prefillJobId : String(r.stage_id) === uploadStageId,
+  );
+  useEffect(() => { setUploadStageId(""); }, [uploadBindingCandidateId]);
+
   const uploadClientOptions = useMemo<ClientRef[]>(() => {
     const seen = new Map<number, ClientRef>();
     for (const r of uploadRecruitmentsQuery.data ?? []) {
@@ -368,7 +383,7 @@ export function CVGeneratorStandaloneV2({
   // Klient obowiązujący dla TEJ generacji. W trybie „new" pochodzi z wybranej
   // rekrutacji (serwer i tak liczy go sam), w uploadzie — z pickera.
   const effectiveClientId =
-    mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadClient?.id ?? null);
+    mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadRecruitment ? (uploadRecruitment.client_id ?? null) : (uploadClient?.id ?? null));
   const cvRuleQuery = useClientCvRule(effectiveClientId);
   const activeRule = cvRuleQuery.data?.is_active ? cvRuleQuery.data : undefined;
   const forcedLanguage = activeRule?.cv_language ?? null;
@@ -443,7 +458,9 @@ export function CVGeneratorStandaloneV2({
 
   const canSubmitNew =
     !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
-  const canSubmitOld = !!cvFile && (!!uploadClient || outsideAssignment);
+  const canSubmitOld = !!cvFile &&
+    (embedded ? !!uploadRecruitment : (!uploadStageId || !!uploadRecruitment)) &&
+    (!!effectiveClientId || outsideAssignment);
   const canSubmit =
     (mode === "new" ? canSubmitNew : canSubmitOld) &&
     (!consentRequired || !!consentKey) &&
@@ -470,7 +487,7 @@ export function CVGeneratorStandaloneV2({
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
-          consent_screenshot_key: consentKey ?? "",
+          consent_screenshot_token: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -495,7 +512,9 @@ export function CVGeneratorStandaloneV2({
       if (!cvFile) throw new Error("CV file required");
       const fd = new FormData();
       fd.append("cv_file", cvFile);
-      if (uploadClient) fd.append("client_id", String(uploadClient.id));
+      if (uploadBindingCandidateId) fd.append("candidate_id", String(uploadBindingCandidateId));
+      if (uploadRecruitment) fd.append("stage_id", String(uploadRecruitment.stage_id));
+      if (effectiveClientId) fd.append("client_id", String(effectiveClientId));
       if (position.trim()) fd.append("position", position.trim());
       if (projectRef.trim()) fd.append("project_ref", projectRef.trim());
       fd.append("language", language);
@@ -507,7 +526,7 @@ export function CVGeneratorStandaloneV2({
       if (niceRequirements.trim())
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
-      if (consentKey) fd.append("consent_screenshot_key", consentKey);
+      if (consentKey) fd.append("consent_screenshot_token", consentKey);
       const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
         fd,
@@ -528,6 +547,8 @@ export function CVGeneratorStandaloneV2({
       // Clear the per-candidate inputs so the next CV can be dropped straight in
       // without manually removing the previous file, champion and notes.
       setCvFile(null);
+      setConsentKey(null);
+      setUploadCandidate(null);
       setChampionFile(null);
       setChampionError(null);
       setScreeningNotes("");
@@ -552,7 +573,7 @@ export function CVGeneratorStandaloneV2({
   // Leavers just find the CV on the list; the whole point is that closing the
   // tab no longer loses the result, so there is no more beforeunload guard.
   useEffect(() => {
-    const items = generatedQuery.data;
+    const items = visibleGenerated;
     if (!items || autoDownloadIds.current.size === 0) return;
     for (const item of items) {
       if (
@@ -567,7 +588,7 @@ export function CVGeneratorStandaloneV2({
     // handleDownloadGenerated is a stable in-scope helper; re-running only when
     // the list data changes is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generatedQuery.data]);
+  }, [visibleGenerated]);
 
   function handleSubmit() {
     if (!canWriteSourcing) return;
@@ -628,6 +649,7 @@ export function CVGeneratorStandaloneV2({
         return;
       }
     }
+    if (cvFile && f !== cvFile) setUploadCandidate(null);
     setCvFile(f);
   }
 
@@ -775,15 +797,26 @@ export function CVGeneratorStandaloneV2({
               </p>
             ) : (
               <>
+                {embedded ? (
+                  <p className="text-sm">CV zostanie przypisane do {prefillCandidateName || `#${prefillCandidateId}`} w bieżącej rekrutacji.</p>
+                ) : <>
                 <UploadCandidatePicker
                   candidate={uploadCandidate}
                   open={uploadCandidateOpen}
                   query={uploadCandidateQuery}
                   candidatesQuery={uploadCandidatesQuery}
-                  setCandidate={setUploadCandidate}
+                  setCandidate={(value) => { setUploadCandidate(value); setUploadStageId(""); setUploadClient(null); setOutsideAssignment(false); }}
                   setOpen={setUploadCandidateOpen}
                   setQuery={setUploadCandidateQuery}
                 />
+                  {uploadCandidate && <label className="block text-sm">Przypisanie do rekrutacji
+                    <select aria-label="Przypisanie do rekrutacji" className="mt-1 w-full rounded-md border bg-background p-2" value={uploadStageId} onChange={(e) => setUploadStageId(e.target.value)}>
+                      <option value="">Bez przypisania do procesu</option>
+                      {(uploadRecruitmentsQuery.data ?? []).map((r) => <option key={r.stage_id} value={r.stage_id}>{r.job_title} · {r.client_name || "Bez klienta"}</option>)}
+                    </select>
+                  </label>}
+                </>}
+                {uploadRecruitment ? <p className="text-sm">Klient rekrutacji: {uploadRecruitment.client_name || "Bez klienta"}</p> : <>
                 {uploadCandidate && uploadClientOptions.length > 1 ? (
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground">
@@ -822,10 +855,11 @@ export function CVGeneratorStandaloneV2({
                 />
                 <p className="text-xs text-muted-foreground">
                   Klient włącza jego reguły: nazwę pliku, język, blokady i
-                  instrukcje Delivery Leada. Wskaż kandydata z bazy, a klient
-                  podpowie się z jego procesu.
+                  instrukcje Delivery Leada. Wybrany kandydat i proces określają,
+                  w której historii zapisze się wynik. Bez osoby plik pozostanie nieprzypisany.
                 </p>
-                {!uploadClient ? (
+                </>}
+                {!effectiveClientId ? (
                   <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-800 dark:text-amber-300">
                     <input
                       type="checkbox"
@@ -923,6 +957,9 @@ export function CVGeneratorStandaloneV2({
           </div>
 
           <ConsentScreenshotField
+            context={mode === "new"
+              ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId }
+              : { cvFile, candidateId: uploadBindingCandidateId, clientId: effectiveClientId }}
             value={consentKey}
             onChange={(key: string | null) => setConsentKey(key)}
             required={consentRequired}
@@ -1029,7 +1066,7 @@ export function CVGeneratorStandaloneV2({
           </CardTitle>
           <CardDescription>
             {embedded && prefillCandidateId != null
-              ? "Ostatnie CV tego kandydata w tej rekrutacji. Lista jest wycinkiem globalnej listy ostatnich generacji — starsze pozycje znajdziesz w module Generator CV."
+              ? "CV tego kandydata w tej rekrutacji. Starsze dokumenty są dostępne przez przycisk poniżej."
               : "Ostatnio wygenerowane CV — Podgląd w aplikacji lub Pobierz, gdy będziesz gotów. Lista zostaje po przejściu do innych kandydatów."}
           </CardDescription>
         </CardHeader>
@@ -1066,6 +1103,10 @@ export function CVGeneratorStandaloneV2({
               ))}
             </ul>
           )}
+          {generatedQuery.isError && <Alert variant="error" title="Nie udało się pobrać historii" description="Spróbuj ponownie za chwilę." />}
+          {generatedQuery.hasNextPage && <Button variant="outline" className="mt-3" disabled={generatedQuery.isFetchingNextPage} onClick={() => generatedQuery.fetchNextPage()}>
+            {generatedQuery.isFetchingNextPage ? "Ładowanie…" : "Pokaż starsze CV"}
+          </Button>}
         </CardContent>
       </Card>
 
@@ -1231,12 +1272,14 @@ function NewModeForm({
                   ok={selectedRecruitment.has_cv}
                 />
                 <ReadyBadge
-                  label="Profil Championa"
+                  label={selectedRecruitment.required_champion === false ? "Profil Championa (opcjonalny)" : "Profil Championa"}
                   ok={selectedRecruitment.has_champion}
+                  optional={selectedRecruitment.required_champion === false}
                 />
                 <ReadyBadge
-                  label="Notatki z rozmów"
+                  label={selectedRecruitment.required_notes_min_chars === 0 ? "Notatki z rozmów (opcjonalne)" : "Notatki z rozmów"}
                   ok={selectedRecruitment.has_notes}
+                  optional={selectedRecruitment.required_notes_min_chars === 0}
                 />
               </div>
             )}
@@ -1247,6 +1290,7 @@ function NewModeForm({
                 title="Nie można wygenerować CV"
                 description={
                   <div className="space-y-1">
+                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
                     {!selectedRecruitment.has_cv && (
                       <div>
                         Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
@@ -1267,6 +1311,7 @@ function NewModeForm({
                         procesu.
                       </div>
                     )}
+                    </>}
                   </div>
                 }
               />
@@ -1316,7 +1361,7 @@ function UploadCandidatePicker({
                 <span className="truncate">{candidate.full_name}</span>
               ) : (
                 <span className="text-muted-foreground">
-                  Kandydat z bazy (opcjonalnie) — podpowie klienta z procesu
+                  Kandydat z bazy (opcjonalnie) — przypisz CV do osoby
                 </span>
               )}
             </span>
@@ -1637,17 +1682,17 @@ function FileDropZone({
 
 // ── Inline UI helpers ──────────────────────────────────────────────────────
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolean; optional?: boolean }) {
   return (
     <Badge
-      variant={ok ? "success" : "warning"}
+      variant={ok ? "success" : optional ? "neutral" : "warning"}
       className={cn("flex items-center gap-1")}
     >
       {ok ? (
         <CheckCircle2 className="h-3 w-3" />
-      ) : (
+      ) : !optional ? (
         <AlertTriangle className="h-3 w-3" />
-      )}
+      ) : null}
       {label}
     </Badge>
   );
@@ -1851,7 +1896,10 @@ function GeneratedCvPreviewModal({
           breakPages: true,
           useBase64URL: true,
         });
-        if (!cancelled) setStatus("ready");
+        if (!cancelled) {
+          alignB2bLetterheadPreview(host);
+          setStatus("ready");
+        }
       } catch {
         if (!cancelled) setStatus("error");
       }

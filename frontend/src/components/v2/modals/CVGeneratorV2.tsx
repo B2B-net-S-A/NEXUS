@@ -90,10 +90,11 @@ export function CVGeneratorV2({
   const softWarnings = warnings.filter((w) => !isCertainWarning(w));
 
   const recruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments-modal", candidateId],
+    queryKey: ["cv-gen-recruitments-modal", candidateId, contentMode],
     queryFn: async () => {
       const res = await api.get<RecruitmentOption[]>(
         `/api/cv-generator/candidates/${candidateId}/recruitments`,
+        { params: { content_mode: contentMode } },
       );
       return res.data;
     },
@@ -147,7 +148,7 @@ export function CVGeneratorV2({
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
-          consent_screenshot_key: consentKey ?? "",
+          consent_screenshot_token: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -174,6 +175,7 @@ export function CVGeneratorV2({
   // Reset the „enqueued" success view when the dialog closes so re-opening lands
   // on the form again.
   function handleOpenChange(next: boolean) {
+    if (!next) setConsentKey(null);
     if (!next) {
       setEnqueued(false);
       setGeneratedId(null);
@@ -323,11 +325,13 @@ export function CVGeneratorV2({
                         ok={selectedRecruitment.has_cv}
                       />
                       <ReadyBadge
-                        label="Profil Championa"
+                        label={selectedRecruitment.required_champion === false ? "Profil Championa (opcjonalny)" : "Profil Championa"}
+                        optional={selectedRecruitment.required_champion === false}
                         ok={selectedRecruitment.has_champion}
                       />
                       <ReadyBadge
-                        label="Notatki z rozmów"
+                        label={selectedRecruitment.required_notes_min_chars === 0 ? "Notatki z rozmów (opcjonalne)" : "Notatki z rozmów"}
+                        optional={selectedRecruitment.required_notes_min_chars === 0}
                         ok={selectedRecruitment.has_notes}
                       />
                     </div>
@@ -339,6 +343,7 @@ export function CVGeneratorV2({
                     >
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <div className="space-y-1">
+                        {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
                         {!selectedRecruitment.has_cv && (
                           <div>
                             Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
@@ -357,6 +362,7 @@ export function CVGeneratorV2({
                             screening, transkrypt CloudTalk albo notatka procesu.
                           </div>
                         )}
+                        </>}
                       </div>
                     </div>
                   )}
@@ -390,6 +396,7 @@ export function CVGeneratorV2({
             </div>
 
             <ConsentScreenshotField
+              context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id }}
               value={consentKey}
               onChange={(key: string | null) => setConsentKey(key)}
               required={consentRequired}
@@ -440,17 +447,17 @@ export function CVGeneratorV2({
   );
 }
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolean; optional?: boolean }) {
   return (
     <Badge
-      variant={ok ? "success" : "warning"}
+      variant={ok ? "success" : optional ? "neutral" : "warning"}
       className={cn("flex items-center gap-1")}
     >
       {ok ? (
         <CheckCircle2 className="h-3 w-3" />
-      ) : (
+      ) : !optional ? (
         <AlertTriangle className="h-3 w-3" />
-      )}
+      ) : null}
       {label}
     </Badge>
   );

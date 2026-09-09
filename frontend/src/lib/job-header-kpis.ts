@@ -84,7 +84,7 @@ export function summarizeRanking(
   return {
     total: matches.length,
     strong: matches.filter(
-      (m) => (m.match_score ?? -1) >= STRONG_MATCH_SCORE,
+      (m) => (m.match_score ?? -1) >= STRONG_MATCH_SCORE / 100,
     ).length,
   };
 }

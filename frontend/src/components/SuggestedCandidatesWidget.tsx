@@ -25,8 +25,7 @@ import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
   jobId: number;
-  /** Pre-fill the location filter (e.g. the job's own location). Optional —
-   *  imported jobs rarely carry one, so this is usually empty. */
+  /** Suggest a location in the placeholder; never enable a hard filter. */
   defaultLocation?: string | null;
   /** Czy oferta ma rozwiązywalny budżet PLN/h (jawne pole lub stawka
    *  Championa; `job.has_budget_hourly` z API). Domyślnie true — starsza
@@ -77,7 +76,7 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL");
 }
 
-function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
+function snapshotToMatches(snap: ProposalSnapshot): CandidateMatch[] {
   return snap.candidates.map((item) => ({
     candidate: {
       id: item.candidate.id,
@@ -91,7 +90,8 @@ function snapshotToMatches(snap: ProposalSnapshot): ScoredCandidateMatch[] {
       avatar_url: item.candidate.avatar_url,
     },
     total_score: item.total_score,
-    breakdown: item.breakdown,
+    eligibility: item.eligibility,
+    breakdown: item.total_score === null ? null : { ...item.breakdown, total: item.total_score },
   }));
 }
 
@@ -113,9 +113,7 @@ export function SuggestedCandidatesWidget({
   // Qdrant pool (located candidates are sparse — ~17% have any location) and
   // filters post-scoring, so we surface located candidates the score-ranked
   // snapshot would otherwise miss. LocationInput already debounces (300 ms).
-  const [locationFilter, setLocationFilter] = useState<string>(
-    () => defaultLocation?.trim() ?? "",
-  );
+  const [locationFilter, setLocationFilter] = useState("");
   const locationActive = locationFilter.trim().length > 0;
 
   // Dealbreaker-switche: budżet oferty działa Z AUTOMATU jako twardy sufit
@@ -447,7 +445,7 @@ export function SuggestedCandidatesWidget({
             <LocationInput
               value={locationFilter}
               onChange={setLocationFilter}
-              placeholder="Lokalizacja (np. Warszawa)"
+              placeholder={defaultLocation?.trim() ? `Lokalizacja (np. ${defaultLocation.trim()})` : "Lokalizacja (np. Warszawa)"}
             />
             {locationActive && (
               <select
@@ -565,6 +563,9 @@ export function SuggestedCandidatesWidget({
         </div>
       )}
 
+      <p className="mb-3 text-xs text-muted-foreground">
+        Brak potwierdzenia umiejętności domyślnie trafia do weryfikacji. Politykę wykluczania ustawisz we wspólnych wymaganiach requestu.
+      </p>
       {mode === "snapshot" && snapshot?.stale && (
         <div
           role="status"
@@ -572,8 +573,8 @@ export function SuggestedCandidatesWidget({
           className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
         >
           <span>
-            Brief lub Profil Championa zmienił się po wygenerowaniu tego rankingu
-            — jest nieaktualny.
+            Dane requestu lub zasady oceny zmieniły się po wygenerowaniu tego rankingu
+            — wymaga przeliczenia.
           </span>
           {!readOnly ? (
             <button
@@ -820,9 +821,11 @@ export function SuggestedCandidatesWidget({
                       <span
                         data-testid={`degraded-score-${cand.id}`}
                         className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        title="Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                        title={mode === "fallback-live" && liveMeta?.mode === "bm25"
+                          ? "Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                          : "Brak aktualnego pomiaru dopasowania — kandydat wymaga weryfikacji"}
                       >
-                        BM25 · tryb awaryjny
+                        {mode === "fallback-live" && liveMeta?.mode === "bm25" ? "BM25 · tryb awaryjny" : "Ocena niepełna"}
                       </span>
                     ) : (
                       <span
@@ -835,6 +838,11 @@ export function SuggestedCandidatesWidget({
                     )}
                     {m.breakdown && <ScoreBreakdownTooltip breakdown={m.breakdown} compact />}
                   </div>
+                  {m.eligibility && (
+                    <span className="text-xs text-amber-700 dark:text-amber-300" data-testid={`eligibility-${cand.id}`}>
+                      {m.eligibility.reason}
+                    </span>
+                  )}
                   {isAssigned ? (
                     <span className="text-[11px] text-emerald-600 font-medium">✓ Przypisany</span>
                   ) : isShortlisted ? (
@@ -849,7 +857,7 @@ export function SuggestedCandidatesWidget({
                           the secondary, heavier action. */}
                       <button
                         onClick={() => handleShortlist(cand.id)}
-                        disabled={shortlisting === cand.id}
+                        disabled={shortlisting === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
                         title="Dodaj do shortlisty do oceny"
                       >
@@ -862,7 +870,7 @@ export function SuggestedCandidatesWidget({
                       </button>
                       <button
                         onClick={() => handleAssign(cand.id)}
-                        disabled={assigning === cand.id}
+                        disabled={assigning === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
                         title="Dodaj bezpośrednio do procesu rekrutacji"
                       >

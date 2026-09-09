@@ -6,11 +6,9 @@ i „Shortlistę" (`/ai-matches`, surowy kosinus Qdranta z puli 100). Te same da
 potrafiły dać dwie różne kolejności, bez żadnego sygnału, że to dwie różne
 miary.
 
-Flaga `AI_MATCHES_SHARED_ENGINE` (domyślnie OFF) przełącza drugą listę na ten
-sam silnik. Te testy zamrażają obie strony flagi, bo najgroźniejszy stan to nie
-„flaga nie działa", tylko „flaga działa, a kontrakt odpowiedzi cicho się
-zmienił": `match_score` czyta `MatchScoreBar` (×100), parametr `min_score`
-(ge=0, le=1) i zamrożony `JobShortlist.score_snapshot`.
+Dawna flaga nie może już przywrócić surowego kosinusa. Każda odpowiedź
+używa canonical fit; match_score pozostaje total_score / 100 dla zgodności
+z konsumentami dotychczasowej skali API.
 """
 
 from __future__ import annotations
@@ -74,6 +72,21 @@ def _semantic_hits(monkeypatch, cand_id: int, *, score: float = 0.9, unknown=Fal
     samo wywołanie).
     """
 
+    from app.services.full_search_measurement import VectorMeasurement
+
+    async def query_vector(_text):
+        return [1.0, 0.0]
+
+    async def measurements(_vector, candidates):
+        return {
+            c.id: VectorMeasurement(None, "missing_index")
+            if unknown
+            else VectorMeasurement(score, "measured")
+            for c in candidates
+        }
+
+    monkeypatch.setattr("app.services.canonical_fit.request_vector", query_vector)
+    monkeypatch.setattr("app.services.canonical_fit.measure_candidates", measurements)
     row = {"candidate_id": cand_id, "score": score}
     if unknown:
         row = {"candidate_id": cand_id, "score": 0.0, "semantic_unknown": True}
@@ -88,10 +101,10 @@ def _semantic_hits(monkeypatch, cand_id: int, *, score: float = 0.9, unknown=Fal
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_flag_off_response_is_legacy_shape(
+async def test_old_flag_off_cannot_restore_legacy_score(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Bez flagi: `search_type == "semantic"`, wiersz bez kompozytu."""
+    """A stale deployment flag cannot restore cosine as the displayed fit."""
     job_id, cand_id, _ = shared_engine_fixture
     monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", False)
     _semantic_hits(monkeypatch, cand_id)
@@ -103,10 +116,10 @@ async def test_flag_off_response_is_legacy_shape(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["search_type"] == "semantic"
+    assert body["search_type"] == "semantic+composite"
     row = next(m for m in body["matches"] if m["candidate"]["id"] == cand_id)
-    assert "total_score" not in row, "stara ścieżka nie liczy kompozytu"
-    assert row["match_score"] == pytest.approx(0.9)
+    assert row["total_score"] is not None
+    assert row["match_score"] == round(row["total_score"] / 100, 4)
 
 
 @pytest.mark.integration
@@ -169,12 +182,7 @@ async def test_min_score_keeps_its_zero_to_one_meaning_under_flag(
 async def test_default_threshold_follows_the_sibling_list_under_flag(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Domyślna podłoga to `RECOMMENDATION_MIN_SCORE/100`, nie 0.5.
-
-    Bez tego domyślne `AI_MATCH_MIN_SCORE=0.5` odsiałoby każdy kompozyt poniżej
-    50/100 — czyli WIĘKSZOŚĆ realnych dopasowań, bo kompozyt hybrydowy ma niski
-    zakres bezwzględny (stąd `RECOMMENDATION_MIN_SCORE=40`).
-    """
+    """Default membership matches full search, without a hidden score floor."""
     job_id, cand_id, _ = shared_engine_fixture
     monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id)
@@ -185,9 +193,7 @@ async def test_default_threshold_follows_the_sibling_list_under_flag(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["min_score"] == pytest.approx(
-        settings.RECOMMENDATION_MIN_SCORE / 100.0, abs=0.001
-    )
+    assert resp.json()["min_score"] == 0.0
 
 
 @pytest.mark.integration
@@ -208,11 +214,14 @@ async def test_unmeasured_cosine_is_degraded_but_still_scored_under_flag(
 
     resp = await app_client.get(
         f"/api/jobs/{job_id}/ai-matches",
-        params={"min_score": 0.0, "limit": 50},
+        params={"min_score": 1.0, "limit": 50},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
+    row = next(m for m in body["matches"] if m["candidate"]["id"] == cand_id)
+    assert row["match_score"] is None
+    assert row["total_score"] is None
     assert body["meta"]["degraded"] is True
     assert body["meta"]["reason"] == "semantic_unavailable"
 
@@ -229,6 +238,12 @@ async def test_provider_outage_still_falls_back_under_flag(
     monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
     from app.services.embedding_service import SemanticSearchUnavailable
+
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.services.canonical_fit.request_vector", AsyncMock(return_value=None)
+    )
 
     async def _outage(*_a, **_kw):
         raise SemanticSearchUnavailable("qdrant down")
@@ -261,9 +276,9 @@ def test_shared_engine_branch_stays_outside_any_swallowing_try():
     import ast
     import pathlib
 
-    source = (pathlib.Path(__file__).resolve().parents[1] / "app/api/matching.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        pathlib.Path(__file__).resolve().parents[1] / "app/api/matching.py"
+    ).read_text(encoding="utf-8")
     tree = ast.parse(source)
     handler = next(
         n
