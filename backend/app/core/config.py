@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     AI_INDEX_OUTBOX_ENABLED: bool = False
     AI_INDEX_WORKER_ENABLED: bool = False
     AI_INDEX_WORKER_INTERVAL_SECONDS: int = 30
+    # Short pause only after a full successful batch; idle/error polling uses
+    # AI_INDEX_WORKER_INTERVAL_SECONDS. Set both equally to restore fixed polling.
+    AI_INDEX_WORKER_BUSY_INTERVAL_SECONDS: int = 1
     AI_INDEX_WORKER_BATCH: int = 50
     AI_INDEX_MAX_ATTEMPTS: int = 5
 
