@@ -1913,6 +1913,7 @@ async def generate_cv_for_candidate(
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
     client_rule: CvRuleSnapshot | None = None,
     project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -1969,7 +1970,10 @@ async def generate_cv_for_candidate(
     # nothing changes for clients we have made no promise to.
     client = await db.get(Client, job.client_id) if job.client_id else None
     effective_mode, was_capped = apply_content_mode_cap(
-        locked_mode, getattr(client, "cv_content_mode_cap", None)
+        locked_mode,
+        client_policy_override.get("cv_content_mode_cap")
+        if client_policy_override is not None
+        else getattr(client, "cv_content_mode_cap", None),
     )
     if was_capped:
         logger.info(

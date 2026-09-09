@@ -29,6 +29,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from tests.cv_rule_requests import rule_request
 from sqlalchemy import delete, select
 
 OVERVIEW_URL = "/api/settings/cv-rules"
@@ -82,8 +83,11 @@ async def _headers_for(
             )
         await db.commit()
 
-    login = await app_client.post(
-        "/api/auth/login", json={"email": email, "password": password}
+    login = await rule_request(
+        app_client,
+        "POST",
+        "/api/auth/login",
+        json={"email": email, "password": password},
     )
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -145,7 +149,9 @@ async def test_delivery_lead_manages_rules_for_all_clients(
     other = await _make_client(f"CV rules outside {tag}")
     try:
         admin_headers = await _headers_for(app_client, "admin")
-        outside = await app_client.put(
+        outside = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(other),
             json={"filename_pattern": "OUTSIDE_{IMIE_NAZWISKO}", "confirm": True},
             headers=admin_headers,
@@ -156,7 +162,9 @@ async def test_delivery_lead_manages_rules_for_all_clients(
             app_client, "delivery_lead", assigned_client_id=mine
         )
 
-        updated_outside = await app_client.put(
+        updated_outside = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(other),
             json={"filename_pattern": "GLOBAL_{IMIE_NAZWISKO}", "confirm": True},
             headers=headers,
@@ -166,7 +174,9 @@ async def test_delivery_lead_manages_rules_for_all_clients(
         assert outside_read.status_code == 200, outside_read.text
         assert outside_read.json()["filename_pattern"] == "GLOBAL_{IMIE_NAZWISKO}"
 
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(mine),
             json={
                 "filename_pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
@@ -244,19 +254,19 @@ async def test_delivery_lead_manages_rules_for_all_clients(
 
 
 @pytest.mark.asyncio
-async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
+async def test_default_save_is_draft_and_editing_preserves_publication(
     app_client: AsyncClient,
 ):
-    """Bez ``confirm`` zapis zostaje propozycją; edycja obowiązującej reguły
-    bez ``confirm`` zdejmuje zatwierdzenie — zmiana wzoru nie wchodzi na
-    produkcję bez decyzji."""
+    """Draft edits preserve the effective version until explicit publication."""
     client_id = await _make_client(f"CV rules proposal {uuid.uuid4().hex[:6]}")
     try:
         headers = await _headers_for(
             app_client, "delivery_lead", assigned_client_id=client_id
         )
 
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(client_id),
             json={"filename_pattern": "B2B_{IMIE_NAZWISKO}"},
             headers=headers,
@@ -265,22 +275,31 @@ async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
         assert r.json()["is_active"] is False
         assert r.json()["client_policy"] == ""  # wiersz jest, ale nie obowiązuje
 
-        r = await app_client.post(f"{_rule_url(client_id)}/confirm", headers=headers)
+        r = await rule_request(
+            app_client, "POST", f"{_rule_url(client_id)}/confirm", headers=headers
+        )
         assert r.status_code == 200, r.text
         assert r.json()["is_active"] is True
 
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(client_id),
             json={"filename_pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}"},
             headers=headers,
         )
         assert r.status_code == 200, r.text
-        assert r.json()["is_active"] is False, (
-            "edycja bez confirm musi zdejmować zatwierdzenie"
+        assert r.json()["is_active"] is True
+        assert r.json()["filename_pattern"] == "B2B_{IMIE_NAZWISKO}"
+        assert (
+            r.json()["draft_payload"]["filename_pattern"]
+            == "B2B_{STANOWISKO}_{IMIE_NAZWISKO}"
         )
-        assert await _rule_is_active_in_db(client_id) is False
+        assert await _rule_is_active_in_db(client_id) is True
 
-        r = await app_client.delete(_rule_url(client_id), headers=headers)
+        r = await rule_request(
+            app_client, "DELETE", _rule_url(client_id), headers=headers
+        )
         assert r.status_code == 204, r.text
         r = await app_client.get(_rule_url(client_id), headers=headers)
         assert r.status_code == 200
@@ -300,7 +319,9 @@ async def test_recruiter_reads_single_rule_only_through_assigned_job(
     try:
         admin = await _headers_for(app_client, "admin")
         for client_id in (assigned, foreign):
-            response = await app_client.put(
+            response = await rule_request(
+                app_client,
+                "PUT",
                 _rule_url(client_id),
                 json={"filename_pattern": "B2B_{IMIE_NAZWISKO}", "confirm": True},
                 headers=admin,
@@ -347,15 +368,21 @@ async def test_section_and_client_scope_control_overview_and_writes(
             f"{role_value} GET overview → {r.status_code}: {r.text}"
         )
 
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             _rule_url(client_id),
             json={"filename_pattern": "B2B_{IMIE_NAZWISKO}", "confirm": True},
             headers=headers,
         )
         assert r.status_code == 403, f"{role_value} PUT → {r.status_code}: {r.text}"
-        r = await app_client.post(f"{_rule_url(client_id)}/confirm", headers=headers)
+        r = await rule_request(
+            app_client, "POST", f"{_rule_url(client_id)}/confirm", headers=headers
+        )
         assert r.status_code == 403, f"{role_value} confirm → {r.status_code}"
-        r = await app_client.delete(_rule_url(client_id), headers=headers)
+        r = await rule_request(
+            app_client, "DELETE", _rule_url(client_id), headers=headers
+        )
         assert r.status_code == 403, f"{role_value} DELETE → {r.status_code}"
     finally:
         await _cleanup([client_id])

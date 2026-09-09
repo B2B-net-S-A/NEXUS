@@ -3038,6 +3038,19 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
+    # 0283: immutable publications and isolated drafts (Alembic safety net).
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_rule_edit_revision INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS draft_payload JSONB",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS edit_revision INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE client_cv_rule_previews ADD COLUMN IF NOT EXISTS recipe_snapshot JSONB",
+    """CREATE TABLE IF NOT EXISTS client_cv_rule_publications (
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        recipe JSONB NOT NULL,
+        published_at TIMESTAMPTZ NOT NULL,
+        published_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        PRIMARY KEY (client_id, version)
+    )""",
     # 0272: karta klienta — standardy współpracy per klient (SLA, limity,
     # hold, onboarding, dokumenty). Sąsiad `client_cv_rules`: 1:1 z klientem,
     # wersja + historia. Lustro migracji 0272 — zmieniasz tu, zmień też tam.
@@ -4295,6 +4308,29 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    # Snapshot only the currently active version, once; never activate proposals.
+    """DO $$ BEGIN
+        PERFORM pg_advisory_xact_lock(283202609);
+        IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = '0283_cv_publications_seeded') THEN
+            UPDATE clients c SET cv_rule_edit_revision = GREATEST(c.cv_rule_edit_revision, r.edit_revision)
+                FROM client_cv_rules r WHERE r.client_id = c.id;
+            INSERT INTO client_cv_rule_publications
+                (client_id, version, recipe, published_at, published_by)
+            SELECT r.client_id, r.version,
+                (to_jsonb(r) - ARRAY['id', 'client_id', 'version', 'seed_key',
+                    'confirmed_at', 'confirmed_by', 'created_at', 'updated_at',
+                    'draft_payload', 'edit_revision']) || jsonb_build_object(
+                        'cv_content_mode_cap', c.cv_content_mode_cap,
+                        'cv_interactive_enabled', c.cv_interactive_enabled),
+                r.confirmed_at, r.confirmed_by
+            FROM client_cv_rules r JOIN clients c ON c.id = r.client_id
+            WHERE r.confirmed_at IS NOT NULL
+            ON CONFLICT (client_id, version) DO NOTHING;
+            INSERT INTO app_settings (key, value)
+                VALUES ('0283_cv_publications_seeded', 'true'::jsonb)
+                ON CONFLICT (key) DO NOTHING;
+        END IF;
+    END $$""",
     # 0269: bootstrap only. Defaults are inserted only for an entirely empty
     # matrix. A partial matrix is an operational fault and must stay fail-closed;
     # filling a single missing row on restart could silently restore a broader
