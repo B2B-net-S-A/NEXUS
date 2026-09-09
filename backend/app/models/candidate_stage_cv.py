@@ -93,6 +93,12 @@ class CandidateStageCV(Base):
         default="none",
     )
     branded_draft_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    edit_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    branded_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     branded_template: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     branded_language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     branded_updated_at: Mapped[Optional[datetime]] = mapped_column(

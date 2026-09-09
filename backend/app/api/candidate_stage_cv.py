@@ -37,6 +37,7 @@ from sqlalchemy.orm import selectinload
 
 from app.services.cv_html_renderer import _generate_cv_html
 from app.services.html_sanitizer import sanitize_cv_html
+from app.services.cv_document_versions import check_revision, freeze_approved_version
 
 # M2 audit follow-up (PR1b): the stage-CV snapshot router serves the SAME
 # candidate CV bytes that PR1 closed on /api/candidates/*, but only its
@@ -55,6 +56,8 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.candidate_stage_cv import (
+    CVBrandedFinalize,
+    CVBrandedNewDraft,
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
     CVBrandedUpdate,
@@ -121,6 +124,7 @@ async def _load_csv_for_stage(
     user: User,
     *,
     read_access: bool = False,
+    lock: bool = False,
 ) -> CandidateStageCV:
     """Wczytaj CandidateStageCV dla stage_id, 404 gdy brak. Sprawdza tez czy
     sam stage istnieje — żeby rozróżnić "stage nie istnieje" od "stage bez CV".
@@ -169,6 +173,13 @@ async def _load_csv_for_stage(
                 "Snapshot powinien być utworzony przy CREATE stage'a — "
                 "jeśli stage jest historyczny, uruchom backfill 0070."
             ),
+        )
+    if lock:
+        csv = await db.scalar(
+            select(CandidateStageCV)
+            .where(CandidateStageCV.id == csv.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     return csv
 
@@ -283,6 +294,8 @@ def _build_branded_response(
 ) -> CVBrandedResponse:
     return CVBrandedResponse(
         candidate_stage_id=csv.candidate_stage_id,
+        edit_revision=csv.edit_revision or 0,
+        version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
         content_html=csv.branded_draft_html,
         template=csv.branded_template,
@@ -339,10 +352,14 @@ async def get_branded_cv(
         html = _generate_cv_html(candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job)
         if current_user.has_role(UserRole.finance):
             return _build_transient_branded_response(csv, html)
+        csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+        if csv.branded_status != "none":
+            return _build_branded_response(csv)
         csv.branded_draft_html = html
         csv.branded_template = _DEFAULT_TEMPLATE
         csv.branded_language = _DEFAULT_LANGUAGE
         csv.branded_status = "draft"
+        csv.edit_revision += 1
         csv.branded_updated_at = datetime.now(timezone.utc)
         csv.branded_updated_by = current_user.id
         rendered = True
@@ -395,20 +412,21 @@ async def update_branded_cv(
 
     Walidacja XOR jest w `CVBrandedUpdate.model_validator`. Po finalize 409.
     """
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
     if csv.branded_status == "finalized":
         raise HTTPException(
             status_code=409,
             detail=(
-                "Brandowane CV jest sfinalizowane (immutable). Aby zaktualizować — "
-                "odwołaj wszystkie share-tokens i zresetuj draft (TODO)."
+                "CV jest zatwierdzone. Utwórz nową wersję, aby wprowadzić poprawki; "
+                "dotychczasowe linki zachowają wcześniejszą treść."
             ),
         )
 
     action: str
     details: dict
     if payload.content_html is not None:
-        csv.branded_draft_html = payload.content_html
+        csv.branded_draft_html = sanitize_cv_html(payload.content_html)
         action = "branded_cv_edited"
         details = {"length": len(payload.content_html)}
     else:
@@ -427,6 +445,7 @@ async def update_branded_cv(
 
     if csv.branded_status == "none":
         csv.branded_status = "draft"
+    csv.edit_revision += 1
     csv.branded_updated_at = datetime.now(timezone.utc)
     csv.branded_updated_by = current_user.id
     db.add(
@@ -491,6 +510,7 @@ async def render_branded_cv_for_print(
 )
 async def finalize_branded_cv(
     stage_id: int,
+    payload: CVBrandedFinalize,
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedFinalizeResponse:
@@ -501,7 +521,8 @@ async def finalize_branded_cv(
     * `branded_snapshot_path/filename/size` wskazuje na plik HTML w storage,
     * 409 przy próbie kolejnego PATCH — immutable.
     """
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
     if csv.branded_status != "draft":
         raise HTTPException(
             status_code=409,
@@ -510,7 +531,8 @@ async def finalize_branded_cv(
                 "expected 'draft' to finalize."
             ),
         )
-    if not csv.branded_draft_html:
+    csv.branded_draft_html = sanitize_cv_html(payload.content_html)
+    if not csv.branded_draft_html.strip():
         raise HTTPException(
             status_code=422,
             detail="Brandowane CV jest puste — wygeneruj treść przed finalize.",
@@ -525,7 +547,7 @@ async def finalize_branded_cv(
         else f"stage_{stage_id}"
     )
     today = datetime.now(timezone.utc).date().isoformat()
-    filename = f"cv_brandowane_{candidate_label}_{today}.html"
+    filename = f"cv_brandowane_{candidate_label}_v{csv.branded_version}_{today}.html"
 
     snapshot_html = _wrap_printable_cv(
         csv.branded_draft_html, stage_id, candidate_label
@@ -537,6 +559,9 @@ async def finalize_branded_cv(
         source=BytesIO(blob),
     )
 
+    csv.edit_revision += 1
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = current_user.id
     csv.branded_status = "finalized"
     csv.branded_finalized_at = datetime.now(timezone.utc)
     csv.branded_finalized_by = current_user.id
@@ -544,6 +569,7 @@ async def finalize_branded_cv(
     csv.branded_snapshot_filename = filename
     csv.branded_snapshot_size_bytes = size
 
+    version = await freeze_approved_version(db, csv)
     db.add(
         Activity(
             entity_type="candidate_stage_cv",
@@ -554,6 +580,9 @@ async def finalize_branded_cv(
                 "candidate_stage_id": stage_id,
                 "snapshot_filename": filename,
                 "size_bytes": size,
+                "document_version_id": version.id,
+                "version": version.version,
+                "content_sha256": version.content_sha256,
             },
         )
     )
@@ -562,10 +591,53 @@ async def finalize_branded_cv(
 
     return CVBrandedFinalizeResponse(
         candidate_stage_id=csv.candidate_stage_id,
+        edit_revision=csv.edit_revision or 0,
+        version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
         snapshot_filename=filename,
         snapshot_size_bytes=size,
+        document_version_id=version.id,
     )
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/new-draft",
+    response_model=CVBrandedResponse,
+)
+async def new_branded_cv_draft(
+    stage_id: int,
+    payload: CVBrandedNewDraft,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    previous = await freeze_approved_version(db, csv)
+    csv.branded_version += 1
+    csv.edit_revision += 1
+    csv.branded_status = "draft"
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = current_user.id
+    csv.branded_finalized_at = None
+    csv.branded_finalized_by = None
+    csv.branded_snapshot_path = None
+    csv.branded_snapshot_filename = None
+    csv.branded_snapshot_size_bytes = None
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="branded_cv_new_version",
+            user_id=current_user.id,
+            details={
+                "candidate_stage_id": stage_id,
+                "previous_version_id": previous.id,
+                "version": csv.branded_version,
+            },
+        )
+    )
+    await db.commit()
+    return _build_branded_response(csv)
 
 
 # ── Public share token (Faza 4 — auth side) ────────────────────────────────
@@ -594,7 +666,7 @@ async def create_cv_share_token(
     `v2$<hex>` (revoke-key). Raw token zwracamy jeden raz. Domyślny TTL
     skrócony 30 → 14 dni (max 90); opcjonalny limit wyświetleń i purpose.
     """
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     if csv.branded_status != "finalized":
         raise HTTPException(
             status_code=409,
@@ -611,6 +683,7 @@ async def create_cv_share_token(
             detail=f"{verdict.as_polish_detail()} Nie wysyłaj mu ponownie tego CV.",
         )
 
+    version = await freeze_approved_version(db, csv)
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
     token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -620,6 +693,7 @@ async def create_cv_share_token(
             token=revoke_key,
             token_sha256=token_digest,
             candidate_stage_cv_id=csv.id,
+            document_version_id=version.id,
             created_by=current_user.id,
             expires_at=expires_at,
             max_views=max_views,
