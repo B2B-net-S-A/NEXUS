@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -91,4 +91,25 @@ describe("ToastProvider accessibility", () => {
     expect(onAction).toHaveBeenCalledOnce();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+});
+
+
+it("cleans up success, error and action timers when unmounted", () => {
+  vi.useFakeTimers();
+  try {
+    const view = render(<ToastProvider><ToastHarness /></ToastProvider>);
+    for (const name of ["Pokaż sukces", "Pokaż błąd", "Pokaż akcję"]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+    expect(vi.getTimerCount()).toBe(3);
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Zamknij powiadomienie" }));
+    expect(vi.getTimerCount()).toBe(2);
+    act(() => vi.advanceTimersByTime(3000));
+    expect(screen.queryByText("Zapisano zmiany")).not.toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(1);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -532,7 +532,7 @@ async def get_client_profile(
                 title=job.title,
                 seniority=job.seniority,
                 priority=job.priority,
-                days_open=max(0, days_open),
+                days_open=days_open,
                 candidate_count=int(cnt or 0),
                 salary_min=job.salary_min,
                 salary_max=job.salary_max,

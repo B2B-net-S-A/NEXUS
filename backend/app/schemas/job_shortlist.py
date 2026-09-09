@@ -50,6 +50,9 @@ class ShortlistEntryResponse(BaseModel):
     note: Optional[str] = None
     next_action_at: Optional[datetime] = None
     score_snapshot: Optional[int] = None
+    fit_score: Optional[float] = None
+    fit_measurement: str = "not_measured"
+    fit_context_fingerprint: Optional[str] = None
     version: int
     promoted_to_pipeline_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

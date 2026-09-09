@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   listTemplates: vi.fn(),
   previewHistory: vi.fn(),
   routerPush: vi.fn(),
+  generateJob: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -41,7 +42,7 @@ vi.mock("@/lib/api", () => ({
     patch: mocks.patch,
     delete: mocks.delete,
   },
-  aiWriterApi: { generateJob: vi.fn() },
+  aiWriterApi: { generateJob: mocks.generateJob },
   candidateProfileApi: { updateLocation: vi.fn() },
   clientTeamApi: { get: mocks.getClientTeam },
   phase5Api: { clientsLookup: mocks.clientsLookup },
@@ -115,6 +116,25 @@ describe("AddJobModal — jawny owner requestu", () => {
       return Promise.resolve({ data: [] });
     });
     mocks.post.mockResolvedValue({ data: { id: 501 } });
+  });
+
+  it("reviews AI description without changing requirements, salary or deriving seniority from priority", async () => {
+    mocks.generateJob.mockResolvedValue({data: {description: "Nowy opis", requirements: "Kubernetes", salary_range_suggestion: "30000 PLN", source: "claude"}});
+    const user = userEvent.setup();
+    renderAddJob();
+    await user.type(screen.getByPlaceholderText("Senior Java Developer"), "Python Developer");
+    await user.type(screen.getByPlaceholderText("Opis stanowiska..."), "Oryginalny opis");
+    await user.type(screen.getByPlaceholderText("Wymagania techniczne..."), "Python lub Java");
+    await user.selectOptions(screen.getByRole("combobox", {name: "Priorytet"}), "urgent");
+    await user.click(screen.getByRole("button", {name: /Generuj AI/}));
+    await screen.findByRole("textbox", {name: "Szkic opisu do zatwierdzenia"});
+    expect(mocks.generateJob).toHaveBeenCalledWith(expect.objectContaining({seniority: undefined, skills: ["Python lub Java"]}));
+    expect(screen.getByPlaceholderText("Opis stanowiska...")).toHaveValue("Oryginalny opis");
+    expect(screen.getByRole("spinbutton", {name: "Wynagrodzenie min (PLN/mies.)"})).toHaveValue(null);
+    await user.click(screen.getByRole("button", {name: "Zastosuj sprawdzony opis"}));
+    expect(screen.getByPlaceholderText("Opis stanowiska...")).toHaveValue("Nowy opis");
+    expect(screen.getByPlaceholderText("Wymagania techniczne...")).toHaveValue("Python lub Java");
+    expect(screen.getByRole("spinbutton", {name: "Wynagrodzenie min (PLN/mies.)"})).toHaveValue(null);
   });
 
   it("nie wybiera ownera z osobistego priorytetu, gdy klient ma kilku TAC-ów", async () => {

@@ -54,13 +54,10 @@ from app.services.access_scope import (
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
-from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     SemanticSearchUnavailable,
-    _build_job_text,
     embed_job,
     search_jobs_semantic,
-    similarity_for_candidate_ids,
 )
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
@@ -69,12 +66,7 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.location_utils import location_tokens
-from app.services.match_score_cache import (
-    bulk_get_or_compute,
-    fresh_score_conditions,
-)
 from app.services.similar_job_candidates import (
-    boost_points_for_sources,
     fetch_historical_boost_map,
     fetch_historical_candidates,
 )
@@ -177,7 +169,7 @@ async def recommend_candidates_for_job(
         le=100.0,
         description=(
             "Minimum hybrid score (0-100) a candidate must reach to be shown. "
-            "Defaults to settings.RECOMMENDATION_MIN_SCORE. Lower = show more."
+            "Defaults to 0, matching full Radar/pipeline search. Lower = show more."
         ),
     ),
     include_breakdown: bool = Query(True),
@@ -196,9 +188,8 @@ async def recommend_candidates_for_job(
         max_length=120,
         description=(
             "Restrict results to candidates whose location matches this place "
-            "(city/region, substring-tolerant, blob-aware). Falls back to the "
-            "job's own location when omitted; empty when neither is set → no "
-            "filter (legacy behaviour preserved)."
+            "(city/region, substring-tolerant, blob-aware). Omitted means no "
+            "hard location filter; the request's location remains a fit signal."
         ),
     ),
     location_source: str = Query(
@@ -230,13 +221,11 @@ async def recommend_candidates_for_job(
             "wygrywa nad AUTO. Nieznana preferencja zawsze przechodzi."
         ),
     ),
-    exclude_missing_must: bool = Query(
-        True,
+    exclude_missing_must: Optional[bool] = Query(
+        None,
         description=(
-            "Dealbreaker (0278, domyślnie WŁĄCZONY): ukryj kandydatów, którym "
-            "brakuje choćby jednej technologii must-have (kolumna oferty albo "
-            "sekcja „Stack technologiczny” Championa). Kandydat bez żadnego "
-            "znanego sygnału umiejętności zawsze przechodzi."
+            "Pominięte: stosuj zapisaną politykę brakujących dowodów, domyślnie "
+            "do weryfikacji. Jawne true/false nadpisuje ją dla tego zapytania."
         ),
     ),
     exclude_office_days_exceeded: bool = Query(
@@ -286,27 +275,12 @@ async def recommend_candidates_for_job(
     )
 
 
-def _apply_historical_boost(breakdowns: list, boost_map: dict[int, int]) -> None:
-    """Apply the historical-boost bonus in place, then re-sort by total.
-
-    P0-A: a hard-penalized breakdown (total zeroed by blacklist / client-excluded
-    / active conflict) is NEVER boosted — the additive boost is a tie-breaker
-    among eligible candidates, not an override of a penalty. Without this guard a
-    zeroed candidate could be lifted back above the recommendation threshold.
-    """
-    if not boost_map:
-        return
+def _annotate_historical_context(breakdowns: list, boost_map: dict[int, int]) -> None:
+    """History describes process experience; it cannot change base fit or order."""
     for b in breakdowns:
-        if b.penalties:
-            continue
-        count = boost_map.get(b.candidate_id, 0)
-        if count <= 0:
-            continue
-        bonus = boost_points_for_sources(count)
-        b.historical_boost = bonus
-        b.historical_sources_count = count
-        b.total = round(b.total + bonus, 2)
-    breakdowns.sort(key=lambda r: -r.total)
+        b.historical_boost = 0.0
+        b.historical_sources_count = max(0, boost_map.get(b.candidate_id, 0))
+    breakdowns.sort(key=lambda b: (-b.total, b.candidate_id))
 
 
 async def _recommend_candidates_core(
@@ -323,7 +297,7 @@ async def _recommend_candidates_core(
     location_source: str = "all",
     exclude_over_budget: bool = True,
     exclude_remote_only: Optional[bool] = None,
-    exclude_missing_must: bool = True,
+    exclude_missing_must: bool | None = None,
     exclude_office_days_exceeded: bool = True,
     exclude_office_city_mismatch: bool = True,
 ) -> dict:
@@ -341,9 +315,8 @@ async def _recommend_candidates_core(
     )
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
-    # Explicit query param wins; otherwise fall back to the job's own location
-    # (empty for ~99.6% of imported jobs, hence the param).
-    requested_location = (location or "").strip() or (job.location or "").strip()
+    # Only an explicit query filter is hard; the job location remains a fit input.
+    requested_location = (location or "").strip()
     requested_tokens = location_tokens(requested_location)
     location_active = bool(requested_tokens)
 
@@ -362,7 +335,12 @@ async def _recommend_candidates_core(
             db, user_id=current_user.id, client_id=job.client_id
         )
 
-    query_text = _build_job_text(job)
+    from app.services.canonical_fit import score_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.search_telemetry import SearchTelemetry
+
+    fit_context = build_request_context(job, profile)
+    query_text = fit_context.query_text
 
     # Pull a wider candidate pool from Qdrant, then re-rank with rules. When a
     # location filter is active, widen retrieval so the sparse located subset
@@ -394,49 +372,30 @@ async def _recommend_candidates_core(
         # `STRUCTURED_POOL_ENABLED` jest wyłączona.
         must_groups=build_job_must_groups(job),
     )
-    similarity_map = {h["candidate_id"]: h["score"] for h in hits}
-    candidate_ids = list(similarity_map.keys())
+    candidate_ids = list(dict.fromkeys(h["candidate_id"] for h in hits))
 
-    # Degraded retrieval: Qdrant down or index empty. The DB fallback below still
-    # serves results, but its composites are computed with a NEUTRAL semantic
-    # layer — persisting them would poison the shared score cache as "fresh"
-    # long after the provider recovers (M3-CACHE-01), so cache writes are
-    # disabled for this request.
-    #
-    # PUSTKA NIE JEST JEDYNYM KSZTAŁTEM DEGRADACJI. Fasada puli oddaje wiersze
-    # z `semantic_unknown`, gdy kosinusu nie zmierzono (padła dosypka po udanym
-    # BM25 albo kandydat nie ma wektora) — `score` wynosi wtedy 0.0, ale to
-    # „nie wiem", nie „zmierzono zero". Taka pula JEST niepusta, więc sam warunek
-    # `not candidate_ids` przepuszczał ją jako zdrową i zapisywał warstwę
-    # semantyczną 0/60 do cache'u jako wynik świeży — czyli dokładnie ten sam
-    # M3-CACHE-01, przed którym ta gałąź miała bronić.
+    # Retrieval completeness is separate from the exact fit measurements.
     semantic_unknown_ids = {
         h["candidate_id"] for h in hits if h.get("semantic_unknown")
     }
     semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
-    # Kandydat bez ZMIERZONEGO kosinusu nie może dostać zera jako wartości —
-    # `score_semantic(None)` zna stan „brak pomiaru", `score_semantic(0.0)` nie.
-    for cid in semantic_unknown_ids:
-        similarity_map.pop(cid, None)
 
     # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
     from app.services.dealbreaker_filters import DealbreakerResult
 
-    dealbreakers = DealbreakerResult()
+    hidden_meta = DealbreakerResult().hidden_meta()
+    eligibility_filtered = 0
 
     def _meta() -> dict:
-        # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
-        # or the job not indexed yet). The widget already renders a degraded
-        # notice off meta.degraded — the backend just never populated it, so a
-        # fallback looked identical to a healthy AI ranking. Mode is deliberately
-        # NOT "bm25": the fallback still yields numeric composites (neutral
-        # semantic layer); it just isn't cache-written or logged to history.
+        # Retrieval or exact measurement was incomplete. Individual unknown
+        # scores remain null; a populated candidate pool is not proof of health.
         return {
             "mode": "degraded_semantic" if semantic_degraded else "dense",
             "degraded": semantic_degraded,
             "reason": "semantic_unavailable" if semantic_degraded else None,
-            "hidden": dealbreakers.hidden_meta(),
+            "hidden": hidden_meta,
+            "eligibility_filtered": eligibility_filtered,
         }
 
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
@@ -507,39 +466,30 @@ async def _recommend_candidates_core(
                 "meta": _meta(),
             }
 
-    # P0-A: hard eligibility prefilter BEFORE scoring — a candidate the recruiter
-    # could not assign (global blacklist / active client blacklist·NDA·competitor
-    # / a standing hiring-manager veto) must never surface as a recommendation.
-    # Soft signals (current employment, candidate-excluded client) stay as
-    # warnings, exactly as on the assign ingress, so "recommended ⟹ assignable".
     from datetime import datetime, timezone
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.requirement_contract import search_dealbreaker_inputs
 
-    candidates = await filter_eligible_candidates(
-        db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
-    )
-
-    # Dealbreaker-switche: twardy sufit budżetu działa Z AUTOMATU (decyzja
-    # produktowa 19.08) — znany budżet oferty ukrywa znane stawki powyżej.
-    # Nieznany przechodzi; liczniki idą do meta.hidden, żeby ukrywanie nigdy
-    # nie było ciche (reguła „awaria ≠ pustka"). Rubryki 0278 (must-have / dni
-    # w biurze / miasto) rozwiązane RAZ przez `dealbreaker_inputs_for_job` —
-    # ta sama funkcja, której używa `/ai-matches` i snapshot handoffu, więc
-    # wszystkie powierzchnie liczą te trzy rubryki identycznie.
-    from app.services.dealbreaker_filters import (
-        apply_dealbreakers,
-        dealbreaker_inputs_for_job,
-    )
-
-    dealbreakers = apply_dealbreakers(
+    (
         candidates,
-        inputs=dealbreaker_inputs_for_job(job),
+        eligibility_annotations,
+        hidden_meta,
+        eligibility_filtered,
+        _,
+    ) = await _gate_and_dealbreakers(
+        db,
+        job=job,
+        ordered=candidates,
+        now=datetime.now(timezone.utc),
+        inputs=search_dealbreaker_inputs(
+            job, exclude_missing_must=exclude_missing_must
+        ),
         exclude_over_budget=exclude_over_budget,
         exclude_remote_only=exclude_remote_only,
-        exclude_missing_must=exclude_missing_must,
+        exclude_missing_must=exclude_missing_must is not False,
         exclude_office_days_exceeded=exclude_office_days_exceeded,
         exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
-    candidates = dealbreakers.kept
 
     if not candidates:
         return {
@@ -551,37 +501,34 @@ async def _recommend_candidates_core(
             "meta": _meta(),
         }
 
-    # Phase C1 + D1: cache-first scoring keyed by active profile.
-    breakdowns = await bulk_get_or_compute(
-        job,
-        candidates,
-        db,
-        similarity_map=similarity_map,
-        profile=profile,
-        allow_cache_write=not semantic_degraded,
-        # Ci, dla których kosinusu NIE zmierzono — breakdown ma to powiedzieć
-        # wprost („pomiar niedostępny"), zamiast obwiniać profil kandydata.
-        semantic_unavailable_ids=semantic_unknown_ids,
-    )
+    telemetry = SearchTelemetry()
+    telemetry.begin_attempt()
+    # The preceding legacy retrieval can also call providers/rerankers. Until
+    # it shares this accounting scope, never label the fit subtotal a full cost.
+    telemetry.data["scope"] = "canonical_fit_only"
+    telemetry.data["accounting_complete"] = False
+    with telemetry.activate():
+        fits = await score_candidates(db, fit_context, candidates)
+    fits_by_id = {fit.breakdown.candidate_id: fit for fit in fits}
+    breakdowns = [fit.breakdown for fit in fits]
+    semantic_degraded = semantic_degraded or any(fit.fit_score is None for fit in fits)
 
-    # Phase 14: apply historical-boost from semantically-similar past jobs.
-    # Computed fresh per request — not persisted in match-score cache because
-    # candidate pipeline state changes too often to invalidate reliably.
+    # Process history is fresh context, separate from fit and its threshold.
     try:
         boost_map = await fetch_historical_boost_map(db, job_id)
     except Exception as e:  # pragma: no cover — best-effort
         logger.warning("historical_boost lookup failed for job=%s: %s", job_id, e)
         boost_map = {}
-    _apply_historical_boost(breakdowns, boost_map)
+    _annotate_historical_context(breakdowns, boost_map)
 
-    # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
-    # `top_k` now acts purely as a payload safety cap. The hybrid composite is a
-    # ranking signal with a low absolute range, so the default threshold is low
-    # (see settings.RECOMMENDATION_MIN_SCORE for calibration notes).
-    threshold = (
-        min_score if min_score is not None else settings.RECOMMENDATION_MIN_SCORE
-    )
-    breakdowns = [b for b in breakdowns if b.total >= threshold][:top_k]
+    # Match full Radar/C2: a score only filters membership when requested.
+    threshold = min_score if min_score is not None else 0.0
+    # Preserve unknown measurements for review, after all measured fits.
+    breakdowns = [
+        fit.breakdown
+        for fit in fits
+        if fit.fit_score is None or fit.fit_score >= threshold
+    ][:top_k]
 
     matches = []
     for b in breakdowns:
@@ -605,9 +552,11 @@ async def _recommend_candidates_core(
                 "skills": c.skills,
                 "ai_summary": c.ai_summary,
             },
-            "total_score": round(b.total, 1),
+            "total_score": fits_by_id[b.candidate_id].fit_score,
+            "measurement": fits_by_id[b.candidate_id].measurement,
+            "eligibility": eligibility_annotations.get(b.candidate_id),
         }
-        if include_breakdown:
+        if include_breakdown and fits_by_id[b.candidate_id].fit_score is not None:
             match["breakdown"] = _score_breakdown_payload(
                 b,
                 include_finance=user_has_capability(
@@ -620,6 +569,9 @@ async def _recommend_candidates_core(
         "job_id": job_id,
         "job_title": job.title,
         "search_type": "hybrid",
+        "request_fingerprint": fit_context.fingerprint,
+        "versions": fit_context.versions,
+        "metrics": telemetry.snapshot(),
         "min_score": round(threshold, 1),
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
@@ -639,102 +591,20 @@ async def pipeline_match_scores(
     current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
-    """Hybrid AI match scores (0-100) for the candidates currently in a job's
-    pipeline — powers the score ring on kanban cards.
+    """Canonical base fit for every current pipeline member, in bounded batches.
 
-    Coverage is near-complete yet never deflated:
-    - Candidates with a fresh cached ``CandidateJobMatchScore`` row return that
-      score directly (no recompute).
-    - Uncached candidates are scored with a per-candidate Qdrant similarity
-      (``similarity_for_candidate_ids`` — exact cosine for each id, NOT a top-K
-      pool), so the semantic layer is never silently zeroed regardless of the
-      candidate's global rank, and we never persist a deflated score into the
-      cache shared with /recommendations.
-    - Only candidates with no stored embedding at all are omitted → no badge.
-
-    In-pipeline candidates are NOT pre-warmed by /recommendations or the
-    proposals job (both exclude in-pipeline), so the first open of a pipeline
-    cold-computes its members; repeat opens are served from cache and skip the
-    embedding/Qdrant call entirely.
+    Process membership is returned independently of measurement availability.
+    The old composite score cache is deliberately incompatible: its document,
+    weights and screening component differ from the shared search contract.
     """
-    job = await db.scalar(select(Job).where(Job.id == job_id))
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    from app.api.candidate_search import _authorized_job
+    from app.services.pipeline_base_fit import pipeline_base_fit
 
-    # Distinct candidates currently in the pipeline (any stage), bounded — a
-    # human doesn't read hundreds of cards, and this caps any cold compute.
-    PIPELINE_SCORE_CAP = 200
-    cid_rows = await db.execute(
-        select(CandidateStage.candidate_id)
-        .where(CandidateStage.job_id == job_id)
-        .distinct()
-        # Sufit na 200 kandydatów decyduje, KTÓRE karty kanbana dostaną wynik.
-        # Bez `ORDER BY` ten wybór jest arbitralny i zmienia się między
-        # odświeżeniami — badge pojawia się i znika bez powodu widocznego
-        # dla użytkownika.
-        .order_by(CandidateStage.candidate_id.desc())
-        .limit(PIPELINE_SCORE_CAP)
-    )
-    pipeline_ids = [cid for (cid,) in cid_rows.all()]
-    if not pipeline_ids:
-        return {"job_id": job_id, "profile_id": DEFAULT_PROFILE.id, "scores": {}}
-
-    # Active weight profile → cache-key alignment with /recommendations.
-    profile: WeightProfile = await resolve_active_profile(
+    job = await _authorized_job(db, current_user, job_id)
+    profile = await resolve_active_profile(
         db, user_id=current_user.id, client_id=job.client_id
     )
-
-    # Which pipeline candidates already have a fresh cached score?
-    cached_id_rows = await db.execute(
-        select(CandidateJobMatchScore.candidate_id).where(
-            *fresh_score_conditions(
-                job_id=job_id,
-                profile_id=profile.id,
-                candidate_ids=pipeline_ids,
-            )
-        )
-    )
-    cached_ids = {cid for (cid,) in cached_id_rows.all()}
-    uncached_ids = [cid for cid in pipeline_ids if cid not in cached_ids]
-
-    # Per-candidate semantic similarities for the uncached set — only fetched
-    # when there's something to score (warm pipelines touch zero AI deps).
-    # Exact cosine per id (not a top-K pool), so out-of-pool candidates still get
-    # a correct semantic component instead of a zeroed one.
-    similarity_map: dict[int, float] = {}
-    if uncached_ids:
-        try:
-            similarity_map = await similarity_for_candidate_ids(
-                _build_job_text(job), uncached_ids
-            )
-        except Exception as e:  # pragma: no cover — semantic layer is best-effort
-            logger.warning(
-                "pipeline-scores similarity lookup failed job=%s: %s", job_id, e
-            )
-
-    # Score the cached candidates (served from cache) plus every uncached one we
-    # have a real similarity for. Only candidates with no embedding at all are
-    # left out — no recompute, no deflated cache write, no badge.
-    eligible_ids = [
-        cid for cid in pipeline_ids if cid in cached_ids or cid in similarity_map
-    ]
-    if not eligible_ids:
-        return {"job_id": job_id, "profile_id": profile.id, "scores": {}}
-
-    candidates = list(
-        (await db.execute(select(Candidate).where(Candidate.id.in_(eligible_ids))))
-        .scalars()
-        .all()
-    )
-    breakdowns = await bulk_get_or_compute(
-        job, candidates, db, similarity_map=similarity_map, profile=profile
-    )
-
-    scores = {
-        str(b.candidate_id): int(round(min(max(b.total, 0.0), 100.0)))
-        for b in breakdowns
-    }
-    return {"job_id": job_id, "profile_id": profile.id, "scores": scores}
+    return await pipeline_base_fit(db, job, profile)
 
 
 # ── Historical candidates from similar jobs (Phase 14) ───────────────────────

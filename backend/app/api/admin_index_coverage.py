@@ -1,21 +1,8 @@
-"""GET /api/admin/index-coverage — ilu kandydatów jest realnie wyszukiwalnych.
+"""Fast inventory of SQL rows, index points and durable indexing backlog.
 
-Audyt gotowości (2026-07-27) postawił wymaganie: każdy aktywny kandydat i każda
-otwarta oferta ma stan ``indexed`` albo jawnie ``excluded``, zero cichych
-pominięć. Nie dało się tego sprawdzić — jedyny sposób na policzenie luki był
-ręczny: zapytanie do produkcyjnej bazy plus osobne zapytanie do Qdranta i
-odjęcie liczb od siebie. Zmierzone tak 2026-07-27: **46 945 z 55 217**
-kandydatów, czyli **8 272 osoby istnieją w bazie i nie istnieją w matchingu**.
-
-Rekord bez wektora nie jest „gorzej dopasowany" — on po prostu nie bierze
-udziału. Rekomendacje, hybrid search i skan Marketplace czytają identyfikatory
-z Qdranta, więc kandydat spoza kolekcji nie pojawi się w żadnym z nich, a
-rekruter nie ma jak zauważyć, że kogoś brakuje: lista kandydatów pokazuje go
-normalnie.
-
-Endpoint jest read-only i celowo NIE naprawia niczego — liczy. Backfill
-(``scripts/reembed_collections.py``) i worker kolejki to osobne decyzje, bo
-obie kosztują wywołania Voyage'a.
+Aggregate point counts do not establish candidate coverage or marker drift.
+Missing/stale/orphan identities require the complete read-only reconciliation
+in scripts.audit_candidate_index. Until then coverage measurements stay null.
 """
 
 from __future__ import annotations
@@ -63,15 +50,17 @@ async def _collection_points(collection: str) -> int | None:
 
 
 def _gap(total: int, indexed: int | None) -> dict[str, Any]:
-    if indexed is None:
-        return {"total": total, "indexed": None, "missing": None, "coverage_pct": None}
-    missing = max(0, total - indexed)
-    pct = round(100.0 * indexed / total, 1) if total else 100.0
+    # A point may be orphaned, stale or missing while aggregate counts agree.
+    # Exact coverage comes from the ID/content audit, not count subtraction.
     return {
         "total": total,
-        "indexed": indexed,
-        "missing": missing,
-        "coverage_pct": pct,
+        "index_points": indexed,
+        "indexed": None,
+        "missing": None,
+        "coverage_pct": None,
+        "measurement": "index_unavailable"
+        if indexed is None
+        else "id_reconciliation_required",
     }
 
 
@@ -135,15 +124,9 @@ async def index_coverage(
         },
         "jobs": {
             **_gap(jobs_total, job_points),
-            # `stamped` to liczba ofert z niepustym `embedding_id`. Różnica
-            # `indexed - stamped` JEST dryfem znacznika: wektor istnieje,
-            # kolumna go nie odnotowała. Przed #403 taka oferta cicho przestawała
-            # generować propozycje i podpowiedzi pytań. Podajemy obie liczby
-            # osobno, bo mierzą różne rzeczy i sklejenie ich dałoby bzdurę.
+            # Marker count is known; point-minus-marker count is not drift.
             "stamped": jobs_stamped,
-            "stamp_drift": (
-                max(0, job_points - jobs_stamped) if job_points is not None else None
-            ),
+            "stamp_drift": None,
         },
         "outbox": {
             "pending": outbox.get("pending", 0),

@@ -80,6 +80,7 @@ from app.api.recruitment_access import (
     ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
 )
+from app.services.requirement_contract import apply_requirement_source_update
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
@@ -269,6 +270,8 @@ def _strip_champion_payload_from_list_row(payload: dict) -> dict:
 
 # Fields that, when changed, should trigger re-embedding the job (Phase 2).
 _EMBED_TRIGGER_FIELDS = {
+    "matching_requirements",
+    "requirements_reviewed",
     "title",
     "description",
     "requirements",
@@ -1522,6 +1525,9 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    from app.services.requirement_contract import invalidate_changed_requirements
+
+    invalidate_changed_requirements(job, updates)
     if "needs_sourcing" in updates:
         job.favorite_sourcing_paused = False
     prev_status = job.status
@@ -1980,7 +1986,7 @@ async def update_champion_profile(
             "champion_profile": _champion_response(job.champion_profile),
         }
 
-    job.champion_profile = new_profile
+    apply_requirement_source_update(job, "champion_profile", new_profile)
     db.add(
         Activity(
             entity_type="job",
@@ -2365,7 +2371,9 @@ async def update_champion_verification(
         current_profile.setdefault(k, v)
     current_profile["verification"] = verification.model_dump(mode="json")
     validated = ChampionProfile.model_validate(current_profile)
-    job.champion_profile = validated.model_dump(mode="json")
+    apply_requirement_source_update(
+        job, "champion_profile", validated.model_dump(mode="json")
+    )
 
     side_status = (
         verification.client.status
@@ -2512,7 +2520,9 @@ async def _write_briefing_block(db: AsyncSession, job: Job, briefing: dict) -> N
         current_profile.setdefault(k, v)
     current_profile["briefing"] = briefing
     validated = ChampionProfile.model_validate(current_profile)
-    job.champion_profile = validated.model_dump(mode="json")
+    apply_requirement_source_update(
+        job, "champion_profile", validated.model_dump(mode="json")
+    )
 
 
 @router.post("/{job_id}/champion-profile/briefing")
@@ -2857,7 +2867,9 @@ async def decide_recommended_search(
         profile.setdefault(k, v)
     profile["recommended_searches"] = [e.model_dump(mode="json") for e in entries]
     validated = ChampionProfile.model_validate(profile)
-    job.champion_profile = validated.model_dump(mode="json")
+    apply_requirement_source_update(
+        job, "champion_profile", validated.model_dump(mode="json")
+    )
 
     db.add(
         Activity(

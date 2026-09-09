@@ -1497,6 +1497,8 @@ export function AddJobModal({
   const [error, setError] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [aiSeniority, setAiSeniority] = useState("");
+  const [aiDraft, setAiDraft] = useState<{ description: string; source: string } | null>(null);
   const [clientTacCount, setClientTacCount] = useState<number | null>(0);
   // auto_cc collaborators: undefined = not initialised (all auto-add), otherwise
   // the explicit set user chose (may exclude some backend would add).
@@ -1605,16 +1607,11 @@ export function AddJobModal({
       const { data } = await aiWriterApi.generateJob({
         title: form.title,
         client: clientName,
-        seniority: form.priority === "urgent" ? "lead" : ["low"].includes(form.priority) ? "junior" : "senior",
+        seniority: aiSeniority || undefined,
         skills,
         description_hint: form.description || undefined,
       });
-      setForm(f => ({
-        ...f,
-        description: data.description + (data.nice_to_have ? `\n\n**Mile widziane:**\n${data.nice_to_have}` : ""),
-        requirements: data.requirements,
-        salary_min: f.salary_min || (data.salary_range_suggestion?.match(/(\d[\d\s]+)/)?.[1]?.replace(/\s/g, "") || ""),
-      }));
+      setAiDraft({ description: data.description, source: data.source });
     } catch (e: any) {
       setAiError(formErrorMsg(e, "Błąd generowania AI"));
     } finally {
@@ -1743,9 +1740,28 @@ export function AddJobModal({
               <><Sparkles className="w-4 h-4" /> ✨ Generuj AI</>
             )}
           </button>
-          <span className="text-xs text-muted-foreground">Wypełni opis i wymagania automatycznie</span>
+          <label className="text-xs text-muted-foreground">
+            Poziom stanowiska do szkicu
+            <select aria-label="Poziom stanowiska do szkicu" value={aiSeniority} onChange={e => setAiSeniority(e.target.value)} className="ml-2 rounded border bg-background p-1">
+              <option value="">Nie podano</option>
+              <option value="junior">Junior</option>
+              <option value="mid">Mid</option>
+              <option value="senior">Senior</option>
+              <option value="lead">Lead</option>
+            </select>
+          </label>
+          <span className="text-xs text-muted-foreground">Przygotuje szkic do sprawdzenia</span>
         </div>
         {aiError && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{aiError}</div>}
+        {aiDraft && (
+          <div className="rounded-lg border p-3 space-y-2">
+            <p className="text-sm font-medium">Szkic opisu — {aiDraft.source === "template" ? "szablon z podanych danych" : "AI"}</p>
+            <p className="text-xs text-muted-foreground">Sprawdź zgodność z requestem i popraw treść przed zastosowaniem.</p>
+            <textarea aria-label="Szkic opisu do zatwierdzenia" className="w-full min-h-32 rounded border bg-background p-2 text-sm" value={aiDraft.description} onChange={e => setAiDraft(draft => draft ? {...draft, description: e.target.value} : null)} />
+            <button type="button" className="rounded bg-primary text-primary-foreground px-3 py-2 text-sm" onClick={() => { setForm(current => ({...current, description: aiDraft.description})); setAiDraft(null); }}>Zastosuj sprawdzony opis</button>
+            <button type="button" className="ml-2 text-sm" onClick={() => setAiDraft(null)}>Odrzuć szkic</button>
+          </div>
+        )}
         {/* Awaria zapytania o podobne requesty MUSI być widoczna. Do 0270 cała
             gałąź wisiała na `previewTotal > 0`, więc padnięte zapytanie
             renderowało się identycznie jak „u tego klienta nie było nic
