@@ -240,7 +240,14 @@ async def search_results(
             # Snapshot facts must not appear as current positive evidence.
             breakdown = {}
             for requirement in requirements:
-                requirement.update(status="unknown", matched=[], stale=True)
+                requirement.update(
+                    status="unknown",
+                    matched=[],
+                    stale=True,
+                    evidence_basis="no_evidence",
+                    verified_at=None,
+                    usage_context=None,
+                )
         fit_score = None if row_changed else row.fit_score
         breakdown["total"] = fit_score
         # Both entrances share the same conservative financial redaction.

@@ -123,3 +123,31 @@ async def test_shared_visibility_preserves_block_reason_and_filter_override(
     assert annotations[1]["reason"] == decisions[1].reason
     assert eligibility_filtered == 1
     assert hidden["over_budget"] == int(exclude_over_budget)
+
+
+def test_profile_update_and_extracted_gap_are_not_verified_competence_evidence():
+    candidate = SimpleNamespace(
+        skills=["Python"],
+        updated_at="2026-09-09",
+        cv_extracted_data={
+            "_notes_insights": {
+                "skills_gaps_observed": [{"name": "Java", "evidence": "AI paraphrase"}],
+                "_extracted_at": "2026-09-09",
+            }
+        },
+    )
+    target = job()
+    target.matching_requirements["all_of"] = [
+        {"any_of": ["Python"], "level": "must"},
+        {"any_of": ["Java"], "level": "must"},
+    ]
+    evidence = evaluate_requirements(requirements_for_job(target), candidate)
+    assert [item["status"] for item in evidence] == ["met", "unknown"]
+    assert [item["evidence_basis"] for item in evidence] == [
+        "profile_signal",
+        "no_evidence",
+    ]
+    assert all(
+        item["verified_at"] is None and item["usage_context"] is None
+        for item in evidence
+    )

@@ -35,6 +35,9 @@ export interface CandidateSearchRow {
     matched: string[];
     stale?: boolean;
     candidate_updated_at: string;
+    evidence_basis?: "profile_signal" | "no_evidence";
+    verified_at?: string | null;
+    usage_context?: string | null;
     requirement_evidence?: string | null;
   }>;
   eligibility: MatchEligibility | null;

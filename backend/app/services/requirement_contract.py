@@ -132,6 +132,11 @@ def evaluate_requirements(contract: MatchingRequirements, candidate) -> list[dic
                 "level": group.level,
                 "status": "met" if found else "unknown",
                 "matched": found,
+                # Imported/extracted profile signals do not establish current
+                # proficiency, a verification date or project usage context.
+                "evidence_basis": "profile_signal" if found else "no_evidence",
+                "verified_at": None,
+                "usage_context": None,
                 "source": group.source,
                 "requirement_evidence": group.evidence,
                 "candidate_updated_at": str(getattr(candidate, "updated_at", "")),

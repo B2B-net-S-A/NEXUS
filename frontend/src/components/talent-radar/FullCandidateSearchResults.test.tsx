@@ -33,3 +33,14 @@ test("failed page read does not present old results as current", () => {
   fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
   expect(onRetry).toHaveBeenCalledOnce();
 });
+
+test("profile skill signal does not claim verified proficiency or date", () => {
+  const signal = structuredClone(data);
+  signal.results[0].requirements[0] = {
+    ...signal.results[0].requirements[0], status: "met", matched: ["python"],
+    evidence_basis: "profile_signal", verified_at: null, usage_context: null,
+  };
+  render(<FullCandidateSearchResults data={signal} error={null} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={vi.fn()} canOpenProfile />);
+  expect(screen.getByText(/sygnał w profilu — do weryfikacji/)).toBeVisible();
+  expect(screen.queryByText(/potwierdzone/)).not.toBeInTheDocument();
+});
