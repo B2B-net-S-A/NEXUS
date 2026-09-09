@@ -29,6 +29,9 @@ from app.services.cv_generator_b2b.text_extractor import (
 
 
 async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
+    from app.services.cv_editor_privacy import check_editor_privacy
+
+    check_editor_privacy(content_html, csv.branded_render_metadata)
     provenance = approval_provenance(content_html, csv.branded_render_metadata)
     if provenance["generation_review_covers_content"]:
         return {

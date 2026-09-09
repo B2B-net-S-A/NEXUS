@@ -14,7 +14,31 @@ def capture_editor_origin(html: str, generated_payload: dict | None) -> dict:
             factual_projection(generated_payload), sort_keys=True, ensure_ascii=False
         ).encode()
     ).hexdigest()
+    blind = generated_payload.get("blind_cv") is True
+    identity_terms = [
+        generated_payload.get("name"),
+        generated_payload.get("first_name"),
+    ]
+    full_name = generated_payload.get("name")
+    if isinstance(full_name, str):
+        identity_terms.extend(part for part in full_name.split()[1:] if len(part) >= 3)
+    identity_terms.extend(
+        role.get("company")
+        for role in generated_payload.get("experience", [])
+        if isinstance(role, dict)
+    )
     return {
+        "blind_identity_guard": blind,
+        "blind_identity_terms": list(
+            dict.fromkeys(
+                term.strip()
+                for term in identity_terms
+                if blind
+                and isinstance(term, str)
+                and term.strip()
+                and term.strip().casefold() not in {"kandydat", "candidate"}
+            )
+        ),
         "generated_editor_html_sha256": hashlib.sha256(html.encode()).hexdigest(),
         "generation_review_available": isinstance(generation_review, dict)
         and generation_review.get("status") == "verified"

@@ -364,3 +364,19 @@ CI 34409180558 has a successful frontend build and backend shards in progress fo
 2d5a3c80. Changes after that head remain local. New approved links currently use the
 classic approved HTML view; interactive support for edited approvals is not enabled.
 No production completion or full CV-01..20 acceptance is claimed.
+
+
+### Blind identity checks after manual editing
+
+Editor origin metadata now freezes known identity terms for blind CVs (person name,
+name components and source employer names). Shared approval checks normalized visible
+HTML text against these terms before factual review or receipt reuse. Errors contain
+no matched identity. Standard CVs are unaffected. This closes the specific case in
+which a manually reintroduced name is true in the source but forbidden in blind CVs.
+
+Thirty-five focused tests pass, including surname-only text, inline formatting,
+employer names and no AI admission on refusal. This is an exact known-term guard,
+not semantic anonymization proof: unknown identifiers, obfuscation/inflection and
+false-positive rates still need real corpus acceptance. Historical metadata without
+the guard is not backfilled here. Broader client presentation-rule checks after
+editing remain open, as do hosted/production verification.
