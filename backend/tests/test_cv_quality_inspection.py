@@ -52,3 +52,62 @@ def test_read_only_inspection_has_only_fixed_diagnostics():
 def test_unknown_or_invalid_identity_does_not_read_executions(identity):
     with pytest.raises(m.ops.OpsError):
         m.inspect(Api(), identity)
+
+
+cleanup_spec = importlib.util.spec_from_file_location(
+    "cv_cleanup", Path(__file__).parents[2] / ".github/scripts/cv-quality-cleanup.py"
+)
+c = importlib.util.module_from_spec(cleanup_spec)
+cleanup_spec.loader.exec_module(c)
+
+
+class CleanupApi:
+    tasks = "/tasks"
+
+    def __init__(self, status="failed", foreign=False):
+        self.status, self.foreign, self.deleted = status, foreign, False
+
+    def inventory(self):
+        if self.deleted:
+            return []
+        command = c.ops.configuration(
+            {
+                "OPS_RUN_ID": "123",
+                "OPS_RUN_ATTEMPT": "1",
+                "EVAL_MODELS": "primary",
+                "EVAL_CASES": "4",
+                "EXPECTED_SHA": "a" * 40,
+            }
+        )["command"]
+        return [
+            {
+                "uuid": "owned",
+                "name": "nexus-cv-quality-eval-123-1",
+                "command": command + ("; foreign" if self.foreign else ""),
+            }
+        ]
+
+    def request(self, method, path):
+        if method == "DELETE":
+            assert path == "/tasks/owned"
+            self.deleted = True
+        else:
+            assert method == "GET" and path == "/tasks/owned/executions"
+            return [{"status": self.status}]
+
+
+def test_cleanup_only_removes_exact_stopped_task():
+    api = CleanupApi()
+    assert c.cleanup(api, "123-1")["cleanup"] == "confirmed"
+    assert c.cleanup(api, "123-1")["cleanup"] == "already_absent"
+
+
+@pytest.mark.parametrize(
+    "status,foreign",
+    [("running", False), ("pending", False), ("unknown", False), ("failed", True)],
+)
+def test_cleanup_refuses_live_unknown_or_foreign_task(status, foreign):
+    api = CleanupApi(status, foreign)
+    with pytest.raises(c.ops.OpsError):
+        c.cleanup(api, "123-1")
+    assert not api.deleted
