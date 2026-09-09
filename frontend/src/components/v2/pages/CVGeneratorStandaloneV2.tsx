@@ -54,6 +54,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
+import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
@@ -269,21 +270,8 @@ export function CVGeneratorStandaloneV2({
     staleTime: 30_000,
   });
 
-  const [sourceChoice, setSourceChoice] = useState<{candidateId: number; documentId: number} | null>(null);
-  const cvSourcesQuery = useQuery({
-    queryKey: ["cv-gen-sources", candidate?.id],
-    queryFn: async () => {
-      if (!candidate) return [];
-      const res = await api.get<Array<{id: number; filename: string; is_primary: boolean; uploaded_at: string | null}>>(
-        `/api/cv-generator/candidates/${candidate.id}/cv-sources`,
-      );
-      return res.data;
-    },
-    enabled: !!candidate && mode === "new",
-  });
-  const selectedSource = sourceChoice?.candidateId === candidate?.id
-    ? cvSourcesQuery.data?.find((source) => source.id === sourceChoice?.documentId)
-    : undefined;
+  const sourceSelection = useCvSourceSelection(candidate?.id, mode === "new");
+  const selectedSource = sourceSelection.selected;
 
   const recruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
@@ -796,30 +784,7 @@ export function CVGeneratorStandaloneV2({
         <Card className="mt-4">
           <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            <Label htmlFor="cv-source-document">Plik do generacji</Label>
-            <select
-              id="cv-source-document"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              value={selectedSource?.id ?? ""}
-              onChange={(event) => setSourceChoice(event.target.value ? {
-                candidateId: candidate.id, documentId: Number(event.target.value),
-              } : null)}
-              disabled={cvSourcesQuery.isLoading || cvSourcesQuery.isError}
-            >
-              <option value="">Wybierz źródłowe CV…</option>
-              {(cvSourcesQuery.data ?? []).map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.filename}{source.is_primary ? " · główne" : ""}
-                  {source.uploaded_at ? ` · ${new Date(source.uploaded_at).toLocaleDateString("pl-PL")}` : ""}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              {cvSourcesQuery.isError ? "Nie udało się pobrać plików CV. Odśwież stronę i spróbuj ponownie."
-                : cvSourcesQuery.isLoading ? "Wczytywanie plików CV…"
-                : !cvSourcesQuery.data?.length ? "Brak obsługiwanych plików PDF lub DOCX."
-                : "Wybrany plik będzie źródłem faktów dla obu wersji językowych."}
-            </p>
+            <CvSourcePicker selection={sourceSelection} />
           </CardContent>
         </Card>
       )}
