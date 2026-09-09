@@ -150,6 +150,8 @@ export interface CVGeneratorStandaloneV2Props {
   prefillCandidateName?: string;
   /** Rekrutacja, z której otwarto krok 06 — wybiera właściwy `stage_id`. */
   prefillJobId?: number;
+  onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  selectedGeneratedId?: number | null;
 }
 
 export function CVGeneratorStandaloneV2({
@@ -157,6 +159,8 @@ export function CVGeneratorStandaloneV2({
   prefillCandidateId,
   prefillCandidateName,
   prefillJobId,
+  onSelectForRecruitment,
+  selectedGeneratedId,
 }: CVGeneratorStandaloneV2Props = {}) {
   const toast = useToast();
   const currentUser = useAuthStore((state) => state.user);
@@ -1093,6 +1097,8 @@ export function CVGeneratorStandaloneV2({
                 <GeneratedCvRow
                   key={item.id}
                   item={item}
+                  onSelectForRecruitment={onSelectForRecruitment}
+                  selected={selectedGeneratedId === item.id}
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
                   onDownloadHtml={handleDownloadHtml}
@@ -1289,30 +1295,30 @@ function NewModeForm({
                 variant="warning"
                 title="Nie można wygenerować CV"
                 description={
-                  <div className="space-y-1">
-                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <div key={problem}>{problem}</div>) : <>
+                  <span className="block space-y-1">
+                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <span className="block" key={problem}>{problem}</span>) : <>
                     {!selectedRecruitment.has_cv && (
-                      <div>
+                      <span className="block">
                         Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
                         dodaj plik w zakładce Dokumenty na profilu kandydata.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_champion && (
-                      <div>
+                      <span className="block">
                         Brakuje Profilu Championa (must-have, nice-to-have,
                         kontekst projektu). Uzupełnij go na karcie rekrutacji zanim
                         wygenerujesz CV.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_notes && (
-                      <div>
+                      <span className="block">
                         Brak notatek z rozmów — wymagana co najmniej jedna:
                         screening, transkrypt rozmowy CloudTalk albo notatka
                         procesu.
-                      </div>
+                      </span>
                     )}
                     </>}
-                  </div>
+                  </span>
                 }
               />
             )}
@@ -1701,6 +1707,8 @@ function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolea
 // ── „Wygenerowane CV" list row ───────────────────────────────────────────────
 
 type GeneratedCvRowProps = {
+  onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  selected?: boolean;
   item: GeneratedCvItem;
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
@@ -1712,6 +1720,8 @@ type GeneratedCvRowProps = {
 
 function GeneratedCvRow({
   item,
+  onSelectForRecruitment,
+  selected,
   onPreview,
   onDownload,
   onDownloadHtml,
@@ -1791,6 +1801,13 @@ function GeneratedCvRow({
             <>
               {item.status === "ready" && (
                 <>
+                  {canWrite && onSelectForRecruitment && (
+                    <Button variant="outline" size="sm"
+                      disabled={!item.can_download}
+                      onClick={() => onSelectForRecruitment(item)}>
+                      {selected ? "Wybrano · wczytaj ponownie" : "Użyj w rekrutacji"}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
