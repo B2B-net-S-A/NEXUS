@@ -398,6 +398,7 @@ __all__ = [
     "ClientContractTerms",
     "ClientCvRule",
     "ClientCvRuleEvent",
+    "ClientCvRulePublication",
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
