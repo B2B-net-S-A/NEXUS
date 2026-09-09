@@ -93,12 +93,14 @@ from app.services.cv_generator_b2b.upload_preflight import (
     validate_upload_inputs,
 )
 from app.services.cv_generator_b2b.client_rules import (
+    CvRuleSnapshot,
     required_input_problems,
     resolve_client_rule,
     resolve_content_mode,
     snapshot_rule,
 )
 from app.services.cv_generator_b2b.standalone_service import (
+    CandidateGenerationSource,
     ContentMode,
     DEFAULT_CONTENT_MODE,
     StandaloneGenerationError,
@@ -106,8 +108,9 @@ from app.services.cv_generator_b2b.standalone_service import (
     apply_content_mode_cap,
     ascii_filename_fallback,
     champion_present,
-    generate_cv_for_candidate,
+    generate_cv_from_candidate_source,
     generate_cv_from_uploads,
+    load_candidate_generation_source,
     list_recruitments_with_readiness,
     rerender_docx_from_payload,
     screening_notes_char_count,
@@ -546,6 +549,8 @@ async def _run_generate_new_job(
     language: Literal["pl", "en"],
     blind_cv: bool,
     user_id: int,
+    source: CandidateGenerationSource,
+    rule_snapshot: CvRuleSnapshot | None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
     client_id: int | None = None,
     project_ref: str = "",
@@ -554,15 +559,8 @@ async def _run_generate_new_job(
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            # Regułę czytamy w SESJI TEGO ZADANIA i od razu zamrażamy do
-            # snapshotu — pipeline jest synchroniczny i leci w threadpoolu,
-            # gdzie dostęp do atrybutu wiersza ORM kończy się MissingGreenlet.
-            rule = await resolve_client_rule(db, client_id)
-            rule_snapshot = snapshot_rule(rule)
-            result = await generate_cv_for_candidate(
-                db,
-                candidate_id=candidate_id,
-                stage_id=stage_id,
+            result = await generate_cv_from_candidate_source(
+                source,
                 language=language,
                 blind_cv=blind_cv,
                 content_mode=content_mode,
@@ -620,7 +618,14 @@ async def _run_generate_new_job(
                 ensure_requirement_map,
             )
 
-            await ensure_requirement_map(db, generated_id, user_id=user_id)
+            await ensure_requirement_map(
+                db,
+                generated_id,
+                user_id=user_id,
+                requirements=[
+                    {"name": name, "kind": kind} for name, kind in source.requirements
+                ],
+            )
 
         # Druga wersja językowa (0267): klient oczekuje PL i EN, a Delivery
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
@@ -647,10 +652,8 @@ async def _run_generate_new_job(
             )
             await db.commit()
             try:
-                second_result = await generate_cv_for_candidate(
-                    db,
-                    candidate_id=candidate_id,
-                    stage_id=stage_id,
+                second_result = await generate_cv_from_candidate_source(
+                    source,
                     language=second,  # type: ignore[arg-type]
                     blind_cv=blind_cv,
                     content_mode=content_mode,
@@ -706,7 +709,15 @@ async def _run_generate_new_job(
                     ensure_requirement_map,
                 )
 
-                await ensure_requirement_map(db, second_id, user_id=user_id)
+                await ensure_requirement_map(
+                    db,
+                    second_id,
+                    user_id=user_id,
+                    requirements=[
+                        {"name": name, "kind": kind}
+                        for name, kind in source.requirements
+                    ],
+                )
 
 
 def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
@@ -1248,9 +1259,8 @@ async def generate(
     recruiter can close/leave the tab without losing the result — it lands on
     the „Wygenerowane CV" list (``GET /generated``) with ``status`` „ready" or
     „failed". A „processing" placeholder row is created here so the CV shows up
-    on the list right away; the deep readiness contract (CV file / champion /
-    notes present) is validated inside the background job and any failure is
-    written onto that row.
+    on the list right away. Source values and the client rule are captured
+    before quota/enqueue; rendering and provider failures are recorded by the worker.
     """
     candidate = await db.get(Candidate, payload.candidate_id)
     if candidate is None:
@@ -1338,6 +1348,40 @@ async def generate(
             )
         )
 
+    # Freeze owned values before quota and enqueue, including the actual file.
+    # Both document languages must use the source and policy accepted here.
+    try:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+        )
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if (source.candidate_id, source.stage_id, source.job_id, source.client_id) != (
+        payload.candidate_id,
+        payload.stage_id,
+        stage.job_id,
+        client_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Kontekst rekrutacji zmienił się podczas odczytu źródeł. Odśwież stronę i spróbuj ponownie.",
+        )
+    if effective_mode == "tailored" and not source.has_champion:
+        _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
+    _reject_missing_inputs(
+        required_input_problems(
+            rule_snapshot,
+            mode="new",
+            screening_chars=len(source.screening_notes_text.strip()),
+            has_project_ref=bool(payload.project_ref.strip()),
+            has_position=True,
+            has_champion=source.has_champion,
+        )
+    )
+
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
     quota_state = await _charge_cv_generation_quota(db, current_user.id)
@@ -1366,6 +1410,8 @@ async def generate(
         generated_id,
         quota_state=quota_state,
         quota_user_id=current_user.id,
+        source=source,
+        rule_snapshot=rule_snapshot,
         candidate_id=payload.candidate_id,
         stage_id=payload.stage_id,
         language=payload.language,

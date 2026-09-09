@@ -2154,6 +2154,8 @@ class CandidateGenerationSource:
     candidate_id: int
     stage_id: int
     cv_document_id: int | None
+    requirements: tuple[tuple[str, str], ...] = ()
+    client_id: int | None = None
 
     def champion(self) -> ChampionProfileForPrompt:
         # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
@@ -2268,6 +2270,8 @@ async def load_candidate_generation_source(
         warnings=source_warnings,
         language=language,
     )
+    from app.services.cv_generator_b2b.requirement_map import build_requirements
+
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
@@ -2282,6 +2286,10 @@ async def load_candidate_generation_source(
         candidate_id=candidate_id,
         stage_id=stage_id,
         cv_document_id=getattr(cv_doc, "id", None),
+        requirements=tuple(
+            (item["name"], item["kind"]) for item in build_requirements(job)
+        ),
+        client_id=job.client_id,
     )
 
 
