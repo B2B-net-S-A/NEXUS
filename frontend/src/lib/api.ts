@@ -5176,6 +5176,8 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  generated_document_id?: number | null;
+  from_generator?: boolean;
   edit_revision: number;
   version: number;
   candidate_stage_id: number;
@@ -5242,6 +5244,10 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
+    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
+        generated_document_id, expected_revision,
+      }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
     update: (

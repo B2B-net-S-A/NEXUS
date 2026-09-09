@@ -3055,6 +3055,8 @@ _COLUMN_STATEMENTS = [
         approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         UNIQUE(candidate_stage_cv_id, version)
     )""",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS generated_document_id INTEGER REFERENCES cv_generated_documents(id) ON DELETE SET NULL",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_from_generator BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE INDEX IF NOT EXISTS ix_cv_document_versions_candidate_stage_cv_id ON cv_document_versions(candidate_stage_cv_id)",
     "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS document_version_id INTEGER REFERENCES cv_document_versions(id) ON DELETE CASCADE",
     # 0284: independent formatting policy (same constraint as the migration).

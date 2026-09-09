@@ -92,6 +92,14 @@ class CandidateStageCV(Base):
         server_default="none",
         default="none",
     )
+    generated_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cv_generated_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    # Remains true if the source row is deleted: template changes must never
+    # silently replace a selected generator document with the candidate profile.
+    branded_from_generator: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
     branded_draft_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     edit_revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"

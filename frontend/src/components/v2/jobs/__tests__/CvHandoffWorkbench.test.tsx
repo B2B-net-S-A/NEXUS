@@ -32,6 +32,7 @@ const move = vi.fn(async (...a: unknown[]) => {
 });
 const originalGet = vi.fn();
 const brandedGet = vi.fn();
+const selectGenerated = vi.fn();
 const shareList = vi.fn();
 const shareRevokeAll = vi.fn();
 const createScreeningShareToken = vi.fn();
@@ -48,7 +49,7 @@ vi.mock("@/lib/api", () => ({
   },
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
-    branded: { get: (...a: unknown[]) => brandedGet(...a) },
+    branded: { get: (...a: unknown[]) => brandedGet(...a), selectGenerated: (...a: unknown[]) => selectGenerated(...a) },
     share: {
       create: (...a: unknown[]) => shareCreate(...a),
       list: (...a: unknown[]) => shareList(...a),
@@ -89,9 +90,11 @@ vi.mock("@/components/v2/pages/CVGeneratorStandaloneV2", () => ({
   CVGeneratorStandaloneV2: (p: {
     prefillCandidateId?: number;
     prefillJobId?: number;
+    onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
   }) => (
     <div data-testid="cv-generator-stub">
       {`prefill:${p.prefillCandidateId}/${p.prefillJobId}`}
+      {p.onSelectForRecruitment && <button onClick={() => p.onSelectForRecruitment!({ id: 42, filename: "Wybrane.docx" })}>Użyj w rekrutacji</button>}
     </div>
   ),
 }));
@@ -543,4 +546,33 @@ it("retains each result with its original candidate when moving to the next one"
   const drafts = within(results).getAllByRole("link", {name:"Przygotuj wiadomość"});
   expect(decodeURIComponent(drafts[0].getAttribute("href")!)).toContain("Grzegorz Żebrowski");
   expect(decodeURIComponent(drafts[1].getAttribute("href")!)).toContain("Anna Testowa");
+});
+
+
+describe("wybór konkretnego wyniku generatora", () => {
+  it("wymaga jawnego zastąpienia i wysyła wersję szkicu z chwili wyboru", async () => {
+    brandedGet.mockResolvedValue({ data: { status: "draft", edit_revision: 7, version: 1 } });
+    selectGenerated.mockResolvedValue({ data: { status: "draft", edit_revision: 8, version: 1,
+      generated_document_id: 42, from_generator: true } });
+    renderWorkbench();
+    await userEvent.click(await screen.findByRole("button", { name: "Użyj w rekrutacji" }));
+    expect(selectGenerated).not.toHaveBeenCalled();
+    expect(screen.getByText(/Wczytać „Wybrane.docx”/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Zastąp szkic i otwórz edytor" }));
+    await waitFor(() => expect(selectGenerated).toHaveBeenCalledWith(21, 42, 7));
+    expect(await screen.findByText(/Wybrany wynik generatora #42/)).toBeTruthy();
+    expect(shareCreate).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it("po konflikcie zachowuje wybór i nie udaje powodzenia", async () => {
+    brandedGet.mockResolvedValue({ data: { status: "draft", edit_revision: 7, version: 1 } });
+    selectGenerated.mockRejectedValueOnce(new Error("409"));
+    renderWorkbench();
+    await userEvent.click(await screen.findByRole("button", { name: "Użyj w rekrutacji" }));
+    await userEvent.click(screen.getByRole("button", { name: "Zastąp szkic i otwórz edytor" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się wybrać CV");
+    expect(screen.getByText(/Wczytać „Wybrane.docx”/)).toBeTruthy();
+    expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
+  });
 });

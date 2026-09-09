@@ -37,6 +37,7 @@ async def freeze_approved_version(db, csv):
         version = CvDocumentVersion(
             candidate_stage_cv_id=csv.id,
             version=csv.branded_version,
+            generated_document_id=csv.generated_document_id,
             content_html=html,
             content_sha256=hashlib.sha256(html.encode()).hexdigest(),
             template=csv.branded_template,

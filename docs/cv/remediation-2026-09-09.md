@@ -134,3 +134,25 @@ model output, which remain the final factual gate's responsibility.
 
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
+
+## CV-02 — explicit generated document selection (partial delivery)
+
+A recruitment draft can now explicitly select a completed generated document for
+that exact candidate and job. Selection checks the draft revision under the stage
+row lock, preserves an earlier approval and its links, and imports the same
+client-safe body used by HTML export, including technology emphasis. The selected
+source ID is captured on approval. Template/language changes cannot silently
+replace a selected document with a fresh rendering of the candidate profile;
+users generate and choose a replacement instead. Deleting the source does not
+remove this protection.
+
+Validation: 28 focused backend tests and 38 frontend tests pass; TypeScript,
+Ruff and one Alembic head pass. Hosted API lifecycle test covers selection,
+immediate approval of current edited content, reselection and the original
+public link. PostgreSQL lifecycle/migration execution and production interaction
+remain required.
+
+This is not completion of CV-02/CV-10: DOCX export after manual editing, immutable
+approved DOCX bytes, standalone approval and one version across standalone
+interactive links still require implementation. Imported HTML uses the existing
+HTML export presentation, not the original DOCX letterhead/consent image layout.
