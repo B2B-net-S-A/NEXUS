@@ -291,3 +291,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - The existing aggregate SQL count query now counts allowlisted primary exclusion categories. Empty/legacy/unrecognized reasons are reconciled into unknown, so categories sum to excluded and never double-count a candidate. No candidate identity or private restriction reason is added to this aggregate response.
 - Radar and pipeline share the same labelled counters, including explicit missing-proof exclusion and a separate missing-details category for old results. Zero categories are omitted visually.
 - Nine frontend status/result tests, typecheck, ESLint and Ruff/diff checks pass. The PostgreSQL store scenario now checks primary-reason precedence and empty/legacy categories; execution is deferred to hosted CI. Earlier CI shards 0/2 passed, 1/3 were still running. Production counters/coverage, other audit acceptance and delivery remain open.
+
+### Hosted CI follow-up: client profile unknown opening date
+
+- Backend shard 1 job 102419761105 failed only test_profile_returns_expected_shape: get_client_profile called max(0, None) when duration_days correctly returned unknown for an absent opened_at. The response now preserves the already nullable duration result; duration_days itself clamps actual negative durations.
+- Added deterministic PostgreSQL endpoint coverage with a 30-day-old creation timestamp and no opening date, expecting HTTP 200 and null days_open. Ruff/format/diff checks and collection of 15 profile tests pass; the database scenario has not been executed locally and awaits hosted CI. This addresses the concrete observed failure without substituting created_at or fabricated zero days. Other audit and deployment requirements remain open.
