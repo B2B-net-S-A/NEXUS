@@ -31,6 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
 from app.models.client_cv_rule import ClientCvRule
+from app.services.cv_generator_b2b.language_aliases import (
+    accepted_aliases,
+    resolve_alias,
+    translate_role_title,
+)
 
 # Tokeny rozpoznawane we wzorze nazwy pliku. Nieznany token zostaje w nazwie
 # dosłownie — lepiej, żeby rekruter zobaczył „{FOO}" w pliku i poprawił wzór,
@@ -338,12 +343,15 @@ def _structured_rule_lines(rule: CvRuleSnapshot, language: str) -> list[str]:
     # się dat parsują daty w kształcie źródłowym (`MM.YYYY`), a model
     # posłuszny prośbie o `MM/YYYY` gubiłby im miesiące. Format nakłada kod
     # na końcu pipeline'u (`apply_date_format`) — deterministycznie.
-    if rule.glossary:
-        pairs = "; ".join(f"„{src}” → „{dst}”" for src, dst in rule.glossary)
+    # Only the typed, reviewed catalog reaches the model; legacy arbitrary
+    # replacements must not become prompt instructions.
+    aliases = accepted_aliases(rule.glossary, language)
+    if aliases:
+        pairs = "; ".join(f"„{src}” → „{dst}”" for src, dst in aliases)
         lines.append(
-            f"Client vocabulary (wording only, never facts): {pairs}."
+            f"Role title translations, exact title fields only: {pairs}. Preserve seniority."
             if en
-            else f"Słownictwo klienta (tylko nazewnictwo, nigdy fakty): {pairs}."
+            else f"Tłumaczenia pełnych nazw stanowisk: {pairs}. Zachowaj poziom seniority."
         )
     return lines
 
@@ -423,21 +431,6 @@ def _shorten(text: str, limit: int) -> str:
     return cut.rstrip(" ,;:") + "…"
 
 
-def _glossary_pattern(src: str) -> re.Pattern[str]:
-    # Całe słowa (bez `\b`, który przy polskich znakach nie działa
-    # przewidywalnie), bez rozróżniania wielkości liter.
-    return re.compile(rf"(?<!\w){re.escape(src)}(?!\w)", re.IGNORECASE)
-
-
-def _apply_glossary_text(text: str, glossary: tuple[tuple[str, str], ...]) -> str:
-    out = text
-    for src, dst in glossary:
-        # Lambda, nie szablon: `dst` z backslashem albo `\g<0>` wywaliłby
-        # `re.error` w threadpoolu — „failed" na każdej generacji u klienta.
-        out = _glossary_pattern(src).sub(lambda _m, _dst=dst: _dst, out)
-    return out
-
-
 def apply_presentation_policy(
     candidate_data: dict[str, Any], rule: Optional[CvRuleSnapshot]
 ) -> list[str]:
@@ -494,31 +487,22 @@ def apply_presentation_policy(
         candidate_data["why_points"] = why_points[: rule.why_points_max]
         notes.append(f"ucięto „dlaczego ten kandydat” do {rule.why_points_max} punktów")
     if rule.glossary:
-        glossary = rule.glossary
-        candidate_data["position"] = _apply_glossary_text(
+        glossary = accepted_aliases(
+            rule.glossary, candidate_data.get("language") or "pl"
+        )
+        invalid = sum(resolve_alias(src, dst) is None for src, dst in rule.glossary)
+        if invalid:
+            notes.append(
+                f"pominięto {invalid} niedozwolonych wpisów słownika klienta; "
+                "dozwolone są wyłącznie tłumaczenia stanowisk z katalogu"
+            )
+        candidate_data["position"] = translate_role_title(
             str(candidate_data.get("position") or ""), glossary
         )
-        candidate_data["why_points"] = [
-            _apply_glossary_text(str(p), glossary)
-            for p in candidate_data.get("why_points") or []
-        ]
         for role in candidate_data.get("experience") or []:
-            role["position"] = _apply_glossary_text(
+            role["position"] = translate_role_title(
                 str(role.get("position") or ""), glossary
             )
-            role["responsibilities"] = [
-                _apply_glossary_text(str(b), glossary)
-                for b in role.get("responsibilities") or []
-            ]
-        for cat in candidate_data.get("skills") or []:
-            if isinstance(cat, dict):
-                cat["content"] = _apply_glossary_text(
-                    str(cat.get("content") or ""), glossary
-                )
-        candidate_data["certifications"] = [
-            _apply_glossary_text(str(c), glossary)
-            for c in candidate_data.get("certifications") or []
-        ]
     return notes
 
 

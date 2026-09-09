@@ -22,7 +22,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Pending |
 | CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
 | CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Pending |
-| CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Pending |
+| CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Typed reviewed role translations implemented, arbitrary legacy substitutions skipped with warnings, unsafe publication blocked. CI, deployment and final factual review acceptance pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
 | CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Recipe snapshot, language check and draft cap implemented; source snapshot, DOCX and complete validation still pending |
 | CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Filename validation implemented locally; configuration review/publication and production verification pending |
@@ -63,3 +63,22 @@ DOCX, downloadable HTML and public text runs use the same matcher. Public runs
 are derived after privacy projection and are not added to AI input payloads.
 Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
+
+## Safe language aliases package
+
+The glossary now accepts reviewed `role_translation` pairs for whole position
+fields, with a fixed source/target language. Runtime never substitutes inside
+skills, certificates, summaries or responsibilities and never strips seniority
+from compound titles. Only catalog entries matching the generated document's
+language reach the editorial prompt or deterministic translation.
+
+Legacy arbitrary pairs remain visible in drafts/history, are ignored with a
+generation warning, and block publication until replaced or removed. The editor
+selects from the server catalog instead of free text. No client recipe is
+operationally edited by the deployment. The initial catalog has five PL/EN role
+pairs; additional equivalents require explicit review. This closes arbitrary
+glossary rewriting, not hallucinations originating in free-form instructions or
+model output, which remain the final factual gate's responsibility.
+
+Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
+hosted CI and production interaction still pending. No local Docker.
