@@ -380,3 +380,18 @@ not semantic anonymization proof: unknown identifiers, obfuscation/inflection an
 false-positive rates still need real corpus acceptance. Historical metadata without
 the guard is not backfilled here. Broader client presentation-rule checks after
 editing remain open, as do hosted/production verification.
+
+
+### Frozen rule configuration carried into editor metadata
+
+New generation payloads now retain the complete dataclass recipe snapshot alongside
+its existing editorial-provenance hash. Editor origin metadata deep-copies that
+snapshot and marks it verified only when canonical serialization matches the saved
+hash. Explicit no-rule and unavailable historical configuration are distinguished.
+Public payloads exclude the recipe and private client instructions.
+
+Forty-four focused source-review/editor provenance tests pass, including mutation
+isolation, missing/mismatched snapshots and public exclusion. This establishes the
+input for post-edit rule validation; it does not yet enforce all limits/sections on
+arbitrary edited HTML. No historical snapshot is invented. CI 34409180558 has passed
+frontend and backend shards 0/3; shards 1/2 were still running at this checkpoint.

@@ -1,5 +1,6 @@
 """Bind generation review provenance to exact editor content, not a document ID."""
 
+import copy
 import hashlib
 import json
 
@@ -27,7 +28,24 @@ def capture_editor_origin(html: str, generated_payload: dict | None) -> dict:
         for role in generated_payload.get("experience", [])
         if isinstance(role, dict)
     )
+    rule_present = "client_rule_snapshot" in generated_payload
+    rule_snapshot = copy.deepcopy(generated_payload.get("client_rule_snapshot"))
+    rule_sha256 = hashlib.sha256(
+        json.dumps(
+            rule_snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode()
+    ).hexdigest()
+    recorded_rule_sha256 = (generated_payload.get("editorial_provenance") or {}).get(
+        "rule_sha256"
+    )
     return {
+        "client_rule_snapshot": rule_snapshot,
+        "client_rule_snapshot_status": "verified"
+        if rule_present and recorded_rule_sha256 == rule_sha256
+        else "unavailable",
+        "client_rule_snapshot_sha256": rule_sha256
+        if rule_present and recorded_rule_sha256 == rule_sha256
+        else None,
         "blind_identity_guard": blind,
         "blind_identity_terms": list(
             dict.fromkeys(

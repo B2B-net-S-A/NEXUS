@@ -1602,6 +1602,7 @@ def _run_generation_pipeline(
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
     candidate_data["source_facts"] = source_facts
+    candidate_data["client_rule_snapshot"] = asdict(client_rule) if client_rule else None
     candidate_data["editorial_provenance"] = {
         "prompt_version": PROMPT_VERSION,
         "system_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
