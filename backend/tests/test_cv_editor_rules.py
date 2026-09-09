@@ -63,3 +63,21 @@ def test_lost_structure_is_not_silently_counted_as_compliant():
         )
     assert check_editor_rules(HTML, {})["status"] == "needs_review"
     assert check_editor_rules(HTML, metadata(None))["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize(
+    "body", ["<p>A</p><p>B</p>", "<ul><li><p>A</p></li></ul><p>B</p>"]
+)
+def test_summary_limit_survives_list_to_paragraph_conversion(body):
+    content = '<h2 data-cv-section="why_points">Summary</h2>' + body
+    with pytest.raises(HTTPException) as exc:
+        check_editor_rules(content, metadata({"why_points_max": 1}))
+    assert exc.value.status_code == 422
+
+
+def test_list_paragraph_and_consent_are_not_double_counted():
+    content = '<h2 data-cv-section="why_points">Summary</h2><ul><li><p>A</p></li></ul><p data-cv-section="rodo">Consent</p>'
+    assert (
+        check_editor_rules(content, metadata({"why_points_max": 1}))["status"]
+        == "checked"
+    )

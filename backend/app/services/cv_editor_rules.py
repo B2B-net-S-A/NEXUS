@@ -61,6 +61,16 @@ def check_editor_rules(content_html, metadata):
                     )
                 role = []
                 roles.append(role)
+            elif (
+                section == "why_points"
+                and node.tag in {"p", "h1", "h3", "h4", "h5", "h6", "pre"}
+                and not any(parent.tag == "li" for parent in node.iterancestors())
+                and node.get("data-cv-section") != "rodo"
+                and "rodo" not in (node.get("class") or "").split()
+            ):
+                text = " ".join(node.text_content().split())
+                if text:
+                    summary.append(text)
             elif node.tag == "li":
                 text = " ".join(node.text_content().split())
                 if section == "why_points":
