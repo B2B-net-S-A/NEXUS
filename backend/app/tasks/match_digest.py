@@ -15,7 +15,7 @@ dopasowań (kandydaci spoza pipeline'u tej rekrutacji, score >= progu).
   Notyfikacje wiszą w dzwonku długo i bywają widoczne przez ramię; profil
   jest o klik dalej, za pełnym RBAC.
 - Ranking tą samą ścieżką co /recommendations (`retrieve_candidate_pool` +
-  `rank_candidates_for_job` + aktywny profil wag) — digest pokazujący inne
+  `canonical_fit` + profil wag odbiorcy) — digest pokazujący inne
   wyniki niż zakładka byłby samopodważający.
 - `emit()` ma dzienny dedup (user+typ+encja), więc restart pętli w dniu
   wysyłki nie dubluje powiadomień.
@@ -114,22 +114,24 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
     return now.hour >= int(settings.MATCH_DIGEST_HOUR_UTC)
 
 
-async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
+async def _fresh_top_matches(
+    db, job: Job, *, user_id: int | None = None
+) -> list[tuple[int, float]]:
     """Top świeżych dopasowań (spoza pipeline'u) dla jednej rekrutacji."""
+    from app.services.canonical_fit import score_candidates
     from app.services.canonical_text import build_job_query_variants
-    from app.services.dealbreaker_filters import (
-        apply_dealbreakers,
-        dealbreaker_inputs_for_job,
-    )
-    from app.services.embedding_service import _build_job_text
+    from app.services.dealbreaker_filters import apply_dealbreakers
     from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
-    from app.services.match_score_cache import bulk_get_or_compute
     from app.services.pipeline_eligibility import filter_eligible_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.requirement_contract import search_dealbreaker_inputs
     from app.services.retrieval_pool import retrieve_candidate_pool
     from app.services.scoring_service import resolve_active_profile
 
+    profile = await resolve_active_profile(db, user_id=user_id, client_id=job.client_id)
+    context = build_request_context(job, profile)
     try:
-        query_text = _build_job_text(job)
+        query_text = context.query_text
         hits = await retrieve_candidate_pool(
             db,
             query_text,
@@ -144,22 +146,9 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)
         return []
-    similarity_map = {h["candidate_id"]: h["score"] for h in hits}
-    if not similarity_map:
-        return []
-
-    # Kandydaci, dla których kosinusu NIE zmierzono (padła dosypka po udanym
-    # BM25 albo brak wektora). `score` wynosi tam 0.0, ale to „nie wiem", nie
-    # „zmierzono zero" — a ta funkcja PISZE do wspólnego `match_score_cache`,
-    # więc bez tego rozróżnienia warstwa semantyczna warta 60 pkt lądowała tam
-    # jako 0/60 ŚWIEŻE i przeżywała powrót dostawcy (M3-CACHE-01). Digest jest
-    # nocny i masowy, więc jedna taka noc zatruwa cache całej bazy naraz.
-    semantic_unknown_ids = {
-        h["candidate_id"] for h in hits if h.get("semantic_unknown")
-    }
-    for cid in semantic_unknown_ids:
-        similarity_map.pop(cid, None)
-    if not similarity_map:
+    # Retrieval selects identities only; its score/unknown flags are not fit.
+    candidate_ids = {hit["candidate_id"] for hit in hits}
+    if not candidate_ids:
         return []
 
     staged = set(
@@ -173,7 +162,7 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
         .scalars()
         .all()
     )
-    fresh_ids = [cid for cid in similarity_map if cid not in staged]
+    fresh_ids = [cid for cid in candidate_ids if cid not in staged]
     if not fresh_ids:
         return []
 
@@ -197,34 +186,21 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
-    # Parametry są lustrem `compute_proposals` (snapshot = DOMYŚLNY widok
-    # zakładki): budżet, must-have, dni w biurze i miasto liczone RAZ przez
-    # `dealbreaker_inputs_for_job`, `exclude_remote_only` AUTO z
-    # `inputs.wants_office` — ten sam kontrakt co snapshot, żeby liczba
-    # w powiadomieniu dawała się odnaleźć w zakładce, do której linkuje.
     candidates = apply_dealbreakers(
-        candidates, inputs=dealbreaker_inputs_for_job(job)
+        candidates, inputs=search_dealbreaker_inputs(job)
     ).kept
-    # Oba filtry PRZED scoringiem: (a) nie płacimy za ludzi, których i tak nie
-    # pokażemy, (b) nie zapisujemy do `match_score_cache` wierszy, których
-    # zakładka i tak nie wyświetli.
     if not candidates:
         return []
 
-    profile = await resolve_active_profile(db)
-    # Zapis do cache'u zostaje włączony (domyślnie), i to jest bezpieczne
-    # WYŁĄCZNIE dlatego, że `semantic_unknown` wycięło wyżej wszystkich bez
-    # zmierzonego kosinusu — każdy wiersz, który tu dociera, ma realny sygnał
-    # semantyczny. Dokładając tu gałąź degradacji, podaj `allow_cache_write`
-    # jawnie: cache jest WSPÓLNY z `/recommendations`, więc zatruty tutaj
-    # wiersz wychodzi rekruterowi w zupełnie innym miejscu produktu.
-    breakdowns = await bulk_get_or_compute(
-        job, candidates, db, similarity_map=similarity_map, profile=profile
-    )
+    fits = await score_candidates(db, context, candidates)
     floor = float(settings.MATCH_DIGEST_MIN_SCORE)
     ranked = sorted(
-        ((b.candidate_id, b.total) for b in breakdowns if b.total >= floor),
-        key=lambda item: -item[1],
+        (
+            (fit.breakdown.candidate_id, fit.fit_score)
+            for fit in fits
+            if fit.fit_score is not None and fit.fit_score >= floor
+        ),
+        key=lambda item: (-item[1], item[0]),
     )
     return ranked[: int(settings.MATCH_DIGEST_TOP_N)]
 
@@ -267,22 +243,18 @@ async def run_match_digest() -> dict[str, Any]:
                 ).scalar_one_or_none()
                 if job_row is None:
                     continue
-                top = await _fresh_top_matches(db, job_row)
-                # Commit NATYCHMIAST po scoringu — bulk_get_or_compute pisze
-                # do match_score_cache przez tę samą sesję, a `continue` bez
-                # commitu rollbackowałby wpisy i co tydzień liczylibyśmy te
-                # same wyniki od nowa dla rekrutacji bez świeżych trafień.
-                await db.commit()
-                if not top:
-                    continue
-                stats["jobs_with_matches"] += 1
-                best = top[0][1]
                 recipients = {
                     uid
                     for uid in (job_row.recruiter_id, job_row.tac_id)
                     if uid is not None
                 }
-                for uid in recipients:
+                job_has_matches = False
+                for uid in sorted(recipients):
+                    top = await _fresh_top_matches(db, job_row, user_id=uid)
+                    if not top:
+                        continue
+                    job_has_matches = True
+                    best = top[0][1]
                     notif = await emit(
                         db,
                         user_id=uid,
@@ -301,6 +273,8 @@ async def run_match_digest() -> dict[str, Any]:
                         stats["dedup_skipped"] += 1
                     else:
                         stats["notifications_sent"] += 1
+                if job_has_matches:
+                    stats["jobs_with_matches"] += 1
                 await db.commit()
         except Exception:  # noqa: BLE001 — jedna rekrutacja nie zabija biegu
             logger.exception("match-digest: bieg padł dla job=%s", job.id)

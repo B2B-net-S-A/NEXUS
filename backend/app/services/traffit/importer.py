@@ -765,7 +765,8 @@ _UPDATE_CANDIDATE_ADOPT = text(
 )
 
 
-# Lista `DO UPDATE SET` niżej MUSI równać się `SYNC_WRITABLE`
+# Lista `DO UPDATE SET` niżej MUSI równać się sumie `SYNC_WRITABLE`
+# i ograniczonego unieważnienia `SYNC_SOURCE_INVALIDATABLE`
 # z `app/services/job_column_ownership.py` — pilnuje tego
 # `tests/test_job_column_ownership.py`. Dopisanie tu kolumny bez decyzji
 # „czyja ona jest" znaczyłoby, że sync po cichu nadpisuje pracę zrobioną
@@ -814,6 +815,12 @@ _UPSERT_JOB = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         title                = EXCLUDED.title,
+        matching_requirements = CASE
+            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN NULL
+            ELSE jobs.matching_requirements END,
+        requirements_reviewed = CASE
+            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN false
+            ELSE jobs.requirements_reviewed END,
         status               = EXCLUDED.status,
         client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
         pipeline_template_id = COALESCE(

@@ -639,3 +639,39 @@ async def test_head_of_recruitment_with_dl_role_sees_rates_only_in_dl_portfolio(
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
     assert body["summary"]["active_mrr"] == 6000
+
+
+async def test_profile_preserves_unknown_opening_date(app_client, app_auth_headers):
+    import uuid
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Unknown opening {uuid.uuid4().hex}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            client_id=client.id,
+            title="Unknown opening",
+            status=JobStatus.published,
+            opened_at=None,
+            created_at=datetime.now(timezone.utc) - timedelta(days=30),
+        )
+        db.add(job)
+        await db.commit()
+        client_id, job_id = client.id, job.id
+    try:
+        response = await app_client.get(
+            f"/api/clients/{client_id}/profile", headers=app_auth_headers
+        )
+        assert response.status_code == 200, response.text
+        row = next(j for j in response.json()["open_jobs"] if j["id"] == job_id)
+        assert row["days_open"] is None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Job).where(Job.id == job_id))
+            await db.execute(delete(Client).where(Client.id == client_id))
+            await db.commit()

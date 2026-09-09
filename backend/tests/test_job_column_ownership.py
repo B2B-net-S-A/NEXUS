@@ -1,4 +1,4 @@
-"""Sync Traffita nie pisze do kolumn należących do NEXUSA.
+"""Sync Traffita nie przejmuje treści należących do NEXUSA.
 
 Tabela `jobs` ma dwóch piszących i do 09.2026 nie było między nimi granicy:
 `_UPSERT_JOB` wymieniał `title` i `status` w `DO UPDATE SET` bezwarunkowo, więc
@@ -13,7 +13,10 @@ zapisu, nie tego jednego, który akurat pokryjemy testem wykonaniowym.
 """
 
 import re
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from app.models.job import Job
 from app.services import job_column_ownership as own
@@ -35,35 +38,76 @@ def _do_update_set_columns() -> set[str]:
     return set(re.findall(r"^\s{4,}(\w+)\s*=", clause, flags=re.MULTILINE))
 
 
-def test_sync_updates_exactly_the_columns_it_owns():
-    """Lista `DO UPDATE SET` == `SYNC_WRITABLE`, co do jednej kolumny.
+def test_sync_updates_exactly_the_columns_it_owns_or_may_invalidate():
+    """Dokładna lista zapisów oraz ograniczonych unieważnień źródła.
 
     Rozjazd w którąkolwiek stronę jest błędem: kolumna w UPSERT-cie, a nie
     w zbiorze, to ciche nadpisywanie pracy z NEXUSA; kolumna w zbiorze, a nie
     w UPSERT-cie, to deklaracja, że sync coś prowadzi, czego nie prowadzi.
     """
     updated = _do_update_set_columns()
+    permitted = own.SYNC_WRITABLE | own.SYNC_SOURCE_INVALIDATABLE
 
-    assert updated == set(own.SYNC_WRITABLE), (
-        "rozjazd `_UPSERT_JOB` z `job_column_ownership.SYNC_WRITABLE`; "
-        f"tylko w UPSERT: {sorted(updated - set(own.SYNC_WRITABLE))}; "
-        f"tylko w zbiorze: {sorted(set(own.SYNC_WRITABLE) - updated)}"
+    assert updated == permitted, (
+        "rozjazd `_UPSERT_JOB` z dozwolonymi zapisami/unieważnieniami; "
+        f"tylko w UPSERT: {sorted(updated - permitted)}; "
+        f"tylko w zbiorze: {sorted(permitted - updated)}"
     )
 
 
-def test_sync_never_writes_a_nexus_owned_column():
+def test_sync_never_writes_unapproved_nexus_owned_columns():
     """Osobno od testu wyżej, bo to on nazywa SKUTEK naruszenia.
 
     Równość zbiorów pada z komunikatem o rozjeździe list. Ten test pada
     z komunikatem o tym, co się realnie stanie na produkcji, i to jest
     informacja, której szuka ktoś czytający czerwone CI.
     """
-    trespassing = _do_update_set_columns() & set(own.NEXUS_OWNED)
+    trespassing = (
+        _do_update_set_columns() & own.NEXUS_OWNED
+    ) - own.SYNC_SOURCE_INVALIDATABLE
 
     assert not trespassing, (
         "sync Traffita nadpisałby kolumny prowadzone w NEXUSIE — praca "
         f"użytkownika zniknie przy najbliższym nocnym biegu: {sorted(trespassing)}"
     )
+
+
+def test_source_invalidation_does_not_transfer_ownership_to_traffit():
+    assert own.SYNC_SOURCE_INVALIDATABLE == {
+        "matching_requirements",
+        "requirements_reviewed",
+    }
+    assert own.SYNC_SOURCE_INVALIDATABLE <= own.NEXUS_OWNED
+    assert not own.SYNC_SOURCE_INVALIDATABLE & own.SYNC_WRITABLE
+
+
+@pytest.mark.parametrize(
+    "column,stored,reset",
+    [
+        ("matching_requirements", '{"all_of": []}', None),
+        ("matching_requirements", '{"all_of": [{"any_of": ["python"]}]}', None),
+        ("matching_requirements", None, None),
+        ("requirements_reviewed", 1, 0),
+        ("requirements_reviewed", 0, 0),
+    ],
+)
+@pytest.mark.parametrize("incoming_title", ["Python Developer", "Java Developer"])
+def test_source_invalidation_only_resets_on_changed_title(
+    column, stored, reset, incoming_title
+):
+    """Run the actual CASE: preserve NEXUS work, never import external criteria."""
+    source = IMPORTER.read_text()
+    expression = re.search(rf"{column}\s*=\s*(CASE.*?END),", source, re.S).group(1)
+    query = (
+        f"SELECT {expression} FROM (SELECT ? AS title, ? AS {column}) jobs "
+        f"CROSS JOIN (SELECT ? AS title, ? AS {column}) EXCLUDED"
+    )
+    expected = stored if incoming_title == "Python Developer" else reset
+    with sqlite3.connect(":memory:") as db:
+        result = db.execute(
+            query, ("Python Developer", stored, incoming_title, "external overwrite")
+        ).fetchone()[0]
+    assert result == expected
 
 
 def test_every_column_has_an_owner():
@@ -112,8 +156,6 @@ def test_is_open_belongs_to_nexus():
 
 def test_import_preserves_owner_and_pending_automatic_handoff():
     """Execute the import's real owner expression with both systems' values."""
-    import sqlite3
-
     source = IMPORTER.read_text()
     expression = re.search(r"recruiter_id\s*=\s*(CASE.*?END),", source, re.S).group(1)
     query = f"SELECT {expression} FROM (SELECT ? AS recruiter_id, ? AS is_open) jobs CROSS JOIN (SELECT ? AS recruiter_id) EXCLUDED"

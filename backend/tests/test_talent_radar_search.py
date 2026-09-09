@@ -422,7 +422,7 @@ def test_salary_layer_is_really_scored_on_the_radar_path(monkeypatch):
     candidate = SimpleNamespace(
         id=7,
         expected_rate_hourly=120.0,
-        expected_rate_currency=None,  # NULL = udokumentowane legacy PLN
+        expected_rate_currency="PLN",  # Comparability requires explicit currency
         cv_extracted_data=None,
     )
 

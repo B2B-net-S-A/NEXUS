@@ -64,7 +64,7 @@ def test_both_ranking_surfaces_share_the_containment_rule():
     """
     for module, fragment, gate in (
         ("app/api/matching.py", "ai-matches", "_gate_and_dealbreakers"),
-        ("app/api/recommendations.py", "recommendations", "filter_eligible_candidates"),
+        ("app/api/recommendations.py", "recommendations", "_gate_and_dealbreakers"),
     ):
         handler = _endpoint_name(module, fragment)
         assert gate in _calls_in(module, handler), (

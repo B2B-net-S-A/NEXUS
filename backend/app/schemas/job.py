@@ -13,6 +13,7 @@ from app.models.job import (
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.matching_requirements import MatchingRequirements
 
 
 class JobCreate(BaseModel):
@@ -50,6 +51,8 @@ class JobCreate(BaseModel):
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
+    matching_requirements: Optional[MatchingRequirements] = None
+    requirements_reviewed: bool = False
     must_skills: Optional[List[Any]] = None
     nice_skills: Optional[List[Any]] = None
     seniority: Optional[Seniority] = None
@@ -114,6 +117,8 @@ class JobUpdate(BaseModel):
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
+    matching_requirements: Optional[MatchingRequirements] = None
+    requirements_reviewed: bool = False
     must_skills: Optional[List[Any]] = None
     nice_skills: Optional[List[Any]] = None
     seniority: Optional[Seniority] = None
@@ -210,6 +215,8 @@ class JobResponse(BaseModel):
     hiring_manager_name: Optional[str] = None  # denormalized
     created_by: Optional[int]
     portals: Optional[Any]
+    matching_requirements: Optional[MatchingRequirements] = None
+    requirements_reviewed: bool = False
     must_skills: Optional[Any] = None
     nice_skills: Optional[Any] = None
     seniority: Optional[Seniority] = None

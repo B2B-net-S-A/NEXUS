@@ -264,6 +264,8 @@ def scoring_algorithm_version() -> str:
     # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
     # `mark_stale_for_profile` (patrz docstring wyżej).
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
+    payload["requirement_contract"] = "2026-09-09-and-of-or"
+    payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -388,10 +390,8 @@ class ScoreBreakdown:
             reason="brak screeningu",
         )
     )
-    # Post-processing adjustment layered on top of `total` when the candidate
-    # was present on semantically-similar historical jobs. NOT persisted in
-    # the match-score cache — recomputed per request because pipeline state
-    # changes too often to warrant explicit invalidation.
+    # Deprecated compatibility field: always zero on current recommendation
+    # paths. Process history is separate evidence, never extra base-fit points.
     historical_boost: float = 0.0
     historical_sources_count: int = 0
     # Plan PR8/4.2: input-data completeness in [0,1], SEPARATE from `total`.
@@ -744,6 +744,11 @@ def job_explicit_must_skills(job) -> list[str]:
     `getattr` na wejściu: obiekt bez `must_skills` (np. atrapa testowa) daje
     pustą listę zamiast `AttributeError`.
     """
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)["must"] if contract.reviewed else []
     explicit = canonical_skill_names(getattr(job, "must_skills", None))
     if explicit or getattr(job, "requirements_reviewed", False):
         return explicit
@@ -752,6 +757,11 @@ def job_explicit_must_skills(job) -> list[str]:
 
 def job_skill_requirements(job) -> dict[str, list[str]]:
     """Shared interpretation for scoring, preview and explicit hard gates."""
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)
     must = canonical_skill_names(getattr(job, "must_skills", None))
     nice = canonical_skill_names(getattr(job, "nice_skills", None))
     if getattr(job, "requirements_reviewed", False):
@@ -804,7 +814,7 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     # A technology explicitly naming the role supplies a soft requirement.
     # It still cannot become a hard dealbreaker (job_explicit_must_skills).
     title = getattr(job, "title", None)
-    if isinstance(title, str) and title.strip():
+    if isinstance(title, str) and title.strip() and not result["must"]:
         title_skills = classify_requirements(
             "Wymagane: " + _strip_role_words(title), _alias_pattern(), ALIAS_MAP
         )["must"]
@@ -982,6 +992,14 @@ def _canon_skill(s: str) -> str:
 def skill_present(required: str, candidate_skills) -> bool:
     """True if a required skill is present among the candidate's skills, using
     exact match plus tolerant canonicalization for common name variants."""
+    from app.services.requirement_contract import alternatives
+
+    options = alternatives(required)
+    if len(options) > 1:
+        return any(
+            skill_present(ALIAS_MAP.get(option.lower(), option), candidate_skills)
+            for option in options
+        )
     if required in candidate_skills:
         return True
     req_canon = _canon_skill(required)
@@ -1006,10 +1024,20 @@ def _score_skills(
     # column; without the fallbacks every required skill showed as a gap.
     cand_skills = candidate_skill_names(candidate)
 
-    must_match = [s for s in must if s in cand_skills]
-    must_gap = [s for s in must if s not in cand_skills]
-    nice_match = [s for s in nice if s in cand_skills]
-    nice_gap = [s for s in nice if s not in cand_skills]
+    from app.services.requirement_verification import reviewed_label_status
+
+    def matches(label, level):
+        reviewed = reviewed_label_status(candidate, job, label, level)
+        return (
+            reviewed == "met"
+            if reviewed is not None
+            else skill_present(label, cand_skills)
+        )
+
+    must_match = [s for s in must if matches(s, "must")]
+    must_gap = [s for s in must if not matches(s, "must")]
+    nice_match = [s for s in nice if matches(s, "nice")]
+    nice_gap = [s for s in nice if not matches(s, "nice")]
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice
@@ -1126,19 +1154,19 @@ def _score_salary(
     job_min = job.salary_min
     job_max = job.salary_max
 
-    from app.services.candidate_profile_rate import (
-        is_canonical_profile_rate_currency,
+    from app.services.dealbreaker_filters import (
+        _candidate_rate_pln_hourly,
+        resolve_job_budget_hourly,
     )
 
-    if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
+    if cand_rate is not None and str(cand_currency or "").strip().upper() != "PLN":
         return _unscored(
             max_pts,
-            "not_comparable: historyczna stawka ma niekanoniczną walutę "
-            "i wymaga ręcznej korekty",
+            "not_comparable: waluta stawki inna niż PLN lub nieznana; do weryfikacji",
             "not_comparable",
         )
-
-    champion_rate = _champion_hourly_rate(job)
+    cand_rate = _candidate_rate_pln_hourly(candidate)
+    champion_rate = resolve_job_budget_hourly(job)
     if champion_rate is not None and cand_rate is not None:
         # Jedyna para w tej samej jednostce (PLN/h vs PLN/h): stawka Championa
         # to budżet klienta NA KANDYDATA. Oczekiwania w budżecie = pełne
@@ -1148,7 +1176,7 @@ def _score_salary(
             return LayerResult(
                 points=max_pts,
                 max_points=max_pts,
-                reason=f"w budżecie Championa ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)",
+                reason=f"w budżecie requestu ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)",
             )
         overshoot = (cand - champion_rate) / champion_rate
         factor = max(0.0, 1.0 - overshoot / 0.30)
@@ -1156,7 +1184,7 @@ def _score_salary(
             points=max_pts * factor,
             max_points=max_pts,
             reason=(
-                f"ponad budżet Championa o {overshoot:.0%} "
+                f"ponad budżet requestu o {overshoot:.0%} "
                 f"({cand:.0f} > {champion_rate:.0f} PLN/h)"
             ),
         )
@@ -1747,6 +1775,7 @@ async def score_candidate_job(
     profile: WeightProfile = DEFAULT_PROFILE,
     context: Optional[JobScoringContext] = None,
     semantic_unavailable: bool = False,
+    base_fit: bool = False,
 ) -> ScoreBreakdown:
     """Compute the full ScoreBreakdown for one (candidate, job) pair."""
     import time as _time
@@ -1761,10 +1790,16 @@ async def score_candidate_job(
     salary = _score_salary(candidate, job, profile)
     location = _score_location(candidate, job, profile)
     availability = _score_availability(candidate, job, profile)
-    champion_fit = await _score_champion_fit(
-        candidate, job, db, profile, context=context
+    champion_fit = (
+        LayerResult(
+            points=0, max_points=0, reason="screening oceniany osobno", scored=False
+        )
+        if base_fit
+        else await _score_champion_fit(candidate, job, db, profile, context=context)
     )
-    penalties = await _check_penalties(candidate, job, db, context=context)
+    penalties = (
+        [] if base_fit else await _check_penalties(candidate, job, db, context=context)
+    )
 
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import logging
 import sys
 from pathlib import Path
@@ -56,6 +57,7 @@ from app.services.embedding_service import (  # noqa: E402
     _collection,
     _jobs_collection,
     _voyage_embed_batch,
+    _voyage_model,
 )
 
 logger = logging.getLogger("reembed_collections")
@@ -308,7 +310,9 @@ async def _reembed_candidates(
         if embeddings is None:
             processed += len(chunk)
             failed += len(chunk)
-            logger.warning("[reembed candidates] batch %s-%s failed entirely", i, i + len(chunk))
+            logger.warning(
+                "[reembed candidates] batch %s-%s failed entirely", i, i + len(chunk)
+            )
             continue
 
         points: list[dict] = []
@@ -326,6 +330,8 @@ async def _reembed_candidates(
                     # nie czyta go z payloadu, a PII w indeksie to koszt RODO.
                     payload={
                         "candidate_id": int(c.id),
+                        "content_hash": hashlib.sha256(texts[j].encode()).hexdigest(),
+                        "embedding_model": _voyage_model(),
                         "competence_category": c.competence_category or "",
                     },
                 )
@@ -431,7 +437,9 @@ async def _reembed_jobs(
         if embeddings is None:
             processed += len(chunk)
             failed += len(chunk)
-            logger.warning("[reembed jobs] batch %s-%s failed entirely", i, i + len(chunk))
+            logger.warning(
+                "[reembed jobs] batch %s-%s failed entirely", i, i + len(chunk)
+            )
             continue
 
         points: list[dict] = []
@@ -486,7 +494,9 @@ async def _reembed_jobs(
 
 
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--target", choices=["candidates", "jobs", "all"], default="all")
     p.add_argument(
         "--ensure-collection",
@@ -497,7 +507,9 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             "(QDRANT_COLLECTION wskazuje nową, jeszcze nieistniejącą)"
         ),
     )
-    p.add_argument("--commit", action="store_true", help="actually call Voyage + upsert Qdrant")
+    p.add_argument(
+        "--commit", action="store_true", help="actually call Voyage + upsert Qdrant"
+    )
     p.add_argument("--dry-run", action="store_true", help="count only, no API calls")
     p.add_argument(
         "--batch",
@@ -505,8 +517,12 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=128,
         help="Voyage batch size (max 128, default 128 for ~390 calls / 50K candidates)",
     )
-    p.add_argument("--limit", type=int, default=None, help="cap number of entities (testing)")
-    p.add_argument("--log-every", type=int, default=100, help="progress log every N entities")
+    p.add_argument(
+        "--limit", type=int, default=None, help="cap number of entities (testing)"
+    )
+    p.add_argument(
+        "--log-every", type=int, default=100, help="progress log every N entities"
+    )
     p.add_argument(
         "--only-missing",
         action="store_true",

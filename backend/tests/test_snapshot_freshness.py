@@ -72,7 +72,7 @@ async def _snapshot(snap_id: int):
 
 
 async def test_compute_stamps_run_id_fingerprint_and_clears_stale(monkeypatch):
-    from app.services import embedding_service, match_score_cache
+    from app.services import embedding_service, canonical_fit
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
         create_pending_snapshot,
@@ -86,7 +86,7 @@ async def test_compute_stamps_run_id_fingerprint_and_clears_stale(monkeypatch):
 
     monkeypatch.setattr(embedding_service, "search_candidates_semantic", _empty)
     monkeypatch.setattr(embedding_service, "embed_job", _noop)
-    monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", _empty)
+    monkeypatch.setattr(canonical_fit, "score_candidates", _empty)
 
     job_id = await _seed_job()
     snap_id = await create_pending_snapshot(job_id, source="handoff")
