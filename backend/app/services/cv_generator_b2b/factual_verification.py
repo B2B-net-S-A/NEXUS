@@ -155,12 +155,18 @@ def verify_final_cv(
         )
         try:
             reviewed = ReviewBatch.model_validate_json(response)
-        except ValidationError:
-            # Pydantic errors contain model input; do not expose source text in logs.
-            raise FactualVerificationError() from None
+        except ValidationError as error:
+            # Export only a fixed failure category, never validation details or input.
+            invalid_json = any(
+                item["type"] == "json_invalid"
+                for item in error.errors(include_input=False, include_url=False)
+            )
+            raise FactualVerificationError(
+                reason="invalid_json" if invalid_json else "invalid_schema"
+            ) from None
         paths = [item.path for item in reviewed.claims]
         if len(set(paths)) != len(paths) or set(paths) != set(batch):
-            raise FactualVerificationError()
+            raise FactualVerificationError(reason="invalid_coverage")
         rejected = []
         invalid_evidence = []
         for item in reviewed.claims:

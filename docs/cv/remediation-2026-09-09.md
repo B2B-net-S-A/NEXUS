@@ -245,3 +245,15 @@ CV-08 nadal częściowe: jawny wybór i zamrożenie pełnych źródeł do zadani
 ## Responsibility limits without substring truncation (draft)
 
 The factual pipeline rewrites only retained responsibility bullets exceeding the client limit, in one bounded provider call. It validates complete path coverage and lengths before applying changes; empty/overlong/ellipsis responses block the document. Final factual verification sees the rewritten text and original sources, with explicit preservation of training/academic/assisted-work qualifications. Forty focused tests pass, including a rejected training-to-production rewrite before DOCX. Actual-model success, false rejections and added latency/cost remain unmeasured; this package is not active in production.
+
+### Recovered verifier smoke result and diagnostic categories
+
+Receipt `34365301060-1` (runtime d511b13d, prompt fingerprint 74dc405a)
+completed four primary-model cases: two English cases passed, both Polish cases
+returned `invalid_review`. All four provider calls were metered; estimated cost
+was USD 0.013698. This is a negative smoke result, not a full CV benchmark or
+proof that the current prompt detects hallucinations. Recovery task cleanup was
+confirmed. The inactive quality branch now distinguishes invalid JSON, schema,
+and claim coverage using fixed codes only; no raw response is logged. These
+protocol failures never count as successful semantic rejections. 44 focused gate
+and transport tests pass. No live activation or further model run is implied.

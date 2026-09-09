@@ -176,6 +176,9 @@ def metric_report(message, config, corpus_hash):
                 "accepted",
                 "semantic_rejection",
                 "invalid_review",
+                "invalid_json",
+                "invalid_schema",
+                "invalid_coverage",
                 "invalid_evidence",
                 "provider_error",
             }:

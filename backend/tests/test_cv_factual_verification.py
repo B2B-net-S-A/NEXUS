@@ -111,8 +111,17 @@ def test_incomplete_or_fabricated_review_cannot_approve(monkeypatch, mutation):
         return json.dumps(result)
 
     monkeypatch.setattr(gate, "analyze_with_ai", response)
-    with pytest.raises(gate.FactualVerificationError):
+    with pytest.raises(gate.FactualVerificationError) as caught:
         run_gate()
+    expected_reason = {
+        "missing": "invalid_coverage",
+        "duplicate": "invalid_coverage",
+        "extra": "invalid_coverage",
+        "unknown_source": "invalid_schema",
+        "non_json": "invalid_json",
+    }.get(mutation, "invalid_evidence")
+    assert caught.value.reason == expected_reason
+    assert str(caught.value) == "CV source verification did not pass"
 
 
 @pytest.mark.parametrize(
@@ -297,7 +306,14 @@ def test_versioned_diagnostic_corpus_and_scoring_distinguish_errors():
     assert len(cases) == 40 and len(fingerprint) == 64
     assert score(True, "accepted")
     assert score(False, "semantic_rejection")
-    for broken in ("provider_error", "invalid_review", "invalid_evidence"):
+    for broken in (
+        "provider_error",
+        "invalid_review",
+        "invalid_evidence",
+        "invalid_json",
+        "invalid_schema",
+        "invalid_coverage",
+    ):
         assert not score(False, broken)
         assert not score(True, broken)
 
