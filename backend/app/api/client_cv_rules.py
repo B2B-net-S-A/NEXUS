@@ -78,11 +78,13 @@ from app.services.cv_generator_b2b.client_rules import (
 )
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
+    CandidateGenerationSource,
     generate_cv_from_candidate_source,
     load_candidate_generation_source,
     prepare_source_facts,
     list_recruitments_with_readiness,
 )
+from app.services.cv_generator_b2b.upload_preflight import validate_cv_file
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -478,6 +480,7 @@ class PromptPreview(BaseModel):
 
 
 class PreviewRequest(BaseModel):
+    cv_document_id: int | None = Field(default=None, ge=1)
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
     language: Literal["pl", "en"] = "pl"
@@ -1404,6 +1407,7 @@ async def _run_rule_preview_job(
     language: str,
     quota_state: "QuotaState | None" = None,
     quota_user_id: int | None = None,
+    source: CandidateGenerationSource | None = None,
 ) -> None:
     """Dwie generacje w tle: z regułą (zapisaną, choćby niezatwierdzoną)
     i bez. Awaria którejkolwiek = wiersz „failed" z powodem; nic nie jest
@@ -1429,6 +1433,7 @@ async def _run_rule_preview_job(
             candidate_id=candidate_id,
             stage_id=stage_id,
             language=language,
+            source=source,
         )
 
 
@@ -1439,6 +1444,7 @@ async def _run_rule_preview_job_inner(
     candidate_id: int,
     stage_id: int,
     language: str,
+    source: CandidateGenerationSource | None = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(ClientCvRulePreview, preview_id)
@@ -1454,7 +1460,7 @@ async def _run_rule_preview_job_inner(
             frozen = ClientCvRule()
             _apply_payload(frozen, recipe)
             snap = snapshot_rule(frozen)
-            source = await load_candidate_generation_source(
+            source = source or await load_candidate_generation_source(
                 db,
                 candidate_id=candidate_id,
                 stage_id=stage_id,
@@ -1602,6 +1608,26 @@ async def enqueue_client_cv_rule_preview(
         stage_id=payload.stage_id,
         recipe_snapshot=recipe_snapshot,
     )
+    try:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            cv_document_id=payload.cv_document_id,
+        )
+        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if (source.candidate_id, source.stage_id, source.client_id) != (
+        payload.candidate_id,
+        payload.stage_id,
+        client_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Źródła rekrutacji zmieniły się. Wybierz proces ponownie.",
+        )
     # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
     # kolejnego — bez osobnego crona.
     from sqlalchemy import delete as sa_delete
@@ -1656,6 +1682,7 @@ async def enqueue_client_cv_rule_preview(
         # ustawiony przez handler nie dożywa do `BackgroundTasks`.
         quota_state=quota_state,
         quota_user_id=current_user.id,
+        source=source,
     )
     return _preview_read(row)
 

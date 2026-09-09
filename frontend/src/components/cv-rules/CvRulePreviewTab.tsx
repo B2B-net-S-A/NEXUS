@@ -13,6 +13,7 @@
  * innego klienta na cudzej rekrutacji niczego by nie pokazała.
  */
 
+import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -177,6 +178,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
   const [candidateQuery, setCandidateQuery] = useState("");
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [stageId, setStageId] = useState<string>("");
+  const sourceSelection = useCvSourceSelection(candidate?.id, true);
   const [enqueueError, setEnqueueError] = useState("");
   const [enqueuing, setEnqueuing] = useState(false);
 
@@ -227,12 +229,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
   const selected = recruitments.find((r) => String(r.stage_id) === stageId) ?? null;
 
   const enqueue = async () => {
-    if (!candidate || !selected) return;
+    if (!candidate || !selected || !sourceSelection.selected) return;
     setEnqueuing(true);
     setEnqueueError("");
     try {
       const row = await cvRulesApi.enqueuePreview(clientId, {
         candidate_id: candidate.id,
+        cv_document_id: sourceSelection.selected.id,
         stage_id: selected.stage_id,
         language,
       });
@@ -295,7 +298,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
       <section className="space-y-3">
         <h4 className="text-xs font-medium">CV próbne — z regułą i bez, obok siebie</h4>
         <p className="text-xs text-muted-foreground">
-          Dwie generacje (2-3 min, dwa obciążenia kwoty generatora). Wynik nie
+          Dwie generacje (jedna rezerwacja dwóch jednostek limitu). Wynik nie
           trafia na listę „Wygenerowane CV”. Podgląd używa reguły ZAPISANEJ,
           także niezatwierdzonej.
         </p>
@@ -368,12 +371,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
             ) : null}
           </div>
         </div>
+        {candidate && <CvSourcePicker selection={sourceSelection} />}
         <div className="flex items-center gap-3">
           <Button
             type="button"
             size="sm"
             loading={enqueuing}
-            disabled={!candidate || !selected || enqueuing || preview?.status === "processing"}
+            disabled={!candidate || !selected || !sourceSelection.selected || enqueuing || preview?.status === "processing"}
             onClick={enqueue}
           >
             Wygeneruj CV próbne

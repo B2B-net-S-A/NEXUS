@@ -134,7 +134,10 @@ async def test_restoration_creates_draft_without_reverting_live_flags(monkeypatc
     assert rule.edit_revision == 5
 
 
-async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypatch):
+@pytest.mark.parametrize("captured", [False, True])
+async def test_preview_uses_queued_recipe_without_reading_changed_rule(
+    monkeypatch, captured
+):
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.services.cv_generator_b2b.standalone_service import GenerationResult
 
@@ -172,10 +175,18 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypat
     monkeypatch.setattr(api, "load_candidate_generation_source", load_source)
     monkeypatch.setattr(api, "generate_cv_from_candidate_source", generate)
     await api._run_rule_preview_job_inner(
-        1, client_id=26, candidate_id=2, stage_id=3, language="en"
+        1,
+        client_id=26,
+        candidate_id=2,
+        stage_id=3,
+        language="en",
+        source=source if captured else None,
     )
     assert row.status == "ready"
-    load_source.assert_awaited_once()
+    if captured:
+        load_source.assert_not_awaited()
+    else:
+        load_source.assert_awaited_once()
     prepare.assert_called_once()
     assert all(
         call.kwargs["prepared_source_facts"] is facts

@@ -531,8 +531,20 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         from types import SimpleNamespace
 
+        from io import BytesIO
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Synthetic candidate CV with source experience.")
+        buffer = BytesIO()
+        document.save(buffer)
         frozen_source = SimpleNamespace(
-            cv_bytes=b"cv", cv_filename="cv.docx", screening_notes_text="notes"
+            cv_bytes=buffer.getvalue(),
+            cv_filename="cv.docx",
+            screening_notes_text="notes",
+            candidate_id=candidate_id,
+            stage_id=stage_id,
+            client_id=cid,
         )
         monkeypatch.setattr(
             api_module, "prepare_source_facts", lambda **kwargs: object()

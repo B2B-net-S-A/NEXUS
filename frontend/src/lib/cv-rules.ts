@@ -279,7 +279,7 @@ export const cvRulesApi = {
     ).data,
   enqueuePreview: async (
     clientId: number,
-    body: { candidate_id: number; stage_id: number; language: CvRuleLanguage },
+    body: { candidate_id: number; stage_id: number; cv_document_id?: number; language: CvRuleLanguage },
   ) =>
     (await api.post<RulePreview>(`/api/clients/${clientId}/cv-rule/preview`, body))
       .data,

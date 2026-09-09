@@ -55,3 +55,9 @@ Wspólny formularz samodzielny/osadzony pobiera listę obsługiwanych plików ka
 Dla zgodności starszych wywołań API cv_document_id pozostaje opcjonalne; stary osobny modal i próbki reguł wymagają jeszcze wyrównania. Nie jest to trwały snapshot zadania. 29 regresji źródeł/gotowości, następnie 7 testów wyboru/przyjęcia oraz 16 testów formularza przeszło; TypeScript i Ruff bez błędów. Produkcyjny wybór konkretnego pliku czeka na wdrożenie tego PR.
 
 Wybór źródła jest wspólnym komponentem i hookiem także w starszym CVGeneratorV2. Starszy modal przesyła wybrane ID, blokuje start bez niego i czyści wybór przy zamknięciu. Zmiana kandydata resetuje proces, zgodę, wynik i błąd; wybór źródła jest dodatkowo powiązany z ID osoby. 16 testów formularza i TypeScript przeszły po współdzieleniu kodu. Osobny test zmiany osoby sprawdza wyłączenie generacji i konieczność wyboru nowego dokumentu.
+
+## Źródło podglądu reguł klienta
+
+Podgląd korzysta z tego samego wyboru konkretnego pliku co generator. API przechwytuje źródła przed rezerwacją dwóch jednostek, sprawdza czytelność pliku i zgodność kandydata/procesu/klienta, a potem przekazuje snapshot do workera. Oba warianty używają tych samych bajtów i jednego zestawu faktów. Normalna ścieżka workera nie odczytuje ponownie bieżącego CV; zgodność starszych bezpośrednich wywołań zachowano przez opcjonalny argument. Snapshot nadal znajduje się w pamięci procesu — trwałe zadania i odtworzenie po restarcie pozostają osobnym, otwartym wymaganiem.
+
+19 testów publikacji/gotowości/wyboru oraz test interfejsu podglądu przeszły; TypeScript i Ruff bez błędów. Test backendowy weryfikuje brak ponownego odczytu źródła, test UI wymaga wyboru pliku i sprawdza przekazanie jego ID. Test API z bazą używa poprawnego syntetycznego DOCX i będzie wykonany w hosted CI.
