@@ -30,12 +30,17 @@ CI, merge, expected deployment revision and relevant production verification.
 
 ## Current evidence boundary
 
-PR #1444 remains the single delivery PR. CI run 34407704731 passed all four
-backend shards and frontend build for `96d9ff50`. CI 34409180558 is running for
-`2d5a3c80`; its CI Gate is successful. Later immutable-asset and review-reuse
-changes remain local on the same branch. These gates do not prove semantic model
-quality or production behavior. No consolidated completion or production deployment
-is claimed. Detailed subsequent evidence is in `consolidated-delivery-2026-09-09.md`.
+PR #1444 remains the single delivery PR. CI 34412484203 passed all four backend
+shards and frontend build for `5b9c1d15`. Its separate formatting gate failed;
+the correction is in `d2495aa0`, whose CI Gate 34413855623 passed. Main CI
+34413855594 for that revision remains in progress at this checkpoint.
+Generation-time template/consent retention (migration 0298, `abd092c2`) and its
+offline-storage tests (`0b952fe4`) are committed locally and not covered by those
+runs. Request retry receipts and browser retry keys are implemented in the
+pushed revision; concurrent PostgreSQL tests still await that run's result.
+These gates do not prove semantic model quality or production behavior.
+No consolidated completion or production deployment is claimed. Detailed
+subsequent evidence is in `consolidated-delivery-2026-09-09.md`.
 
 ## Verification ledger
 
