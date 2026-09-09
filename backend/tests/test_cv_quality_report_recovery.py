@@ -13,6 +13,23 @@ from scripts.read_cv_quality_report import project, read_receipt
 from tests.test_cv_quality_ops import ENV, ops, payload, message
 
 
+def test_optional_response_schema_fingerprint_survives_receipt_and_transport():
+    report = {**payload(), "response_schema_sha256": "d" * 64}
+    projected = project(report, "123-1")
+    assert projected["response_schema_sha256"] == "d" * 64
+    decoded = ops.metric_report(message(report), ops.configuration(ENV), "b" * 64)
+    assert decoded["response_schema_sha256"] == "d" * 64
+
+
+@pytest.mark.parametrize("digest", [None, "", "private contents", "d" * 63])
+def test_response_schema_fingerprint_cannot_export_arbitrary_text(digest):
+    report = {**payload(), "response_schema_sha256": digest}
+    with pytest.raises(ValueError):
+        project(report, "123-1")
+    with pytest.raises(ops.OpsError):
+        ops.metric_report(message(report), ops.configuration(ENV), "b" * 64)
+
+
 def test_recovery_command_can_only_read_a_fixed_receipt():
     config = ops.configuration(
         {**ENV, "RECOVER_RUN_ID": "456-1", "RECOVER_SOURCE_SHA": "b" * 40}
