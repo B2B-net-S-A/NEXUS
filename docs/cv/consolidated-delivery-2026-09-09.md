@@ -109,3 +109,25 @@ upload inputs prevents admission; rejection cleans only its newly uploaded
 snapshot. Transaction failure after admission and general orphan/retention
 handling remain open. Main fetched at this check remained 561f02ca; branch
 migration graph has one head, 0291_cv_preview_docx.
+
+## Edited-content approval gate (branch implementation, acceptance pending)
+
+Approval now compares the generated factual payload digest with its verifier
+receipt and binds that receipt to the initial sanitized editor HTML. Changed
+HTML cannot inherit the original result. The approval path renders/validates
+assets first, then reviews changed content against the immutable source snapshot
+of the selected generation, within ordinary CV quota admission. Unsupported
+claims or provider failure prevent freezing the approved version and snapshot.
+Tests cover altered tenure, stale payload digests, source corruption/unavailability,
+rejection before approval writes and provider failure. Existing renderer/version
+unit tests stub successful review only where testing those separate contracts.
+
+This is not full CV-10 acceptance. Review currently executes in the finalize
+request while its row lock is held; asynchronous review, durable result caching,
+request-timeout/retry behavior and real-model latency must still be addressed.
+Older generations without snapshots require source reselection/regeneration;
+embedded editor images currently require a separate review path. The editor
+projection preserves ordered text/negation/table boundaries but its semantic
+acceptance, headings, legal consent and blind-document behavior still need real
+corpus evaluation. No production verification or Delivery Lead acceptance is
+claimed for this gate.
