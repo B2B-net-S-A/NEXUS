@@ -60,9 +60,9 @@ it("finalize before the autosave interval must include the last edit", async () 
     stageId={21} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
   await screen.findByText("Szkic v1");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New verified text</p>"}});
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź", exact:true}));
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
   await screen.findByText("Sfinalizować brandowane CV?");
-  fireEvent.click(screen.getByRole("button", {name: "Sfinalizuj", exact:true}));
+  fireEvent.click(screen.getByRole("button", {name: "Sfinalizuj"}));
   await waitFor(() => expect(state.status).toBe("finalized"));
   expect(state.snapshot).toBe("<p>New verified text</p>");
 });
