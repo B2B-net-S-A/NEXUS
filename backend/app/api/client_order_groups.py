@@ -2320,6 +2320,7 @@ async def update_order_group(
             raise HTTPException(409, detail="Zamówienie ma już wpis zużycia MD")
         if requested_mode not in ("per_person", "shared"):
             raise HTTPException(422, detail="Nieprawidłowy tryb budżetu MD")
+        previous_mode = group.md_budget_mode
         if requested_mode != group.md_budget_mode:
             draft_lines = await lines_for_group(db, group.id)
             if any(
@@ -2361,6 +2362,18 @@ async def update_order_group(
                 )
             group.status = GROUP_STATUS_SCHEDULED
             group.md_budget_mode_locked = True
+        record_event(
+            db,
+            group_id=group.id,
+            event_type=EVENT_MANUAL_EDIT,
+            description=f"Tryb budżetu MD: {previous_mode} → {requested_mode}; status: {group.status}",
+            payload={
+                "previous_mode": previous_mode,
+                "md_budget_mode": requested_mode,
+                "status": group.status,
+            },
+            user_id=user.id,
+        )
         await db.flush()
 
     new_start = data.get("start_date", group.start_date)

@@ -35,6 +35,7 @@ class OrderExportRow:
     allocation: Optional[Decimal] = None
     consumption: Optional[Decimal] = None
     order_type: Optional[str] = None
+    remaining_md: Optional[Decimal] = None
 
 
 BASE_HEADERS = (
@@ -124,6 +125,9 @@ def export_rows_for_group(
                 end_date=group.end_date,
                 allocation=group.md_budget_total,
                 consumption=group.md_budget_used,
+                remaining_md=group.md_budget_remaining
+                if group.md_budget_mode is not None
+                else None,
             )
         )
     if not group.lines:
@@ -143,6 +147,9 @@ def export_rows_for_group(
                     else None
                 ),
                 consumption=(group.md_budget_used if shared_md else None),
+                remaining_md=group.md_budget_remaining
+                if group.md_budget_mode is not None and shared_md
+                else None,
             )
         )
         return rows
@@ -174,6 +181,9 @@ def export_rows_for_group(
                     None if group.is_cost_based or shared_md else line.md_total
                 ),
                 consumption=consumption,
+                remaining_md=line.md_remaining
+                if group.md_budget_mode == "per_person"
+                else None,
             )
         )
     return rows
@@ -202,10 +212,14 @@ def build_orders_workbook(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Zamówienia"
+    include_remaining = include_model_columns and any(
+        row.remaining_md is not None for row in rows
+    )
     headers = [
         *BASE_HEADERS,
         *(MODEL_HEADERS if include_model_columns else ()),
         *((ORDER_TYPE_HEADER,) if include_order_type else ()),
+        *(("Pozostały budżet MD",) if include_remaining else ()),
     ]
     sheet.append(headers)
 
@@ -227,6 +241,8 @@ def build_orders_workbook(
             values.extend([item.allocation, item.consumption])
         if include_order_type:
             values.append(_safe_text(item.order_type or ""))
+        if include_remaining:
+            values.append(item.remaining_md)
         sheet.append(values)
 
     for row in sheet.iter_rows(min_row=2):
@@ -237,6 +253,11 @@ def build_orders_workbook(
             if column <= len(row) and row[column - 1].value is not None:
                 row[column - 1].number_format = "#,##0.######;[Red]-#,##0.######"
 
+    if include_remaining:
+        for cell in sheet.iter_rows(
+            min_row=2, min_col=len(headers), max_col=len(headers)
+        ):
+            cell[0].number_format = "#,##0.######;[Red]-#,##0.######"
     widths = [
         30,
         20,
@@ -245,6 +266,7 @@ def build_orders_workbook(
         27,
         *([31, 24] if include_model_columns else []),
         *([18] if include_order_type else []),
+        *([24] if include_remaining else []),
     ]
     for index, width in enumerate(widths[: len(headers)], start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width

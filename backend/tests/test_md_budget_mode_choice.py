@@ -67,6 +67,16 @@ def test_generic_shared_export_aggregates_once():
     rows = export_rows_for_group(group)
     assert [r.allocation for r in rows] == [100, None, None]
     assert [r.consumption for r in rows] == [25, None, None]
+    assert [r.remaining_md for r in rows] == [75, None, None]
+    import io
+    from openpyxl import load_workbook
+    from app.services.order_excel_export import build_orders_workbook
+
+    sheet = load_workbook(
+        io.BytesIO(build_orders_workbook(rows, include_model_columns=True))
+    ).active
+    assert sheet.cell(1, 8).value == "Pozostały budżet MD"
+    assert sheet.cell(2, 8).value == 75
 
 
 @pytest.mark.asyncio
@@ -187,3 +197,86 @@ async def test_new_line_currency_round_trip_without_silent_pln(
     )
     assert date_only.status_code == 200, date_only.text
     assert date_only.json()["rate_client_currency"] == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_generic_shared_import_sums_two_consultants_and_replay_is_idempotent(
+    app_client, app_auth_headers
+):
+    from tests.test_order_lifecycle_and_cost import (
+        _seed_client_with_contracts as seed_with_names,
+        _cost_line,
+        _sheet,
+        _finance_headers,
+        _import_sheet,
+    )
+
+    client_id, contracts, names = await seed_with_names(2)
+    number = str(9870000000 + client_id)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        headers=app_auth_headers,
+        json={
+            "order_number": number,
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
+            "order_type": "md",
+            "md_budget_mode": "shared",
+            "md_budget_total": 100,
+            "lines": [_cost_line(contract) for contract in contracts],
+        },
+    )
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+    finance = await _finance_headers(app_client)
+    payload = _sheet([(names[0], 12.5, number, 0), (names[1], 17.5, number, 0)])
+    period = business_today().strftime("%Y-%m")
+    for _ in range(2):
+        imported = await _import_sheet(app_client, finance, payload, period=period)
+        assert imported["rows_applied"] == 2
+        groups = await app_client.get(
+            f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+        )
+        group = next(g for g in groups.json()["groups"] if g["id"] == group_id)
+        assert group["md_budget_used"] == 30
+        assert group["md_budget_remaining"] == 70
+        assert all(line["md_total"] is None for line in group["lines"])
+
+
+@pytest.mark.asyncio
+async def test_first_zero_consumption_permanently_locks_draft_mode(
+    app_client, app_auth_headers
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.services.client_order_lines import upsert_consumption
+
+    client_id, contracts = await _seed_client_with_contracts(1)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        headers=app_auth_headers,
+        json={
+            "order_number": f"LOCK-{client_id}",
+            "start_date": (business_today() - timedelta(days=5)).isoformat(),
+            "order_type": "md",
+            "md_budget_mode": "per_person",
+            "status": "draft",
+            "lines": [_md_line(contracts[0])],
+        },
+    )
+    assert response.status_code == 201, response.text
+    group = response.json()
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, group["lines"][0]["id"])
+        await upsert_consumption(
+            db,
+            order=order,
+            period_month=business_today().strftime("%Y-%m"),
+            md_reported=Decimal("0"),
+        )
+        await db.commit()
+    response = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        headers=app_auth_headers,
+        json={"md_budget_mode": "shared", "md_budget_total": 100},
+    )
+    assert response.status_code == 409, response.text

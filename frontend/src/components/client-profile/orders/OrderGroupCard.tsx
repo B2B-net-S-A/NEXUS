@@ -724,10 +724,10 @@ export function OrderGroupCard({
   // Sprawa pending pozostaje na widoku głównym do czasu decyzji, ale nie jest
   // już liczona jako aktywna obsada w awatarach nagłówka.
   const currentLines = sortedLines.filter(
-    (line) => line.is_active || line.offboarding_case?.status === "pending",
+    (line) => line.is_active || (group.status === "draft" && line.status === "draft") || line.offboarding_case?.status === "pending",
   );
   const completedLines = sortedLines.filter(
-    (line) => !line.is_active && line.offboarding_case?.status !== "pending",
+    (line) => !line.is_active && !(group.status === "draft" && line.status === "draft") && line.offboarding_case?.status !== "pending",
   );
   const isActive = group.status === "active";
 
@@ -860,7 +860,7 @@ export function OrderGroupCard({
                     completedLines.length === 0 && "sr-only",
                   )}
                 >
-                  Aktywna obsada
+                  {group.status === "draft" ? "Konsultanci w szkicu" : "Aktywna obsada"}
                 </h4>
                 {currentLines.length === 0 ? (
                   <p className="py-3 text-sm text-muted-foreground">
