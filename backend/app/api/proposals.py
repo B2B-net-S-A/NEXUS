@@ -120,8 +120,30 @@ async def _hydrate_current_items(db, job, snap):
     items = _hydrate_items(snap, visible)
     for item in items:
         item.eligibility = _eligibility_annotation(decisions[item.candidate.id])
-        # Do not expose a contradicting stale annotation in the score payload.
-        item.breakdown = {**item.breakdown, "eligibility": item.eligibility}
+        candidate = visible[item.candidate.id]
+        saved_version = item.breakdown.get("candidate_version")
+        if (
+            not saved_version
+            or candidate.updated_at is None
+            or saved_version != str(candidate.updated_at)
+        ):
+            item.total_score = None
+            item.breakdown = {
+                "candidate_id": item.candidate.id,
+                "total": None,
+                "measurement": "candidate_changed",
+                "eligibility": item.eligibility,
+            }
+        else:
+            # Stored authorization is never current, even when fit is fresh.
+            item.breakdown = {**item.breakdown, "eligibility": item.eligibility}
+    items.sort(
+        key=lambda item: (
+            item.total_score is None,
+            -(item.total_score or 0),
+            item.candidate.id,
+        )
+    )
     return items
 
 
@@ -157,6 +179,9 @@ async def get_latest_proposal(
 
     context_stale = await snapshot_is_stale_for_viewer(db, snap, job, current_user.id)
     items = await _hydrate_current_items(db, job, snap)
+    candidates_stale = any(
+        item.breakdown.get("measurement") == "candidate_changed" for item in items
+    )
     return ProposalSnapshotResponse(
         id=snap.id,
         job_id=snap.job_id,
@@ -166,8 +191,8 @@ async def get_latest_proposal(
         profile_id=snap.profile_id,
         created_at=snap.created_at,
         error_message=snap.error_message,
-        degraded=snap.degraded,
-        stale=context_stale,
+        degraded=snap.degraded or candidates_stale,
+        stale=context_stale or candidates_stale,
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=items,

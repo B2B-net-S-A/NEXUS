@@ -188,6 +188,7 @@ async def compute_proposal_for_job(
             snap.hidden = DealbreakerResult().hidden_meta()
             breakdowns: list = []
             fits_by_id = {}
+            candidate_versions = {}
             eligibility_annotations = {}
             if candidate_ids:
                 cand_res = await session.execute(
@@ -213,6 +214,7 @@ async def compute_proposal_for_job(
                 snap.hidden = hidden
 
                 if candidates:
+                    candidate_versions = {c.id: str(c.updated_at) for c in candidates}
                     fits = await score_candidates(session, fit_context, candidates)
                     fits_by_id = {fit.breakdown.candidate_id: fit for fit in fits}
                     breakdowns = [fit.breakdown for fit in fits]
@@ -254,6 +256,7 @@ async def compute_proposal_for_job(
                 {
                     **fits_by_id[b.candidate_id].as_dict(),
                     "eligibility": eligibility_annotations.get(b.candidate_id),
+                    "candidate_version": candidate_versions[b.candidate_id],
                 }
                 for b in breakdowns
             ]

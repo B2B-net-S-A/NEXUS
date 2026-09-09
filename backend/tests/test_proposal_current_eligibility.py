@@ -70,3 +70,52 @@ async def test_snapshot_read_does_not_swallow_eligibility_failure(monkeypatch):
         await proposals._hydrate_current_items(
             None, SimpleNamespace(id=7), SimpleNamespace()
         )
+
+
+@pytest.mark.asyncio
+async def test_changed_candidate_score_is_not_presented_as_current(monkeypatch):
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    candidates = {
+        i: Candidate(id=i, name="Test", lastname="Candidate", updated_at=now)
+        for i in [1, 2, 3]
+    }
+    snap = SimpleNamespace(
+        breakdowns=[
+            {
+                "candidate_id": 1,
+                "total": 90,
+                "candidate_version": str(now),
+                "matching_must": ["Python"],
+            },
+            {"candidate_id": 2, "total": 80, "candidate_version": str(now)},
+            {"candidate_id": 3, "total": 99},
+        ]
+    )
+    clean = evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
+    monkeypatch.setattr(
+        proposals, "_load_snapshot_candidates", AsyncMock(return_value=candidates)
+    )
+    monkeypatch.setattr(
+        "app.services.pipeline_eligibility.evaluate_candidates_for_job",
+        AsyncMock(return_value={i: clean for i in candidates}),
+    )
+    initial = await proposals._hydrate_current_items(None, SimpleNamespace(id=7), snap)
+    assert [(item.candidate.id, item.total_score) for item in initial] == [
+        (1, 90),
+        (2, 80),
+        (3, None),
+    ]
+    candidates[1].updated_at = now + timedelta(seconds=1)
+    current = await proposals._hydrate_current_items(None, SimpleNamespace(id=7), snap)
+    assert [(item.candidate.id, item.total_score) for item in current] == [
+        (2, 80),
+        (1, None),
+        (3, None),
+    ]
+    changed = current[1]
+    assert changed.breakdown["measurement"] == "candidate_changed"
+    assert changed.breakdown["total"] is None
+    assert "matching_must" not in changed.breakdown
+    assert snap.breakdowns[0]["total"] == 90
