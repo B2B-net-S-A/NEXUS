@@ -88,6 +88,10 @@ from app.services.ai_quota import (
     declared_call,
 )
 from app.services.cv_generator_b2b import consent_binding
+from app.services.cv_generator_b2b.upload_preflight import (
+    MAX_UPLOAD_BYTES,
+    validate_upload_inputs,
+)
 from app.services.cv_generator_b2b.client_rules import (
     required_input_problems,
     resolve_client_rule,
@@ -1473,7 +1477,7 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    cv_bytes = await cv_file.read()
+    cv_bytes = await cv_file.read(MAX_UPLOAD_BYTES + 1)
     consent = _verified_consent(
         rule,
         consent_screenshot_token,
@@ -1483,11 +1487,10 @@ async def generate_from_upload(
             cv_sha256=hashlib.sha256(cv_bytes).hexdigest(), client_id=client_id
         ),
     )
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
     if champion_file is not None and champion_file.filename:
-        champion_bytes = await champion_file.read()
+        champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
         champion_filename = champion_file.filename
 
     gen_payload = UploadGenerationInput(
@@ -1505,6 +1508,12 @@ async def generate_from_upload(
         position=position or "",
         project_ref=project_ref or "",
     )
+
+    try:
+        await run_in_threadpool(validate_upload_inputs, gen_payload)
+    except StandaloneGenerationError as error:
+        raise HTTPException(422, error.message) from error
+    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     # Provisional label until Claude parses the real name out of the CV.
     provisional = Path(cv_file.filename or "").stem or "Nowe CV"

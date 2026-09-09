@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import AsyncMock
+from io import BytesIO
+from docx import Document
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -53,13 +55,23 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
     monkeypatch.setattr(api, "_create_pending_row", pending)
     worker = AsyncMock()
     monkeypatch.setattr(api, "_run_declared", worker)
+    source = BytesIO()
+    document = Document()
+    document.add_paragraph("Audyt Testowy. Programista Python.")
+    document.save(source)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
             "/cv-generator/generate-upload",
             data=context,
-            files={"cv_file": ("synthetic.pdf", b"fake CV", "application/pdf")},
+            files={
+                "cv_file": (
+                    "synthetic.docx",
+                    source.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
         )
     assert response.status_code == expected, response.text
     if expected != 202:
