@@ -11,7 +11,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
-| CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
+| CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Implemented with explicit process selection and server cursor history; local tests pass, hosted DB >60-document regression and production proof pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
@@ -80,6 +80,7 @@ Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
 
 ## Draft persistence and approved versions
+
 
 Approval sends the editor's current HTML and expected revision as one command.
 All saves, approvals, revision creation and token creation serialize on the
@@ -152,6 +153,22 @@ model output, which remain the final factual gate's responsibility.
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
 
+
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
 
 ## Multipage letterhead regression (synthetic production CV)
 
