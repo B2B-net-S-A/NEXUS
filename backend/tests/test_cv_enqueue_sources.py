@@ -99,7 +99,11 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     pending = AsyncMock(return_value=11)
     worker = AsyncMock()
     monkeypatch.setattr(api, "_create_pending_row", pending)
-    monkeypatch.setattr(api, "_run_declared", worker)
+    from app.services.cv_generator_b2b import durable_jobs
+
+    persisted = AsyncMock(return_value=21)
+    monkeypatch.setattr(durable_jobs, "persist_job", persisted)
+    monkeypatch.setattr(durable_jobs, "execute_job", worker)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -116,8 +120,8 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     else:
         assert response.status_code == 202, response.text
         assert order == ["source", "charge"]
-        assert worker.call_args.kwargs["source"] is captured
-        assert worker.call_args.kwargs["rule_snapshot"] is None
+        assert persisted.call_args.kwargs["inputs"]["source"] is captured
+        assert persisted.call_args.kwargs["inputs"]["rule_snapshot"] is None
 
 
 async def test_second_language_and_requirement_map_do_not_reload_changed_inputs(

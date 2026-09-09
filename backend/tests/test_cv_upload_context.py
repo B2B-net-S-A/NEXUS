@@ -54,7 +54,11 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
     monkeypatch.setattr(api, "_charge_cv_generation_quota", charge)
     monkeypatch.setattr(api, "_create_pending_row", pending)
     worker = AsyncMock()
-    monkeypatch.setattr(api, "_run_declared", worker)
+    from app.services.cv_generator_b2b import durable_jobs
+
+    persisted = AsyncMock(return_value=21)
+    monkeypatch.setattr(durable_jobs, "persist_job", persisted)
+    monkeypatch.setattr(durable_jobs, "execute_job", worker)
     source = BytesIO()
     document = Document()
     document.add_paragraph("Audyt Testowy. Programista Python.")

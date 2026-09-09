@@ -599,35 +599,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("B2B generator seed skipped: %s", e)
 
-    # Generator CV — reaper osieroconych „processing" po restarcie serwera.
-    # Generacja CV leci w tle (BackgroundTasks); restart (np. redeploy Coolify)
-    # ubija zadanie, a wiersz zostałby w „processing" na wieki. Świeży proces =
-    # żadne z tych zadań nie przeżyło, więc każde „processing" jest osierocone →
-    # oznacz jako „failed", by rekruter dostał czytelny błąd zamiast spinnera.
-    try:
-        from sqlalchemy import update as _sa_update
-
-        from app.core.database import AsyncSessionLocal
-        from app.models.cv_generated_document import CvGeneratedDocument
-
-        async with AsyncSessionLocal() as _cv_db:
-            _reap = await _cv_db.execute(
-                _sa_update(CvGeneratedDocument)
-                .where(CvGeneratedDocument.status == "processing")
-                .values(
-                    status="failed",
-                    error_message=(
-                        "Generacja przerwana (restart serwera) — wygeneruj ponownie."
-                    ),
-                )
-            )
-            await _cv_db.commit()
-            if _reap.rowcount:
-                logger.info(
-                    "CV generator: reaped %d orphaned 'processing' rows", _reap.rowcount
-                )
-    except Exception as e:
-        logger.warning("CV generator reaper skipped: %s", e)
+    # Durable CV jobs recover queued work and expire only abandoned leases.
+    from app.services.cv_generator_b2b.durable_jobs import (
+        recovery_loop as cv_recovery_loop,
+    )
 
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
@@ -704,6 +679,7 @@ async def lifespan(app: FastAPI):
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
     app.state.background_tasks = {
+        "cv_generation": asyncio.create_task(cv_recovery_loop()),
         "candidate_search": asyncio.create_task(candidate_search_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),

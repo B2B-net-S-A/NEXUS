@@ -1460,28 +1460,31 @@ async def generate(
         client_id=client_id,
         job_id=stage.job_id,
     )
-    # Commit before scheduling/returning so the row is visible to both the poll
-    # and the background job (which opens its own session).
-    await db.commit()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
-    background_tasks.add_task(
-        _run_declared,
-        _run_generate_new_job,
-        generated_id,
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-        source=source,
-        rule_snapshot=rule_snapshot,
-        candidate_id=payload.candidate_id,
-        stage_id=payload.stage_id,
-        language=payload.language,
-        blind_cv=payload.blind_cv,
+    durable_id = await persist_job(
+        db,
+        generated_id=generated_id,
+        kind="new",
         user_id=current_user.id,
-        content_mode=effective_mode,
-        client_id=client_id,
-        project_ref=payload.project_ref or "",
-        consent_screenshot=consent,
+        inputs=dict(
+            quota_state=quota_state,
+            quota_user_id=current_user.id,
+            source=source,
+            rule_snapshot=rule_snapshot,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            blind_cv=payload.blind_cv,
+            user_id=current_user.id,
+            content_mode=effective_mode,
+            client_id=client_id,
+            project_ref=payload.project_ref or "",
+            consent_screenshot=consent,
+        ),
     )
+    await db.commit()
+    background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=candidate_name
     )
@@ -1659,18 +1662,23 @@ async def generate_from_upload(
         content_mode=effective_mode,
         client_id=client_id,
     )
-    await db.commit()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
-    background_tasks.add_task(
-        _run_declared,
-        _run_generate_upload_job,
-        generated_id,
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-        payload=gen_payload,
+    durable_id = await persist_job(
+        db,
+        generated_id=generated_id,
+        kind="upload",
         user_id=current_user.id,
-        consent_screenshot=consent,
+        inputs=dict(
+            quota_state=quota_state,
+            quota_user_id=current_user.id,
+            payload=gen_payload,
+            user_id=current_user.id,
+            consent_screenshot=consent,
+        ),
     )
+    await db.commit()
+    background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=provisional
     )
