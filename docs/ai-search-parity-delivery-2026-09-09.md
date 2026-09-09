@@ -384,3 +384,13 @@ The contract tests still exhaustively classify every Job column and reject all o
 ### Proposal fixture follows removal of implicit score floor
 
 Hosted shard 1 on fcf03ba1 (job 102437701177) found one obsolete expectation: a measured 28/100 candidate was expected to disappear from proposal snapshots. The implementation intentionally removed that hidden threshold in 41446759. The regression now retains measured 0/28/48 and unknown measurements, always checks the exact base fit/null, zero historical boost and separately reported history count. Five database cases collect successfully; Ruff/format/diff checks pass. Execution remains assigned to hosted CI. No scoring logic changed in this correction.
+
+### Full CI passes and production acceptance cases
+
+Revision `3edaa5fbb222524c2546386b020c360cfc2ecb42` passed the complete hosted CI run `34345928234`: all four PostgreSQL backend shards, their aggregate gate, frontend lint/typecheck/tests/build and the report-only image checks. CI Gate `34345928347` also passed, including the real migration upgrade/rollback/retry probe. This validates the corrected ownership and low-score proposal contracts in the hosted suite.
+
+Merged current main `aaae2102` (CV consent source/client binding, PR #1443) without conflicts. Thirteen native consent-binding backend tests and nineteen frontend consent/standalone-generator tests passed. The combined revision still requires its own hosted CI before merge; no production delivery is claimed by the earlier green run.
+
+Authenticated production Chrome supplied three read-only acceptance cases: job 565252 has an empty brief; job 143767 has a populated AI-imported Champion, a 120 PLN/h budget and hybrid work but empty raw description/requirements; job 14 has a saved Security Analyst description and prose requirements including `SIEM (Splunk lub QRadar)`. Job-edit dialogs were cancelled without changing fields or saving records.
+
+After C2 finished loading for job 14, it displayed five must skills (including Splunk), five nice skills (including QRadar), a default `Rzeszów / Kraków` location filter, zero ranked results and 199 exclusions for must-have. The initial zero must count was a transient loading state, not the final result. The loaded criteria differ from the raw prose alternative; underlying legacy field provenance was not established, so this observation does not authorize rewriting historical criteria. These cases support before/after UI and context-parity checks, not frozen recruiter relevance judgments. Index coverage/repair, deployed SHA/health, actual cost/latency and human quality review remain outstanding.
