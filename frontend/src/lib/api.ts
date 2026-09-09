@@ -3839,6 +3839,7 @@ export interface ProposalCandidateItem {
     status: string | null;
     champion: boolean | null;
   };
+  eligibility?: MatchEligibility | null;
   total_score: number | null;
   breakdown: Omit<ScoreBreakdown, "total"> & { total: number | null };
 }

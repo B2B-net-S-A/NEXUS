@@ -99,6 +99,32 @@ async def _load_snapshot_candidates(
     return {c.id: c for c in result.scalars().all()}
 
 
+async def _hydrate_current_items(db, job, snap):
+    """Recheck visibility on every read; stored annotations are historical only."""
+    from datetime import datetime, timezone
+    from app.api.matching import _eligibility_annotation
+    from app.services.pipeline_eligibility import evaluate_candidates_for_job
+    from app.services.candidate_job_eligibility import Visibility
+
+    candidates = await _load_snapshot_candidates(db, snap)
+    if not candidates:
+        return []
+    decisions = await evaluate_candidates_for_job(
+        db, job=job, candidate_ids=list(candidates), now=datetime.now(timezone.utc)
+    )
+    visible = {
+        cid: candidate
+        for cid, candidate in candidates.items()
+        if cid in decisions and decisions[cid].visibility != Visibility.hidden
+    }
+    items = _hydrate_items(snap, visible)
+    for item in items:
+        item.eligibility = _eligibility_annotation(decisions[item.candidate.id])
+        # Do not expose a contradicting stale annotation in the score payload.
+        item.breakdown = {**item.breakdown, "eligibility": item.eligibility}
+    return items
+
+
 @router.get("/jobs/{job_id}/proposals/latest", response_model=ProposalSnapshotResponse)
 @limiter.limit("30/minute")
 async def get_latest_proposal(
@@ -112,7 +138,7 @@ async def get_latest_proposal(
     UI polls this while `status="pending"`. Returns 404 only if the job has
     never had a snapshot (e.g. legacy jobs created before Phase 13).
     """
-    await _ensure_job_exists(db, job_id)
+    job = await _ensure_job_exists(db, job_id)
     # Read scope preserves the normal membership boundary for operational
     # roles and adds Finance's organization-wide business-data view. The
     # regenerate command below deliberately keeps ensure_job_membership.
@@ -127,8 +153,7 @@ async def get_latest_proposal(
         raise HTTPException(
             status_code=404, detail="No proposal snapshot yet for this job"
         )
-    candidates_by_id = await _load_snapshot_candidates(db, snap)
-    items = _hydrate_items(snap, candidates_by_id)
+    items = await _hydrate_current_items(db, job, snap)
     return ProposalSnapshotResponse(
         id=snap.id,
         job_id=snap.job_id,

@@ -90,6 +90,7 @@ function snapshotToMatches(snap: ProposalSnapshot): CandidateMatch[] {
       avatar_url: item.candidate.avatar_url,
     },
     total_score: item.total_score,
+    eligibility: item.eligibility,
     breakdown: item.total_score === null ? null : { ...item.breakdown, total: item.total_score },
   }));
 }

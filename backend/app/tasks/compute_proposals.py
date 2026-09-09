@@ -182,51 +182,35 @@ async def compute_proposal_for_job(
             # i dealbreakery nie miały na czym pracować (review #1207).
             from app.services.dealbreaker_filters import (
                 DealbreakerResult,
-                apply_dealbreakers,
             )
             from app.services.requirement_contract import search_dealbreaker_inputs
 
             snap.hidden = DealbreakerResult().hidden_meta()
             breakdowns: list = []
             fits_by_id = {}
+            eligibility_annotations = {}
             if candidate_ids:
                 cand_res = await session.execute(
                     select(Candidate).where(Candidate.id.in_(candidate_ids))
                 )
                 candidates = list(cand_res.scalars().all())
 
-                # P0-A: hard eligibility prefilter — the handoff snapshot IS the
-                # recruiter's operational ranking, so a blacklisted /
-                # hard-conflict / hiring-manager-vetoed candidate must never land
-                # in it. Mirrors the live /recommendations path exactly; soft
-                # warnings (current employment, candidate-excluded) stay.
-                from app.services.pipeline_eligibility import (
-                    filter_eligible_candidates,
-                )
+                from app.api.matching import _gate_and_dealbreakers
 
-                candidates = await filter_eligible_candidates(
+                (
+                    candidates,
+                    eligibility_annotations,
+                    hidden,
+                    _,
+                    _,
+                ) = await _gate_and_dealbreakers(
                     session,
                     job=job,
-                    candidates=candidates,
+                    ordered=candidates,
                     now=datetime.now(timezone.utc),
-                )
-
-                # Twardy sufit budżetu Z AUTOMATU (decyzja produktowa 19.08):
-                # snapshot jest DOMYŚLNYM widokiem rekrutera, więc znany budżet
-                # oferty musi ukrywać znane stawki powyżej także tutaj — nie
-                # tylko na żywej ścieżce /recommendations. Liczniki idą do
-                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche. Rubryki 0278
-                # (must-have / dni w biurze / miasto) i AUTO `exclude_remote_only`
-                # (uzbraja się, gdy oferta chce biura) liczone RAZ przez
-                # `dealbreaker_inputs_for_job` — ta sama funkcja co na żywej
-                # ścieżce, więc handoff-snapshot i /recommendations zgadzają się
-                # co do tego, kogo ukrywają.
-                dealbreakers = apply_dealbreakers(
-                    candidates,
                     inputs=search_dealbreaker_inputs(job),
                 )
-                candidates = dealbreakers.kept
-                snap.hidden = dealbreakers.hidden_meta()
+                snap.hidden = hidden
 
                 if candidates:
                     fits = await score_candidates(session, fit_context, candidates)
@@ -266,7 +250,13 @@ async def compute_proposal_for_job(
 
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]
-            snap.breakdowns = [fits_by_id[b.candidate_id].as_dict() for b in breakdowns]
+            snap.breakdowns = [
+                {
+                    **fits_by_id[b.candidate_id].as_dict(),
+                    "eligibility": eligibility_annotations.get(b.candidate_id),
+                }
+                for b in breakdowns
+            ]
             # P0-A: record whether the semantic leg was degraded (Qdrant/Voyage
             # down or the job unindexed) so the UI can flag this ranking as a
             # fallback instead of a healthy one. Previously computed only to gate

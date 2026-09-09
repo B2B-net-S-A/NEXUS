@@ -35,6 +35,7 @@ class ProposalCandidateItem(BaseModel):
 
     candidate: ProposalCandidate
     total_score: float | None
+    eligibility: dict[str, Any] | None = None
     breakdown: dict[str, Any]
 
 

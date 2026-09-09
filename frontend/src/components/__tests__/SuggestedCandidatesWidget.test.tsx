@@ -253,6 +253,18 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     ).toBeInTheDocument();
   });
 
+  it("preserves current eligibility from a saved proposal", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot({ candidates: [{
+      ...candidateMatch(82, BREAKDOWN),
+      eligibility: { reason_code: "nda", reason: "Aktualna blokada", assignment_allowed: false,
+        visibility: "warn", severity: "hard", secondary: [] },
+    }] }));
+    renderWidget();
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktualna blokada");
+    expect(screen.getByText("Do shortlisty")).toBeDisabled();
+    expect(screen.getByText("Przypisz")).toBeDisabled();
+  });
+
   it("shows a visible block and prevents shortlist and assignment actions", async () => {
     mocks.forJob.mockResolvedValue(liveResponse([{
       ...candidateMatch(82, BREAKDOWN),
