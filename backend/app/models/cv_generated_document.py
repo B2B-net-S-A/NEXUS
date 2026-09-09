@@ -14,7 +14,7 @@ pliki w „Pobranych".
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,6 +76,9 @@ class CvGeneratedDocument(Base, TimestampMixin):
     render_payload: Mapped[Optional[dict]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
+    docx_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    docx_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Uwagi Claude + seatbelt (fabrykacja / nakładające się daty). Wcześniej
     # wracały nagłówkiem X-Generator-Warnings; przy generacji w tle nie ma już
     # inline-response, więc utrwalamy je tu, by lista mogła je pokazać po fakcie.

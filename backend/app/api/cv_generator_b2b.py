@@ -398,6 +398,8 @@ async def _finalize_success(
     if consent_screenshot and isinstance(result.render_payload, dict):
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
+    row.docx_content = result.docx_bytes
+    row.docx_sha256 = hashlib.sha256(result.docx_bytes).hexdigest()
     row.warnings = list(result.warnings or [])
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
     # powstało CV, na które klient się skarży".
@@ -1815,6 +1817,25 @@ async def download_generated_cv(
     and explicit download in the panel.
     """
     row = await _load_generated_document(db, generated_id, current_user, write=False)
+    stored = getattr(row, "docx_content", None)
+    digest = getattr(row, "docx_sha256", None)
+    if stored is not None or digest is not None:
+        if (
+            row.status != "ready"
+            or not stored
+            or hashlib.sha256(stored).hexdigest() != digest
+        ):
+            raise HTTPException(
+                409, "Nie można potwierdzić integralności zapisanego DOCX."
+            )
+        return _build_docx_response(
+            docx_bytes=stored,
+            filename=row.filename,
+            candidate_name=row.candidate_name,
+            warnings=[],
+            processing_time_ms=0,
+            generated_id=row.id,
+        )
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
