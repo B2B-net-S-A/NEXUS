@@ -1373,7 +1373,7 @@ def normalize_letterhead_layout(doc: Any) -> None:
 
 def render_cv_to_bytes(
     candidate_data: dict[str, Any],
-    template_path: str,
+    template_path: str | io.BytesIO,
 ) -> bytes:
     """Render the candidate dict into a DOCX and return its bytes.
 
@@ -1384,7 +1384,7 @@ def render_cv_to_bytes(
             ``language`` ('pl' default), ``blind_cv`` (False default),
             ``highlight_keywords`` (champion MUST-HAVE + NICE-TO-HAVE
             technologies).
-        template_path: Path to ``szablon_firmowy.docx``.
+        template_path: Template path or a stream of frozen template bytes.
 
     Returns:
         bytes — the rendered DOCX file content.

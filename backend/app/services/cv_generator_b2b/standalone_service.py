@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from io import BytesIO
 import json
 import logging
 import re
@@ -1732,7 +1733,12 @@ def _run_generation_pipeline(
 
     # ── 5. Render DOCX ───────────────────────────────────────────────────
     try:
-        docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
+        template_bytes = Path(TEMPLATE_PATH).read_bytes()
+        docx_bytes = render_cv_to_bytes(candidate_data, BytesIO(template_bytes))
+        render_payload["artifact_provenance"] = {
+            "template_sha256": hashlib.sha256(template_bytes).hexdigest(),
+            "generated_docx_sha256": hashlib.sha256(docx_bytes).hexdigest(),
+        }
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
         logger.exception("[cv_b2b][%s] DOCX render failed: %s", request_id, err)
         raise StandaloneGenerationError(

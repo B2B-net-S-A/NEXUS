@@ -186,6 +186,15 @@ def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
     )
     assert len(provenance["rule_sha256"]) == 64
     assert len(provenance["input_sha256"]) == 64
+    from pathlib import Path
+
+    assert payload["artifact_provenance"] == {
+        "template_sha256": hashlib.sha256(
+            Path(svc.TEMPLATE_PATH).read_bytes()
+        ).hexdigest(),
+        "generated_docx_sha256": hashlib.sha256(result.docx_bytes).hexdigest(),
+    }
+    assert "artifact_provenance" not in build_public_payload(payload)
     doc = Document(BytesIO(result.docx_bytes))
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "11 lat doświadczenia zawodowego." in text
