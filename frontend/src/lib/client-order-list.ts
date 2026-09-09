@@ -3,10 +3,7 @@ import type {
   ClientOrderRead,
   ContractWithOrdersRead,
 } from "@/lib/api/dlPortal";
-import type {
-  OrderGroupRead,
-  OrderLineRead,
-} from "@/lib/api/orderGroups";
+import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 
 export type OrderSort =
   | "created_desc"
@@ -32,12 +29,7 @@ export interface OrderListFilters {
 
 /** Wspólny zestaw filtrów statusu dla połączonej listy grup i zamówień. */
 export type UnifiedOrderPill =
-  | "all"
-  | "active"
-  | "ending_30d"
-  | "completed"
-  | "exhausted"
-  | "draft";
+  "all" | "active" | "ending_30d" | "completed" | "exhausted" | "draft";
 
 /** Kolejność biznesowa sekcji na profilu klienta. */
 export const ORDER_TYPE_ORDER = ["md", "cost", "periodic"] as const;
@@ -111,9 +103,7 @@ export function orderGroupMatchesQuery(
 ): boolean {
   return (
     groupOwnMatchesQuery(group, query) ||
-    group.future_orders.some((future) =>
-      orderGroupMatchesQuery(future, query),
-    )
+    group.future_orders.some((future) => orderGroupMatchesQuery(future, query))
   );
 }
 
@@ -136,8 +126,13 @@ export function clientUsesSharedMdPool(clientId: number): boolean {
 
 /** Deliberate shared-MD variant limited to Lotte Wedel and Cyfrowy Polsat. */
 export function usesSharedMdPool(
-  group: Pick<OrderGroupRead, "client_id" | "is_md_budget_based">,
+  group: Pick<
+    OrderGroupRead,
+    "client_id" | "is_md_budget_based" | "md_budget_mode"
+  >,
 ): boolean {
+  if (group.md_budget_mode != null)
+    return group.md_budget_mode === "shared" && group.is_md_budget_based;
   return group.is_md_budget_based && clientUsesSharedMdPool(group.client_id);
 }
 
@@ -230,9 +225,7 @@ function compareCreated(
   left: { created_at: string; id: number },
   right: { created_at: string; id: number },
 ): number {
-  return (
-    right.created_at.localeCompare(left.created_at) || right.id - left.id
-  );
+  return right.created_at.localeCompare(left.created_at) || right.id - left.id;
 }
 
 /**
@@ -449,9 +442,14 @@ export function primaryOrder(
   contractor: ContractWithOrdersRead,
   todayIso: string,
 ): ClientOrderRead | null {
-  const usable = contractor.orders.filter((order) => order.status !== "cancelled");
+  const usable = contractor.orders.filter(
+    (order) => order.status !== "cancelled",
+  );
   const started = usable
-    .filter((order) => !dateOnly(order.start_date) || dateOnly(order.start_date)! <= todayIso)
+    .filter(
+      (order) =>
+        !dateOnly(order.start_date) || dateOnly(order.start_date)! <= todayIso,
+    )
     .sort((left, right) =>
       (dateOnly(right.start_date) ?? "").localeCompare(
         dateOnly(left.start_date) ?? "",
@@ -504,7 +502,9 @@ export function contractorOrderType(
   );
 }
 
-function numericOrderValue(value: string | number | null | undefined): number | null {
+function numericOrderValue(
+  value: string | number | null | undefined,
+): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -516,7 +516,7 @@ function unifiedCreatedAt(
 ): string {
   return item.kind === "group"
     ? item.group.created_at
-    : representativeOrder(item.contractor, todayIso)?.created_at ?? "";
+    : (representativeOrder(item.contractor, todayIso)?.created_at ?? "");
 }
 
 function unifiedStableId(item: UnifiedOrderListItem): number {
@@ -674,7 +674,10 @@ export function contractorMatchesPill(
   return false;
 }
 
-function groupDaysToEnd(endDate: string | null, todayIso: string): number | null {
+function groupDaysToEnd(
+  endDate: string | null,
+  todayIso: string,
+): number | null {
   if (!endDate) return null;
   const end = new Date(`${endDate.slice(0, 10)}T12:00:00`);
   const today = new Date(`${todayIso}T12:00:00`);
@@ -687,12 +690,15 @@ export function orderGroupMatchesPill(
   todayIso = localTodayIso(),
 ): boolean {
   if (pill === "all") return true;
+  if (pill === "draft") return group.status === "draft";
   if (pill === "active") return group.status === "active";
   if (pill === "completed") return group.status === "completed";
   if (pill === "exhausted") return group.status === "exhausted";
   if (pill === "ending_30d") {
     const days = groupDaysToEnd(group.end_date, todayIso);
-    return group.status === "active" && days !== null && days >= 0 && days <= 30;
+    return (
+      group.status === "active" && days !== null && days >= 0 && days <= 30
+    );
   }
   // Szkice grupowe pochodzą z tej samej populacji ClientOrder co `/orders`.
   // Liczymy/renderujemy je wyłącznie po stronie kontraktorów, bez duplikatu.

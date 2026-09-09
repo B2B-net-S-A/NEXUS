@@ -51,7 +51,10 @@ import {
   useAuthStore,
 } from "@/store/auth";
 
-import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
+import {
+  ConsultantLineModal,
+  type LineFormValues,
+} from "./ConsultantLineModal";
 import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
@@ -151,9 +154,10 @@ export function MultiConsultantOrdersTab({
   const [exporting, setExporting] = useState(false);
   const [newOrderType, setNewOrderType] = useState<OrderType>("periodic");
   const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
-  const [groupModal, setGroupModal] = useState<{ open: boolean; group: OrderGroupRead | null }>(
-    { open: false, group: null },
-  );
+  const [groupModal, setGroupModal] = useState<{
+    open: boolean;
+    group: OrderGroupRead | null;
+  }>({ open: false, group: null });
   const [lineModal, setLineModal] = useState<{
     open: boolean;
     group: OrderGroupRead | null;
@@ -169,7 +173,10 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead | null;
     line: OrderLineRead | null;
   }>({ open: false, group: null, line: null });
-  const [endModal, setEndModal] = useState<{ open: boolean; group: OrderGroupRead | null }>({
+  const [endModal, setEndModal] = useState<{
+    open: boolean;
+    group: OrderGroupRead | null;
+  }>({
     open: false,
     group: null,
   });
@@ -181,9 +188,8 @@ export function MultiConsultantOrdersTab({
   // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
   // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
   // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
-  const [focusRequest, setFocusRequest] = useState<OrderGroupFocusRequest | null>(
-    null,
-  );
+  const [focusRequest, setFocusRequest] =
+    useState<OrderGroupFocusRequest | null>(null);
 
   const query = useQuery({
     queryKey: ["client-order-groups", clientId],
@@ -193,8 +199,11 @@ export function MultiConsultantOrdersTab({
     queryKey: ["dl-orders-grouped", clientId],
     queryFn: async () => (await dlPortalApi.listContractorsWithOrders(clientId)).data,
   });
-  const serverSuggestedOrderType = query.data?.suggested_order_type ?? "periodic";
-  const suggestedOrderType = allowedOrderTypes.includes(serverSuggestedOrderType)
+  const serverSuggestedOrderType =
+    query.data?.suggested_order_type ?? "periodic";
+  const suggestedOrderType = allowedOrderTypes.includes(
+    serverSuggestedOrderType,
+  )
     ? serverSuggestedOrderType
     : allowedOrderTypes[0];
 
@@ -214,9 +223,15 @@ export function MultiConsultantOrdersTab({
   }
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
-    queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
-    queryClient.invalidateQueries({ queryKey: ["order-group-events", clientId] });
+    queryClient.invalidateQueries({
+      queryKey: ["client-order-groups", clientId],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["dl-orders-grouped", clientId],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["order-group-events", clientId],
+    });
     queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
     // Backend oznacza alert jako handled w tej samej transakcji co decyzję.
     // Dashboard ma od razu odczytać ten stan, bez czekania na staleTime.
@@ -284,6 +299,16 @@ export function MultiConsultantOrdersTab({
             start_date: values.start_date,
             end_date: values.end_date,
             notes: values.notes,
+            ...(values.md_consumption_month
+              ? {
+                  md_consumption_month: values.md_consumption_month,
+                  md_consumption_value: values.md_consumption_value,
+                }
+              : {}),
+            ...(values.md_budget_mode != null
+              ? { md_budget_mode: values.md_budget_mode }
+              : {}),
+            ...(values.status ? { status: values.status } : {}),
             ...(values.budget_amount != null
               ? { budget_amount: values.budget_amount }
               : {}),
@@ -298,6 +323,9 @@ export function MultiConsultantOrdersTab({
       return attachFile(saved, file);
     },
     onSuccess: (result) => {
+      if (!groupModal.group || groupModal.group.status === "draft") {
+        setPill(result.saved.status === "draft" ? "draft" : "all");
+      }
       setGroupModal({ open: false, group: null });
       setFormError(null);
       invalidate();
@@ -312,15 +340,22 @@ export function MultiConsultantOrdersTab({
       if (!group) throw new Error("Brak zamówienia");
       if (lineModal.line) {
         return (
-          await orderGroupsApi.updateLine(clientId, group.id, lineModal.line.id, {
-            rate_cost: values.rate_cost,
-            rate_revenue: values.rate_revenue,
-            ...(values.input_mode ? { input_mode: values.input_mode } : {}),
-            ...(values.input_value != null
-              ? { input_value: values.input_value }
-              : {}),
-            end_date: values.end_date,
-          })
+          await orderGroupsApi.updateLine(
+            clientId,
+            group.id,
+            lineModal.line.id,
+            {
+              rate_candidate_currency: values.rate_candidate_currency,
+              rate_client_currency: values.rate_client_currency,
+              rate_cost: values.rate_cost,
+              rate_revenue: values.rate_revenue,
+              ...(values.input_mode ? { input_mode: values.input_mode } : {}),
+              ...(values.input_value != null
+                ? { input_value: values.input_value }
+                : {}),
+              end_date: values.end_date,
+            },
+          )
         ).data;
       }
       return (await orderGroupsApi.addLine(clientId, group.id, values)).data;
@@ -390,7 +425,10 @@ export function MultiConsultantOrdersTab({
       setOffboardingModal({ open: false, group: null, line: null });
       setFormError(null);
       invalidate();
-      showToast("Zapisano decyzję i zaktualizowano obsadę zamówienia", "success");
+      showToast(
+        "Zapisano decyzję i zaktualizowano obsadę zamówienia",
+        "success",
+      );
     },
     onError: (err) => {
       setFormError(
@@ -428,7 +466,10 @@ export function MultiConsultantOrdersTab({
   });
 
   const closeGroup = useMutation({
-    mutationFn: (values: { closure_date: string; closure_reason: string | null }) => {
+    mutationFn: (values: {
+      closure_date: string;
+      closure_reason: string | null;
+    }) => {
       const group = endModal.group;
       if (!group) throw new Error("Brak zamówienia");
       return orderGroupsApi.close(clientId, group.id, values);
@@ -562,8 +603,7 @@ export function MultiConsultantOrdersTab({
         visibleLegacyOrderIds(visibleContractors, search),
       );
       type ExportItem =
-        | { kind: "group"; id: number }
-        | { kind: "order"; id: number };
+        { kind: "group"; id: number } | { kind: "order"; id: number };
       const items: ExportItem[] = ORDER_TYPE_ORDER.flatMap<ExportItem>((type) =>
         sortUnifiedOrderItems(
           [
