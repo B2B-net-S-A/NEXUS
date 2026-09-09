@@ -144,3 +144,72 @@ def test_full_source_role_count_cannot_be_replaced_by_displayed_roles(
     result = runner.generate_case(case, tmp_path)
     assert result["source_role_count_matches"] is expected
     assert result["human_accepted"] is None
+
+
+async def test_finished_run_links_model_artifacts_from_root_report(
+    tmp_path, monkeypatch
+):
+    sha = "a" * 40
+    monkeypatch.setenv("GIT_SHA", sha)
+    monkeypatch.setenv("CV_B2B_MODEL", "primary-model")
+    monkeypatch.setattr(runner, "claim_run", AsyncMock(return_value=None))
+    checkpoints = []
+
+    async def checkpoint(path, report, key):
+        checkpoints.append(deepcopy(report))
+
+    db = SimpleNamespace(
+        scalars=AsyncMock(
+            return_value=SimpleNamespace(
+                all=lambda: [
+                    SimpleNamespace(
+                        model="primary-model",
+                        estimated_cost_usd=0,
+                        input_tokens=1,
+                        output_tokens=1,
+                    )
+                ]
+            )
+        )
+    )
+
+    @asynccontextmanager
+    async def session():
+        yield db
+
+    @asynccontextmanager
+    async def admission(*args):
+        yield SimpleNamespace(operation_id="synthetic-operation")
+
+    monkeypatch.setattr(runner, "checkpoint", checkpoint)
+    monkeypatch.setattr(runner, "AsyncSessionLocal", session)
+    monkeypatch.setattr(runner, "ai_feature", admission)
+    monkeypatch.setattr(
+        runner,
+        "generate_cv_from_uploads",
+        Mock(
+            return_value=SimpleNamespace(
+                docx_bytes=b"synthetic",
+                warnings=[],
+                render_payload={
+                    "source_facts": {
+                        "tenure": {"career_months": 132},
+                        "document": {"experience": [{}, {}]},
+                    }
+                },
+            )
+        ),
+    )
+    assert (
+        await runner.run(
+            tmp_path, identity="125-1", expected_sha=sha, limit=1, models="primary"
+        )
+        == 0
+    )
+    report = checkpoints[-1]
+    assert report["complete"] is True
+    assert report["human_accepted"] is None
+    row = report["results"][0]
+    assert (tmp_path / row["artifact"]).read_bytes() == b"synthetic"
+    assert (tmp_path / row["payload_artifact"]).is_file()
+    assert row["artifact"].startswith("model-0/")

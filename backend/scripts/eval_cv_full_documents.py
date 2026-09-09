@@ -57,7 +57,8 @@ def generate_case(case, directory):
     )
     output = directory / f"{case['id']}-generated.docx"
     output.write_bytes(result.docx_bytes)
-    write_report(directory / f"{case['id']}-payload.json", result.render_payload)
+    payload_path = directory / f"{case['id']}-payload.json"
+    write_report(payload_path, result.render_payload)
     actual_months = (
         (result.render_payload.get("source_facts") or {})
         .get("tenure", {})
@@ -72,6 +73,7 @@ def generate_case(case, directory):
     return {
         "outcome": "generated",
         "artifact": output.name,
+        "payload_artifact": payload_path.name,
         "artifact_sha256": hashlib.sha256(result.docx_bytes).hexdigest(),
         "career_months": actual_months,
         "source_roles": actual_roles,
@@ -152,6 +154,12 @@ async def run(
                             row.update(
                                 await asyncio.to_thread(generate_case, case, directory)
                             )
+                            # Paths in the root report must resolve to this
+                            # model's output, not an ambiguous shared basename.
+                            for field in ("artifact", "payload_artifact"):
+                                row[field] = str(
+                                    (directory / row[field]).relative_to(output)
+                                )
                     except AIQuotaExceeded:
                         report["stop_reason"] = "quota_or_feature_disabled"
                         return 2
