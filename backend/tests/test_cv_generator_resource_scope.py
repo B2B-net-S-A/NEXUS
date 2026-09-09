@@ -8,6 +8,15 @@ from app.api import cv_generator_b2b as api, recruitment_access
 from app.models.user import User, UserRole
 
 
+@pytest.fixture(autouse=True)
+def fixed_priority_policy(monkeypatch):
+    monkeypatch.setattr(
+        recruitment_access,
+        "effective_priority_mode",
+        AsyncMock(return_value=recruitment_access.PriorityMode.off),
+    )
+
+
 def user(role=UserRole.recruiter):
     return User(
         id=71, email="scope@example.test", name="Scope", role=role, roles=[role.value]
