@@ -300,3 +300,47 @@ def test_versioned_diagnostic_corpus_and_scoring_distinguish_errors():
     for broken in ("provider_error", "invalid_review", "invalid_evidence"):
         assert not score(False, broken)
         assert not score(True, broken)
+
+
+def test_limit_rewrite_is_reviewed_against_original_source_before_docx(monkeypatch):
+    from app.services.cv_generator_b2b import editorial_limits
+
+    original = "Jan Testowy. Testy migracji AWS wyłącznie w środowisku szkoleniowym, bez wdrożeń produkcyjnych."
+    raw = {**DOCUMENT, "experience": [{"responsibilities": [original]}]}
+    monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: original)
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(raw))
+    monkeypatch.setattr(
+        editorial_limits,
+        "analyze_with_ai",
+        lambda *a, **k: json.dumps(
+            {
+                "items": [
+                    {
+                        "path": "/experience/0/responsibilities/0",
+                        "text": "Wdrażał produkcyjnie AWS.",
+                    }
+                ]
+            }
+        ),
+    )
+    requests = []
+
+    def reject(content, *args, **kwargs):
+        requests.append(json.loads(content))
+        return json.dumps(review_response(content, status="unsupported", evidence=[]))
+
+    monkeypatch.setattr(gate, "analyze_with_ai", reject)
+    rendered = []
+    monkeypatch.setattr(
+        svc, "render_cv_to_bytes", lambda *a, **k: rendered.append(True)
+    )
+    with pytest.raises(svc.StandaloneGenerationError) as raised:
+        run_pipeline(
+            CvRuleSnapshot(None, False, None, False, False, max_bullet_chars=40)
+        )
+    assert raised.value.code == "source_verification_failed"
+    assert requests[0]["sources"]["cv"] == original
+    assert requests[0]["final_document"]["experience"][0]["responsibilities"] == [
+        "Wdrażał produkcyjnie AWS."
+    ]
+    assert rendered == []

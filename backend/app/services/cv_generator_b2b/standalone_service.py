@@ -1599,6 +1599,20 @@ def _run_generation_pipeline(
     # a słownik podmienia nazewnictwo, którego bezpiecznik nie znalazłby
     # w źródle. Model dostał te same reguły w prompcie, ale prośba nie jest
     # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
+    from app.services.cv_generator_b2b.editorial_limits import (
+        EditorialLimitError,
+        fit_responsibilities,
+    )
+
+    try:
+        fit_responsibilities(
+            candidate_data, client_rule, language=language, request_id=request_id
+        )
+    except (EditorialLimitError, CVGeneratorAIError) as err:
+        raise StandaloneGenerationError(
+            code="editorial_limits_failed",
+            message="Nie udało się przygotować pełnych punktów w limicie znaków klienta. Zwiększ limit lub ponów generację; nie utworzono uciętego dokumentu.",
+        ) from err
     policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)
 

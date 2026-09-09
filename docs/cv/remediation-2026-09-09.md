@@ -241,3 +241,7 @@ Lista rekrutacji, walidacja przed kwotą i worker rozróżniają Przepisanie/Red
 Weryfikacja: 78 testów backendu (w tym 15 nowych przypadków gotowości/workera/polityki), 15 testów strony, TypeScript i Ruff. Brak lokalnej bazy lub wywołań modeli. CI i odbiór produkcyjny jeszcze wymagane. Pakiet zależy od preflight uploadu #1459 i historii/kontekstu #1450.
 
 CV-08 nadal częściowe: jawny wybór i zamrożenie pełnych źródeł do zadania pozostają otwarte. Minimalna liczba znaków jest istniejącym kontraktem klienta; nie stanowi potwierdzenia jakości screeningu. Nowe ustalenia audytu o podsumowaniach AI i pytaniach jako dowodach wymagają osobnej poprawy źródeł oraz bramki faktów.
+
+## Responsibility limits without substring truncation (draft)
+
+The factual pipeline rewrites only retained responsibility bullets exceeding the client limit, in one bounded provider call. It validates complete path coverage and lengths before applying changes; empty/overlong/ellipsis responses block the document. Final factual verification sees the rewritten text and original sources, with explicit preservation of training/academic/assisted-work qualifications. Forty focused tests pass, including a rejected training-to-production rewrite before DOCX. Actual-model success, false rejections and added latency/cost remain unmeasured; this package is not active in production.

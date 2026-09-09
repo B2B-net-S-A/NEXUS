@@ -33,6 +33,9 @@ The complete final_document supplies the role/company context of each path.
 Certifications require possession of that exact qualification and level, not
 use of the provider's tools, a course, an intention or a shared token like AWS.
 Negation, uncertainty, questions and desired skills cannot support positive claims.
+Do not accept removal of material qualifications: training/academic environments,
+observation, assistance and limited ownership must not become unqualified work
+experience. A shorter sentence must preserve these restrictions explicitly.
 Numbers must preserve subject, unit and meaning: 3 years is not a 3-person team.
 Dates must preserve precision; unknown months must not become January/December.
 Experience duration must be the union of relevant employment periods, excluding
