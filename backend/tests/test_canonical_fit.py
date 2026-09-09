@@ -188,7 +188,7 @@ async def test_legacy_c2_shared_engine_uses_exact_fit_and_stable_order(monkeypat
     }
     monkeypatch.setattr(fit, "measure_candidates", AsyncMock(return_value=measurements))
     rerank = AsyncMock(side_effect=AssertionError("fit order must be authoritative"))
-    monkeypatch.setattr(matching, "rerank_or_passthrough", rerank)
+    monkeypatch.setattr("app.services.reranker_service.rerank_or_passthrough", rerank)
     monkeypatch.setattr(matching.settings, "AI_MATCHES_RERANK_TOP_N", 20)
     rows, reranked = await matching._shared_engine_matches(
         None,

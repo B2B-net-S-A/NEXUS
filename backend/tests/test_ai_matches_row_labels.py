@@ -375,7 +375,7 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     )
     assert resp_fallback.status_code == 200, resp_fallback.text
     body_fallback = resp_fallback.json()
-    assert body_fallback["required_skills_source"] == "must_skills"
+    assert body_fallback["required_skills_source"] == "reviewed_requirements"
     assert body_fallback["rubrics"] == {
         "budget_hourly": 100.0,
         "onsite_days_per_week": 3,
@@ -419,6 +419,7 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     assert resp_semantic.status_code == 200, resp_semantic.text
     body_semantic = resp_semantic.json()
     assert body_semantic["search_type"] == "semantic+composite"
+    assert body_semantic["required_skills_source"] == "reviewed_requirements"
     ok_row2 = _match(body_semantic, ok_id)
     assert ok_row2 is not None
     assert ok_row2["rate_fit"] == "ok"
