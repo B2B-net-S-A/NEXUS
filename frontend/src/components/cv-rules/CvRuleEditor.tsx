@@ -198,6 +198,7 @@ export function CvRuleEditor({
     void queryClient.invalidateQueries({ queryKey: ["settings-cv-rules"] });
     void queryClient.invalidateQueries({ queryKey: ["client-cv-rule", clientId] });
     void queryClient.invalidateQueries({ queryKey: ["cv-rule-history", clientId] });
+    void queryClient.invalidateQueries({ queryKey: ["cv-rule-versions", clientId] });
     void queryClient.invalidateQueries({ queryKey: ["cv-rule-prompt-preview", clientId] });
   };
 
@@ -207,7 +208,7 @@ export function CvRuleEditor({
     setError("");
     setInfo("");
     try {
-      const res = await cvRulesApi.save(clientId, formToPayload(form, confirm));
+      const res = await cvRulesApi.save(clientId, { ...formToPayload(form, confirm), expected_revision: rule?.edit_revision ?? 0 });
       setRule(res);
       const f = ruleToForm(res);
       setForm(f);
@@ -215,7 +216,9 @@ export function CvRuleEditor({
       setInfo(
         confirm
           ? `Zapisano i zatwierdzono (wersja ${res.version}) — generator już stosuje tę regułę.`
-          : `Zapisano jako propozycję (wersja ${res.version}). Generator zacznie ją stosować dopiero po zatwierdzeniu.`,
+          : res.is_active
+            ? `Zapisano szkic. Generator nadal stosuje opublikowaną wersję ${res.version}.`
+            : "Zapisano szkic. Generator zacznie go stosować dopiero po zatwierdzeniu.",
       );
       invalidate();
       onChanged?.(res);
@@ -226,12 +229,33 @@ export function CvRuleEditor({
     }
   };
 
+  const restoreVersion = async (version: number) => {
+    if (dirty || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await cvRulesApi.restore(clientId, version, rule?.edit_revision ?? 0);
+      setRule(res);
+      const next = ruleToForm(res);
+      setForm(next);
+      setSavedForm(next);
+      setTab("settings");
+      setInfo(`Wersję ${version} przywrócono do szkicu. Sprawdź ją przed publikacją.`);
+      invalidate();
+      onChanged?.(res);
+    } catch (err) {
+      setError(extractErrorMsg(err) || "Nie udało się przywrócić wersji.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     setBusy(true);
     setError("");
     setInfo("");
     try {
-      await cvRulesApi.remove(clientId);
+      await cvRulesApi.remove(clientId, rule?.edit_revision ?? 0);
       setConfirmingDelete(false);
       invalidate();
       onDeleted?.();
@@ -248,7 +272,7 @@ export function CvRuleEditor({
     setError("");
     setInfo("");
     try {
-      const res = await cvRulesApi.copyFrom(clientId, copySource.id);
+      const res = await cvRulesApi.copyFrom(clientId, copySource.id, rule?.edit_revision ?? 0);
       setRule(res);
       const f = ruleToForm(res);
       setForm(f);
@@ -288,7 +312,7 @@ export function CvRuleEditor({
         </h3>
         {rule?.is_active ? (
           <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
-            Obowiązuje
+            {rule.draft_payload ? `Obowiązuje v${rule.version} · edytujesz szkic` : "Obowiązuje"}
           </span>
         ) : stored ? (
           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
@@ -304,7 +328,7 @@ export function CvRuleEditor({
       {/* Pasek „co ta reguła robi" — efekt zwykłym językiem, zanim DL wejdzie w pola. */}
       <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
-          Ta reguła robi
+          {rule?.draft_payload || dirty ? "Podsumowanie szkicu" : "Ta reguła robi"}
         </p>
         <div className="flex flex-wrap gap-2">
           <SummaryFact k="Plik" v={summary.file} />
@@ -326,7 +350,7 @@ export function CvRuleEditor({
                 form={form}
                 set={set}
                 clientId={clientId}
-                filenamePreview={rule?.filename_preview}
+                filenamePreview={!dirty && !rule?.draft_payload ? rule?.filename_preview : null}
               />
               <div className="rounded-md border border-dashed p-3">
                 <p className="mb-2 text-xs font-medium">Skopiuj regułę z innego klienta</p>
@@ -350,8 +374,8 @@ export function CvRuleEditor({
                   </button>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Kopia nadpisuje pola tej reguły i NIE jest zatwierdzana — sufit
-                  trybu i interaktywne CV zostają takie, jakie są u tego klienta.
+                  Kopia zastępuje szkic. Opublikowana reguła pozostaje aktywna do
+                  zatwierdzenia zmian; flagi klienta nie są kopiowane.
                 </p>
               </div>
             </div>
@@ -369,7 +393,7 @@ export function CvRuleEditor({
               onPreviewId={setPreviewId}
             />
           ) : null}
-          {tab === "history" ? <CvRuleHistoryTab clientId={clientId} /> : null}
+          {tab === "history" ? <CvRuleHistoryTab clientId={clientId} onRestore={restoreVersion} restoreDisabled={dirty || busy} /> : null}
         </div>
       </TabbedNav>
 

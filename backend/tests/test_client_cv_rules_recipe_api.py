@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
+from tests.cv_rule_requests import rule_request
 from sqlalchemy import delete, select
 
 RULE_URL = "/api/clients/{cid}/cv-rule"
@@ -66,8 +67,11 @@ async def _headers_for(
                 )
             )
         await db.commit()
-    login = await app_client.post(
-        "/api/auth/login", json={"email": email, "password": password}
+    login = await rule_request(
+        app_client,
+        "POST",
+        "/api/auth/login",
+        json={"email": email, "password": password},
     )
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -153,8 +157,12 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
             app_client, "delivery_lead", assigned_client_id=cid
         )
 
-        r = await app_client.put(
-            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=cid),
+            json=_full_payload(),
+            headers=headers,
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -180,13 +188,19 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
             assert client.cv_interactive_enabled is False
 
         # Ta sama treść, tylko zatwierdzenie → wersja bez zmian.
-        r = await app_client.put(
-            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=cid),
+            json=_full_payload(),
+            headers=headers,
         )
         assert r.json()["version"] == 1
 
         # Zmiana treści → bump + diff.
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             RULE_URL.format(cid=cid),
             json=_full_payload(max_roles=3, cv_interactive_enabled=True),
             headers=headers,
@@ -213,18 +227,28 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
 
         # Usunięcie i ponowne założenie NIE restartuje numeracji — stempel
         # `client_rule_version` na CV ma pozostać jednoznaczny.
-        r = await app_client.delete(RULE_URL.format(cid=cid), headers=headers)
+        r = await rule_request(
+            app_client, "DELETE", RULE_URL.format(cid=cid), headers=headers
+        )
         assert r.status_code == 204
-        r = await app_client.put(
-            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=cid),
+            json=_full_payload(),
+            headers=headers,
         )
         assert r.status_code == 200, r.text
         assert r.json()["version"] == 3
 
         # TAC bez dostępu Delivery nie może ani zapisać, ani czytać historii.
         tac = await _headers_for(app_client, "tac")
-        r = await app_client.put(
-            RULE_URL.format(cid=cid), json=_full_payload(), headers=tac
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=cid),
+            json=_full_payload(),
+            headers=tac,
         )
         assert r.status_code == 403
         r = await app_client.get(RULE_URL.format(cid=cid) + "/history", headers=tac)
@@ -242,13 +266,20 @@ async def test_copy_from_another_client_is_a_proposal_without_client_flags(
     target = await _make_client(f"Recipe target {tag}")
     try:
         headers = await _headers_for(app_client, "admin")
-        r = await app_client.put(
-            RULE_URL.format(cid=source), json=_full_payload(), headers=headers
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=source),
+            json=_full_payload(),
+            headers=headers,
         )
         assert r.status_code == 200, r.text
 
-        r = await app_client.post(
-            RULE_URL.format(cid=target) + f"/copy-from/{source}", headers=headers
+        r = await rule_request(
+            app_client,
+            "POST",
+            RULE_URL.format(cid=target) + f"/copy-from/{source}",
+            headers=headers,
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -265,8 +296,11 @@ async def test_copy_from_another_client_is_a_proposal_without_client_flags(
         assert h.json()[0]["action"] == "copied"
         assert h.json()[0]["changes"]["source_client_id"] == source
 
-        r = await app_client.post(
-            RULE_URL.format(cid=target) + f"/copy-from/{target}", headers=headers
+        r = await rule_request(
+            app_client,
+            "POST",
+            RULE_URL.format(cid=target) + f"/copy-from/{target}",
+            headers=headers,
         )
         assert r.status_code == 422
     finally:
@@ -367,7 +401,9 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
         headers = await _headers_for(
             app_client, "delivery_lead", assigned_client_id=cid
         )
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             RULE_URL.format(cid=cid) + "/lint",
             json={
                 "generator_instructions": "Bez sekcji zainteresowań. Dopisz Kubernetes.",
@@ -390,7 +426,9 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
 
         # Pusty lint nie kosztuje nic.
         charged.clear()
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             RULE_URL.format(cid=cid) + "/lint",
             json={
                 "generator_instructions": "",
@@ -448,8 +486,12 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         headers = await _headers_for(
             app_client, "delivery_lead", assigned_client_id=cid
         )
-        r = await app_client.put(
-            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        r = await rule_request(
+            app_client,
+            "PUT",
+            RULE_URL.format(cid=cid),
+            json=_full_payload(),
+            headers=headers,
         )
         assert r.status_code == 200, r.text
 
@@ -482,7 +524,9 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         # Rekrutacja bez CV / Championa / notatek → 422 PRZED kwotą (prawdziwa
         # gotowość: kandydat testowy nie ma nic z tych trzech).
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             RULE_URL.format(cid=cid) + "/preview",
             json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
             headers=headers,
@@ -516,7 +560,9 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         )
 
         # Rekrutacja u INNEGO klienta → 422, bez naliczania kwoty.
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             RULE_URL.format(cid=cid) + "/preview",
             json={
                 "candidate_id": candidate_id,
@@ -528,7 +574,9 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert r.status_code == 422, r.text
         assert charged == []
 
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             RULE_URL.format(cid=cid) + "/preview",
             json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
             headers=headers,
@@ -590,7 +638,9 @@ async def test_generate_upload_refuses_missing_required_inputs_before_quota(
     cid = await _make_client(f"Recipe required {uuid.uuid4().hex[:6]}")
     try:
         dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
-        r = await app_client.put(
+        r = await rule_request(
+            app_client,
+            "PUT",
             RULE_URL.format(cid=cid),
             json=_full_payload(require_screening_notes_min_chars=None),
             headers=dl,
@@ -598,7 +648,9 @@ async def test_generate_upload_refuses_missing_required_inputs_before_quota(
         assert r.status_code == 200, r.text
 
         recruiter = await _headers_for(app_client, "recruiter")
-        r = await app_client.post(
+        r = await rule_request(
+            app_client,
+            "POST",
             "/api/cv-generator/generate-upload",
             data={"client_id": str(cid), "language": "pl", "content_mode": "tailored"},
             files={"cv_file": ("cv.pdf", io.BytesIO(b"%PDF-1.4 x"), "application/pdf")},

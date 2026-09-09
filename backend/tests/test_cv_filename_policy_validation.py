@@ -43,7 +43,9 @@ def test_validated_credit_agricole_shape_renders_candidate_identity():
         requires_rodo_consent_block=False,
     )
     result = build_filename(
-        snapshot, position="Python Developer", candidate_name="Jan Testowy",
+        snapshot,
+        position="Python Developer",
+        candidate_name="Jan Testowy",
         today=date(2026, 9, 9),
     )
     assert result is not None
@@ -62,13 +64,19 @@ async def test_confirm_rejects_legacy_invalid_pattern_without_publishing(monkeyp
     rule = SimpleNamespace(
         filename_pattern="B2B.NET_STANOWISKO_IMIE_NAZWISKO_DATA",
         confirmed_at=None,
+        edit_revision=1,
+        draft_payload={"filename_pattern": "B2B.NET_STANOWISKO_IMIE_NAZWISKO_DATA"},
     )
     db = AsyncMock()
-    monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=SimpleNamespace(id=26)))
+    monkeypatch.setattr(
+        api, "_client_or_404", AsyncMock(return_value=SimpleNamespace(id=26))
+    )
     monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
-    monkeypatch.setattr(api, "_rule_for", AsyncMock(return_value=rule))
+    monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
     with pytest.raises(HTTPException) as error:
-        await api.confirm_client_cv_rule(26, SimpleNamespace(id=1), db)
+        await api.confirm_client_cv_rule(
+            26, SimpleNamespace(id=1), db, expected_revision=1
+        )
     assert error.value.status_code == 422
     assert rule.confirmed_at is None
     db.commit.assert_not_awaited()

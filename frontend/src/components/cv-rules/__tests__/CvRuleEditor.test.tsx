@@ -41,6 +41,7 @@ vi.mock("@/lib/api", () => ({
 
 const RULE = makeCvRule({
   client_id: 5,
+  edit_revision: 4,
   client_name: "KIR",
   generator_instructions: "Bez sekcji zainteresowań.",
 });
@@ -81,6 +82,7 @@ describe("CvRuleEditor", () => {
     vi.clearAllMocks();
     mocks.get.mockImplementation(async (url: string) => {
       if (url === "/api/clients/5/cv-rule") return { data: RULE };
+      if (url === "/api/clients/5/cv-rule/versions") return { data: [] };
       if (url === "/api/clients/5/cv-rule/history") return { data: [] };
       if (url === "/api/clients/5/cv-rule/feedback")
         return {
@@ -148,6 +150,46 @@ describe("CvRuleEditor", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("edytuje zapisany szkic i zachowuje informację o działającej wersji", async () => {
+    const draft = { filename_pattern: "SZKIC_{IMIE_NAZWISKO}", cv_language: "pl" as const };
+    mocks.get.mockResolvedValueOnce({ data: makeCvRule({ ...RULE, draft_payload: draft }) });
+    mocks.put.mockResolvedValueOnce({ data: makeCvRule({ ...RULE, edit_revision: 5, draft_payload: draft }) });
+    renderEditor();
+    expect(await screen.findByDisplayValue("SZKIC_{IMIE_NAZWISKO}")).toBeInTheDocument();
+    expect(screen.getByText("Obowiązuje v1 · edytujesz szkic")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() => expect(mocks.put).toHaveBeenCalled());
+    expect(mocks.put.mock.calls[0][1]).toMatchObject({ confirm: false, expected_revision: 4 });
+    expect(await screen.findByText(/Generator nadal stosuje opublikowaną wersję 1/)).toBeInTheDocument();
+  });
+
+  it("zachowuje lokalne pola po konflikcie wersji", async () => {
+    mocks.put.mockRejectedValueOnce(new Error("Reguła została zmieniona przez inną osobę."));
+    renderEditor();
+    const input = await screen.findByLabelText("Wzór nazwy pliku CV");
+    fireEvent.change(input, { target: { value: "MOJE_{IMIE_NAZWISKO}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    expect(await screen.findByText("Reguła została zmieniona przez inną osobę.")).toBeInTheDocument();
+    expect(input).toHaveValue("MOJE_{IMIE_NAZWISKO}");
+    expect(mocks.put.mock.calls[0][1]).toMatchObject({ expected_revision: 4 });
+  });
+
+  it("przywraca publikację do szkicu z kontrolą wersji", async () => {
+    const get = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation(async (url: string) => url.endsWith("/versions")
+      ? { data: [{ version: 1, published_at: "2026-09-01T12:00:00Z" }] }
+      : get(url));
+    mocks.post.mockResolvedValueOnce({ data: makeCvRule({ ...RULE, edit_revision: 5,
+      draft_payload: { filename_pattern: "PRZYWROCONY_{IMIE_NAZWISKO}" } }) });
+    renderEditor(vi.fn(), "history");
+    fireEvent.click(await screen.findByRole("button", { name: "Przywróć do szkicu" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith(
+      "/api/clients/5/cv-rule/versions/1/restore", null, { params: { expected_revision: 4 } },
+    ));
+    expect(await screen.findByDisplayValue("PRZYWROCONY_{IMIE_NAZWISKO}")).toBeInTheDocument();
+    expect(screen.getByText(/Wersję 1 przywrócono do szkicu/)).toBeInTheDocument();
+  });
+
   it("lint woła endpoint i pokazuje werdykt per linia", async () => {
     mocks.post.mockResolvedValue({
       data: {
@@ -202,7 +244,7 @@ describe("CvRuleEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Usuń regułę" }));
     expect(mocks.delete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Tak, usuń" }));
-    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith("/api/clients/5/cv-rule"));
+    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith("/api/clients/5/cv-rule", { params: { expected_revision: 4 } }));
   });
 
   it("zakładka „Karta klienta” montuje się dopiero po wejściu i zachowuje szkic po przełączeniu", async () => {

@@ -48,6 +48,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
 from app.models.client_cv_rule import ClientCvRule
 from app.models.client_cv_rule_event import ClientCvRuleEvent
+from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
@@ -156,6 +157,7 @@ class ClientCvRulePayload(BaseModel):
     """Wejście edycji reguły. Wszystkie pola opcjonalne — pusty wzór znaczy
     „ten klient nie ma własnej nazwy pliku", nie „błąd"."""
 
+    expected_revision: Optional[int] = Field(default=None, ge=0)
     filename_pattern: Optional[str] = Field(default=None, max_length=300)
     spaces_to_underscores: bool = False
     cv_language: Optional[str] = Field(default=None)
@@ -295,6 +297,8 @@ class ClientCvRulePayload(BaseModel):
 
 
 class ClientCvRuleRead(BaseModel):
+    edit_revision: int = 0
+    draft_payload: Optional[dict[str, Any]] = None
     client_id: int
     client_name: Optional[str] = None
     filename_pattern: Optional[str] = None
@@ -524,6 +528,8 @@ def _to_read(
             {"from": src, "to": dst} for src, dst in (snap.glossary if snap else ())
         ],
         version=int(rule.version or 1),
+        edit_revision=int(rule.edit_revision or 1),
+        draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
         confirmed_at=_iso(rule.confirmed_at),
         confirmed_by_name=confirmed_by_name,
@@ -686,6 +692,113 @@ def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
     ] or None
 
 
+def _validated_recipe(
+    recipe: dict[str, Any], *, confirm: bool = False
+) -> ClientCvRulePayload:
+    try:
+        return ClientCvRulePayload(**recipe, confirm=confirm)
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail=error.errors()[0]["msg"]) from error
+
+
+def _editable_rule(rule: ClientCvRule | None) -> ClientCvRule | None:
+    if rule is None or not rule.draft_payload:
+        return rule
+    draft = ClientCvRule(version=rule.version)
+    _apply_payload(draft, ClientCvRulePayload(**rule.draft_payload))
+    return draft
+
+
+async def _lock_rule_edit(
+    db: AsyncSession, client: Client, expected_revision: int | None
+) -> ClientCvRule | None:
+    # Lock the parent too: two concurrent first saves must not race the UNIQUE FK.
+    await db.execute(select(Client.id).where(Client.id == client.id).with_for_update())
+    await db.refresh(client)
+    rule = await _rule_for(db, client.id)
+    actual = int(rule.edit_revision or 1) if rule is not None else 0
+    if expected_revision is None or expected_revision != actual:
+        raise HTTPException(
+            status_code=409,
+            detail="Reguła została zmieniona lub formularz nie ma aktualnej wersji. "
+            "Odśwież regułę i porównaj zmiany przed ponownym zapisem.",
+        )
+    return rule
+
+
+def _recipe_payload(payload: ClientCvRulePayload, client: Client) -> dict[str, Any]:
+    recipe = payload.model_dump(
+        by_alias=True, include=set(RULE_FIELDS + CLIENT_FLAG_FIELDS)
+    )
+    # Omitted flags retain their effective value; explicit null clears the cap.
+    if "cv_content_mode_cap" not in payload.model_fields_set:
+        recipe["cv_content_mode_cap"] = client.cv_content_mode_cap
+    if payload.cv_interactive_enabled is None:
+        recipe["cv_interactive_enabled"] = bool(client.cv_interactive_enabled)
+    return recipe
+
+
+async def _store_recipe(
+    db: AsyncSession,
+    client: Client,
+    rule: ClientCvRule | None,
+    payload: ClientCvRulePayload,
+    actor: User,
+    *,
+    action: str | None = None,
+    event_context: dict[str, Any] | None = None,
+) -> ClientCvRule:
+    if rule is None:
+        rule = ClientCvRule(client_id=client.id, edit_revision=0)
+        rule.version = await _next_version(db, client.id)
+        db.add(rule)
+    was_active = rule.confirmed_at is not None
+    effective_before = _rule_state(rule, client)
+    edit_before = rule.draft_payload or effective_before
+    recipe = _recipe_payload(payload, client)
+    if payload.confirm:
+        _apply_payload(rule, payload)
+        for field in CLIENT_FLAG_FIELDS:
+            setattr(client, field, recipe[field])
+        effective_after = _rule_state(rule, client)
+        changes = _diff(effective_before, effective_after)
+        if was_active and changes:
+            rule.version = int(rule.version or 1) + 1
+        if not was_active or changes:
+            rule.confirmed_at = datetime.now(timezone.utc)
+            rule.confirmed_by = actor.id
+            db.add(
+                ClientCvRulePublication(
+                    client_id=client.id,
+                    version=rule.version,
+                    recipe=effective_after,
+                    published_at=rule.confirmed_at,
+                    published_by=actor.id,
+                )
+            )
+        rule.draft_payload = None
+    else:
+        rule.draft_payload = recipe
+        # Legacy readers may display never-published proposals, but runtime still
+        # rejects them through confirmed_at. Never touch the live client flags.
+        if not was_active:
+            _apply_payload(rule, payload)
+        changes = _diff(edit_before, recipe)
+    rule.edit_revision = int(rule.edit_revision or 0) + 1
+    await db.flush()
+    _record_event(
+        db,
+        client_id=client.id,
+        version=int(rule.version or 1),
+        action=action or ("saved_and_confirmed" if payload.confirm else "saved"),
+        changes={**changes, **(event_context or {})},
+        actor=actor,
+    )
+    await db.commit()
+    await db.refresh(rule)
+    return rule
+
+
 # ── Odczyt / zapis / zatwierdzanie / usuwanie ────────────────────────────────
 
 
@@ -726,63 +839,11 @@ async def upsert_client_cv_rule(
     current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
-    """Zapisz regułę.
-
-    Domyślnie zapis **NIE zatwierdza** — reguła zostaje propozycją, dopóki ktoś
-    jej nie zatwierdzi. Edycja obowiązującej reguły ZDEJMUJE zatwierdzenie:
-    inaczej zmiana wzoru nazwy pliku wchodziłaby na produkcję bez niczyjej
-    decyzji, a właśnie po to ten stan istnieje.
-
-    ``confirm=true`` zatwierdza tym samym zapisem — decyzja jest w tym samym
-    kliknięciu, więc osobny krok nie wnosiłby nic poza drugim kliknięciem.
-
-    Zmiana treści bumpuje ``version`` i zostawia wpis w historii z diffem pól.
-    Sam ponowny zapis identycznej treści (np. tylko zatwierdzenie) wersji nie
-    zmienia — stempel na CV ma mówić o TREŚCI reguły, nie o kliknięciach.
-    """
+    """Save an independent draft, or atomically publish the complete recipe."""
     client = await _client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
-    rule = await _rule_for(db, client.id)
-    before = _rule_state(rule, client)
-    created = rule is None
-    if rule is None:
-        rule = ClientCvRule(client_id=client.id)
-        db.add(rule)
-
-    _apply_payload(rule, payload)
-    if (
-        payload.cv_content_mode_cap is not None
-        or "cv_content_mode_cap" in payload.model_fields_set
-    ):
-        client.cv_content_mode_cap = payload.cv_content_mode_cap
-    if payload.cv_interactive_enabled is not None:
-        client.cv_interactive_enabled = payload.cv_interactive_enabled
-
-    after = _rule_state(rule, client)
-    changes = _diff(before, after)
-    if created:
-        rule.version = await _next_version(db, client.id)
-    elif changes:
-        rule.version = int(rule.version or 1) + 1
-
-    if payload.confirm:
-        rule.confirmed_at = datetime.now(timezone.utc)
-        rule.confirmed_by = current_user.id
-    else:
-        rule.confirmed_at = None
-        rule.confirmed_by = None
-
-    await db.flush()
-    _record_event(
-        db,
-        client_id=client.id,
-        version=int(rule.version or 1),
-        action="saved_and_confirmed" if payload.confirm else "saved",
-        changes=changes,
-        actor=current_user,
-    )
-    await db.commit()
-    await db.refresh(rule)
+    rule = await _lock_rule_edit(db, client, payload.expected_revision)
+    rule = await _store_recipe(db, client, rule, payload, current_user)
     return _to_read(
         rule,
         client=client,
@@ -797,36 +858,20 @@ async def confirm_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
+    expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
-    """Zatwierdź regułę — od tej chwili generator ją stosuje."""
+    """Publish the saved draft and its client flags as one version."""
     client = await _client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
-    rule = await _rule_for(db, client.id)
+    rule = await _lock_rule_edit(db, client, expected_revision)
     if rule is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Ten klient nie ma jeszcze reguł CV — najpierw je zapisz.",
-        )
-    try:
-        ClientCvRulePayload(filename_pattern=rule.filename_pattern)
-    except ValidationError as error:
-        raise HTTPException(
-            status_code=422,
-            detail="Popraw wzór nazwy pliku przed zatwierdzeniem reguły: "
-            + error.errors()[0]["msg"],
-        ) from error
-    rule.confirmed_at = datetime.now(timezone.utc)
-    rule.confirmed_by = current_user.id
-    _record_event(
-        db,
-        client_id=client.id,
-        version=int(rule.version or 1),
-        action="confirmed",
-        changes=None,
-        actor=current_user,
+        raise HTTPException(status_code=404, detail="Najpierw zapisz regułę CV.")
+    payload = _validated_recipe(
+        rule.draft_payload or _rule_state(rule, client), confirm=True
     )
-    await db.commit()
-    await db.refresh(rule)
+    rule = await _store_recipe(
+        db, client, rule, payload, current_user, action="confirmed"
+    )
     return _to_read(
         rule,
         client=client,
@@ -841,12 +886,13 @@ async def delete_client_cv_rule(
     client_id: int,
     current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
+    expected_revision: Optional[int] = Query(None, ge=0),
 ) -> None:
     """Usuń regułę — klient wraca do globalnej nazwy pliku i wolnego wyboru
     języka. Historia zostaje (FK po kliencie, nie po regule)."""
     client = await _client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
-    rule = await _rule_for(db, client.id)
+    rule = await _lock_rule_edit(db, client, expected_revision)
     if rule is not None:
         _record_event(
             db,
@@ -856,6 +902,8 @@ async def delete_client_cv_rule(
             changes=None,
             actor=current_user,
         )
+        client.cv_content_mode_cap = None
+        client.cv_interactive_enabled = True
         await db.delete(rule)
         await db.commit()
 
@@ -869,6 +917,7 @@ async def copy_client_cv_rule(
     source_client_id: int,
     current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
+    expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
     """Skopiuj treść reguły z innego klienta — jako PROPOZYCJĘ.
 
@@ -891,35 +940,74 @@ async def copy_client_cv_rule(
         raise HTTPException(
             status_code=404, detail="Klient źródłowy nie ma reguły CV do skopiowania."
         )
-    rule = await _rule_for(db, client.id)
-    before = _rule_state(rule, client)
-    created = rule is None
-    if rule is None:
-        rule = ClientCvRule(client_id=client.id)
-        db.add(rule)
-    for field in RULE_FIELDS:
-        value = getattr(source, field, None)
-        setattr(rule, field, list(value) if isinstance(value, list) else value)
-    rule.seed_key = None
-    rule.confirmed_at = None
-    rule.confirmed_by = None
-    after = _rule_state(rule, client)
-    changes = _diff(before, after)
-    if created:
-        rule.version = await _next_version(db, client.id)
-    elif changes:
-        rule.version = int(rule.version or 1) + 1
-    await db.flush()
-    _record_event(
+    rule = await _lock_rule_edit(db, client, expected_revision)
+    recipe = _rule_state(source, client)
+    # Copy only rule fields; flags remain those of the target client.
+    payload = _validated_recipe(recipe)
+    rule = await _store_recipe(
         db,
-        client_id=client.id,
-        version=int(rule.version or 1),
+        client,
+        rule,
+        payload,
+        current_user,
         action="copied",
-        changes={"source_client_id": source_client.id, **changes},
-        actor=current_user,
+        event_context={"source_client_id": source_client.id},
     )
-    await db.commit()
-    await db.refresh(rule)
+    return _to_read(
+        rule, client=client, client_id=client.id, client_name=_client_label(client)
+    )
+
+
+@router.get("/clients/{client_id}/cv-rule/versions")
+async def list_cv_rule_versions(
+    client_id: int,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
+    rows = (
+        await db.scalars(
+            select(ClientCvRulePublication)
+            .where(ClientCvRulePublication.client_id == client_id)
+            .order_by(ClientCvRulePublication.version.desc())
+        )
+    ).all()
+    return [
+        {"version": row.version, "published_at": _iso(row.published_at)} for row in rows
+    ]
+
+
+@router.post(
+    "/clients/{client_id}/cv-rule/versions/{version}/restore",
+    response_model=ClientCvRuleRead,
+)
+async def restore_cv_rule_version(
+    client_id: int,
+    version: int,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+    expected_revision: Optional[int] = Query(None, ge=0),
+) -> ClientCvRuleRead:
+    """Restore an immutable publication into a draft, never silently activate it."""
+    client = await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=True)
+    rule = await _lock_rule_edit(db, client, expected_revision)
+    publication = await db.get(ClientCvRulePublication, (client_id, version))
+    if publication is None:
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono opublikowanej wersji."
+        )
+    payload = _validated_recipe(publication.recipe)
+    rule = await _store_recipe(
+        db,
+        client,
+        rule,
+        payload,
+        current_user,
+        action="restored",
+        event_context={"restored_version": version},
+    )
     return _to_read(
         rule, client=client, client_id=client.id, client_name=_client_label(client)
     )
@@ -1154,8 +1242,12 @@ async def client_cv_rule_prompt_preview(
     rule = await _rule_for(db, client_id)
     return PromptPreview(
         language=language,
-        block=build_prompt_blocks(snapshot_rule(rule), language),
-        is_active=bool(rule is not None and rule.confirmed_at is not None),
+        block=build_prompt_blocks(snapshot_rule(_editable_rule(rule)), language),
+        is_active=bool(
+            rule is not None
+            and rule.confirmed_at is not None
+            and not rule.draft_payload
+        ),
     )
 
 
@@ -1269,14 +1361,22 @@ async def _run_rule_preview_job_inner(
         if row is None:
             return
         try:
-            rule = await _rule_for(db, client_id)
-            snap = snapshot_rule(rule)
+            if row.recipe_snapshot is None:
+                raise StandaloneGenerationError(
+                    code="extraction_failed",
+                    message="Podgląd nie ma zapisanej wersji reguły. Uruchom go ponownie.",
+                )
+            recipe = ClientCvRulePayload(**row.recipe_snapshot)
+            frozen = ClientCvRule()
+            _apply_payload(frozen, recipe)
+            snap = snapshot_rule(frozen)
             with_rule = await generate_cv_for_candidate(
                 db,
                 candidate_id=candidate_id,
                 stage_id=stage_id,
                 language=language,  # type: ignore[arg-type]
                 client_rule=snap,
+                client_policy_override=row.recipe_snapshot,
             )
             without_rule = await generate_cv_for_candidate(
                 db,
@@ -1284,6 +1384,7 @@ async def _run_rule_preview_job_inner(
                 stage_id=stage_id,
                 language=language,  # type: ignore[arg-type]
                 client_rule=None,
+                client_policy_override={"cv_content_mode_cap": None},
             )
         except StandaloneGenerationError as err:
             await _mark_preview_failed(db, preview_id, err.message)
@@ -1328,7 +1429,7 @@ async def enqueue_client_cv_rule_preview(
     wywołania najdroższego modelu). Naliczone PRZED zakolejkowaniem — odmowa
     ma być czytelnym 503, nie wierszem „failed".
     """
-    await _client_or_404(db, client_id)
+    client = await _client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client_id, write=True)
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage
@@ -1367,6 +1468,22 @@ async def enqueue_client_cv_rule_preview(
             + ", ".join(missing)
             + ".",
         )
+    await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
+    await db.refresh(client)
+    rule = await _rule_for(db, client_id)
+    editable = _editable_rule(rule)
+    from app.api.cv_generator_b2b import _enforce_client_language
+
+    _enforce_client_language(editable, payload.language)
+    recipe_snapshot = (
+        rule.draft_payload
+        if rule is not None and rule.draft_payload
+        else _rule_state(rule, client)
+    )
+    # No stored rule: use validated defaults instead of nullable ORM placeholders.
+    if rule is None:
+        recipe_snapshot = _recipe_payload(ClientCvRulePayload(), client)
+    _validated_recipe(recipe_snapshot)
     # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
     # kolejnego — bez osobnego crona.
     from sqlalchemy import delete as sa_delete
@@ -1406,6 +1523,7 @@ async def enqueue_client_cv_rule_preview(
         stage_id=payload.stage_id,
         language=payload.language,
         status="processing",
+        recipe_snapshot=recipe_snapshot,
         created_by=current_user.id,
     )
     db.add(row)
