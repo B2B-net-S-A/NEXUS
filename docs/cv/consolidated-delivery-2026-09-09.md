@@ -144,3 +144,31 @@ At most four job leases can be running; additional work stays queued. Host-nativ
 state tests pass, but only the hosted concurrent-claim test can establish the
 PostgreSQL race behavior. This does not establish actual provider-call shutdown
 when a process loses its lease or complete restart/retry acceptance.
+
+## Current verification and remaining model-runtime gap
+
+CI run `34404063119` completed successfully for `76a49406`, including all four
+backend shards and frontend build. This includes the independent editorial
+prompt, bounded extraction parser and corpus v2. The subsequent artifact package
+is under CI at `dd288a5d`; do not extend the earlier green result to this SHA.
+
+New generated documents retain final DOCX bytes and SHA-256 (migration 0292).
+The consent attachment is rendered before archival; missing or invalid attached
+images reject finalization. A host-native test opens the actual generated ZIP,
+checks the exact embedded image, then makes source storage unavailable and
+verifies byte-identical download without contacting storage. Existing documents
+without stored bytes retain legacy rendering; no historical bytes are invented.
+Private payload metadata records editorial prompt/input/rule/source digests and
+template/generated-document digests. History queries defer the binary column.
+This still does not unify standalone and pipeline approval/version semantics.
+
+The read-only staging diagnostic `34405934439` succeeded and reported application
+`bwidyryrt7ppw42yf533l5uu` as `exited:unhealthy`, with no application FQDN, branch
+`codex/nexus-dependency-upgrades` and revision
+`6af30237ee17cd6ac4d3394157bb4adf0bf4deb4`. The configured staging URL also failed
+the direct TLS handshake. The historical release workflow at that revision was
+explicitly disabled pending staging isolation and migration reconciliation.
+No application settings, deployments or candidate records were changed by this
+inspection. The existence of a GitHub environment is not evidence of a usable,
+isolated runtime for full-model evaluation. Actual primary/fallback generation,
+latency/cost/false-rejection measurements and Delivery Lead review remain open.
