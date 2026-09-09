@@ -255,3 +255,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Query embedding and batch evaluation now have cooperative asyncio deadlines of 240s and 90s, below their 300s and 120s leases. This leaves a persistence margin instead of allowing an indefinitely awaited provider to consume the lease and trigger repeated work. Query timeout proceeds with unknown semantic measurement; batch timeout rolls back and saves an explicit failed batch, with no invented scores.
 - Five worker tests pass, including actual cancellation of indefinitely awaiting coroutines in both stages, single invocation, failure telemetry and sanitized TimeoutError checkpoint. Ruff and diff checks pass. These cooperative limits cannot preempt blocking CPU code or guarantee database availability; production throughput/p95 and full completeness still require measurement. No production execution or completion is claimed.
+
+### Hosted CI follow-up: toast timers outlive unmount
+
+- Frontend job 102419760814 failed with an unhandled ReferenceError: window is not defined from Toast.tsx timeout after teardown. ToastProvider now tracks and cancels timers at unmount and explicit dismissal; naturally expired timers remove their handles. Existing notification timing and context identity remain unchanged.
+- Five toast accessibility/lifecycle/context tests, TypeScript and ESLint pass. The new test covers three notification types, early dismissal, natural expiration and zero remaining timers at unmount. This fixes the observed CI cause; it is not yet proof of a green hosted suite.
