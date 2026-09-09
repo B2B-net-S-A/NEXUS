@@ -495,10 +495,17 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         )
         assert r.status_code == 200, r.text
 
-        charged: list[str] = []
+        charged: list[tuple[str, int]] = []
+        remaining = 1
 
-        async def fake_charge(db, feature, user_id=None):
-            charged.append(feature.value)
+        async def fake_charge(db, feature, user_id=None, *, units=1):
+            nonlocal remaining
+            from app.services.ai_quota import AIQuotaExceeded
+
+            if remaining < units:
+                raise AIQuotaExceeded(feature, "Limit", used=9, limit=10)
+            remaining -= units
+            charged.append((feature.value, units))
 
         monkeypatch.setattr(api_module, "check_and_increment", fake_charge)
 
@@ -588,9 +595,22 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
             json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
             headers=headers,
         )
+        assert r.status_code == 503, r.text
+        assert charged == [], "one remaining unit must not be consumed"
+        assert remaining == 1
+        assert seen_rules == [], "neither variant may run after denied admission"
+
+        remaining = 2
+        r = await rule_request(
+            app_client,
+            "POST",
+            RULE_URL.format(cid=cid) + "/preview",
+            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
+            headers=headers,
+        )
         assert r.status_code == 202, r.text
-        assert charged == ["cv_generator", "cv_generator"], (
-            "dwie generacje = dwa obciążenia"
+        assert charged == [("cv_generator", 2)], (
+            "both preview variants must have one admission for two units"
         )
         preview_id = r.json()["id"]
 

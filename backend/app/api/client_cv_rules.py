@@ -1604,15 +1604,11 @@ async def enqueue_client_cv_rule_preview(
         )
     )
     try:
-        # Dwie generacje (z regułą i bez) = DWA obciążenia cv_generator
-        # (kontrakt billingowy: per generację). Naliczamy sekwencyjnie PRZED
-        # zakolejkowaniem: jeśli limit skończy się na drugim, rollback cofa oba,
-        # więc DL dostaje pełny podgląd albo czyste 503 — nigdy połowy.
-        await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
-        )
+        # Both variants belong to one admission decision. Metering commits
+        # independently: business rollback cannot undo a first single-unit charge.
+        # Reject insufficient capacity before recording either preview variant.
         quota_state = await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
+            db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
         )
     except AIQuotaExceeded as exc:
         await db.rollback()
