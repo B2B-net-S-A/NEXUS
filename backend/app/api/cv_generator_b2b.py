@@ -1563,7 +1563,9 @@ async def download_generated_cv_html(
 
     html_str = render_interactive_html(
         build_public_payload(row.render_payload),
-        (row.requirement_map or {}).get("items") or [],
+        ((row.requirement_map or {}).get("items") or [])
+        if await _interactive_available(db, row)
+        else [],
     )
     filename = (Path(row.filename).stem or "CV") + ".html"
     ascii_name = ascii_filename_fallback(filename)
@@ -1641,24 +1643,14 @@ class CvGeneratedShareListItem(BaseModel):
 
 
 async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> bool:
-    """Czy publiczna strona pokaże wersję interaktywną dla tego CV.
+    """Tiles require evidence and the same client policy as the public view."""
+    from app.services.cv_generator_b2b.document_policy import (
+        interactive_client_enabled,
+    )
 
-    Wymaga wygenerowanej mapy wymagań (tryb "new": z joba; tryb "upload":
-    z ręcznych pól rekrutera albo pliku championa). Przy znanym kliencie
-    (tryb "new") dodatkowo flaga `Client.cv_interactive_enabled` (domyślnie
-    ON; niezależna od sufitu content_mode — kafelki to fakty z cytatami, nie
-    narracja sprzedażowa). Upload nie zna klienta, więc flagi nie ma czym
-    sprawdzić — świadomie, ta sama klasa luki co sufit content_mode w upload.
-    """
-    if not (row.requirement_map or {}).get("items"):
-        return False
-    if row.mode == "new" and row.job_id is not None:
-        job = await db.get(Job, row.job_id)
-        if job is not None and job.client_id is not None:
-            client = await db.get(Client, job.client_id)
-            if client is not None and not client.cv_interactive_enabled:
-                return False
-    return True
+    return bool((row.requirement_map or {}).get("items")) and (
+        await interactive_client_enabled(db, row)
+    )
 
 
 @router.post(

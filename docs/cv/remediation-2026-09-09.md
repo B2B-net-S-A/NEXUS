@@ -12,7 +12,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
-| CV-06 | Common client resolver respects upload client in public CV, chat and export | Pending |
+| CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
 | CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Pending |
