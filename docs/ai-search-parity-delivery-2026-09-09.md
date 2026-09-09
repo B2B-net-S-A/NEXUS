@@ -270,3 +270,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - /ai-matches no longer uses job.location as an implicit hard filter. Omitted location keeps unknown-location candidates eligible for ranking; an explicit location still filters. Removed the shared-engine branch's second query-text assignment so retrieval receives the canonical full document already built for the request.
 - Nineteen native location/endpoint tests pass, including the actual handler with a located request and known/unknown-location candidates, explicit filter behavior and verification of the full document sent to retrieval. Provider/gate/scorer are controlled in this transport regression, so it is not production scoring-quality evidence. Ruff/diff checks pass; hosted CI and delivery remain open.
+
+### Increment: remove alternative scoring from compatibility AI Matching
+
+- Removed the flag-controlled raw cosine/reranker score and fallback profile-completeness ranking branches. /ai-matches always calls the canonical fit adapter, including null measurement handling, in semantic and SQL fallback discovery. The old setting can no longer change score meaning. SQL fallback selection is stable by candidate ID; discovery remains bounded and is not full-population evidence.
+- Twenty-five native tests pass (six PostgreSQL integration cases deferred). Handler regressions exercise both old flag values and both discovery branches with explicit/no-location filters. Updated the old flag-off hosted contract to require total_score and match_score = total_score / 100. Ruff and diff checks pass. Broader hosted compatibility regressions may need expectation updates for the intentionally changed contract; CI/quality/index/production acceptance is still required.

@@ -39,7 +39,6 @@ from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
 )
-from app.services.reranker_service import rerank_or_passthrough
 from app.services.scoring_service import (
     _extract_skills_from_champion,
     candidate_skill_names,
@@ -632,28 +631,17 @@ async def get_ai_matches(
                    place (city/region, substring-tolerant). Only an explicit
                    value activates this filter; job location remains a fit input.
     """
-    shared_engine = bool(getattr(settings, "AI_MATCHES_SHARED_ENGINE", False))
     max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
-    # Próg mieszka na skali WYNIKU, a wynik zmienia znaczenie razem z silnikiem.
-    # Pod wspólnym silnikiem `match_score` to kompozyt/100, więc domyślną
-    # podłogą jest ta sama `RECOMMENDATION_MIN_SCORE`, którą stosuje bliźniacza
-    # lista na tej samej zakładce; jawny `min_score` (0–1) nadal obowiązuje
-    # i jest po prostu przeliczany. Bez tego domyślne 0.5 odsiałoby kompozyty
-    # poniżej 50/100 — czyli WIĘKSZOŚĆ realnych dopasowań.
-    if shared_engine:
-        threshold = (
-            min_score
-            if min_score is not None
-            else settings.RECOMMENDATION_MIN_SCORE / 100.0
-        )
-    else:
-        threshold = min_score if min_score is not None else settings.AI_MATCH_MIN_SCORE
-    # Retrieval/rerank pool is independent of the result cap: it bounds how many
-    # candidates the (cost-bearing) reranker scores, while max_results bounds the
-    # payload. Results are therefore effectively capped at the smaller of the two.
-    pool_size = (
-        settings.MATCH_POOL_SIZE if shared_engine else settings.AI_MATCH_POOL_SIZE
+    # The compatibility score is always canonical fit / 100, regardless of
+    # old deployment flags. Keep the explicit 0..1 API threshold contract.
+    threshold = (
+        min_score
+        if min_score is not None
+        else settings.RECOMMENDATION_MIN_SCORE / 100.0
     )
+    # This compatibility endpoint still bounds discovery membership; the
+    # durable candidate-search API owns exhaustive population scanning.
+    pool_size = settings.MATCH_POOL_SIZE
 
     # Fetch job
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -702,7 +690,6 @@ async def get_ai_matches(
     # unbound" dla każdego, kto puści tu mypy.
     from app.services.canonical_text import build_job_query_variants
     from app.services.embedding_service import (
-        _build_candidate_text,
         SemanticSearchUnavailable,
     )
     from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
@@ -712,7 +699,6 @@ async def get_ai_matches(
     # retrieval. The threshold filter below — not a fixed top-K — decides
     # who is shown. Rerank cost scales ~linearly with pool size, hence the
     # tunable AI_MATCH_POOL_SIZE.
-    rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
 
     # ── Attempt Qdrant semantic search (+ optional Voyage rerank) ────────────
     # `try` obejmuje WYŁĄCZNIE wywołanie sieciowe. Do 2026-08-20 obejmował całą
@@ -765,12 +751,8 @@ async def get_ai_matches(
             f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
         )
 
-    # Wiersze, dla których kosinusu NIE zmierzono (`semantic_unknown` — padła
-    # dosypka po udanym BM25 albo kandydat nie ma wektora), niosą `score` 0.0.
-    # To jest „nie wiem", nie „zmierzono zero", a ta gałąź porównuje
-    # `match_score` WPROST z progiem — zostawione, weszłyby do odpowiedzi jako
-    # najsłabsze dopasowania puli, czyli awaria dostawcy podszyłaby się pod
-    # zmierzony brak dopasowania. Odrzucamy je i mówimy to w logu.
+    # Retrieval uncertainty never removes membership. Canonical measurement
+    # retries the selected IDs and preserves null if evidence is unavailable.
     semantic_unknown_ids = {
         h["candidate_id"] for h in hits if h.get("semantic_unknown")
     }
@@ -780,12 +762,6 @@ async def get_ai_matches(
             job_id,
             len(semantic_unknown_ids),
         )
-        if not shared_engine:
-            # Stara ścieżka porównuje kosinus WPROST z progiem, więc 0.0 jako
-            # „nie wiem" udawałoby zmierzony brak dopasowania. Wspólny silnik
-            # takich wierszy nie odrzuca: ponawia dokładny pomiar przez
-            # canonical_fit i zachowuje null, jeśli pomiar nadal jest niedostępny.
-            hits = [h for h in hits if h["candidate_id"] not in semantic_unknown_ids]
 
     if hits:
         candidate_ids = [h["candidate_id"] for h in hits]
@@ -823,101 +799,36 @@ async def get_ai_matches(
             inputs=rubric_inputs,
         )
 
-        search_type = "semantic"
-
-        if shared_engine:
-            # `search_type` MUSI zaczynać się od "semantic" — front uznaje
-            # odpowiedź za zdegradowaną, gdy tak nie jest (`page.tsx`).
-            matches, reranked = await _shared_engine_matches(
-                db,
-                job=job,
-                ordered=ordered,
-                similarity_map={
-                    cid: sc
-                    for cid, sc in qdrant_scores.items()
-                    if cid not in semantic_unknown_ids
-                },
-                semantic_unknown_ids=semantic_unknown_ids,
-                current_user=current_user,
-                required_skills=required_skills,
-                nice_skills=nice_skills,
-                rubric_inputs=rubric_inputs,
-                elig_annotations=elig_annotations,
-                query_text=query_text,
-            )
-            search_type = "semantic+composite" + ("+rerank" if reranked else "")
-            if location_active:
-                matches = [
-                    m
-                    for m in matches
-                    if _location_matches(requested_tokens, m["candidate"]["location"])
-                ]
-            degraded = any(m["match_score"] is None for m in matches)
-            matches = [
-                m
-                for m in matches
-                if m["match_score"] is None or m["match_score"] >= threshold
-            ][:max_results]
-            return {
-                "job_id": job_id,
-                "job_title": job.title,
-                "required_skills": required_skills,
-                "required_skills_source": required_skills_source,
-                "nice_skills": nice_skills,
-                "search_type": search_type,
-                "min_score": round(threshold, 3),
-                "location_filter": requested_location if location_active else None,
-                "matches": matches,
-                "rubrics": job_rubrics,
-                "meta": {
-                    "mode": search_type,
-                    "degraded": degraded,
-                    "reason": "semantic_unavailable" if degraded else None,
-                    "hidden": hidden_meta,
-                    "eligibility_filtered": eligibility_filtered,
-                    "budget_hourly": resolve_job_budget_hourly(job),
-                },
-            }
-
-        scores_by_idx: dict[int, float] = {
-            i: qdrant_scores.get(c.id, 0.0) for i, c in enumerate(ordered)
-        }
-
-        if rerank_enabled and ordered:
-            docs = [_build_candidate_text(c)[:4000] for c in ordered]
-            # Rerank the whole pool (top_k=len(docs)) so threshold filtering
-            # below sees a fully-ranked list, not a pre-trimmed one.
-            pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
-            if pairs and any(score != 1.0 for _, score in pairs):
-                # Real rerank result (passthrough returns score=1.0 for all).
-                # Reorder per rerank, scores aligned to new positions.
-                search_type = "semantic+rerank"
-                ordered = [ordered[idx] for idx, _ in pairs]
-                scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
-            # Passthrough / failure → keep Qdrant order + scores as-is.
-
-        matches = []
-        for i, c in enumerate(ordered):
-            m = _build_match_info(
-                c,
-                required_skills,
-                nice_skills=nice_skills,
-                score=scores_by_idx.get(i, 0.0),
-                inputs=rubric_inputs,
-            )
-            m["eligibility"] = elig_annotations.get(c.id)
-            matches.append(m)
-        # Location filter (when active): keep only candidates whose location
-        # matches the request, preserving the semantic ranking order.
+        matches, reranked = await _shared_engine_matches(
+            db,
+            job=job,
+            ordered=ordered,
+            similarity_map={
+                cid: sc
+                for cid, sc in qdrant_scores.items()
+                if cid not in semantic_unknown_ids
+            },
+            semantic_unknown_ids=semantic_unknown_ids,
+            current_user=current_user,
+            required_skills=required_skills,
+            nice_skills=nice_skills,
+            rubric_inputs=rubric_inputs,
+            elig_annotations=elig_annotations,
+            query_text=query_text,
+        )
+        search_type = "semantic+composite" + ("+rerank" if reranked else "")
         if location_active:
             matches = [
                 m
                 for m in matches
                 if _location_matches(requested_tokens, m["candidate"]["location"])
             ]
-        # Threshold filter: show everyone who fits, capped for payload safety.
-        matches = [m for m in matches if m["match_score"] >= threshold][:max_results]
-
+        degraded = any(m["match_score"] is None for m in matches)
+        matches = [
+            m
+            for m in matches
+            if m["match_score"] is None or m["match_score"] >= threshold
+        ][:max_results]
         return {
             "job_id": job_id,
             "job_title": job.title,
@@ -931,14 +842,10 @@ async def get_ai_matches(
             "rubrics": job_rubrics,
             "meta": {
                 "mode": search_type,
-                "degraded": False,
-                "reason": None,
+                "degraded": degraded,
+                "reason": "semantic_unavailable" if degraded else None,
                 "hidden": hidden_meta,
                 "eligibility_filtered": eligibility_filtered,
-                # Operational (candidate) budget the gate enforces — the C2
-                # context bar shows it and the dock compares each rate to it,
-                # so "stawka vs budżet" reads the SAME ceiling as "ukryto:
-                # over_budget". Null when the job has no hourly budget.
                 "budget_hourly": resolve_job_budget_hourly(job),
             },
         }
@@ -948,7 +855,10 @@ async def get_ai_matches(
 
     # Grab all active candidates (bounded by the retrieval pool for performance)
     all_result = await db.execute(
-        select(Candidate).where(Candidate.status != "blacklisted").limit(effective_pool)
+        select(Candidate)
+        .where(Candidate.status != "blacklisted")
+        .order_by(Candidate.id)
+        .limit(effective_pool)
     )
     all_candidates = list(all_result.scalars().all())
 
@@ -982,51 +892,28 @@ async def get_ai_matches(
             eligibility_filtered,
         )
 
-    if shared_engine:
-        matches, _ = await _shared_engine_matches(
-            db,
-            job=job,
-            ordered=all_candidates,
-            similarity_map={},
-            semantic_unknown_ids={c.id for c in all_candidates},
-            current_user=current_user,
-            required_skills=required_skills,
-            nice_skills=nice_skills,
-            rubric_inputs=rubric_inputs,
-            elig_annotations=elig_annotations,
-            query_text=query_text,
+    matches, _ = await _shared_engine_matches(
+        db,
+        job=job,
+        ordered=all_candidates,
+        similarity_map={},
+        semantic_unknown_ids={c.id for c in all_candidates},
+        current_user=current_user,
+        required_skills=required_skills,
+        nice_skills=nice_skills,
+        rubric_inputs=rubric_inputs,
+        elig_annotations=elig_annotations,
+        query_text=query_text,
+    )
+    matches = [
+        m
+        for m in matches
+        if (
+            not location_active
+            or _location_matches(requested_tokens, m["candidate"]["location"])
         )
-        matches = [
-            m
-            for m in matches
-            if (
-                not location_active
-                or _location_matches(requested_tokens, m["candidate"]["location"])
-            )
-            and (m["match_score"] is None or m["match_score"] >= threshold)
-        ][:max_results]
-    else:
-        matches = []
-        for c in all_candidates:
-            # Location filter (when active): skip non-matching candidates up front.
-            if location_active and not _location_matches(requested_tokens, c.location):
-                continue
-            match = _build_match_info(
-                c,
-                required_skills,
-                nice_skills=nice_skills,
-                score=None,
-                inputs=rubric_inputs,
-            )
-            match["eligibility"] = elig_annotations.get(c.id)
-            # No required_skills → score is a profile-completeness proxy; keep the
-            # threshold floor so junk profiles don't surface as "matches".
-            if match["match_score"] >= threshold:
-                matches.append(match)
-
-        # Sort by score desc, show all who clear the threshold (capped).
-        matches.sort(key=lambda x: x["match_score"], reverse=True)
-        matches = matches[:max_results]
+        and (m["match_score"] is None or m["match_score"] >= threshold)
+    ][:max_results]
 
     # `meta.degraded` — strona rekrutacji ma gotowy baner „wyszukiwanie
     # semantyczne niedostępne" wpięty dokładnie w ten klucz, tylko backend go

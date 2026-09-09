@@ -6,11 +6,9 @@ i „Shortlistę" (`/ai-matches`, surowy kosinus Qdranta z puli 100). Te same da
 potrafiły dać dwie różne kolejności, bez żadnego sygnału, że to dwie różne
 miary.
 
-Flaga `AI_MATCHES_SHARED_ENGINE` (domyślnie OFF) przełącza drugą listę na ten
-sam silnik. Te testy zamrażają obie strony flagi, bo najgroźniejszy stan to nie
-„flaga nie działa", tylko „flaga działa, a kontrakt odpowiedzi cicho się
-zmienił": `match_score` czyta `MatchScoreBar` (×100), parametr `min_score`
-(ge=0, le=1) i zamrożony `JobShortlist.score_snapshot`.
+Dawna flaga nie może już przywrócić surowego kosinusa. Każda odpowiedź
+używa canonical fit; match_score pozostaje total_score / 100 dla zgodności
+z konsumentami dotychczasowej skali API.
 """
 
 from __future__ import annotations
@@ -103,10 +101,10 @@ def _semantic_hits(monkeypatch, cand_id: int, *, score: float = 0.9, unknown=Fal
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_flag_off_response_is_legacy_shape(
+async def test_old_flag_off_cannot_restore_legacy_score(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Bez flagi: `search_type == "semantic"`, wiersz bez kompozytu."""
+    """A stale deployment flag cannot restore cosine as the displayed fit."""
     job_id, cand_id, _ = shared_engine_fixture
     monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", False)
     _semantic_hits(monkeypatch, cand_id)
@@ -118,10 +116,10 @@ async def test_flag_off_response_is_legacy_shape(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["search_type"] == "semantic"
+    assert body["search_type"] == "semantic+composite"
     row = next(m for m in body["matches"] if m["candidate"]["id"] == cand_id)
-    assert "total_score" not in row, "stara ścieżka nie liczy kompozytu"
-    assert row["match_score"] == pytest.approx(0.9)
+    assert row["total_score"] is not None
+    assert row["match_score"] == pytest.approx(row["total_score"] / 100)
 
 
 @pytest.mark.integration

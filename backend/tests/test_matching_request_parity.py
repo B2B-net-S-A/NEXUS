@@ -9,9 +9,11 @@ from tests.test_scoring_service import make_candidate, make_job
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("old_flag", [False, True])
 @pytest.mark.parametrize("location,expected", [(None, [1, 2]), ("Warszawa", [1])])
 async def test_compatibility_endpoint_only_filters_explicit_location(
-    monkeypatch, location, expected
+    monkeypatch, location, expected, old_flag, fallback
 ):
     job = make_job(location="Warszawa", description="Wstęp " * 500 + "Django na końcu")
     candidates = [
@@ -29,12 +31,14 @@ async def test_compatibility_endpoint_only_filters_explicit_location(
         )
     )
     retrieval = AsyncMock(
-        return_value=[{"candidate_id": c.id, "score": 0.8} for c in candidates]
+        return_value=[]
+        if fallback
+        else [{"candidate_id": c.id, "score": 0.8} for c in candidates]
     )
     monkeypatch.setattr(
         "app.services.retrieval_pool.retrieve_candidate_pool", retrieval
     )
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
+    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", old_flag)
 
     async def gate(db, **kwargs):
         return kwargs["ordered"], {}, {}, 0, kwargs["inputs"]
