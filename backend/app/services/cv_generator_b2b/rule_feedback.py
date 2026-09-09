@@ -1,6 +1,7 @@
 """Check observable presentation outcomes; never certify free-text instructions."""
 
-from app.services.cv_generator_b2b.client_rules import SECTION_LABELS
+from app.services.cv_generator_b2b.client_rules import SECTION_LABELS, reformat_dates
+from app.services.cv_generator_b2b.language_aliases import resolve_alias
 
 
 def presentation_feedback(payload: dict, rule) -> list[dict]:
@@ -29,7 +30,7 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
             not payload.get(section),
         )
     if rule.max_roles:
-        check("max_roles", "Limit stanowisk", len(roles) <= rule.max_roles)
+        check("max_roles", "Limit stanowisk", len(roles) <= rule.max_roles, bool(roles))
     if rule.max_bullets_per_role:
         check(
             "max_bullets_per_role",
@@ -65,6 +66,7 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
             "highlight_policy",
             "Wybór fraz do pogrubienia",
             highlighting.get("policy") == rule.highlight_policy,
+            not highlighting.get("requires_champion"),
         )
         for term in highlighting.get("ignored") or []:
             feedback.append(
@@ -88,6 +90,55 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
                 "field": "highlight_policy",
                 "label": "Brak zapisanego wyniku wyboru pogrubień",
                 "status": "needs_review",
+            }
+        )
+    if rule.date_format:
+        dates = [
+            str(entry.get("dates") or "").strip()
+            for section in ("experience", "education")
+            for entry in payload.get(section) or []
+            if isinstance(entry, dict) and entry.get("dates")
+        ]
+        # Unchanged text is not proof: the formatter deliberately preserves
+        # unknown formats rather than guessing dates or their precision.
+        feedback.append(
+            {
+                "field": "date_format",
+                "label": f"Format dat: {rule.date_format} — sprawdź daty w dokumencie",
+                "status": "not_applicable"
+                if not dates
+                else "conflict"
+                if any(
+                    reformat_dates(value, rule.date_format) != value for value in dates
+                )
+                else "needs_review",
+            }
+        )
+    titles = [
+        str(payload.get("position") or ""),
+        *[str(role.get("position") or "") for role in roles],
+    ]
+    for source, target in rule.glossary:
+        alias = resolve_alias(source, target)
+        if alias is None:
+            status = "skipped"
+            detail = "niedozwolona zamiana — pominięta"
+        elif alias["target_language"] != (payload.get("language") or "pl"):
+            status = "not_applicable"
+            detail = "inny język docelowy — pominięta"
+        elif any(
+            title.strip().casefold() == source.strip().casefold() for title in titles
+        ):
+            status = "conflict"
+            detail = "stanowisko nadal zawiera nazwę przed tłumaczeniem"
+        else:
+            status = "needs_review"
+            detail = "sprawdź tłumaczenie stanowiska w dokumencie"
+        feedback.append(
+            {
+                "field": "glossary",
+                "label": f"Słownik: {source} → {target} — {detail}",
+                "status": status,
             }
         )
     if rule.generator_instructions or rule.generator_instructions_en or rule.notes:

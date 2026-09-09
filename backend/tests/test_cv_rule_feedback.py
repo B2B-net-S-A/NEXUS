@@ -48,3 +48,44 @@ def test_highlight_report_explains_ignored_source_absent_terms():
     assert result[1]["status"] == "skipped"
     assert "Kubernetes" in result[1]["label"]
     assert "źródle" in result[1]["label"]
+
+
+def test_missing_champion_does_not_claim_highlighting_satisfied():
+    result = presentation_feedback(
+        {"highlight_policy_result": {"policy": "champion", "requires_champion": True}},
+        rule(highlight_policy="champion"),
+    )
+    assert all(item["status"] == "not_applicable" for item in result)
+
+
+def test_dates_distinguish_conflict_unknown_and_absent():
+    for dates, expected in [
+        ("01.2020", "conflict"),
+        ("January 2020", "needs_review"),
+        ("", "not_applicable"),
+    ]:
+        result = presentation_feedback(
+            {"experience": [{"dates": dates}]}, rule(date_format="YYYY-MM")
+        )
+        assert (
+            next(item for item in result if item["field"] == "date_format")["status"]
+            == expected
+        )
+
+
+def test_glossary_explains_rejected_wrong_language_and_untranslated_entries():
+    result = presentation_feedback(
+        {"language": "pl", "position": "Business Analyst"},
+        rule(
+            glossary=(
+                ("Junior", "Senior"),
+                ("Programista", "Software Developer"),
+                ("Business Analyst", "Analityk Biznesowy"),
+            )
+        ),
+    )
+    assert [item["status"] for item in result if item["field"] == "glossary"] == [
+        "skipped",
+        "not_applicable",
+        "conflict",
+    ]
