@@ -103,6 +103,46 @@ def extract_diagnostics_report(executions):
                     }
                 )
             summary = data["metrics_24h"]
+            comparisons = data.get("archived_run_comparisons", [])
+            if not isinstance(comparisons, list) or len(comparisons) > 3:
+                raise ValueError("Unbounded archived comparisons")
+            compared = []
+            for comparison in comparisons:
+                run_ids = {}
+                for key in ("left_run_id", "right_run_id"):
+                    if not re.fullmatch(r"[0-9a-f-]{36}", comparison[key]):
+                        raise ValueError("Invalid comparison run ID")
+                    run_ids[key] = comparison[key]
+                compared.append(
+                    {
+                        **run_ids,
+                        **{
+                            key: number(comparison[key])
+                            for key in (
+                                "left_population",
+                                "right_population",
+                                "common_candidates",
+                                "changed_candidate_versions",
+                                "eligibility_differences",
+                                "comparable_measured_pairs",
+                                "max_absolute_score_difference",
+                                "score_differences_above_tolerance",
+                                "score_tolerance",
+                            )
+                        },
+                        **{
+                            key: boolean(comparison[key])
+                            for key in (
+                                "same_context",
+                                "same_population",
+                                "same_ranked_ids_and_order",
+                                "left_ranking_complete",
+                                "right_ranking_complete",
+                                "archived_parity_complete",
+                            )
+                        },
+                    }
+                )
             return {
                 "runtime": {
                     **{
@@ -143,6 +183,7 @@ def extract_diagnostics_report(executions):
                     },
                 },
                 "recent_runs": runs,
+                "archived_run_comparisons": compared,
                 "metrics_24h": {
                     **{
                         key: number(summary[key])

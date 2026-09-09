@@ -18,6 +18,7 @@ from app.models.candidate_search_run import CandidateSearchResult, CandidateSear
 from app.services.full_search_measurement import request_vector
 from app.services.index_outbox_service import diagnostics
 from app.services.search_telemetry import SearchTelemetry
+from scripts.compare_candidate_search_runs import recent_comparisons
 from scripts.report_candidate_search_metrics import report as metrics_report
 
 PREFIX = "NEXUS_SEARCH_DIAGNOSTICS_RESULT="
@@ -101,6 +102,7 @@ async def collect_report():
                     **metrics_projection(run.metrics),
                 }
             )
+        comparisons = await recent_comparisons(db, runs)
     return {
         "ok": True,
         "runtime": {
@@ -114,6 +116,7 @@ async def collect_report():
         },
         "queue": queue,
         "recent_runs": recent,
+        "archived_run_comparisons": comparisons,
         "metrics_24h": await metrics_report(24, 1000),
         "synthetic_query_probe": await query_probe(),
     }

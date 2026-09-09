@@ -105,6 +105,43 @@ def test_projection_retains_unknown_cost_and_drops_private_payloads():
     assert result["queue"]["queue_depth"] == 100
 
 
+def test_archived_comparison_projection_is_bounded_and_omits_identities():
+    from types import SimpleNamespace
+
+    from scripts.compare_candidate_search_runs import compare_runs
+
+    run = SimpleNamespace(
+        id=str(UUID(int=2)),
+        population_size=0,
+        state="complete",
+        created_by=1,
+        request_fingerprint="same",
+        version_trace={},
+    )
+    other = SimpleNamespace(**{**vars(run), "id": str(UUID(int=3))})
+    comparison = compare_runs(run, [], other, [])
+    comparison["candidate_ids"] = [123]
+    comparison["request_text"] = "private request"
+    data = sample_report()
+    data["archived_run_comparisons"] = [comparison]
+    result = transport().extract_diagnostics_report(
+        [{"message": runtime.PREFIX + json.dumps(data)}]
+    )
+    projected = result["archived_run_comparisons"][0]
+    assert projected["max_absolute_score_difference"] is None
+    assert "candidate_ids" not in projected and "request_text" not in projected
+    comparison["max_absolute_score_difference"] = float("nan")
+    with pytest.raises(ValueError):
+        transport().extract_diagnostics_report(
+            [{"message": runtime.PREFIX + json.dumps(data)}]
+        )
+    data["archived_run_comparisons"] = [comparison] * 4
+    with pytest.raises(ValueError, match="Unbounded archived comparisons"):
+        transport().extract_diagnostics_report(
+            [{"message": runtime.PREFIX + json.dumps(data)}]
+        )
+
+
 @pytest.mark.parametrize("bad", [-1, float("nan"), True, "private"])
 def test_invalid_numeric_values_do_not_reach_artifact(bad):
     data = sample_report()
