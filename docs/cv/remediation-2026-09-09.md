@@ -30,6 +30,22 @@ CI, merge, expected deployment revision and relevant production verification.
 
 ## Current evidence boundary
 
+### Older CVs without original source snapshots
+
+Existing downloads and historical share links keep their existing paths. New
+source-verified approval requires original captured inputs and a recorded review.
+For an older generation without those records, the supported recovery is to
+select the original candidate CV (or upload it), select the recruitment/client,
+provide the relevant notes and generate a new version, then review and approve
+that result. It is a new generation with normal quota admission, not a backfill
+claiming that today's candidate profile was the historical source.
+
+The approval API already returns an actionable regeneration message for missing
+archived DOCX or verified content. The source loader likewise instructs the user
+to select sources and regenerate when no snapshot exists. A dedicated guided
+recovery action and production verification of this legacy path remain open;
+this paragraph records the current supported path, not completion of CV-02/10.
+
 PR #1444 remains the single delivery PR. CI 34412484203 passed all four backend
 shards and frontend build for `5b9c1d15`. Its separate formatting gate failed;
 the correction is in `d2495aa0`, whose CI Gate 34413855623 passed. Main CI
