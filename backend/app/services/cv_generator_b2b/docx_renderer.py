@@ -915,6 +915,24 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     return patterns
 
 
+def _unambiguous_tech_occurrence(text: str, match: re.Match[str]) -> bool:
+    if match.group().casefold() != "jest":
+        return True
+    # "Jest" is also the Polish verb "is", including at sentence start.
+    # Accept standalone/list mentions or a preceding testing/tool context.
+    tail = text[match.end() :].lstrip()
+    if not tail or tail[0] in ",;/()":
+        return True
+    prefix = re.split(r"[.!?;\n]", text[: match.start()])[-1][-80:]
+    return bool(
+        re.search(
+            r"\b(?:test\w*|framework\w*|bibliotek\w*|narzędz\w*|using|with)\b",
+            prefix,
+            re.IGNORECASE,
+        )
+    )
+
+
 def highlight_spans(
     text: str, patterns: list[re.Pattern[str]]
 ) -> list[tuple[int, int]]:
@@ -922,7 +940,8 @@ def highlight_spans(
     spans: list[tuple[int, int]] = []
     for pattern in patterns:
         for m in pattern.finditer(text):
-            spans.append((m.start(), m.end()))
+            if _unambiguous_tech_occurrence(text, m):
+                spans.append((m.start(), m.end()))
     if not spans:
         return []
     spans.sort()

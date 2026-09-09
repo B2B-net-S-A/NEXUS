@@ -36,7 +36,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -137,6 +137,8 @@ RULE_FIELDS: tuple[str, ...] = (
     "why_points_max",
     "date_format",
     "glossary",
+    "highlight_policy",
+    "highlight_terms",
 )
 CLIENT_FLAG_FIELDS: tuple[str, ...] = ("cv_content_mode_cap", "cv_interactive_enabled")
 
@@ -156,6 +158,30 @@ class GlossaryEntry(BaseModel):
 class ClientCvRulePayload(BaseModel):
     """Wejście edycji reguły. Wszystkie pola opcjonalne — pusty wzór znaczy
     „ten klient nie ma własnej nazwy pliku", nie „błąd"."""
+
+    highlight_policy: Literal[
+        "none", "technologies", "must", "must_nice", "explicit"
+    ] = "technologies"
+    highlight_terms: list[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def _explicit_highlights_for_publication(self) -> "ClientCvRulePayload":
+        if (
+            self.confirm
+            and self.highlight_policy == "explicit"
+            and not self.highlight_terms
+        ):
+            raise ValueError(
+                "Podaj technologie do wyróżnienia albo wybierz brak wyróżnień."
+            )
+        return self
+
+    @field_validator("highlight_terms")
+    @classmethod
+    def _highlight_terms(cls, terms: list[str]) -> list[str]:
+        if any(not term.strip() or len(term.strip()) > 80 for term in terms):
+            raise ValueError("Wyróżniane technologie muszą mieć od 1 do 80 znaków.")
+        return list(dict.fromkeys(term.strip() for term in terms))
 
     expected_revision: Optional[int] = Field(default=None, ge=0)
     filename_pattern: Optional[str] = Field(default=None, max_length=300)
@@ -297,6 +323,8 @@ class ClientCvRulePayload(BaseModel):
 
 
 class ClientCvRuleRead(BaseModel):
+    highlight_policy: str = "technologies"
+    highlight_terms: list[str] = Field(default_factory=list)
     edit_revision: int = 0
     draft_payload: Optional[dict[str, Any]] = None
     client_id: int
@@ -528,6 +556,8 @@ def _to_read(
             {"from": src, "to": dst} for src, dst in (snap.glossary if snap else ())
         ],
         version=int(rule.version or 1),
+        highlight_policy=rule.highlight_policy or "technologies",
+        highlight_terms=list(rule.highlight_terms or []),
         edit_revision=int(rule.edit_revision or 1),
         draft_payload=rule.draft_payload,
         seed_key=rule.seed_key,
@@ -607,8 +637,10 @@ def _rule_state(rule: Optional[ClientCvRule], client: Client) -> dict[str, Any]:
     state: dict[str, Any] = {}
     for field in RULE_FIELDS:
         value = getattr(rule, field, None) if rule is not None else None
-        if field in ("omit_sections", "glossary"):
+        if field in ("omit_sections", "glossary", "highlight_terms"):
             value = list(value or [])
+        if field == "highlight_policy":
+            value = value or "technologies"
         state[field] = value
     for field in CLIENT_FLAG_FIELDS:
         state[field] = getattr(client, field, None)
@@ -661,6 +693,8 @@ def _record_event(
 
 
 def _apply_payload(rule: ClientCvRule, payload: ClientCvRulePayload) -> None:
+    rule.highlight_policy = payload.highlight_policy
+    rule.highlight_terms = list(payload.highlight_terms) or None
     rule.filename_pattern = payload.filename_pattern
     rule.spaces_to_underscores = payload.spaces_to_underscores
     rule.cv_language = payload.cv_language
