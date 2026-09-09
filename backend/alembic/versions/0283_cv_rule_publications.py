@@ -16,6 +16,12 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column(
+        "clients",
+        sa.Column(
+            "cv_rule_edit_revision", sa.Integer(), nullable=False, server_default="0"
+        ),
+    )
+    op.add_column(
         "client_cv_rule_previews", sa.Column("recipe_snapshot", postgresql.JSONB())
     )
     op.add_column("client_cv_rules", sa.Column("draft_payload", postgresql.JSONB()))
@@ -38,6 +44,9 @@ def upgrade() -> None:
             "published_by", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")
         ),
     )
+    op.execute(
+        "UPDATE clients c SET cv_rule_edit_revision = r.edit_revision FROM client_cv_rules r WHERE r.client_id = c.id"
+    )
     # Preserve the currently effective recipe without activating any seed.
     op.execute("""
         INSERT INTO client_cv_rule_publications
@@ -55,6 +64,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_column("clients", "cv_rule_edit_revision")
     op.drop_column("client_cv_rule_previews", "recipe_snapshot")
     op.drop_table("client_cv_rule_publications")
     op.drop_column("client_cv_rules", "edit_revision")
