@@ -2016,8 +2016,9 @@ _PFRON_PERSON_RATE_RE = re.compile(
 def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
     """Independent person/rate evidence from each labelled specialist block.
 
-    Never infer a person from a filename or reuse the model's name. A missing
-    or malformed block remains missing so the shared gate detects it.
+    Never infer a person from a filename or reuse the model's name. Any
+    malformed specialist block invalidates evidence for the whole document:
+    a model that also omitted that person must not pass a partial row count.
     """
     labels = list(_PFRON_PERSON_LABEL_RE.finditer(text or ""))
     rows = []
