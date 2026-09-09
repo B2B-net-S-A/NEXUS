@@ -151,3 +151,20 @@ model output, which remain the final factual gate's responsibility.
 
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
+
+
+## Multipage letterhead regression (synthetic production CV)
+
+The actual production fixture split the word "Tworzenie" around background
+artwork on page 2. The renderer now reserves the artwork band and removes tight
+wrapping, preserving image bytes and native page coordinates. Negative column
+coordinates were rejected after rendered inspection showed disappearing headers
+on continuation pages. The standalone browser preview corrects its own missing
+page-origin and centered-inline wrapper behavior.
+
+Verification: two rendered pages inspected using bundled LibreOffice; local
+Chrome rendered the actual synthetic DOCX with the production docx-preview
+library and the new helper. Header is complete. 17 focused backend regressions,
+preview DOM regression and type-check pass. Hosted CI/deployment/production
+browser proof remain pending. This fixes letterhead layout, not unsupported
+AI claims, font availability or complete Word/browser pagination parity.
