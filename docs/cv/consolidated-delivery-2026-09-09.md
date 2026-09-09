@@ -510,3 +510,19 @@ those tests ran in hosted CI; it does not prove visual production acceptance.
 The new pushed head 0ca686fd is being checked by CI 34416542950, CI Gate
 34416542906 and review 34416542929. The new schema fallback and preview receipt
 PostgreSQL tests belong to this newer head and are not yet claimed as passed.
+
+## Verified CI and editor recovery checkpoint — 2026-09-10
+
+CI 34416542950 completed successfully for 0ca686fd26caf257d82a88ea8d570032706fffa7:
+all four backend shards and frontend passed. Exact hosted logs confirm
+`test_cv_bootstrap_repairs_old_schema_and_is_repeatable` and
+`test_preview_receipt_survives_retention_as_deleted_result` passed against
+PostgreSQL. These results do not cover the following newer commits.
+
+Commit c621219f adds rendered DOCX known-unsupported-claim regression checks
+(22 host-native runner tests passed). Commit 60c8ebe2 makes shared editor GET
+failures visible, preserves the server's recovery guidance, hides the empty
+editor on initial failure, disables template/language changes without data and
+provides an explicit read retry. Three component tests and TypeScript passed.
+This is error recovery, not the complete guided legacy regeneration workflow.
+No production deployment or actual provider quality acceptance is claimed.
