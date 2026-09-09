@@ -3,8 +3,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0283_md_budget_mode"
-down_revision = "0282_b2b_signature_permission"
+revision = "0284_md_budget_mode"
+down_revision = "0283_cv_rule_publications"
 branch_labels = None
 depends_on = None
 
