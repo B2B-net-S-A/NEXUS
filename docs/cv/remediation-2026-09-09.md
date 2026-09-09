@@ -7,7 +7,7 @@ CI, merge, expected deployment revision and relevant production verification.
 
 | Finding | Acceptance criteria | Status |
 |---|---|---|
-| CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Pending |
+| CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Signed upload receipt binds owner, candidate/stage/client or uploaded CV bytes/client. UI resets and ignores late responses. Local regressions pass; CI/deploy/production proof pending |
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Pending |
@@ -51,3 +51,18 @@ Hosted acceptance includes publish → draft → stale edit rejection → publis
 restore → publish and two competing initial saves. Local unit tests verify
 mutation isolation and immutable snapshot contents; they do not replace DB
 transaction or migration verification.
+
+
+## Consent subject binding
+
+New consent uploads receive an eight-hour signed receipt, with a separate signing
+purpose. Candidate mode binds the DB candidate and stage plus the server-derived
+client; manual upload binds the exact SHA-256 of CV bytes and client. Generation
+verifies operator and context before charging quota. Bare historic storage keys
+cannot attach images to newly generated documents; already generated artifacts
+retain their original images. An older open frontend needs refresh/re-upload.
+The signature records the association, not an assessment of the screenshot text.
+
+Switching CV/candidate/stage/client clears the attachment. Late responses for a
+previous subject are ignored. Upload success also clears the candidate picker.
+The regression generates A with consent, then B without carrying A's receipt.
