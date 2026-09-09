@@ -24,7 +24,7 @@ function mount(ui: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 }
 beforeEach(() => {
-  sessionStorage.clear(); vi.clearAllMocks();
+  sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks();
   mocks.list.mockResolvedValue({ data: { items: [{ id: 42, title: "Python request", client_name: "Acme", unrelated_private_field: "not-for-storage" }], total: 1 } });
   mocks.start.mockResolvedValue({ run_id: "same-run", state: "queued" });
   mocks.save.mockResolvedValue({});
@@ -36,7 +36,7 @@ test("saved Radar request starts by job ID and shares the pipeline run reference
   fireEvent.click(await screen.findByRole("button", { name: "Python request · Acme" }));
   fireEvent.click(await screen.findByRole("button", { name: "Szukaj w całej bazie" }));
   await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ job_id: 42 }));
-  await waitFor(() => expect(sessionStorage.getItem("nexus-full-job:7:42")).toBe("same-run"));
+  await waitFor(() => expect(localStorage.getItem("nexus-full-job:7:42")).toBe("same-run"));
   expect(JSON.parse(sessionStorage.getItem("nexus-radar-request:7")!)).toEqual({ id: 42, title: "Python request", client_name: "Acme" });
   expect(mocks.list).toHaveBeenCalledWith({ page: 1, page_size: 20, q: undefined });
 });
