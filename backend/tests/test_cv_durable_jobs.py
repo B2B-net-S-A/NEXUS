@@ -259,3 +259,27 @@ async def test_deletion_preserves_active_job_and_second_language(
     sql = str(db.scalar.call_args.args[0].compile())
     assert "second_generated_id" in sql
     assert "generated_id" in sql
+
+
+@pytest.mark.parametrize("deleted_id", [11, 12])
+async def test_deleting_one_completed_language_preserves_other_source(
+    monkeypatch, deleted_id
+):
+    row = SimpleNamespace(id=deleted_id, status="ready", created_by=7)
+    source_job = SimpleNamespace(generated_id=11, second_generated_id=12)
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=row))
+    user = SimpleNamespace(id=7, has_role=Mock(return_value=True))
+    db = AsyncMock()
+    db.scalar.side_effect = [None, source_job]
+    result = await api.delete_generated_cv(deleted_id, user, db)
+    assert result.status_code == 204
+    if deleted_id == 11:
+        assert source_job.generated_id == 12
+        assert source_job.second_generated_id is None
+        db.flush.assert_awaited_once()
+    else:
+        assert source_job.generated_id == 11
+        db.flush.assert_not_awaited()
+    assert "FOR UPDATE" in str(db.scalar.call_args.args[0])
+    db.delete.assert_awaited_once_with(row)
+    db.commit.assert_awaited_once()

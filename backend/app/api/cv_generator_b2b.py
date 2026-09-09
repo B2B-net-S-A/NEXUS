@@ -2048,6 +2048,26 @@ async def delete_generated_cv(
             status_code=409,
             detail="Generacja CV nadal trwa. Usuń dokument po zakończeniu obu wersji językowych.",
         )
+    # The primary FK cascades the job. Keep the frozen source ledger reachable
+    # from a surviving language variant before deleting its original parent.
+    # Lock the job so concurrent deletions of both variants serialize here.
+    source_job = await db.scalar(
+        select(CvGenerationJob)
+        .where(
+            or_(
+                CvGenerationJob.generated_id == row.id,
+                CvGenerationJob.second_generated_id == row.id,
+            )
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if source_job is not None and source_job.generated_id == row.id:
+        survivor_id = source_job.second_generated_id
+        if survivor_id is not None:
+            source_job.second_generated_id = None
+            source_job.generated_id = survivor_id
+            await db.flush()
     await db.delete(row)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
