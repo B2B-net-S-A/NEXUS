@@ -353,3 +353,25 @@ describe("CV upload context and server history", () => {
     expect(screen.queryByText("Pokaż starsze CV")).not.toBeInTheDocument();
   });
 });
+
+
+describe("CV readiness follows the selected content mode", () => {
+  it("allows CV-only redaction and refetches requirements for tailored mode", async () => {
+    setSourcingAccess("write");
+    getMock.mockReset();
+    getMock.mockImplementation(async (url, options) => {
+      if (!String(url).endsWith("/recruitments")) return {data: String(url).includes("cv-rule") ? null : []};
+      const mode = (options as {params: {content_mode: string}}).params.content_mode;
+      return {data: [{stage_id: 30, job_id: 40, job_title: "Test job", has_cv: true,
+        has_champion: false, has_notes: false, ready: mode !== "tailored", content_mode: mode,
+        required_champion: mode === "tailored", required_notes_min_chars: 0,
+        missing_inputs: mode === "tailored" ? ["Tryb dopasowany wymaga Profilu Championa."] : []}]};
+    });
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
+    expect(await screen.findByText("Profil Championa (opcjonalny)")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled();
+    fireEvent.click(screen.getByRole("radio", {name: /Pod rekrutację/}));
+    expect(await screen.findByText("Tryb dopasowany wymaga Profilu Championa.")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+  });
+});

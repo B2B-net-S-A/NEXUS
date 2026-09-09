@@ -18,6 +18,10 @@ export type RecruitmentOption = {
   // minimum, a formularz ma to pokazać PRZED kliknięciem (0267).
   notes_chars?: number;
   ready: boolean;
+  content_mode?: CvContentMode;
+  required_champion?: boolean;
+  required_notes_min_chars?: number;
+  missing_inputs?: string[];
   // Klient tej rekrutacji — wyprowadzany z oferty po stronie serwera. Front go
   // POKAZUJE, nigdy nie wybiera: możliwość rozjazdu z ofertą oznaczałaby
   // zastosowanie reguł (nazwa pliku, język) innego klienta niż widać na ekranie.

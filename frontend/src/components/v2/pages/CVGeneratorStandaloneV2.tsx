@@ -270,11 +270,12 @@ export function CVGeneratorStandaloneV2({
   });
 
   const recruitmentsQuery = useQuery({
-    queryKey: ["cv-gen-recruitments", candidate?.id],
+    queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
     queryFn: async () => {
       if (!candidate) return [] as RecruitmentOption[];
       const res = await api.get<RecruitmentOption[]>(
         `/api/cv-generator/candidates/${candidate.id}/recruitments`,
+        {params: {content_mode: contentMode}},
       );
       return res.data;
     },
@@ -1277,12 +1278,14 @@ function NewModeForm({
                   ok={selectedRecruitment.has_cv}
                 />
                 <ReadyBadge
-                  label="Profil Championa"
+                  label={selectedRecruitment.required_champion === false ? "Profil Championa (opcjonalny)" : "Profil Championa"}
                   ok={selectedRecruitment.has_champion}
+                  optional={selectedRecruitment.required_champion === false}
                 />
                 <ReadyBadge
-                  label="Notatki z rozmów"
+                  label={selectedRecruitment.required_notes_min_chars === 0 ? "Notatki z rozmów (opcjonalne)" : "Notatki z rozmów"}
                   ok={selectedRecruitment.has_notes}
+                  optional={selectedRecruitment.required_notes_min_chars === 0}
                 />
               </div>
             )}
@@ -1292,28 +1295,30 @@ function NewModeForm({
                 variant="warning"
                 title="Nie można wygenerować CV"
                 description={
-                  <div className="space-y-1">
+                  <span className="block space-y-1">
+                    {selectedRecruitment.missing_inputs ? selectedRecruitment.missing_inputs.map((problem) => <span className="block" key={problem}>{problem}</span>) : <>
                     {!selectedRecruitment.has_cv && (
-                      <div>
+                      <span className="block">
                         Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
                         dodaj plik w zakładce Dokumenty na profilu kandydata.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_champion && (
-                      <div>
+                      <span className="block">
                         Brakuje Profilu Championa (must-have, nice-to-have,
                         kontekst projektu). Uzupełnij go na karcie rekrutacji zanim
                         wygenerujesz CV.
-                      </div>
+                      </span>
                     )}
                     {!selectedRecruitment.has_notes && (
-                      <div>
+                      <span className="block">
                         Brak notatek z rozmów — wymagana co najmniej jedna:
                         screening, transkrypt rozmowy CloudTalk albo notatka
                         procesu.
-                      </div>
+                      </span>
                     )}
-                  </div>
+                    </>}
+                  </span>
                 }
               />
             )}
@@ -1683,17 +1688,17 @@ function FileDropZone({
 
 // ── Inline UI helpers ──────────────────────────────────────────────────────
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolean; optional?: boolean }) {
   return (
     <Badge
-      variant={ok ? "success" : "warning"}
+      variant={ok ? "success" : optional ? "neutral" : "warning"}
       className={cn("flex items-center gap-1")}
     >
       {ok ? (
         <CheckCircle2 className="h-3 w-3" />
-      ) : (
+      ) : !optional ? (
         <AlertTriangle className="h-3 w-3" />
-      )}
+      ) : null}
       {label}
     </Badge>
   );
