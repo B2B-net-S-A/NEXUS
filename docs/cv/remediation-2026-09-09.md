@@ -10,7 +10,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Pending |
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Pending |
-| CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Pending |
+| CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Pending |
@@ -63,3 +63,18 @@ DOCX, downloadable HTML and public text runs use the same matcher. Public runs
 are derived after privacy projection and are not added to AI input payloads.
 Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
+
+
+## Handoff result package
+
+One-time share links are retained with the candidate/job context immediately
+after creation, independently of the selected stage. They remain visible after
+the candidate leaves the queue, after moving to another candidate and after the
+queue becomes empty. Copy and mail-draft actions use the captured context.
+No email is sent by stage movement; labels explicitly describe link creation and
+status changes. Tokens are held only in this mounted screen, not local storage;
+full-page reload or navigation recovery is not claimed.
+
+23 focused component tests pass, including the original queue-depletion audit
+regression, two consecutive candidates and existing partial-failure behavior.
+TypeScript passes. Production interaction and hosted CI remain required.
