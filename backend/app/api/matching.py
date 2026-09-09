@@ -684,7 +684,9 @@ async def get_ai_matches(
     # Policzone TU, bo `rubrics` trafia do odpowiedzi obu gałęzi (semantycznej
     # i tag-fallback), a bramka odpala się dopiero po retrievalu. Przekazywane
     # dalej do `_gate_and_dealbreakers`, żeby nie liczyć tego drugi raz.
-    rubric_inputs = dealbreaker_inputs_for_job(job)
+    from app.services.requirement_contract import search_dealbreaker_inputs
+
+    rubric_inputs = search_dealbreaker_inputs(job)
     job_rubrics = {
         "budget_hourly": resolve_job_budget_hourly(job),
         "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),

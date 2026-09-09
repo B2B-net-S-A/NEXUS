@@ -240,3 +240,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Latest proposal reads now pass the current request/profile freshness decision into hydration. Stale context clears numeric fit and old requirement breakdowns, marks context_changed and degraded, and retains current eligibility annotations. Null rows use stable candidate ordering; archived database snapshots are untouched.
 - Nine native proposal freshness/eligibility tests pass, including changed-context clearing with unchanged candidate versions and continued assignment blocking. Ruff and diff checks pass. Hosted CI 34337354217 and gate 34337354219 started for 42ecdf80 after resolving the PR merge conflict; no full-CI success or production deployment is claimed.
+
+### Increment: legacy AI Matching uses the common missing-evidence policy
+
+- The /ai-matches handler now builds its shared rubric inputs with search_dealbreaker_inputs, used by both semantic and fallback branches. Default review policy keeps candidates with missing proof; explicit saved exclusion still gates them. Inputs include the job and requirement fingerprint so current reviewed OR-group decisions can participate. This does not yet remove the legacy ranking flag or make its bounded retrieval a full-population scan.
+- Thirteen native requirement contract tests pass, including real shared-gate filtering for review versus exclude with an OR alternative and an unknown candidate. Ruff and diff checks pass. Hosted CI for eb4247b4 was still queued; latest changes require their own hosted validation.

@@ -110,3 +110,45 @@ def test_multiple_alternatives_keep_both_groups():
         aliases,
     )
     assert result["must"] == ["python lub go", "python lub java"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy,expected_ids", [("review", [1, 2]), ("exclude", [1])])
+async def test_shared_gate_respects_review_policy_for_missing_proof(
+    monkeypatch, policy, expected_ids
+):
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.requirement_contract import search_dealbreaker_inputs
+    from app.services.candidate_job_eligibility import (
+        EligibilityInput,
+        evaluate_eligibility,
+    )
+    from tests.test_scoring_service import make_job, make_candidate
+
+    contract = explicit_contract(["Python lub Java"], [], reviewed=True)
+    contract.missing_evidence_policy = policy
+    target = make_job(
+        id=7, matching_requirements=contract.model_dump(), requirements_reviewed=True
+    )
+    candidates = [
+        make_candidate(id=1, skills=["java"]),
+        make_candidate(id=2, skills=[]),
+    ]
+    now = datetime.now(timezone.utc)
+    clean = evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
+    monkeypatch.setattr(
+        "app.api.matching.evaluate_candidates_for_job",
+        AsyncMock(return_value={1: clean, 2: clean}),
+    )
+    kept, _, hidden, _, inputs = await _gate_and_dealbreakers(
+        None,
+        job=target,
+        ordered=candidates,
+        now=now,
+        inputs=search_dealbreaker_inputs(target),
+    )
+    assert [c.id for c in kept] == expected_ids
+    assert inputs.verification_job_id == 7
+    assert inputs.verification_fingerprint
