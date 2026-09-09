@@ -34,6 +34,7 @@ import {
  SelectTrigger,
  SelectValue,
 } from"@/components/ui/select";
+import { CvDraftSession, type CvSaveState } from "@/lib/cv-draft-session";
 import { useToast } from"@/components/Toast";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import {
@@ -52,10 +53,8 @@ interface Props {
 }
 
 function getErrorMessage(e: unknown): string {
- return (
- (e as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Nie udało się wykonać operacji"
- );
+ const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+ return typeof detail === "string" ? detail : e instanceof Error ? e.message : "Nie udało się wykonać operacji";
 }
 
 export function CVBrandedEditModal({
@@ -92,81 +91,114 @@ export function CVBrandedEditModal({
  },
  });
 
- // Hydrate editor when data loads or template is swapped.
- const lastLoadedSig = useRef<string | null>(null);
- useEffect(() => {
- if (!editor || !data) return;
- const sig = `${data.template ??""}:${data.language ??""}:${data.updated_at ??""}`;
- if (sig === lastLoadedSig.current) return;
- lastLoadedSig.current = sig;
- editor.commands.setContent(data.content_html ??"<p></p>", false);
- }, [editor, data]);
+ const sessionRef = useRef<CvDraftSession | null>(null);
+ const loadedStage = useRef<number | null>(null);
+ const replacingRef = useRef(false);
+ const [saveState, setSaveState] = useState<CvSaveState>("saved");
 
- // Disable editor when finalized.
- useEffect(() => {
- if (!editor) return;
- editor.setEditable(data?.status !== "finalized");
- }, [editor, data?.status]);
-
- // Debounced autosave for manual edits.
- const dirtyRef = useRef(false);
- const saveMut = useMutation({
- mutationFn: (html: string) =>
- candidateStageCvApi.branded.update(stageId, { content_html: html }),
- onSuccess: () => {
- queryClient.invalidateQueries({ queryKey: ["cv-branded", stageId] });
- },
- onError: (e) => showError(getErrorMessage(e)),
- });
-
- useEffect(() => {
- if (!editor) return;
- const handler = () => {
- if (data?.status === "finalized") return;
- dirtyRef.current = true;
+ const loadState = (state: CVBrandedState) => {
+   const session = new CvDraftSession(state.content_html ?? "<p></p>", state.edit_revision,
+     state.status === "finalized", {
+       save: (html, revision) => candidateStageCvApi.branded.update(stageId, {
+         content_html: html, expected_revision: revision,
+       }).then((r) => r.data),
+       finalize: (html, revision) => candidateStageCvApi.branded.finalize(stageId, {
+         content_html: html, expected_revision: revision,
+       }).then((r) => r.data),
+     }, (status) => {
+       if (sessionRef.current === session) setSaveState(status);
+     });
+   sessionRef.current = session;
+   loadedStage.current = stageId;
+   setSaveState(session.state);
+   editor?.commands.setContent(session.html, false);
+   queryClient.setQueryData(["cv-branded", stageId], state);
  };
- editor.on("update", handler);
- return () => {
- editor.off("update", handler);
- };
- }, [editor, data?.status]);
 
  useEffect(() => {
- if (!editor) return;
- const id = setInterval(() => {
- if (
- dirtyRef.current &&
- !saveMut.isPending &&
- data?.status !== "finalized"
- ) {
- dirtyRef.current = false;
- saveMut.mutate(editor.getHTML());
- }
- }, 2000);
- return () => clearInterval(id);
- }, [editor, saveMut, data?.status]);
+   if (!editor || !data) return;
+   if (loadedStage.current === stageId) {
+     const session = sessionRef.current;
+     if (!session || session.state !== "saved" || data.edit_revision <= session.revision) return;
+   }
+   loadState(data);
+   // Remote refetches must not replace locally edited content.
+   // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [editor, data, stageId]);
+
+ useEffect(() => {
+   editor?.setEditable(!replacingRef.current && saveState !== "finalized" && saveState !== "finalizing");
+ }, [editor, saveState]);
+
+ useEffect(() => {
+   if (!editor) return;
+   const handler = () => sessionRef.current?.edit(editor.getHTML());
+   editor.on("update", handler);
+   return () => { editor.off("update", handler); };
+ }, [editor]);
+
+ const saveCurrent = async () => {
+   try { await sessionRef.current?.save(); }
+   catch (error) { showError(getErrorMessage(error)); }
+ };
+ useEffect(() => {
+   if (!open) return;
+   const id = setInterval(() => {
+     if (!replacingRef.current && sessionRef.current?.state === "unsaved") void saveCurrent();
+   }, 2000);
+   return () => clearInterval(id);
+   // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [open, stageId]);
+
+ const closeEditor = async (nextOpen: boolean) => {
+   if (nextOpen) { onOpenChange(true); return; }
+   if (replacingRef.current || sessionRef.current?.state === "finalizing") return;
+   try {
+     await sessionRef.current?.settle();
+     await sessionRef.current?.save();
+     while (sessionRef.current?.state === "unsaved") await sessionRef.current.save();
+     onOpenChange(false);
+   } catch (error) { showError(getErrorMessage(error)); }
+ };
 
  const swapMut = useMutation({
- mutationFn: (payload: { template?: CVTemplate; language?: CVLanguage }) =>
- candidateStageCvApi.branded.update(stageId, payload),
- onSuccess: () => {
- showSuccess("Wczytano nowy szablon");
- lastLoadedSig.current = null; // force editor re-hydration
- queryClient.invalidateQueries({ queryKey: ["cv-branded", stageId] });
- setPendingTemplate(null);
- setPendingLanguage(null);
- },
- onError: (e) => showError(getErrorMessage(e)),
+   mutationFn: async (payload: { template?: CVTemplate; language?: CVLanguage }) => {
+     const session = sessionRef.current;
+     if (!session) throw new Error("CV nie jest jeszcze wczytane");
+     replacingRef.current = true;
+     editor?.setEditable(false);
+     await session.settle();
+     return candidateStageCvApi.branded.update(stageId, { ...payload, expected_revision: session.revision });
+   },
+   onSuccess: (response) => {
+     loadState(response.data);
+     showSuccess("Wczytano nowy szablon");
+     setPendingTemplate(null); setPendingLanguage(null);
+   },
+   onError: (e) => showError(getErrorMessage(e)),
+   onSettled: () => {
+     replacingRef.current = false;
+     editor?.setEditable(sessionRef.current?.state !== "finalized");
+   },
  });
 
  const finalizeMut = useMutation({
- mutationFn: () => candidateStageCvApi.branded.finalize(stageId),
- onSuccess: () => {
- showSuccess("Brandowane CV sfinalizowane");
- queryClient.invalidateQueries({ queryKey: ["cv-branded", stageId] });
- setConfirmFinalize(false);
- },
- onError: (e) => showError(getErrorMessage(e)),
+   mutationFn: async () => {
+     if (!sessionRef.current) throw new Error("CV nie jest jeszcze wczytane");
+     await sessionRef.current.finalize();
+     return candidateStageCvApi.branded.get(stageId);
+   },
+   onSuccess: (response) => {
+     loadState(response.data);
+     showSuccess("Zapisano i zatwierdzono bieżącą treść CV");
+     setConfirmFinalize(false);
+   },
+   onError: (e) => showError(getErrorMessage(e)),
+ });
+ const newDraftMut = useMutation({
+   mutationFn: () => candidateStageCvApi.branded.newDraft(stageId, sessionRef.current!.revision),
+   onSuccess: (response) => loadState(response.data),
+   onError: (e) => showError(getErrorMessage(e)),
  });
 
  const handleTemplateChange = (val: CVTemplate) => {
@@ -193,6 +225,9 @@ export function CVBrandedEditModal({
  // auth and open it as a same-origin blob URL (its inline window.print() runs).
  const handlePrint = async () => {
    try {
+     await sessionRef.current?.settle();
+     await sessionRef.current?.save();
+     while (sessionRef.current?.state === "unsaved") await sessionRef.current.save();
      await openAuthenticatedFile(
        `/api/candidates/stages/${stageId}/cv/branded/render-pdf`,
        "text/html",
@@ -202,11 +237,11 @@ export function CVBrandedEditModal({
    }
  };
 
- const isFinalized = data?.status === "finalized";
+ const isFinalized = saveState === "finalized";
 
  return (
  <>
- <Dialog open={open} onOpenChange={onOpenChange}>
+ <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
  <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
  <div className="flex items-center justify-between px-5 py-3 border-b border-border">
  <div className="min-w-0">
@@ -231,7 +266,7 @@ export function CVBrandedEditModal({
  </Badge>
  ) : data?.status === "draft" ? (
  <Badge variant="info" size="sm">
- Draft
+ Szkic v{data?.version ?? 1}
  </Badge>
  ) : null}
  </div>
@@ -298,16 +333,13 @@ export function CVBrandedEditModal({
  </div>
  ) : null}
  <div className="ml-auto flex items-center gap-2">
- {saveMut.isPending ? (
- <span className="text-[11px] text-muted-foreground flex items-center gap-1">
- <Loader2 className="h-3 w-3 animate-spin" />
- Zapisywanie…
+ <span className="text-[11px] text-muted-foreground" role="status">
+ {{ saved: "Zapisano", unsaved: "Niezapisane zmiany", saving: "Zapisywanie…",
+    error: "Błąd zapisu — poprawki pozostają w edytorze", finalizing: "Zatwierdzanie…",
+    finalized: `Zatwierdzona wersja ${data?.version ?? ""}` }[saveState]}
  </span>
- ) : data?.updated_at && !isFinalized ? (
- <span className="text-[11px] text-muted-foreground">
- Zapisano automatycznie
- </span>
- ) : null}
+ {saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
+
  </div>
  </div>
  </div>
@@ -333,10 +365,12 @@ export function CVBrandedEditModal({
  Drukuj / PDF
  </Button>
  <div className="flex items-center gap-2">
+ {isFinalized ? <Button size="sm" variant="outline" disabled={newDraftMut.isPending}
+ onClick={() => newDraftMut.mutate()}>Utwórz nową wersję</Button> : null}
  <Button
  variant="ghost"
  size="sm"
- onClick={() => onOpenChange(false)}
+ onClick={() => void closeEditor(false)}
  >
  Zamknij
  </Button>
@@ -344,11 +378,11 @@ export function CVBrandedEditModal({
  size="sm"
  onClick={() => setConfirmFinalize(true)}
  disabled={
- isFinalized || !data?.content_html || finalizeMut.isPending
+ isFinalized || !data?.content_html || finalizeMut.isPending || swapMut.isPending
  }
  >
  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
- Sfinalizuj
+ Zapisz i zatwierdź
  </Button>
  </div>
  </div>
@@ -364,9 +398,8 @@ export function CVBrandedEditModal({
  <div>
  <h3 className="font-medium">Sfinalizować brandowane CV?</h3>
  <p className="text-sm text-muted-foreground mt-1">
- Po finalizacji CV będzie immutable — żeby zmienić, trzeba
- będzie odwołać udostępnienia. Możesz wtedy generować
- publiczne linki dla klienta.
+ Zapiszemy i zatwierdzimy bieżącą treść. Późniejsze poprawki
+ utworzą nową wersję; istniejące linki zachowają poprzednią treść.
  </p>
  </div>
  </div>

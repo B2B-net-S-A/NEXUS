@@ -9,7 +9,7 @@ CI, merge, expected deployment revision and relevant production verification.
 |---|---|---|
 | CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Signed upload receipt binds owner, candidate/stage/client or uploaded CV bytes/client. UI resets and ignores late responses. Local regressions pass; CI/deploy/production proof pending |
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
-| CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Pending |
+| CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
@@ -79,6 +79,28 @@ are derived after privacy projection and are not added to AI input payloads.
 Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
 
+## Draft persistence and approved versions
+
+Approval sends the editor's current HTML and expected revision as one command.
+All saves, approvals, revision creation and token creation serialize on the
+stage-CV row. Conflicts return 409 before mutation. Approved HTML and metadata
+are kept in `cv_document_versions`; creating a new draft pins legacy unbound
+tokens first, so previous links keep their approved content. No tokens are
+revoked and no historical bulk migration is performed.
+
+The editor serializes autosave and approval, retains typing during a save,
+keeps failed edits for retry and flushes pending changes before closing or
+printing. A new version starts from the last approved content. This is the
+versioning foundation: selecting generator output as the pipeline's canonical
+document and sharing by explicit selected-version ID remain CV-02 work.
+
+Host checks: 8 version unit tests plus 2 selected Finance/read regressions,
+6 frontend persistence/component tests, TypeScript, Ruff and shell syntax.
+The former audit reproduction for immediate approval now passes. PostgreSQL
+concurrency, old/new token pinning and migration tests are required in hosted
+CI. A local attempt at 6 DB model tests returned connection-refused against the
+deliberately unavailable test DB; it provides no DB acceptance evidence. No
+local Docker was used. Production validation remains outstanding.
 
 ## Handoff result package
 

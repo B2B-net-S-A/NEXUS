@@ -3038,6 +3038,25 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
+    # 0285: immutable approved document versions, draft OCC and pinned links.
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS edit_revision INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS branded_version INTEGER NOT NULL DEFAULT 1",
+    """CREATE TABLE IF NOT EXISTS cv_document_versions (
+        id SERIAL PRIMARY KEY,
+        candidate_stage_cv_id INTEGER NOT NULL REFERENCES candidate_stage_cvs(id) ON DELETE CASCADE,
+        generated_document_id INTEGER REFERENCES cv_generated_documents(id) ON DELETE SET NULL,
+        version INTEGER NOT NULL,
+        content_html TEXT NOT NULL,
+        content_sha256 VARCHAR(64) NOT NULL,
+        template VARCHAR(20), language VARCHAR(10),
+        candidate_first_name VARCHAR(300), job_title VARCHAR(500),
+        snapshot_path VARCHAR(512), snapshot_filename VARCHAR(500), snapshot_size_bytes INTEGER,
+        approved_at TIMESTAMPTZ NOT NULL,
+        approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        UNIQUE(candidate_stage_cv_id, version)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_document_versions_candidate_stage_cv_id ON cv_document_versions(candidate_stage_cv_id)",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS document_version_id INTEGER REFERENCES cv_document_versions(id) ON DELETE CASCADE",
     # 0284: independent formatting policy (same constraint as the migration).
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_policy VARCHAR(24) NOT NULL DEFAULT 'technologies'",
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_terms JSONB",

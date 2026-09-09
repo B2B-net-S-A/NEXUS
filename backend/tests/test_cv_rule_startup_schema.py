@@ -32,10 +32,10 @@ def startup_statements():
             if any(
                 token in sql
                 for token in (
-                    "ADD COLUMN IF NOT EXISTS cv_rule_edit_revision",
-                    "ADD COLUMN IF NOT EXISTS draft_payload",
-                    "ADD COLUMN IF NOT EXISTS edit_revision",
-                    "ADD COLUMN IF NOT EXISTS recipe_snapshot",
+                    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_rule_edit_revision",
+                    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS draft_payload",
+                    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS edit_revision",
+                    "ALTER TABLE client_cv_rule_previews ADD COLUMN IF NOT EXISTS recipe_snapshot",
                     "CREATE TABLE IF NOT EXISTS client_cv_rule_publications",
                     "0283_cv_publications_seeded",
                 )
