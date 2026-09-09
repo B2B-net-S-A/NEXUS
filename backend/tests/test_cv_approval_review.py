@@ -191,7 +191,14 @@ async def test_only_exact_current_source_review_can_be_reused(monkeypatch, chang
     monkeypatch.setattr(
         review,
         "load_review_source",
-        AsyncMock(return_value=SimpleNamespace(snapshot_sha256="snapshot")),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                snapshot_sha256="snapshot", cv_bytes=b"source", cv_filename="cv.txt"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        review, "extract_text_from_file", Mock(return_value="source text")
     )
     quota = Mock(side_effect=RuntimeError("fresh review required"))
     monkeypatch.setattr(review, "ai_feature", quota)
@@ -205,3 +212,34 @@ async def test_only_exact_current_source_review_can_be_reused(monkeypatch, chang
         assert result["html_sha256"] == receipt["html_sha256"]
         quota.assert_not_called()
         assert "reused" not in receipt
+
+
+async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatch):
+    source = SimpleNamespace(
+        cv_bytes=b"invalid",
+        cv_filename="cv.docx",
+        screening_notes="",
+        identity="Person",
+        snapshot_sha256="hash",
+    )
+    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    monkeypatch.setattr(
+        review,
+        "extract_text_from_file",
+        Mock(side_effect=review.CVTextExtractionError("unreadable")),
+    )
+    admission = Mock(side_effect=AssertionError("Must not charge unreadable source"))
+    verification = Mock()
+    monkeypatch.setattr(review, "ai_feature", admission)
+    monkeypatch.setattr(review, "verify_editor_content", verification)
+    draft = SimpleNamespace(
+        id=1,
+        edit_revision=3,
+        generated_document_id=11,
+        branded_render_metadata={},
+    )
+    with pytest.raises(HTTPException) as error:
+        await review.review_for_approval(AsyncMock(), draft, "<p>Changed claim</p>", 7)
+    assert error.value.status_code == 422
+    admission.assert_not_called()
+    verification.assert_not_called()

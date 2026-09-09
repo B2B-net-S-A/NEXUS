@@ -71,10 +71,12 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     ):
         return {**previous, "reused": True, "presentation_review": presentation}
     try:
+        # Reading the frozen file is local preflight, not an AI operation.
+        # Reject unreadable inputs before consuming the user's review allowance.
+        cv_text = await run_in_threadpool(
+            extract_text_from_file, source.cv_bytes, source.cv_filename
+        )
         async with ai_feature(db, AIFeatureKey.cv_generator, user_id=user_id):
-            cv_text = await run_in_threadpool(
-                extract_text_from_file, source.cv_bytes, source.cv_filename
-            )
             report = await run_in_threadpool(
                 verify_editor_content,
                 content_html,
