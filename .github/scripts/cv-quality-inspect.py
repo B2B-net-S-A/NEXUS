@@ -39,11 +39,20 @@ def inspect(api, identity):
                 ("No such file", "file_missing"),
                 ("not found", "command_missing"),
                 ("Permission denied", "permission_denied"),
-                ("Syntax error", "shell_syntax"),
+                ("syntax error", "shell_syntax"),
+                ("restarting", "container_restarting"),
+                ("not running", "container_not_running"),
+                ("no such container", "container_missing"),
+                ("cannot cd", "working_directory_missing"),
+                ("can't cd", "working_directory_missing"),
+                ("exit code", "execution_failed"),
+                ("terminated", "terminated"),
+                ("timed out", "timeout"),
+                ("killed", "killed"),
                 ("Traceback", "python_exception"),
                 ("deployment_revision_mismatch", "revision_mismatch"),
             ]
-            if literal in message
+            if literal.lower() in message.lower()
         ]
         result.append(
             {
