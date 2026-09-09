@@ -66,3 +66,53 @@ def test_ocr_deadline_rejects_instead_of_returning_partial_text(monkeypatch):
     with pytest.raises(extractor.CVTextExtractionError):
         extractor._extract_pdf_ocr(b"synthetic scan")
     render.assert_not_called()
+
+
+def test_mixed_pdf_preserves_native_pages_and_ocr_order(monkeypatch):
+    from contextlib import nullcontext
+
+    native = "Original searchable employment history. " * 10
+    pages = [
+        SimpleNamespace(images=[], extract_text=lambda: native),
+        SimpleNamespace(images=[{}], extract_text=lambda: "Page 2"),
+    ]
+    import pdfplumber
+
+    monkeypatch.setattr(
+        pdfplumber, "open", lambda *args: nullcontext(SimpleNamespace(pages=pages))
+    )
+    ocr = Mock(return_value=native + "\n\nEarlier scanned employment")
+    monkeypatch.setattr(extractor, "_extract_pdf_ocr", ocr)
+    ordinary = Mock(side_effect=AssertionError("Must not return just searchable page"))
+    monkeypatch.setattr(extractor, "_extract_pdf_pdftotext", ordinary)
+    result = extractor.extract_text_from_file(b"mixed", "cv.pdf")
+    assert result.endswith("Earlier scanned employment")
+    ocr.assert_called_once_with(b"mixed", native_pages={1: native})
+    ordinary.assert_not_called()
+
+
+def test_ocr_keeps_native_text_without_rendering_its_page(monkeypatch):
+    image = SimpleNamespace(close=Mock())
+    render = Mock(return_value=[image])
+    monkeypatch.setitem(
+        sys.modules,
+        "pdf2image",
+        SimpleNamespace(
+            pdfinfo_from_bytes=lambda *args, **kwargs: {"Pages": 2},
+            convert_from_bytes=render,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pytesseract",
+        SimpleNamespace(
+            image_to_string=Mock(return_value="Scanned employer"),
+        ),
+    )
+    result = extractor._extract_pdf_ocr(
+        b"mixed", native_pages={1: "Exact native employer"}
+    )
+    assert result == "Exact native employer\n\nScanned employer"
+    assert render.call_count == 1
+    assert render.call_args.kwargs["first_page"] == 2
+    image.close.assert_called_once()

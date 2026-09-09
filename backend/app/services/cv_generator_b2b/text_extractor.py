@@ -64,7 +64,9 @@ def _extract_pdf_pdfplumber(data: bytes) -> str:
 _OCR_FALLBACK_THRESHOLD_CHARS = 100
 
 
-def _extract_pdf_ocr(data: bytes) -> str | None:
+def _extract_pdf_ocr(
+    data: bytes, *, native_pages: dict[int, str] | None = None
+) -> str | None:
     """Render PDF pages to images and OCR them via tesseract.
 
     Read every page, one image at a time. A deadline rejects incomplete input
@@ -83,6 +85,9 @@ def _extract_pdf_ocr(data: bytes) -> str | None:
             raise ValueError("PDF has no pages")
         out: list[str] = []
         for page in range(1, count + 1):
+            if native_pages is not None and page in native_pages:
+                out.append(native_pages[page])
+                continue
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("CV OCR deadline exceeded")
@@ -102,8 +107,9 @@ def _extract_pdf_ocr(data: bytes) -> str | None:
                 txt = pytesseract.image_to_string(
                     pages[0], lang="pol+eng", timeout=min(30, remaining)
                 )
-                if txt:
-                    out.append(txt)
+                if not txt or not txt.strip():
+                    raise ValueError("No readable text on scanned PDF page")
+                out.append(txt)
             finally:
                 for img in pages:
                     img.close()
@@ -113,6 +119,33 @@ def _extract_pdf_ocr(data: bytes) -> str | None:
         raise CVTextExtractionError(
             "Nie odczytano wszystkich stron skanu CV. Wgraj tekstowy PDF lub DOCX."
         ) from err
+
+
+def _extract_mixed_pdf(data: bytes) -> str | None:
+    """Keep native pages and OCR image pages in their original order."""
+    import pdfplumber
+
+    native_pages = {}
+    needs_ocr = False
+    try:
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for number, page in enumerate(pdf.pages, 1):
+                text = page.extract_text() or ""
+                if page.images and len(text.strip()) < _OCR_FALLBACK_THRESHOLD_CHARS:
+                    needs_ocr = True
+                else:
+                    native_pages[number] = text
+    except Exception:
+        # The ordinary extraction path still handles unreadable PDFs.
+        return None
+    if not needs_ocr:
+        return None
+    result = _extract_pdf_ocr(data, native_pages=native_pages)
+    if not result:
+        raise CVTextExtractionError(
+            "Nie odczytano skanowanych stron PDF. Wgraj tekstowy PDF lub DOCX."
+        )
+    return result
 
 
 def _extract_docx(data: bytes) -> str:
@@ -161,6 +194,9 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
     ext = Path(file_name).suffix.lower()
 
     if ext == ".pdf":
+        mixed = _extract_mixed_pdf(data)
+        if mixed is not None:
+            return mixed
         text = _extract_pdf_pdftotext(data)
         if text is None or not text.strip():
             try:
