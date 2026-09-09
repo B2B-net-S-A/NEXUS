@@ -170,7 +170,11 @@ def test_verifier_sees_glossary_result_and_never_receives_client_rules_as_eviden
     monkeypatch,
 ):
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: SOURCE)
-    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(DOCUMENT))
+    monkeypatch.setattr(
+        svc,
+        "analyze_with_ai",
+        lambda *a, **k: json.dumps({**DOCUMENT, "position": "Software Developer"}),
+    )
     requests = []
 
     def verdict(content, *args, **kwargs):
@@ -179,11 +183,18 @@ def test_verifier_sees_glossary_result_and_never_receives_client_rules_as_eviden
 
     monkeypatch.setattr(gate, "analyze_with_ai", verdict)
     rule = CvRuleSnapshot(
-        None, False, None, False, False, glossary=(("Pythonie", "Rust"),)
+        None,
+        False,
+        None,
+        False,
+        False,
+        glossary=(("Software Developer", "Programista"), ("Pythonie", "Rust")),
     )
     with pytest.raises(svc.StandaloneGenerationError):
         run_pipeline(rule)
-    assert requests[0]["final_document"]["why_points"] == ["Tworzył API w Rust."]
+    # Reviewed translations precede the gate; arbitrary replacements are blocked.
+    assert requests[0]["final_document"]["position"] == "Programista"
+    assert requests[0]["final_document"]["why_points"] == ["Tworzył API w Pythonie."]
     assert requests[0]["sources"]["cv"] == SOURCE
     assert "Target vacancy" not in json.dumps(requests)
     assert "glossary" not in json.dumps(requests)
