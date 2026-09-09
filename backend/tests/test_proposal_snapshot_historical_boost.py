@@ -1,4 +1,4 @@
-"""Snapshot history is context, never a way to cross the fit threshold."""
+"""Snapshot history is separate from fit; no implicit score floor hides rows."""
 
 from __future__ import annotations
 
@@ -75,18 +75,18 @@ async def boost_fixture():
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "base_score, measurement, expected_present",
+    "base_score, measurement",
     [
-        (28.0, "measured", False),
-        (48.0, "measured", True),
-        (28.0, "missing_index", True),
+        (0.0, "measured"),
+        (28.0, "measured"),
+        (48.0, "measured"),
+        (28.0, "missing_index"),
     ],
 )
-async def test_snapshot_history_does_not_change_fit_threshold(
+async def test_snapshot_preserves_base_fit_without_hidden_score_floor(
     boost_fixture,
     base_score,
     measurement,
-    expected_present,
 ):
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
@@ -118,15 +118,12 @@ async def test_snapshot_history_does_not_change_fit_threshold(
         )
         assert snap is not None
         assert snap.status == STATUS_READY, snap.error_message
-        assert snap.candidate_ids == ([cand_id] if expected_present else [])
-        if expected_present:
-            payload = snap.breakdowns[0]
-            assert payload["historical_boost"] == 0.0
-            assert payload["historical_sources_count"] == 3
-            assert payload["total"] == (
-                base_score if measurement == "measured" else None
-            )
-            assert payload["measurement"] == measurement
+        assert snap.candidate_ids == [cand_id]
+        payload = snap.breakdowns[0]
+        assert payload["historical_boost"] == 0.0
+        assert payload["historical_sources_count"] == 3
+        assert payload["total"] == (base_score if measurement == "measured" else None)
+        assert payload["measurement"] == measurement
 
 
 @pytest.mark.integration
