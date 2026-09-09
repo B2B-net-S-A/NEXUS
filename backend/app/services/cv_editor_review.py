@@ -43,6 +43,9 @@ class EditorReviewInputError(ValueError):
     pass
 
 
+EDITOR_REVIEW_VERSION = 1
+
+
 def editor_claims(content_html: str) -> list[str]:
     """Preserve paragraph order, negation and inline text; never silently truncate."""
     if len(content_html.encode()) > 2_000_000:

@@ -12,10 +12,16 @@ from app.services.cv_editor_review import (
     editor_claims,
     verify_editor_content,
     EditorReviewInputError,
+    EDITOR_REVIEW_VERSION,
 )
 from app.services.cv_review_sources import load_review_source, ReviewSourceUnavailable
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError
-from app.services.cv_generator_b2b.factual_verification import FactualVerificationError
+from app.services.cv_generator_b2b.factual_verification import (
+    FactualVerificationError,
+    VERIFIER_VERSION,
+    VERIFICATION_PROMPT,
+    REVIEW_RESPONSE_SCHEMA_SHA256,
+)
 from app.services.cv_generator_b2b.text_extractor import (
     extract_text_from_file,
     CVTextExtractionError,
@@ -40,6 +46,23 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
         source = await load_review_source(db, generated_id)
     except (EditorReviewInputError, ReviewSourceUnavailable) as exc:
         raise HTTPException(409, str(exc)) from exc
+    html_sha256 = hashlib.sha256(content_html.encode()).hexdigest()
+    prompt_sha256 = hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest()
+    previous = (csv.branded_render_metadata or {}).get("content_review")
+    if isinstance(previous, dict) and all(
+        (
+            previous.get("status") == "verified",
+            previous.get("method") == "edited_source_review",
+            previous.get("generated_document_id") == generated_id,
+            previous.get("html_sha256") == html_sha256,
+            previous.get("source_snapshot_sha256") == source.snapshot_sha256,
+            previous.get("verifier_version") == VERIFIER_VERSION,
+            previous.get("editor_review_version") == EDITOR_REVIEW_VERSION,
+            previous.get("prompt_sha256") == prompt_sha256,
+            previous.get("response_schema_sha256") == REVIEW_RESPONSE_SCHEMA_SHA256,
+        )
+    ):
+        return {**previous, "reused": True}
     try:
         async with ai_feature(db, AIFeatureKey.cv_generator, user_id=user_id):
             cv_text = await run_in_threadpool(
@@ -72,6 +95,9 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     return {
         "status": "verified",
         "method": "edited_source_review",
+        "generated_document_id": generated_id,
+        "editor_review_version": EDITOR_REVIEW_VERSION,
+        "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
         "html_sha256": hashlib.sha256(content_html.encode()).hexdigest(),
         "source_snapshot_sha256": source.snapshot_sha256,
         "verifier_version": report["version"],

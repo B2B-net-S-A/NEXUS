@@ -8,7 +8,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | Finding | Acceptance criteria | Status |
 |---|---|---|
 | CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Signed upload receipt binds owner, candidate/stage/client or uploaded CV bytes/client. UI resets and ignores late responses. Local regressions pass; CI/deploy/production proof pending |
-| CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
+| CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Shared editor, standalone approvals, explicit approved-link selection and pipeline import implemented. Immutable rendering assets added locally. Approved-only API enforcement, hosted integration and production proof remain open |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Implemented with explicit process selection and server cursor history; local tests pass, hosted DB >60-document regression and production proof pending |
@@ -16,7 +16,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
 | CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Private source snapshots, durable leased jobs, recovery, shared capacity and queue status implemented. Job and initial admission share a transaction; its hosted tests are pending. Request idempotency, retention and production restart proof remain open |
-| CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
+| CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Generated and approved DOCX bytes/hashes, editorial/source provenance and shared edited-content review implemented. Exact prior review reuse added locally. Durable async review, legacy handling and real-model acceptance remain open |
 | CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
 | CV-12 | Complete facts extracted independently of display limits/omitted sections | Separate source extraction and cited ledger implemented; full history retained before client/editorial limits. Real-model completeness benchmark pending |
 | CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Final semantic review gate implemented locally: exhaustive field verdicts and exact citations, reject before DOCX. Real-model evaluation and structured fact ledger still pending |
@@ -30,13 +30,12 @@ CI, merge, expected deployment revision and relevant production verification.
 
 ## Current evidence boundary
 
-PR #1444 remains the single delivery PR. CI run 34398548856 passed all four
-backend shards and frontend build for `e731a3c6`. This confirms the tests at that
-revision, not semantic model quality or production behavior. Transactional
-admission and deletion safeguards at `46fcc91a` are in the next CI run
-34402465751, still in progress at this update. Later corpus/runner changes are
-local on the same branch and have host-native tests only. No completion or
-production deployment is claimed for this consolidated PR.
+PR #1444 remains the single delivery PR. CI run 34407704731 passed all four
+backend shards and frontend build for `96d9ff50`. CI 34409180558 is running for
+`2d5a3c80`; its CI Gate is successful. Later immutable-asset and review-reuse
+changes remain local on the same branch. These gates do not prove semantic model
+quality or production behavior. No consolidated completion or production deployment
+is claimed. Detailed subsequent evidence is in `consolidated-delivery-2026-09-09.md`.
 
 ## Verification ledger
 

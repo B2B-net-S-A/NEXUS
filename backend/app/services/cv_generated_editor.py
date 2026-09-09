@@ -177,6 +177,7 @@ async def finalize(db, draft, expected_revision, html, user_id):
     db.add(version)
     await db.flush()
     draft.branded_draft_html = cleaned
+    draft.branded_render_metadata = metadata
     draft.branded_status = "finalized"
     draft.edit_revision += 1
     return version

@@ -333,3 +333,17 @@ the live asset loader is forced to fail. Ruff passes and Alembic has single head
 running for earlier pushed head 2d5a3c80; CI Gate 34409180592 is successful.
 This does not close remaining generation-time source/asset retention, legacy approval,
 async review, full quality corpus or production acceptance requirements.
+
+
+### Exact edited-review reuse
+
+An already approved edited-source review can be reused only when HTML, generation,
+frozen-source hash, verifier version, editor projection version, prompt hash and
+response schema hash all match the current request. Source loading/validation still
+runs. Standalone finalization retains the receipt in draft metadata for subsequent
+revisions, as pipeline finalization already does. Any mismatch requires fresh review.
+
+Twenty-four focused tests pass, including nine mismatch cases and a no-quota-call
+case for an exact receipt. This avoids repeated paid verification of unchanged text;
+it is not durable async review or cross-request deduplication before approval. The
+main remediation table/evidence paragraph was refreshed without marking completion.

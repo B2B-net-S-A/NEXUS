@@ -146,3 +146,62 @@ async def test_unchanged_verified_content_does_not_charge_or_reload_sources(
     assert result["method"] == "unchanged_generation"
     load.assert_not_awaited()
     quota.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        None,
+        "html_sha256",
+        "source_snapshot_sha256",
+        "generated_document_id",
+        "verifier_version",
+        "editor_review_version",
+        "prompt_sha256",
+        "response_schema_sha256",
+        "status",
+        "method",
+    ],
+)
+async def test_only_exact_current_source_review_can_be_reused(monkeypatch, changed):
+    import hashlib
+
+    content = "<p>Reviewed statement</p>"
+    receipt = {
+        "status": "verified",
+        "method": "edited_source_review",
+        "generated_document_id": 11,
+        "html_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        "source_snapshot_sha256": "snapshot",
+        "verifier_version": review.VERIFIER_VERSION,
+        "editor_review_version": review.EDITOR_REVIEW_VERSION,
+        "prompt_sha256": hashlib.sha256(
+            review.VERIFICATION_PROMPT.encode()
+        ).hexdigest(),
+        "response_schema_sha256": review.REVIEW_RESPONSE_SCHEMA_SHA256,
+    }
+    if changed:
+        receipt[changed] = "different"
+    csv = SimpleNamespace(
+        id=1,
+        edit_revision=3,
+        generated_document_id=11,
+        branded_render_metadata={"content_review": receipt},
+    )
+    monkeypatch.setattr(
+        review,
+        "load_review_source",
+        AsyncMock(return_value=SimpleNamespace(snapshot_sha256="snapshot")),
+    )
+    quota = Mock(side_effect=RuntimeError("fresh review required"))
+    monkeypatch.setattr(review, "ai_feature", quota)
+    if changed:
+        with pytest.raises(RuntimeError, match="fresh review required"):
+            await review.review_for_approval(AsyncMock(), csv, content, 7)
+        quota.assert_called_once()
+    else:
+        result = await review.review_for_approval(AsyncMock(), csv, content, 7)
+        assert result["reused"] is True
+        assert result["html_sha256"] == receipt["html_sha256"]
+        quota.assert_not_called()
+        assert "reused" not in receipt
