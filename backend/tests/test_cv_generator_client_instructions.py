@@ -97,6 +97,9 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
     monkeypatch.setattr(svc, "analyze_with_ai", fake_analyze)
+    # These tests isolate presentation. Evidence review has dedicated integration
+    # regressions in test_cv_factual_verification.py, including rejection paths.
+    monkeypatch.setattr(svc, "verify_final_cv", lambda *a, **k: {"status": "verified"})
     monkeypatch.setattr(svc, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
     return seen
 

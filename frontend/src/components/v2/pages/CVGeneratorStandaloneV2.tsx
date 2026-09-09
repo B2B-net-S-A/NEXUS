@@ -990,7 +990,7 @@ export function CVGeneratorStandaloneV2({
         <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
           {activeMut.isPending
             ? "Uruchamiam generację…"
-            : "Generacja leci w tle (60–90 s) — CV pojawi się na liście poniżej. Możesz zamknąć kartę."}
+            : "Generowanie i sprawdzanie CV ze źródłami odbywa się w tle — wynik pojawi się na liście poniżej. Możesz zamknąć kartę."}
         </p>
         <Button
           size="lg"

@@ -19,9 +19,9 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
 | CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
 | CV-12 | Complete facts extracted independently of display limits/omitted sections | Pending |
-| CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Pending |
+| CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Final semantic review gate implemented locally: exhaustive field verdicts and exact citations, reject before DOCX. Real-model evaluation and structured fact ledger still pending |
 | CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
-| CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Pending |
+| CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Removed rigid career/role/biggest-company and MUST-list instructions; final source review added. Rewrite/quality evaluation still pending |
 | CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
 | CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Recipe snapshot, language check and draft cap implemented; source snapshot, DOCX and complete validation still pending |
@@ -63,3 +63,20 @@ DOCX, downloadable HTML and public text runs use the same matcher. Public runs
 are derived after privacy projection and are not added to AI input payloads.
 Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
+
+
+## Final factual review package (in progress)
+
+After glossary, shortening and date formatting, every nonempty factual field
+must receive a supported verdict with exact CV/note citations. Missing fields,
+duplicate paths, invented quotes, private/contradicted/unsupported verdicts,
+malformed responses and provider failures stop generation before DOCX rendering.
+The client recipe and vacancy are never evidence. Identity metadata can support
+only candidate names. Private reports record document/source/prompt hashes and
+source locations; public projection excludes them.
+
+This adds provider calls (batches of at most 40 fields). Token cost, latency and
+false rejection rate need actual-model evaluation before production acceptance.
+Contract tests with controlled verdicts prove gate enforcement, not the model's
+ability to classify hallucinations. Source-grounded extraction, role-specific
+fact provenance, safe aliases and frozen source artifacts remain required.

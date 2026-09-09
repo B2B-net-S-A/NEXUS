@@ -68,6 +68,10 @@ from app.services.cv_generator_b2b.docx_renderer import (
     render_cv_to_bytes,
 )
 from app.services.cv_generator_b2b.prompts import get_prompt
+from app.services.cv_generator_b2b.factual_verification import (
+    FactualVerificationError,
+    verify_final_cv,
+)
 from app.services.cv_generator_b2b.text_extractor import (
     CVTextExtractionError,
     extract_text_from_file,
@@ -777,7 +781,7 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
             {
                 "dates": str(job.get("dates") or "").strip(),
                 "company": str(job.get("company") or "").strip(),
-                "industry": str(job.get("industry") or "IT").strip(),
+                "industry": str(job.get("industry") or "").strip(),
                 "position": str(job.get("position") or "").strip(),
                 "responsibilities": _str_list(job.get("responsibilities")),
                 "technologies": _str_list(job.get("technologies")),
@@ -1538,6 +1542,52 @@ def _run_generation_pipeline(
     # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
     policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)
+
+    # Check the actual final claims, including glossary replacements and date
+    # formatting. Warnings alone must never turn unsupported claims into a
+    # downloadable document. Client rules and the vacancy are not evidence.
+    try:
+        candidate_data["factual_verification"] = verify_final_cv(
+            candidate_data,
+            cv_text=cv_text,
+            screening_notes=screening_notes_text,
+            identity=fallback_name or "",
+            request_id=request_id,
+        )
+    except FactualVerificationError as err:
+        labels = {
+            "why_points": "podsumowanie",
+            "experience": "doświadczenie",
+            "certifications": "certyfikaty",
+            "skills": "umiejętności",
+            "languages": "języki",
+            "education": "edukacja",
+            "name": "imię i nazwisko",
+            "first_name": "imię",
+            "position": "stanowisko",
+        }
+        fields = ", ".join(
+            dict.fromkeys(
+                labels.get(path.split("/")[1], "dane kandydata") for path in err.paths
+            )
+        )
+        raise StandaloneGenerationError(
+            code="source_verification_failed",
+            message=(
+                "Nie utworzono CV: końcowa kontrola nie potwierdziła wszystkich "
+                "twierdzeń w materiałach źródłowych. Sprawdź CV i notatki, a następnie "
+                "ponów generację."
+                + (f" Pola do sprawdzenia: {fields}." if fields else "")
+            ),
+        ) from err
+    except CVGeneratorAIError as err:
+        raise StandaloneGenerationError(
+            code="source_verification_unavailable",
+            message=(
+                "Nie utworzono CV: kontrola zgodności ze źródłami jest chwilowo "
+                "niedostępna. Ponów generację później."
+            ),
+        ) from err
 
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
     # (blind mode rewrites name/company in place). Re-rendering this payload

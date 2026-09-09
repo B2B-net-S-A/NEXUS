@@ -1336,11 +1336,13 @@ def render_cv_to_bytes(
             candidate_data["first_name"] = "Kandydat"
 
         for job in candidate_data.get("experience", []):
-            industry = job.get("industry", "IT")
+            industry = str(job.get("industry") or "").strip()
             if language == "en":
-                job["company"] = f"Company from {industry} industry"
+                job["company"] = (
+                    f"Company from {industry} industry" if industry else "Company"
+                )
             else:
-                job["company"] = f"Firma z branży {industry}"
+                job["company"] = f"Firma z branży {industry}" if industry else "Firma"
 
     logger.info(
         "[cv_generator_b2b] Rendering CV name=%s lang=%s blind=%s",
