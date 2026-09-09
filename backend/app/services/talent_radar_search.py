@@ -256,6 +256,7 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         # zgubi. `dealbreaker_inputs_for_radar` czyta ten sygnał wprost z
         # `RadarQuery`, nie stąd.
         onsite_days_per_week=query.onsite_days_per_week,
+        rate_budget_hourly=query.budget_hourly_max,
         salary_min=None,
         salary_max=None,
         deadline=None,

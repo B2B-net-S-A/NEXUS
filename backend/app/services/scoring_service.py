@@ -264,6 +264,7 @@ def scoring_algorithm_version() -> str:
     # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
     # `mark_stale_for_profile` (patrz docstring wyżej).
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
+    payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -1126,19 +1127,19 @@ def _score_salary(
     job_min = job.salary_min
     job_max = job.salary_max
 
-    from app.services.candidate_profile_rate import (
-        is_canonical_profile_rate_currency,
+    from app.services.dealbreaker_filters import (
+        _candidate_rate_pln_hourly,
+        resolve_job_budget_hourly,
     )
 
-    if cand_rate is not None and not is_canonical_profile_rate_currency(cand_currency):
+    if cand_rate is not None and str(cand_currency or "").strip().upper() != "PLN":
         return _unscored(
             max_pts,
-            "not_comparable: historyczna stawka ma niekanoniczną walutę "
-            "i wymaga ręcznej korekty",
+            "not_comparable: waluta stawki inna niż PLN lub nieznana; do weryfikacji",
             "not_comparable",
         )
-
-    champion_rate = _champion_hourly_rate(job)
+    cand_rate = _candidate_rate_pln_hourly(candidate)
+    champion_rate = resolve_job_budget_hourly(job)
     if champion_rate is not None and cand_rate is not None:
         # Jedyna para w tej samej jednostce (PLN/h vs PLN/h): stawka Championa
         # to budżet klienta NA KANDYDATA. Oczekiwania w budżecie = pełne
@@ -1148,7 +1149,7 @@ def _score_salary(
             return LayerResult(
                 points=max_pts,
                 max_points=max_pts,
-                reason=f"w budżecie Championa ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)",
+                reason=f"w budżecie requestu ({cand:.0f} ≤ {champion_rate:.0f} PLN/h)",
             )
         overshoot = (cand - champion_rate) / champion_rate
         factor = max(0.0, 1.0 - overshoot / 0.30)
@@ -1156,7 +1157,7 @@ def _score_salary(
             points=max_pts * factor,
             max_points=max_pts,
             reason=(
-                f"ponad budżet Championa o {overshoot:.0%} "
+                f"ponad budżet requestu o {overshoot:.0%} "
                 f"({cand:.0f} > {champion_rate:.0f} PLN/h)"
             ),
         )
