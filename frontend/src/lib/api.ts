@@ -932,8 +932,8 @@ export const prepKitApi = {
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
 export const aiWriterApi = {
-  // Obie generacje idą do modelu, a formularz stoi otwarty i czeka na wynik —
-  // stąd wspólny sufit 120 s (patrz `lib/http-timeouts.ts`).
+  // Saved-job descriptions use a factual template; generateJob uses the model.
+  // The shared timeout accommodates the slower model-backed route.
   generateJobDescription: (data: {
     title: string;
     client_name?: string;
@@ -5176,6 +5176,8 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  generated_document_id?: number | null;
+  from_generator?: boolean;
   edit_revision: number;
   version: number;
   candidate_stage_id: number;
@@ -5242,6 +5244,10 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
+    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
+        generated_document_id, expected_revision,
+      }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
     update: (

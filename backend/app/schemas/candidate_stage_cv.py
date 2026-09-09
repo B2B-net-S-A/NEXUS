@@ -34,7 +34,14 @@ class CVOriginalSnapshotResponse(BaseModel):
     download_url: Optional[str] = None
 
 
+class CVBrandedSelectGenerated(BaseModel):
+    expected_revision: int = Field(ge=0)
+    generated_document_id: int = Field(ge=1)
+
+
 class CVBrandedResponse(BaseModel):
+    generated_document_id: int | None = None
+    from_generator: bool = False
     edit_revision: int = 0
     version: int = 1
     candidate_stage_id: int

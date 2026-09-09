@@ -160,6 +160,8 @@ def _tiles_html(
 def render_interactive_html(
     public_payload: dict[str, Any],
     requirement_items: list[dict[str, Any]] | None,
+    *,
+    document_only: bool = False,
 ) -> str:
     """Zbuduj kompletny, samodzielny dokument HTML (string)."""
     p = public_payload
@@ -186,7 +188,7 @@ def render_interactive_html(
     if p.get("education"):
         rows = "".join(
             (
-                f'<div class="edu"><span class="edu-dates">{_esc(e.get("dates"))}</span>'
+                f'<div class="edu"><span class="edu-dates">{_esc(e.get("dates"))}</span> '
                 f"<span><b>{_esc(e.get('institution'))}</b>"
                 + (f" — {_esc(e.get('degree'))}" if e.get("degree") else "")
                 + (f" · {_esc(e.get('location'))}" if e.get("location") else "")
@@ -232,7 +234,7 @@ def render_interactive_html(
             tech = ", ".join(job.get("technologies", []))
             jobs.append(
                 f'<div class="job" id="exp-{i}">'
-                f'<div class="job-head"><b>{_esc(job.get("position"))}</b>'
+                f'<div class="job-head"><b>{_esc(job.get("position"))}</b> '
                 f'<span class="job-dates">{_esc(job.get("dates"))}</span></div>'
                 f'<p class="job-co">{_esc(job.get("company"))}'
                 + (f" · {_esc(job.get('industry'))}" if job.get("industry") else "")
@@ -260,6 +262,15 @@ def render_interactive_html(
         if p.get("considered_for")
         else ""
     )
+
+    # Editor import uses exactly the document body, without scripts, controls,
+    # matching tiles or their diagnostic text. The same body is used by export.
+    document = (
+        f'<article class="cv"><h1>{doc_header}</h1>{considered}<hr>'
+        f'{"".join(sections)}<p class="rodo">{_esc(t["rodo"])}</p></article>'
+    )
+    if document_only:
+        return document
 
     has_tiles = bool(items)
     default_mode = "interactive" if has_tiles else "classic"
@@ -363,13 +374,7 @@ def render_interactive_html(
     <button type="button" class="printbtn" onclick="window.print()">{_esc(ui["print"])}</button>
   </div>
   {_tiles_html(items, ui, patterns)}
-  <article class="cv">
-    <h1>{doc_header}</h1>
-    {considered}
-    <hr>
-    {"".join(sections)}
-    <p class="rodo">{_esc(t["rodo"])}</p>
-  </article>
+  {document}
 </div>
 <script>
 (function () {{

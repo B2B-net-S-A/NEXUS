@@ -150,6 +150,8 @@ export interface CVGeneratorStandaloneV2Props {
   prefillCandidateName?: string;
   /** Rekrutacja, z której otwarto krok 06 — wybiera właściwy `stage_id`. */
   prefillJobId?: number;
+  onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  selectedGeneratedId?: number | null;
 }
 
 export function CVGeneratorStandaloneV2({
@@ -157,6 +159,8 @@ export function CVGeneratorStandaloneV2({
   prefillCandidateId,
   prefillCandidateName,
   prefillJobId,
+  onSelectForRecruitment,
+  selectedGeneratedId,
 }: CVGeneratorStandaloneV2Props = {}) {
   const toast = useToast();
   const currentUser = useAuthStore((state) => state.user);
@@ -1093,6 +1097,8 @@ export function CVGeneratorStandaloneV2({
                 <GeneratedCvRow
                   key={item.id}
                   item={item}
+                  onSelectForRecruitment={onSelectForRecruitment}
+                  selected={selectedGeneratedId === item.id}
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
                   onDownloadHtml={handleDownloadHtml}
@@ -1701,6 +1707,8 @@ function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolea
 // ── „Wygenerowane CV" list row ───────────────────────────────────────────────
 
 type GeneratedCvRowProps = {
+  onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  selected?: boolean;
   item: GeneratedCvItem;
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
@@ -1712,6 +1720,8 @@ type GeneratedCvRowProps = {
 
 function GeneratedCvRow({
   item,
+  onSelectForRecruitment,
+  selected,
   onPreview,
   onDownload,
   onDownloadHtml,
@@ -1791,6 +1801,13 @@ function GeneratedCvRow({
             <>
               {item.status === "ready" && (
                 <>
+                  {canWrite && onSelectForRecruitment && (
+                    <Button variant="outline" size="sm"
+                      disabled={!item.can_download}
+                      onClick={() => onSelectForRecruitment(item)}>
+                      {selected ? "Wybrano · wczytaj ponownie" : "Użyj w rekrutacji"}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"

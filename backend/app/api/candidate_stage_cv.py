@@ -52,6 +52,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
+from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
@@ -61,6 +62,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
     CVBrandedUpdate,
+    CVBrandedSelectGenerated,
     CVOriginalSnapshotResponse,
     CVShareTokenListItem,
     CVShareTokenResponse,
@@ -294,6 +296,8 @@ def _build_branded_response(
 ) -> CVBrandedResponse:
     return CVBrandedResponse(
         candidate_stage_id=csv.candidate_stage_id,
+        generated_document_id=csv.generated_document_id,
+        from_generator=bool(csv.branded_from_generator),
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
@@ -398,6 +402,74 @@ async def get_branded_cv(
     )
 
 
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/select-generated",
+    response_model=CVBrandedResponse,
+)
+async def select_generated_cv(
+    stage_id: int,
+    payload: CVBrandedSelectGenerated,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """Explicitly replace the current draft with this process's generated CV.
+
+    Row lock + revision prevent overwriting edits made since selection. Previous
+    approvals and their public links remain pinned before a new draft is opened.
+    No model call and no regeneration from Candidate fields occurs here.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    generated = await db.get(CvGeneratedDocument, payload.generated_document_id)
+    if (
+        generated is None
+        or generated.candidate_id != csv.candidate_id
+        or generated.job_id != csv.job_id
+    ):
+        raise HTTPException(404, "Nie znaleziono CV tego kandydata w tej rekrutacji.")
+    if generated.status != "ready" or not generated.render_payload:
+        raise HTTPException(422, "Wybierz zakończoną generację CV.")
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    public = build_public_payload(generated.render_payload)
+    html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
+    if csv.branded_status == "finalized":
+        await freeze_approved_version(db, csv)
+        csv.branded_version += 1
+    csv.generated_document_id = generated.id
+    csv.branded_from_generator = True
+    csv.branded_draft_html = html
+    csv.branded_template = "blind" if public["blind"] else "standard"
+    csv.branded_language = public["language"]
+    csv.branded_status = "draft"
+    csv.edit_revision += 1
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = current_user.id
+    csv.branded_finalized_at = None
+    csv.branded_finalized_by = None
+    csv.branded_snapshot_path = None
+    csv.branded_snapshot_filename = None
+    csv.branded_snapshot_size_bytes = None
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="branded_cv_selected_from_generator",
+            user_id=current_user.id,
+            details={
+                "candidate_stage_id": stage_id,
+                "generated_document_id": generated.id,
+                "version": csv.branded_version,
+                "edit_revision": csv.edit_revision,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(csv)
+    return _build_branded_response(csv)
+
+
 @router.patch(
     "/candidates/stages/{stage_id}/cv/branded",
     response_model=CVBrandedResponse,
@@ -428,8 +500,14 @@ async def update_branded_cv(
     if payload.content_html is not None:
         csv.branded_draft_html = sanitize_cv_html(payload.content_html)
         action = "branded_cv_edited"
-        details = {"length": len(payload.content_html)}
+        details = {"length": len(csv.branded_draft_html)}
     else:
+        if csv.branded_from_generator:
+            raise HTTPException(
+                409,
+                "To CV pochodzi z generatora. Zmień treść w edytorze lub wybierz "
+                "nowy wynik generatora we właściwym języku i szablonie.",
+            )
         # Re-render branch — wymaga template+language (jeden lub oba mogą być
         # podane; brakujące biorą wartość obecną).
         new_template = payload.template or csv.branded_template or _DEFAULT_TEMPLATE
