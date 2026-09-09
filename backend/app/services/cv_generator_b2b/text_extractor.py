@@ -87,19 +87,32 @@ def _extract_pdf_ocr(data: bytes) -> str | None:
 
 
 def _extract_docx(data: bytes) -> str:
-    """Pull paragraphs and table cells from a DOCX."""
+    """Preserve the ordering of paragraphs, tables and nested table contents."""
     from docx import Document
+    from docx.text.paragraph import Paragraph
 
-    doc = Document(io.BytesIO(data))
+    try:
+        doc = Document(io.BytesIO(data))
+    except Exception as exc:
+        raise CVTextExtractionError("Nie można odczytać dokumentu DOCX.") from exc
     parts: list[str] = []
-    for para in doc.paragraphs:
-        if para.text:
-            parts.append(para.text)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text:
-                    parts.append(cell.text)
+
+    def collect(container):
+        for block in container.iter_inner_content():
+            if isinstance(block, Paragraph):
+                if block.text:
+                    parts.append(block.text)
+            else:
+                # Merged cells appear repeatedly in the grid but contain one
+                # source statement. Do not duplicate duties or date ranges.
+                seen_cells = set()
+                for row in block.rows:
+                    for cell in row.cells:
+                        if cell._tc not in seen_cells:
+                            seen_cells.add(cell._tc)
+                            collect(cell)
+
+    collect(doc)
     return "\n".join(parts)
 
 
