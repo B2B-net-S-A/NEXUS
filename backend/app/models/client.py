@@ -76,6 +76,10 @@ class Client(Base, TimestampMixin):
     # niezależnie od tego, co rekruter wybierze w UI. Bez tego obietnica
     # złożona klientowi zostaje deklaracją, którą znosi jeden checkbox.
     cv_content_mode_cap: Mapped[Optional[str]] = mapped_column(String(16))
+    # Monotonic editor revision survives deletion/recreation of the recipe.
+    cv_rule_edit_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     # Czy hiring managerowie tego klienta widzą INTERAKTYWNĄ wersję CV na
     # publicznym linku (kafelki must/nice-have + chat). Domyślnie tak; flaga

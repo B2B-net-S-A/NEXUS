@@ -2335,6 +2335,7 @@ async def api_health_deep_check():
     from app.models.client_cv_rule import ClientCvRule
     from app.models.client_cv_rule_event import ClientCvRuleEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
+    from app.models.client_cv_rule_publication import ClientCvRulePublication
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.insights_scoring_config import InsightsScoringConfig
@@ -2447,6 +2448,7 @@ async def api_health_deep_check():
         ("client_cv_rules", ClientCvRule),
         ("client_cv_rule_events", ClientCvRuleEvent),
         ("client_cv_rule_previews", ClientCvRulePreview),
+        ("client_cv_rule_publications", ClientCvRulePublication),
         # 0272: karta klienta. Brak tabeli nie wywraca startu — wyszedłby dopiero
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),

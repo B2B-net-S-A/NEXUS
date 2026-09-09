@@ -124,3 +124,40 @@ async def test_two_first_saves_cannot_silently_overwrite_each_other(app_client):
         assert current.json()["edit_revision"] == 1
     finally:
         await _cleanup([cid])
+
+
+async def test_deleted_recipe_does_not_reuse_old_editor_revision(app_client):
+    cid = await _make_client(f"Recreate {uuid.uuid4().hex[:8]}")
+    url = f"/api/clients/{cid}/cv-rule"
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        initial = {
+            "filename_pattern": "V1_{IMIE_NAZWISKO}",
+            "confirm": True,
+            "expected_revision": 0,
+        }
+        first = await app_client.put(url, headers=headers, json=initial)
+        assert first.status_code == 200, first.text
+        revision = first.json()["edit_revision"]
+        deleted = await app_client.delete(
+            url, headers=headers, params={"expected_revision": revision}
+        )
+        assert deleted.status_code == 204, deleted.text
+        after = await app_client.get(url, headers=headers)
+        assert after.json()["edit_revision"] > revision
+        recreated = await app_client.put(
+            url,
+            headers=headers,
+            json={**initial, "expected_revision": after.json()["edit_revision"]},
+        )
+        assert recreated.status_code == 200, recreated.text
+        assert recreated.json()["version"] > first.json()["version"]
+        assert recreated.json()["edit_revision"] > after.json()["edit_revision"]
+        stale = await app_client.put(
+            url, headers=headers, json={**initial, "expected_revision": revision}
+        )
+        assert stale.status_code == 409, stale.text
+    finally:
+        await _cleanup([cid])
