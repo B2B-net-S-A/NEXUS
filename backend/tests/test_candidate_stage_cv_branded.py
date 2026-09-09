@@ -805,7 +805,7 @@ async def test_selected_generated_document_is_edited_approved_and_pinned_to_link
     link = await app_client.post(
         f"/api/candidates/stages/{sid}/cv/share-token", headers=app_auth_headers
     )
-    assert link.status_code == 200, link.text
+    assert link.status_code == 201, link.text
     token = link.json()["token"]
     async with AsyncSessionLocal() as db:
         version = await db.get(
