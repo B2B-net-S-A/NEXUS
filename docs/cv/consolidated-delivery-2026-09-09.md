@@ -545,3 +545,24 @@ which could separate duties from their employer/date heading. Corrupt DOCX files
 now raise the expected extraction error. Real DOCX fixture and approval checks:
 18 passed; existing full pipeline regression module: 126 passed. This proves
 extraction/control behavior, not real-model semantic quality or production use.
+
+## OCR completeness checkpoint — 2026-09-10
+
+`bc30b46d` removes silent OCR truncation after page ten. The OCR path reads one
+page at a time, closes rendered images, and enforces a 120-second document budget
+with bounded conversion/recognition calls. A failed page rejects the extraction
+rather than returning earlier pages as a complete source. Controlled OCR and
+pipeline regressions: 129 passed locally.
+
+`1ec20ff9` adds a dedicated required native OCR step on the first hosted backend
+worker, installing the same Tesseract languages and Poppler tools used by the
+production image. A generated image-only 12-page PDF must retain all 12 employer
+markers. The dedicated step fails if tools are absent; ordinary local collection
+may skip it. Local execution was skipped because Tesseract is unavailable, so no
+native OCR success is claimed yet. Changes are not covered by CI for 027c4ab8.
+
+This test does not cover skewed/low-resolution scans, mixed text/image PDFs,
+handwriting or full generator primary/fallback acceptance. In particular, the
+existing native-text threshold selects OCR at the document level; mixed PDFs
+still need separate coverage and remediation where a text layer masks scanned
+pages. Full semantic and Delivery Lead acceptance remain open.
