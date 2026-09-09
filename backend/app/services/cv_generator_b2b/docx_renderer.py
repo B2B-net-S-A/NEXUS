@@ -1306,6 +1306,68 @@ def add_bullet_list(
         add_bullet_point(doc, item, punctuation, highlight_keywords, patterns=patterns)
 
 
+def normalize_letterhead_layout(doc: Any) -> None:
+    """Reserve space for full-width background artwork on every page.
+
+    The inherited template puts a 4.42 cm image behind text but also enables
+    tight wrapping with a 3.25 cm body margin. On continuation pages that can
+    send part of a word into the sliver beside the artwork. Keep the same page
+    coordinates and image bytes; remove wrapping and reserve the image band.
+    Preserve page anchoring: negative column offsets can suppress repeated
+    headers in office renderers. Browser preview corrects its own origin.
+    """
+    ns = {
+        "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+    }
+    inherited_headers: dict[str, Any] = {}
+    for section in doc.sections:
+        for ref in section._sectPr.findall(qn("w:headerReference")):
+            inherited_headers[ref.get(qn("w:type")) or "default"] = (
+                doc.part.related_parts[ref.get(qn("r:id"))]
+            )
+        reserved_top = int(section.top_margin or 0)
+        for part in inherited_headers.values():
+            for anchor in part.element.findall(".//wp:anchor", ns):
+                extent = anchor.find("wp:extent", ns)
+                horizontal = anchor.find("wp:positionH", ns)
+                vertical = anchor.find("wp:positionV", ns)
+                if extent is None or horizontal is None or vertical is None:
+                    continue
+                # Only full-width background letterhead, never a foreground logo,
+                # inline signature, consent image or another positioned object.
+                if (
+                    anchor.get("behindDoc") != "1"
+                    or int(extent.get("cx", "0")) < int(section.page_width) * 0.8
+                ):
+                    continue
+                x = horizontal.find("wp:posOffset", ns)
+                y = vertical.find("wp:posOffset", ns)
+                if x is None or y is None:
+                    continue
+                vertical_frame = vertical.get("relativeFrom")
+                if vertical_frame == "paragraph":
+                    image_top = int(section.header_distance or 0) + int(y.text or "0")
+                elif vertical_frame == "page":
+                    image_top = int(y.text or "0")
+                else:
+                    continue
+                if horizontal.get("relativeFrom") not in {"page", "column"}:
+                    continue
+                for child in list(anchor):
+                    if etree.QName(child).localname.startswith("wrap"):
+                        anchor.remove(child)
+                # Schema order: wrap element precedes docPr/cNvGraphicFramePr.
+                wrap = etree.Element(f"{{{ns['wp']}}}wrapNone")
+                doc_pr = anchor.find("wp:docPr", ns)
+                anchor.insert(
+                    list(anchor).index(doc_pr) if doc_pr is not None else 0, wrap
+                )
+                reserved_top = max(
+                    reserved_top, image_top + int(extent.get("cy", "0")) + int(Pt(6))
+                )
+        section.top_margin = reserved_top
+
+
 def render_cv_to_bytes(
     candidate_data: dict[str, Any],
     template_path: str,
@@ -1351,6 +1413,7 @@ def render_cv_to_bytes(
     )
 
     doc = Document(template_path)
+    normalize_letterhead_layout(doc)
 
     for element in list(doc.element.body):
         if not element.tag.endswith("}sectPr"):
