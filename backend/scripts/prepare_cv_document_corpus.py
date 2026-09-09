@@ -12,7 +12,7 @@ from pathlib import Path
 from docx import Document
 
 
-CORPUS_PATH = Path(__file__).parents[1] / "app/data/cv_quality/full_documents_v1.json"
+CORPUS_PATH = Path(__file__).parents[1] / "app/data/cv_quality/full_documents_v2.json"
 
 
 def load_cases():

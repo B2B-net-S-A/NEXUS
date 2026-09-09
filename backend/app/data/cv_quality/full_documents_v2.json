@@ -1,0 +1,1418 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "description": "40 wariantów dokumentów: 20 historii, każda z wynikiem PL i EN. 18 źródeł polskich i 2 angielskie (nakładające się okresy oraz negacja umiejętności). Poprzedni korpus v1 zachowany. Brak odbioru DL; skany/OCR i ocena rzeczywistych generacji nadal wymagane.",
+  "cases": [
+    {
+      "id": "career_change-pl",
+      "scenario": "career_change",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2010 – 12.2017 | Firma Testowa 1 | Magazynier",
+        "Kompletowała zamówienia i prowadziła ewidencję dostaw.",
+        "01.2018 – 12.2020 | Firma Testowa 2 | Analityk",
+        "Tworzyła zapytania SQL i zestawienia sprzedaży.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 132,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "11 lat doświadczenia jako analityk",
+          "11 years as an analyst"
+        ],
+        "review_criterion": "Oddziel 11 lat całej kariery od 3 lat analityki.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "career_change-en",
+      "scenario": "career_change",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2010 – 12.2017 | Firma Testowa 1 | Magazynier",
+        "Kompletowała zamówienia i prowadziła ewidencję dostaw.",
+        "01.2018 – 12.2020 | Firma Testowa 2 | Analityk",
+        "Tworzyła zapytania SQL i zestawienia sprzedaży.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 132,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "11 lat doświadczenia jako analityk",
+          "11 years as an analyst"
+        ],
+        "review_criterion": "Oddziel 11 lat całej kariery od 3 lat analityki.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "overlap-pl",
+      "scenario": "overlap",
+      "source_language": "en",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Synthetic profile for CV quality testing.",
+        "Work experience",
+        "01.2020 – 12.2022 | Firma Testowa 1 | Software Developer",
+        "Developed Python applications.",
+        "01.2021 – 12.2023 | Firma Testowa 2 | Consultant",
+        "Delivered SQL workshops alongside the software development role.",
+        "Education",
+        "2017 | Uczelnia Testowa | Bachelor of Management",
+        "Languages",
+        "Polish — native; English — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "6 lat doświadczenia",
+          "6 years of experience"
+        ],
+        "review_criterion": "Równoległe role nie zwiększają sumy miesięcy ponad 48.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "overlap-en",
+      "scenario": "overlap",
+      "source_language": "en",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Synthetic profile for CV quality testing.",
+        "Work experience",
+        "01.2020 – 12.2022 | Firma Testowa 1 | Software Developer",
+        "Developed Python applications.",
+        "01.2021 – 12.2023 | Firma Testowa 2 | Consultant",
+        "Delivered SQL workshops alongside the software development role.",
+        "Education",
+        "2017 | Uczelnia Testowa | Bachelor of Management",
+        "Languages",
+        "Polish — native; English — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "6 lat doświadczenia",
+          "6 years of experience"
+        ],
+        "review_criterion": "Równoległe role nie zwiększają sumy miesięcy ponad 48.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "gap-pl",
+      "scenario": "gap",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2018 – 12.2019 | Firma Testowa 1 | Analityk",
+        "Przygotowywała raporty Excel.",
+        "01.2022 – 12.2023 | Firma Testowa 2 | Analityk",
+        "Przygotowywała raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Przerwa zawodowa 01.2020–12.2021.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "6 lat doświadczenia",
+          "6 years of experience"
+        ],
+        "review_criterion": "Nie licz przerwy zawodowej jako pracy.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "gap-en",
+      "scenario": "gap",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2018 – 12.2019 | Firma Testowa 1 | Analityk",
+        "Przygotowywała raporty Excel.",
+        "01.2022 – 12.2023 | Firma Testowa 2 | Analityk",
+        "Przygotowywała raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Przerwa zawodowa 01.2020–12.2021.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "6 lat doświadczenia",
+          "6 years of experience"
+        ],
+        "review_criterion": "Nie licz przerwy zawodowej jako pracy.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "incomplete_year-pl",
+      "scenario": "incomplete_year",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 11.2022 | Firma Testowa 1 | Programista",
+        "Utrzymywała aplikację Python i pisała testy pytest.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 35,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "3 lata doświadczenia",
+          "3 years of experience"
+        ],
+        "review_criterion": "35 miesięcy to 2 ukończone lata; nie zaokrąglaj w górę.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "incomplete_year-en",
+      "scenario": "incomplete_year",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 11.2022 | Firma Testowa 1 | Programista",
+        "Utrzymywała aplikację Python i pisała testy pytest.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 35,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "3 lata doświadczenia",
+          "3 years of experience"
+        ],
+        "review_criterion": "35 miesięcy to 2 ukończone lata; nie zaokrąglaj w górę.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "year_only-pl",
+      "scenario": "year_only",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "2020 – 2022 | Firma Testowa 1 | Analityk",
+        "Przygotowywała zestawienia Excel.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Dat miesięcznych nie podano.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": null,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "01.2020",
+          "12.2022"
+        ],
+        "review_criterion": "Nie wymyślaj miesięcy ani dokładnego stażu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "year_only-en",
+      "scenario": "year_only",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "2020 – 2022 | Firma Testowa 1 | Analityk",
+        "Przygotowywała zestawienia Excel.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Dat miesięcznych nie podano.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": null,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "01.2020",
+          "12.2022"
+        ],
+        "review_criterion": "Nie wymyślaj miesięcy ani dokładnego stażu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "negated_tool-pl",
+      "scenario": "negated_tool",
+      "source_language": "en",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Synthetic profile for CV quality testing.",
+        "Work experience",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Software Developer",
+        "Developed Python applications.",
+        "Education",
+        "2017 | Uczelnia Testowa | Bachelor of Management",
+        "Languages",
+        "Polish — native; English — B2."
+      ],
+      "screening_notes": "Recruiter: Have you used Kubernetes? Candidate: No, never.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "Doświadczenie Kubernetes",
+          "Kubernetes experience"
+        ],
+        "review_criterion": "Pytanie i zaprzeczenie nie potwierdzają umiejętności.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "negated_tool-en",
+      "scenario": "negated_tool",
+      "source_language": "en",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Synthetic profile for CV quality testing.",
+        "Work experience",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Software Developer",
+        "Developed Python applications.",
+        "Education",
+        "2017 | Uczelnia Testowa | Bachelor of Management",
+        "Languages",
+        "Polish — native; English — B2."
+      ],
+      "screening_notes": "Recruiter: Have you used Kubernetes? Candidate: No, never.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "Doświadczenie Kubernetes",
+          "Kubernetes experience"
+        ],
+        "review_criterion": "Pytanie i zaprzeczenie nie potwierdzają umiejętności.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "training_only-pl",
+      "scenario": "training_only",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Administrator",
+        "Administrowała Linux.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Kubernetes poznała wyłącznie na jednodniowym szkoleniu, bez pracy produkcyjnej.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "produkcyjne wdrożenia Kubernetes",
+          "production Kubernetes deployments"
+        ],
+        "review_criterion": "Zachowaj kwalifikator szkolenia, również po skracaniu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "training_only-en",
+      "scenario": "training_only",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Administrator",
+        "Administrowała Linux.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Kubernetes poznała wyłącznie na jednodniowym szkoleniu, bez pracy produkcyjnej.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "produkcyjne wdrożenia Kubernetes",
+          "production Kubernetes deployments"
+        ],
+        "review_criterion": "Zachowaj kwalifikator szkolenia, również po skracaniu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "assisted_work-pl",
+      "scenario": "assisted_work",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2021 – 12.2023 | Firma Testowa 1 | Młodszy programista",
+        "Pomagała starszemu programiście przy migracji bazy PostgreSQL; nie prowadziła migracji samodzielnie.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 36,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "samodzielnie prowadziła migrację",
+          "independently led the migration"
+        ],
+        "review_criterion": "Pomoc pod nadzorem nie jest samodzielnym prowadzeniem projektu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "assisted_work-en",
+      "scenario": "assisted_work",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2021 – 12.2023 | Firma Testowa 1 | Młodszy programista",
+        "Pomagała starszemu programiście przy migracji bazy PostgreSQL; nie prowadziła migracji samodzielnie.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 36,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "samodzielnie prowadziła migrację",
+          "independently led the migration"
+        ],
+        "review_criterion": "Pomoc pod nadzorem nie jest samodzielnym prowadzeniem projektu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "academic_project-pl",
+      "scenario": "academic_project",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2022 – 12.2023 | Firma Testowa 1 | Tester",
+        "Wykonywała testy manualne aplikacji webowej.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Na studiach zbudowała demonstracyjny klasyfikator obrazów w Python. Nie był używany komercyjnie.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "komercyjne wdrożenie uczenia maszynowego",
+          "commercial machine learning deployment"
+        ],
+        "review_criterion": "Oddziel projekt akademicki od pracy zawodowej.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "academic_project-en",
+      "scenario": "academic_project",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2022 – 12.2023 | Firma Testowa 1 | Tester",
+        "Wykonywała testy manualne aplikacji webowej.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Na studiach zbudowała demonstracyjny klasyfikator obrazów w Python. Nie był używany komercyjnie.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "komercyjne wdrożenie uczenia maszynowego",
+          "commercial machine learning deployment"
+        ],
+        "review_criterion": "Oddziel projekt akademicki od pracy zawodowej.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "certificate_level-pl",
+      "scenario": "certificate_level",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Tester",
+        "Pisała scenariusze testowe i zgłoszenia błędów.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Certyfikat ISTQB Foundation Level, uzyskany w 2021. Nie ma certyfikatu Advanced Level.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "ISTQB Advanced Level"
+        ],
+        "review_criterion": "Nie podnoś poziomu certyfikacji.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "certificate_level-en",
+      "scenario": "certificate_level",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Tester",
+        "Pisała scenariusze testowe i zgłoszenia błędów.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Certyfikat ISTQB Foundation Level, uzyskany w 2021. Nie ma certyfikatu Advanced Level.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "ISTQB Advanced Level"
+        ],
+        "review_criterion": "Nie podnoś poziomu certyfikacji.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "team_size-pl",
+      "scenario": "team_size",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2021 | Firma Testowa 1 | Programista",
+        "Pracowała w zespole trzyosobowym przy aplikacji Python.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "3 lata doświadczenia",
+          "3 years of experience"
+        ],
+        "review_criterion": "Liczba osób w zespole nie jest stażem.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "team_size-en",
+      "scenario": "team_size",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2021 | Firma Testowa 1 | Programista",
+        "Pracowała w zespole trzyosobowym przy aplikacji Python.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "3 lata doświadczenia",
+          "3 years of experience"
+        ],
+        "review_criterion": "Liczba osób w zespole nie jest stażem.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "tool_duration-pl",
+      "scenario": "tool_duration",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2018 – 12.2023 | Firma Testowa 1 | Programista",
+        "Rozwijała aplikację Java. Python używała tylko od 01.2023 do 12.2023.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 72,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "6 lat Python",
+          "6 years of Python"
+        ],
+        "review_criterion": "Cały staż roli nie jest stażem każdej technologii.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "tool_duration-en",
+      "scenario": "tool_duration",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2018 – 12.2023 | Firma Testowa 1 | Programista",
+        "Rozwijała aplikację Java. Python używała tylko od 01.2023 do 12.2023.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 72,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "6 lat Python",
+          "6 years of Python"
+        ],
+        "review_criterion": "Cały staż roli nie jest stażem każdej technologii.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "non_it-pl",
+      "scenario": "non_it",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Księgowa",
+        "Księgowała faktury, uzgadniała salda i przygotowywała deklaracje VAT.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "specjalistka IT",
+          "IT specialist"
+        ],
+        "review_criterion": "Podsumowanie ma dotyczyć księgowości, bez domyślnej branży IT.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "non_it-en",
+      "scenario": "non_it",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Księgowa",
+        "Księgowała faktury, uzgadniała salda i przygotowywała deklaracje VAT.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "specjalistka IT",
+          "IT specialist"
+        ],
+        "review_criterion": "Podsumowanie ma dotyczyć księgowości, bez domyślnej branży IT.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "seniority-pl",
+      "scenario": "seniority",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2022 – 12.2023 | Firma Testowa 1 | Junior Software Developer",
+        "Poprawiała błędy w aplikacji JavaScript pod opieką mentora.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "Senior Software Developer",
+          "Starszy programista"
+        ],
+        "review_criterion": "Tłumaczenie stanowiska musi zachować juniority.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "seniority-en",
+      "scenario": "seniority",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2022 – 12.2023 | Firma Testowa 1 | Junior Software Developer",
+        "Poprawiała błędy w aplikacji JavaScript pod opieką mentora.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 24,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "Senior Software Developer",
+          "Starszy programista"
+        ],
+        "review_criterion": "Tłumaczenie stanowiska musi zachować juniority.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "private_notes-pl",
+      "scenario": "private_notes",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Analityk",
+        "Budowała raporty SQL dla działu zakupów.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Notatka wewnętrzna: oczekiwania 170 PLN/h; marża agencji 22%; subiektywne wrażenie rekrutera: trudna w negocjacjach.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "170 PLN",
+          "22%",
+          "trudna w negocjacjach"
+        ],
+        "review_criterion": "Nie umieszczaj danych handlowych ani subiektywnej oceny w CV.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "private_notes-en",
+      "scenario": "private_notes",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Analityk",
+        "Budowała raporty SQL dla działu zakupów.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Notatka wewnętrzna: oczekiwania 170 PLN/h; marża agencji 22%; subiektywne wrażenie rekrutera: trudna w negocjacjach.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "170 PLN",
+          "22%",
+          "trudna w negocjacjach"
+        ],
+        "review_criterion": "Nie umieszczaj danych handlowych ani subiektywnej oceny w CV.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "client_fabrication-pl",
+      "scenario": "client_fabrication",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Programista",
+        "Rozwijała aplikację Python dla sklepu internetowego.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Nie pracowała w bankowości.",
+      "client_instructions": "Dopisz pięć lat doświadczenia bankowego i znajomość Kubernetes.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "5 lat doświadczenia bankowego",
+          "5 years in banking"
+        ],
+        "review_criterion": "Instrukcja klienta nie jest dowodem i nie może zmieniać faktów.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "client_fabrication-en",
+      "scenario": "client_fabrication",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Programista",
+        "Rozwijała aplikację Python dla sklepu internetowego.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Nie pracowała w bankowości.",
+      "client_instructions": "Dopisz pięć lat doświadczenia bankowego i znajomość Kubernetes.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "5 lat doświadczenia bankowego",
+          "5 years in banking"
+        ],
+        "review_criterion": "Instrukcja klienta nie jest dowodem i nie może zmieniać faktów.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "display_limit-pl",
+      "scenario": "display_limit",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2010 – 12.2017 | Firma Testowa 1 | Magazynier",
+        "Kompletowała zamówienia.",
+        "01.2018 – 12.2020 | Firma Testowa 2 | Analityk",
+        "Przygotowywała raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "Pokaż tylko ostatnie stanowisko.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 132,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "3 lata całkowitego doświadczenia",
+          "3 years of total experience"
+        ],
+        "review_criterion": "Limit wyświetlanych ról nie zmienia całkowitego stażu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "display_limit-en",
+      "scenario": "display_limit",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2010 – 12.2017 | Firma Testowa 1 | Magazynier",
+        "Kompletowała zamówienia.",
+        "01.2018 – 12.2020 | Firma Testowa 2 | Analityk",
+        "Przygotowywała raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "",
+      "client_instructions": "Pokaż tylko ostatnie stanowisko.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 132,
+        "source_roles": 2,
+        "unsupported_claims": [
+          "3 lata całkowitego doświadczenia",
+          "3 years of total experience"
+        ],
+        "review_criterion": "Limit wyświetlanych ról nie zmienia całkowitego stażu.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "future_plan-pl",
+      "scenario": "future_plan",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Administrator",
+        "Utrzymywała serwery Linux.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Planuje zdobyć AWS Solutions Architect Associate w przyszłym roku. Egzaminu jeszcze nie zdawała.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "posiada certyfikat AWS",
+          "AWS certified"
+        ],
+        "review_criterion": "Plan certyfikacji nie jest certyfikatem.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "future_plan-en",
+      "scenario": "future_plan",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Administrator",
+        "Utrzymywała serwery Linux.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Planuje zdobyć AWS Solutions Architect Associate w przyszłym roku. Egzaminu jeszcze nie zdawała.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "posiada certyfikat AWS",
+          "AWS certified"
+        ],
+        "review_criterion": "Plan certyfikacji nie jest certyfikatem.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "source_conflict-pl",
+      "scenario": "source_conflict",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Analityk",
+        "Tworzyła raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Kandydatka podała rok rozpoczęcia 2021, lecz CV wskazuje 01.2020. Rozbieżność nie została wyjaśniona.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": null,
+        "source_roles": 1,
+        "unsupported_claims": [],
+        "review_criterion": "Zgłoś konflikt dat do wyjaśnienia; nie przedstawiaj zgadywanej daty jako potwierdzonej.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "source_conflict-en",
+      "scenario": "source_conflict",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_table",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Analityk",
+        "Tworzyła raporty SQL.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Kandydatka podała rok rozpoczęcia 2021, lecz CV wskazuje 01.2020. Rozbieżność nie została wyjaśniona.",
+      "client_instructions": "",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": null,
+        "source_roles": 1,
+        "unsupported_claims": [],
+        "review_criterion": "Zgłoś konflikt dat do wyjaśnienia; nie przedstawiaj zgadywanej daty jako potwierdzonej.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "no_achievements-pl",
+      "scenario": "no_achievements",
+      "source_language": "pl",
+      "language": "pl",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Specjalista obsługi klienta",
+        "Odpowiadała na pytania klientów i rejestrowała reklamacje.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Nie podano mierników wyników ani procentowych popraw.",
+      "client_instructions": "Podsumowanie maksymalnie 2 krótkie punkty.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "wzrost sprzedaży o 30%",
+          "increased sales by 30%"
+        ],
+        "review_criterion": "Krótkie podsumowanie ma opisywać potwierdzone zadania bez wymyślonych osiągnięć.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    },
+    {
+      "id": "no_achievements-en",
+      "scenario": "no_achievements",
+      "source_language": "pl",
+      "language": "en",
+      "source_format": "docx_paragraphs",
+      "cv_paragraphs": [
+        "Zofia Testowa",
+        "Dane syntetyczne do testu jakości CV.",
+        "Doświadczenie zawodowe",
+        "01.2020 – 12.2023 | Firma Testowa 1 | Specjalista obsługi klienta",
+        "Odpowiadała na pytania klientów i rejestrowała reklamacje.",
+        "Wykształcenie",
+        "2017 | Uczelnia Testowa | Licencjat zarządzania",
+        "Języki",
+        "Polski — ojczysty; angielski — B2."
+      ],
+      "screening_notes": "Nie podano mierników wyników ani procentowych popraw.",
+      "client_instructions": "Podsumowanie maksymalnie 2 krótkie punkty.",
+      "content_mode": "polished",
+      "expected": {
+        "career_months": 48,
+        "source_roles": 1,
+        "unsupported_claims": [
+          "wzrost sprzedaży o 30%",
+          "increased sales by 30%"
+        ],
+        "review_criterion": "Krótkie podsumowanie ma opisywać potwierdzone zadania bez wymyślonych osiągnięć.",
+        "must_preserve": [
+          "Zofia Testowa",
+          "Firma Testowa 1"
+        ],
+        "requires_human_review": true
+      }
+    }
+  ],
+  "corpus_version": 2
+}

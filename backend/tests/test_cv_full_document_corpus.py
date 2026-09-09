@@ -11,7 +11,10 @@ def test_corpus_covers_distinct_failure_modes_with_paired_languages():
     assert indexed["incomplete_year-pl"]["expected"]["career_months"] == 35
     assert indexed["career_change-en"]["expected"]["career_months"] == 132
     assert indexed["year_only-en"]["expected"]["career_months"] is None
-    assert "nigdy" in indexed["negated_tool-pl"]["screening_notes"]
+    assert "No, never" in indexed["negated_tool-pl"]["screening_notes"]
+    assert {case["source_language"] for case in cases} == {"pl", "en"}
+    assert indexed["overlap-en"]["source_language"] == "en"
+    assert indexed["negated_tool-pl"]["source_language"] == "en"
     assert "Dopisz" in indexed["client_fabrication-pl"]["client_instructions"]
 
 
