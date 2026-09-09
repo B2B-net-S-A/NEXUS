@@ -130,10 +130,18 @@ async def run(
                     "requested_model": model,
                     "human_accepted": None,
                 }
+                report["in_progress"] = {
+                    "case_id": case["id"],
+                    "requested_model": model,
+                    "operation_id": None,
+                }
+                await checkpoint(report_path, report, key)
                 async with AsyncSessionLocal() as db:
                     try:
                         async with ai_feature(db, AIFeatureKey.cv_generator) as state:
                             operation = state.operation_id
+                            report["in_progress"]["operation_id"] = operation
+                            await checkpoint(report_path, report, key)
                             row.update(
                                 await asyncio.to_thread(generate_case, case, directory)
                             )
@@ -188,6 +196,7 @@ async def run(
                     }
                 )
                 report["results"].append(row)
+                report.pop("in_progress", None)
                 await checkpoint(report_path, report, key)
                 if row["outcome"] == "internal_error":
                     return 2
