@@ -115,3 +115,34 @@ async def test_provider_failure_does_not_approve_document(monkeypatch):
         await review.review_for_approval(AsyncMock(), csv, "<p>Claim</p>", 7)
     assert error.value.status_code == 503
     assert "Nie zatwierdzono" in error.value.detail
+
+
+async def test_unchanged_verified_content_does_not_charge_or_reload_sources(
+    monkeypatch,
+):
+    import hashlib
+    import json
+    from app.services.cv_approval_provenance import capture_editor_origin
+    from app.services.cv_generator_b2b.factual_verification import factual_projection
+
+    content = "<p>Python</p>"
+    payload = {"why_points": ["Python"]}
+    payload["factual_verification"] = {
+        "status": "verified",
+        "document_sha256": hashlib.sha256(
+            json.dumps(
+                factual_projection(payload), sort_keys=True, ensure_ascii=False
+            ).encode()
+        ).hexdigest(),
+    }
+    csv = SimpleNamespace(
+        branded_render_metadata=capture_editor_origin(content, payload)
+    )
+    load = AsyncMock(side_effect=AssertionError("must not reload"))
+    quota = Mock(side_effect=AssertionError("must not charge"))
+    monkeypatch.setattr(review, "load_review_source", load)
+    monkeypatch.setattr(review, "ai_feature", quota)
+    result = await review.review_for_approval(AsyncMock(), csv, content, 7)
+    assert result["method"] == "unchanged_generation"
+    load.assert_not_awaited()
+    quota.assert_not_called()
