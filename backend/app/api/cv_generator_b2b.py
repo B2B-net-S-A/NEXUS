@@ -1974,6 +1974,7 @@ _SHARE_PATH_PREFIX = "/cv/i/"
 
 
 class CvGeneratedShareCreateResponse(BaseModel):
+    document_version_id: int | None = None
     token: str
     expires_at: datetime
     share_url_suffix: str
@@ -1986,6 +1987,7 @@ class CvGeneratedShareCreateResponse(BaseModel):
 
 
 class CvGeneratedShareListItem(BaseModel):
+    document_version_id: int | None = None
     revoke_key: str
     token_preview: str
     created_at: Optional[str] = None
@@ -2137,10 +2139,13 @@ async def create_generated_cv_share_token(
                     ),
                 )
 
-    if document_version_id is not None:
-        from app.services.cv_generated_approval import approved_version_for_generation
+    if document_version_id is None:
+        raise HTTPException(
+            409, "Wybierz zatwierdzoną wersję CV przed utworzeniem linku."
+        )
+    from app.services.cv_generated_approval import approved_version_for_generation
 
-        await approved_version_for_generation(db, row, document_version_id)
+    await approved_version_for_generation(db, row, document_version_id)
 
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
@@ -2157,7 +2162,7 @@ async def create_generated_cv_share_token(
             max_views=max_views,
         )
     )
-    interactive = document_version_id is None and await _interactive_available(db, row)
+    interactive = False
     db.add(
         Activity(
             entity_type="cv_generated_document",
@@ -2175,6 +2180,7 @@ async def create_generated_cv_share_token(
     await db.commit()
 
     return CvGeneratedShareCreateResponse(
+        document_version_id=document_version_id,
         token=raw_token,
         expires_at=expires_at,
         share_url_suffix=f"{_SHARE_PATH_PREFIX}{raw_token}",
@@ -2210,6 +2216,7 @@ async def list_generated_cv_share_tokens(
     )
     return [
         CvGeneratedShareListItem(
+            document_version_id=r.document_version_id,
             revoke_key=r.token,
             token_preview=f"v2 · {r.token_sha256[:6]}…",
             created_at=r.created_at.isoformat() if r.created_at else None,

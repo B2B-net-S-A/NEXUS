@@ -294,6 +294,9 @@ function CvGeneratedShareModalContent({
                 >
                   <div className="min-w-0 text-xs">
                     <p className="font-mono truncate">{tok.token_preview}</p>
+                    <p>{tok.document_version_id
+                      ? `Zatwierdzona wersja ${versionsQuery.data?.find(v => v.id === tok.document_version_id)?.version ?? ""}`
+                      : "Wcześniejszy link do wyniku generatora"}</p>
                     <p className="text-muted-foreground">
                       do {formatDate(tok.expires_at)} · {tok.view_count}
                       {tok.max_views ? `/${tok.max_views}` : ""} wyświetleń

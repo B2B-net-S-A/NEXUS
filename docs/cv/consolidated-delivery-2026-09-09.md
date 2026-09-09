@@ -347,3 +347,20 @@ Twenty-four focused tests pass, including nine mismatch cases and a no-quota-cal
 case for an exact receipt. This avoids repeated paid verification of unchanged text;
 it is not durable async review or cross-request deduplication before approval. The
 main remediation table/evidence paragraph was refreshed without marking completion.
+
+
+### New links require an explicit approval
+
+Generated-share API now rejects requests without a selected approved version before
+token creation. Existing nullable-version tokens remain readable/revocable with their
+legacy interactive behavior. Legacy public/chat tests explicitly seed historical
+unpinned tokens; the new approved HTTP roundtrip tests creation and SHA-only token
+storage separately. Share responses/history include the pinned version ID and the
+panel labels approved vs older generation links.
+
+Eleven local approval tests, two sharing UI tests and TypeScript pass; 24 hosted
+legacy/new integration tests collect but still require execution on PostgreSQL.
+CI 34409180558 has a successful frontend build and backend shards in progress for
+2d5a3c80. Changes after that head remain local. New approved links currently use the
+classic approved HTML view; interactive support for edited approvals is not enabled.
+No production completion or full CV-01..20 acceptance is claimed.

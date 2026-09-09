@@ -5306,6 +5306,7 @@ export const candidateStageCvApi = {
 // ── Generator CV B2B — publiczny link (interaktywne CV) ─────────────────────
 
 export interface CvGeneratedShareCreateResp {
+  document_version_id?: number | null;
   token: string;
   expires_at: string;
   share_url_suffix: string;
@@ -5316,6 +5317,7 @@ export interface CvGeneratedShareCreateResp {
 }
 
 export interface CvGeneratedShareListItem {
+  document_version_id?: number | null;
   revoke_key: string;
   token_preview: string;
   created_at?: string | null;

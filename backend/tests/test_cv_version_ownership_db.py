@@ -142,6 +142,10 @@ async def test_standalone_approval_share_roundtrip(
         generated_id = generated.id
     try:
         url = f"/api/cv-generator/generated/{generated_id}"
+        unapproved = await app_client.post(
+            f"{url}/share-token", headers=app_auth_headers
+        )
+        assert unapproved.status_code == 409, unapproved.text
         first = await app_client.post(f"{url}/approve", headers=app_auth_headers)
         assert first.status_code == 200, first.text
         version_id = first.json()["document_version_id"]
@@ -160,6 +164,18 @@ async def test_standalone_approval_share_roundtrip(
         )
         assert created.status_code == 201, created.text
         token = created.json()["token"]
+        revoke_key = created.json()["revoke_key"]
+        assert token != revoke_key
+        assert revoke_key.startswith("v2$")
+        async with AsyncSessionLocal() as db:
+            stored_token = await db.get(CvGeneratedShareToken, revoke_key)
+            assert stored_token.document_version_id == version_id
+            assert (
+                stored_token.token_sha256 == hashlib.sha256(token.encode()).hexdigest()
+            )
+        assert (
+            await app_client.get(f"/api/public/cv-i/{revoke_key}")
+        ).status_code == 404
         public = await app_client.get(f"/api/public/cv-i/{token}")
         assert public.status_code == 200, public.text
         assert public.json()["document_version_id"] == version_id

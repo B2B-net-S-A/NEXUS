@@ -137,3 +137,49 @@ async def test_version_list_scopes_metadata_without_loading_artifacts(monkeypatc
     db.execute.reset_mock()
     assert await api.list_generated_approved_versions(7, user, db) == [{"id": 12}]
     assert "generated_owner_id =" in str(db.execute.call_args.args[0])
+
+
+@pytest.mark.parametrize("version_id", [None, 12])
+async def test_new_share_requires_explicit_approval_before_token_creation(
+    monkeypatch, version_id
+):
+    from unittest.mock import Mock
+    from app.api import cv_generator_b2b as api
+    from app.models.cv_generated_share import CvGeneratedShareToken
+    import app.services.cv_generated_approval as approvals
+
+    doc = SimpleNamespace(
+        id=7,
+        status="ready",
+        render_payload={"language": "pl"},
+        candidate_id=None,
+        job_id=None,
+    )
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=doc))
+    resolver = AsyncMock(return_value=SimpleNamespace(id=12))
+    monkeypatch.setattr(approvals, "approved_version_for_generation", resolver)
+    added = []
+    db = SimpleNamespace(add=Mock(side_effect=added.append), commit=AsyncMock())
+    kwargs = dict(
+        generated_id=7,
+        current_user=SimpleNamespace(id=9),
+        expires_in_days=14,
+        max_views=None,
+        document_version_id=version_id,
+        db=db,
+    )
+    if version_id is None:
+        with pytest.raises(HTTPException) as exc:
+            await api.create_generated_cv_share_token(**kwargs)
+        assert exc.value.status_code == 409
+        resolver.assert_not_awaited()
+        db.add.assert_not_called()
+        db.commit.assert_not_awaited()
+    else:
+        response = await api.create_generated_cv_share_token(**kwargs)
+        resolver.assert_awaited_once_with(db, doc, 12)
+        token = next(item for item in added if isinstance(item, CvGeneratedShareToken))
+        assert token.document_version_id == 12
+        assert token.token_sha256 == hashlib.sha256(response.token.encode()).hexdigest()
+        assert response.token != token.token
+        db.commit.assert_awaited_once()
