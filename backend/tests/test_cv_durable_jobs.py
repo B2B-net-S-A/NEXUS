@@ -1,17 +1,20 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from app.api import cv_generator_b2b as api
+from app.services.ai_quota import QuotaState
 from app.services.cv_generator_b2b import durable_jobs as jobs
 from app.services.cv_generator_b2b.job_snapshot import serialize_job_inputs
 
 
 @pytest.mark.parametrize("case", ["valid", "corrupt", "already_claimed"])
 @pytest.mark.parametrize("kind", ["upload", "preview"])
+@pytest.mark.parametrize("stored_quota", [False, True])
 async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
-    monkeypatch, case, kind
+    monkeypatch, case, kind, stored_quota
 ):
     raw, digest = serialize_job_inputs(kind, {"user_id": 7, "quota_state": None})
     record = SimpleNamespace(
@@ -20,11 +23,19 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
         input_sha256=digest,
         generated_id=11 if kind == "upload" else None,
         preview_id=12 if kind == "preview" else None,
-        quota_snapshot=None,
+        quota_snapshot={
+            "used": 2,
+            "limit": 10,
+            "period_start": "2026-09-01",
+            "operation_id": "original-admission",
+        }
+        if stored_quota
+        else None,
         kind=kind,
     )
     document = SimpleNamespace(status="ready")
     db = AsyncMock()
+    db.scalar.return_value = record
     db.get.side_effect = lambda model, ident: (
         record if model is jobs.CvGenerationJob else document
     )
@@ -47,13 +58,18 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
 
     monkeypatch.setattr(client_cv_rules, "_run_rule_preview_job", worker)
     await jobs.execute_job(21)
+    expected_quota = (
+        QuotaState(2, 10, date(2026, 9, 1), "original-admission")
+        if stored_quota
+        else None
+    )
     if case == "valid":
         if kind == "upload":
             worker.assert_awaited_once_with(
-                api._run_generate_upload_job, 11, user_id=7, quota_state=None
+                api._run_generate_upload_job, 11, user_id=7, quota_state=expected_quota
             )
         else:
-            worker.assert_awaited_once_with(12, user_id=7, quota_state=None)
+            worker.assert_awaited_once_with(12, user_id=7, quota_state=expected_quota)
         assert finish.call_args.kwargs == {"failed": False}
     else:
         worker.assert_not_awaited()
@@ -160,3 +176,28 @@ async def test_input_is_saved_before_admission_and_quota_is_persisted(
             "period_start": "2026-09-01",
             "operation_id": "operation",
         }
+
+
+async def test_rejected_admission_removes_only_new_snapshot(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(
+        jobs.object_storage, "upload_cv", Mock(return_value="test-only-new-snapshot")
+    )
+    delete = Mock()
+    monkeypatch.setattr(jobs.object_storage, "delete_cv", delete)
+    charge = AsyncMock(side_effect=HTTPException(503, "quota exhausted"))
+    db = AsyncMock()
+    db.add = Mock()
+    with pytest.raises(HTTPException):
+        await jobs.persist_job(
+            db,
+            kind="upload",
+            generated_id=11,
+            user_id=7,
+            inputs={"candidate_source": b"original"},
+            charge=charge,
+        )
+    charge.assert_awaited_once()
+    delete.assert_called_once_with("test-only-new-snapshot")
+    db.add.assert_not_called()

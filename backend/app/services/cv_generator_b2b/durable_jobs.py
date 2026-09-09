@@ -20,6 +20,7 @@ from app.services.cv_generator_b2b.job_leases import (
     finish_job,
     heartbeat_job,
     owned_job,
+    lock_owned_job,
 )
 from app.services.cv_generator_b2b.job_snapshot import (
     deserialize_job_inputs,
@@ -133,6 +134,9 @@ async def execute_job(job_id: int):
                 operation_id=quota_snapshot["operation_id"],
             )
         with owned_job(job_id, token):
+            async with AsyncSessionLocal() as db:
+                await lock_owned_job(db)
+                await db.commit()
             if kind == "preview":
                 from app.api.client_cv_rules import _run_rule_preview_job
 
@@ -254,7 +258,15 @@ async def recovery_loop():
                             )
                         )
                     await db.commit()
-                active = {task for task in active if not task.done()}
+                finished = {task for task in active if task.done()}
+                for task in finished:
+                    try:
+                        task.result()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.exception("CV recovered task exited unexpectedly")
+                active -= finished
                 if len(active) < 4:
                     for job_id in await queued_job_ids(4 - len(active)):
                         task = asyncio.create_task(execute_job(job_id))
