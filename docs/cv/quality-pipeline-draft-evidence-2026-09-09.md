@@ -26,3 +26,7 @@ regression runs both pipelines, mutates the first result's fact list, checks the
 second remains complete, and proves only one text/source extraction occurred.
 67 focused gate/editorial/snapshot/publication/runtime tests pass. This remains
 inactive pending actual-model quality acceptance and does not add durable jobs.
+
+## Exact derived durations
+
+The advisory numeric guard no longer admits a computed year count plus or minus one. Individual jobs use the same month-precision validation and inclusive completed-year calculation as the career headline. Year-only or incomplete dates cannot authorize a duration by assuming missing months. Five regression cases cover an extra year, an incomplete year, missing precision and overlapping full-source history. 53 focused numeric/factual tests pass. This remains an advisory numeric check; coincidence of source numbers and role/tool attribution still require the final semantic verifier and real-model acceptance.

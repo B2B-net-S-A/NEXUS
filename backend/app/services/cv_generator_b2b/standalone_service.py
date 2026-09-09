@@ -1175,17 +1175,13 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
     allowed: set[str] = set()
     total = _total_experience_years(_full_history(candidate_data))
     if total is not None:
-        # ±1 absorbs the rounding _fix_experience_years applies.
-        allowed.update(str(total + delta) for delta in (-1, 0, 1) if total + delta >= 0)
+        allowed.add(str(total))
     for job in _full_history(candidate_data):
-        span = _parse_date_range(str(job.get("dates") or ""))
-        if not span:
-            continue
-        start, end = span
-        now = datetime.now()
-        end = min(end, now.year * 12 + (now.month - 1))
-        years = max(0, (end - start) // 12)
-        allowed.update(str(years + delta) for delta in (0, 1))
+        # Use the same precision checks, inclusive months and completed years
+        # as the headline. Missing months cannot authorize an invented duration.
+        years = _total_experience_years([job])
+        if years is not None:
+            allowed.add(str(years))
     return allowed
 
 

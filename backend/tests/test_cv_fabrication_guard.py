@@ -117,17 +117,42 @@ def test_two_adjacent_numbers_stay_separately_matchable() -> None:
 def test_years_derived_from_dates_are_not_flagged() -> None:
     """Staż liczy sam pipeline z dat, więc nie musi być w źródle dosłownie.
 
-    `_fix_experience_years` przepisuje nagłówek why_points na podstawie
-    zakresów dat. Bez tej tolerancji bezpiecznik flagowałby własną arytmetykę.
-
-    Zakres jest ZAMKNIĘTY celowo — „obecnie" wciągnęłoby `datetime.now()`
-    w asercję i test potrafiłby mrugać na przełomie roku (wyliczony staż
-    krótszy o rok wypada wtedy poza okno ±1).
+    Dokładny wynik arytmetyki jest dozwolony bez tolerancji ±1.
+    Zamknięty zakres nie zależy od dnia uruchomienia testu.
     """
     data = _data(
         why=["6 lat jako Backend Developer"],
         dates="01.2018 – 12.2023",
     )
+    assert _high(_run(data, "Backend Developer w Acme")) == []
+
+
+@pytest.mark.parametrize(
+    ("dates", "years"),
+    [
+        ("01.2018 – 12.2020", 4),
+        ("01.2018 – 11.2020", 3),
+        ("2018 – 2020", 3),
+        ("01.2018", 1),
+    ],
+)
+def test_year_tolerance_cannot_hide_unsupported_duration(dates, years) -> None:
+    data = _data(why=[f"{years} lat doświadczenia"], dates=dates)
+    assert len(_high(_run(data, "Backend Developer w Acme"))) == 1
+
+
+def test_overlapping_full_history_does_not_authorize_an_extra_year() -> None:
+    data = _data(why=["5 lat doświadczenia"], dates="01.2019 – 12.2021")
+    data["source_facts"] = {
+        "document": {
+            "experience": [
+                {"dates": "01.2018 – 12.2020"},
+                {"dates": "01.2019 – 12.2021"},
+            ]
+        }
+    }
+    assert len(_high(_run(data, "Backend Developer w Acme"))) == 1
+    data["why_points"] = ["4 lata doświadczenia"]
     assert _high(_run(data, "Backend Developer w Acme")) == []
 
 
