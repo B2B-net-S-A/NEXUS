@@ -572,8 +572,8 @@ export function SuggestedCandidatesWidget({
           className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
         >
           <span>
-            Brief lub Profil Championa zmienił się po wygenerowaniu tego rankingu
-            — jest nieaktualny.
+            Dane requestu lub zasady oceny zmieniły się po wygenerowaniu tego rankingu
+            — wymaga przeliczenia.
           </span>
           {!readOnly ? (
             <button

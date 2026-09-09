@@ -390,10 +390,8 @@ class ScoreBreakdown:
             reason="brak screeningu",
         )
     )
-    # Post-processing adjustment layered on top of `total` when the candidate
-    # was present on semantically-similar historical jobs. NOT persisted in
-    # the match-score cache — recomputed per request because pipeline state
-    # changes too often to warrant explicit invalidation.
+    # Deprecated compatibility field: always zero on current recommendation
+    # paths. Process history is separate evidence, never extra base-fit points.
     historical_boost: float = 0.0
     historical_sources_count: int = 0
     # Plan PR8/4.2: input-data completeness in [0,1], SEPARATE from `total`.

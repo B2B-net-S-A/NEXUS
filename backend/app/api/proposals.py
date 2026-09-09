@@ -25,6 +25,7 @@ from app.api.recruitment_access import ensure_job_membership, ensure_job_read_ac
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.services.proposal_contract import snapshot_is_stale
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -138,7 +139,7 @@ async def get_latest_proposal(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
-        stale=snap.stale,
+        stale=snapshot_is_stale(snap),
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=items,
@@ -184,7 +185,7 @@ async def list_proposals(
             candidate_count=len(r.candidate_ids or []),
             error_message=r.error_message,
             degraded=r.degraded,
-            stale=r.stale,
+            stale=snapshot_is_stale(r),
         )
         for r in rows
     ]
@@ -251,7 +252,7 @@ async def regenerate_proposals(
         created_at=snap.created_at,
         error_message=snap.error_message,
         degraded=snap.degraded,
-        stale=snap.stale,
+        stale=snapshot_is_stale(snap),
         hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=[],

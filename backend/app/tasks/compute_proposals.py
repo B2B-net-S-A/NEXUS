@@ -10,7 +10,6 @@ The task opens its own DB session via `AsyncSessionLocal` because
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +19,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.services.proposal_contract import proposal_fingerprint
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.job import Job
 from app.models.proposal_snapshot import (
@@ -148,7 +148,7 @@ async def compute_proposal_for_job(
             # P0-B: fingerprint the matching inputs (brief + Champion narrative,
             # folded into _build_job_text) so a later brief/Champion edit that
             # changes them can be detected and this snapshot marked stale.
-            input_fingerprint = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
+            input_fingerprint = proposal_fingerprint(query_text)
 
             # Mirror recommendations.py: pull a wider pool, then re-rank.
             # Pool size is independent of `top_k` on purpose. The old `top_k * 4`
@@ -281,29 +281,8 @@ async def compute_proposal_for_job(
                         # zarzutu wobec profilu kandydata (#414).
                         semantic_unavailable_ids=semantic_unknown_ids,
                     )
-                    # Boost historyczny — TA SAMA składowa, którą /recommendations
-                    # dokłada PRZED odcięciem po min-score. Snapshot jej nie
-                    # stosował, więc domyślny widok „Sugerowani kandydaci"
-                    # (widget startuje w trybie snapshot) był rankowany słabszym
-                    # wzorem niż każdy widok z filtrem, który przełącza się na
-                    # żywy endpoint: kandydat ze score 28, sprawdzony już na
-                    # trzech semantycznie podobnych projektach, dobija na żywo
-                    # do 43 i przechodzi próg 40 — a w snapshocie po prostu go
-                    # nie było. Sygnał „pierwszy ogień" to dokładnie ten, który
-                    # rekruter chce zobaczyć najwyżej.
-                    #
-                    # Kolejność jest istotna: `bulk_get_or_compute` zapisał już
-                    # cache W ŚRODKU, więc boost dołożony TUTAJ nie trafia do
-                    # utrwalonych wierszy score'ów (recommendations.py trzyma go
-                    # poza cache'em z tego samego powodu — stan pipeline'u zmienia
-                    # się za często, żeby dało się to rzetelnie unieważniać).
-                    #
-                    # `_apply_historical_boost` mieszka w routerze; import jest
-                    # leniwy i celowy — kopia tej pętli byłaby CZWARTĄ
-                    # implementacją tego samego wzoru (router, harness ewaluacyjny
-                    # i tutaj), a rozjazd między nimi jest właśnie tym defektem,
-                    # który to zamyka.
-                    from app.api.recommendations import _apply_historical_boost
+                    # History is separate evidence; it never changes fit.
+                    from app.api.recommendations import _annotate_historical_context
                     from app.services.similar_job_candidates import (
                         fetch_historical_boost_map,
                     )
@@ -317,7 +296,7 @@ async def compute_proposal_for_job(
                             boost_exc,
                         )
                         boost_map = {}
-                    _apply_historical_boost(breakdowns, boost_map)
+                    _annotate_historical_context(breakdowns, boost_map)
 
                     # Persist ALL candidates that fit (score >= threshold),
                     # ranked best-first — not a fixed top-K. `top_k` is now just

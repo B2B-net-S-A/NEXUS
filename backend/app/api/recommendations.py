@@ -71,7 +71,6 @@ from app.services.match_score_cache import (
     bulk_get_or_compute,
 )
 from app.services.similar_job_candidates import (
-    boost_points_for_sources,
     fetch_historical_boost_map,
     fetch_historical_candidates,
 )
@@ -283,27 +282,12 @@ async def recommend_candidates_for_job(
     )
 
 
-def _apply_historical_boost(breakdowns: list, boost_map: dict[int, int]) -> None:
-    """Apply the historical-boost bonus in place, then re-sort by total.
-
-    P0-A: a hard-penalized breakdown (total zeroed by blacklist / client-excluded
-    / active conflict) is NEVER boosted — the additive boost is a tie-breaker
-    among eligible candidates, not an override of a penalty. Without this guard a
-    zeroed candidate could be lifted back above the recommendation threshold.
-    """
-    if not boost_map:
-        return
+def _annotate_historical_context(breakdowns: list, boost_map: dict[int, int]) -> None:
+    """History describes process experience; it cannot change base fit or order."""
     for b in breakdowns:
-        if b.penalties:
-            continue
-        count = boost_map.get(b.candidate_id, 0)
-        if count <= 0:
-            continue
-        bonus = boost_points_for_sources(count)
-        b.historical_boost = bonus
-        b.historical_sources_count = count
-        b.total = round(b.total + bonus, 2)
-    breakdowns.sort(key=lambda r: -r.total)
+        b.historical_boost = 0.0
+        b.historical_sources_count = max(0, boost_map.get(b.candidate_id, 0))
+    breakdowns.sort(key=lambda b: (-b.total, b.candidate_id))
 
 
 async def _recommend_candidates_core(
@@ -561,15 +545,13 @@ async def _recommend_candidates_core(
         semantic_unavailable_ids=semantic_unknown_ids,
     )
 
-    # Phase 14: apply historical-boost from semantically-similar past jobs.
-    # Computed fresh per request — not persisted in match-score cache because
-    # candidate pipeline state changes too often to invalidate reliably.
+    # Process history is fresh context, separate from fit and its threshold.
     try:
         boost_map = await fetch_historical_boost_map(db, job_id)
     except Exception as e:  # pragma: no cover — best-effort
         logger.warning("historical_boost lookup failed for job=%s: %s", job_id, e)
         boost_map = {}
-    _apply_historical_boost(breakdowns, boost_map)
+    _annotate_historical_context(breakdowns, boost_map)
 
     # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
     # `top_k` now acts purely as a payload safety cap. The hybrid composite is a

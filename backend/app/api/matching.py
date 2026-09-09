@@ -554,7 +554,7 @@ async def _shared_engine_matches(
     """
 
     from app.api.recommendations import (
-        _apply_historical_boost,
+        _annotate_historical_context,
         _score_breakdown_payload,
     )
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
@@ -575,15 +575,13 @@ async def _shared_engine_matches(
         semantic_unavailable_ids=semantic_unknown_ids,
     )
 
-    # Boost historyczny liczony świeżo per request — jak w `/recommendations`;
-    # stan pipeline'u zmienia się za często, żeby dało się go unieważniać
-    # w cache'u score'ów.
+    # History is separate process context, as in /recommendations.
     try:
         boost_map = await fetch_historical_boost_map(db, job.id)
     except Exception as e:  # pragma: no cover — best-effort
         logger.warning("[AIMatch] historical_boost job=%s: %s", job.id, e)
         boost_map = {}
-    _apply_historical_boost(breakdowns, boost_map)
+    _annotate_historical_context(breakdowns, boost_map)
 
     by_id = {c.id: c for c in ordered}
     scored = [(b, by_id[b.candidate_id]) for b in breakdowns if b.candidate_id in by_id]

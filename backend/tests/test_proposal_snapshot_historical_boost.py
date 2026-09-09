@@ -1,14 +1,4 @@
-"""Snapshot propozycji musi rankować TYM SAMYM wzorem co `/recommendations`.
-
-Widget „Sugerowani kandydaci" startuje w trybie snapshot i przełącza się na
-żywy endpoint dopiero po włączeniu filtra. Żywa ścieżka dokłada boost
-historyczny PRZED odcięciem po `RECOMMENDATION_MIN_SCORE`, snapshot nie
-dokładał go wcale — więc kandydat sprawdzony już na trzech podobnych
-projektach (28 + 15 = 43 przy progu 40) pojawiał się po wpisaniu miasta
-i znikał po wyczyszczeniu filtra, bez żadnej wskazówki, że to dwa różne wzory.
-
-Regresja jest CICHA: obie listy wyglądają poprawnie, różnią się składem.
-"""
+"""Snapshot history is context, never a way to cross the fit threshold."""
 
 from __future__ import annotations
 
@@ -83,8 +73,11 @@ async def boost_fixture():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
+@pytest.mark.parametrize("base_score, expected_present", [(28.0, False), (48.0, True)])
+async def test_snapshot_history_does_not_change_fit_threshold(
     boost_fixture,
+    base_score,
+    expected_present,
 ):
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
@@ -98,8 +91,7 @@ async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
         return [{"candidate_id": cand_id, "score": 0.8}]
 
     async def _scored(*_a, **_kw):
-        # 28 < RECOMMENDATION_MIN_SCORE (40) — bez boostu ten kandydat wypada.
-        return [_breakdown(cand_id, job_id, 28.0)]
+        return [_breakdown(cand_id, job_id, base_score)]
 
     with (
         patch("app.tasks.compute_proposals.retrieve_candidate_pool", new=_pool),
@@ -117,14 +109,12 @@ async def test_snapshot_applies_historical_boost_before_the_min_score_cut(
         )
         assert snap is not None
         assert snap.status == STATUS_READY, snap.error_message
-        assert snap.candidate_ids == [cand_id], (
-            "kandydat sprawdzony na podobnych projektach wypadł ze snapshotu, "
-            "choć na żywym /recommendations przechodzi próg"
-        )
-        payload = snap.breakdowns[0]
-        assert payload["historical_boost"] == 15.0
-        assert payload["historical_sources_count"] == 3
-        assert payload["total"] == 43.0
+        assert snap.candidate_ids == ([cand_id] if expected_present else [])
+        if expected_present:
+            payload = snap.breakdowns[0]
+            assert payload["historical_boost"] == 0.0
+            assert payload["historical_sources_count"] == 3
+            assert payload["total"] == base_score
 
 
 @pytest.mark.integration
