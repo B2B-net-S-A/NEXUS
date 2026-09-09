@@ -175,3 +175,39 @@ async def test_preview_uses_queued_recipe_without_reading_changed_rule(monkeypat
         == "basic"
     )
     current_rule.assert_not_awaited()
+
+
+def test_invalid_historical_draft_returns_actionable_422():
+    _, rule, _, _ = context()
+    rule.draft_payload = {"filename_pattern": "B2B_STANOWISKO_IMIE_NAZWISKO"}
+    with pytest.raises(HTTPException) as caught:
+        api._editable_rule(rule)
+    assert caught.value.status_code == 422
+    assert "Reguła wymaga poprawienia" in caught.value.detail
+
+
+async def test_delete_audits_reset_client_flags(monkeypatch):
+    client, rule, db, actor = context()
+    client.cv_content_mode_cap = "basic"
+    client.cv_interactive_enabled = False
+    monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=client))
+    monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
+    monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
+    record = Mock()
+    monkeypatch.setattr(api, "_record_event", record)
+    await api.delete_client_cv_rule(26, actor, db, expected_revision=4)
+    assert record.call_args.kwargs["changes"] == {
+        "cv_content_mode_cap": {"from": "basic", "to": None},
+        "cv_interactive_enabled": {"from": False, "to": True},
+    }
+
+
+async def test_deleted_recipe_revision_survives_on_client(monkeypatch):
+    client, rule, db, actor = context()
+    monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=client))
+    monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
+    monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
+    await api.delete_client_cv_rule(26, actor, db, expected_revision=4)
+    assert client.cv_rule_edit_revision == 5
+    read = api._to_read(None, client=client, client_id=26, client_name="Test")
+    assert read.edit_revision == 5

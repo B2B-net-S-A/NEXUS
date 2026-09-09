@@ -496,7 +496,11 @@ def _to_read(
     }
     if rule is None:
         return ClientCvRuleRead(
-            client_id=client_id, client_name=client_name, client_policy=None, **flags
+            client_id=client_id,
+            client_name=client_name,
+            client_policy=None,
+            edit_revision=int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+            **flags,
         )
     active = rule.confirmed_at is not None
     snap = snapshot_rule(rule)
@@ -698,14 +702,18 @@ def _validated_recipe(
     try:
         return ClientCvRulePayload(**recipe, confirm=confirm)
     except ValidationError as error:
-        raise HTTPException(status_code=422, detail=error.errors()[0]["msg"]) from error
+        raise HTTPException(
+            status_code=422,
+            detail="Reguła wymaga poprawienia przed publikacją lub podglądem: "
+            + error.errors()[0]["msg"],
+        ) from error
 
 
 def _editable_rule(rule: ClientCvRule | None) -> ClientCvRule | None:
     if rule is None or not rule.draft_payload:
         return rule
     draft = ClientCvRule(version=rule.version)
-    _apply_payload(draft, ClientCvRulePayload(**rule.draft_payload))
+    _apply_payload(draft, _validated_recipe(rule.draft_payload))
     return draft
 
 
@@ -716,7 +724,10 @@ async def _lock_rule_edit(
     await db.execute(select(Client.id).where(Client.id == client.id).with_for_update())
     await db.refresh(client)
     rule = await _rule_for(db, client.id)
-    actual = int(rule.edit_revision or 1) if rule is not None else 0
+    actual = max(
+        int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+        int(rule.edit_revision or 1) if rule is not None else 0,
+    )
     if expected_revision is None or expected_revision != actual:
         raise HTTPException(
             status_code=409,
@@ -749,7 +760,10 @@ async def _store_recipe(
     event_context: dict[str, Any] | None = None,
 ) -> ClientCvRule:
     if rule is None:
-        rule = ClientCvRule(client_id=client.id, edit_revision=0)
+        rule = ClientCvRule(
+            client_id=client.id,
+            edit_revision=int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+        )
         rule.version = await _next_version(db, client.id)
         db.add(rule)
     was_active = rule.confirmed_at is not None
@@ -784,7 +798,14 @@ async def _store_recipe(
         if not was_active:
             _apply_payload(rule, payload)
         changes = _diff(edit_before, recipe)
-    rule.edit_revision = int(rule.edit_revision or 0) + 1
+    rule.edit_revision = (
+        max(
+            int(rule.edit_revision or 0),
+            int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+        )
+        + 1
+    )
+    client.cv_rule_edit_revision = rule.edit_revision
     await db.flush()
     _record_event(
         db,
@@ -899,11 +920,24 @@ async def delete_client_cv_rule(
             client_id=client.id,
             version=int(rule.version or 1),
             action="deleted",
-            changes=None,
+            changes={
+                "cv_content_mode_cap": {"from": client.cv_content_mode_cap, "to": None},
+                "cv_interactive_enabled": {
+                    "from": client.cv_interactive_enabled,
+                    "to": True,
+                },
+            },
             actor=current_user,
         )
         client.cv_content_mode_cap = None
         client.cv_interactive_enabled = True
+        client.cv_rule_edit_revision = (
+            max(
+                int(rule.edit_revision or 0),
+                int(getattr(client, "cv_rule_edit_revision", 0) or 0),
+            )
+            + 1
+        )
         await db.delete(rule)
         await db.commit()
 

@@ -429,7 +429,7 @@ export function CvRuleEditor({
           {allowDelete && stored ? (
             confirmingDelete ? (
               <span className="ml-auto flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Usunąć regułę?</span>
+                <span className="text-muted-foreground">Usunąć całą regułę? Wróci domyślna nazwa pliku, brak ograniczenia trybu i włączone interaktywne CV.</span>
                 <button
                   type="button"
                   disabled={busy}
