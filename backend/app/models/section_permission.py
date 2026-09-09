@@ -21,7 +21,7 @@ _SECTION_VALUES = (
     "'sourcing', 'pipeline', 'delivery', 'insights', 'finance', 'system_admin'"
 )
 _ACCESS_VALUES = "'none', 'read', 'write'"
-_ACTION_VALUES = "'b2b_contract_generator'"
+_ACTION_VALUES = "'b2b_contract_generator', 'b2b_signature_confirmation'"
 _ACTION_ACCESS_VALUES = "'none', 'view', 'generate', 'manage'"
 _ROLE_VALUES = (
     "'admin', 'head_of_recruitment', 'delivery_lead', "

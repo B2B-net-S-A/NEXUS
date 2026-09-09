@@ -31,7 +31,7 @@ from app.api.contract_access import (
 )
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser, TacPlus
+from app.api.deps import AdminUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -355,12 +355,33 @@ async def _reactivation_contract_id(
     )
 
 
-def _has_signature_role(user: User) -> bool:
-    return user.has_any_role(
-        UserRole.admin,
-        UserRole.delivery_lead,
-        UserRole.tac,
+def _has_signature_permission(user: User) -> bool:
+    return (
+        action_access_for_user(user, ProductAction.b2b_signature_confirmation)
+        >= ActionAccess.manage
     )
+
+
+def _require_signature_confirmation(user: User) -> None:
+    assert_b2b_generator_action_access(user, ActionAccess.view)
+    if not _has_signature_permission(user):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "action_access_denied",
+                "action": ProductAction.b2b_signature_confirmation.value,
+                "required": "manage",
+            },
+        )
+
+
+async def _assert_signature_client_access(
+    db: AsyncSession, user: User, client_id: int | None
+) -> None:
+    # Preserve existing legal scope for DL/TAC. The separately granted command
+    # lets operational users confirm signatures without granting document edits.
+    if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
+        await assert_contract_legal_client_access(db, user, client_id, write=True)
 
 
 def _generator_unscoped(user: User) -> bool:
@@ -448,7 +469,8 @@ async def _scope_generator_query(
 
 
 async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
-    await ensure_job_membership(db, user, job.id)
+    if not user.has_role(UserRole.talent_community_manager):
+        await ensure_job_membership(db, user, job.id)
 
 
 async def _load_legal_scoped_job(
@@ -570,8 +592,12 @@ async def _serialize_generated_contracts(
         clients = {cid: name for cid, name in result.all()}
 
     scoped_job_ids: set[int] = set()
-    if _has_signature_role(current_user):
-        if current_user.has_role(UserRole.admin):
+    if _has_signature_permission(current_user):
+        if current_user.has_any_role(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
+        ):
             scoped_job_ids = set(job_ids)
         else:
             scoped_job_ids = {
@@ -608,6 +634,16 @@ async def _serialize_generated_contracts(
         if delivery_scoped
         else None
     )
+    signature_client_access: dict[int | None, bool] = {}
+    if _has_signature_permission(current_user):
+        for client_id in {row.client_id for row in rows}:
+            try:
+                await _assert_signature_client_access(db, current_user, client_id)
+                signature_client_access[client_id] = True
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                signature_client_access[client_id] = False
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
@@ -621,18 +657,20 @@ async def _serialize_generated_contracts(
             and (is_admin or row.created_by == current_user.id)
         )
         can_confirm = (
-            can_manage_documents
-            and can_write_client
-            and _has_signature_role(current_user)
+            generator_access >= ActionAccess.view
+            and (
+                row.client_id is None
+                or signature_client_access.get(row.client_id, False)
+            )
+            and _has_signature_permission(current_user)
             and not is_signed
         )
         blocked_reason: str | None = None
         if is_signed:
             blocked_reason = "Umowa została już oznaczona jako podpisana obustronnie."
-        elif not can_manage_documents:
+        elif generator_access < ActionAccess.view:
             blocked_reason = (
-                "Oznaczenie podpisu wymaga uprawnienia do zarządzania "
-                "Generatorem Umów B2B."
+                "Oznaczenie podpisu wymaga dostępu do rejestru Generatora Umów B2B."
             )
             can_confirm = False
         elif not can_write_client:
@@ -640,10 +678,13 @@ async def _serialize_generated_contracts(
                 "Oznaczenie podpisu wymaga przypisania Delivery Leada do klienta."
             )
             can_confirm = False
-        elif not _has_signature_role(current_user):
-            blocked_reason = (
-                "Oznaczenie podpisu wymaga roli administratora, Delivery Lead lub TAC."
-            )
+        elif not _has_signature_permission(current_user):
+            blocked_reason = "Brak uprawnienia „Oznaczanie podpisu umowy B2B”. Administrator może je nadać w Ustawienia → Uprawnienia."
+            can_confirm = False
+        elif row.client_id is not None and not signature_client_access.get(
+            row.client_id, False
+        ):
+            blocked_reason = "Brak uprawnień do potwierdzania podpisu dla tego klienta. Sprawdź przypisanie klienta i dostęp do Delivery."
             can_confirm = False
         elif row.job_id is not None and row.job_id not in scoped_job_ids:
             blocked_reason = "Brak przypisania do powiązanej rekrutacji."
@@ -1743,12 +1784,12 @@ async def download_generated_contract(
 async def confirm_generated_contract_fully_signed(
     generated_id: int,
     payload: B2BConfirmFullySignedRequest,
-    current_user: TacPlus,
+    current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """One-way, audited manual confirmation with atomic employment automation."""
 
-    _require_generated_contract_management(current_user)
+    _require_signature_confirmation(current_user)
     try:
         row = await db.scalar(
             select(B2BGeneratedContract)
@@ -1761,26 +1802,23 @@ async def confirm_generated_contract_fully_signed(
         # it stays strictly client-scoped for DL/TAC even though the rest of the
         # generator is unscoped for a full-access TAC.
         if row.client_id is not None:
-            await assert_contract_legal_client_access(
+            await _assert_signature_client_access(
                 db,
                 current_user,
                 row.client_id,
-                write=True,
             )
         elif payload.job_id is None:
-            await assert_contract_legal_client_access(
+            await _assert_signature_client_access(
                 db,
                 current_user,
                 None,
-                write=True,
             )
         if payload.job_id is not None:
-            await _load_legal_scoped_job(
-                db,
-                current_user,
-                payload.job_id,
-                write=True,
-                strict_client_scope=True,
+            selected_job = await db.get(Job, payload.job_id)
+            if selected_job is None:
+                raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
+            await _assert_signature_client_access(
+                db, current_user, selected_job.client_id
             )
 
         # Idempotent replay: do not recreate an order/stage after the original
@@ -1879,6 +1917,7 @@ async def confirm_generated_contract_fully_signed(
             job_id=job_id,
         )
         await _require_signature_job_scope(db, current_user, job)
+        await _assert_signature_client_access(db, current_user, job.client_id)
         if row.client_id is not None and row.client_id != job.client_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
