@@ -53,6 +53,16 @@ def test_draft_schema_requires_explicit_md_scope():
         md_budget_total=100,
     )
     assert draft.is_md_budget_based
+    for total in (None, 0):
+        with pytest.raises(ValidationError):
+            OrderGroupCreate(
+                order_number="invalid-pool",
+                start_date=business_today(),
+                status="draft",
+                order_type="md",
+                md_budget_mode="shared",
+                md_budget_total=total,
+            )
 
 
 def test_generic_shared_export_aggregates_once():

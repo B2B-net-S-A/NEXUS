@@ -188,8 +188,8 @@ export function ConsultantLineModal({
   const [rateRevenue, setRateRevenue] = useState("");
   // Jednostka WPROWADZANIA, niezależna dla każdej stawki: kosztowa przychodzi
   // zwykle z kontraktu (godzinowa), przychodowa z zamówienia klienta (MD).
-  // Wartość ZAPISYWANA jest zawsze w PLN/MD — przełącznik i waluta dotyczą
-  // wyłącznie tego, co operator widzi i wpisuje.
+  // Wysyłamy stawkę MD w wybranej walucie. Backend zachowuje ją wraz
+  // z walutą i oblicza osobno pomocniczą stawkę PLN/MD.
   const [costUnit, setCostUnit] = useState<RateUnit>("md");
   const [costCurrency, setCostCurrency] = useState("PLN");
   const [revenueCurrency, setRevenueCurrency] = useState("PLN");
@@ -715,9 +715,10 @@ export function ConsultantLineModal({
     const rate = revenue === null ? null : toMdRate(revenue, revenueUnit);
     if (value === null) return null;
     if (inputMode === "md") return value;
+    if (revenueCurrency !== "PLN") return null;
     if (rate === null || rate <= 0) return null;
     return value / rate;
-  }, [inputValue, rateRevenue, revenueUnit, inputMode]);
+  }, [inputValue, rateRevenue, revenueUnit, inputMode, revenueCurrency]);
 
   const canSubmit =
     !submitting &&
@@ -982,7 +983,9 @@ export function ConsultantLineModal({
             placeholder={inputMode === "md" ? "50" : "60000"}
           />
           <p className="mt-2 text-xs text-muted-foreground">
-            {inputMode === "amount"
+            {inputMode === "amount" && revenueCurrency !== "PLN"
+              ? `Budżet MD zostanie obliczony po zapisaniu według kursu ${revenueCurrency}/PLN.`
+              : inputMode === "amount"
               ? `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD (kwota ÷ stawka przychodowa)`
               : `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD`}
           </p>

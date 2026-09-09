@@ -1506,6 +1506,17 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 });
 
 describe("waluty zapisanej linii", () => {
+  it("nie dzieli kwoty PLN przez surową stawkę EUR w podglądzie", async () => {
+    const user = setupUser();
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, source_rate_revenue: 218.75, rate_client_currency: "EUR",
+        input_mode: "amount", input_value: 35000 },
+    });
+    expect(screen.getByText(/Budżet MD zostanie obliczony po zapisaniu według kursu EUR\/PLN/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Waluta stawki przychodowej" }), "PLN");
+    expect(screen.getByText(/Budżet MD: 160 MD/)).toBeInTheDocument();
+  });
+
   it.each([false, true])("zachowuje EUR i układ dwóch kolumn (kosztowe=%s)", async (isCost) => {
     const user = setupUser();
     const onSubmit = renderModal(vi.fn(), { ...GROUP, is_cost_based: isCost }, {

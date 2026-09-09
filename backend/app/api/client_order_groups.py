@@ -1318,10 +1318,16 @@ async def _build_line(
     # wymyślenia liczby, której nikt nigdy nie rozliczy, a CHECK spójności
     # w bazie i tak dopuszcza komplet NULL-i.
     canonical_cost = await _canonical_currency_rate(
-        db, payload.rate_cost, payload.rate_candidate_currency or "PLN", payload.start_date
+        db,
+        payload.rate_cost,
+        payload.rate_candidate_currency or "PLN",
+        payload.start_date,
     )
     canonical_revenue = await _canonical_currency_rate(
-        db, payload.rate_revenue, payload.rate_client_currency or "PLN", payload.start_date
+        db,
+        payload.rate_revenue,
+        payload.rate_client_currency or "PLN",
+        payload.start_date,
     )
     md_total: Optional[Decimal] = None
     if group.is_cost_based or uses_shared_md_pool(group):
@@ -2350,6 +2356,10 @@ async def update_order_group(
                     )
                     line.md_input_mode = "md"
         if requested_status == "active":
+            if requested_mode == "shared":
+                total = data.get("md_budget_total", group.md_budget_total)
+                if total is None or total <= 0:
+                    raise HTTPException(422, detail="Podaj wspólny budżet MD")
             draft_lines = await lines_for_group(db, group.id)
             if not draft_lines or (
                 requested_mode == "per_person"
@@ -2365,7 +2375,15 @@ async def update_order_group(
             db,
             group_id=group.id,
             event_type=EVENT_MANUAL_EDIT,
-            description=f"Tryb budżetu MD: {previous_mode} → {requested_mode}; status: {group.status}",
+            description=(
+                f"Tryb budżetu MD: {previous_mode} → {requested_mode}; status: {group.status}"
+                if previous_mode != requested_mode
+                else (
+                    f"Aktywacja zamówienia MD; tryb budżetu: {requested_mode}"
+                    if requested_status == "active"
+                    else f"Zapis szkicu zamówienia MD; tryb budżetu: {requested_mode}"
+                )
+            ),
             payload={
                 "previous_mode": previous_mode,
                 "md_budget_mode": requested_mode,
