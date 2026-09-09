@@ -613,9 +613,9 @@ function AIMatchingSection({
   const [shortlistingId, setShortlistingId] = useState<number | null>(null);
   // Wiersz zaznaczony do doku „Dopasowanie" (prawa kolumna warsztatu C2).
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  // Filtry lewej kolumny „Wymagania z Championa" — wszystkie po stronie klienta,
-  // bez dodatkowego zapytania: próg wyniku, wybrany skill must, stawka wobec
-  // budżetu, obecność w procesie. Multi-select do akcji zbiorczej „Przypisz".
+  // Filtry wspólnego przeglądu: próg wyniku, skill, stawka i obecność w procesie.
+  // API filtruje zapisane wyniki przed stronicowaniem; nie uruchamia nowego skanu.
+  // Multi-select służy do akcji zbiorczej „Przypisz".
   const [minScorePct, setMinScorePct] = useState<number | null>(null);
   const [skillFilter, setSkillFilter] = useState<string | null>(null);
   const [rateFilter, setRateFilter] = useState<"all" | "in" | "over" | "unknown">(
@@ -641,6 +641,7 @@ function AIMatchingSection({
   const actorId = useAuthStore(s => s.user?.id);
   const fullSearch = useFullCandidateSearch({
     includeCandidateDetails: true,
+    shareAcrossTabs: true,
     storageKey: actorId ? `nexus-full-job:${actorId}:${jobId}` : undefined,
     filters: { skill: skillFilter ?? undefined, rate: rateFilter, stage: stageFilter, location: locationFilter.trim() },
   });
@@ -947,13 +948,13 @@ function AIMatchingSection({
       {matchView === "ranking" && (
         <>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-        {/* ── Lewa kolumna: Wymagania z Championa + filtry ─────────── */}
+        {/* ── Lewa kolumna: Wymagania requestu + filtry ─────────── */}
         <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
           <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <Target className="h-4 w-4 text-primary" />
             Wymagania
             <span className="ml-auto text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
-              z Championa
+              z requestu
             </span>
           </div>
 

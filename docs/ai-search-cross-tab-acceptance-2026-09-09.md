@@ -1,0 +1,9 @@
+# Saved request search across browser tabs
+
+Production reproduction on fff3810548d34fd98dc1468ce650409edd7d25cb: job 565252 in C2 showed a completed 249.8-second scan, 59,934 visible candidates and 51,985 incomplete scores. Reloading Radar in a separate tab and selecting the same job restored the older 215.8-second scan, with 55,034 incomplete scores and different ordering. Both covered 59,964 population records. This is different archived run selection, not evidence of a scoring-function difference.
+
+The shared actor/job key was stored in sessionStorage, which is tab-local. Saved request searches now store only the run reference in localStorage under the existing actor/job namespace. Native storage events synchronize other tabs; a same-document event synchronizes mounted consumers. Changing the reference resets pagination and cancels acceptance of a late start response. Reading a shared reference never launches a new scan. Tab-local legacy references are discarded instead of silently restoring different rankings. Ad-hoc request state remains tab-local. Logout removes shared run references, and the API retains creator authorization for every run read.
+
+Native regression coverage: restore a newer shared run over legacy state; synchronize another tab and reset its page; ignore a different actor; propagate clearing; synchronize two mounted consumers; reject a late superseded start response; preserve explicit-start, duplicate-click, clear and filter/page behavior; clear references at logout.
+
+Production acceptance remains required after full CI, merge and normal deployment: load the same saved request in Radar and C2 in separate Chrome tabs, start exactly one scan, observe both screens following its progress, and compare the final counts, IDs and order. Full ranking quality still requires completed index repair and independently supplied recruiter judgments.

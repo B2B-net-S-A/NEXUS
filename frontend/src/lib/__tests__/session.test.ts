@@ -35,12 +35,14 @@ describe("clearSessionArtifacts", () => {
     sessionStorage.setItem("nexus_talent_radar_session_v1", "{}");
     for (const key of ["nexus-full-job:7:42", "nexus-full-radar:7", "nexus-radar-request:7", "nexus-radar-mode:7"]) sessionStorage.setItem(key, "saved");
     sessionStorage.setItem("unrelated_session_key", "keep");
+    localStorage.setItem("nexus-full-job:7:42", "shared-run");
 
     clearSessionArtifacts();
 
     expect(sessionStorage.getItem("nexus_talent_radar_session_v1")).toBeNull();
     for (const key of ["nexus-full-job:7:42", "nexus-full-radar:7", "nexus-radar-request:7", "nexus-radar-mode:7"]) expect(sessionStorage.getItem(key)).toBeNull();
     expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
+    expect(localStorage.getItem("nexus-full-job:7:42")).toBeNull();
   });
 
   it("kasuje cookie nexus_access", () => {

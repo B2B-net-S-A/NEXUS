@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { candidateSearchApi, searchIsRunning, type StartCandidateSearch, type CandidateSearchFilters } from "@/lib/full-candidate-search-api";
 
 /** Explicit start only: changing form fields must never launch a paid scan. */
-export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey, filters = {} }: { includeCandidateDetails?: boolean; storageKey?: string; filters?: CandidateSearchFilters } = {}) {
+export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey, shareAcrossTabs = false, filters = {} }: { includeCandidateDetails?: boolean; storageKey?: string; shareAcrossTabs?: boolean; filters?: CandidateSearchFilters } = {}) {
   const [runId, setRunId] = useState<string | null>(null);
   const filterKey = JSON.stringify(filters);
   const [cursor, setCursor] = useState({ filterKey, offset: 0 });
@@ -16,6 +16,19 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
   const [startError, setStartError] = useState<unknown>(null);
   const generation = useRef(0);
   const inFlight = useRef(false);
+  const source = useRef({});
+  const persist = useCallback((value: string | null) => {
+    if (!storageKey) return;
+    try {
+      const storage = shareAcrossTabs ? localStorage : sessionStorage;
+      if (value === null) storage.removeItem(storageKey);
+      else storage.setItem(storageKey, value);
+      if (shareAcrossTabs) {
+        sessionStorage.removeItem(storageKey);
+        window.dispatchEvent(new CustomEvent("nexus-search-run-changed", { detail: { key: storageKey, source: source.current } }));
+      }
+    } catch { /* Storage may be disabled. */ }
+  }, [storageKey, shareAcrossTabs]);
   useEffect(() => {
     generation.current += 1;
     setStartError(null);
@@ -23,10 +36,30 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     setCursor({ filterKey: "", offset: 0 });
     if (!storageKey) return;
     try {
-      const saved = sessionStorage.getItem(storageKey);
+      const saved = (shareAcrossTabs ? localStorage : sessionStorage).getItem(storageKey);
       if (saved && saved.length <= 128) setRunId(saved);
     } catch { /* Storage may be disabled; live search still works. */ }
-  }, [storageKey]);
+    if (!shareAcrossTabs) return;
+    // A tab-local legacy reference can never override the shared latest run.
+    try { sessionStorage.removeItem(storageKey); } catch {}
+    const sync = (event: Event) => {
+      if (event instanceof StorageEvent && (event.storageArea !== localStorage || (event.key !== null && event.key !== storageKey))) return;
+      if (event instanceof CustomEvent && (event.detail?.key !== storageKey || event.detail?.source === source.current)) return;
+      try {
+        const saved = localStorage.getItem(storageKey);
+        generation.current += 1;
+        setRunId(saved && saved.length <= 128 ? saved : null);
+        setCursor({ filterKey: "", offset: 0 });
+        setStartError(null);
+      } catch { /* Retain the live view if storage becomes unavailable. */ }
+    };
+    window.addEventListener("storage", sync);
+    window.addEventListener("nexus-search-run-changed", sync);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("nexus-search-run-changed", sync);
+    };
+  }, [storageKey, shareAcrossTabs]);
   const page = useQuery({
     queryKey: ["candidate-search", runId, offset, minScore, includeCandidateDetails, filters],
     enabled: runId !== null,
@@ -44,8 +77,8 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     setRunId(null);
     setCursor({ filterKey: "", offset: 0 });
     setStartError(null);
-    if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
-  }, [storageKey]);
+    persist(null);
+  }, [persist]);
 
   const start = useCallback(async (request: StartCandidateSearch) => {
     if (inFlight.current) return;
@@ -55,13 +88,13 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     setStartError(null);
     setRunId(null);
     setCursor({ filterKey: "", offset: 0 });
-    if (storageKey) { try { sessionStorage.removeItem(storageKey); } catch {} }
+    persist(null);
     try {
       const run = await candidateSearchApi.start(request);
       // A response for a cleared/edited form must not replace its new state.
       if (generation.current === attempt) {
         setRunId(run.run_id);
-        if (storageKey) { try { sessionStorage.setItem(storageKey, run.run_id); } catch {} }
+        persist(run.run_id);
       }
       return run;
     } catch (error) {
@@ -70,7 +103,7 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
       inFlight.current = false;
       setStarting(false);
     }
-  }, [storageKey]);
+  }, [persist]);
 
   const changeMinScore = useCallback((value: number) => {
     setMinScore(value);

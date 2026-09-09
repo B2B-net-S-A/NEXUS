@@ -11,7 +11,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
-| CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Pending |
+| CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Implemented with explicit process selection and server cursor history; local tests pass, hosted DB >60-document regression and production proof pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
 | CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
@@ -80,6 +80,7 @@ Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
 
 ## Draft persistence and approved versions
+
 
 Approval sends the editor's current HTML and expected revision as one command.
 All saves, approvals, revision creation and token creation serialize on the
@@ -152,6 +153,60 @@ model output, which remain the final factual gate's responsibility.
 Verification: 65 focused backend tests, 9 editor tests and TypeScript checks;
 hosted CI and production interaction still pending. No local Docker.
 
+## CV-02 — explicit generated document selection (partial delivery)
+
+A recruitment draft can now explicitly select a completed generated document for
+that exact candidate and job. Selection checks the draft revision under the stage
+row lock, preserves an earlier approval and its links, and imports the same
+client-safe body used by HTML export, including technology emphasis. The selected
+source ID is captured on approval. Template/language changes cannot silently
+replace a selected document with a fresh rendering of the candidate profile;
+users generate and choose a replacement instead. Deleting the source does not
+remove this protection.
+
+Validation: 28 focused backend tests and 38 frontend tests pass; TypeScript,
+Ruff and one Alembic head pass. Hosted API lifecycle test covers selection,
+immediate approval of current edited content, reselection and the original
+public link. PostgreSQL lifecycle/migration execution and production interaction
+remain required.
+
+This is not completion of CV-02/CV-10: DOCX export after manual editing, immutable
+approved DOCX bytes, standalone approval and one version across standalone
+interactive links still require implementation. Imported HTML uses the existing
+HTML export presentation, not the original DOCX letterhead/consent image layout.
+
+
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
+
+## Upload association and complete history
+
+Upload requests optionally carry candidate/stage IDs. The server validates their
+relationship and recruitment membership, derives the client, and refuses stale
+client assertions before quota or background work. Finalization and the optional
+second-language document preserve that association. No name-based matching or
+legacy reassignment is performed. Embedded upload binds to its current process;
+standalone upload offers an explicit process or a candidate-only/unassigned file.
+
+The history API applies candidate/job filters before LIMIT and provides a stable
+id cursor. The UI loads older pages with the same context and polls processing
+rows on loaded pages. Context switches reset pending source attachments.
+40 local backend and 14 component tests pass; the hosted PostgreSQL regression
+inserts more than 60 unrelated documents and checks filtered cursor traversal.
+CI, deployment and actual production flow remain required.
 
 ## Multipage letterhead regression (synthetic production CV)
 
@@ -180,3 +235,9 @@ the hosted API lifecycle additionally checks 503 without a charge or generation,
 then successful generation of both variants with one two-unit admission.
 This does not establish global concurrent quota serialization or refund behavior
 for provider failures, and does not complete durable jobs or same-facts previews.
+
+### CV-09 / required Champion admission — partial delivery
+
+Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
+
+The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. Depends on the explicit upload/history package #1450.
