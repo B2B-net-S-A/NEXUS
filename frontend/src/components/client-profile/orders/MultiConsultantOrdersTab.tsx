@@ -323,6 +323,9 @@ export function MultiConsultantOrdersTab({
       return attachFile(saved, file);
     },
     onSuccess: (result) => {
+      if (!groupModal.group || groupModal.group.status === "draft") {
+        setPill(result.saved.status === "draft" ? "draft" : "all");
+      }
       setGroupModal({ open: false, group: null });
       setFormError(null);
       invalidate();

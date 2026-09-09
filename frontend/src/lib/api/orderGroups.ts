@@ -132,8 +132,7 @@ export interface OrderGroupRead {
   closure_reason: string | null;
 
   is_cost_based: boolean;
-  /** Flaga kompatybilności dla istniejących wspólnych pul MD.
-   *  Nowe jawne `order_type="md"` zawsze mają budżet per linia. */
+  /** Flaga przechowywania wspólnej puli; nowe zamówienia mają jawny md_budget_mode. */
   is_md_budget_based: boolean;
   /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa
    *  „zużyciem" wartość, która maleje — czyli resztę; jedno pole podpisane
@@ -279,8 +278,7 @@ export interface OrderGroupInput {
   end_date?: string | null;
   notes?: string | null;
   is_cost_based?: boolean;
-  /** Tylko kompatybilność odczytu/edycji istniejącej wspólnej puli.
-   *  Frontend nie ustawia tej flagi dla nowych zamówień MD. */
+  /** Wspólna pula MD na poziomie zamówienia. */
   is_md_budget_based?: boolean;
   budget_amount?: number | null;
   md_budget_total?: number | null;

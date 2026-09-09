@@ -65,9 +65,6 @@ FxRateValue = MdValue
 
 
 class OrderLineCreate(BaseModel):
-    rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
-    rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
-
     """Jedna linia konsultanta przy zakładaniu zamówienia lub dokładaniu osoby.
 
     Osobę wskazuje się DOKŁADNIE JEDNYM z dwóch pól — ``contract_id`` albo
@@ -76,6 +73,9 @@ class OrderLineCreate(BaseModel):
     czyta go kilkanaście ścieżek: skaner wygasania, sync terminacji, MRR),
     a osoba z bazy Nexus takiego kontraktu jeszcze nie ma.
     """
+
+    rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+    rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
 
     contract_id: Optional[int] = None
     """Kontrakt konsultanta u tego klienta. Linia wskazuje ISTNIEJĄCY kontrakt,
@@ -275,10 +275,10 @@ class OrderGroupExtend(BaseModel):
 
 
 class OrderLineUpdate(BaseModel):
+    """Edycja linii. Pola nieprzysłane zostają bez zmian (``exclude_unset``)."""
+
     rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
     rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
-
-    """Edycja linii. Pola nieprzysłane zostają bez zmian (``exclude_unset``)."""
 
     rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=2)
     rate_revenue: Optional[MoneyPLN] = Field(

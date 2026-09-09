@@ -280,3 +280,18 @@ async def test_first_zero_consumption_permanently_locks_draft_mode(
         json={"md_budget_mode": "shared", "md_budget_total": 100},
     )
     assert response.status_code == 409, response.text
+
+
+def test_startup_safety_net_preserves_new_draft_status_and_scope():
+    from pathlib import Path
+
+    entrypoint = (Path(__file__).parents[1] / "entrypoint.sh").read_text()
+    assert "md_budget_mode VARCHAR(16) NULL" in entrypoint
+    assert "md_budget_mode_locked BOOLEAN NOT NULL DEFAULT FALSE" in entrypoint
+    assert (
+        "status IN ('active', 'scheduled', 'completed', 'exhausted')" not in entrypoint
+    )
+    assert (
+        "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')"
+        in entrypoint
+    )

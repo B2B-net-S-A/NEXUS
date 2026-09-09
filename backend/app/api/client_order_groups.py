@@ -259,6 +259,8 @@ _GROUP_FINANCE_FIELDS = frozenset(
 async def _canonical_currency_rate(
     db: AsyncSession, value: Decimal, currency: str, on: date
 ) -> Decimal:
+    if currency == "PLN":
+        return value.quantize(Decimal("0.01"))
     fx = await rates_to_pln(db, {currency}, on)
     factor = fx.get(currency)
     if factor is None:
@@ -2255,6 +2257,7 @@ async def update_order_group(
         .order_by(ClientOrder.id)
         .with_for_update()
     )
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
     await _normalize_empty_explicit_md_group(db, group)
 
@@ -3209,6 +3212,12 @@ async def update_line(
     if line is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
     await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+    has_group_budget = group.is_cost_based or uses_shared_md_pool(group)
+    if has_group_budget and supplied & line_budget_fields:
+        raise HTTPException(
+            422, detail="To zamówienie ma wspólny budżet — odśwież formularz linii"
+        )
 
     data = payload.model_dump(exclude_unset=True)
     changed: list[str] = []

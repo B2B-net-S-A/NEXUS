@@ -1,4 +1,4 @@
-"""Wspólna pula MD całego zamówienia Cyfrowego Polsatu i Lotte Wedel.
+"""Wspólna pula MD całego zamówienia.
 
 To nie jest istniejący wariant MD per konsultant. Tutaj miesięczna konsumpcja
 jest agregowana na grupie, a pozostałość jest zawsze przeliczana od zera, dzięki
@@ -50,7 +50,7 @@ def client_uses_shared_md_pool(client_id: int | None) -> bool:
 
 
 def uses_shared_md_pool(group: SharedMdPoolGroup) -> bool:
-    """Whether this group is one of the two deliberate shared-MD variants.
+    """Use the new explicit choice, retaining legacy client-specific behavior.
 
     Revision 0246 inferred ``is_md_budget_based`` from every explicit ``md``
     type.  The flag alone is therefore not authoritative: generic MD orders

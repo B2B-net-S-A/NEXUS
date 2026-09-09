@@ -424,7 +424,7 @@ export function ConsultantLineModal({
     // etykietą „zł/h”.
     setCostUnit("md");
     setCostCurrency(
-      line?.rate_candidate_currency ?? line?.rate_client_currency ?? "PLN",
+      line?.rate_candidate_currency ?? "PLN",
     );
     setRevenueCurrency(line?.rate_client_currency ?? "PLN");
     setCostRateToPln(1);

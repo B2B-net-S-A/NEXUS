@@ -3714,6 +3714,11 @@ _COLUMN_STATEMENTS = [
     # wyłączone nie zmieniają istniejącego wariantu MD per konsultant.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "is_md_budget_based BOOLEAN NOT NULL DEFAULT FALSE",
+    # 0283: explicit scope for new MD orders; NULL preserves legacy behavior.
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "md_budget_mode VARCHAR(16) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "md_budget_mode_locked BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "md_budget_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
@@ -4677,7 +4682,7 @@ _DATA_STATEMENTS = [
                ALTER TABLE client_order_groups
                    ADD CONSTRAINT ck_client_order_groups_status
                    CHECK (
-                       status IN ('active', 'scheduled', 'completed', 'exhausted')
+                       status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')
                    ) NOT VALID;
            END IF;
 
@@ -5947,7 +5952,7 @@ _CONSTRAINT_STATEMENTS = [
     """DO $$ BEGIN
         ALTER TABLE client_order_groups
             ADD CONSTRAINT ck_client_order_groups_status
-            CHECK (status IN ('active', 'scheduled', 'completed', 'exhausted')) NOT VALID;
+            CHECK (status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0238 — master PDF grupy i automatyczna kopia na kontrakcie. Sprawdzamy
     # semantycznie po kolumnie/target table, nie wyłącznie po nazwie więzu.
@@ -6035,6 +6040,12 @@ _CONSTRAINT_STATEMENTS = [
                     AND md_budget_remaining >= 0
                 )
             ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups ADD CONSTRAINT ck_client_order_groups_md_mode
+        CHECK (md_budget_mode IS NULL OR (order_type = 'md' AND
+            ((md_budget_mode = 'shared' AND is_md_budget_based = TRUE) OR
+             (md_budget_mode = 'per_person' AND is_md_budget_based = FALSE)))) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0263 — spójność typu z flagami, BEZ zaszytych ID klientów. Do 0263 więz
     # kodował `client_id IN (155, 38339)`, czyli rozstrzygał w bazie, kto jest

@@ -76,19 +76,8 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_order_type",
         ),
         CheckConstraint(
-            # Schemat pilnuje spójności typu z flagami i NIC WIĘCEJ. Do 0263
-            # ten więz kodował też `client_id IN (155, 38339)`, czyli
-            # rozstrzygał w bazie, kto jest Lotte Wedel i Cyfrowym Polsatem —
-            # a tożsamość tych klientów aplikacja traktuje jako podmienialną
-            # (autouse fixture w `tests/conftest.py` odpina bramki, żeby
-            # 155. testowy klient nie dostał cudzej polityki). Baza nie
-            # widziała tej podmiany, więc oba źródła prawdy się rozjeżdżały
-            # i zapis kończył się 500 w środku aktywacji szkicu.
-            #
-            # Reguła „wspólną pulę MD mają wyłącznie CP i Lotte Wedel" żyje
-            # w aplikacji, w obu miejscach zapisu: dwa jawne 422
-            # w `api/client_order_groups.py` oraz wyprowadzenie flagi
-            # z `client_uses_shared_md_pool` w `order_group_materializer`.
+            # Historical flags remain intact; explicit md_budget_mode
+            # selects the scope of newly created MD orders.
             "order_type IS NULL OR "
             "(order_type = 'cost' AND is_cost_based = TRUE "
             "AND is_md_budget_based = FALSE) OR "
@@ -229,11 +218,8 @@ class ClientOrderGroup(Base, TimestampMixin):
     is_md_budget_based: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
-    """Klientowo ograniczona, wspólna pula MD całego zamówienia.
-
-    Zwykły jawny ``order_type='md'`` nie ustawia tej flagi: jego budżet mieszka
-    na każdej linii konsultanta. ``True`` jest wyłącznie świadomym wariantem
-    Cyfrowego Polsatu i Lotte Wedel, także dla nowo tworzonych zamówień.
+    """Storage flag for a shared pool. New orders use md_budget_mode;
+    historical rows retain their client-specific interpretation.
     """
 
     md_budget_total: Mapped[Optional[Decimal]] = mapped_column(
