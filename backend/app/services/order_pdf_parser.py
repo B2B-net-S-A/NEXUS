@@ -2003,6 +2003,60 @@ def apply_gross_to_net_rate_policy(
     return apply_document_rate_kind(result, document_text)
 
 
+_PFRON_PERSON_LABEL_RE = re.compile(r"Imi[ęe]\s+i\s+nazwisko\s*:", re.I)
+_PFRON_PERSON_RATE_RE = re.compile(
+    r"Stawka\s+za\s+jedn[ąa]\s+Roboczogodzin[ęe]"
+    r"(?:\s*\([^)]{0,160}\))?\s*:\s*"
+    r"(?P<amount>\d[\d \u00a0\u202f]*(?:[,.]\d{1,2})?)\s*(?:zł|PLN)"
+    r"\s*(?P<kind>brutto|netto)?",
+    re.I,
+)
+
+
+def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
+    """Independent person/rate evidence from each labelled specialist block.
+
+    Never infer a person from a filename or reuse the model's name. A missing
+    or malformed block remains missing so the shared gate detects it.
+    """
+    labels = list(_PFRON_PERSON_LABEL_RE.finditer(text or ""))
+    rows = []
+    for index, label in enumerate(labels):
+        end = labels[index + 1].start() if index + 1 < len(labels) else len(text)
+        block = text[label.end() : end]
+        rates = list(_PFRON_PERSON_RATE_RE.finditer(block))
+        if len(rates) != 1:
+            return []
+        rate = rates[0]
+        # A spaced dash separates the role; surname hyphens remain intact.
+        name = re.split(r"\s+[-–—]\s+", block[: rate.start()].strip(), maxsplit=1)[0]
+        name = re.sub(r"\s+", " ", name).strip()
+        if not _name_token_variants(name):
+            return []
+        amount = _normalize_amount(rate.group("amount"))
+        marking = detect_rate_gross_marking(block[rate.start() :], [amount])
+        rows.append(
+            ConsultantOrderRow(
+                consultant_name=name,
+                rate_client=net_rate_from_gross(amount)
+                if amount is not None and marking == RATE_MARK_GROSS
+                else amount,
+                rate_client_gross=amount if marking == RATE_MARK_GROSS else None,
+                rate_unit="hour",
+                end_date=pfron_end_date(block),
+                uncertain=amount is None or marking is None,
+            )
+        )
+    return rows
+
+
+def _pfron_md_quantity_reason(reason: str) -> bool:
+    folded = _fold_policy_text(reason)
+    return _is_md_quantity_reason(reason) or (
+        "md_total" in folded and not any(word in folded for word in ("stawk", "rate"))
+    )
+
+
 def apply_pfron_order_policy(
     result: OrderExtraction, document_text: str, *, filename: Optional[str] = None
 ) -> OrderExtraction:
@@ -2017,7 +2071,7 @@ def apply_pfron_order_policy(
     result.uncertain_reasons = [
         reason
         for reason in result.uncertain_reasons
-        if not _is_md_quantity_reason(reason)
+        if not _pfron_md_quantity_reason(reason)
         and not (number is not None and _pfron_title_reason(reason))
         and not (end_date is not None and _pfron_period_reason(reason))
     ]
@@ -2049,7 +2103,7 @@ def apply_pfron_order_policy(
             reasons = [
                 r
                 for r in row.uncertain_reason.split("; ")
-                if not _pfron_period_reason(r) and not _is_md_quantity_reason(r)
+                if not _pfron_period_reason(r) and not _pfron_md_quantity_reason(r)
             ]
             row.uncertain_reason = "; ".join(reasons) or None
             row.uncertain = bool(reasons)
@@ -2214,7 +2268,10 @@ def _name_token_variants(value: str, *, min_tokens: int = 2) -> set[tuple[str, .
     utraty granic pozostałych członów imienia i nazwiska.
     """
 
-    folded = unicodedata.normalize("NFKD", (value or "").casefold())
+    # PDF formatting controls are not name boundaries. Preserve real spaces.
+    value = re.sub(r"[\u00ad\u200b\u200c\u200d\ufeff]", "", value or "")
+    value = re.sub(r"[\u2010-\u2015]", "-", value)
+    folded = unicodedata.normalize("NFKD", value.casefold())
     folded = folded.replace("ł", "l")
     folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
     folded = re.sub(r"[^a-z0-9\-\s]", " ", folded)
