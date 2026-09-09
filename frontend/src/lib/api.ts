@@ -932,8 +932,8 @@ export const prepKitApi = {
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
 export const aiWriterApi = {
-  // Obie generacje idą do modelu, a formularz stoi otwarty i czeka na wynik —
-  // stąd wspólny sufit 120 s (patrz `lib/http-timeouts.ts`).
+  // Saved-job descriptions use a factual template; generateJob uses the model.
+  // The shared timeout accommodates the slower model-backed route.
   generateJobDescription: (data: {
     title: string;
     client_name?: string;
