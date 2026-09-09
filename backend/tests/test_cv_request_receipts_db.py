@@ -13,6 +13,47 @@ from app.models.cv_generation_request import CvGenerationRequest
 from app.services.cv_generator_b2b.request_receipts import reserve_request
 
 
+async def test_preview_receipt_survives_retention_as_deleted_result():
+    from fastapi import HTTPException
+    from app.models.client import Client
+    from app.models.client_cv_rule_preview import ClientCvRulePreview
+
+    async with AsyncSessionLocal() as db:
+        try:
+            key = str(uuid4())
+            user = User(
+                email=f"preview-retry-{key}@example.test", name="Preview fixture"
+            )
+            client = Client(name=f"preview-{key}")
+            db.add_all([user, client])
+            await db.flush()
+            preview = ClientCvRulePreview(client_id=client.id, created_by=user.id)
+            db.add(preview)
+            await db.flush()
+            receipt, previous = await reserve_request(
+                db, user.id, key, "preview", {"client_id": client.id}
+            )
+            assert previous is None
+            receipt.preview_id = preview.id
+            await db.flush()
+            _, replay = await reserve_request(
+                db, user.id, key, "preview", {"client_id": client.id}
+            )
+            assert replay.id == preview.id
+            await db.execute(
+                delete(ClientCvRulePreview).where(ClientCvRulePreview.id == preview.id)
+            )
+            await db.refresh(receipt)
+            assert receipt.preview_id is None
+            with pytest.raises(HTTPException) as error:
+                await reserve_request(
+                    db, user.id, key, "preview", {"client_id": client.id}
+                )
+            assert error.value.status_code == 410
+        finally:
+            await db.rollback()
+
+
 @pytest.mark.parametrize("commit_first", [True, False])
 async def test_competing_receipt_observes_commit_or_recovers_rollback(commit_first):
     key = str(uuid4())
