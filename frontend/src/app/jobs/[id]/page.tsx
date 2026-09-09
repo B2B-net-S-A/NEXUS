@@ -1,6 +1,7 @@
 "use client";
 
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
+import { SavedRequestRequirements } from "@/components/talent-radar/SavedRequestRequirements";
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
 import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
@@ -774,6 +775,7 @@ function AIMatchingSection({
   readOnly?: boolean;
   isAdmin?: boolean;
 }) {
+  const canEditRequirements = useCapability("job.update") && !readOnly;
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
@@ -994,6 +996,7 @@ function AIMatchingSection({
 
   return (
     <div className="space-y-4">
+      <SavedRequestRequirements jobId={jobId} canEdit={canEditRequirements} onSaved={fullSearch.clear} />
       {/* Pasek kontekstu rekrutacji (makieta C2 „jobbar") — tytuł, klient,
           budżet kandydacki, deadline, właściciel + KPI + przełącznik. */}
       <div className="rounded-xl border border-border bg-card p-4">

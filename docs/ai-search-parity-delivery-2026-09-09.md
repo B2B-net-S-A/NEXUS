@@ -81,3 +81,12 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - Result schema is versioned to invalidate snapshots without filter evidence. C2 coverage chips use the same frozen requirement evidence as Radar.
 - Validation: 9 focused native backend tests; frontend adapter, filter/page hook and Radar regression tests; typecheck, Ruff and reachability gate. Added a hosted PostgreSQL case proving skill/location filters find lower-ranked profiles beyond the first page, unknown scores survive thresholds, and process filters are scoped to the requested job. Its execution is pending hosted CI.
 - Remaining: saved-job picker and reviewed criteria editing in Radar/C2; remaining legacy score consumers; index reconciliation/repair, operational telemetry/evaluation, and complete production delivery/Chrome verification. No completion claim.
+
+### Increment: saved recruitment in Radar and shared reviewed criteria
+
+- Added paginated, authorized saved-job selection in Radar. The saved mode starts by job_id, uses full server-side request/client/HM context and shares the same actor/job run reference as C2. Ad-hoc mode remains available and explicitly identifies missing saved-job/HM context.
+- Added one reviewed-requirements editor to saved Radar and C2. AND groups retain OR alternatives (PL/EN), excluded/uncertain lists, manual empty lists, and an explicit missing-evidence review/exclude policy. Saves use the existing guarded job PATCH, including its audit/cache behavior; read-only users cannot edit. Worker and editor read the same effective contract.
+- Source changes through job edits, Champion editing/generation endpoints and Champion ingestion clear obsolete reviewed criteria; budget-only edits retain them. Unchanged groups preserve provenance when reviewed.
+- Session restoration stores only a minimal job reference and run IDs. Logout clears the new keys.
+- Validation: 23 Radar/editor/criteria tests, 11 session/hook/editor tests (overlap), 20 backend requirement-update/Champion-ingestion tests, plus API/worker checks; typecheck, targeted ESLint, Ruff and reachability pass. Fixed the React Hooks lint error in the test wrapper reported by hosted CI on 23d25176.
+- Still outstanding: remaining legacy score consumers and parity evaluations, index reconciliation/repair, full telemetry/quality assessment, hosted gates and production delivery/Chrome proof. All audit rows remain subject to the final completion audit.

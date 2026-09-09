@@ -24,20 +24,14 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     )
     from app.services.location_utils import location_tokens
     from app.services.requirement_contract import (
-        explicit_contract,
-        stored_contract,
+        requirements_for_job,
         evaluate_requirements,
     )
-    from app.services.scoring_service import job_skill_requirements, score_candidate_job
+    from app.services.scoring_service import score_candidate_job
 
     candidates = await load_snapshot_batch(db, batch)
     target = request.as_job()
-    criteria = stored_contract(target)
-    if criteria is None:
-        labels = job_skill_requirements(target)
-        criteria = explicit_contract(
-            labels["must"], labels["nice"], reviewed=target.requirements_reviewed
-        )
+    criteria = requirements_for_job(target)
     inputs = dealbreaker_inputs_for_job(target)
     # Missing proof is reviewable by default. Only an explicit saved policy
     # permits exclusion on absent skill evidence; other hard gates still apply.

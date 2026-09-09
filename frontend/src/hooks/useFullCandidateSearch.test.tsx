@@ -10,7 +10,7 @@ vi.mock("@/lib/full-candidate-search-api", async importOriginal => ({
   candidateSearchApi: { start: vi.fn(), page: vi.fn() },
 }));
 
-function wrapper({ children }: { children: ReactNode }) {
+function Wrapper({ children }: { children: ReactNode }) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
@@ -20,7 +20,7 @@ beforeEach(() => vi.clearAllMocks());
 test("starts only explicitly, prevents duplicate clicks and ignores a cleared request", async () => {
   let resolve!: (value: CandidateSearchStarted) => void;
   vi.mocked(candidateSearchApi.start).mockReturnValue(new Promise(done => { resolve = done; }));
-  const { result } = renderHook(() => useFullCandidateSearch(), { wrapper });
+  const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
   expect(candidateSearchApi.start).not.toHaveBeenCalled();
   let pending!: ReturnType<typeof result.current.start>;
   act(() => {
@@ -44,7 +44,7 @@ test("page navigation reuses the same run without launching another scan", async
     counts: { population: 60, pending: 0, evaluated: 60, failed: 0, eligible: 60, excluded: 0, needs_verification: 1 },
     results: [], next_offset: 20, total_after_threshold: 60,
   });
-  const { result } = renderHook(() => useFullCandidateSearch({ includeCandidateDetails: true }), { wrapper });
+  const { result } = renderHook(() => useFullCandidateSearch({ includeCandidateDetails: true }), { wrapper: Wrapper });
   await act(async () => { await result.current.start({ job_id: 42 }); });
   await waitFor(() => expect(result.current.data?.state).toBe("partial"));
   act(() => result.current.setOffset(20));
@@ -61,7 +61,7 @@ test("changing a filter resets the page and reads the same run without another A
     run_id: "filtered", state: "complete", versions: {}, results: [],
     counts: { population: 100, pending: 0, evaluated: 100, failed: 0, eligible: 100, excluded: 0, needs_verification: 0 },
   });
-  const { result, rerender } = renderHook(({ skill }) => useFullCandidateSearch({ filters: { skill } }), { wrapper, initialProps: { skill: "" } });
+  const { result, rerender } = renderHook(({ skill }) => useFullCandidateSearch({ filters: { skill } }), { wrapper: Wrapper, initialProps: { skill: "" } });
   await act(async () => { await result.current.start({ job_id: 42 }); });
   await waitFor(() => expect(result.current.data?.state).toBe("complete"));
   act(() => result.current.setOffset(20));

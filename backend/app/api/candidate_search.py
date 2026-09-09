@@ -36,6 +36,17 @@ from app.services.talent_radar_search import (
 router = APIRouter()
 
 
+@router.get("/candidate-search/jobs/{job_id}/requirements")
+async def search_requirements(
+    job_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    from app.services.requirement_contract import requirements_for_job
+
+    _search_access(user)
+    job = await _authorized_job(db, user, job_id)
+    return requirements_for_job(job)
+
+
 def _search_access(user):
     if (
         max(

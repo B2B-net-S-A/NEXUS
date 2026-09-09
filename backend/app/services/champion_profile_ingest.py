@@ -312,7 +312,11 @@ async def ingest_parsed_profile(
     existing = job.champion_profile
     champion_present = isinstance(existing, dict) and bool(existing)
     if not champion_present:
-        job.champion_profile = build_champion_dict(parsed, file_id)
+        from app.services.requirement_contract import apply_requirement_source_update
+
+        apply_requirement_source_update(
+            job, "champion_profile", build_champion_dict(parsed, file_id)
+        )
         outcome["champion_written"] = True
         changed = True
 

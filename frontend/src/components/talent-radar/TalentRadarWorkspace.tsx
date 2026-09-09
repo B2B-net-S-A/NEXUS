@@ -8,6 +8,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Radar } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
+import { hasSectionAccess } from "@/lib/section-access";
+import { SavedRequestSearch } from "./SavedRequestSearch";
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 
 import { PageHeader } from "@/components/ds";
@@ -36,6 +38,27 @@ import { FullCandidateSearchResults } from "@/components/talent-radar/FullCandid
 const MIN_QUERY_LENGTH = 30;
 
 export function TalentRadarWorkspace() {
+  const user = useAuthStore(s => s.user);
+  const canReadJobs = hasSectionAccess(user, "pipeline", "read");
+  const [mode, setMode] = useState<"adhoc" | "saved">("adhoc");
+  useEffect(() => {
+    if (!user?.id) return;
+    try { if (sessionStorage.getItem(`nexus-radar-mode:${user.id}`) === "saved") setMode("saved"); } catch {}
+  }, [user?.id]);
+  const choose = (value: "adhoc" | "saved") => {
+    setMode(value);
+    if (user?.id) { try { sessionStorage.setItem(`nexus-radar-mode:${user.id}`, value); } catch {} }
+  };
+  return <div className="space-y-4">
+    {canReadJobs && <div className="flex gap-2" aria-label="Źródło requestu">
+      <Button variant={mode === "adhoc" ? "primary" : "outline"} onClick={() => choose("adhoc")}>Nowy request</Button>
+      <Button variant={mode === "saved" ? "primary" : "outline"} onClick={() => choose("saved")}>Zapisana rekrutacja</Button>
+    </div>}
+    {mode === "saved" && canReadJobs ? <SavedRequestSearch /> : <AdHocTalentRadarWorkspace />}
+  </div>;
+}
+
+function AdHocTalentRadarWorkspace() {
   const { showError } = useToast();
   // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
   // bramkami modułu kandydatów — rola bez tej capability nie dostaje
@@ -257,6 +280,7 @@ export function TalentRadarWorkspace() {
         description="Wgraj profil Championa ALBO wklej treść requestu — jedno z dwóch. Przemielimy bazę kandydatów i pokażemy ranking, bez zakładania rekrutacji."
         density="compact"
       />
+      <p className="text-sm text-muted-foreground">Nowy request — bez kontekstu zapisanej rekrutacji i jej hiring managera. Reguły klienta sprawdzamy dla wybranego klienta.</p>
 
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
         {/* Profil na SAMEJ GÓRZE: steruje resztą formularza (stawka

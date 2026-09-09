@@ -43,6 +43,59 @@ def stored_contract(job) -> MatchingRequirements | None:
     return MatchingRequirements.model_validate(value) if value is not None else None
 
 
+def requirements_for_job(job) -> MatchingRequirements:
+    """The editor and worker consume precisely the same effective criteria."""
+    from app.services.scoring_service import job_skill_requirements
+
+    stored = stored_contract(job)
+    if stored is not None:
+        return stored
+    labels = job_skill_requirements(job)
+    groups = [
+        SkillRequirement(any_of=alternatives(label), level=level, source="request")
+        for level in ("must", "nice", "excluded", "uncertain")
+        for label in labels.get(level, [])
+    ]
+    return MatchingRequirements(
+        reviewed=bool(getattr(job, "requirements_reviewed", False)),
+        all_of=groups,
+    )
+
+
+def invalidate_changed_requirements(job, updates: dict) -> None:
+    """An edited source must not remain masked by previously reviewed criteria."""
+    if "matching_requirements" in updates:
+        contract = updates["matching_requirements"]
+        updates["requirements_reviewed"] = bool(contract and contract.get("reviewed"))
+        return
+    sources = {
+        "title",
+        "description",
+        "requirements",
+        "must_skills",
+        "nice_skills",
+        "champion_profile",
+    }
+
+    def source_value(field, value):
+        if field == "champion_profile" and isinstance(value, dict):
+            # Approval/search workflow state does not change role requirements.
+            return {
+                k: v
+                for k, v in value.items()
+                if k not in {"verification", "recommended_searches"}
+            }
+        return value
+
+    if any(
+        source_value(field, getattr(job, field, None))
+        != source_value(field, updates[field])
+        for field in sources & updates.keys()
+    ):
+        updates["matching_requirements"] = None
+        updates["requirements_reviewed"] = False
+
+
 def evaluate_requirements(contract: MatchingRequirements, candidate) -> list[dict]:
     from app.services.scoring_service import candidate_skill_names, skill_present
 
@@ -63,3 +116,10 @@ def evaluate_requirements(contract: MatchingRequirements, candidate) -> list[dic
             }
         )
     return results
+
+
+def apply_requirement_source_update(job, field: str, value) -> None:
+    updates = {field: value}
+    invalidate_changed_requirements(job, updates)
+    for key, item in updates.items():
+        setattr(job, key, item)
