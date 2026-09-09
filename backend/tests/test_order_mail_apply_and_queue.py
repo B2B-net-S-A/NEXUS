@@ -481,3 +481,28 @@ async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
         assert doc.client_id == seeded["client_id"]
         assert doc.applied_order_id is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_auto_verdict_applies_without_another_click(
+    seeded, app_client, monkeypatch
+):
+    from app.api import order_mail_queue as queue
+    from app.services.order_mail_apply import ApplyResult, AppliedRow
+
+    async def certain(db, doc):
+        doc.gate_verdict = "auto"
+        doc.gate_reasons = []
+
+    async def write(db, doc, *, actor_user_id):
+        assert actor_user_id is None
+        return ApplyResult(rows=[AppliedRow(row_index=0, action="new")])
+
+    monkeypatch.setattr(queue, "refresh_review_plan", certain)
+    monkeypatch.setattr(queue, "apply_document", write)
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["outcome"] == "auto_applied"

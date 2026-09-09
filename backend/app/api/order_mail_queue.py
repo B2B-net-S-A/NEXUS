@@ -31,6 +31,7 @@ from app.core.database import get_db
 from app.models.client import Client
 from app.models.order_mail import (
     OUTCOME_APPLIED,
+    OUTCOME_AUTO_APPLIED,
     OUTCOME_DISMISSED,
     OUTCOME_NEEDS_REVIEW,
     OUTCOMES,
@@ -425,6 +426,16 @@ async def refresh_queue_plan(
     # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje prawa
     # do nowego rekordu ani jego danych finansowych.
     await _require_apply_rights(db, doc, user)
+    if doc.gate_verdict == "auto":
+        result = await apply_document(db, doc, actor_user_id=None)
+        if result.ok:
+            doc.outcome = OUTCOME_AUTO_APPLIED
+        else:
+            doc.gate_verdict = "review"
+            doc.error = result.error or "; ".join(
+                r.error for r in result.rows if r.error
+            )
+            doc.gate_reasons = ["Nie udało się zapisać zamówienia: " + doc.error]
     await db.commit()
     await db.refresh(doc)
     return await _serialize(db, doc, user)

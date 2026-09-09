@@ -1001,7 +1001,7 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
     return {
         "enabled": bool(settings.ORDER_MAIL_INGEST_ENABLED),
         "interval_minutes": poll_interval_minutes(),
-        "autoapply_enabled": bool(settings.ORDER_MAIL_AUTOAPPLY_ENABLED),
+        "autoapply_enabled": True,
         "running": running,
         "started_at": _iso(state.get("last_run_started_at")),
         "interrupted": last_status == "running" and not running,
