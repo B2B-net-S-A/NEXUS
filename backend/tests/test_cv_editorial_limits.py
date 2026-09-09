@@ -66,3 +66,15 @@ def test_already_fitting_document_does_not_call_model(monkeypatch):
         request_id="audit",
     )
     call.assert_not_called()
+
+
+def test_oversized_editorial_response_leaves_document_unchanged(monkeypatch):
+    monkeypatch.setattr(editor, "analyze_with_ai", lambda *a, **k: "x" * 1_000_001)
+    parser = Mock(side_effect=AssertionError("parser must not run"))
+    monkeypatch.setattr(editor.Response, "model_validate_json", parser)
+    candidate = data()
+    original = copy.deepcopy(candidate)
+    with pytest.raises(editor.EditorialLimitError, match="oversized_response"):
+        editor.fit_responsibilities(candidate, RULE, language="pl", request_id="audit")
+    assert candidate == original
+    parser.assert_not_called()

@@ -72,3 +72,32 @@ async def test_finalize_stores_exact_submitted_content_only_after_review(
         assert item.edit_revision == 2
         assert item.branded_draft_html == "<p>Original</p>"
     review.assert_awaited_once_with(db, item, "<p>Submitted</p>", 9)
+
+
+async def test_real_editor_docx_keeps_submitted_text_and_bold(monkeypatch):
+    from io import BytesIO
+    from docx import Document
+    from app.services.cv_document_assets import default_template
+
+    item = draft()
+    item.branded_template_content = default_template()
+    db = SimpleNamespace(add=Mock(), flush=AsyncMock())
+    # Exercise the actual DOCX renderer; this test does not claim model acceptance.
+    monkeypatch.setattr(
+        editor, "review_for_approval", AsyncMock(return_value={"status": "verified"})
+    )
+    version = await editor.finalize(
+        db,
+        item,
+        2,
+        "<p>Nie pracował z <strong>Kubernetes</strong>. Utrzymywał <strong>Python</strong> API.</p>",
+        9,
+    )
+    document = Document(BytesIO(version.docx_content))
+    paragraph = next(p for p in document.paragraphs if "Kubernetes" in p.text)
+    assert paragraph.text == "Nie pracował z Kubernetes. Utrzymywał Python API."
+    bold_text = "".join(run.text for run in paragraph.runs if run.bold)
+    assert bold_text == "KubernetesPython"
+    assert "Original" not in "\n".join(p.text for p in document.paragraphs)
+    assert version.content_html == item.branded_draft_html
+    assert version.render_metadata["content_review"]["status"] == "verified"

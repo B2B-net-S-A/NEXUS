@@ -163,6 +163,8 @@ def verify_final_cv(
             system=VERIFICATION_PROMPT,
             response_schema=REVIEW_RESPONSE_SCHEMA,
         )
+        if len(response) > 1_000_000:
+            raise FactualVerificationError(reason="oversized_response")
         try:
             reviewed = ReviewBatch.model_validate_json(response)
         except ValidationError as error:

@@ -398,3 +398,15 @@ def test_two_variants_reuse_one_extraction_and_reject_different_sources(monkeypa
     with pytest.raises(svc.StandaloneGenerationError) as error:
         run_pipeline(prepared=replace(prepared, cv_sha256="wrong-source"))
     assert error.value.code == "source_extraction_failed"
+
+
+def test_oversized_review_is_rejected_before_parsing(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(gate, "analyze_with_ai", lambda *a, **k: "x" * 1_000_001)
+    parser = Mock(side_effect=AssertionError("parser must not run"))
+    monkeypatch.setattr(gate.ReviewBatch, "model_validate_json", parser)
+    with pytest.raises(gate.FactualVerificationError) as exc:
+        run_gate()
+    assert exc.value.reason == "oversized_response"
+    parser.assert_not_called()

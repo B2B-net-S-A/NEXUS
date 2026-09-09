@@ -280,3 +280,20 @@ endpoint. The two sharing interaction cases passed earlier. TypeScript, Ruff and
 production browser verification and PostgreSQL integration remain pending.
 CI 34407704731 for 96d9ff50 has a successful frontend build and four backend shards
 still running at this checkpoint. This UI/editor package is newer than that head.
+
+
+### Edited artifact regression and bounded model responses
+
+A host test now uses the actual DOCX renderer on submitted editor HTML and inspects
+paragraph text and bold runs: negation and explicit emphasis survive, and original
+narrative is absent. Five editor tests pass. The hosted HTTP/database roundtrip was
+extended with a new draft, stale-revision refusal, second approval, unchanged first
+public link and separate downloads of versions 1/2. It is collected, not yet executed;
+the reviewer is mocked, so this does not prove real-model acceptance.
+
+Review feedback identified two additional unbounded response parsers. Final factual
+verification and responsibility shortening now reject responses over one million
+characters before Pydantic parsing. Oversized replies do not approve or partially
+rewrite the document. Thirty-four focused verifier/editorial tests pass, including
+parser-not-called assertions. These are runtime robustness checks, not CV quality
+scores. Full real-model corpus, DL acceptance and production verification remain open.

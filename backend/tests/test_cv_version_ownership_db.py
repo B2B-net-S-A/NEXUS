@@ -114,7 +114,9 @@ async def test_approval_without_an_owner_is_rejected():
             await db.rollback()
 
 
-async def test_standalone_approval_share_roundtrip(app_client, app_auth_headers):
+async def test_standalone_approval_share_roundtrip(
+    app_client, app_auth_headers, monkeypatch
+):
     from app.services.cv_approval_provenance import capture_editor_origin
 
     payload = {
@@ -172,6 +174,59 @@ async def test_standalone_approval_share_roundtrip(app_client, app_auth_headers)
             f"/api/public/cv-i/{token}/chat", json={"question": "What experience?"}
         )
         assert chat.status_code == 404, chat.text
+
+        from unittest.mock import AsyncMock
+        from app.services import cv_generated_editor
+
+        review = AsyncMock(return_value={"status": "verified"})
+        monkeypatch.setattr(cv_generated_editor, "review_for_approval", review)
+        loaded = await app_client.get(f"{url}/editor", headers=app_auth_headers)
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["status"] == "finalized"
+        revision = loaded.json()["edit_revision"]
+        opened = await app_client.post(
+            f"{url}/editor/new-draft",
+            headers=app_auth_headers,
+            json={"expected_revision": revision},
+        )
+        assert opened.status_code == 200, opened.text
+        revision = opened.json()["edit_revision"]
+        submitted = "<p>Reviewed <strong>Python</strong> API maintenance.</p>"
+        stale = await app_client.patch(
+            f"{url}/editor",
+            headers=app_auth_headers,
+            json={"expected_revision": revision - 1, "content_html": "<p>Stale</p>"},
+        )
+        assert stale.status_code == 409, stale.text
+        finalized = await app_client.post(
+            f"{url}/editor/finalize",
+            headers=app_auth_headers,
+            json={"expected_revision": revision, "content_html": submitted},
+        )
+        assert finalized.status_code == 200, finalized.text
+        assert finalized.json()["version"] == 2
+        assert finalized.json()["document_version_id"] != version_id
+        assert review.await_count == 1
+        assert review.call_args.args[2] == submitted
+        still_original = await app_client.get(f"/api/public/cv-i/{token}")
+        assert still_original.status_code == 200, still_original.text
+        assert still_original.json()["cv_html"] == public.json()["cv_html"]
+        old_download = await app_client.get(
+            f"{url}/editor/versions/1/docx", headers=app_auth_headers
+        )
+        assert old_download.status_code == 200, old_download.text
+        assert old_download.content == b"frozen fixture"
+        new_download = await app_client.get(
+            f"{url}/editor/versions/2/docx", headers=app_auth_headers
+        )
+        assert new_download.status_code == 200
+        from docx import Document
+        from io import BytesIO
+
+        rendered = Document(BytesIO(new_download.content))
+        assert any(
+            "Reviewed Python API maintenance." == p.text for p in rendered.paragraphs
+        )
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(

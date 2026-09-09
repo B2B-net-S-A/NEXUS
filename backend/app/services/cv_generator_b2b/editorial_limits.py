@@ -70,6 +70,8 @@ def fit_responsibilities(data, rule, *, language, request_id):
         ensure_ascii=False,
     )
     raw = analyze_with_ai(content, request_id + ":fit-responsibilities", system=PROMPT)
+    if len(raw) > 1_000_000:
+        raise EditorialLimitError("oversized_response")
     try:
         response = Response.model_validate_json(raw)
     except ValidationError as exc:
