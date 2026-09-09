@@ -90,6 +90,7 @@ from app.services.ai_quota import (
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
+    validate_cv_file,
     validate_upload_inputs,
 )
 from app.services.cv_generator_b2b.client_rules import (
@@ -1369,6 +1370,10 @@ async def generate(
             status_code=409,
             detail="Kontekst rekrutacji zmienił się podczas odczytu źródeł. Odśwież stronę i spróbuj ponownie.",
         )
+    try:
+        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
     if effective_mode == "tailored" and not source.has_champion:
         _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
     _reject_missing_inputs(

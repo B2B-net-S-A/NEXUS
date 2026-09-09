@@ -2,11 +2,13 @@
 
 from dataclasses import asdict, replace
 import json
+from io import BytesIO
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import AsyncMock, Mock
 
 from fastapi import FastAPI
+from docx import Document
 from httpx import ASGITransport, AsyncClient
 import pytest
 
@@ -22,8 +24,12 @@ from app.services.cv_generator_b2b.standalone_service import (
 
 
 def source():
+    document = Document()
+    document.add_paragraph("Synthetic Person. Developer. Python.")
+    original = BytesIO()
+    document.save(original)
     return CandidateGenerationSource(
-        cv_bytes=b"owned original bytes",
+        cv_bytes=original.getvalue(),
         cv_filename="synthetic.docx",
         champion_json=json.dumps(
             asdict(ChampionProfileForPrompt(must_have=["Python"]))
@@ -43,7 +49,7 @@ def source():
     )
 
 
-@pytest.mark.parametrize("failure", [None, "missing", "changed_context"])
+@pytest.mark.parametrize("failure", [None, "missing", "corrupt", "changed_context"])
 async def test_source_is_captured_before_charge_and_scheduled_as_value(
     monkeypatch, failure
 ):
@@ -79,6 +85,8 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
             )
         if failure == "changed_context":
             return replace(captured, client_id=999)
+        if failure == "corrupt":
+            return replace(captured, cv_bytes=b"not a document")
         return captured
 
     async def charge(*args, **kwargs):
@@ -97,7 +105,7 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
             "/cv-generator/generate", json={"candidate_id": 2, "stage_id": 3}
         )
     if failure:
-        assert response.status_code == (422 if failure == "missing" else 409), (
+        assert response.status_code == (409 if failure == "changed_context" else 422), (
             response.text
         )
         assert order == ["source"]
