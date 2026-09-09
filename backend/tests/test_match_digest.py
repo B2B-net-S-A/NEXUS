@@ -166,7 +166,10 @@ async def _seed_job(rate_budget_hourly: float | None = None) -> int:
 
 
 async def _seed_candidate(
-    *, status: str = "active", expected_rate_hourly: float | None = None
+    *,
+    status: str = "active",
+    expected_rate_hourly: float | None = None,
+    expected_rate_currency: str | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate, CandidateStatus
@@ -178,6 +181,7 @@ async def _seed_candidate(
             email=f"digest-{uuid.uuid4().hex[:8]}@example.com",
             status=CandidateStatus(status),
             expected_rate_hourly=expected_rate_hourly,
+            expected_rate_currency=expected_rate_currency,
         )
         db.add(candidate)
         await db.commit()
@@ -253,17 +257,34 @@ async def test_known_rate_above_budget_is_dropped_unknown_passes(monkeypatch):
     from app.tasks.match_digest import _fresh_top_matches as fresh
 
     job_id = await _seed_job(rate_budget_hourly=120)
-    too_expensive = await _seed_candidate(expected_rate_hourly=250)
-    exactly_in = await _seed_candidate(expected_rate_hourly=120)
+    too_expensive = await _seed_candidate(
+        expected_rate_hourly=250, expected_rate_currency="PLN"
+    )
+    exactly_in = await _seed_candidate(
+        expected_rate_hourly=120, expected_rate_currency="PLN"
+    )
     unknown = await _seed_candidate()
+    unknown_currency = await _seed_candidate(expected_rate_hourly=250)
+    foreign_currency = await _seed_candidate(
+        expected_rate_hourly=250, expected_rate_currency="EUR"
+    )
     scored: list = []
-    _wire_digest(monkeypatch, [too_expensive, exactly_in, unknown], scored)
+    _wire_digest(
+        monkeypatch,
+        [too_expensive, exactly_in, unknown, unknown_currency, foreign_currency],
+        scored,
+    )
 
     async with AsyncSessionLocal() as db:
         job = await db.scalar(select(Job).where(Job.id == job_id))
         top = await fresh(db, job)
 
-    assert {cid for cid, _ in top} == {exactly_in, unknown}
+    assert {cid for cid, _ in top} == {
+        exactly_in,
+        unknown,
+        unknown_currency,
+        foreign_currency,
+    }
     assert too_expensive not in {c.id for c in scored}
 
 

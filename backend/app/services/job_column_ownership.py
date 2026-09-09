@@ -82,6 +82,8 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "portals",
         "must_skills",
         "nice_skills",
+        "matching_requirements",
+        "requirements_reviewed",
         "seniority",
         "work_mode",
         "headcount",

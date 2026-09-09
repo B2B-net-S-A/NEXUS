@@ -52,6 +52,25 @@ def test_empty_brief_is_explicitly_preliminary():
     ) == pytest.approx(100)
 
 
+def test_workflow_updates_do_not_invalidate_or_enrich_base_fit_context():
+    target = make_job(updated_at="yesterday")
+    original = build_request_context(target, scoring.DEFAULT_PROFILE)
+    target.updated_at = "today"
+    target.champion_profile = {
+        "verification": {"status": "approved"},
+        "recommended_searches": [{"query": "Java"}],
+    }
+    changed = build_request_context(target, scoring.DEFAULT_PROFILE)
+    assert changed.fingerprint == original.fingerprint
+    assert changed.query_text == original.query_text
+    assert changed.brief_status == "title_only"
+    target.champion_profile["stack"] = {"must": ["Django"]}
+    assert (
+        build_request_context(target, scoring.DEFAULT_PROFILE).fingerprint
+        != original.fingerprint
+    )
+
+
 @pytest.mark.asyncio
 async def test_same_base_fit_is_independent_of_screening_and_conflicts():
     target = make_job(must_skills=["Python"])

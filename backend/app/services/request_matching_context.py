@@ -37,7 +37,6 @@ _JOB_FIELDS = (
     "subcategory",
     "industry",
     "train_name",
-    "updated_at",
 )
 
 
@@ -97,6 +96,12 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
     from app.services.requirement_contract import stored_contract, requirement_labels
 
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
+    if isinstance(values["champion_profile"], dict):
+        values["champion_profile"] = {
+            key: value
+            for key, value in values["champion_profile"].items()
+            if key not in {"verification", "recommended_searches"}
+        } or None
     normalized_job = SimpleNamespace(**values)
     values["requirements_reviewed"] = bool(values["requirements_reviewed"])
     values = json.loads(json.dumps(values, default=_json_value, ensure_ascii=False))
@@ -112,7 +117,7 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
     weights = asdict(base_fit_profile(profile))
     versions = {
         **current_version_trace().as_dict(),
-        "request_schema": "request-full-v1",
+        "request_schema": "request-full-v2",
         "result_schema": "full-result-filters-v1",
         "fit_profile": "base-fit-v1",
     }

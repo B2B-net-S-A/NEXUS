@@ -54,13 +54,11 @@ from app.services.access_scope import (
 )
 from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
-from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
     SemanticSearchUnavailable,
     _build_job_text,
     embed_job,
     search_jobs_semantic,
-    similarity_for_candidate_ids,
 )
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
@@ -71,7 +69,6 @@ from app.services.scoring_service import (
 from app.services.location_utils import location_tokens
 from app.services.match_score_cache import (
     bulk_get_or_compute,
-    fresh_score_conditions,
 )
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -639,102 +636,20 @@ async def pipeline_match_scores(
     current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
-    """Hybrid AI match scores (0-100) for the candidates currently in a job's
-    pipeline — powers the score ring on kanban cards.
+    """Canonical base fit for every current pipeline member, in bounded batches.
 
-    Coverage is near-complete yet never deflated:
-    - Candidates with a fresh cached ``CandidateJobMatchScore`` row return that
-      score directly (no recompute).
-    - Uncached candidates are scored with a per-candidate Qdrant similarity
-      (``similarity_for_candidate_ids`` — exact cosine for each id, NOT a top-K
-      pool), so the semantic layer is never silently zeroed regardless of the
-      candidate's global rank, and we never persist a deflated score into the
-      cache shared with /recommendations.
-    - Only candidates with no stored embedding at all are omitted → no badge.
-
-    In-pipeline candidates are NOT pre-warmed by /recommendations or the
-    proposals job (both exclude in-pipeline), so the first open of a pipeline
-    cold-computes its members; repeat opens are served from cache and skip the
-    embedding/Qdrant call entirely.
+    Process membership is returned independently of measurement availability.
+    The old composite score cache is deliberately incompatible: its document,
+    weights and screening component differ from the shared search contract.
     """
-    job = await db.scalar(select(Job).where(Job.id == job_id))
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    from app.api.candidate_search import _authorized_job
+    from app.services.pipeline_base_fit import pipeline_base_fit
 
-    # Distinct candidates currently in the pipeline (any stage), bounded — a
-    # human doesn't read hundreds of cards, and this caps any cold compute.
-    PIPELINE_SCORE_CAP = 200
-    cid_rows = await db.execute(
-        select(CandidateStage.candidate_id)
-        .where(CandidateStage.job_id == job_id)
-        .distinct()
-        # Sufit na 200 kandydatów decyduje, KTÓRE karty kanbana dostaną wynik.
-        # Bez `ORDER BY` ten wybór jest arbitralny i zmienia się między
-        # odświeżeniami — badge pojawia się i znika bez powodu widocznego
-        # dla użytkownika.
-        .order_by(CandidateStage.candidate_id.desc())
-        .limit(PIPELINE_SCORE_CAP)
-    )
-    pipeline_ids = [cid for (cid,) in cid_rows.all()]
-    if not pipeline_ids:
-        return {"job_id": job_id, "profile_id": DEFAULT_PROFILE.id, "scores": {}}
-
-    # Active weight profile → cache-key alignment with /recommendations.
-    profile: WeightProfile = await resolve_active_profile(
+    job = await _authorized_job(db, current_user, job_id)
+    profile = await resolve_active_profile(
         db, user_id=current_user.id, client_id=job.client_id
     )
-
-    # Which pipeline candidates already have a fresh cached score?
-    cached_id_rows = await db.execute(
-        select(CandidateJobMatchScore.candidate_id).where(
-            *fresh_score_conditions(
-                job_id=job_id,
-                profile_id=profile.id,
-                candidate_ids=pipeline_ids,
-            )
-        )
-    )
-    cached_ids = {cid for (cid,) in cached_id_rows.all()}
-    uncached_ids = [cid for cid in pipeline_ids if cid not in cached_ids]
-
-    # Per-candidate semantic similarities for the uncached set — only fetched
-    # when there's something to score (warm pipelines touch zero AI deps).
-    # Exact cosine per id (not a top-K pool), so out-of-pool candidates still get
-    # a correct semantic component instead of a zeroed one.
-    similarity_map: dict[int, float] = {}
-    if uncached_ids:
-        try:
-            similarity_map = await similarity_for_candidate_ids(
-                _build_job_text(job), uncached_ids
-            )
-        except Exception as e:  # pragma: no cover — semantic layer is best-effort
-            logger.warning(
-                "pipeline-scores similarity lookup failed job=%s: %s", job_id, e
-            )
-
-    # Score the cached candidates (served from cache) plus every uncached one we
-    # have a real similarity for. Only candidates with no embedding at all are
-    # left out — no recompute, no deflated cache write, no badge.
-    eligible_ids = [
-        cid for cid in pipeline_ids if cid in cached_ids or cid in similarity_map
-    ]
-    if not eligible_ids:
-        return {"job_id": job_id, "profile_id": profile.id, "scores": {}}
-
-    candidates = list(
-        (await db.execute(select(Candidate).where(Candidate.id.in_(eligible_ids))))
-        .scalars()
-        .all()
-    )
-    breakdowns = await bulk_get_or_compute(
-        job, candidates, db, similarity_map=similarity_map, profile=profile
-    )
-
-    scores = {
-        str(b.candidate_id): int(round(min(max(b.total, 0.0), 100.0)))
-        for b in breakdowns
-    }
-    return {"job_id": job_id, "profile_id": profile.id, "scores": scores}
+    return await pipeline_base_fit(db, job, profile)
 
 
 # ── Historical candidates from similar jobs (Phase 14) ───────────────────────

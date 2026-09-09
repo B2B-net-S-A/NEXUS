@@ -904,19 +904,14 @@ function AIMatchingSection({
     onError: (error: unknown) => showError(assignErrorMessage(error)),
   });
 
-  // Kandydaci już w pipelinie tej rekrutacji — klucze `pipelineScores` (ten sam
-  // klucz co ring na kanbanie → react-query deduplikuje). Napędza pigułkę „w
-  // procesie", KPI i wyszarzenie „Dodaj" dla już dodanych.
+  // Członkostwo procesu nie zależy od dostępności pomiaru AI.
   const pipelineScoresQuery = useQuery({
     queryKey: ["pipeline-scores", jobId],
     queryFn: () => matchingApi.pipelineScores(jobId).then((r) => r.data),
     staleTime: 60_000,
   });
   const pipelineSet = useMemo(() => {
-    const out = new Set<number>();
-    const scores = pipelineScoresQuery.data?.scores;
-    if (scores) for (const k of Object.keys(scores)) out.add(Number(k));
-    return out;
+    return new Set<number>(pipelineScoresQuery.data?.pipeline_candidate_ids ?? []);
   }, [pipelineScoresQuery.data]);
 
   const matches = useMemo(() => data?.matches ?? [], [data]);
