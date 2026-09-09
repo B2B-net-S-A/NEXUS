@@ -25,7 +25,7 @@ CI, merge, expected deployment revision and relevant production verification.
 | CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Pending |
 | CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Pending |
-| CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Pending |
+| CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Filename validation implemented locally; configuration review/publication and production verification pending |
 | CV-20 | Shared deterministic policies and versioned source corpus; primary/fallback evaluations and DL acceptance evidence | Pending |
 
 ## Verification ledger

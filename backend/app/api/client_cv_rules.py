@@ -36,7 +36,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -276,6 +276,20 @@ class ClientCvRulePayload(BaseModel):
                 + ". Dozwolone: "
                 + ", ".join(KNOWN_TOKENS)
                 + "."
+            )
+        remainder = value
+        for token in KNOWN_TOKENS:
+            remainder = remainder.replace(token, "")
+        if "{" in remainder or "}" in remainder:
+            raise ValueError(
+                "Nieprawidłowe nawiasy lub pole we wzorze nazwy pliku. "
+                "Użyj pełnych pól, np. {STANOWISKO}_{IMIE_NAZWISKO}."
+            )
+        if "{IMIE_NAZWISKO}" not in value:
+            raise ValueError(
+                "Wzór musi zawierać pole {IMIE_NAZWISKO} w nawiasach klamrowych; "
+                "inaczej generator nie może zastosować nazwy klienta. "
+                "Pozostaw pole puste, aby użyć nazwy domyślnej."
             )
         return value.strip()
 
@@ -793,6 +807,14 @@ async def confirm_client_cv_rule(
             status_code=404,
             detail="Ten klient nie ma jeszcze reguł CV — najpierw je zapisz.",
         )
+    try:
+        ClientCvRulePayload(filename_pattern=rule.filename_pattern)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Popraw wzór nazwy pliku przed zatwierdzeniem reguły: "
+            + error.errors()[0]["msg"],
+        ) from error
     rule.confirmed_at = datetime.now(timezone.utc)
     rule.confirmed_by = current_user.id
     _record_event(
