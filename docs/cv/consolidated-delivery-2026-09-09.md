@@ -191,3 +191,21 @@ pending. CV-02 is NOT complete: the standalone selection UI and approval ownersh
 for uploads outside a recruitment process still need integration. New links without
 an explicit version currently retain the previous behavior until that workflow is
 connected. No production deployment of this change has occurred.
+
+
+### Standalone approved-version selector
+
+The generated-share modal now loads authorized approval metadata for the selected
+generation, requires an explicit version selection, and submits that version ID.
+Changing the generation remounts modal state to prevent a previous selection or an
+in-flight response being displayed for another document. Loading errors have retry;
+no approvals means the create button is disabled while existing links remain
+manageable. Backend listing filters generation, candidate and job, without fetching
+HTML/DOCX bodies. Local evidence: nine focused Python tests and one real React
+interaction test passed. Alembic resolves to single head 0293.
+
+Remaining CV-02 gap: approvals for uploads outside a recruitment process. The UI
+currently directs users to process approval; this is not the intended final standalone
+workflow. The backend's optional version argument also still permits old callers to
+create an unpinned link; enforce approved-only creation once both approval ownership
+paths are connected. No production completion is claimed.

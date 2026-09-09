@@ -112,3 +112,27 @@ async def test_public_link_uses_selected_approval_without_original_claims(
         assert result["cv_html"] is None
         assert result["cv"]["position"] == "Original title"
         assert result["chat_enabled"] is True
+
+
+async def test_version_list_scopes_metadata_without_loading_artifacts(monkeypatch):
+    from app.api import cv_generator_b2b as api
+    from unittest.mock import Mock
+
+    doc = SimpleNamespace(id=7, candidate_id=2, job_id=3)
+    loader = AsyncMock(return_value=doc)
+    monkeypatch.setattr(api, "_load_generated_document", loader)
+    result = SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [{"id": 12}]))
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+    user = Mock()
+    assert await api.list_generated_approved_versions(7, user, db) == [{"id": 12}]
+    loader.assert_awaited_once_with(db, 7, user, write=True)
+    sql = str(db.execute.call_args.args[0].compile())
+    assert "generated_document_id =" in sql
+    assert "candidate_id =" in sql
+    assert "job_id =" in sql
+    assert "docx_content" not in sql
+    assert "content_html" not in sql
+    doc.candidate_id = None
+    db.execute.reset_mock()
+    assert await api.list_generated_approved_versions(7, user, db) == []
+    db.execute.assert_not_awaited()

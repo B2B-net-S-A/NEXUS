@@ -9,7 +9,7 @@
  * (kafelki wymagań + chat, jeśli dostępne dla tego CV/klienta).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Copy, Link2, Loader2, Sparkles } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -45,7 +45,11 @@ function formatDate(iso?: string | null): string {
   });
 }
 
-export function CvGeneratedShareModal({
+export function CvGeneratedShareModal(props: Props) {
+  return <CvGeneratedShareModalContent key={props.generatedId ?? "closed"} {...props} />;
+}
+
+function CvGeneratedShareModalContent({
   generatedId,
   candidateName,
   onClose,
@@ -60,6 +64,19 @@ export function CvGeneratedShareModal({
   const [copied, setCopied] = useState(false);
 
   const open = generatedId !== null;
+  const [selectedVersion, setSelectedVersion] = useState("");
+  useEffect(() => {
+    setSelectedVersion("");
+    setCreated(null);
+    setCopied(false);
+  }, [generatedId]);
+  const versionsQuery = useQuery({
+    queryKey: ["cv-generated-approved-versions", generatedId],
+    queryFn: () => cvGeneratedShareApi.approvedVersions(generatedId as number).then(r => r.data),
+    enabled: open,
+  });
+  const selected = versionsQuery.data?.find(v => String(v.id) === selectedVersion);
+
 
   const tokensQuery = useQuery({
     queryKey: ["cv-generated-share-tokens", generatedId],
@@ -69,12 +86,15 @@ export function CvGeneratedShareModal({
   });
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      cvGeneratedShareApi.create(
+    mutationFn: () => {
+      if (!selected) throw new Error("Wybierz zatwierdzoną wersję CV.");
+      return cvGeneratedShareApi.create(
         generatedId as number,
         days,
         maxViews ? Number(maxViews) : undefined,
-      ),
+        selected.id,
+      );
+    },
     onSuccess: (res) => {
       setCreated(res.data);
       setCopied(false);
@@ -135,6 +155,25 @@ export function CvGeneratedShareModal({
         {/* Formularz tworzenia */}
         {!created && (
           <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="cvi-version">Zatwierdzona wersja CV</Label>
+              <select id="cvi-version" value={selectedVersion}
+                onChange={e => setSelectedVersion(e.target.value)}
+                disabled={versionsQuery.isLoading || versionsQuery.isError}
+                className="w-full rounded-md border border-border bg-background p-2 text-sm">
+                <option value="">Wybierz wersję</option>
+                {versionsQuery.data?.map(v => (
+                  <option key={v.id} value={String(v.id)}>
+                    Wersja {v.version} · {v.language?.toUpperCase()} · {formatDate(v.approved_at)} · {v.job_title}
+                  </option>
+                ))}
+              </select>
+              {versionsQuery.isError ? (
+                <p role="alert" className="text-sm text-destructive">Nie udało się pobrać wersji. <button type="button" className="underline" onClick={() => versionsQuery.refetch()}>Spróbuj ponownie</button></p>
+              ) : !versionsQuery.isLoading && !versionsQuery.data?.length ? (
+                <p className="text-sm text-muted-foreground">Brak zatwierdzonych wersji. Zatwierdź to CV w procesie rekrutacyjnym przed utworzeniem linku.</p>
+              ) : null}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="cvi-days">Ważność (dni)</Label>
@@ -166,7 +205,7 @@ export function CvGeneratedShareModal({
             </div>
             <Button
               onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || !selected}
               className="w-full"
             >
               {createMutation.isPending ? (

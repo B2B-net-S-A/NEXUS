@@ -2009,6 +2009,52 @@ async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> 
     )
 
 
+@router.get("/generated/{generated_id}/approved-versions")
+async def list_generated_approved_versions(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    row = await _load_generated_document(db, generated_id, current_user, write=True)
+    if row.candidate_id is None or row.job_id is None:
+        return []
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    versions = (
+        (
+            await db.execute(
+                select(
+                    CvDocumentVersion.id,
+                    CvDocumentVersion.version,
+                    CvDocumentVersion.approved_at,
+                    CvDocumentVersion.language,
+                    CvDocumentVersion.job_title,
+                )
+                .join(
+                    CandidateStageCV,
+                    CandidateStageCV.id == CvDocumentVersion.candidate_stage_cv_id,
+                )
+                .join(
+                    CandidateStage,
+                    CandidateStage.id == CandidateStageCV.candidate_stage_id,
+                )
+                .where(
+                    CvDocumentVersion.generated_document_id == row.id,
+                    CandidateStage.candidate_id == row.candidate_id,
+                    CandidateStage.job_id == row.job_id,
+                )
+                .order_by(
+                    CvDocumentVersion.approved_at.desc(), CvDocumentVersion.id.desc()
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(version) for version in versions]
+
+
 @router.post(
     "/generated/{generated_id}/share-token",
     response_model=CvGeneratedShareCreateResponse,

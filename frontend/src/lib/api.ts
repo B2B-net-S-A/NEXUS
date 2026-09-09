@@ -5329,15 +5329,26 @@ export interface CvGeneratedShareListItem {
   last_viewed_at?: string | null;
 }
 
+export interface CvGeneratedApprovedVersion {
+  id: number;
+  version: number;
+  approved_at: string;
+  language: string | null;
+  job_title: string | null;
+}
+
 export const cvGeneratedShareApi = {
+  approvedVersions: (generatedId: number) =>
+    api.get<CvGeneratedApprovedVersion[]>(`/api/cv-generator/generated/${generatedId}/approved-versions`),
   // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
-  create: (generatedId: number, expiresInDays = 14, maxViews?: number) =>
+  create: (generatedId: number, expiresInDays = 14, maxViews?: number, documentVersionId?: number) =>
     api.post<CvGeneratedShareCreateResp>(
       `/api/cv-generator/generated/${generatedId}/share-token`,
       null,
       {
         params: {
           expires_in_days: expiresInDays,
+          ...(documentVersionId ? { document_version_id: documentVersionId } : {}),
           ...(maxViews ? { max_views: maxViews } : {}),
         },
       },
