@@ -95,3 +95,24 @@ async def test_ineligible_candidates_are_accounted_for_without_requiring_vectors
 def test_unmeasured_score_cannot_masquerade_as_zero():
     with pytest.raises(ValueError):
         CandidateEvaluation(1, "v1", True, 0, "unavailable")
+
+
+@pytest.mark.parametrize(
+    "score,state",
+    [
+        (None, "measured"),
+        (True, "measured"),
+        (False, "measured"),
+        (None, "not_a_state"),
+    ],
+)
+def test_invalid_measurement_cannot_claim_complete_ranking(score, state):
+    with pytest.raises(ValueError):
+        CandidateEvaluation(1, "v1", True, score, state)
+
+
+def test_real_zero_is_measured_but_unknown_is_not():
+    measured = CandidateEvaluation(1, "v1", True, 0, "measured")
+    unknown = CandidateEvaluation(2, "v1", True, None, "missing_index")
+    assert measured.fit_score == 0
+    assert unknown.fit_score is None

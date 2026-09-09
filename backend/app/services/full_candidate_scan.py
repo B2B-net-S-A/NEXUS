@@ -30,6 +30,17 @@ class CandidateEvaluation:
     exclusion_reasons: tuple[str, ...] = ()
 
     def __post_init__(self):
+        if self.measurement not in {
+            "measured",
+            "unavailable",
+            "missing_index",
+            "stale",
+        }:
+            raise ValueError("Unknown measurement state")
+        if self.measurement == "measured" and self.fit_score is None:
+            raise ValueError("A measured evaluation must carry a fit score")
+        if isinstance(self.fit_score, bool):
+            raise ValueError("fit_score must be numeric, not boolean")
         if self.fit_score is not None:
             if not math.isfinite(self.fit_score) or not 0 <= self.fit_score <= 100:
                 raise ValueError("fit_score must be finite and in [0, 100]")

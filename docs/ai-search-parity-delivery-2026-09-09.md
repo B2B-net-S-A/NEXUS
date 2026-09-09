@@ -302,3 +302,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - Result reads compare current eligibility annotations to stored annotations. Adding/removing a block on a returned candidate now marks data_changed and prevents claiming a complete current ranking, even when candidate.updated_at did not change. Current annotations remain authoritative; fit itself remains unchanged when only eligibility changes.
 - Shared UI labels totals and post-threshold membership as the state at scan time. Seven API tests and nine frontend status/result tests pass, alongside typecheck and Ruff/diff checks. Cases cover both block directions with unchanged/changed candidate data and preservation of private evidence redaction.
 - This detects eligibility drift for read rows, not every off-page policy dependency. Global policy versioning/re-evaluation and production proof remain open, alongside the rest of the audit.
+
+### Increment: reject contradictory measurement contracts
+
+- CandidateEvaluation rejects measured-without-score, unknown measurement states and boolean scores. This prevents an invalid evaluator response from being counted as a complete measured ranking. Real numeric zero remains a valid measured value; missing vectors remain nullable and unmeasured.
+- Sixteen native scan/worker tests pass, including new invalid-state cases and preservation of zero versus unknown. Ruff/diff checks pass. Latest CI 34338923482 and gate 34338923456 were verified queued, with concrete job IDs; neither was restarted. Production quality/index/coverage and the remaining audit requirements are still open.
