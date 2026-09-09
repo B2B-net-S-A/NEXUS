@@ -442,9 +442,10 @@ class Settings(BaseSettings):
     # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a
     # nierozpoznany dokument kończy jako wpis w dzienniku, nie w zamówieniach).
     ORDER_MAIL_SENDER_ALLOWLIST: str = ""
-    # Bramka auto-zapisu (P4). Domyślnie TRYB CIENIA: werdykt i powód lądują
-    # w dzienniku, nic nie jest zapisywane. Flip po dwóch tygodniach danych.
-    ORDER_MAIL_AUTOAPPLY_ENABLED: bool = False
+    # Legacy configuration accepted for deployment compatibility. Since the
+    # final 2026-09-09 ticket every "auto" verdict executes the shared writer;
+    # this old shadow-mode flag no longer suppresses a confirmed order.
+    ORDER_MAIL_AUTOAPPLY_ENABLED: bool = True
     # CSV client_id WYKLUCZONYCH z automatu (pusta = nikt nie wykluczony —
     # spójnie z konwencją repo, w której pusta lista CSV nigdy nie znaczy
     # „wszyscy"). Klient, u którego odczyt zacznie się mylić, wraca na kolejkę

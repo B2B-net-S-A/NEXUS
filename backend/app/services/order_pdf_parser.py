@@ -1721,10 +1721,22 @@ def pfron_end_date(document_text: str) -> Optional[str]:
     return candidates[0] if len(candidates) == 1 else None
 
 
+def pfron_start_date(text: str) -> Optional[str]:
+    values = {
+        _normalize_date(m.group(1), end=False)
+        for m in re.finditer(
+            rf"Data\s+rozpocz[ęe]cia\s+wykonywania\s+Prac\s+przez\s+Specjalist[ęe]\s*:\s*({_DATE_TOKEN_PATTERN})",
+            text or "",
+            re.I,
+        )
+    }
+    return next(iter(values)) if len(values) == 1 and None not in values else None
+
+
 def pfron_order_number(filename: Optional[str]) -> Optional[str]:
     """Numer zlecenia z nazwy załącznika, nigdy z umowy ani zapotrzebowania."""
     numbers = set(_PFRON_FILENAME_NUMBER_RE.findall(filename or ""))
-    return next(iter(numbers)) if len(numbers) == 1 else None
+    return f"Zlecenie nr {next(iter(numbers))}" if len(numbers) == 1 else None
 
 
 def _pfron_title_reason(reason: str) -> bool:
@@ -2035,7 +2047,9 @@ def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
         if not _name_token_variants(name):
             return []
         amount = _normalize_amount(rate.group("amount"))
-        marking = detect_rate_gross_marking(block[rate.start() :], [amount])
+        marking = (
+            RATE_MARK_GROSS  # PFRON labelled hourly rate is gross by the client rule.
+        )
         rows.append(
             ConsultantOrderRow(
                 consultant_name=name,
@@ -2044,6 +2058,7 @@ def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
                 else amount,
                 rate_client_gross=amount if marking == RATE_MARK_GROSS else None,
                 rate_unit="hour",
+                start_date=pfron_start_date(block),
                 end_date=pfron_end_date(block),
                 uncertain=amount is None or marking is None,
             )
@@ -2058,13 +2073,41 @@ def _pfron_md_quantity_reason(reason: str) -> bool:
     )
 
 
+def _pfron_conversion_reason(reason: str) -> bool:
+    folded = _fold_policy_text(reason)
+    return bool(
+        re.search(r"staw\w*|przelicz\w*", folded)
+        and re.search(r"brutto|netto|vat", folded)
+        and not re.search(r"nieczyteln|sprzeczn|rozne stawk|okres|nazwisk", folded)
+    )
+
+
 def apply_pfron_order_policy(
     result: OrderExtraction, document_text: str, *, filename: Optional[str] = None
 ) -> OrderExtraction:
     """PFRON: numer z nazwy PDF, koniec wyłącznie z etykiety, bez liczby MD."""
     _ignore_md_total(result)
     end_date = pfron_end_date(document_text)
-    number = pfron_order_number(filename)
+    number = pfron_order_number(document_text) or pfron_order_number(filename)
+    start_date = pfron_start_date(document_text)
+    result.start_date = start_date
+    evidence = pfron_extract_rows(document_text)
+    # Source-labelled names replace model names including the appended role.
+    # Preserve unrelated model concerns; only the explicitly repaired fields
+    # are allowed to clear their old warnings.
+    if evidence:
+        # Keep row-level concerns when replacing model rows with field evidence.
+        for old_row in result.consultant_rows:
+            if old_row.uncertain_reason:
+                for reason in old_row.uncertain_reason.split("; "):
+                    if reason not in result.uncertain_reasons:
+                        result.uncertain_reasons.append(reason)
+        result.consultant_rows = evidence
+        if len(evidence) == 1:
+            result.rate_client = evidence[0].rate_client
+            result.rate_client_gross = evidence[0].rate_client_gross
+            result.rate_unit = "hour"
+    rate_confirmed = bool(evidence) and all(not r.uncertain for r in evidence)
     result.title = number
     result.title_needs_review = number is None
     result.end_date = end_date
@@ -2075,8 +2118,14 @@ def apply_pfron_order_policy(
         if not _pfron_md_quantity_reason(reason)
         and not (number is not None and _pfron_title_reason(reason))
         and not (end_date is not None and _pfron_period_reason(reason))
+        and not (rate_confirmed and _pfron_conversion_reason(reason))
     ]
     for key, value, reason in (
+        (
+            "start_date",
+            start_date,
+            "Brak jednoznacznej daty w polu Data rozpoczęcia wykonywania Prac przez Specjalistę",
+        ),
         (
             "title",
             number,
@@ -2098,6 +2147,7 @@ def apply_pfron_order_policy(
     # Planer preferuje okres wiersza nad okresem dokumentu. Stara/modelowa
     # data osoby nie może przemycić opcji przedłużenia do zapisu zamówienia.
     for row in result.consultant_rows:
+        row.start_date = start_date
         row.end_date = end_date
         row.md_total = None
         if end_date is not None and row.uncertain_reason:

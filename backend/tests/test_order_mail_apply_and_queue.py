@@ -189,7 +189,9 @@ async def test_apply_creates_active_order_with_pdf_and_syncs_contract(seeded):
             date(2031, 4, 1),
             date(2031, 6, 30),
         )
-        assert order.rate_client == Decimal("950.00") and order.rate_candidate is None
+        assert order.rate_client == Decimal(
+            "950.00"
+        ) and order.rate_candidate == Decimal("700")
         assert order.rate_unit == RateUnit.daily
         assert order.file_path and order.filename == "zam.pdf"
         assert doc.applied_order_id == order.id and doc.applied_by_user_id is None

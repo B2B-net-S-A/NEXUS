@@ -255,6 +255,12 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
 
     # Side-effects branch by target_kind
     if sig.contract_id is not None:
+        from app.services.order_mail_signature import complete_signed_mail_drafts
+
+        await db.flush()
+        await complete_signed_mail_drafts(
+            db, sig.contract_id, actor_id=sig.sender_user_id
+        )
         # Original candidate-contract flow
         db.add(
             Activity(

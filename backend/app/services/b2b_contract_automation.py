@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -167,7 +167,9 @@ async def _is_skeletal_pipeline_draft(
         .where(
             Activity.entity_type == "contract",
             Activity.entity_id == contract.id,
-            Activity.action == "auto_drafted_from_pipeline",
+            Activity.action.in_(
+                ("auto_drafted_from_pipeline", "auto_drafted_from_order_mail")
+            ),
         )
         .limit(1)
     )
@@ -736,7 +738,18 @@ async def ensure_b2b_employment_draft(
                 select(Contract)
                 .where(
                     Contract.candidate_id == candidate.id,
-                    Contract.job_id == job.id,
+                    Contract.client_id == job.client_id,
+                    or_(
+                        Contract.job_id == job.id,
+                        (Contract.job_id.is_(None))
+                        & select(Activity.id)
+                        .where(
+                            Activity.entity_type == "contract",
+                            Activity.entity_id == Contract.id,
+                            Activity.action == "auto_drafted_from_order_mail",
+                        )
+                        .exists(),
+                    ),
                     Contract.status.in_(_COMPATIBLE_CONTRACT_STATUSES),
                 )
                 .options(
@@ -783,6 +796,8 @@ async def ensure_b2b_employment_draft(
         existing_detail = None
     else:
         contract = contracts[0]
+        if contract.job_id is None:
+            contract.job_id = job.id
         existing_detail = contract.b2b_detail
         skeletal_pipeline_draft = await _is_skeletal_pipeline_draft(
             db,

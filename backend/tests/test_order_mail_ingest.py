@@ -920,13 +920,15 @@ async def test_pfron_active_directory_record_controls_roster_and_plan(
         svc, "parse_order_document", AsyncMock(return_value=old_extraction())
     )
     row = OrderMailDocument(
-        attachment_name=FILENAME, sender_email="sender@example.test"
+        internet_message_id=f"<pfron-final-{RUN}@example.test>",
+        attachment_name=FILENAME,
+        sender_email="sender@example.test",
     )
     await svc.process_pdf_bytes(
         db_session, row, b"fake pdf", registry=build_registry_from_known_clients()
     )
     assert row.client_id == active.id
-    assert row.extraction["title"] == "34"
+    assert row.extraction["title"] == "Zlecenie nr 34"
     assert row.extraction["end_date"] == "2026-09-30"
     assert row.proposal["rows"][0]["candidate_id"] == person.id
     assert row.proposal["rows"][0]["contract_id"] == contract.id
