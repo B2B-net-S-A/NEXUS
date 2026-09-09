@@ -459,11 +459,7 @@ async def select_generated_cv(
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     from app.services.cv_approval_provenance import capture_editor_origin
 
-    metadata.update(
-        capture_editor_origin(
-            html, generated.render_payload.get("factual_verification")
-        )
-    )
+    metadata.update(capture_editor_origin(html, generated.render_payload))
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1

@@ -1,13 +1,25 @@
 """Bind generation review provenance to exact editor content, not a document ID."""
 
 import hashlib
+import json
+
+from app.services.cv_generator_b2b.factual_verification import factual_projection
 
 
-def capture_editor_origin(html: str, generation_review: dict | None) -> dict:
+def capture_editor_origin(html: str, generated_payload: dict | None) -> dict:
+    generated_payload = generated_payload or {}
+    generation_review = generated_payload.get("factual_verification")
+    digest = hashlib.sha256(
+        json.dumps(
+            factual_projection(generated_payload), sort_keys=True, ensure_ascii=False
+        ).encode()
+    ).hexdigest()
     return {
         "generated_editor_html_sha256": hashlib.sha256(html.encode()).hexdigest(),
         "generation_review_available": isinstance(generation_review, dict)
-        and generation_review.get("status") == "verified",
+        and generation_review.get("status") == "verified"
+        and generation_review.get("document_sha256") == digest,
+        "generated_factual_payload_sha256": digest,
     }
 
 
