@@ -470,7 +470,7 @@ export function CVGeneratorStandaloneV2({
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
-          consent_screenshot_key: consentKey ?? "",
+          consent_screenshot_token: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -507,7 +507,7 @@ export function CVGeneratorStandaloneV2({
       if (niceRequirements.trim())
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
-      if (consentKey) fd.append("consent_screenshot_key", consentKey);
+      if (consentKey) fd.append("consent_screenshot_token", consentKey);
       const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
         fd,
@@ -528,6 +528,8 @@ export function CVGeneratorStandaloneV2({
       // Clear the per-candidate inputs so the next CV can be dropped straight in
       // without manually removing the previous file, champion and notes.
       setCvFile(null);
+      setConsentKey(null);
+      setUploadCandidate(null);
       setChampionFile(null);
       setChampionError(null);
       setScreeningNotes("");
@@ -628,6 +630,7 @@ export function CVGeneratorStandaloneV2({
         return;
       }
     }
+    if (cvFile && f !== cvFile) setUploadCandidate(null);
     setCvFile(f);
   }
 
@@ -923,6 +926,9 @@ export function CVGeneratorStandaloneV2({
           </div>
 
           <ConsentScreenshotField
+            context={mode === "new"
+              ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId }
+              : { cvFile, candidateId: uploadCandidate?.id, clientId: effectiveClientId }}
             value={consentKey}
             onChange={(key: string | null) => setConsentKey(key)}
             required={consentRequired}

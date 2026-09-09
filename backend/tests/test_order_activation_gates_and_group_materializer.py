@@ -876,10 +876,10 @@ async def test_explicit_md_materialization_overwrites_temporary_mirror_with_pln_
     assert order.md_remaining == Decimal("20.000000")
     assert order.md_rate_revenue == Decimal("3200.00")
     assert order.md_rate_cost == Decimal("1600.00")
-    assert order.rate_client == Decimal("3200.00")
-    assert order.rate_candidate == Decimal("1600.00")
+    assert order.rate_client == Decimal("800.00")
+    assert order.rate_candidate == Decimal("400.00")
     assert order.rate_unit == RateUnit.daily
-    assert order.currency == "PLN"
+    assert order.currency == "EUR"
 
 
 @pytest.mark.asyncio

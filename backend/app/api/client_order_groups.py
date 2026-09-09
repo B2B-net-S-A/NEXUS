@@ -169,7 +169,10 @@ from app.services.order_types import (
     effective_group_order_type,
     suggested_order_type,
 )
+from app.services.fx_service import rates_to_pln
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.shared_md_orders import (
+    upsert_shared_md_consumption,
     client_uses_shared_md_pool,
     normalize_empty_generic_explicit_md_group,
     settle_shared_md_group,
@@ -238,6 +241,8 @@ def _is_technical_event(event_type: str, payload: Optional[dict]) -> bool:
 # tamtego zbioru przepuściłoby te pola bez żadnej kontroli.
 _GROUP_FINANCE_FIELDS = frozenset(
     {
+        "rate_candidate_currency",
+        "rate_client_currency",
         "rate_cost",
         "rate_revenue",
         "budget_amount",
@@ -249,6 +254,18 @@ _GROUP_FINANCE_FIELDS = frozenset(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+async def _canonical_currency_rate(
+    db: AsyncSession, value: Decimal, currency: str, on: date
+) -> Decimal:
+    if currency == "PLN":
+        return value.quantize(Decimal("0.01"))
+    fx = await rates_to_pln(db, {currency}, on)
+    factor = fx.get(currency)
+    if factor is None:
+        raise HTTPException(422, detail=f"Brak kursu {currency}/PLN")
+    return (value * factor).quantize(Decimal("0.01"))
 
 
 async def _assert_client(db: AsyncSession, client_id: int) -> Client:
@@ -849,6 +866,41 @@ def _line_to_read(
         is_active=order.status == ClientOrderStatus.active,
         start_date=order.start_date,
         end_date=order.end_date,
+        source_rate_cost=(
+            order.md_rate_cost
+            if (order.rate_candidate_currency or order.currency or "PLN").upper()
+            == "PLN"
+            else convert_order_rate(
+                order.rate_candidate,
+                order.rate_unit or RateUnit.daily,
+                RateUnit.daily,
+                order.billing_hours_per_month or 160,
+            )
+        )
+        if with_finance
+        else None,
+        source_rate_revenue=(
+            order.md_rate_revenue
+            if (order.rate_client_currency or order.currency or "PLN").upper() == "PLN"
+            else convert_order_rate(
+                order.rate_client,
+                order.rate_unit or RateUnit.daily,
+                RateUnit.daily,
+                order.billing_hours_per_month or 160,
+            )
+        )
+        if with_finance
+        else None,
+        rate_candidate_currency=(
+            order.rate_candidate_currency or order.currency or "PLN"
+        ).upper()
+        if with_finance
+        else None,
+        rate_client_currency=(
+            order.rate_client_currency or order.currency or "PLN"
+        ).upper()
+        if with_finance
+        else None,
         rate_cost=order.md_rate_cost if with_finance else None,
         rate_revenue=order.md_rate_revenue if with_finance else None,
         input_value=input_value,
@@ -1065,6 +1117,12 @@ async def _group_to_read(
         created_at=group.created_at,
         status=group.status,
         status_label=GROUP_STATUS_LABELS.get(group.status, group.status),
+        md_budget_mode=group.md_budget_mode,
+        md_budget_mode_locked=(
+            group.md_budget_mode is None
+            or group.status != "draft"
+            or group.md_budget_mode_locked
+        ),
         closure_date=group.closure_date,
         closure_reason=group.closure_reason,
         order_type=group.order_type,
@@ -1093,7 +1151,7 @@ async def _group_to_read(
         size_bytes=group.size_bytes,
         file_uploaded_at=group.file_uploaded_at,
         can_add_consultant=group.status
-        in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED),
+        in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED, "draft"),
         lines=reads,
         active_consultants=sum(1 for r in reads if r.is_active),
         event_count=event_count,
@@ -1259,6 +1317,18 @@ async def _build_line(
     # własnego budżetu MD. Wymuszenie budżetu tutaj zmusiłoby operatora do
     # wymyślenia liczby, której nikt nigdy nie rozliczy, a CHECK spójności
     # w bazie i tak dopuszcza komplet NULL-i.
+    canonical_cost = await _canonical_currency_rate(
+        db,
+        payload.rate_cost,
+        payload.rate_candidate_currency or "PLN",
+        payload.start_date,
+    )
+    canonical_revenue = await _canonical_currency_rate(
+        db,
+        payload.rate_revenue,
+        payload.rate_client_currency or "PLN",
+        payload.start_date,
+    )
     md_total: Optional[Decimal] = None
     if group.is_cost_based or uses_shared_md_pool(group):
         if payload.input_mode is not None or payload.input_value is not None:
@@ -1278,7 +1348,7 @@ async def _build_line(
             md_total = compute_md_total(
                 input_mode=payload.input_mode,
                 input_value=payload.input_value,
-                rate_revenue=payload.rate_revenue,
+                rate_revenue=canonical_revenue,
             )
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
@@ -1291,7 +1361,7 @@ async def _build_line(
     now = datetime.now(timezone.utc)
     line_status = (
         ClientOrderStatus.draft
-        if group.status == GROUP_STATUS_SCHEDULED
+        if group.status in (GROUP_STATUS_SCHEDULED, "draft")
         else ClientOrderStatus.active
     )
     line = ClientOrder(
@@ -1305,15 +1375,15 @@ async def _build_line(
         start_date=payload.start_date,
         end_date=payload.end_date or group.end_date,
         filled_at=now if line_status == ClientOrderStatus.active else None,
-        md_rate_cost=payload.rate_cost,
-        md_rate_revenue=payload.rate_revenue,
+        md_rate_cost=canonical_cost,
+        md_rate_revenue=canonical_revenue,
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
         billing_hours_per_month=160,
-        currency="PLN",
-        rate_client_currency="PLN",
-        rate_candidate_currency="PLN",
+        currency=payload.rate_client_currency or "PLN",
+        rate_client_currency=payload.rate_client_currency or "PLN",
+        rate_candidate_currency=payload.rate_candidate_currency or "PLN",
         md_input_mode=payload.input_mode,
         md_input_value=payload.input_value,
         md_total=md_total,
@@ -2014,7 +2084,11 @@ async def create_order_group(
     is_cyfrowy_polsat = is_cyfrowy_polsat_order_types_client(client_id)
     is_lotte_wedel = is_lotte_wedel_order_types_client(client_id)
     is_special_shared_md_client = client_uses_shared_md_pool(client_id)
-    if explicit_type and payload.order_type == OrderType.md:
+    if (
+        explicit_type
+        and payload.order_type == OrderType.md
+        and payload.md_budget_mode is None
+    ):
         if payload.is_md_budget_based and not is_special_shared_md_client:
             raise HTTPException(
                 422,
@@ -2075,7 +2149,11 @@ async def create_order_group(
         order_type=(
             payload.order_type.value if payload.order_type is not None else None
         ),
-        status=_initial_group_status(payload.start_date),
+        status="draft"
+        if payload.status == "draft"
+        else _initial_group_status(payload.start_date),
+        md_budget_mode=payload.md_budget_mode,
+        md_budget_mode_locked=payload.status != "draft",
         is_cost_based=payload.is_cost_based,
         is_md_budget_based=payload.is_md_budget_based,
         budget_amount=payload.budget_amount,
@@ -2181,8 +2259,139 @@ async def update_order_group(
         .order_by(ClientOrder.id)
         .with_for_update()
     )
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
     await _normalize_empty_explicit_md_group(db, group)
+
+    consumption_month = data.pop("md_consumption_month", None)
+    consumption_value = data.pop("md_consumption_value", None)
+    if (consumption_month is None) != (consumption_value is None):
+        raise HTTPException(422, detail="Podaj miesiąc i liczbę wykorzystanych MD")
+    if consumption_month is not None:
+        await _assert_line_finance_write_allowed(
+            db, user, client_id, {"md_budget_total"}
+        )
+        if not uses_shared_md_pool(group) or group.status not in (
+            GROUP_STATUS_ACTIVE,
+            GROUP_STATUS_EXHAUSTED,
+        ):
+            raise HTTPException(
+                409,
+                detail="Zużycie MD wpisuje się na aktywnym zamówieniu ze wspólną pulą",
+            )
+        await upsert_shared_md_consumption(
+            db,
+            group=group,
+            period_month=consumption_month,
+            md_reported=consumption_value,
+            source="manual",
+            user_id=user.id,
+        )
+        record_event(
+            db,
+            group_id=group.id,
+            event_type=EVENT_MANUAL_EDIT,
+            description=f"Zużycie wspólnej puli MD za {consumption_month}: {consumption_value} MD",
+            user_id=user.id,
+        )
+
+    requested_mode = data.pop("md_budget_mode", group.md_budget_mode)
+    requested_status = data.pop("status", None)
+    if requested_mode != group.md_budget_mode or requested_status is not None:
+        group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+        if (
+            group.md_budget_mode is None
+            or group.status != "draft"
+            or (requested_mode != group.md_budget_mode and group.md_budget_mode_locked)
+        ):
+            raise HTTPException(
+                409,
+                detail="Tryb budżetu można zmieniać tylko w nowym szkicu bez zużycia MD",
+            )
+        consumed = await db.scalar(
+            select(ClientOrderGroupMdConsumption.id)
+            .where(ClientOrderGroupMdConsumption.group_id == group.id)
+            .limit(1)
+        )
+        line_consumed = await db.scalar(
+            select(ClientOrderMdConsumption.id)
+            .join(ClientOrder, ClientOrder.id == ClientOrderMdConsumption.order_id)
+            .where(ClientOrder.order_group_id == group.id)
+            .limit(1)
+        )
+        if requested_mode != group.md_budget_mode and (
+            consumed is not None or line_consumed is not None
+        ):
+            raise HTTPException(409, detail="Zamówienie ma już wpis zużycia MD")
+        if requested_mode not in ("per_person", "shared"):
+            raise HTTPException(422, detail="Nieprawidłowy tryb budżetu MD")
+        previous_mode = group.md_budget_mode
+        if requested_mode != group.md_budget_mode:
+            draft_lines = await lines_for_group(db, group.id)
+            if any(
+                line.md_manual_adjustment
+                or (line.md_total or 0) != (line.md_remaining or 0)
+                for line in draft_lines
+            ):
+                raise HTTPException(409, detail="Linie mają już zużycie lub korektę MD")
+            group.md_budget_mode = requested_mode
+            group.is_md_budget_based = requested_mode == "shared"
+            if group.is_md_budget_based:
+                total = data.get("md_budget_total")
+                if total is None or total <= 0:
+                    raise HTTPException(422, detail="Podaj wspólny budżet MD")
+                group.md_budget_total = total
+                group.md_budget_remaining = total
+                for line in draft_lines:
+                    line.md_total = line.md_remaining = line.md_input_value = (
+                        line.md_input_mode
+                    ) = None
+            else:
+                group.md_budget_total = group.md_budget_remaining = None
+                group.md_budget_manual_adjustment = Decimal("0")
+                data.pop("md_budget_total", None)
+                for line in draft_lines:
+                    line.md_total = line.md_remaining = line.md_input_value = Decimal(
+                        "0"
+                    )
+                    line.md_input_mode = "md"
+        if requested_status == "active":
+            if requested_mode == "shared":
+                total = data.get("md_budget_total", group.md_budget_total)
+                if total is None or total <= 0:
+                    raise HTTPException(422, detail="Podaj wspólny budżet MD")
+            draft_lines = await lines_for_group(db, group.id)
+            if not draft_lines or (
+                requested_mode == "per_person"
+                and any(not line.md_total for line in draft_lines)
+            ):
+                raise HTTPException(
+                    422,
+                    detail="Przed aktywacją dodaj konsultantów i uzupełnij ich budżety MD",
+                )
+            group.status = GROUP_STATUS_SCHEDULED
+            group.md_budget_mode_locked = True
+        record_event(
+            db,
+            group_id=group.id,
+            event_type=EVENT_MANUAL_EDIT,
+            description=(
+                f"Tryb budżetu MD: {previous_mode} → {requested_mode}; status: {group.status}"
+                if previous_mode != requested_mode
+                else (
+                    f"Aktywacja zamówienia MD; tryb budżetu: {requested_mode}"
+                    if requested_status == "active"
+                    else f"Zapis szkicu zamówienia MD; tryb budżetu: {requested_mode}"
+                )
+            ),
+            payload={
+                "previous_mode": previous_mode,
+                "md_budget_mode": requested_mode,
+                "status": group.status,
+            },
+            user_id=user.id,
+        )
+        await db.flush()
 
     new_start = data.get("start_date", group.start_date)
     new_end = data.get("end_date", group.end_date)
@@ -2765,6 +2974,8 @@ async def extend_order_group(
             user,
             client_id,
             {
+                "rate_candidate_currency",
+                "rate_client_currency",
                 "rate_cost",
                 "rate_revenue",
                 "budget_amount",
@@ -2814,6 +3025,8 @@ async def extend_order_group(
         status=GROUP_STATUS_SCHEDULED,
         is_cost_based=source.is_cost_based,
         is_md_budget_based=source_uses_shared_md,
+        md_budget_mode=source.md_budget_mode,
+        md_budget_mode_locked=True,
         budget_amount=payload.budget_amount,
         budget_remaining=payload.budget_amount,
         md_budget_total=payload.md_budget_total,
@@ -2912,7 +3125,7 @@ async def add_line(
     # 409, nie 422: żądanie jest poprawne, to STAN ŚWIATA go odrzuca — i to
     # ten stan trzeba zmienić gdzie indziej (nowe zamówienie albo korekta
     # kwoty), a nie treść żądania.
-    if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED):
+    if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED, "draft"):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=(
@@ -3013,13 +3226,82 @@ async def update_line(
     if line is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
     await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+    has_group_budget = group.is_cost_based or uses_shared_md_pool(group)
+    if has_group_budget and supplied & line_budget_fields:
+        raise HTTPException(
+            422, detail="To zamówienie ma wspólny budżet — odśwież formularz linii"
+        )
 
     data = payload.model_dump(exclude_unset=True)
     changed: list[str] = []
+    raw_rates: dict[str, Decimal] = {}
+    for field, currency_field, source_field in (
+        ("rate_cost", "rate_candidate_currency", "rate_candidate"),
+        ("rate_revenue", "rate_client_currency", "rate_client"),
+    ):
+        if currency_field in data:
+            currency = data[currency_field]
+            if currency is None:
+                raise HTTPException(422, detail="Waluta nie może być pusta")
+            raw = data.get(field)
+            if raw is None:
+                raw = convert_order_rate(
+                    getattr(line, source_field),
+                    line.rate_unit or RateUnit.daily,
+                    RateUnit.daily,
+                    line.billing_hours_per_month or 160,
+                )
+            if raw is None:
+                raise HTTPException(422, detail="Podaj stawkę dla wybranej waluty")
+            raw_rates[source_field] = raw
+            data[field] = await _canonical_currency_rate(
+                db, raw, currency, line.start_date or group.start_date
+            )
+        elif field in data:
+            # Cached clients send the legacy canonical PLN/MD values without
+            # currency metadata. Keep the saved currency and its raw snapshot.
+            currency = (getattr(line, currency_field) or line.currency or "PLN").upper()
+            if currency != "PLN":
+                fx = await rates_to_pln(
+                    db, {currency}, line.start_date or group.start_date
+                )
+                factor = fx.get(currency)
+                if factor is None or factor <= 0:
+                    raise HTTPException(422, detail=f"Brak kursu {currency}/PLN")
+                raw_rates[source_field] = (data[field] / factor).quantize(
+                    Decimal("0.001")
+                )
+            else:
+                raw_rates[source_field] = data[field]
+    if raw_rates:
+        # Both source sides are returned/sent as MD by the new editor.
+        for source_field in ("rate_candidate", "rate_client"):
+            raw_rates.setdefault(
+                source_field,
+                convert_order_rate(
+                    getattr(line, source_field),
+                    line.rate_unit or RateUnit.daily,
+                    RateUnit.daily,
+                    line.billing_hours_per_month or 160,
+                ),
+            )
+        line.rate_unit = RateUnit.daily
 
+    for currency_field in ("rate_candidate_currency", "rate_client_currency"):
+        if currency_field in data:
+            if data[currency_field] is None:
+                raise HTTPException(422, detail="Waluta nie może być pusta")
+            setattr(line, currency_field, data[currency_field])
+            if currency_field == "rate_client_currency":
+                line.currency = data[currency_field]
+            changed.append(currency_field)
     if "rate_cost" in data:
+        line.rate_candidate = data["rate_cost"]
         line.md_rate_cost = data["rate_cost"]
         changed.append("stawka kosztowa")
+    if "rate_revenue" in data:
+        line.rate_client = data["rate_revenue"]
     if "end_date" in data:
         line.end_date = data["end_date"]
         changed.append("data zakończenia")
@@ -3070,6 +3352,9 @@ async def update_line(
             Decimal(str(data["md_remaining"])) - natural
         )
         changed.append("ręczna korekta MD")
+
+    for source_field, raw in raw_rates.items():
+        setattr(line, source_field, raw)
 
     # Przeliczenie budżetu domyka też status linii (`sync_md_line_status` siedzi
     # w `recompute_remaining`): podniesienie budżetu albo ręczna korekta

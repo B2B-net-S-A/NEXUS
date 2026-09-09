@@ -42,6 +42,7 @@ import {
   countActiveAdvanced,
   cvRulesApi,
   type CvRuleForm,
+  type GlossaryEntry,
   type CvRuleSectionKey,
   type LintFinding,
   type LintResponse,
@@ -59,6 +60,7 @@ export interface CvRuleSettingsTabProps {
   set: <K extends keyof CvRuleForm>(key: K, value: CvRuleForm[K]) => void;
   clientId: number;
   filenamePreview?: string | null;
+  glossaryOptions?: GlossaryEntry[];
 }
 
 function Group({
@@ -177,6 +179,7 @@ export function CvRuleSettingsTab({
   set,
   clientId,
   filenamePreview,
+  glossaryOptions = [],
 }: CvRuleSettingsTabProps) {
   // Otwarte od startu, gdy jakieś zaawansowane ustawienie już działa — ukryta
   // aktywna konfiguracja jest gorsza niż zwinięta pusta sekcja.
@@ -206,13 +209,6 @@ export function CvRuleSettingsTab({
   const toggleSection = (key: CvRuleSectionKey, on: boolean) => {
     const next = form.omit_sections.filter((k) => k !== key);
     set("omit_sections", on ? [...next, key] : next);
-  };
-
-  const updateGlossary = (index: number, field: "from" | "to", value: string) => {
-    set(
-      "glossary",
-      form.glossary.map((g, i) => (i === index ? { ...g, [field]: value } : g)),
-    );
   };
 
   const runLint = async () => {
@@ -759,29 +755,34 @@ export function CvRuleSettingsTab({
             <fieldset className="space-y-2">
               <legend className="text-xs font-medium">Słownik klienta</legend>
               <p className="text-xs text-muted-foreground">
-                Nazewnictwo ról i technologii, jakiego używa klient. Zamiana
-                całych słów w opisach, bez zmiany faktów.
+                Wybierz sprawdzony odpowiednik językowy pełnej nazwy stanowiska.
+                Zamiana działa tylko dla języka docelowego CV; nie zmienia
+                umiejętności, certyfikatów, seniority ani opisów doświadczenia.
               </p>
               <ul className="space-y-2">
                 {form.glossary.map((entry, index) => (
                   <li key={index} className="flex flex-wrap items-center gap-2">
-                    <input
-                      aria-label={`Słownik ${index + 1}: z`}
-                      value={entry.from}
-                      onChange={(e) => updateGlossary(index, "from", e.target.value)}
-                      placeholder="w źródle, np. Business Analyst"
-                      maxLength={80}
-                      className="w-56 rounded-md border px-2 py-1 text-sm"
-                    />
-                    <span className="text-muted-foreground">→</span>
-                    <input
-                      aria-label={`Słownik ${index + 1}: na`}
-                      value={entry.to}
-                      onChange={(e) => updateGlossary(index, "to", e.target.value)}
-                      placeholder="u klienta, np. Analityk Biznesowy"
-                      maxLength={80}
-                      className="w-56 rounded-md border px-2 py-1 text-sm"
-                    />
+                    <select
+                      aria-label={`Tłumaczenie stanowiska ${index + 1}`}
+                      value={glossaryOptions.findIndex((g) =>
+                        g.from.toLocaleLowerCase() === entry.from.toLocaleLowerCase() &&
+                        g.to.toLocaleLowerCase() === entry.to.toLocaleLowerCase())}
+                      onChange={(e) => {
+                        const selected = glossaryOptions[Number(e.target.value)];
+                        if (selected) set("glossary", form.glossary.map((g, i) =>
+                          i === index ? { from: selected.from, to: selected.to } : g));
+                      }}
+                      className="max-w-full rounded-md border px-2 py-1 text-sm"
+                    >
+                      <option value={-1} disabled>
+                        {entry.from || entry.to
+                          ? `Niedozwolony wpis: ${entry.from} → ${entry.to}`
+                          : "Wybierz tłumaczenie stanowiska"}
+                      </option>
+                      {glossaryOptions.map((g, optionIndex) => (
+                        <option key={optionIndex} value={optionIndex}>{g.from} → {g.to}</option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="text-xs text-destructive hover:underline"
@@ -801,7 +802,7 @@ export function CvRuleSettingsTab({
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={form.glossary.length >= 50}
+                disabled={form.glossary.length >= 50 || glossaryOptions.length === 0}
                 onClick={() =>
                   set("glossary", [...form.glossary, { from: "", to: "" }])
                 }

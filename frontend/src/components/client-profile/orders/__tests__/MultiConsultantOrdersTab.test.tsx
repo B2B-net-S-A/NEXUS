@@ -30,7 +30,9 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
 
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
-    selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
+    selector: (s: {
+      user: { role: string; capabilities: string[] };
+    }) => unknown,
   ) => selector({ user: authState }),
   hasRole: (user: { role?: string } | null, ...roles: string[]) =>
     roles.includes(user?.role ?? ""),
@@ -41,9 +43,7 @@ vi.mock("@/store/auth", () => ({
   // Lustro backendowego `_ORDER_LIFECYCLE_ROLES`: granica sekcji odcina HoR,
   // TAC i TCM, a Finanse zachowują operacyjny lifecycle.
   canManageOrderLifecycle: (user: { role?: string } | null) =>
-    ["admin", "delivery_lead", "finance"].includes(
-      user?.role ?? "",
-    ),
+    ["admin", "delivery_lead", "finance"].includes(user?.role ?? ""),
   canViewClientFinance: (
     user: { role?: string; capabilities?: string[] } | null,
     _clientId: number,
@@ -451,7 +451,9 @@ describe("MultiConsultantOrdersTab", () => {
 
     renderTab();
 
-    expect(await screen.findByText("Wczytywanie zamówień…")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Wczytywanie zamówień…"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Brak zamówień")).not.toBeInTheDocument();
   });
 
@@ -508,7 +510,9 @@ describe("MultiConsultantOrdersTab", () => {
       data: {
         groups: [
           group({
-            lines: [line({ rate_cost: null, rate_revenue: null, input_value: null })],
+            lines: [
+              line({ rate_cost: null, rate_revenue: null, input_value: null }),
+            ],
           }),
         ],
         total_groups: 1,
@@ -549,7 +553,10 @@ describe("MultiConsultantOrdersTab", () => {
     expect(value).toBeInTheDocument();
     // Kolor ostrzegawczy siedzi na opakowaniu obu liczb (pozostało / całość).
     expect(value.parentElement?.className).toMatch(/destructive/);
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "0",
+    );
   });
 });
 
@@ -632,7 +639,9 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       "aria-checked",
       "true",
     );
-    expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /kosztowe/i }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText(/Budżet MD ustawiasz osobno przy każdym konsultancie/),
     ).toBeInTheDocument();
@@ -646,6 +655,8 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
     await waitFor(() =>
       expect(orderGroupsApi.create).toHaveBeenCalledWith(7, {
+        md_budget_mode: "per_person",
+        status: "draft",
         order_number: "CP-MD-1",
         start_date: "2026-09-01",
         end_date: null,
@@ -655,11 +666,13 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     );
   });
 
-  it("nowe zamówienie MD CP zachowuje wspólną pulę grupy", async () => {
+  it("nowe zamówienie MD CP domyślnie jest per osoba i pozwala wybrać wspólną pulę", async () => {
     vi.mocked(orderGroupsApi.create).mockResolvedValue({
       data: group({
         id: 79,
         client_id: 38339,
+        md_budget_mode: "shared",
+        status: "draft",
         order_number: "CP-MD-SHARED",
         order_type: "md",
         is_md_budget_based: true,
@@ -678,6 +691,12 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     );
     await user.click(screen.getByRole("radio", { name: "MD" }));
 
+    expect(
+      screen.getByRole("checkbox", { name: "Budżet MD na całe zamówienie" }),
+    ).not.toBeChecked();
+    await user.click(
+      screen.getByRole("checkbox", { name: "Budżet MD na całe zamówienie" }),
+    );
     expect(screen.getByLabelText(/Budżet w MD/)).toBeInTheDocument();
     await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-MD-SHARED");
     await user.type(screen.getByLabelText(/Budżet w MD/), "120,5");
@@ -688,6 +707,8 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
     await waitFor(() =>
       expect(orderGroupsApi.create).toHaveBeenCalledWith(38339, {
+        md_budget_mode: "shared",
+        status: "draft",
         order_number: "CP-MD-SHARED",
         start_date: "2026-09-01",
         end_date: null,
@@ -827,7 +848,9 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       "true",
     );
     await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
-    expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /kosztowe/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -857,7 +880,6 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     expect(screen.getByLabelText(/Budżet całkowity/)).toBeInTheDocument();
   });
 });
-
 
 // ── Cykl życia zamówienia (usuń / zakończ / przywróć / przedłuż) ─────────────
 
@@ -1010,7 +1032,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     confirmSpy.mockRestore();
   });
 
-  it("„Zakończ\" pokazuje się tylko na aktywnym, „Przywróć\" tylko na zakończonym", async () => {
+  it('„Zakończ" pokazuje się tylko na aktywnym, „Przywróć" tylko na zakończonym', async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [
@@ -1048,7 +1070,13 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
             budget_used: 50000,
             budget_remaining: 0,
             can_add_consultant: false,
-            lines: [line({ md_total: null, md_remaining: null, invoiced_total: 50000 })],
+            lines: [
+              line({
+                md_total: null,
+                md_remaining: null,
+                invoiced_total: 50000,
+              }),
+            ],
           }),
         ],
         total_groups: 1,
@@ -1065,7 +1093,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(screen.getByText(/Budżet wyczerpany/i)).toBeInTheDocument();
   });
 
-  it("zamówienie kosztowe pokazuje TRZY liczby, nie samo „zużycie\"", async () => {
+  it('zamówienie kosztowe pokazuje TRZY liczby, nie samo „zużycie"', async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [
@@ -1287,7 +1315,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     ).toBeInTheDocument();
   });
 
-  it("„Brak zejścia za {miesiąc}\" pojawia się przy linii bez rozliczenia", async () => {
+  it('„Brak zejścia za {miesiąc}" pojawia się przy linii bez rozliczenia', async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [
@@ -1313,7 +1341,9 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
 
     renderTab();
 
-    expect(await screen.findByText(/Brak zejścia za 2026-07/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Brak zejścia za 2026-07/),
+    ).toBeInTheDocument();
   });
 
   it("rola bez uprawnień do cyklu życia nie widzi akcji usuwania", async () => {
@@ -1511,7 +1541,10 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     const rendered = renderTab();
     await screen.findByText("Zamówienie nr GROUP-ZOFIA");
 
-    await user.selectOptions(screen.getByLabelText("Sortowanie"), "consultant_asc");
+    await user.selectOptions(
+      screen.getByLabelText("Sortowanie"),
+      "consultant_asc",
+    );
 
     const text = rendered.container.textContent ?? "";
     expect(text.indexOf("Adam Adamski")).toBeLessThan(
@@ -1644,7 +1677,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     renderTab({ costOrdersEnabled: true });
 
     expect(await screen.findByText("Anulowane MD")).toBeInTheDocument();
-    expect(document.getElementById("orders-md-heading")).toHaveTextContent("MD (1)");
+    expect(document.getElementById("orders-md-heading")).toHaveTextContent(
+      "MD (1)",
+    );
     expect(document.getElementById("orders-cost-heading")).toHaveTextContent(
       "Kosztowe (1)",
     );
@@ -1735,7 +1770,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
 
     expect(await screen.findByText("Draft bez grupy")).toBeInTheDocument();
     expect(screen.queryByText("Robert Łuszczyński")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Wszystkie \(2\)/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Wszystkie \(2\)/ }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Draft \(do uzupełnienia\) \(1\)/ }),
     ).toBeInTheDocument();
@@ -1756,7 +1793,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
-    expect(screen.queryByRole("radio", { name: "Okresowe" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("radio", { name: "Okresowe" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -1767,7 +1806,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
   it("klient bez periodic klasyfikuje legacy NULL jako MD, nie suggested cost", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
-        groups: [group({ id: 11, order_number: "COST-11", order_type: "cost" })],
+        groups: [
+          group({ id: 11, order_number: "COST-11", order_type: "cost" }),
+        ],
         total_groups: 1,
         total_consultants: 1,
         suggested_order_type: "cost",
@@ -1800,7 +1841,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     renderTab({ costOrdersEnabled: true, periodicOrdersEnabled: false });
 
     await screen.findByText("Zamówienie nr COST-11");
-    expect(document.getElementById("orders-md-heading")).toHaveTextContent("MD (1)");
+    expect(document.getElementById("orders-md-heading")).toHaveTextContent(
+      "MD (1)",
+    );
     expect(document.getElementById("orders-cost-heading")).toHaveTextContent(
       "Kosztowe (1)",
     );
@@ -1827,7 +1870,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
   it("zwykły klient zachowuje legacy NULL jako periodic mimo suggested cost", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
-        groups: [group({ id: 11, order_number: "COST-11", order_type: "cost" })],
+        groups: [
+          group({ id: 11, order_number: "COST-11", order_type: "cost" }),
+        ],
         total_groups: 1,
         total_consultants: 1,
         suggested_order_type: "cost",
@@ -1861,9 +1906,9 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
 
     await screen.findByText("Zamówienie nr COST-11");
     expect(document.getElementById("orders-md-heading")).toBeNull();
-    expect(document.getElementById("orders-periodic-heading")).toHaveTextContent(
-      "Okresowe (1)",
-    );
+    expect(
+      document.getElementById("orders-periodic-heading"),
+    ).toHaveTextContent("Okresowe (1)");
     expect(screen.getByTestId("contractor-order-cards")).toHaveAttribute(
       "data-legacy-null-order-type",
       "periodic",

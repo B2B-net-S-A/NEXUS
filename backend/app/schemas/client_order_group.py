@@ -74,6 +74,9 @@ class OrderLineCreate(BaseModel):
     a osoba z bazy Nexus takiego kontraktu jeszcze nie ma.
     """
 
+    rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+    rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+
     contract_id: Optional[int] = None
     """Kontrakt konsultanta u tego klienta. Linia wskazuje ISTNIEJĄCY kontrakt,
     więc osoba z zamówienia pozostaje widoczna w MRR, rejestrze kontraktów i
@@ -138,6 +141,8 @@ class OrderLineCreate(BaseModel):
 
 
 class OrderGroupCreate(BaseModel):
+    status: Optional[Literal["draft", "active"]] = None
+    md_budget_mode: Optional[Literal["per_person", "shared"]] = None
     order_number: str = Field(..., min_length=1, max_length=64)
     start_date: date
     end_date: Optional[date] = None
@@ -168,6 +173,12 @@ class OrderGroupCreate(BaseModel):
 
     @model_validator(mode="after")
     def _group_budget_coherence(self) -> "OrderGroupCreate":
+        if self.status == "draft" and self.md_budget_mode is None:
+            raise ValueError("Szkic wymaga jawnego trybu budżetu MD")
+        if self.md_budget_mode is not None:
+            if self.order_type != OrderType.md:
+                raise ValueError("Tryb budżetu dotyczy wyłącznie zamówień MD")
+            self.is_md_budget_based = self.md_budget_mode == "shared"
         if self.order_type == OrderType.periodic:
             raise ValueError("Zamówienie okresowe utwórz w formularzu standardowym")
         if self.order_type is not None:
@@ -202,6 +213,14 @@ class OrderGroupCreate(BaseModel):
 
 
 class OrderGroupUpdate(BaseModel):
+    md_consumption_month: Optional[str] = Field(
+        None, pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+    )
+    md_consumption_value: Optional[MdValue] = Field(
+        None, ge=0, max_digits=16, decimal_places=6
+    )
+    status: Optional[Literal["draft", "active"]] = None
+    md_budget_mode: Optional[Literal["per_person", "shared"]] = None
     order_number: Optional[str] = Field(None, min_length=1, max_length=64)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
@@ -257,6 +276,9 @@ class OrderGroupExtend(BaseModel):
 
 class OrderLineUpdate(BaseModel):
     """Edycja linii. Pola nieprzysłane zostają bez zmian (``exclude_unset``)."""
+
+    rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+    rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
 
     rate_cost: Optional[MoneyPLN] = Field(None, ge=0, max_digits=12, decimal_places=2)
     rate_revenue: Optional[MoneyPLN] = Field(
@@ -359,6 +381,11 @@ class OrderOffboardingCaseRead(BaseModel):
 
 
 class OrderLineRead(BaseModel):
+    source_rate_cost: Optional[MoneyPLN] = None
+    source_rate_revenue: Optional[MoneyPLN] = None
+    rate_candidate_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+    rate_client_currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
+
     model_config = {"from_attributes": True}
 
     id: int
@@ -432,6 +459,8 @@ class OrderGroupEventRead(BaseModel):
 
 
 class OrderGroupRead(BaseModel):
+    md_budget_mode: Optional[Literal["per_person", "shared"]] = None
+    md_budget_mode_locked: bool = True
     model_config = {"from_attributes": True}
 
     id: int

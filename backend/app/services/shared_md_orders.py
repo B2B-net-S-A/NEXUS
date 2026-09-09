@@ -1,4 +1,4 @@
-"""Wspólna pula MD całego zamówienia Cyfrowego Polsatu i Lotte Wedel.
+"""Wspólna pula MD całego zamówienia.
 
 To nie jest istniejący wariant MD per konsultant. Tutaj miesięczna konsumpcja
 jest agregowana na grupie, a pozostałość jest zawsze przeliczana od zera, dzięki
@@ -50,13 +50,16 @@ def client_uses_shared_md_pool(client_id: int | None) -> bool:
 
 
 def uses_shared_md_pool(group: SharedMdPoolGroup) -> bool:
-    """Whether this group is one of the two deliberate shared-MD variants.
+    """Use the new explicit choice, retaining legacy client-specific behavior.
 
     Revision 0246 inferred ``is_md_budget_based`` from every explicit ``md``
     type.  The flag alone is therefore not authoritative: generic MD orders
     remain per consultant even if a stale row still carries it.
     """
 
+    mode = getattr(group, "md_budget_mode", None)
+    if mode is not None:
+        return mode == "shared" and group.is_md_budget_based
     return bool(
         group.is_md_budget_based and client_uses_shared_md_pool(group.client_id)
     )
@@ -74,7 +77,8 @@ async def normalize_empty_generic_explicit_md_group(
     """
 
     if (
-        group.order_type != "md"
+        getattr(group, "md_budget_mode", None) is not None
+        or group.order_type != "md"
         or not group.is_md_budget_based
         or client_uses_shared_md_pool(group.client_id)
     ):
@@ -138,9 +142,7 @@ async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> D
     group = await lock_group_for_settlement(db, group, flush_local_changes=True)
 
     if not uses_shared_md_pool(group):
-        raise ValueError(
-            "Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu i Lotte Wedel"
-        )
+        raise ValueError("Zamówienie nie ma wspólnej puli MD")
     if group.md_budget_total is None:
         group.md_budget_remaining = None
         return ZERO
@@ -189,6 +191,8 @@ async def upsert_shared_md_consumption(
     # bezpośredni caller mógłby zablokować wiersz miesiąca i czekać na grupę,
     # podczas gdy równoległy import trzyma grupę i czeka na ten sam miesiąc.
     group = await lock_group_for_settlement(db, group, flush_local_changes=False)
+
+    group.md_budget_mode_locked = True
 
     stmt = (
         pg_insert(ClientOrderGroupMdConsumption)

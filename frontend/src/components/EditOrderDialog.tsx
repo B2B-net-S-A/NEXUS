@@ -37,7 +37,10 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
-import { downloadOrderDocument, openOrderDocument } from "@/lib/order-documents";
+import {
+  downloadOrderDocument,
+  openOrderDocument,
+} from "@/lib/order-documents";
 import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
@@ -167,7 +170,9 @@ export function EditOrderDialog({
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
-  const [hasExistingFile, setHasExistingFile] = useState(order?.has_file ?? false);
+  const [hasExistingFile, setHasExistingFile] = useState(
+    order?.has_file ?? false,
+  );
 
   // „Zczytaj dane z dokumentu" — ta sama funkcja co w przedłużeniu, ta sama
   // implementacja odczytu (`lib/order-extraction.ts`). W TYM widoku odczyt
@@ -219,7 +224,12 @@ export function EditOrderDialog({
         const detectedUnit = extractionRateUnit(data.rate_unit);
         if (detectedUnit && detectedUnit !== rateUnit) {
           setRateCost(
-            convertRateInput(rateCost, rateUnit, detectedUnit, rateBillingHours),
+            convertRateInput(
+              rateCost,
+              rateUnit,
+              detectedUnit,
+              rateBillingHours,
+            ),
           );
           setRateRevenue(
             convertRateInput(
@@ -265,7 +275,10 @@ export function EditOrderDialog({
       showToast("Odczytano dane z dokumentu", "success");
     } catch (err: unknown) {
       showToast(
-        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
+        extractionErrorMessage(
+          err,
+          "Nie udało się odczytać danych z dokumentu.",
+        ),
         "error",
       );
     } finally {
@@ -591,46 +604,62 @@ export function EditOrderDialog({
         {canManageFinance && (
           <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
             <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-sm font-medium">Stawka kosztowa</span>
-                <input
-                  value={rateCost}
-                  inputMode="decimal"
-                  onChange={(e) =>
-                    setRateCost(sanitizeDecimalInput(e.target.value))
-                  }
-                  className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                  placeholder="np. 12000"
+              <div>
+                <label className="block">
+                  <span className="text-sm font-medium">Stawka kosztowa</span>
+                  <input
+                    value={rateCost}
+                    inputMode="decimal"
+                    onChange={(e) =>
+                      setRateCost(sanitizeDecimalInput(e.target.value))
+                    }
+                    className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                    placeholder="np. 12000"
+                  />
+                </label>
+                <OrderCurrencySelect
+                  value={rateCandidateCurrency}
+                  onChange={setRateCandidateCurrency}
+                  label="Waluta stawki kosztowej"
+                  ariaLabel="Waluta stawki kosztowej"
                 />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Stawka przychodowa</span>
-                <input
-                  value={rateRevenue}
-                  inputMode="decimal"
-                  onChange={(e) =>
-                    setRateRevenue(sanitizeDecimalInput(e.target.value))
-                  }
-                  className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                  placeholder="np. 18000"
-                />
-                {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+              </div>
+              <div>
+                <label className="block">
+                  <span className="text-sm font-medium">
+                    Stawka przychodowa
+                  </span>
+                  <input
+                    value={rateRevenue}
+                    inputMode="decimal"
+                    onChange={(e) =>
+                      setRateRevenue(sanitizeDecimalInput(e.target.value))
+                    }
+                    className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                    placeholder="np. 18000"
+                  />
+                  {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
                     wyżej ma już przeliczoną stawkę godzinową (edytowalną),
                     a oryginał z dokumentu zostaje widoczny obok. */}
-                {rateMdOriginal !== null && (
-                  <span className="text-xs text-muted-foreground mt-0.5 block">
-                    Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
-                    przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
-                  </span>
-                )}
-                {grossConversion !== null && (
-                  <span className="text-xs text-muted-foreground mt-0.5 block">
-                    Z dokumentu: {grossConversion.gross} {rateClientCurrency}/h
-                    brutto → {grossConversion.net} {rateClientCurrency}/h netto
-                    (÷ 1,23)
-                  </span>
-                )}
-              </label>
+                  {rateMdOriginal !== null && (
+                    <span className="text-xs text-muted-foreground mt-0.5 block">
+                      Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
+                      przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
+                    </span>
+                  )}
+                  {grossConversion !== null && (
+                    <span className="text-xs text-muted-foreground mt-0.5 block">
+                      Z dokumentu: {grossConversion.gross} {rateClientCurrency}
+                      /h brutto → {grossConversion.net} {rateClientCurrency}/h
+                      netto (÷ 1,23)
+                    </span>
+                  )}
+                </label>
+                <OrderCurrencySelect
+                  value={rateClientCurrency}
+                  onChange={setRateClientCurrency}
+                />
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
               <div className="sm:col-span-2">
@@ -644,16 +673,6 @@ export function EditOrderDialog({
                 billingHoursPerMonth={rateBillingHours}
               />
               </div>
-              <OrderCurrencySelect
-                value={rateClientCurrency}
-                onChange={setRateClientCurrency}
-              />
-              <OrderCurrencySelect
-                value={rateCandidateCurrency}
-                onChange={setRateCandidateCurrency}
-                label="Waluta stawki kosztowej"
-                ariaLabel="Waluta stawki kosztowej"
-              />
             </div>
             {unitChangeNotice ? (
               <p role="status" className="text-xs text-primary">

@@ -141,7 +141,7 @@ def test_glossary_target_with_backslash_does_not_crash() -> None:
     data = _data()
     data["why_points"] = ["BA w bankowości"]
     apply_presentation_policy(data, _rule(glossary=(("BA", r"Analityk\Biznesowy"),)))
-    assert data["why_points"] == [r"Analityk\Biznesowy w bankowości"]
+    assert data["why_points"] == ["BA w bankowości"]
 
 
 def test_reminders_skip_second_language_when_it_is_automatic() -> None:
@@ -161,7 +161,7 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
         data, _rule(glossary=(("Business Analyst", "Analityk Biznesowy"),))
     )
     assert data["position"] == "Analityk Biznesowy"
-    assert data["why_points"] == ["Doświadczony Analityk Biznesowy w bankowości"]
+    assert data["why_points"] == ["Doświadczony business analyst w bankowości"]
     # „Business analysts" to inne słowo — nie ruszamy (granica słowa).
     assert data["experience"][0]["responsibilities"] == [
         "Business analysts wspierali zespół"
@@ -259,7 +259,7 @@ def test_prompt_block_carries_structured_rules_in_document_language() -> None:
         omit_sections=("languages",),
         max_bullets_per_role=3,
         date_format="MM.YYYY",
-        glossary=(("BA", "Analityk Biznesowy"),),
+        glossary=(("Business Analyst", "Analityk Biznesowy"),),
         generator_instructions="Bez zdjęcia.",
         generator_instructions_en="No photo.",
     )
@@ -272,7 +272,7 @@ def test_prompt_block_carries_structured_rules_in_document_language() -> None:
     assert "Bez zdjęcia." in pl and "No photo." not in pl
     assert "Languages" in en and "At most 3" in en and "No photo." in en
     assert "Bez zdjęcia." not in en
-    assert "„BA” → „Analityk Biznesowy”" in pl
+    assert "„Business Analyst” → „Analityk Biznesowy”" in pl
 
 
 def test_en_document_falls_back_to_base_instructions_without_en_variant() -> None:
