@@ -175,6 +175,17 @@ def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
     assert "max_roles" not in str(calls[0]) and "maksymalnie 1" not in str(calls[0])
     assert "PRIVATE INTERNAL NOTE" not in calls[1][1]
     assert "source_facts" not in build_public_payload(payload)
+    assert "editorial_provenance" not in build_public_payload(payload)
+    provenance = payload["editorial_provenance"]
+    assert provenance["prompt_version"] == svc.PROMPT_VERSION
+    import hashlib
+
+    assert (
+        provenance["system_prompt_sha256"]
+        == hashlib.sha256(svc.get_prompt("pl", False, "polished").encode()).hexdigest()
+    )
+    assert len(provenance["rule_sha256"]) == 64
+    assert len(provenance["input_sha256"]) == 64
     doc = Document(BytesIO(result.docx_bytes))
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "11 lat doświadczenia zawodowego." in text
@@ -204,7 +215,6 @@ def test_unreadable_full_extraction_cannot_fall_back_to_truncated_history(monkey
         )
     assert error.value.code == "source_extraction_failed"
     assert edited == []
-
 
 
 def test_oversized_response_is_rejected_before_json_model_allocation(monkeypatch):

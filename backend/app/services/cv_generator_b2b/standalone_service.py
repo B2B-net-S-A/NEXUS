@@ -43,6 +43,7 @@ from app.services import object_storage
 from app.services import champion_view
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
+    PROMPT_VERSION,
     CVGeneratorOverloadedError,
     CVGeneratorTruncatedError,
     analyze_with_ai,
@@ -1589,6 +1590,21 @@ def _run_generation_pipeline(
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
     candidate_data["source_facts"] = source_facts
+    candidate_data["editorial_provenance"] = {
+        "prompt_version": PROMPT_VERSION,
+        "system_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
+        "input_sha256": hashlib.sha256(user_content.encode()).hexdigest(),
+        "rule_sha256": hashlib.sha256(
+            json.dumps(
+                asdict(client_rule) if client_rule else None,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
+        "cv_sha256": facts.cv_sha256,
+        "notes_sha256": facts.notes_sha256,
+    }
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
     # Stamped BEFORE the render_payload snapshot so the saved row records which
