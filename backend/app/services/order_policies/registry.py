@@ -245,6 +245,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_pfron,
         order=60,
         canonical_client_ids=frozenset({122}),
+        extract_rows=parser.pfron_extract_rows,
         rate_unit_default="hour",
     ),
     OrderClientPolicy(
