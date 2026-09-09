@@ -63,12 +63,19 @@ def generate_case(case, directory):
         .get("tenure", {})
         .get("career_months")
     )
+    source_document = (result.render_payload.get("source_facts") or {}).get(
+        "document"
+    ) or {}
+    source_roles = source_document.get("experience")
+    actual_roles = len(source_roles) if isinstance(source_roles, list) else None
     expected = case["expected"]["career_months"]
     return {
         "outcome": "generated",
         "artifact": output.name,
         "artifact_sha256": hashlib.sha256(result.docx_bytes).hexdigest(),
         "career_months": actual_months,
+        "source_roles": actual_roles,
+        "source_role_count_matches": actual_roles == case["expected"]["source_roles"],
         "tenure_matches": actual_months == expected if expected is not None else None,
         "warnings_count": len(result.warnings),
         "human_accepted": None,
@@ -208,6 +215,7 @@ async def run(
                 row["outcome"] == "generated"
                 and row["metering_complete"]
                 and row.get("tenure_matches") is not False
+                and row.get("source_role_count_matches") is True
                 for row in report["results"]
             )
             else 1

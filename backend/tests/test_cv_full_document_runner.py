@@ -114,3 +114,33 @@ async def test_cancellation_preserves_admitted_operation_without_success(
     assert checkpoints[-2]["in_progress"] == checkpoints[-1]["in_progress"]
     assert os.environ["CV_B2B_MODEL"] == "original-model"
     assert os.environ["CV_B2B_FALLBACK_MODELS"] == "original-fallback"
+
+
+@pytest.mark.parametrize(
+    "roles,expected", [(None, False), ([], False), ([{}, {}], True), ([{}], False)]
+)
+def test_full_source_role_count_cannot_be_replaced_by_displayed_roles(
+    tmp_path, monkeypatch, roles, expected
+):
+    case = next(
+        case
+        for case in runner.prepare(tmp_path)["cases"]
+        if case["scenario"] == "display_limit"
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_cv_from_uploads",
+        Mock(
+            return_value=SimpleNamespace(
+                docx_bytes=b"synthetic",
+                warnings=[],
+                render_payload={
+                    "experience": [{}],
+                    "source_facts": {"document": {"experience": roles}},
+                },
+            )
+        ),
+    )
+    result = runner.generate_case(case, tmp_path)
+    assert result["source_role_count_matches"] is expected
+    assert result["human_accepted"] is None
