@@ -2560,6 +2560,7 @@ export interface CandidateMatch {
    * calibrated 0-100 match score and must not be presented as one.
    */
   total_score: number | null;
+  eligibility?: MatchEligibility | null;
   breakdown?: ScoreBreakdown | null;
 }
 

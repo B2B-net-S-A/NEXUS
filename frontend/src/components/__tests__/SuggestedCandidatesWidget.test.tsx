@@ -253,6 +253,25 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a visible block and prevents shortlist and assignment actions", async () => {
+    mocks.forJob.mockResolvedValue(liveResponse([{
+      ...candidateMatch(82, BREAKDOWN),
+      eligibility: { reason_code: "nda", reason: "Aktywna blokada NDA", assignment_allowed: false,
+        visibility: "warn", severity: "hard", secondary: [] },
+    }]));
+    renderWidget();
+    fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktywna blokada NDA");
+    const shortlist = screen.getByText("Do shortlisty");
+    const assign = screen.getByText("Przypisz");
+    expect(shortlist).toBeDisabled();
+    expect(assign).toBeDisabled();
+    fireEvent.click(shortlist);
+    fireEvent.click(assign);
+    expect(mocks.shortlistAdd).not.toHaveBeenCalled();
+    expect(mocks.assignToJob).not.toHaveBeenCalled();
+  });
+
   it("primary action adds the candidate to the shortlist, not the pipeline", async () => {
     mocks.forJob.mockResolvedValue({
       data: {

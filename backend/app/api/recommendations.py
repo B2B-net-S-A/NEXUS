@@ -384,7 +384,8 @@ async def _recommend_candidates_core(
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
     from app.services.dealbreaker_filters import DealbreakerResult
 
-    dealbreakers = DealbreakerResult()
+    hidden_meta = DealbreakerResult().hidden_meta()
+    eligibility_filtered = 0
 
     def _meta() -> dict:
         # Retrieval or exact measurement was incomplete. Individual unknown
@@ -393,7 +394,8 @@ async def _recommend_candidates_core(
             "mode": "degraded_semantic" if semantic_degraded else "dense",
             "degraded": semantic_degraded,
             "reason": "semantic_unavailable" if semantic_degraded else None,
-            "hidden": dealbreakers.hidden_meta(),
+            "hidden": hidden_meta,
+            "eligibility_filtered": eligibility_filtered,
         }
 
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
@@ -464,31 +466,21 @@ async def _recommend_candidates_core(
                 "meta": _meta(),
             }
 
-    # P0-A: hard eligibility prefilter BEFORE scoring — a candidate the recruiter
-    # could not assign (global blacklist / active client blacklist·NDA·competitor
-    # / a standing hiring-manager veto) must never surface as a recommendation.
-    # Soft signals (current employment, candidate-excluded client) stay as
-    # warnings, exactly as on the assign ingress, so "recommended ⟹ assignable".
     from datetime import datetime, timezone
-
-    candidates = await filter_eligible_candidates(
-        db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
-    )
-
-    # Dealbreaker-switche: twardy sufit budżetu działa Z AUTOMATU (decyzja
-    # produktowa 19.08) — znany budżet oferty ukrywa znane stawki powyżej.
-    # Nieznany przechodzi; liczniki idą do meta.hidden, żeby ukrywanie nigdy
-    # nie było ciche (reguła „awaria ≠ pustka"). Rubryki 0278 (must-have / dni
-    # w biurze / miasto) rozwiązane RAZ przez `dealbreaker_inputs_for_job` —
-    # ta sama funkcja, której używa `/ai-matches` i snapshot handoffu, więc
-    # wszystkie powierzchnie liczą te trzy rubryki identycznie.
-    from app.services.dealbreaker_filters import (
-        apply_dealbreakers,
-    )
+    from app.api.matching import _gate_and_dealbreakers
     from app.services.requirement_contract import search_dealbreaker_inputs
 
-    dealbreakers = apply_dealbreakers(
+    (
         candidates,
+        eligibility_annotations,
+        hidden_meta,
+        eligibility_filtered,
+        _,
+    ) = await _gate_and_dealbreakers(
+        db,
+        job=job,
+        ordered=candidates,
+        now=datetime.now(timezone.utc),
         inputs=search_dealbreaker_inputs(
             job, exclude_missing_must=exclude_missing_must
         ),
@@ -498,7 +490,6 @@ async def _recommend_candidates_core(
         exclude_office_days_exceeded=exclude_office_days_exceeded,
         exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
-    candidates = dealbreakers.kept
 
     if not candidates:
         return {
@@ -568,6 +559,7 @@ async def _recommend_candidates_core(
             },
             "total_score": fits_by_id[b.candidate_id].fit_score,
             "measurement": fits_by_id[b.candidate_id].measurement,
+            "eligibility": eligibility_annotations.get(b.candidate_id),
         }
         if include_breakdown and fits_by_id[b.candidate_id].fit_score is not None:
             match["breakdown"] = _score_breakdown_payload(

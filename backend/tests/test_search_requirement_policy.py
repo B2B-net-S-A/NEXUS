@@ -64,3 +64,62 @@ def test_review_does_not_disable_known_budget_exclusion():
     result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(job()))
     assert not result.kept
     assert result.hidden_over_budget == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exclude_over_budget", [True, False])
+async def test_shared_visibility_preserves_block_reason_and_filter_override(
+    monkeypatch, exclude_over_budget
+):
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+    from app.api import matching
+    from app.services.candidate_job_eligibility import (
+        EligibilityInput,
+        evaluate_eligibility,
+    )
+
+    now = datetime.now(timezone.utc)
+    candidates = [
+        SimpleNamespace(
+            id=i,
+            skills=["Python"],
+            expected_rate_hourly=150,
+            expected_rate_currency="PLN",
+        )
+        for i in [1, 2, 3]
+    ]
+    decisions = {
+        1: evaluate_eligibility(
+            EligibilityInput(
+                candidate_status="active", rejected_by_hiring_manager=True
+            ),
+            now=now,
+        ),
+        2: evaluate_eligibility(
+            EligibilityInput(candidate_status="blacklisted"), now=now
+        ),
+        3: evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now),
+    }
+    monkeypatch.setattr(
+        matching, "evaluate_candidates_for_job", AsyncMock(return_value=decisions)
+    )
+    (
+        kept,
+        annotations,
+        hidden,
+        eligibility_filtered,
+        _,
+    ) = await matching._gate_and_dealbreakers(
+        None,
+        job=job(),
+        ordered=candidates,
+        now=now,
+        inputs=search_dealbreaker_inputs(job()),
+        exclude_over_budget=exclude_over_budget,
+    )
+    assert [c.id for c in kept] == ([1] if exclude_over_budget else [1, 3])
+    assert annotations[1]["assignment_allowed"] is False
+    assert annotations[1]["reason"] == decisions[1].reason
+    assert eligibility_filtered == 1
+    assert hidden["over_budget"] == int(exclude_over_budget)

@@ -837,6 +837,11 @@ export function SuggestedCandidatesWidget({
                     )}
                     {m.breakdown && <ScoreBreakdownTooltip breakdown={m.breakdown} compact />}
                   </div>
+                  {m.eligibility && (
+                    <span className="text-xs text-amber-700 dark:text-amber-300" data-testid={`eligibility-${cand.id}`}>
+                      {m.eligibility.reason}
+                    </span>
+                  )}
                   {isAssigned ? (
                     <span className="text-[11px] text-emerald-600 font-medium">✓ Przypisany</span>
                   ) : isShortlisted ? (
@@ -851,7 +856,7 @@ export function SuggestedCandidatesWidget({
                           the secondary, heavier action. */}
                       <button
                         onClick={() => handleShortlist(cand.id)}
-                        disabled={shortlisting === cand.id}
+                        disabled={shortlisting === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
                         title="Dodaj do shortlisty do oceny"
                       >
@@ -864,7 +869,7 @@ export function SuggestedCandidatesWidget({
                       </button>
                       <button
                         onClick={() => handleAssign(cand.id)}
-                        disabled={assigning === cand.id}
+                        disabled={assigning === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
                         title="Dodaj bezpośrednio do procesu rekrutacji"
                       >

@@ -83,9 +83,16 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
         api, "fetch_historical_boost_map", AsyncMock(return_value={1: 8})
     )
     monkeypatch.setattr(
-        api,
-        "filter_eligible_candidates",
-        AsyncMock(return_value=candidates),
+        "app.api.matching._gate_and_dealbreakers",
+        AsyncMock(
+            return_value=(
+                candidates,
+                {1: {"assignment_allowed": False, "reason": "NDA"}},
+                {},
+                0,
+                None,
+            )
+        ),
     )
     legacy = AsyncMock(side_effect=AssertionError("legacy cache must not be touched"))
     monkeypatch.setattr(match_score_cache, "bulk_get_or_compute", legacy)
@@ -120,6 +127,7 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
     assert result["meta"]["degraded"]
     assert result["location_filter"] is None
     legacy.assert_not_called()
+    assert result["matches"][0]["eligibility"]["assignment_allowed"] is False
 
 
 def test_snapshot_hydration_preserves_unknown_score():

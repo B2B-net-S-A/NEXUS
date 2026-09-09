@@ -278,6 +278,11 @@ async def _gate_and_dealbreakers(
     ordered: list[Candidate],
     now: datetime,
     inputs: DealbreakerInputs | None = None,
+    exclude_over_budget: bool = True,
+    exclude_remote_only: bool | None = None,
+    exclude_missing_must: bool = True,
+    exclude_office_days_exceeded: bool = True,
+    exclude_office_city_mismatch: bool = True,
 ) -> tuple[list[Candidate], dict[int, dict], dict, int, DealbreakerInputs]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
@@ -365,8 +370,15 @@ async def _gate_and_dealbreakers(
     db_res = apply_dealbreakers(
         dealbreakable,
         inputs=inputs,
-        exclude_over_budget=True,
-        exclude_remote_only=bool(inputs.wants_office),
+        exclude_over_budget=exclude_over_budget,
+        exclude_remote_only=(
+            bool(inputs.wants_office)
+            if exclude_remote_only is None
+            else exclude_remote_only
+        ),
+        exclude_missing_must=exclude_missing_must,
+        exclude_office_days_exceeded=exclude_office_days_exceeded,
+        exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
     kept_dealbreakable_ids = {c.id for c in db_res.kept}
     # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,
