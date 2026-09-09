@@ -1,3 +1,4 @@
+import { withCvGenerationRequest } from "./cv-generation-request";
 /**
  * Reguły CV per klient — typy i wywołania API współdzielone przez edytor
  * (`components/cv-rules/*`), ekran `/settings/cv-rules`, baner w generatorze
@@ -284,7 +285,7 @@ export const cvRulesApi = {
     clientId: number,
     body: { candidate_id: number; stage_id: number; cv_document_id?: number; language: CvRuleLanguage },
   ) =>
-    (await api.post<RulePreview>(`/api/clients/${clientId}/cv-rule/preview`, body))
+    (await withCvGenerationRequest(`/api/clients/${clientId}/cv-rule/preview`, body, key => api.post<RulePreview>(`/api/clients/${clientId}/cv-rule/preview`, body, { headers: { "Idempotency-Key": key } })))
       .data,
   getPreview: async (clientId: number, previewId: number) =>
     (

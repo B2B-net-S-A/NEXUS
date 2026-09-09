@@ -17,6 +17,9 @@ class CvGenerationRequest(Base, TimestampMixin):
     )
     request_key: Mapped[str] = mapped_column(String(36), nullable=False)
     request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview_id: Mapped[int | None] = mapped_column(
+        ForeignKey("client_cv_rule_previews.id", ondelete="SET NULL"), nullable=True
+    )
     generated_id: Mapped[int | None] = mapped_column(
         ForeignKey("cv_generated_documents.id", ondelete="SET NULL"), nullable=True
     )

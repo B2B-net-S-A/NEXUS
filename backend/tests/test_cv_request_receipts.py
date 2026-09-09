@@ -63,3 +63,31 @@ def test_request_digest_is_order_independent_and_kind_sensitive():
         "new", {"b": 2, "a": 1}
     )
     assert request_digest("new", {}) != request_digest("upload", {})
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+async def test_preview_retry_uses_preview_record_not_generated_document(deleted):
+    from app.models.client_cv_rule_preview import ClientCvRulePreview
+
+    existing = SimpleNamespace(
+        request_sha256=request_digest("preview", {"client_id": 3}),
+        preview_id=None if deleted else 17,
+        generated_id=999,
+    )
+    preview = SimpleNamespace(id=17)
+    db = SimpleNamespace(
+        execute=AsyncMock(),
+        scalar=AsyncMock(return_value=existing),
+        get=AsyncMock(return_value=preview),
+    )
+    if deleted:
+        with pytest.raises(HTTPException) as exc:
+            await reserve_request(db, 9, str(uuid4()), "preview", {"client_id": 3})
+        assert exc.value.status_code == 410
+        db.get.assert_not_awaited()
+    else:
+        _, replay = await reserve_request(
+            db, 9, str(uuid4()), "preview", {"client_id": 3}
+        )
+        assert replay is preview
+        db.get.assert_awaited_once_with(ClientCvRulePreview, 17)

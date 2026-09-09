@@ -33,9 +33,17 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func, select
@@ -1588,6 +1596,7 @@ async def enqueue_client_cv_rule_preview(
     current_user: DeliverySectionUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> PreviewRead:
     """CV próbne: wybrany kandydat i rekrutacja u tego klienta, z regułą i bez.
 
@@ -1616,6 +1625,18 @@ async def enqueue_client_cv_rule_preview(
             status_code=422,
             detail="Wybrana rekrutacja należy do innego klienta niż ta reguła.",
         )
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        idempotency_key,
+        "preview",
+        {"client_id": client_id, **payload.model_dump(mode="json")},
+    )
+    if previous is not None:
+        await db.commit()
+        return _preview_read(previous, durable=True)
     await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
     await db.refresh(client)
     rule = await _rule_for(db, client_id)
@@ -1726,6 +1747,8 @@ async def enqueue_client_cv_rule_preview(
             source=source,
         ),
     )
+    if receipt is not None:
+        receipt.preview_id = row.id
     await db.commit()
     await db.refresh(row)
     background_tasks.add_task(execute_job, durable_id)

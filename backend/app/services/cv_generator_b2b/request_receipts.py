@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 from app.models.cv_generation_request import CvGenerationRequest
 from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.client_cv_rule_preview import ClientCvRulePreview
 
 
 def request_digest(kind, payload):
@@ -49,11 +50,9 @@ async def reserve_request(db, user_id, key, kind, payload):
                 409,
                 "Identyfikator ponowienia dotyczy innych danych. Rozpocznij nową generację.",
             )
-        generated = (
-            await db.get(CvGeneratedDocument, receipt.generated_id)
-            if receipt.generated_id
-            else None
-        )
+        target_id = receipt.preview_id if kind == "preview" else receipt.generated_id
+        target_model = ClientCvRulePreview if kind == "preview" else CvGeneratedDocument
+        generated = await db.get(target_model, target_id) if target_id else None
         if generated is None:
             raise HTTPException(
                 410, "Wynik tej generacji został usunięty. Rozpocznij nową generację."

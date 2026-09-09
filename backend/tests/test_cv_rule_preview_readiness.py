@@ -1,8 +1,11 @@
 from dataclasses import replace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from fastapi import BackgroundTasks
 
 from app.api import client_cv_rules as api
 from app.services.cv_generator_b2b.standalone_service import RecruitmentReadiness
@@ -17,6 +20,44 @@ READY = RecruitmentReadiness(
     has_cv=True,
     has_notes=False,
 )
+
+
+async def test_preview_replay_returns_before_source_quota_and_enqueue(monkeypatch):
+    from app.services.cv_generator_b2b import request_receipts
+
+    db = AsyncMock()
+    db.execute.return_value = Mock(first=Mock(return_value=(3, 4)))
+    monkeypatch.setattr(
+        api, "_client_or_404", AsyncMock(return_value=SimpleNamespace(id=3))
+    )
+    access = AsyncMock()
+    monkeypatch.setattr(api, "_require_client_rule_access", access)
+    preview = SimpleNamespace(id=17)
+    reserve = AsyncMock(return_value=(Mock(), preview))
+    monkeypatch.setattr(request_receipts, "reserve_request", reserve)
+    monkeypatch.setattr(api, "_preview_read", Mock(return_value={"id": 17}))
+    source = AsyncMock(side_effect=AssertionError("retry must not reload source"))
+    charge = AsyncMock(side_effect=AssertionError("retry must not charge"))
+    monkeypatch.setattr(api, "load_candidate_generation_source", source)
+    monkeypatch.setattr(api, "check_and_increment", charge)
+    background = BackgroundTasks()
+    key = str(uuid4())
+    result = await api.enqueue_client_cv_rule_preview(
+        3,
+        api.PreviewRequest(candidate_id=4, stage_id=1, cv_document_id=9, language="pl"),
+        SimpleNamespace(id=7),
+        background,
+        db,
+        idempotency_key=key,
+    )
+    assert result == {"id": 17}
+    access.assert_awaited_once()
+    assert reserve.call_args.args[2:4] == (key, "preview")
+    assert reserve.call_args.args[4]["client_id"] == 3
+    source.assert_not_awaited()
+    charge.assert_not_awaited()
+    assert background.tasks == []
+    db.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
