@@ -173,6 +173,7 @@ async def search_results(
             "run_id": run.id,
             "state": run.state,
             "counts": counts,
+            "metrics": run.metrics or {},
             "results": [],
             "versions": run.version_trace,
         }
@@ -291,6 +292,7 @@ async def search_results(
         "run_id": run.id,
         "state": run.state,
         "counts": counts,
+        "metrics": run.metrics or {},
         "results": results,
         "budget_hourly": resolve_job_budget_hourly(job),
         "total_after_threshold": total,

@@ -135,6 +135,7 @@ async def save_batch(
     evaluations: list[CandidateEvaluation],
     *,
     error_code: str | None = None,
+    metrics: dict | None = None,
 ):
     run = await _locked_run(db, run_id, token)
     expected = {item.candidate_id: item.version for item in batch}
@@ -169,6 +170,15 @@ async def save_batch(
     run.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=120)
     if error_code:
         run.error_code = error_code[:100]
+    if metrics is not None:
+        run.metrics = metrics
+    await db.flush()
+
+
+async def save_metrics(db, run_id: str, token: str, metrics: dict):
+    run = await _locked_run(db, run_id, token)
+    run.metrics = metrics
+    run.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=300)
     await db.flush()
 
 
@@ -223,6 +233,12 @@ async def finish_run(db, run_id: str, token: str):
         "partial" if counts["failed"] or counts["needs_verification"] else "complete"
     )
     run.completed_at = datetime.now(timezone.utc)
+    run.metrics = {
+        **(run.metrics or {}),
+        "elapsed_ms": max(
+            0.0, (run.completed_at - run.created_at).total_seconds() * 1000
+        ),
+    }
     run.lease_token = None
     run.lease_expires_at = None
     await db.flush()

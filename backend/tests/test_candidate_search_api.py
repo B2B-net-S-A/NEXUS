@@ -57,6 +57,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         request_fingerprint=context.fingerprint,
         version_trace=context.versions,
         state="complete",
+        metrics={"cost_complete": False},
     )
     counts = dict(
         population=1,

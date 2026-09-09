@@ -44,6 +44,9 @@ async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
             token = await store.claim_run(db, run.id)
             assert token
             assert await store.claim_run(db, run.id) is None
+            await store.save_metrics(db, run.id, token, {"attempts": 1})
+            await db.refresh(run)
+            assert run.metrics == {"attempts": 1}
             with pytest.raises(ValueError, match="unaccounted"):
                 await store.finish_run(db, run.id, token)
             while batch := await store.pending_batch(db, run.id, limit=1000):
@@ -64,11 +67,14 @@ async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
                         )
                         for item in batch
                     ],
+                    metrics={"attempts": 1, "cost_complete": False},
                 )
             counts = await store.finish_run(db, run.id, token)
             assert counts["evaluated"] == run.population_size
             assert counts["needs_verification"] == 1
             assert run.state == "partial"
+            assert run.metrics["elapsed_ms"] >= 0
+            assert run.metrics["cost_complete"] is False
             rows, total = await store.result_page(db, run.id, min_score=90)
             assert total == 1 and rows[0].candidate_id == cand.id
             cand.name = "Updated"
@@ -112,6 +118,8 @@ async def test_expired_worker_cannot_finalize_after_another_claim():
             assert old_token and new_token and old_token != new_token
             with pytest.raises(store.SearchLeaseLost):
                 await store.finish_run(db, run.id, old_token)
+            with pytest.raises(store.SearchLeaseLost):
+                await store.save_metrics(db, run.id, old_token, {"attempts": 99})
         finally:
             await db.rollback()
 

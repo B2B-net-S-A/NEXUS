@@ -43,6 +43,13 @@ export interface CandidateSearchRow {
 export interface CandidateSearchPage {
   run_id: string;
   state: SearchState;
+  metrics?: {
+    elapsed_ms?: number;
+    estimated_cost_usd?: number | null;
+    known_cost_usd?: number;
+    cost_complete?: boolean;
+    accounting_complete?: boolean;
+  };
   counts: {
     population: number;
     pending: number;

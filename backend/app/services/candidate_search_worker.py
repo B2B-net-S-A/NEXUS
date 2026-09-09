@@ -12,6 +12,7 @@ from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
 from app.services.full_search_measurement import measure_candidates, request_vector
 from app.services.request_matching_context import RequestMatchingContext
+from app.services.search_telemetry import SearchTelemetry, stage
 
 
 async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
@@ -29,7 +30,8 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     )
     from app.services.scoring_service import score_candidate_job
 
-    candidates = await load_snapshot_batch(db, batch)
+    with stage("sql_load"):
+        candidates = await load_snapshot_batch(db, batch)
     target = request.as_job()
     criteria = requirements_for_job(target)
     inputs = dealbreaker_inputs_for_job(target)
@@ -37,15 +39,20 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
     # permits exclusion on absent skill evidence; other hard gates still apply.
     if criteria.missing_evidence_policy != "exclude":
         inputs = replace(inputs, must_skills=())
-    kept, annotations, _, _, _ = await _gate_and_dealbreakers(
-        db,
-        job=target,
-        ordered=list(candidates.values()),
-        now=datetime.now(timezone.utc),
-        inputs=inputs,
-    )
+    with stage("eligibility"):
+        kept, annotations, _, _, _ = await _gate_and_dealbreakers(
+            db,
+            job=target,
+            ordered=list(candidates.values()),
+            now=datetime.now(timezone.utc),
+            inputs=inputs,
+        )
     visible = {candidate.id for candidate in kept}
-    measurements = await measure_candidates(vector, kept)
+    with stage("retrieval") as outcome:
+        measurements = await measure_candidates(vector, kept)
+        outcome["failed"] = any(
+            m.status == "unavailable" for m in measurements.values()
+        )
     versions = {item.candidate_id: item.version for item in batch}
     results = []
     for cid, candidate in candidates.items():
@@ -62,15 +69,16 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
             )
             continue
         measurement = measurements[cid]
-        breakdown = await score_candidate_job(
-            candidate,
-            target,
-            db,
-            semantic_similarity=measurement.score,
-            semantic_unavailable=measurement.status != "measured",
-            profile=request.profile(),
-            base_fit=True,
-        )
+        with stage("scoring"):
+            breakdown = await score_candidate_job(
+                candidate,
+                target,
+                db,
+                semantic_similarity=measurement.score,
+                semantic_unavailable=measurement.status != "measured",
+                profile=request.profile(),
+                base_fit=True,
+            )
         requirements = evaluate_requirements(criteria, candidate)
         results.append(
             CandidateEvaluation(
@@ -112,7 +120,22 @@ async def execute_run(run_id: str):
             return
         run = await db.get(CandidateSearchRun, run_id)
         request = RequestMatchingContext(**run.request_context)
-    vector = await request_vector(request.query_text)
+        telemetry = SearchTelemetry(run.metrics)
+        telemetry.begin_attempt()
+        await store.save_metrics(db, run_id, token, telemetry.snapshot())
+        await db.commit()
+    with telemetry.activate(), stage("query_embedding") as outcome:
+        try:
+            vector = await request_vector(request.query_text)
+            outcome["failed"] = vector is None
+        except Exception:
+            # Account for the population as unknown instead of retrying a
+            # permanently invalid query forever at each lease expiry.
+            outcome["failed"] = True
+            vector = None
+    async with AsyncSessionLocal() as db:
+        await store.save_metrics(db, run_id, token, telemetry.snapshot())
+        await db.commit()
     while True:
         async with AsyncSessionLocal() as db:
             batch = await store.pending_batch(db, run_id)
@@ -122,14 +145,21 @@ async def execute_run(run_id: str):
                 return
             error_code = None
             try:
-                evaluations = await evaluate_batch(db, request, batch, vector)
+                with telemetry.activate(), stage("batch"):
+                    evaluations = await evaluate_batch(db, request, batch, vector)
             except Exception as exc:
                 # Do not persist provider text or candidate data in errors.
                 await db.rollback()
                 evaluations = []
                 error_code = type(exc).__name__
             await store.save_batch(
-                db, run_id, token, batch, evaluations, error_code=error_code
+                db,
+                run_id,
+                token,
+                batch,
+                evaluations,
+                error_code=error_code,
+                metrics=telemetry.snapshot(),
             )
             await db.commit()
         await asyncio.sleep(0)  # yield between bounded CPU/SQL batches

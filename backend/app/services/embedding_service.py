@@ -251,12 +251,16 @@ async def _voyage_embed_batch(
     # exactly where a silent Voyage outage stops producing vectors while every
     # read path still looks fine because it is serving what was already indexed.
     from app.services.ai_health import record_provider_call
+    from app.services.search_telemetry import record_embedding_attempt
 
     started = time.monotonic()
     failed = True
     attempts = max(1, int(getattr(settings, "VOYAGE_MAX_ATTEMPTS", 3)))
     try:
         for attempt in range(1, attempts + 1):
+            attempt_started = time.monotonic()
+            attempt_failed = True
+            usage_tokens = None
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
@@ -274,7 +278,9 @@ async def _voyage_embed_batch(
                         },
                     )
                     response.raise_for_status()
-                    data = response.json().get("data") or []
+                    body = response.json()
+                    usage_tokens = (body.get("usage") or {}).get("total_tokens")
+                    data = body.get("data") or []
                     # Voyage returns items with `index` field; reorder to input order.
                     by_idx = {
                         int(item["index"]): item["embedding"]
@@ -282,6 +288,7 @@ async def _voyage_embed_batch(
                         if "embedding" in item
                     }
                     failed = False
+                    attempt_failed = False
                     return [by_idx.get(i) for i in range(len(texts))]
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code
@@ -299,6 +306,13 @@ async def _voyage_embed_batch(
             except Exception as e:
                 logger.warning("[Voyage] error: %s", e)
                 return None
+            finally:
+                record_embedding_attempt(
+                    model=_voyage_model(),
+                    tokens=usage_tokens,
+                    failed=attempt_failed,
+                    elapsed_ms=(time.monotonic() - attempt_started) * 1000,
+                )
             await asyncio.sleep(_VOYAGE_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
         return None
     finally:
