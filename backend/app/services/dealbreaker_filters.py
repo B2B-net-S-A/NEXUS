@@ -334,6 +334,11 @@ def is_gate_eligible_must(name: str) -> bool:
     jako umiejętności — więc bramka ukrywała KAŻDEGO, kto ma jakiekolwiek
     umiejętności, i zostawiała listę pustą.
     """
+    from app.services.requirement_contract import alternatives
+
+    options = alternatives(name or "")
+    if len(options) > 1:
+        return all(is_gate_eligible_must(option) for option in options)
     text = (name or "").strip()
     if not text or len(text) > _GATE_MAX_CHARS:
         return False
@@ -386,7 +391,9 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     must_ignored = tuple(m for m in declared_must if m not in set(must))
 
     days = getattr(job, "onsite_days_per_week", None)
-    office_location = getattr(job, "location", None)
+    office_location = getattr(job, "office_location", None) or getattr(
+        job, "location", None
+    )
 
     if bool(getattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False)):
         from app.services import champion_view
@@ -406,7 +413,11 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
 
     office_tokens = frozenset(location_tokens(office_location))
     policy = resolve_effective_remote_policy(job)
-    wants_office = bool(days and days > 0) or policy in ("onsite", "hybrid")
+    wants_office = (
+        bool(days and days > 0)
+        or policy in ("onsite", "hybrid")
+        or bool(getattr(job, "exclude_remote_only", False))
+    )
 
     return DealbreakerInputs(
         budget_hourly=budget,

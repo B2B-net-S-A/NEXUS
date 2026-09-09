@@ -269,6 +269,8 @@ def _strip_champion_payload_from_list_row(payload: dict) -> dict:
 
 # Fields that, when changed, should trigger re-embedding the job (Phase 2).
 _EMBED_TRIGGER_FIELDS = {
+    "matching_requirements",
+    "requirements_reviewed",
     "title",
     "description",
     "requirements",

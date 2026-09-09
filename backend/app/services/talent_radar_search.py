@@ -124,6 +124,7 @@ class RadarQuery:
     must_skills: Optional[list[str]] = None
     nice_skills: Optional[list[str]] = None
     requirements_reviewed: bool = False
+    matching_requirements: Optional[dict] = None
 
 
 @dataclass
@@ -248,6 +249,8 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         nice_skills=_structured_skills(query.nice_skills),
         requirements_reviewed=query.requirements_reviewed,
         location=(query.location or "").strip() or None,
+        office_location=(query.office_location or "").strip() or None,
+        exclude_remote_only=query.exclude_remote_only,
         remote_policy=None,
         # Rubryki 0278: radar nie ma kolumny `onsite_days_per_week`, ale
         # niesie ją tu POD PRZYSZŁY strażnik AST (`test_ephemeral_job_sets_
@@ -256,6 +259,7 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         # zgubi. `dealbreaker_inputs_for_radar` czyta ten sygnał wprost z
         # `RadarQuery`, nie stąd.
         onsite_days_per_week=query.onsite_days_per_week,
+        matching_requirements=query.matching_requirements,
         rate_budget_hourly=query.budget_hourly_max,
         salary_min=None,
         salary_max=None,
@@ -310,9 +314,12 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     rekruter, który wpisał wymaganą liczbę dni, nie musi PONADTO zaznaczać
     osobnego checkboxa, żeby dostać spójny wynik.
     """
-    from app.services.dealbreaker_filters import DealbreakerInputs
+    from app.services.dealbreaker_filters import (
+        DealbreakerInputs,
+        gate_eligible_must_skills,
+    )
     from app.services.location_utils import location_tokens
-    from app.services.scoring_service import canonical_skill_names
+    from app.services.scoring_service import job_explicit_must_skills
 
     days = query.onsite_days_per_week
     office_tokens = frozenset(location_tokens(query.office_location))
@@ -320,7 +327,11 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
 
     return DealbreakerInputs(
         budget_hourly=query.budget_hourly_max,
-        must_skills=tuple(canonical_skill_names(query.must_skills or [])),
+        must_skills=tuple(
+            gate_eligible_must_skills(
+                job_explicit_must_skills(build_ephemeral_job(query))
+            )
+        ),
         onsite_days_per_week=days,
         office_tokens=office_tokens,
         wants_office=wants_office,

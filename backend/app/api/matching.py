@@ -443,6 +443,11 @@ def _parse_nice_skills(job: Job) -> list[str]:
     are lowercased, deduped and capped — they drive the "Mile widziane" column
     and the dock's nice-coverage list, never the score.
     """
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)["nice"]
     raw = job.nice_skills
     if not raw:
         from app.services.scoring_service import job_skill_requirements
@@ -485,6 +490,13 @@ def _required_skills_with_source(job: Job) -> tuple[list[str], str]:
       4. wspólna interpretacja treści wymagań oferty
          → "requirements_text"
     """
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)[
+            "must"
+        ], "reviewed_requirements" if contract.reviewed else "request_interpretation"
     explicit = job_explicit_must_skills(job)
     if explicit or getattr(job, "requirements_reviewed", False):
         has_column = bool(canonical_skill_names(getattr(job, "must_skills", None)))

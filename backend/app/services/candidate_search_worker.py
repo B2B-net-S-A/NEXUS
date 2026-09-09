@@ -1,0 +1,127 @@
+"""Durable exhaustive search execution shared by saved and ad-hoc requests."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import replace
+from datetime import datetime, timezone
+
+from app.core.database import AsyncSessionLocal
+from app.models.candidate_search_run import CandidateSearchRun
+from app.services import candidate_search_store as store
+from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
+from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.request_matching_context import RequestMatchingContext
+
+
+async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
+    # Reuse the established visibility policy, including visible assignment
+    # blocks and the invariant that global blacklist remains hidden.
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+    from app.services.requirement_contract import (
+        explicit_contract,
+        stored_contract,
+        evaluate_requirements,
+    )
+    from app.services.scoring_service import job_skill_requirements, score_candidate_job
+
+    candidates = await load_snapshot_batch(db, batch)
+    target = request.as_job()
+    criteria = stored_contract(target)
+    if criteria is None:
+        labels = job_skill_requirements(target)
+        criteria = explicit_contract(
+            labels["must"], labels["nice"], reviewed=target.requirements_reviewed
+        )
+    inputs = dealbreaker_inputs_for_job(target)
+    # Missing proof is reviewable by default. Only an explicit saved policy
+    # permits exclusion on absent skill evidence; other hard gates still apply.
+    if criteria.missing_evidence_policy != "exclude":
+        inputs = replace(inputs, must_skills=())
+    kept, annotations, _, _, _ = await _gate_and_dealbreakers(
+        db,
+        job=target,
+        ordered=list(candidates.values()),
+        now=datetime.now(timezone.utc),
+        inputs=inputs,
+    )
+    visible = {candidate.id for candidate in kept}
+    measurements = await measure_candidates(vector, kept)
+    versions = {item.candidate_id: item.version for item in batch}
+    results = []
+    for cid, candidate in candidates.items():
+        if cid not in visible:
+            results.append(
+                CandidateEvaluation(
+                    cid,
+                    versions[cid],
+                    False,
+                    None,
+                    "unavailable",
+                    exclusion_reasons=("eligibility_or_filter",),
+                )
+            )
+            continue
+        measurement = measurements[cid]
+        breakdown = await score_candidate_job(
+            candidate,
+            target,
+            db,
+            semantic_similarity=measurement.score,
+            semantic_unavailable=measurement.status != "measured",
+            profile=request.profile(),
+            base_fit=True,
+        )
+        results.append(
+            CandidateEvaluation(
+                cid,
+                versions[cid],
+                True,
+                breakdown.total if measurement.status == "measured" else None,
+                measurement.status,
+                evidence={
+                    "breakdown": breakdown.as_dict(),
+                    "requirements": evaluate_requirements(criteria, candidate),
+                    "eligibility": annotations.get(cid),
+                    "brief_status": request.brief_status,
+                },
+            )
+        )
+    return results
+
+
+async def execute_run(run_id: str):
+    """Claim or resume pending IDs; committed batches survive process restarts.
+
+    A scheduler/API trigger can safely call this again after lease expiry.
+    It cannot race an active worker, or overwrite a replacement worker's rows.
+    """
+    async with AsyncSessionLocal() as db:
+        token = await store.claim_run(db, run_id, lease_seconds=300)
+        await db.commit()
+        if token is None:
+            return
+        run = await db.get(CandidateSearchRun, run_id)
+        request = RequestMatchingContext(**run.request_context)
+    vector = await request_vector(request.query_text)
+    while True:
+        async with AsyncSessionLocal() as db:
+            batch = await store.pending_batch(db, run_id)
+            if not batch:
+                await store.finish_run(db, run_id, token)
+                await db.commit()
+                return
+            error_code = None
+            try:
+                evaluations = await evaluate_batch(db, request, batch, vector)
+            except Exception as exc:
+                # Do not persist provider text or candidate data in errors.
+                await db.rollback()
+                evaluations = []
+                error_code = type(exc).__name__
+            await store.save_batch(
+                db, run_id, token, batch, evaluations, error_code=error_code
+            )
+            await db.commit()
+        await asyncio.sleep(0)  # yield between bounded CPU/SQL batches

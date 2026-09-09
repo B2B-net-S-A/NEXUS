@@ -24,12 +24,15 @@ def classify_requirements(text: str, pattern, aliases: dict) -> dict[str, list[s
     # Do not split dots inside technology names (.NET, Node.js).
     clauses = re.split(r"(?:[.!?;]\s+|\n)", text)
     section = "uncertain"
+    alternatives = []
+    singletons = {key: set() for key in buckets}
     for clause in clauses:
         if not clause.strip():
             section = "uncertain"
             continue
         markers = list(_MARKERS.finditer(clause))
         matches = list(pattern.finditer(clause))
+        occurrences = []
         for match in matches:
             before = [m for m in markers if m.end() <= match.start()]
             after = [m for m in markers if m.start() >= match.end()]
@@ -42,6 +45,27 @@ def classify_requirements(text: str, pattern, aliases: dict) -> dict[str, list[s
             name = aliases.get(match.group(1).lower())
             if name:
                 buckets[kind].add(name)
+                occurrences.append((match.start(), match.end(), name, kind))
+        groups = []
+        for occurrence in occurrences:
+            if (
+                groups
+                and occurrence[3] == groups[-1][-1][3]
+                and re.fullmatch(
+                    r"\s+(?:or|lub|albo)\s+",
+                    clause[groups[-1][-1][1] : occurrence[0]],
+                    re.IGNORECASE,
+                )
+            ):
+                groups[-1].append(occurrence)
+            else:
+                groups.append([occurrence])
+        for group in groups:
+            names = list(dict.fromkeys(item[2] for item in group))
+            if len(names) > 1:
+                alternatives.append((group[0][3], names))
+            elif names:
+                singletons[group[0][3]].add(names[0])
         # Headers apply to following bullet lines; prose sentences do not.
         if markers and (not matches or clause.rstrip().endswith(":")):
             section = markers[-1].lastgroup
@@ -54,4 +78,15 @@ def classify_requirements(text: str, pattern, aliases: dict) -> dict[str, list[s
             buckets["uncertain"].add(name)
         elif kinds:
             buckets["uncertain"].discard(name)
+    valid_alternatives = [
+        (kind, names)
+        for kind, names in alternatives
+        if all(name in buckets[kind] for name in names)
+    ]
+    for kind, names in valid_alternatives:
+        if names:
+            for name in names:
+                if name not in singletons[kind]:
+                    buckets[kind].discard(name)
+            buckets[kind].add(" lub ".join(names))
     return {key: sorted(values) for key, values in buckets.items()}

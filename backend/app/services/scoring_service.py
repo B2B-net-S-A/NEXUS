@@ -264,6 +264,7 @@ def scoring_algorithm_version() -> str:
     # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
     # `mark_stale_for_profile` (patrz docstring wyżej).
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
+    payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["default_weights"] = [
         SEMANTIC_MAX,
@@ -745,6 +746,11 @@ def job_explicit_must_skills(job) -> list[str]:
     `getattr` na wejściu: obiekt bez `must_skills` (np. atrapa testowa) daje
     pustą listę zamiast `AttributeError`.
     """
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)["must"] if contract.reviewed else []
     explicit = canonical_skill_names(getattr(job, "must_skills", None))
     if explicit or getattr(job, "requirements_reviewed", False):
         return explicit
@@ -753,6 +759,11 @@ def job_explicit_must_skills(job) -> list[str]:
 
 def job_skill_requirements(job) -> dict[str, list[str]]:
     """Shared interpretation for scoring, preview and explicit hard gates."""
+    from app.services.requirement_contract import stored_contract, requirement_labels
+
+    contract = stored_contract(job)
+    if contract is not None:
+        return requirement_labels(contract)
     must = canonical_skill_names(getattr(job, "must_skills", None))
     nice = canonical_skill_names(getattr(job, "nice_skills", None))
     if getattr(job, "requirements_reviewed", False):
@@ -805,7 +816,7 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     # A technology explicitly naming the role supplies a soft requirement.
     # It still cannot become a hard dealbreaker (job_explicit_must_skills).
     title = getattr(job, "title", None)
-    if isinstance(title, str) and title.strip():
+    if isinstance(title, str) and title.strip() and not result["must"]:
         title_skills = classify_requirements(
             "Wymagane: " + _strip_role_words(title), _alias_pattern(), ALIAS_MAP
         )["must"]
@@ -983,6 +994,14 @@ def _canon_skill(s: str) -> str:
 def skill_present(required: str, candidate_skills) -> bool:
     """True if a required skill is present among the candidate's skills, using
     exact match plus tolerant canonicalization for common name variants."""
+    from app.services.requirement_contract import alternatives
+
+    options = alternatives(required)
+    if len(options) > 1:
+        return any(
+            skill_present(ALIAS_MAP.get(option.lower(), option), candidate_skills)
+            for option in options
+        )
     if required in candidate_skills:
         return True
     req_canon = _canon_skill(required)
@@ -1007,10 +1026,10 @@ def _score_skills(
     # column; without the fallbacks every required skill showed as a gap.
     cand_skills = candidate_skill_names(candidate)
 
-    must_match = [s for s in must if s in cand_skills]
-    must_gap = [s for s in must if s not in cand_skills]
-    nice_match = [s for s in nice if s in cand_skills]
-    nice_gap = [s for s in nice if s not in cand_skills]
+    must_match = [s for s in must if skill_present(s, cand_skills)]
+    must_gap = [s for s in must if not skill_present(s, cand_skills)]
+    nice_match = [s for s in nice if skill_present(s, cand_skills)]
+    nice_gap = [s for s in nice if not skill_present(s, cand_skills)]
 
     must_max = profile.skills_must
     nice_max = profile.skills_nice
@@ -1748,6 +1767,7 @@ async def score_candidate_job(
     profile: WeightProfile = DEFAULT_PROFILE,
     context: Optional[JobScoringContext] = None,
     semantic_unavailable: bool = False,
+    base_fit: bool = False,
 ) -> ScoreBreakdown:
     """Compute the full ScoreBreakdown for one (candidate, job) pair."""
     import time as _time
@@ -1762,10 +1782,16 @@ async def score_candidate_job(
     salary = _score_salary(candidate, job, profile)
     location = _score_location(candidate, job, profile)
     availability = _score_availability(candidate, job, profile)
-    champion_fit = await _score_champion_fit(
-        candidate, job, db, profile, context=context
+    champion_fit = (
+        LayerResult(
+            points=0, max_points=0, reason="screening oceniany osobno", scored=False
+        )
+        if base_fit
+        else await _score_champion_fit(candidate, job, db, profile, context=context)
     )
-    penalties = await _check_penalties(candidate, job, db, context=context)
+    penalties = (
+        [] if base_fit else await _check_penalties(candidate, job, db, context=context)
+    )
 
     layers = (semantic, skills, salary, location, availability, champion_fit)
     if penalties:

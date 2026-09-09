@@ -613,6 +613,8 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
                         # w indeksie to czysty koszt przy RODO-erasure.
                         payload={
                             "candidate_id": candidate_id,
+                            "content_hash": hashlib.sha256(text.encode()).hexdigest(),
+                            "embedding_model": _voyage_model(),
                             "competence_category": candidate.competence_category or "",
                         },
                     )
