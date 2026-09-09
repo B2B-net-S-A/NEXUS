@@ -30,3 +30,30 @@ async def test_download_uses_exact_stored_bytes_without_rerender(monkeypatch, ca
             await api.download_generated_cv(11, object(), AsyncMock())
         assert error.value.status_code == 409
     render.assert_not_called()
+
+
+async def test_finalized_docx_includes_consent_before_being_archived(monkeypatch):
+    row = SimpleNamespace(job_id=None)
+    db = AsyncMock()
+    db.get.return_value = row
+    result = SimpleNamespace(
+        docx_bytes=b"without-consent",
+        render_payload={"name": "Synthetic"},
+        candidate_name="Synthetic",
+        job_id=None,
+        filename="cv.docx",
+        warnings=[],
+    )
+    render = Mock(return_value=b"with-consent")
+    monkeypatch.setattr(api, "rerender_docx_from_payload", render)
+    consent = {"storage_key": "synthetic-consent"}
+    assert await api._finalize_success(
+        db, 11, result=result, consent_screenshot=consent
+    )
+    assert render.call_args.args[0]["consent_screenshot"] == consent
+    assert row.docx_content == b"with-consent"
+    assert row.docx_sha256 == hashlib.sha256(b"with-consent").hexdigest()
+    assert (
+        row.render_payload["artifact_provenance"]["generated_docx_sha256"]
+        == row.docx_sha256
+    )

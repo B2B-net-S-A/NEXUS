@@ -98,6 +98,7 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
 async def test_upload_finalize_retains_authorized_context():
     row = SimpleNamespace(job_id=4, candidate_id=2, client_id=5)
     result = SimpleNamespace(
+        docx_bytes=b"synthetic-docx",
         render_payload={"name": "Synthetic"},
         candidate_name="Synthetic",
         job_id=None,

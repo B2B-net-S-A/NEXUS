@@ -398,8 +398,17 @@ async def _finalize_success(
     if consent_screenshot and isinstance(result.render_payload, dict):
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
-    row.docx_content = result.docx_bytes
-    row.docx_sha256 = hashlib.sha256(result.docx_bytes).hexdigest()
+    final_docx = result.docx_bytes
+    if consent_screenshot:
+        final_docx = await run_in_threadpool(
+            rerender_docx_from_payload, result.render_payload
+        )
+    row.docx_content = final_docx
+    row.docx_sha256 = hashlib.sha256(final_docx).hexdigest()
+    if isinstance(row.render_payload, dict):
+        provenance = dict(row.render_payload.get("artifact_provenance") or {})
+        provenance["generated_docx_sha256"] = row.docx_sha256
+        row.render_payload = {**row.render_payload, "artifact_provenance": provenance}
     row.warnings = list(result.warnings or [])
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
     # powstało CV, na które klient się skarży".
@@ -1753,6 +1762,8 @@ async def list_generated_cvs(
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
+    from sqlalchemy.orm import defer
+
     rows = (
         await db.execute(
             select(
@@ -1770,6 +1781,7 @@ async def list_generated_cvs(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
             )
+            .options(defer(CvGeneratedDocument.docx_content))
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
             .where(*filters)

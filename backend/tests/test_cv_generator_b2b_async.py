@@ -43,6 +43,7 @@ def _pending_row() -> SimpleNamespace:
 async def test_finalize_success_flips_processing_row_to_ready():
     row = _pending_row()
     result = SimpleNamespace(
+        docx_bytes=b"synthetic-docx",
         candidate_name="Rafał Pogorzelski",
         render_payload={"name": "Rafał Pogorzelski", "position": "DevOps Engineer"},
         job_id=42,
@@ -58,7 +59,10 @@ async def test_finalize_success_flips_processing_row_to_ready():
     assert row.position == "DevOps Engineer"
     assert row.job_id == 42
     assert row.filename == "CV_B2B_Rafal_Pogorzelski.docx"
-    assert row.render_payload == result.render_payload
+    assert all(
+        row.render_payload[key] == value for key, value in result.render_payload.items()
+    )
+    assert row.docx_content == result.docx_bytes
     assert row.warnings == ["WERYFIKUJ: technologia 'Ansible' nie występuje w CV"]
     assert row.error_message is None
 
@@ -70,6 +74,7 @@ async def test_finalize_success_uses_real_name_from_payload_for_blind_cv():
     # (the DOCX itself remains anonymized on re-render).
     row = _pending_row()
     result = SimpleNamespace(
+        docx_bytes=b"synthetic-docx",
         candidate_name="Kandydat",
         render_payload={"name": "Małgorzata Żółć"},
         job_id=None,
@@ -102,6 +107,7 @@ async def test_finalizers_noop_when_row_deleted_midflight():
     # finalizers must no-op (return / do nothing) rather than raise.
     empty_db = _FakeDB(None)
     result = SimpleNamespace(
+        docx_bytes=b"synthetic-docx",
         candidate_name="X",
         render_payload={},
         job_id=None,
