@@ -343,9 +343,13 @@ describe("CV upload context and server history", () => {
       return {data: cursor ? [row(50)] : Array.from({length:60},(_,i)=>row(200-i))};
     });
     renderPage({embedded:true,prefillCandidateId:2,prefillJobId:40});
-    fireEvent.click(await screen.findByRole("button", {name:"Pokaż starsze CV"}));
+    // The 60-row page includes hundreds of controls. Text lookup avoids
+    // repeated JSDOM visibility calculations while waiting for the query.
+    const next = (await screen.findByText("Pokaż starsze CV")).closest("button");
+    expect(next).not.toBeNull();
+    fireEvent.click(next!);
     expect(await screen.findByText("Document 50")).toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith("/api/cv-generator/generated", {params:{candidate_id:2,job_id:40,before_id:141,limit:60}});
-    expect(screen.queryByRole("button",{name:"Pokaż starsze CV"})).not.toBeInTheDocument();
+    expect(screen.queryByText("Pokaż starsze CV")).not.toBeInTheDocument();
   });
 });
