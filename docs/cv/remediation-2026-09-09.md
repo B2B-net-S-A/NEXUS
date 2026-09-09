@@ -80,3 +80,11 @@ false rejection rate need actual-model evaluation before production acceptance.
 Contract tests with controlled verdicts prove gate enforcement, not the model's
 ability to classify hallucinations. Source-grounded extraction, role-specific
 fact provenance, safe aliases and frozen source artifacts remain required.
+
+
+The versioned `app/data/cv_quality/factual_gate_v1.json` contains 40 synthetic
+verifier diagnostics (20 positive/20 negative, PL/EN). It is **not** the requested
+full-document corpus or a DL-approved holdout. `scripts.eval_cv_factual_gate`
+validates it offline, and its real run uses the regular master switch/quota,
+records actual provider models, token/cost evidence and separates semantic
+rejections from protocol/provider failures. Runtime execution still pending.

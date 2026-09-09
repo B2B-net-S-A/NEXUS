@@ -257,3 +257,26 @@ def test_summary_prompts_do_not_require_fabrication_prone_template():
             assert "earliest start to the latest date" not in prompt
             assert "od najwcześniejszego startu do ostatniej daty" not in prompt
             assert "2–4" in prompt
+
+
+def test_invalid_evidence_is_not_counted_as_a_correct_semantic_rejection(monkeypatch):
+    monkeypatch.setattr(
+        gate,
+        "analyze_with_ai",
+        lambda content, *a, **k: json.dumps(review_response(content, evidence=[])),
+    )
+    with pytest.raises(gate.FactualVerificationError) as caught:
+        run_gate()
+    assert caught.value.reason == "invalid_evidence"
+
+
+def test_versioned_diagnostic_corpus_and_scoring_distinguish_errors():
+    from scripts.eval_cv_factual_gate import load_cases, score
+
+    cases, fingerprint = load_cases()
+    assert len(cases) == 40 and len(fingerprint) == 64
+    assert score(True, "accepted")
+    assert score(False, "semantic_rejection")
+    for broken in ("provider_error", "invalid_review", "invalid_evidence"):
+        assert not score(False, broken)
+        assert not score(True, broken)

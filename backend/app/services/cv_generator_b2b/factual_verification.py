@@ -74,8 +74,11 @@ class ReviewBatch(BaseModel):
 class FactualVerificationError(ValueError):
     """Do not include source content/model output in exception logs."""
 
-    def __init__(self, paths: list[str] | None = None):
+    def __init__(
+        self, paths: list[str] | None = None, *, reason: str = "invalid_review"
+    ):
         self.paths = paths or []
+        self.reason = reason
         super().__init__("CV source verification did not pass")
 
 
@@ -156,9 +159,13 @@ def verify_final_cv(
         if len(set(paths)) != len(paths) or set(paths) != set(batch):
             raise FactualVerificationError()
         rejected = []
+        invalid_evidence = []
         for item in reviewed.claims:
-            if item.status != "supported" or not item.evidence:
+            if item.status != "supported":
                 rejected.append(item.path)
+                continue
+            if not item.evidence:
+                invalid_evidence.append(item.path)
                 continue
             citations = []
             for evidence in item.evidence:
@@ -172,7 +179,7 @@ def verify_final_cv(
                         and item.path not in {"/name", "/first_name"}
                     )
                 ):
-                    rejected.append(item.path)
+                    invalid_evidence.append(item.path)
                     break
                 citations.append(
                     {
@@ -183,8 +190,10 @@ def verify_final_cv(
                     }
                 )
             reviews.append({"path": item.path, "evidence": citations})
+        if invalid_evidence:
+            raise FactualVerificationError(invalid_evidence, reason="invalid_evidence")
         if rejected:
-            raise FactualVerificationError(rejected)
+            raise FactualVerificationError(rejected, reason="semantic_rejection")
     serialized = json.dumps(projection, sort_keys=True, ensure_ascii=False)
     return {
         "status": "verified",
