@@ -306,7 +306,12 @@ def _build_branded_response(
     finalized_by_name: Optional[str] = None,
     rendered_from_default: bool = False,
 ) -> CVBrandedResponse:
+    from app.services.cv_editor_rules import editor_rule_feedback
+
     return CVBrandedResponse(
+        presentation_review=editor_rule_feedback(
+            csv.branded_draft_html, csv.branded_render_metadata
+        ),
         candidate_stage_id=csv.candidate_stage_id,
         generated_document_id=csv.generated_document_id,
         from_generator=bool(csv.branded_from_generator),

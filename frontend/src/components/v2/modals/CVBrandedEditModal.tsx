@@ -113,7 +113,7 @@ function CVBrandedEditContent({
      state.status === "finalized", {
        save: (html, revision) => editorApi.update(stageId, {
          content_html: html, expected_revision: revision,
-       }).then((r) => r.data),
+       }).then((r) => { queryClient.setQueryData([scopeKey, stageId], r.data); return r.data; }),
        finalize: (html, revision) => editorApi.finalize(stageId, {
          content_html: html, expected_revision: revision,
        }).then((r) => r.data),
@@ -310,6 +310,14 @@ function CVBrandedEditContent({
  </div>
  </div>
 
+ {data?.presentation_review?.status === "conflict" && <p role="alert" className="px-5 py-2 text-sm text-destructive">
+ Reguły klienta dla zapisanego szkicu: {data.presentation_review.message}
+ </p>}
+ {data?.presentation_review?.status === "needs_review" && <p className="px-5 py-2 text-xs text-muted-foreground">
+ {data.presentation_review.reason === "rule_snapshot_unavailable"
+   ? "Brak potwierdzonej kopii reguł klienta dla tego CV. Sprawdź wymagania klienta przed zatwierdzeniem."
+   : "Swobodne instrukcje klienta, format dat, tłumaczenia i pogrubienia wymagają ręcznej oceny przed zatwierdzeniem. Automatyczna kontrola obejmuje skonfigurowane limity i sekcje."}
+ </p>}
  {data?.from_generator && <p className="px-5 py-2 text-xs text-muted-foreground">
  Wybrano wynik generatora {data.generated_document_id != null ? `#${data.generated_document_id}` : "(źródło usunięte)"}.
  Aby zmienić język lub szablon, wygeneruj i wybierz nowy wynik.

@@ -32,11 +32,15 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     from app.services.cv_editor_privacy import check_editor_privacy
 
     check_editor_privacy(content_html, csv.branded_render_metadata)
+    from app.services.cv_editor_rules import check_editor_rules
+
+    presentation = check_editor_rules(content_html, csv.branded_render_metadata)
     provenance = approval_provenance(content_html, csv.branded_render_metadata)
     if provenance["generation_review_covers_content"]:
         return {
             "status": "verified",
             "method": "unchanged_generation",
+            "presentation_review": presentation,
             "html_sha256": provenance["approved_editor_html_sha256"],
         }
     generated_id = csv.generated_document_id
@@ -65,7 +69,7 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
             previous.get("response_schema_sha256") == REVIEW_RESPONSE_SCHEMA_SHA256,
         )
     ):
-        return {**previous, "reused": True}
+        return {**previous, "reused": True, "presentation_review": presentation}
     try:
         async with ai_feature(db, AIFeatureKey.cv_generator, user_id=user_id):
             cv_text = await run_in_threadpool(
@@ -98,6 +102,7 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     return {
         "status": "verified",
         "method": "edited_source_review",
+        "presentation_review": presentation,
         "generated_document_id": generated_id,
         "editor_review_version": EDITOR_REVIEW_VERSION,
         "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,

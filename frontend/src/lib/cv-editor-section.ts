@@ -1,19 +1,25 @@
 import { Extension } from "@tiptap/core";
 
-/** Preserve the consent paragraph's presentation through a real editor edit. */
+const sections = new Set(["rodo", "why_points", "education", "skills", "certifications", "languages", "experience", "role"]);
+
+/** Keep structural CV markers and consent presentation through real edits. */
 export const CvEditorSection = Extension.create({
   name: "cvEditorSection",
   addGlobalAttributes() {
     return [{
-      types: ["paragraph"],
+      types: ["paragraph", "heading"],
       attributes: {
         cvSection: {
           default: null,
-          parseHTML: (element: HTMLElement) =>
-            element.dataset.cvSection === "rodo" || element.classList.contains("rodo")
-              ? "rodo" : null,
-          renderHTML: (attributes: Record<string, unknown>) => attributes.cvSection === "rodo"
-            ? { "data-cv-section": "rodo", style: "font-size: 8pt; line-height: 1.35" } : {},
+          parseHTML: (element: HTMLElement) => {
+            const value = element.dataset.cvSection;
+            return value && sections.has(value) ? value : element.classList.contains("rodo") ? "rodo" : null;
+          },
+          renderHTML: (attributes: Record<string, unknown>) => {
+            const value = attributes.cvSection;
+            if (typeof value !== "string" || !sections.has(value)) return {};
+            return value === "rodo" ? { "data-cv-section": value, style: "font-size: 8pt; line-height: 1.35" } : { "data-cv-section": value };
+          },
         },
       },
     }];

@@ -41,6 +41,7 @@ class CVBrandedSelectGenerated(BaseModel):
 
 
 class CVBrandedResponse(BaseModel):
+    presentation_review: dict | None = None
     docx_available: bool = False
     docx_filename: str | None = None
     generated_document_id: int | None = None

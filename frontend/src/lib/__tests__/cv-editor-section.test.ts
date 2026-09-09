@@ -16,3 +16,15 @@ it("keeps consent formatting and user emphasis through edits and reloads", () =>
   editor.destroy();
   reopened.destroy();
 });
+
+it("keeps section and role markers through an actual Tiptap roundtrip", () => {
+  const options = {extensions: [StarterKit, CvEditorSection]};
+  const input = '<h2 data-cv-section="experience">Doświadczenie</h2><p data-cv-section="role"><b>Engineer</b> 2020–2024</p><ul><li>Python API</li></ul>';
+  const editor = new Editor({...options, content: input});
+  const output = editor.getHTML();
+  expect(output).toContain('data-cv-section="experience"');
+  expect(output).toContain('data-cv-section="role"');
+  const reopened = new Editor({...options, content: output});
+  expect(reopened.getHTML()).toBe(output);
+  editor.destroy(); reopened.destroy();
+});

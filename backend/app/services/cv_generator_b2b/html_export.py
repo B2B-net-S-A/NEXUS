@@ -183,7 +183,9 @@ def render_interactive_html(
         bullets = "".join(
             f"<li>{_bold(w, patterns)}</li>" for w in p.get("why_points", [])
         )
-        sections.append(f"<h2>{_esc(why_title)}</h2><ul>{bullets}</ul>")
+        sections.append(
+            f'<h2 data-cv-section="why_points">{_esc(why_title)}</h2><ul>{bullets}</ul>'
+        )
 
     if p.get("education"):
         rows = "".join(
@@ -196,7 +198,9 @@ def render_interactive_html(
             )
             for e in p.get("education", [])
         )
-        sections.append(f"<h2>{_esc(t['education'])}</h2>{rows}")
+        sections.append(
+            f'<h2 data-cv-section="education">{_esc(t["education"])}</h2>{rows}'
+        )
 
     if p.get("skills"):
         rows = "".join(
@@ -212,15 +216,17 @@ def render_interactive_html(
             )
             for g in p.get("skills", [])
         )
-        sections.append(f"<h2>{_esc(t['skills'])}</h2>{rows}")
+        sections.append(f'<h2 data-cv-section="skills">{_esc(t["skills"])}</h2>{rows}')
 
     if p.get("certifications"):
         bullets = "".join(f"<li>{_esc(c)}</li>" for c in p.get("certifications", []))
-        sections.append(f"<h2>{_esc(t['certifications'])}</h2><ul>{bullets}</ul>")
+        sections.append(
+            f'<h2 data-cv-section="certifications">{_esc(t["certifications"])}</h2><ul>{bullets}</ul>'
+        )
 
     if p.get("languages"):
         sections.append(
-            f"<h2>{_esc(t['languages'])}</h2>"
+            f'<h2 data-cv-section="languages">{_esc(t["languages"])}</h2>'
             f"<p>{_esc(' · '.join(p.get('languages', [])))}</p>"
         )
 
@@ -234,8 +240,8 @@ def render_interactive_html(
             tech = ", ".join(job.get("technologies", []))
             jobs.append(
                 f'<div class="job" id="exp-{i}">'
-                f'<div class="job-head"><b>{_esc(job.get("position"))}</b> '
-                f'<span class="job-dates">{_esc(job.get("dates"))}</span></div>'
+                f'<p class="job-head" data-cv-section="role"><b>{_esc(job.get("position"))}</b> '
+                f'<span class="job-dates">{_esc(job.get("dates"))}</span></p>'
                 f'<p class="job-co">{_esc(job.get("company"))}'
                 + (f" · {_esc(job.get('industry'))}" if job.get("industry") else "")
                 + "</p>"
@@ -252,7 +258,9 @@ def render_interactive_html(
                 )
                 + "</div>"
             )
-        sections.append(f"<h2>{_esc(t['experience'])}</h2>{''.join(jobs)}")
+        sections.append(
+            f'<h2 data-cv-section="experience">{_esc(t["experience"])}</h2>{"".join(jobs)}'
+        )
 
     considered = (
         (

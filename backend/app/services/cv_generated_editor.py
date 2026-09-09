@@ -79,7 +79,12 @@ async def load_draft(db, generated):
 
 
 def state(draft):
+    from app.services.cv_editor_rules import editor_rule_feedback
+
     return {
+        "presentation_review": editor_rule_feedback(
+            draft.branded_draft_html, draft.branded_render_metadata
+        ),
         "docx_available": draft.branded_status == "finalized",
         "docx_filename": draft.branded_docx_filename,
         "updated_at": None,

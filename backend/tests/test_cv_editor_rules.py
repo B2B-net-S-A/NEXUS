@@ -1,0 +1,65 @@
+import hashlib
+import json
+import pytest
+from fastapi import HTTPException
+from app.services.cv_editor_rules import check_editor_rules
+from app.services.html_sanitizer import sanitize_cv_html
+
+HTML = '<h2 data-cv-section="why_points">Summary</h2><ul><li>A</li><li>B</li></ul><h2 data-cv-section="experience">Experience</h2><p data-cv-section="role">Engineer</p><ul><li>Python API</li><li>SQL</li></ul><p data-cv-section="role">Developer</p><ul><li>Java</li></ul>'
+
+
+def metadata(rule):
+    return {
+        "client_rule_snapshot_status": "verified",
+        "client_rule_snapshot": rule,
+        "client_rule_snapshot_sha256": hashlib.sha256(
+            json.dumps(
+                rule, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest(),
+    }
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"max_roles": 1},
+        {"max_bullets_per_role": 1},
+        {"max_bullet_chars": 3},
+        {"why_points_max": 1},
+        {"omit_sections": ["experience"]},
+    ],
+)
+def test_client_limits_reject_edited_document(rule):
+    with pytest.raises(HTTPException) as exc:
+        check_editor_rules(sanitize_cv_html(HTML), metadata(rule))
+    assert exc.value.status_code == 422
+
+
+def test_supported_limits_pass_without_certifying_free_text():
+    rule = {
+        "max_roles": 2,
+        "max_bullets_per_role": 2,
+        "max_bullet_chars": 20,
+        "why_points_max": 2,
+        "generator_instructions": "Private preference",
+    }
+    report = check_editor_rules(sanitize_cv_html(HTML), metadata(rule))
+    assert report["status"] == "needs_review"
+    assert set(report["checked_fields"]) == {
+        "max_roles",
+        "max_bullets_per_role",
+        "max_bullet_chars",
+        "why_points_max",
+    }
+    assert report["manual_fields"] == ["generator_instructions"]
+    assert "Private preference" not in str(report)
+
+
+def test_lost_structure_is_not_silently_counted_as_compliant():
+    with pytest.raises(HTTPException):
+        check_editor_rules(
+            "<h2>Experience</h2><p>Engineer</p>", metadata({"max_roles": 1})
+        )
+    assert check_editor_rules(HTML, {})["status"] == "needs_review"
+    assert check_editor_rules(HTML, metadata(None))["status"] == "not_applicable"

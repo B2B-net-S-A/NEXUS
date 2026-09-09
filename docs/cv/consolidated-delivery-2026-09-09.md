@@ -395,3 +395,21 @@ isolation, missing/mismatched snapshots and public exclusion. This establishes t
 input for post-edit rule validation; it does not yet enforce all limits/sections on
 arbitrary edited HTML. No historical snapshot is invented. CI 34409180558 has passed
 frontend and backend shards 0/3; shards 1/2 were still running at this checkpoint.
+
+
+### Client presentation limits checked after edits
+
+Generated HTML now has explicit section/role markers preserved by sanitizer and
+Tiptap. Shared approval checks configured role count, bullets per role, bullet length,
+summary point count and omitted sections against the frozen recipe. Missing required
+structure or exceeded limits blocks approval with an actionable message. Drafts stay
+loadable: state reports conflicts instead of throwing. The editor shows conflicts
+for the last saved draft and identifies manual review requirements. Free instructions,
+dates, translations and highlighting are not falsely certified by these checks.
+
+Forty-two focused backend tests pass, plus four frontend editor/real-Tiptap tests,
+TypeScript and Ruff. Initial HTML exporter regression also passed. Structural markers
+are not proof of semantic role classification if a caller deliberately relabels
+content; real-client usability/visual acceptance and broader policy coverage remain
+open. CI 34409180558 completed successfully for 2d5a3c80 (all backend shards and
+frontend build). This subsequent asset/privacy/policy package requires new CI.
