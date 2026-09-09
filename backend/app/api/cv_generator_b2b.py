@@ -2019,6 +2019,7 @@ async def create_generated_cv_share_token(
     current_user: CandidateWriteAccess,
     expires_in_days: int = Query(14, ge=1, le=90),
     max_views: Optional[int] = Query(None, ge=1, le=1000),
+    document_version_id: Annotated[Optional[int], Query(ge=1)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> CvGeneratedShareCreateResponse:
     """Wygeneruj publiczny link do wygenerowanego CV dla hiring managera.
@@ -2056,6 +2057,11 @@ async def create_generated_cv_share_token(
                     ),
                 )
 
+    if document_version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+
+        await approved_version_for_generation(db, row, document_version_id)
+
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
     token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -2065,12 +2071,13 @@ async def create_generated_cv_share_token(
             token=revoke_key,
             token_sha256=token_digest,
             generated_document_id=row.id,
+            document_version_id=document_version_id,
             created_by=current_user.id,
             expires_at=expires_at,
             max_views=max_views,
         )
     )
-    interactive = await _interactive_available(db, row)
+    interactive = document_version_id is None and await _interactive_available(db, row)
     db.add(
         Activity(
             entity_type="cv_generated_document",

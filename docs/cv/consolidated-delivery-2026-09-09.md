@@ -172,3 +172,22 @@ No application settings, deployments or candidate records were changed by this
 inspection. The existence of a GitHub environment is not evidence of a usable,
 isolated runtime for full-model evaluation. Actual primary/fallback generation,
 latency/cost/false-rejection measurements and Delivery Lead review remain open.
+
+
+### Generated links pinned to approval — partial CV-02 implementation
+
+Generated share creation now accepts an explicit `document_version_id`. The resolver
+checks generation, candidate and job ownership together and verifies stored HTML and
+DOCX hashes. Migration 0293 adds a nullable version reference; deletion cascades the
+pinned token rather than reverting it to an unapproved document. Existing tokens
+retain their original behavior. The public page renders the approved HTML in a
+sandboxed iframe and omits superseded generated claims, requirements and chat for
+pinned versions. Chat requests on these links fail closed.
+
+Verification: eight focused host-native tests passed (including legacy and pinned
+public response branches), Ruff passed, frontend TypeScript passed. These tests use
+mock database sessions; relational migration and end-to-end browser evidence remain
+pending. CV-02 is NOT complete: the standalone selection UI and approval ownership
+for uploads outside a recruitment process still need integration. New links without
+an explicit version currently retain the previous behavior until that workflow is
+connected. No production deployment of this change has occurred.

@@ -81,6 +81,8 @@ interface RequirementItem {
 }
 
 interface PublicCvIView {
+  cv_html?: string | null;
+  document_version_id?: number | null;
   cv: PublicCvPayload;
   requirements: RequirementItem[] | null;
   chat_enabled: boolean;
@@ -818,7 +820,11 @@ export default function PublicInteractiveCvPage() {
         </div>
       </div>
 
-      {showInteractive ? (
+      {view.cv_html ? (
+        <iframe title="CV" srcDoc={view.cv_html} sandbox="allow-same-origin"
+          className="w-full rounded-lg border border-border bg-white"
+          style={{ height: "calc(100vh - 220px)", minHeight: 600 }} />
+      ) : showInteractive ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
           <div className="space-y-4 min-w-0">
             {view.requirements && view.requirements.length > 0 && (

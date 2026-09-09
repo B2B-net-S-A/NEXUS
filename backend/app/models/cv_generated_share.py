@@ -44,6 +44,10 @@ class CvGeneratedShareToken(Base):
         nullable=False,
         index=True,
     )
+    document_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cv_document_versions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
