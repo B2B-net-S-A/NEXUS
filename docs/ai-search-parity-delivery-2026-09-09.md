@@ -245,3 +245,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - The /ai-matches handler now builds its shared rubric inputs with search_dealbreaker_inputs, used by both semantic and fallback branches. Default review policy keeps candidates with missing proof; explicit saved exclusion still gates them. Inputs include the job and requirement fingerprint so current reviewed OR-group decisions can participate. This does not yet remove the legacy ranking flag or make its bounded retrieval a full-population scan.
 - Thirteen native requirement contract tests pass, including real shared-gate filtering for review versus exclude with an OR alternative and an unknown candidate. Ruff and diff checks pass. Hosted CI for eb4247b4 was still queued; latest changes require their own hosted validation.
+
+### Increment: incomplete eligibility cannot imply permission
+
+- The common search gate now rejects missing/null decisions for any requested candidate before producing visible/assignable results. Previously a partial decision map let the omitted candidate through without an annotation. Full-search execution records the failed batch without fabricated evaluations; synchronous consumers receive an error.
+- Eighteen native contract/worker tests pass. Coverage includes absent and null decisions plus worker persistence of a failed eligibility batch, failed-stage telemetry and sanitized error code. Ruff and diff checks pass. CI 34337354217 was verified still running; latest-head runs were queued. Production and full-audit completion remain unproven.

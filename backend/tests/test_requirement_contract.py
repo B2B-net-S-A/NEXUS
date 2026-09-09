@@ -152,3 +152,38 @@ async def test_shared_gate_respects_review_policy_for_missing_proof(
     assert [c.id for c in kept] == expected_ids
     assert inputs.verification_job_id == 7
     assert inputs.verification_fingerprint
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_value", ["absent", "null"])
+async def test_shared_gate_rejects_incomplete_eligibility_decisions(
+    monkeypatch, missing_value
+):
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock
+    from app.api.matching import _gate_and_dealbreakers
+    from app.services.candidate_job_eligibility import (
+        EligibilityInput,
+        evaluate_eligibility,
+    )
+    from tests.test_scoring_service import make_job, make_candidate
+
+    now = datetime.now(timezone.utc)
+    decisions = {
+        1: evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
+    }
+    if missing_value == "null":
+        decisions[2] = None
+    monkeypatch.setattr(
+        "app.api.matching.evaluate_candidates_for_job",
+        AsyncMock(return_value=decisions),
+    )
+    with pytest.raises(
+        RuntimeError, match="Incomplete candidate eligibility assessment"
+    ):
+        await _gate_and_dealbreakers(
+            None,
+            job=make_job(),
+            ordered=[make_candidate(id=1), make_candidate(id=2)],
+            now=now,
+        )

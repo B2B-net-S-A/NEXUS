@@ -334,6 +334,10 @@ async def _gate_and_dealbreakers(
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=[c.id for c in ordered], now=now
     )
+    # A partial policy response is not an authorization decision. Do not let
+    # absent rows become unannotated, assignable search results.
+    if any(decisions.get(c.id) is None for c in ordered):
+        raise RuntimeError("Incomplete candidate eligibility assessment")
     visible = [
         c
         for c in ordered

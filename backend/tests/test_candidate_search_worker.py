@@ -51,8 +51,10 @@ async def test_shared_batch_preserves_missing_measurement_and_uses_review_policy
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("batch_failure", [False, True])
 async def test_query_failure_is_checkpointed_and_population_still_accounted(
     monkeypatch,
+    batch_failure,
 ):
     context = build_request_context(make_job(), DEFAULT_PROFILE)
     session = AsyncMock()
@@ -83,7 +85,12 @@ async def test_query_failure_is_checkpointed_and_population_still_accounted(
         "request_vector",
         AsyncMock(side_effect=RuntimeError("provider private message")),
     )
-    evaluate = AsyncMock(return_value=[])
+    evaluate = AsyncMock(
+        side_effect=RuntimeError("Incomplete candidate eligibility assessment")
+        if batch_failure
+        else None,
+        return_value=[],
+    )
     monkeypatch.setattr(worker, "evaluate_batch", evaluate)
     await worker.execute_run("run")
     assert checkpoint.await_count == 2
@@ -92,4 +99,8 @@ async def test_query_failure_is_checkpointed_and_population_still_accounted(
     assert evaluate.call_args.args[3] is None
     assert save_batch.call_args.kwargs["metrics"]["stages"]["batch"]["calls"] == 1
     assert "provider private message" not in str(save_batch.call_args.kwargs)
+    if batch_failure:
+        assert save_batch.call_args.args[4] == []
+        assert save_batch.call_args.kwargs["error_code"] == "RuntimeError"
+        assert save_batch.call_args.kwargs["metrics"]["stages"]["batch"]["failed"] == 1
     finish.assert_awaited_once()
