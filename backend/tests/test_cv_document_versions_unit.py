@@ -184,8 +184,10 @@ async def test_selection_rejects_foreign_or_incomplete_document(
     db.commit.assert_not_awaited()
 
 
+@pytest.mark.parametrize("approved_id", [None, 81])
 async def test_selection_archives_old_approval_and_uses_exact_generated_content(
     monkeypatch,
+    approved_id,
 ):
     from app.schemas.candidate_stage_cv import CVBrandedSelectGenerated
 
@@ -214,9 +216,26 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
         return generated if model is api.CvGeneratedDocument else None
 
     db.get.side_effect = get
+    from app.services import cv_generated_approval
+
+    resolver = AsyncMock(
+        return_value=SimpleNamespace(
+            id=81,
+            content_html="<p>Approved <b>Python</b> edit</p>",
+            content_sha256="h" * 64,
+            docx_sha256="d" * 64,
+        )
+    )
+    monkeypatch.setattr(
+        cv_generated_approval, "approved_version_for_generation", resolver
+    )
     result = await api.select_generated_cv(
         2,
-        CVBrandedSelectGenerated(expected_revision=5, generated_document_id=42),
+        CVBrandedSelectGenerated(
+            expected_revision=5,
+            generated_document_id=42,
+            document_version_id=approved_id,
+        ),
         user,
         db,
     )
@@ -224,7 +243,13 @@ async def test_selection_archives_old_approval_and_uses_exact_generated_content(
     assert (
         result.version == 2 and result.edit_revision == 6 and result.status == "draft"
     )
-    assert "Selected <b>Python</b> experience" in result.content_html
+    if approved_id is None:
+        assert "Selected <b>Python</b> experience" in result.content_html
+        resolver.assert_not_awaited()
+    else:
+        assert result.content_html == "<p>Approved <b>Python</b> edit</p>"
+        assert csv.branded_render_metadata["source_document_version_id"] == 81
+        resolver.assert_awaited_once_with(db, generated, 81)
     assert all(
         value not in result.content_html
         for value in ("Secret Person", "PRIVATE", "<script", "<button", ">old<")

@@ -47,6 +47,7 @@ vi.mock("@/lib/api", () => ({
     setRecruitmentClientRate: (...a: unknown[]) =>
       setRecruitmentClientRate(...a),
   },
+  cvGeneratedShareApi: { approvedVersions: async () => ({data: [{id: 81, version: 2, language: "pl", approved_at: "2026-09-09T12:00:00Z"}]}) },
   candidateStageCvApi: {
     original: { get: (...a: unknown[]) => originalGet(...a) },
     branded: { get: (...a: unknown[]) => brandedGet(...a), selectGenerated: (...a: unknown[]) => selectGenerated(...a) },
@@ -558,8 +559,10 @@ describe("wybór konkretnego wyniku generatora", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Użyj w rekrutacji" }));
     expect(selectGenerated).not.toHaveBeenCalled();
     expect(screen.getByText(/Wczytać „Wybrane.docx”/)).toBeTruthy();
+    await screen.findByRole("option", {name: /Zatwierdzona wersja 2/});
+    await userEvent.selectOptions(screen.getByLabelText("Wersja CV do rekrutacji"), "81");
     await userEvent.click(screen.getByRole("button", { name: "Zastąp szkic i otwórz edytor" }));
-    await waitFor(() => expect(selectGenerated).toHaveBeenCalledWith(21, 42, 7));
+    await waitFor(() => expect(selectGenerated).toHaveBeenCalledWith(21, 42, 7, 81));
     expect(await screen.findByText(/Wybrany wynik generatora #42/)).toBeTruthy();
     expect(shareCreate).not.toHaveBeenCalled();
     expect(move).not.toHaveBeenCalled();

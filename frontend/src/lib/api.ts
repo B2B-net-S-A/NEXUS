@@ -5246,9 +5246,9 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
-    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number) =>
+    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
-        generated_document_id, expected_revision,
+        generated_document_id, expected_revision, ...(document_version_id ? { document_version_id } : {}),
       }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),

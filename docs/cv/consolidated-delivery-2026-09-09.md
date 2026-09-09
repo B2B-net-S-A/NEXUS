@@ -297,3 +297,21 @@ characters before Pydantic parsing. Oversized replies do not approve or partiall
 rewrite the document. Thirty-four focused verifier/editorial tests pass, including
 parser-not-called assertions. These are runtime robustness checks, not CV quality
 scores. Full real-model corpus, DL acceptance and production verification remain open.
+
+
+### Pipeline selection of an approved generated revision
+
+The handoff workbench now offers the original generation or a specific approved
+revision when importing a generation into the recruitment draft. The request carries
+the explicit version ID. Backend resolves it with generation/candidate/job ownership
+and artifact integrity checks, copies its sanitized HTML, and records the source
+version/content/DOCX hashes. Existing pipeline approval is archived before replacement.
+This imports text as a new draft; it does not silently transfer approval or reuse the
+original generation review for manually changed text.
+
+Fifteen focused version tests and 25 workbench tests pass; TypeScript passed. These
+are controlled transport/database tests, not production proof. Rendering assets are
+still resolved through the generation asset loader during import; complete immutable
+asset transfer across versions remains to be checked. CI 34407704731 for 96d9ff50
+completed successfully (all backend shards and frontend build). Subsequent editor
+and import changes require a new CI run.

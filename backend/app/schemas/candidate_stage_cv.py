@@ -37,6 +37,7 @@ class CVOriginalSnapshotResponse(BaseModel):
 class CVBrandedSelectGenerated(BaseModel):
     expected_revision: int = Field(ge=0)
     generated_document_id: int = Field(ge=1)
+    document_version_id: int | None = Field(default=None, ge=1)
 
 
 class CVBrandedResponse(BaseModel):

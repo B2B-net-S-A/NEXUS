@@ -460,6 +460,22 @@ async def select_generated_cv(
     from app.services.cv_approval_provenance import capture_editor_origin
 
     metadata.update(capture_editor_origin(html, generated.render_payload))
+    if payload.document_version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+
+        approved = await approved_version_for_generation(
+            db, generated, payload.document_version_id
+        )
+        html = sanitize_cv_html(approved.content_html)
+        # This starts a new draft from the selected approved text. Keep provenance
+        # explicit; the original generation verdict must not cover edited content.
+        metadata.update(
+            {
+                "source_document_version_id": approved.id,
+                "source_document_content_sha256": approved.content_sha256,
+                "source_document_docx_sha256": approved.docx_sha256,
+            }
+        )
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
