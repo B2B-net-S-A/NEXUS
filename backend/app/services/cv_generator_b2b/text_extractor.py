@@ -15,6 +15,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -66,24 +67,52 @@ _OCR_FALLBACK_THRESHOLD_CHARS = 100
 def _extract_pdf_ocr(data: bytes) -> str | None:
     """Render PDF pages to images and OCR them via tesseract.
 
-    Fallback for scanned / image-only PDFs where neither pdftotext nor
-    pdfplumber find a text layer. Heavy (~2-5s per page) — capped to the
-    first 10 pages; CVs are short. Returns None when OCR is unavailable.
+    Read every page, one image at a time. A deadline rejects incomplete input
+    rather than silently omitting the oldest employment after page ten.
+    Returns None when the optional Python OCR dependencies are unavailable.
     """
     try:
         import pytesseract  # type: ignore[import-untyped]
-        from pdf2image import convert_from_bytes  # type: ignore[import-untyped]
-
-        pages = convert_from_bytes(data, dpi=200, last_page=10)
-        out: list[str] = []
-        for img in pages:
-            txt = pytesseract.image_to_string(img, lang="pol+eng")
-            if txt:
-                out.append(txt)
-        return "\n\n".join(out) if out else ""
-    except Exception as err:  # pragma: no cover — system tesseract may be missing
-        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
+        from pdf2image import convert_from_bytes, pdfinfo_from_bytes  # type: ignore[import-untyped]
+    except ImportError:
         return None
+    try:
+        deadline = time.monotonic() + 120
+        count = int(pdfinfo_from_bytes(data, timeout=10)["Pages"])
+        if count < 1:
+            raise ValueError("PDF has no pages")
+        out: list[str] = []
+        for page in range(1, count + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("CV OCR deadline exceeded")
+            pages = convert_from_bytes(
+                data,
+                dpi=200,
+                first_page=page,
+                last_page=page,
+                timeout=min(30, remaining),
+            )
+            try:
+                if len(pages) != 1:
+                    raise ValueError("Incomplete PDF page rendering")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("CV OCR deadline exceeded")
+                txt = pytesseract.image_to_string(
+                    pages[0], lang="pol+eng", timeout=min(30, remaining)
+                )
+                if txt:
+                    out.append(txt)
+            finally:
+                for img in pages:
+                    img.close()
+        return "\n\n".join(out) if out else ""
+    except Exception as err:
+        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
+        raise CVTextExtractionError(
+            "Nie odczytano wszystkich stron skanu CV. Wgraj tekstowy PDF lub DOCX."
+        ) from err
 
 
 def _extract_docx(data: bytes) -> str:
