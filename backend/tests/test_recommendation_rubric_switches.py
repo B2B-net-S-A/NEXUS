@@ -74,7 +74,7 @@ def test_route_declares_and_forwards_the_four_switches():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_core_calls_apply_dealbreakers_with_inputs_and_new_switches(
+async def test_core_calls_shared_gate_with_inputs_and_new_switches(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     """AUTO: query bez `exclude_remote_only` → `apply_dealbreakers(..., exclude_remote_only=None)`.
@@ -105,15 +105,15 @@ async def test_core_calls_apply_dealbreakers_with_inputs_and_new_switches(
         job_id = job.id
 
     seen: dict = {}
-    import app.services.dealbreaker_filters as df
+    import app.api.matching as matching
 
-    real_apply = df.apply_dealbreakers
+    real_gate = matching._gate_and_dealbreakers
 
-    def spy(candidates, **kwargs):
+    async def spy(db, **kwargs):
         seen.update(kwargs)
-        return real_apply(candidates, **kwargs)
+        return await real_gate(db, **kwargs)
 
-    monkeypatch.setattr(df, "apply_dealbreakers", spy)
+    monkeypatch.setattr(matching, "_gate_and_dealbreakers", spy)
 
     resp = await app_client.get(
         f"/api/jobs/{job_id}/recommendations",
@@ -121,7 +121,7 @@ async def test_core_calls_apply_dealbreakers_with_inputs_and_new_switches(
     )
     assert resp.status_code == 200, resp.text
 
-    assert "inputs" in seen, "core musi przekazać `inputs=dealbreaker_inputs_for_job(job)`"
+    assert "inputs" in seen, "core musi przekazać wspólne kryteria do bramki"
     assert seen["inputs"].budget_hourly is None
     # Pominięty query param → AUTO (None), NIE `False` sprzed 0278.
     assert seen.get("exclude_remote_only") is None
@@ -156,15 +156,15 @@ async def test_explicit_query_params_override_the_defaults(
         job_id = job.id
 
     seen: dict = {}
-    import app.services.dealbreaker_filters as df
+    import app.api.matching as matching
 
-    real_apply = df.apply_dealbreakers
+    real_gate = matching._gate_and_dealbreakers
 
-    def spy(candidates, **kwargs):
+    async def spy(db, **kwargs):
         seen.update(kwargs)
-        return real_apply(candidates, **kwargs)
+        return await real_gate(db, **kwargs)
 
-    monkeypatch.setattr(df, "apply_dealbreakers", spy)
+    monkeypatch.setattr(matching, "_gate_and_dealbreakers", spy)
 
     resp = await app_client.get(
         f"/api/jobs/{job_id}/recommendations",

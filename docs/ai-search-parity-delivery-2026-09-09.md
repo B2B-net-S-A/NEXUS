@@ -218,3 +218,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - Detailed evidence/context/verification identifiers are redacted from minimal search responses. Reviewed positive rows are labelled verified with their date; ordinary profile signals remain labelled for review.
 - Validation: 38 focused native tests initially passed; 100 scoring/filter/API regressions also passed (overlap in API coverage). After completing all skill-source fingerprint fields, 13 verification/scoring tests passed again. Three result-panel tests, frontend typecheck/ESLint and Ruff/diff checks passed. Updated unit DB fixtures return no reviews explicitly instead of accidentally treating candidate rows as reviews.
 - Still open: review form, hosted PostgreSQL/migration and end-to-end checks, legacy/lexical paths not yet using the shared scoped filter inputs, quality/index/telemetry/operational completion and deployment. Latest hosted CI for ff861077 failed; its job-start/result cause is being inspected and is not assumed to be a code failure or a pass.
+
+### Hosted CI follow-up: recommendation filter-switch spies
+
+- CI 34331758953 executed real jobs: frontend and backend shards 0/2/3 passed; shard 1 failed exactly two recommendation-rubric tests. Their spy patched the old module function instead of the shared gate's imported binding, so it observed no kwargs despite the real gate running.
+- The hosted tests now spy on the common gate while delegating to the actual gate, preserving checks for default AUTO remote policy and explicit override switches. One native schema/default test passes; the two real PostgreSQL tests await hosted rerun. This is not a full-CI success claim.
