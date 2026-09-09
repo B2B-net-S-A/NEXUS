@@ -5173,6 +5173,8 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  edit_revision: number;
+  version: number;
   candidate_stage_id: number;
   status: CVBrandedStatus;
   content_html: string | null;
@@ -5189,6 +5191,9 @@ export interface CVBrandedState {
 }
 
 export interface CVBrandedFinalizeResponseT {
+  edit_revision: number;
+  version: number;
+  document_version_id: number;
   candidate_stage_id: number;
   status: CVBrandedStatus;
   snapshot_filename: string;
@@ -5239,8 +5244,8 @@ export const candidateStageCvApi = {
     update: (
       stageId: number,
       payload:
-        | { content_html: string }
-        | { template?: CVTemplate; language?: CVLanguage },
+        | { content_html: string; expected_revision: number }
+        | { template?: CVTemplate; language?: CVLanguage; expected_revision: number },
     ) =>
       api.patch<CVBrandedState>(
         `/api/candidates/stages/${stageId}/cv/branded`,
@@ -5248,10 +5253,12 @@ export const candidateStageCvApi = {
       ),
     // Finalizacja renderuje dokument po stronie serwera, a rekruter czeka na
     // plik — 120 s zamiast domyślnych 30 s (patrz `lib/http-timeouts.ts`).
-    finalize: (stageId: number) =>
+    newDraft: (stageId: number, expected_revision: number) =>
+      api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/new-draft`, { expected_revision }),
+    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }) =>
       api.post<CVBrandedFinalizeResponseT>(
         `/api/candidates/stages/${stageId}/cv/branded/finalize`,
-        undefined,
+        payload,
         { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
       ),
   },

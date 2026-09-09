@@ -30,6 +30,9 @@ class CVShareToken(Base):
     __tablename__ = "cv_share_tokens"
 
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cv_document_versions.id", ondelete="CASCADE"), nullable=True
+    )
     candidate_stage_cv_id: Mapped[int] = mapped_column(
         ForeignKey("candidate_stage_cvs.id", ondelete="CASCADE"),
         nullable=False,

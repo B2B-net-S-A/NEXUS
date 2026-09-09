@@ -35,6 +35,8 @@ class CVOriginalSnapshotResponse(BaseModel):
 
 
 class CVBrandedResponse(BaseModel):
+    edit_revision: int = 0
+    version: int = 1
     candidate_stage_id: int
     status: BrandedStatusLiteral
     content_html: Optional[str] = None
@@ -58,7 +60,8 @@ class CVBrandedUpdate(BaseModel):
        overwrite `branded_draft_html` (UI confirms with user before swap).
     """
 
-    content_html: Optional[str] = None
+    expected_revision: int = Field(ge=0)
+    content_html: Optional[str] = Field(default=None, max_length=500000)
     template: Optional[TemplateLiteral] = None
     language: Optional[LanguageLiteral] = None
 
@@ -74,7 +77,19 @@ class CVBrandedUpdate(BaseModel):
         return self
 
 
+class CVBrandedFinalize(BaseModel):
+    expected_revision: int = Field(ge=0)
+    content_html: str = Field(min_length=1, max_length=500000)
+
+
+class CVBrandedNewDraft(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
 class CVBrandedFinalizeResponse(BaseModel):
+    edit_revision: int
+    version: int
+    document_version_id: int
     candidate_stage_id: int
     status: BrandedStatusLiteral
     snapshot_filename: str

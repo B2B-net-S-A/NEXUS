@@ -47,6 +47,7 @@ from app.models.application_submission import (
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
+from app.models.cv_document_version import CvDocumentVersion
 from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
@@ -248,7 +249,18 @@ async def get_public_cv(
     csv: Optional[CandidateStageCV] = await db.scalar(
         select(CandidateStageCV).where(CandidateStageCV.id == row.candidate_stage_cv_id)
     )
-    if csv is None or csv.branded_status != "finalized":
+    version = None
+    if row.document_version_id:
+        version = await db.scalar(
+            select(CvDocumentVersion).where(
+                CvDocumentVersion.id == row.document_version_id,
+                CvDocumentVersion.candidate_stage_cv_id == row.candidate_stage_cv_id,
+            )
+        )
+    if csv is None or (
+        version is None
+        and (row.document_version_id is not None or csv.branded_status != "finalized")
+    ):
         raise HTTPException(
             status_code=404,
             detail="CV nie jest już dostępne (zostało zresetowane).",
@@ -282,7 +294,9 @@ async def get_public_cv(
     # Source of truth: zapisany draft HTML (immutable po finalize) —
     # M4 PR-04: na wyjściu przechodzi allowlist sanitizer (stored XSS w
     # publicznym linku dla klienta).
-    cv_html = sanitize_cv_html(csv.branded_draft_html)
+    cv_html = sanitize_cv_html(
+        version.content_html if version else csv.branded_draft_html
+    )
 
     # no-store: publiczna treść z PII kandydata nie może lądować w cache'ach
     # pośredników/przeglądarki po odwołaniu linku.
@@ -290,8 +304,10 @@ async def get_public_cv(
     response.headers["Referrer-Policy"] = "no-referrer"
 
     return {
-        "candidate_first_name": candidate.name if candidate else None,
-        "job_title": job.title if job else None,
+        "candidate_first_name": version.candidate_first_name
+        if version
+        else (candidate.name if candidate else None),
+        "job_title": version.job_title if version else (job.title if job else None),
         "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
