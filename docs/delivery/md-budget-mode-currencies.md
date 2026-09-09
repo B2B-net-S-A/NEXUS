@@ -10,4 +10,4 @@ Edycja linii pokazuje osobne waluty pod odpowiadającymi im stawkami. Surowe sta
 
 ## Korekta produkcyjna objęta zgłoszeniem
 
-Bosch (klient 19), Rahan Shetty (kandydat 443352), zamówienie 0087020279. Przed zmianą na produkcji potwierdzono: stawka kosztowa 176, przychodowa 218,75, budżet i pozostałość 98,5 MD, koniec 2026-12-31. Po wdrożeniu poprawić walutę przychodową zamówienia na EUR, zachowując liczbę 218,75, budżet, daty i stronę kosztową. Wykonać przez poprawiony formularz, sprawdzić zapis po ponownym otwarciu i odświeżeniu strony. Nie zmieniać kontraktu ani innych zamówień klienta.
+Bosch (klient 19), Rahan Shetty (kandydat 443352), zamówienie 0087020279. Przed zmianą na produkcji potwierdzono: stawka kosztowa 176, przychodowa 218,75, budżet i pozostałość 98,5 MD, koniec 2026-12-31. Odczyt aktywnego kontraktu 627 potwierdził obie stawki w EUR: kosztową 176 EUR/dzień i przychodową 218,75 EUR/dzień. Po wdrożeniu przywrócić EUR w obu polach walut linii zamówienia, zachowując liczby 176 i 218,75, budżet i daty. Wykonać przez poprawiony formularz, sprawdzić zapis po ponownym otwarciu i odświeżeniu strony. Nie zmieniać kontraktu ani innych zamówień klienta.
