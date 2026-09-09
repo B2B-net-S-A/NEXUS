@@ -4,9 +4,10 @@ import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { extractErrorMsg } from "@/lib/api";
 import { searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
+import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
 
-export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, canOpenProfile }: {
+export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, canOpenProfile, jobId, canVerify = false, onVerified }: {
   data?: CandidateSearchPage;
   error: unknown;
   loading: boolean;
@@ -15,6 +16,9 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
   onPage: (offset: number) => void;
   onRetry: () => void;
   canOpenProfile: boolean;
+  jobId?: number;
+  canVerify?: boolean;
+  onVerified?: () => void;
 }) {
   if (error) return <div role="alert" className="rounded-lg border p-4">
     <p>Nie udało się odczytać wyszukiwania: {extractErrorMsg(error)}</p>
@@ -41,6 +45,7 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
             </li>)}
           </ul>
           {row.eligibility && <p className="text-sm text-amber-700">{row.eligibility.reason}</p>}
+          {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}
           {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
         </article>)}
       </div>

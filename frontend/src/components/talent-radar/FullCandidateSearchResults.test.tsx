@@ -44,3 +44,14 @@ test("profile skill signal does not claim verified proficiency or date", () => {
   expect(screen.getByText(/sygnał w profilu — do weryfikacji/)).toBeVisible();
   expect(screen.queryByText(/potwierdzone/)).not.toBeInTheDocument();
 });
+
+
+test("verification action requires a saved recruitment and write permission", () => {
+  const props = { data, error: null, loading: false, fetching: false, offset: 0, onPage: vi.fn(), onRetry: vi.fn(), canOpenProfile: true, onVerified: vi.fn() };
+  const view = render(<FullCandidateSearchResults {...props} canVerify />);
+  expect(screen.queryByRole("button", { name: "Zweryfikuj wymaganie" })).not.toBeInTheDocument();
+  view.rerender(<FullCandidateSearchResults {...props} jobId={7} canVerify={false} />);
+  expect(screen.queryByRole("button", { name: "Zweryfikuj wymaganie" })).not.toBeInTheDocument();
+  view.rerender(<FullCandidateSearchResults {...props} jobId={7} canVerify />);
+  expect(screen.getByRole("button", { name: "Zweryfikuj wymaganie" })).toBeVisible();
+});

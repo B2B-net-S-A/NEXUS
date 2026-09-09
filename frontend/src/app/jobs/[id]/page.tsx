@@ -66,6 +66,7 @@ import { formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { RequirementVerificationDialog, useCanVerifyRequirements } from "@/components/talent-radar/RequirementVerificationDialog";
 import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
@@ -776,6 +777,7 @@ function AIMatchingSection({
   isAdmin?: boolean;
 }) {
   const canEditRequirements = useCapability("job.update") && !readOnly;
+  const canVerify = useCanVerifyRequirements() && !readOnly;
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
@@ -1559,6 +1561,7 @@ function AIMatchingSection({
                         </span>
                       </div>
 
+                      {canVerify && <div className="mt-2"><RequirementVerificationDialog jobId={jobId} candidateId={c.id} candidateName={fullName} onSaved={() => { void fullSearch.refresh(); }} /></div>}
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                         {mustTotal > 0 && (
                           <span

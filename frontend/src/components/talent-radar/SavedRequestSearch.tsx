@@ -10,6 +10,7 @@ import { useCapability } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 import { SavedRequestRequirements } from "./SavedRequestRequirements";
+import { useCanVerifyRequirements } from "./RequirementVerificationDialog";
 import { FullCandidateSearchResults } from "./FullCandidateSearchResults";
 
 type JobRef = { id: number; title: string; client_name?: string | null };
@@ -17,6 +18,7 @@ type JobRef = { id: number; title: string; client_name?: string | null };
 function RequestResults({ job }: { job: JobRef }) {
   const actorId = useAuthStore(s => s.user?.id);
   const canEdit = useCapability("job.update");
+  const canVerify = useCanVerifyRequirements();
   const canOpenProfile = useCapability("nav.candidates");
   const search = useFullCandidateSearch({ storageKey: actorId ? `nexus-full-job:${actorId}:${job.id}` : undefined });
   return <div className="space-y-4">
@@ -24,7 +26,7 @@ function RequestResults({ job }: { job: JobRef }) {
     <p className="text-sm text-muted-foreground">Klient, hiring manager, budżet, lokalizacja i wymagania pochodzą z zapisanej rekrutacji.</p>
     <SavedRequestRequirements jobId={job.id} canEdit={canEdit} onSaved={search.clear} />
     <Button disabled={search.running} onClick={() => void search.start({ job_id: job.id })}>{search.running ? "Przegląd trwa…" : "Szukaj w całej bazie"}</Button>
-    <FullCandidateSearchResults data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile} onRetry={() => { if (search.runId) void search.refresh(); else void search.start({ job_id: job.id }); }} />
+    <FullCandidateSearchResults jobId={job.id} canVerify={canVerify} onVerified={() => { void search.refresh(); }} data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile} onRetry={() => { if (search.runId) void search.refresh(); else void search.start({ job_id: job.id }); }} />
   </div>;
 }
 

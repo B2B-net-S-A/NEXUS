@@ -223,3 +223,10 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - CI 34331758953 executed real jobs: frontend and backend shards 0/2/3 passed; shard 1 failed exactly two recommendation-rubric tests. Their spy patched the old module function instead of the shared gate's imported binding, so it observed no kwargs despite the real gate running.
 - The hosted tests now spy on the common gate while delegating to the actual gate, preserving checks for default AUTO remote policy and explicit override switches. One native schema/default test passes; the two real PostgreSQL tests await hosted rerun. This is not a full-CI success claim.
+
+### Increment: shared human requirement verification form
+
+- Saved-request Radar and pipeline results now expose the same scoped verification dialog. It records met/not_met/unknown, evidence, usage context and date against the exact loaded candidate/criteria versions; explicit submit is required. It displays previous decisions and their current/stale status. Ad-hoc searches cannot attach decisions without a saved recruitment.
+- UI capability mirrors the existing CandidateWriteAccess roles and requires sourcing/pipeline write access; impersonation disables mutation. Server membership checks remain authoritative. No access policy was expanded.
+- Version conflicts preserve entered proof and require refreshed data plus a new requirement selection. Failed reads do not create an editable fabricated form; late reads from another candidate cannot overwrite the active editor. Successful saves refresh the displayed result and explain that a new search is needed to recompute ranking.
+- Validation: 314 focused frontend tests pass (role/backend capability contract, form concurrency/explicit writes, result visibility and action gates), TypeScript and ESLint pass. No production verification records were written. Hosted CI, rendered production evidence and all remaining audit requirements are still open.
