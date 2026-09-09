@@ -99,15 +99,20 @@ Preview feedback checks actual role/bullet/length/omission outcomes against the
 captured recipe. It distinguishes satisfied limits, conflicts and absent content.
 Descriptive instructions are explicitly marked for human review, not certified
 as applied. Component coverage includes conflict and manual-review labels.
-Date-format, glossary, highlighting and other recipe feedback coverage remains
-incomplete. Real generated-document visual comparison and Delivery Lead
+Feedback now also flags untranslated permitted role aliases, skipped unsafe or
+wrong-language mappings, date-format conflicts and missing Champion inputs for
+highlighting. Unknown date formats remain explicitly subject to human review.
+Other recipe feedback coverage remains incomplete. Real generated-document visual comparison and Delivery Lead
 acceptance are still required; CV-18 is not closed.
 
 Input persistence now precedes quota admission in all three paths. The actual
 quota state is recorded on the durable job and restored at execution. Failure to
 upload inputs prevents admission; rejection cleans only its newly uploaded
-snapshot. Transaction failure after admission and general orphan/retention
-handling remain open. Main fetched at this check remained 561f02ca; branch
+snapshot. Initial CV and preview admissions now join the caller transaction,
+which commits their quota operation, placeholder and durable job before dispatch.
+Other AI calls retain independently committed admission. Hosted rollback/commit
+tests were added; their execution is pending. General orphan/retention handling
+and request idempotency remain open. Main fetched at this check remained 561f02ca; branch
 migration graph has one head, 0291_cv_preview_docx.
 
 ## Edited-content approval gate (branch implementation, acceptance pending)
@@ -131,3 +136,11 @@ projection preserves ordered text/negation/table boundaries but its semantic
 acceptance, headings, legal consent and blind-document behavior still need real
 corpus evaluation. No production verification or Delivery Lead acceptance is
 claimed for this gate.
+
+
+Queue capacity is now checked under one PostgreSQL transaction advisory lock for
+all claimants, including HTTP background execution and recovery across processes.
+At most four job leases can be running; additional work stays queued. Host-native
+state tests pass, but only the hosted concurrent-claim test can establish the
+PostgreSQL race behavior. This does not establish actual provider-call shutdown
+when a process loses its lease or complete restart/retry acceptance.
