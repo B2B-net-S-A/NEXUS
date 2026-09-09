@@ -177,8 +177,9 @@ def test_full_source_role_count_cannot_be_replaced_by_displayed_roles(
     assert result["human_accepted"] is None
 
 
+@pytest.mark.parametrize("offset", [0, 1])
 async def test_finished_run_links_model_artifacts_from_root_report(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, offset
 ):
     sha = "a" * 40
     monkeypatch.setenv("GIT_SHA", sha)
@@ -236,14 +237,46 @@ async def test_finished_run_links_model_artifacts_from_root_report(
     )
     assert (
         await runner.run(
-            tmp_path, identity="125-1", expected_sha=sha, limit=1, models="primary"
+            tmp_path,
+            identity="125-1",
+            expected_sha=sha,
+            limit=1,
+            models="primary",
+            offset=offset,
         )
         == 0
     )
     report = checkpoints[-1]
+    assert report["case_offset"] == offset
+    assert report["case_limit"] == 1
+    assert report["requested_case_ids"] == [
+        "career_change-pl" if offset == 0 else "career_change-en"
+    ]
+    assert [row["case_id"] for row in report["results"]] == report["requested_case_ids"]
     assert report["complete"] is True
     assert report["human_accepted"] is None
     row = report["results"][0]
     assert (tmp_path / row["artifact"]).read_bytes() == b"synthetic"
     assert (tmp_path / row["payload_artifact"]).is_file()
     assert row["artifact"].startswith("model-0/")
+
+
+@pytest.mark.parametrize("offset,limit", [(-1, 1), (40, 1), (39, 2)])
+async def test_invalid_range_stops_before_receipt_or_generation(
+    tmp_path, monkeypatch, offset, limit
+):
+    claim = AsyncMock()
+    generate = Mock()
+    monkeypatch.setattr(runner, "claim_run", claim)
+    monkeypatch.setattr(runner, "generate_cv_from_uploads", generate)
+    with pytest.raises(ValueError, match="bounded evaluation"):
+        await runner.run(
+            tmp_path,
+            identity="126-1",
+            expected_sha="a" * 40,
+            limit=limit,
+            models="primary",
+            offset=offset,
+        )
+    claim.assert_not_awaited()
+    generate.assert_not_called()

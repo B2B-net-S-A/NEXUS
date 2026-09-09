@@ -101,9 +101,20 @@ def generate_case(case, directory):
 
 
 async def run(
-    output: Path, *, identity: str, expected_sha: str, limit: int, models: str
+    output: Path,
+    *,
+    identity: str,
+    expected_sha: str,
+    limit: int,
+    models: str,
+    offset: int = 0,
 ):
-    if not 1 <= limit <= 40 or models not in {"primary", "all"}:
+    if (
+        not 1 <= limit <= 40
+        or not 0 <= offset < 40
+        or offset + limit > 40
+        or models not in {"primary", "all"}
+    ):
         raise ValueError("Invalid bounded evaluation request")
     key = run_key(identity).replace("cv_quality_eval:", "cv_document_eval:", 1)
     if (
@@ -123,6 +134,11 @@ async def run(
         "run_identity": identity,
         "corpus_sha256": manifest["corpus_sha256"],
         "requested_models": requested,
+        "case_offset": offset,
+        "case_limit": limit,
+        "requested_case_ids": [
+            case["id"] for case in manifest["cases"][offset : offset + limit]
+        ],
         "started_at": datetime.now(timezone.utc).isoformat(),
         "complete": False,
         "human_accepted": None,
@@ -144,7 +160,7 @@ async def run(
             directory = output / f"model-{index}"
             # Separate immutable source copies keep each model's artifacts distinct.
             current = prepare(directory)
-            for case in current["cases"][:limit]:
+            for case in current["cases"][offset : offset + limit]:
                 if time.monotonic() >= deadline:
                     report["stop_reason"] = "deadline"
                     return 2
@@ -261,6 +277,7 @@ if __name__ == "__main__":
     parser.add_argument("--run-key", required=True)
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--limit", type=int, choices=range(1, 41), default=2)
+    parser.add_argument("--offset", type=int, choices=range(40), default=0)
     parser.add_argument("--models", choices=["primary", "all"], default="primary")
     args = parser.parse_args()
     raise SystemExit(
@@ -271,6 +288,7 @@ if __name__ == "__main__":
                 expected_sha=args.expected_sha,
                 limit=args.limit,
                 models=args.models,
+                offset=args.offset,
             )
         )
     )
