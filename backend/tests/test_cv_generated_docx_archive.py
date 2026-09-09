@@ -74,3 +74,53 @@ def test_strict_archive_stops_when_consent_cannot_be_loaded(monkeypatch, image_b
     with pytest.raises((ValueError, OSError)):
         service.rerender_docx_from_payload({}, require_consent=True)
     render.assert_not_called()
+
+
+async def test_real_archived_docx_keeps_consent_when_storage_later_fails(monkeypatch):
+    from io import BytesIO
+    from zipfile import ZipFile
+    from PIL import Image
+    from app.services import object_storage
+
+    image = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(image, format="PNG")
+    consent_bytes = image.getvalue()
+    storage = Mock(return_value=consent_bytes)
+    monkeypatch.setattr(object_storage, "download_cv", storage)
+    row = SimpleNamespace(id=11, job_id=None)
+    db = AsyncMock()
+    db.get.return_value = row
+    result = SimpleNamespace(
+        docx_bytes=b"before-consent",
+        render_payload={
+            "name": "Synthetic",
+            "position": "Tester",
+            "why_points": [],
+            "experience": [],
+            "skills": [],
+            "languages": [],
+        },
+        candidate_name="Synthetic",
+        job_id=None,
+        filename="synthetic.docx",
+        warnings=[],
+    )
+    assert await api._finalize_success(
+        db,
+        11,
+        result=result,
+        consent_screenshot={"storage_key": "synthetic/consent.png"},
+    )
+    with ZipFile(BytesIO(row.docx_content)) as document:
+        assert any(
+            document.read(name) == consent_bytes
+            for name in document.namelist()
+            if name.startswith("word/media/")
+        )
+    storage.reset_mock(side_effect=True)
+    storage.side_effect = OSError("Storage unavailable after finalization")
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=row))
+    response = await api.download_generated_cv(11, object(), db)
+    assert response.body == row.docx_content
+    assert hashlib.sha256(response.body).hexdigest() == row.docx_sha256
+    storage.assert_not_called()
