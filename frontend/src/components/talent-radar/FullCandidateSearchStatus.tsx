@@ -27,7 +27,7 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
       {counts.failed > 0 && ` Nie udało się ocenić: ${counts.failed}.`}</p>
     {active && <progress className="w-full" aria-label="Postęp przeglądu" value={counts.population - counts.pending} max={counts.population || 1} />}
     {!active && <>
-      <p>Widoczni po filtrach: {counts.eligible}. Wykluczeni: {counts.excluded}. Ocena niepełna: {counts.needs_verification}.</p>
+      <p>Stan z chwili przeglądu — widoczni po filtrach: {counts.eligible}. Wykluczeni: {counts.excluded}. Ocena niepełna: {counts.needs_verification}.</p>
       {counts.exclusion_reasons && <ul aria-label="Przyczyny wykluczenia" className="text-sm text-muted-foreground">
         {Object.entries(counts.exclusion_reasons).filter(([, count]) => count > 0).map(([reason, count]) =>
           <li key={reason}>{exclusionLabels[reason] ?? exclusionLabels.unknown}: {count}</li>
@@ -44,7 +44,7 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
       </p>}
       <div className="flex items-center gap-3">
         <Button variant="outline" disabled={offset === 0 || fetching} onClick={() => onPage(Math.max(0, offset - 20))}>Poprzednia</Button>
-        <span>Strona {Math.floor(offset / 20) + 1} · wyników po progu: {data.total_after_threshold ?? 0}</span>
+        <span>Strona {Math.floor(offset / 20) + 1} · wyników w przeglądzie po progu: {data.total_after_threshold ?? 0}</span>
         <Button variant="outline" disabled={data.next_offset == null || fetching} onClick={() => { if (data.next_offset != null) onPage(data.next_offset); }}>Następna</Button>
       </div>
     </>}

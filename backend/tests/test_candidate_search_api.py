@@ -26,10 +26,15 @@ async def test_details_require_candidate_read_before_loading_any_results(monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "old_block,new_block", [(False, False), (False, True), (True, False)]
+)
 @pytest.mark.parametrize("changed", [True, False])
 async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evidence(
     monkeypatch,
     changed,
+    old_block,
+    new_block,
 ):
     from app.services import pipeline_eligibility
 
@@ -39,12 +44,27 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
     context = build_request_context(job, DEFAULT_PROFILE)
     candidate = make_candidate(skills=["Python"])
     candidate.updated_at = datetime.now(timezone.utc)
+    from app.services.candidate_job_eligibility import (
+        EligibilityInput,
+        evaluate_eligibility,
+    )
+    from app.api.matching import _eligibility_annotation
+
+    def decision(blocked):
+        return evaluate_eligibility(
+            EligibilityInput(
+                candidate_status="active", rejected_by_hiring_manager=blocked
+            ),
+            now=candidate.updated_at,
+        )
+
     row = SimpleNamespace(
         candidate_id=candidate.id,
         candidate_version=str(candidate.updated_at - timedelta(days=int(changed))),
         fit_score=91,
         measurement="measured",
         evidence={
+            "eligibility": _eligibility_annotation(decision(old_block)),
             "breakdown": {"total": 91, "matching_must": ["python"]},
             "requirements": [
                 {
@@ -89,9 +109,7 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         "evaluate_candidates_for_job",
         AsyncMock(
             return_value={
-                candidate.id: SimpleNamespace(
-                    visibility="visible", eligible=True, secondary_reasons=[]
-                ),
+                candidate.id: decision(new_block),
             }
         ),
     )
@@ -106,6 +124,11 @@ async def test_changed_profile_keeps_snapshot_readable_without_old_positive_evid
         "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=db
     )
     assert result["coverage_complete"]
+    assert result["data_changed"] == (changed or old_block != new_block)
+    assert result["ranking_complete"] == (not changed and old_block == new_block)
+    assert result["results"][0]["eligibility"] == _eligibility_annotation(
+        decision(new_block)
+    )
     item = result["results"][0]
     if changed:
         assert result["data_changed"] and not result["ranking_complete"]

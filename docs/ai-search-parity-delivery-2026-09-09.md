@@ -296,3 +296,9 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 
 - Backend shard 1 job 102419761105 failed only test_profile_returns_expected_shape: get_client_profile called max(0, None) when duration_days correctly returned unknown for an absent opened_at. The response now preserves the already nullable duration result; duration_days itself clamps actual negative durations.
 - Added deterministic PostgreSQL endpoint coverage with a 30-day-old creation timestamp and no opening date, expecting HTTP 200 and null days_open. Ruff/format/diff checks and collection of 15 profile tests pass; the database scenario has not been executed locally and awaits hosted CI. This addresses the concrete observed failure without substituting created_at or fabricated zero days. Other audit and deployment requirements remain open.
+
+### Increment: changed eligibility invalidates displayed run freshness
+
+- Result reads compare current eligibility annotations to stored annotations. Adding/removing a block on a returned candidate now marks data_changed and prevents claiming a complete current ranking, even when candidate.updated_at did not change. Current annotations remain authoritative; fit itself remains unchanged when only eligibility changes.
+- Shared UI labels totals and post-threshold membership as the state at scan time. Seven API tests and nine frontend status/result tests pass, alongside typecheck and Ruff/diff checks. Cases cover both block directions with unchanged/changed candidate data and preservation of private evidence redaction.
+- This detects eligibility drift for read rows, not every off-page policy dependency. Global policy versioning/re-evaluation and production proof remain open, alongside the rest of the audit.

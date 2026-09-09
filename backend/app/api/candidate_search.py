@@ -222,6 +222,8 @@ async def search_results(
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(current), now=datetime.now(timezone.utc)
     )
+    from app.api.matching import _eligibility_annotation
+
     results = []
     for row in rows:
         decision = decisions.get(row.candidate_id)
@@ -232,6 +234,9 @@ async def search_results(
         ):
             data_changed = True
             continue
+        annotation = _eligibility_annotation(decision)
+        if annotation != (row.evidence or {}).get("eligibility"):
+            data_changed = True
         row_changed = str(current[row.candidate_id].updated_at) != row.candidate_version
         data_changed = data_changed or row_changed
         breakdown = deepcopy((row.evidence or {}).get("breakdown") or {})
@@ -264,8 +269,6 @@ async def search_results(
             "reason": None,
             "status": "redacted",
         }
-        from app.api.matching import _eligibility_annotation
-
         details = None
         if include_candidate_details:
             from app.api.matching import _build_match_info
@@ -280,7 +283,7 @@ async def search_results(
                 inputs=dealbreaker_inputs_for_job(context.as_job()),
             )
             details["match_score"] = fit_score / 100 if fit_score is not None else None
-            details["eligibility"] = _eligibility_annotation(decision)
+            details["eligibility"] = annotation
             details["breakdown"] = breakdown
             details["total_score"] = fit_score
             for level, matched_key, unknown_key in (
@@ -307,7 +310,7 @@ async def search_results(
                 "measurement": "stale" if row_changed else row.measurement,
                 "breakdown": breakdown,
                 "requirements": requirements,
-                "eligibility": _eligibility_annotation(decision),
+                "eligibility": annotation,
             }
         )
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
