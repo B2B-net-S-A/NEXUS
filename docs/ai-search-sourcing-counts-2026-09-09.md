@@ -1,0 +1,9 @@
+# Full-search counters: production acceptance follow-up
+
+Observed on production revision d511b13d, job 565252 in authenticated Chrome: full search evaluated 59,964 candidates, retained 59,934, excluded 30 and had 58,284 incomplete measurements. The C2 card still displayed 200/0 from its independent bounded compatibility search. Its comments about sharing a query with C2 were obsolete after the full-search migration.
+
+The sourcing card now receives the same actor-scoped full-run summary as the job header. It no longer fetches compatibility matches or refreshes them when regenerating a separately labelled recommendation snapshot. The inner ranking header uses the same summary. Verified population counts remain visible when measurements are incomplete, while the strong-match count stays unknown. Running, failed-coverage, stale or errored runs do not publish authoritative totals. These totals describe the full run before optional view filters; the results list still shows its server-filtered count separately.
+
+Validation: 24 focused frontend tests passed, covering source cards, no independent retrieval, complete and partial summaries, zero versus unknown, restarted/stale/error states and header threshold semantics. Typecheck passed; ESLint reported no errors (existing page warnings remain). Hosted CI, merge/deploy and repeated production Chrome counter verification are still required.
+
+The same production interaction confirmed the visible title-only and partial-ranking warnings. First candidate had a measured score of 61; this demonstrates some rebuilt vectors work, not complete index coverage or matching quality. Elapsed time was 169.6 s, with displayed cost zero whose provenance still requires runtime telemetry. Index audit 34366045636-1 independently found 1,600 current and 58,364 wrong/unknown model records. The existing repair remains in progress; no duplicate repair or candidate business edits were performed.

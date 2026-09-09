@@ -37,7 +37,6 @@ import {
 
 import {
   historicalCandidatesApi,
-  matchingApi,
   postingsApi,
   proposalsApi,
 } from "@/lib/api";
@@ -51,6 +50,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { cn } from "@/lib/utils";
+import type { FullSearchSummary } from "@/lib/full-search-summary";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 
 // `postingsApi.list` nie ma własnego generyku (zwraca `any`) — `PostingsSection`
@@ -74,6 +74,7 @@ interface SourcingHubProps {
   jobId: number;
   job: SourcingHubJob | null | undefined;
   readOnly: boolean;
+  searchSummary?: FullSearchSummary | null;
   onTabChange: (tab: JobDetailTab) => void;
   /** C2 — renderowane DOKŁADNIE tak jak dziś, bez żadnych zmian. */
   children: ReactNode;
@@ -158,6 +159,7 @@ export function SourcingHub({
   jobId,
   job,
   readOnly,
+  searchSummary,
   onTabChange,
   children,
 }: SourcingHubProps) {
@@ -231,26 +233,8 @@ export function SourcingHub({
     }, 50);
   }, []);
 
-  // ── AI Matching · C2 — liczniki ─────────────────────────────────────────
-  // C2 (poniżej, w `children`) trzyma filtr lokalizacji we WŁASNYM stanie
-  // i jego klucz zapytania to `["ai-matches", jobId, locationFilter.trim()]`.
-  // Rama liczy ranking DOMYŚLNY (bez filtra lokalizacji), więc używa
-  // DOKŁADNIE klucza C2 z pustym filtrem: `["ai-matches", jobId, ""]`.
-  // W stanie domyślnym (filtr pusty — tak wygląda każde wejście na zakładkę)
-  // react-query deduplikuje: jeden fetch karmi ramę i C2. Osobne zapytanie
-  // powstaje dopiero, gdy rekruter wpisze filtr lokalizacji w C2 — i wtedy
-  // różnica jest zamierzona (rama nadal pokazuje ranking domyślny). Klucz
-  // bez trzeciego segmentu (`["ai-matches", jobId]`) nigdy by się nie
-  // zdeduplikował — inna długość = inny klucz.
-  const matchesQuery = useQuery({
-    queryKey: ["ai-matches", jobId, ""],
-    queryFn: () => matchingApi.getMatches(jobId).then((r) => r.data),
-    staleTime: 60_000,
-  });
-  const matchesCount = matchesQuery.data?.matches.length ?? 0;
-  const hiddenMeta = matchesQuery.data?.meta?.hidden;
-  const hiddenTotal = (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
-  const matchesFailed = matchesQuery.isLoading || matchesQuery.isError;
+  // C2 publishes whole-run totals. Reading this card never starts another
+  // bounded search; before a verified population count, display unknown.
 
   // Ten sam klucz co przełącznik Ranking/Shortlista w C2 i JobShortlist —
   // react-query deduplikuje, jeden fetch karmi oba liczniki.
@@ -268,11 +252,8 @@ export function SourcingHub({
       return proposalsApi.regenerate(jobId);
     },
     onSuccess: () => {
-      // Fuzzy match (domyślne `exact: false`) — `["ai-matches", jobId]` łapie
-      // TAKŻE klucz C2 (`["ai-matches", jobId, locationFilter]`), więc jedno
-      // kliknięcie odświeża oba rankingi. `proposal-latest` karmi snapshot
-      // widoczny w zwiniętej karcie „Rekomendowani" niżej.
-      queryClient.invalidateQueries({ queryKey: ["ai-matches", jobId] });
+      // This action refreshes the separately labelled recommendation snapshot.
+      // The explicit full-search run remains unchanged.
       queryClient.invalidateQueries({ queryKey: ["proposal-latest", jobId] });
       showSuccess("Propozycje AI zostały odświeżone.");
     },
@@ -353,7 +334,7 @@ export function SourcingHub({
           <div className="mt-auto flex flex-wrap items-center gap-4 pt-1">
             <div>
               <div className="text-base font-bold tabular-nums text-foreground">
-                {matchesFailed ? "—" : matchesCount}
+                {searchSummary?.total ?? "—"}
               </div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 w rankingu
@@ -361,7 +342,7 @@ export function SourcingHub({
             </div>
             <div>
               <div className="text-base font-bold tabular-nums text-warning">
-                {matchesFailed ? "—" : hiddenTotal}
+                {searchSummary?.excluded ?? "—"}
               </div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 ukryto

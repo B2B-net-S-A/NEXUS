@@ -350,7 +350,7 @@ export function JobDetailCompactHeader({
                           onSelect={() => deferMenuAction(onWriteAnnouncement)}
                         >
                           <Wand2 className="h-4 w-4" />
-                          AI Ogłoszenie
+                          Szkic ogłoszenia
                         </DropdownMenuItem>
                       ) : null}
                       {onGenerateInviteLink ? (
