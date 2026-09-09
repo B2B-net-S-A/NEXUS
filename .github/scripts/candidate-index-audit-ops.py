@@ -1,6 +1,7 @@
 """Run fixed index audit/repair commands through Coolify's scheduled-task API."""
 
 import json
+import math
 import os
 import re
 import time
@@ -9,6 +10,207 @@ from pathlib import Path
 
 PREFIX = "NEXUS_INDEX_AUDIT_RESULT="
 REPAIR_PREFIX = "NEXUS_INDEX_REPAIR_RESULT="
+DIAGNOSTICS_PREFIX = "NEXUS_SEARCH_DIAGNOSTICS_RESULT="
+
+
+def extract_diagnostics_report(executions):
+    def number(value):
+        if value is not None and (
+            type(value) not in (int, float) or not math.isfinite(value) or value < 0
+        ):
+            raise ValueError("Invalid diagnostic number")
+        return value
+
+    def boolean(value):
+        if value is not None and type(value) is not bool:
+            raise ValueError("Invalid diagnostic flag")
+        return value
+
+    def label(value):
+        if value is not None and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", value):
+            raise ValueError("Invalid diagnostic label")
+        return value
+
+    def metrics(value):
+        return {
+            **{
+                key: number(value.get(key))
+                for key in (
+                    "elapsed_ms",
+                    "estimated_cost_usd",
+                    "query_calls",
+                    "query_failed",
+                    "provider_calls",
+                    "provider_failed",
+                    "observed_tokens",
+                    "unpriced_calls",
+                )
+            },
+            **{
+                key: boolean(value.get(key))
+                for key in (
+                    "cost_complete",
+                    "accounting_complete",
+                )
+            },
+        }
+
+    def counters(value, allowed):
+        if not isinstance(value, dict) or set(value) - set(allowed):
+            raise ValueError("Unexpected diagnostic counter")
+        if any(type(n) is not int or n < 0 for n in value.values()):
+            raise ValueError("Invalid diagnostic count")
+        return dict(value)
+
+    for execution in executions:
+        for line in (execution.get("message") or "").splitlines():
+            if not line.startswith(DIAGNOSTICS_PREFIX):
+                continue
+            data = json.loads(line[len(DIAGNOSTICS_PREFIX) :])
+            if data.get("ok") is not True:
+                raise RuntimeError("Runtime diagnostics failed")
+            runtime, queue, probe = (
+                data["runtime"],
+                data["queue"],
+                data["synthetic_query_probe"],
+            )
+            recent = data["recent_runs"]
+            if not isinstance(recent, list) or len(recent) > 10:
+                raise ValueError("Unbounded diagnostic runs")
+            runs = []
+            for run in recent:
+                if run["state"] not in {"queued", "running", "complete", "partial"}:
+                    raise ValueError("Invalid search state")
+                if not re.fullmatch(r"[0-9a-f-]{36}", run["run_id"]):
+                    raise ValueError("Invalid diagnostic run ID")
+                runs.append(
+                    {
+                        "run_id": run["run_id"],
+                        "state": run["state"],
+                        "population": number(run["population"]),
+                        "query_characters": number(run["query_characters"]),
+                        "measurement_counts": counters(
+                            run["measurement_counts"],
+                            (
+                                "measured",
+                                "unavailable",
+                                "stale",
+                                "missing_index",
+                                "pending",
+                            ),
+                        ),
+                        **metrics(run),
+                    }
+                )
+            summary = data["metrics_24h"]
+            comparisons = data.get("archived_run_comparisons", [])
+            if not isinstance(comparisons, list) or len(comparisons) > 3:
+                raise ValueError("Unbounded archived comparisons")
+            compared = []
+            for comparison in comparisons:
+                run_ids = {}
+                for key in ("left_run_id", "right_run_id"):
+                    if not re.fullmatch(r"[0-9a-f-]{36}", comparison[key]):
+                        raise ValueError("Invalid comparison run ID")
+                    run_ids[key] = comparison[key]
+                compared.append(
+                    {
+                        **run_ids,
+                        **{
+                            key: number(comparison[key])
+                            for key in (
+                                "left_population",
+                                "right_population",
+                                "common_candidates",
+                                "changed_candidate_versions",
+                                "eligibility_differences",
+                                "comparable_measured_pairs",
+                                "max_absolute_score_difference",
+                                "score_differences_above_tolerance",
+                                "score_tolerance",
+                            )
+                        },
+                        **{
+                            key: boolean(comparison[key])
+                            for key in (
+                                "same_context",
+                                "same_population",
+                                "same_ranked_ids_and_order",
+                                "left_ranking_complete",
+                                "right_ranking_complete",
+                                "archived_parity_complete",
+                            )
+                        },
+                    }
+                )
+            return {
+                "runtime": {
+                    **{
+                        key: label(runtime[key])
+                        for key in ("embedding_model", "collection")
+                    },
+                    **{
+                        key: boolean(runtime[key])
+                        for key in ("key_present", "worker_enabled")
+                    },
+                    **{
+                        key: number(runtime[key])
+                        for key in (
+                            "worker_batch",
+                            "worker_interval_seconds",
+                            "usd_per_million_tokens",
+                        )
+                    },
+                },
+                "queue": {
+                    "by_status": counters(
+                        queue["by_status"],
+                        (
+                            "pending",
+                            "processing",
+                            "failed",
+                            "done",
+                            "dead",
+                        ),
+                    ),
+                    **{
+                        key: number(queue[key])
+                        for key in (
+                            "queue_depth",
+                            "oldest_pending_age_seconds",
+                            "dead",
+                        )
+                    },
+                },
+                "recent_runs": runs,
+                "archived_run_comparisons": compared,
+                "metrics_24h": {
+                    **{
+                        key: number(summary[key])
+                        for key in (
+                            "runs",
+                            "partial_runs",
+                            "latency_unknown_runs",
+                            "cost_unknown_runs",
+                            "known_cost_subtotal_usd",
+                            "elapsed_p95_ms",
+                            "latency_samples",
+                            "fully_priced_runs",
+                            "mean_estimated_cost_usd_for_priced_runs",
+                            "estimated_total_cost_usd",
+                            "sample_limit",
+                        )
+                    },
+                    "sample_truncated": boolean(summary["sample_truncated"]),
+                },
+                "synthetic_query_probe": {
+                    "ok": boolean(probe["ok"]),
+                    "dimensions": number(probe["dimensions"]),
+                    "error_type": label(probe["error_type"]),
+                    **metrics(probe),
+                },
+            }
+    return None
 
 
 def extract_repair_report(executions, fingerprint, audit_identity):
@@ -79,7 +281,7 @@ def main():
     if not re.fullmatch(r"[1-9][0-9]{0,19}-[1-9][0-9]{0,5}", identity):
         raise ValueError("Invalid run identity")
     mode = os.environ.get("INDEX_MODE", "audit")
-    if mode not in {"audit", "repair"}:
+    if mode not in {"audit", "repair", "diagnostics"}:
         raise ValueError("Unknown index operation")
     audit_identity = os.environ.get("INDEX_AUDIT_IDENTITY", "")
     fingerprint = os.environ.get("INDEX_FINGERPRINT", "")
@@ -92,7 +294,12 @@ def main():
     else:
         if audit_identity or fingerprint:
             raise ValueError("Audit does not accept repair inputs")
-        command = f"cd /app && python -m scripts.run_candidate_index_audit_once --run-identity {identity}"
+        module = (
+            "run_candidate_search_diagnostics_once"
+            if mode == "diagnostics"
+            else "run_candidate_index_audit_once"
+        )
+        command = f"cd /app && python -m scripts.{module} --run-identity {identity}"
     base = os.environ["CO_URL"].rstrip("/") + "/api/v1"
     app = os.environ["APP_UUID"]
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", app):
@@ -141,7 +348,9 @@ def main():
         while time.monotonic() < deadline:
             executions = api(endpoint + f"/{task_id}/executions")
             report = (
-                extract_report(executions)
+                extract_diagnostics_report(executions)
+                if mode == "diagnostics"
+                else extract_report(executions)
                 if mode == "audit"
                 else extract_repair_report(executions, fingerprint, audit_identity)
             )
