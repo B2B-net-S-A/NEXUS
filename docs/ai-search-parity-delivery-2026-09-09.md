@@ -170,3 +170,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - Hydrated response/types/widget preserve the current annotation, including disabled shortlist/assign controls for saved proposals.
 - Validation: 11 native contract/canonical/current-visibility tests, 20 widget tests, typecheck, ESLint, Ruff and diff checks. Read tests change eligibility between consecutive reads of the same snapshot, verify hidden/missing decisions and confirm an exception cannot fall back to old authorization. Hosted generation/DB tests remain required; no production mutations were made.
 - CI 34327444464 (06d01325) finished frontend and backend shards 0/1/3 successfully; shard 2 failed and its log is being inspected. Later queued revisions still need their own required CI. Remaining full-pool/default parity, live snapshot score freshness/profile provenance, explicit negative evidence, quality/index/operational work and production delivery remain open.
+
+### CI follow-up: retired digest cache writer guard
+
+- Shard 2 of CI 34327444464 failed only `test_every_cache_writer_reads_the_unknown_semantics_signal`: its textual guard still classified the migrated digest as a legacy cache writer. Updated the guard to inspect actual calls in all four migrated consumers, require canonical measurement and reject old cache APIs. The existing retrieval zero/unknown behavior tests remain intact.
+- All five tests in the regression file pass natively. The preceding CI result does not validate later commits; a new full required CI pass is still necessary.

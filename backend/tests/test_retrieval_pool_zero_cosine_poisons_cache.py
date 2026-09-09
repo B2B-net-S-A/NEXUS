@@ -168,28 +168,26 @@ def test_recommendations_treats_unknown_semantics_as_degraded():
     )
 
 
-def test_every_cache_writer_reads_the_unknown_semantics_signal():
-    """WSZYSCY, którzy piszą do `match_score_cache`, muszą czytać ten sygnał.
-
-    `/recommendations` nie jest jedyny: `compute_proposals` powielał ten sam
-    warunek na pustkę, a nocny `match_digest` wołał `bulk_get_or_compute`
-    BEZ `allow_cache_write` w ogóle — czyli pisał zawsze. Digest jest masowy,
-    więc jedna zdegradowana noc zatruwa cache całej bazy naraz.
-
-    Test pilnuje wszystkich trzech razem, bo naprawa jednego miejsca zostawia
-    dziurę nie do odróżnienia od naprawionej: cache jest WSPÓLNY (klucz
-    kandydat × oferta × profil), więc wystarczy jeden pisarz bez tej bramki.
-    """
+def test_canonical_consumers_cannot_return_to_legacy_cache():
+    """Migrated consumers must remeasure fit and never reuse legacy composites."""
+    import ast
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[1]
     for rel in (
         "app/api/recommendations.py",
+        "app/api/matching.py",
         "app/tasks/compute_proposals.py",
         "app/tasks/match_digest.py",
     ):
-        src = (backend / rel).read_text(encoding="utf-8")
-        assert "semantic_unknown" in src, (
-            f"{rel} pisze do wspolnego score cache'u i musi odrozniac "
-            "brak POMIARU kosinusu od pomiaru rownego zeru"
+        tree = ast.parse((backend / rel).read_text(encoding="utf-8"))
+        calls = {
+            node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, (ast.Name, ast.Attribute))
+        }
+        assert "score_candidates" in calls, f"{rel} must use canonical measurement"
+        assert not calls.intersection({"bulk_get_or_compute", "get_or_compute"}), (
+            f"{rel} must not read/write legacy fit composites"
         )
