@@ -230,3 +230,8 @@ Still required: UI integration/job picker/shared criteria editor, remaining pipe
 - UI capability mirrors the existing CandidateWriteAccess roles and requires sourcing/pipeline write access; impersonation disables mutation. Server membership checks remain authoritative. No access policy was expanded.
 - Version conflicts preserve entered proof and require refreshed data plus a new requirement selection. Failed reads do not create an editable fabricated form; late reads from another candidate cannot overwrite the active editor. Successful saves refresh the displayed result and explain that a new search is needed to recompute ranking.
 - Validation: 314 focused frontend tests pass (role/backend capability contract, form concurrency/explicit writes, result visibility and action gates), TypeScript and ESLint pass. No production verification records were written. Hosted CI, rendered production evidence and all remaining audit requirements are still open.
+
+### Main synchronization and migration branches
+
+- GitHub reported PR 1428 CONFLICTING; the current main is 4ddd5bef. Merged main into the isolated task branch and retained both independent section-access test groups. All 27 section-access tests pass; Ruff passes on the merged guard/tests.
+- Main introduced a separate 0282 signature-permission migration. Added a no-op merge revision joining it with 0283 requirement verifications, preserving both existing migration histories and all parent operations. This requires hosted upgrade/downgrade validation; local Alembic topology verification is not proof of database migration execution.

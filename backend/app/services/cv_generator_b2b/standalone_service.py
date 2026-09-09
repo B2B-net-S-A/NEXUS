@@ -816,7 +816,24 @@ def _cap_role_technologies(
 # ── Overlapping employment dates check ─────────────────────────────────────
 
 _ONGOING_RE = re.compile(r"obecnie|currently|present|now", re.IGNORECASE)
-_DATE_TOKEN_RE = re.compile(r"(?:(\d{1,2})\.)?(\d{4})")
+_DATE_TOKEN_RE = re.compile(
+    r"(?<!\d)(?:(?P<iso_year>\d{4})-(?P<iso_month>\d{1,2})(?!\d)"
+    r"|(?P<month>\d{1,2})[./](?P<year>\d{4})"
+    r"|(?P<year_only>\d{4}))(?!\d)"
+)
+
+
+def _date_tokens(dates: str) -> list[tuple[int, int | None]]:
+    tokens = []
+    for match in _DATE_TOKEN_RE.finditer(dates):
+        year = int(match["iso_year"] or match["year"] or match["year_only"])
+        month_text = match["iso_month"] or match["month"]
+        month = int(month_text) if month_text else None
+        if month is not None and not 1 <= month <= 12:
+            return []
+        tokens.append((year, month))
+    return tokens
+
 
 # A 1-month "overlap" is usually just a handover month — don't cry wolf.
 _MIN_OVERLAP_MONTHS = 2
@@ -828,10 +845,7 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
     string doesn't carry parseable dates."""
     if not dates or not dates.strip():
         return None
-    tokens = [
-        (int(m.group(2)), int(m.group(1)) if m.group(1) else None)
-        for m in _DATE_TOKEN_RE.finditer(dates)
-    ]
+    tokens = _date_tokens(dates)
     if not tokens:
         return None
     start_year, start_month = tokens[0]
@@ -847,22 +861,24 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
 
 
 def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
-    """Sum the candidate's actual time employed across all roles, in whole
-    years. Intervals are merged so overlapping/parallel contracts (common in
-    B2B) are counted once, and an ongoing role ("obecnie") is capped at the
-    current month. Returns ``None`` when no role carries parseable dates.
+    """Completed years in the union of all precisely dated employment months.
 
-    Claude is reliable at EXTRACTING dates but not at the arithmetic of summing
-    them — it tends to round down ("ponad 4" for a 5-year candidate). Computing
-    the figure here makes the why_points headline exact.
+    Missing dates or year-only precision make the total unknown. Never replace
+    an explicit source claim with a total based on a partially dated history.
     """
     now = datetime.now()
     now_idx = now.year * 12 + (now.month - 1)
     intervals: list[tuple[int, int]] = []
     for job in experience or []:
-        rng = _parse_date_range(job.get("dates") or "")
+        dates = job.get("dates") or ""
+        tokens = _date_tokens(dates)
+        if not tokens or any(month is None for _, month in tokens):
+            return None
+        if len(tokens) < 2 and not _ONGOING_RE.search(dates):
+            return None
+        rng = _parse_date_range(dates)
         if rng is None:
-            continue
+            return None
         start, end = rng
         end = min(end, now_idx)  # cap the "obecnie" sentinel at the current month
         if end >= start:
@@ -881,7 +897,7 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
             cur_start, cur_end = start, end
     total_months += cur_end - cur_start + 1
 
-    years = round(total_months / 12)
+    years = total_months // 12
     return years if years >= 1 else None
 
 
@@ -891,7 +907,7 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
 _YEARS_PHRASE_RE = re.compile(
     r"(?:ponad|powyżej|przeszło|niemal|prawie|blisko|około|ok\.?|~|"
     r"over|nearly|almost|about|more than)?\s*"
-    r"\d+(?:\s*[-–/]\s*\d+)?\s*"
+    r"(?<![\d.,])\d+(?:[.,]\d+)?(?:\s*[-–/]\s*\d+)?\+?\s*"
     r"(?:lata|lat|roku|rok|years|year|yrs|yr)\b",
     re.IGNORECASE,
 )
@@ -905,11 +921,16 @@ def _polish_year_unit(years: int) -> str:
     return "lat"
 
 
-# Connectors that bind a duration to a specific technology, tool or company
-# ("5 lat z Kubernetes", "3 years with Docker", "8 years at Gigaset", "5 lat
-# w Gigaset"). Role connectors ("jako" / "as") are deliberately excluded — a
-# duration tied to a ROLE is the total-career headline we DO want to correct.
-_BOUND_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|u|with|in|at)\b", re.IGNORECASE)
+# Correction is opt-in to an explicitly generic total, not a blacklist of
+# technologies/connectors: e.g. "Python experience" has no binding connector.
+_GENERIC_TENURE_PREFIX_RE = re.compile(
+    r"(?:łącznie|ogółem|total|a total of)?\s*", re.IGNORECASE
+)
+_GENERIC_TENURE_TAIL_RE = re.compile(
+    r"\s*(?:doświadczenia(?:\s+(?:zawodowego|komercyjnego|łącznie))?"
+    r"|(?:of\s+)?(?:(?:professional|work|total)\s+)?experience)\s*[,.;:]?\s*",
+    re.IGNORECASE,
+)
 
 # Markers introducing the "w tym Y lat w [firmie]" sub-figure of a why_point.
 # That figure is scoped to one company/chapter of the career, so the recompute
@@ -917,57 +938,12 @@ _BOUND_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|u|with|in|at)\b", re.IGNORECAS
 _SUBFIGURE_SPLIT_RE = re.compile(r"\sw tym\s|\sincluding\s|\sincl\.?\s", re.IGNORECASE)
 
 
-def _experience_bound_terms(candidate_data: dict[str, Any]) -> set[str]:
-    """Collect the vocabulary a duration must never be inflated against: the
-    champion highlight list, every role's ``technologies`` and every role's
-    company name — lowercased. Used to tell a scoped duration ("2 lata z
-    Intune", "5 years at Gigaset") apart from the total-career headline so the
-    recompute never inflates the former. Sub-4-char tokens are dropped to
-    avoid spurious substring hits (e.g. "AI", "Go", "MDM")."""
-    raw: list[str] = list(candidate_data.get("highlight_keywords") or [])
-    for job in candidate_data.get("experience") or []:
-        raw.extend(job.get("technologies") or [])
-        company = str(job.get("company") or "")
-        raw.append(company)
-        raw.extend(company.split())
-    return {s for t in raw if len(s := str(t).strip().lower()) >= 4}
-
-
-def _years_bound_to_tech_or_company(
-    point: str, years_end: int, bound_terms: set[str]
-) -> bool:
-    """True when the years figure is tied to a specific technology or company
-    rather than a role — e.g. "6 lat doświadczenia z Microsoft Intune" or
-    "5 years at Gigaset". Only the clause the figure introduces is inspected
-    (up to the next comma / "w tym" / "including") so a trailing tech mention
-    or the "w tym Y lat w [firma]" sub-figure can't trigger a false positive."""
-    if not bound_terms:
-        return False
-    tail = point[years_end:]
-    clause = re.split(r"[,;]| w tym | including | incl\.? ", tail, maxsplit=1)[0]
-    conn = _BOUND_CONNECTOR_RE.search(clause)
-    if not conn:
-        return False
-    after = clause[conn.end() :].lower()
-    return any(term in after for term in bound_terms)
-
-
 def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
-    """Overwrite the (often under-counted) total-years figure in the experience
-    why_point with the exact value computed from the candidate's dates. Only
-    the headline total is touched — the "w tym Y lat w …" sub-figure and any
-    other point are left as Claude wrote them.
+    """Correct only an unscoped career-total claim with complete month dates.
 
-    A technology- or company-specific duration ("2 lata z Microsoft Intune",
-    "5 years at Gigaset") is left alone: overwriting it with the total career
-    figure would falsely inflate experience with that one technology or tenure
-    at that one company, so such points are skipped in favour of a generic
-    role/seniority headline.
-
-    Only the clause before "w tym" / "including" is searched. When the headline
-    figure itself is unparseable (e.g. "5+ years"), the search must not drift
-    into the sub-figure — that once turned "including 5 years at Gigaset" into
-    "including 8 years at Gigaset" by stamping the career total there.
+    Role, industry, company and technology claims must never inherit the career
+    total. Decimal/range/plus claims are matched atomically, without changing
+    only the trailing digit (e.g. Polish "2,5 roku").
     """
     years = _total_experience_years(candidate_data.get("experience") or [])
     if not years:
@@ -976,8 +952,6 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         replacement = f"{years} {'year' if years == 1 else 'years'}"
     else:
         replacement = f"{years} {_polish_year_unit(years)}"
-
-    bound_terms = _experience_bound_terms(candidate_data)
 
     points = candidate_data.get("why_points") or []
     for i, point in enumerate(points):
@@ -990,7 +964,9 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         match = _YEARS_PHRASE_RE.search(head)
         if not match:
             continue
-        if _years_bound_to_tech_or_company(point, match.end(), bound_terms):
+        if not _GENERIC_TENURE_PREFIX_RE.fullmatch(head[: match.start()]):
+            continue
+        if not _GENERIC_TENURE_TAIL_RE.fullmatch(head[match.end() :]):
             continue
         points[i] = point[: match.start()] + replacement + point[match.end() :]
         break

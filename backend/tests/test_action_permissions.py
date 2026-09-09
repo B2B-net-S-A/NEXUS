@@ -109,3 +109,32 @@ def test_request_snapshot_wins_over_bootstrap_role_default() -> None:
 
     user.effective_action_access = {ACTION.value: "unexpected"}
     assert action_access_for_user(user, ACTION) is ActionAccess.none
+
+
+def test_signature_is_independent_from_generator_management() -> None:
+    action = ProductAction.b2b_signature_confirmation
+    assert (
+        action_access_for_roles([UserRole.talent_community_manager], action)
+        is ActionAccess.manage
+    )
+    assert action_access_for_roles([UserRole.recruiter], action) is ActionAccess.none
+    user = _user(UserRole.talent_community_manager)
+    user.effective_action_access = {ACTION.value: "manage", action.value: "none"}
+    assert action_access_for_user(user, action) is ActionAccess.none
+    user.effective_action_access = {ACTION.value: "view", action.value: "manage"}
+    assert action_access_for_user(user, action) is ActionAccess.manage
+
+
+def test_signature_user_override_can_revoke_role_grant() -> None:
+    action = ProductAction.b2b_signature_confirmation
+    user = _user(UserRole.talent_community_manager)
+    role_rows = [
+        SimpleNamespace(
+            role="talent_community_manager", action=action.value, access="manage"
+        )
+    ]
+    overrides = [SimpleNamespace(user_id=user.id, action=action.value, access="none")]
+    assert (
+        effective_action_policy_from_rows(user, role_rows, overrides)[action]
+        is ActionAccess.none
+    )

@@ -485,7 +485,7 @@ async def test_status_filter_narrows_the_listing(app_client, app_auth_headers):
     assert active_id not in ids
 
 
-# ── API: kolejność listy (rosnąco po numerze umowy) ──────────────────────────
+# ── API: kolejność listy (malejąco po numerze umowy) ─────────────────────────
 
 
 async def _seed_numbered(
@@ -524,22 +524,22 @@ async def _seed_numbered(
         return row.contract_number
 
 
-async def test_generated_list_is_sorted_ascending_by_contract_number(
+async def test_generated_list_is_sorted_descending_by_contract_number(
     app_client, app_auth_headers
 ):
-    """Regres z ekranu użytkownika: numery 1500, 1501, 1499 wyświetlały się
-    w kolejności utworzenia (``created_at`` malejąco), a nie rosnąco po numerze.
+    """Najnowszy numer umowy ma być na górze tabeli, niezależnie od kolejności
+    utworzenia zapisów.
 
     Numer wpisany ręcznie i numer wygenerowany później rozjeżdżają ``created_at``
-    z numerem, więc lista MUSI sortować po numerze. Ustawiamy ``created_at`` tak,
-    by malał wraz z numerem — stary sort dałby [środkowy, wysoki, niski]."""
+    z numerem, więc lista MUSI sortować malejąco po numerze. Ustawiamy
+    ``created_at`` tak, by stary sort po dacie dał [środkowy, wysoki, niski]."""
     admin_id = await _admin_user_id(app_client)
     tag = f"Sortcheck{uuid.uuid4().hex[:10]}"
     base = 700000 + (uuid.uuid4().int % 90000)
     t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
 
     # created_at desc dałby [mid, high, low] (dokładnie układ z ekranu:
-    # 1500, 1501, 1499) — czyli NIE rosnąco po numerze.
+    # 1500, 1501, 1499) — czyli NIE malejąco po numerze.
     low = await _seed_numbered(
         admin_id, year=2026, seq=base, partner_name=f"{tag} A", created_at=t0
     )
@@ -563,7 +563,7 @@ async def test_generated_list_is_sorted_ascending_by_contract_number(
     )
     assert resp.status_code == 200, resp.text
     numbers = [x["contract_number"] for x in resp.json()]
-    assert numbers == [low, mid, high], numbers
+    assert numbers == [high, mid, low], numbers
 
 
 async def test_generated_list_sorts_numerically_not_lexically(
@@ -584,7 +584,7 @@ async def test_generated_list_sorts_numerically_not_lexically(
     )
     assert resp.status_code == 200, resp.text
     numbers = [x["contract_number"] for x in resp.json()]
-    assert numbers == [n999, n1000], numbers
+    assert numbers == [n1000, n999], numbers
 
 
 # ── API: wyszukiwarka ────────────────────────────────────────────────────────

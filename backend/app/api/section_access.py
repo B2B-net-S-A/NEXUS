@@ -22,6 +22,11 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
+from app.services.action_permissions import (
+    ActionAccess,
+    ProductAction,
+    action_access_for_user,
+)
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import (
     ProductSection,
@@ -56,6 +61,25 @@ def require_section_access(section: ProductSection):
         granted = section_access_for_user(current_user, section)
         if section is ProductSection.delivery and _is_tcm_contract_status_command(
             request, current_user
+        ):
+            return current_user
+        parts = request.url.path.strip("/").split("/")
+        if (
+            section is ProductSection.sourcing
+            and granted >= SectionAccess.read
+            and request.method.upper() == "POST"
+            and len(parts) == 5
+            and parts[:3] == ["api", "b2b-generator", "generated"]
+            and parts[3].isdigit()
+            and parts[4] == "confirm-fully-signed"
+            and action_access_for_user(
+                current_user, ProductAction.b2b_signature_confirmation
+            )
+            >= ActionAccess.manage
+            and action_access_for_user(
+                current_user, ProductAction.b2b_contract_generator
+            )
+            >= ActionAccess.view
         ):
             return current_user
         if granted < required:

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,12 +56,21 @@ class RoleActionPermissionChange(BaseModel):
     action: ProductAction
     access: ActionAccessName
 
+    @model_validator(mode="after")
+    def validate_signature_access(self):
+        if self.action is ProductAction.b2b_signature_confirmation and self.access in (
+            "view",
+            "generate",
+        ):
+            raise ValueError("Oznaczanie podpisu: wybierz Brak lub Dozwolone")
+        return self
+
 
 class RolePermissionUpdate(BaseModel):
     revision: int = Field(..., ge=1)
     changes: list[RolePermissionChange] = Field(default_factory=list, max_length=54)
     action_changes: list[RoleActionPermissionChange] = Field(
-        default_factory=list, max_length=9
+        default_factory=list, max_length=9 * len(ProductAction)
     )
 
 
@@ -74,12 +83,21 @@ class UserActionPermissionChange(BaseModel):
     action: ProductAction
     access: ActionOverrideName
 
+    @model_validator(mode="after")
+    def validate_signature_access(self):
+        if self.action is ProductAction.b2b_signature_confirmation and self.access in (
+            "view",
+            "generate",
+        ):
+            raise ValueError("Oznaczanie podpisu: wybierz Brak lub Dozwolone")
+        return self
+
 
 class UserPermissionUpdate(BaseModel):
     revision: int = Field(..., ge=1)
     changes: list[UserPermissionChange] = Field(default_factory=list, max_length=6)
     action_changes: list[UserActionPermissionChange] = Field(
-        default_factory=list, max_length=1
+        default_factory=list, max_length=len(ProductAction)
     )
 
 

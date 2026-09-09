@@ -424,3 +424,26 @@ async def test_shared_search_requires_read_in_at_least_one_section(
         with pytest.raises(HTTPException) as error:
             await guard(user)
         assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,method,section,signature,allowed", [
+    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "read", "manage", True),
+    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "read", "none", False),
+    ("/api/b2b-generator/generated/123/confirm-fully-signed", "POST", "none", "manage", False),
+    ("/api/b2b-generator/generated/123", "PATCH", "read", "manage", False),
+    ("/api/b2b-generator/generated/123", "DELETE", "read", "manage", False),
+    ("/api/b2b-generator/generate", "POST", "read", "manage", False),
+    ("/api/b2b-generator/generated/123/confirm-fully-signed/extra", "POST", "read", "manage", False),
+])
+async def test_signature_command_is_narrowly_configurable(path, method, section, signature, allowed):
+    user = _user(UserRole.talent_community_manager)
+    user.effective_section_access = {"sourcing": section}
+    user.effective_action_access = {"b2b_contract_generator": "view", "b2b_signature_confirmation": signature}
+    check = require_section_access(ProductSection.sourcing)
+    if allowed:
+        assert await check(_request(method, path), user) is user
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await check(_request(method, path), user)
+        assert exc.value.status_code == 403

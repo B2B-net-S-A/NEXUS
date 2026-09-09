@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,18 +48,24 @@ const recruiterPermissions = {
 
 const policy: SectionPermissionsResponse = {
   revision: 12,
-  actions: ["b2b_contract_generator"],
+  actions: ["b2b_contract_generator", "b2b_signature_confirmation"],
   roles: [
     {
       role: "admin",
       permissions: allWrite,
-      action_permissions: { b2b_contract_generator: "manage" },
+      action_permissions: {
+        b2b_contract_generator: "manage",
+        b2b_signature_confirmation: "none",
+      },
       locked: true,
     },
     {
       role: "recruiter",
       permissions: recruiterPermissions,
-      action_permissions: { b2b_contract_generator: "manage" },
+      action_permissions: {
+        b2b_contract_generator: "manage",
+        b2b_signature_confirmation: "none",
+      },
     },
   ],
 };
@@ -70,8 +82,14 @@ const users: UserSectionPermissionsResponse = {
       overrides: {},
       effective_permissions: recruiterPermissions,
       action_overrides: {},
-      inherited_action_permissions: { b2b_contract_generator: "manage" },
-      effective_action_permissions: { b2b_contract_generator: "manage" },
+      inherited_action_permissions: {
+        b2b_contract_generator: "manage",
+        b2b_signature_confirmation: "none",
+      },
+      effective_action_permissions: {
+        b2b_contract_generator: "manage",
+        b2b_signature_confirmation: "none",
+      },
     },
   ],
   total: 1,
@@ -112,9 +130,8 @@ describe("PermissionsTab", () => {
     const user = userEvent.setup();
     renderTab();
 
-    const deliverySelectors = await screen.findAllByLabelText(
-      "Rekruter: Delivery",
-    );
+    const deliverySelectors =
+      await screen.findAllByLabelText("Rekruter: Delivery");
     fireEvent.change(deliverySelectors[0], { target: { value: "read" } });
 
     expect(adminApi.updateRoleSectionPermissions).not.toHaveBeenCalled();
@@ -165,6 +182,38 @@ describe("PermissionsTab", () => {
     );
   });
 
+  it("pozwala niezależnie nadać oznaczanie podpisu bez zmiany generatora", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    const select = await screen.findByLabelText(
+      "Rekruter: Oznaczanie podpisu umowy B2B",
+    );
+    expect(
+      Array.from((select as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual(["Brak", "Dozwolone"]);
+    fireEvent.change(select, { target: { value: "manage" } });
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    expect(screen.getAllByText("Dozwolone").length).toBeGreaterThan(0);
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź i zapisz" }),
+    );
+    await waitFor(() =>
+      expect(adminApi.updateRoleSectionPermissions).toHaveBeenCalledWith(
+        12,
+        [],
+        [
+          {
+            role: "recruiter",
+            action: "b2b_signature_confirmation",
+            access: "manage",
+          },
+        ],
+      ),
+    );
+  });
+
   it("blokuje edycję administratora i sekcji administracji technicznej", async () => {
     renderTab();
 
@@ -176,9 +225,9 @@ describe("PermissionsTab", () => {
     );
     const recruiterDelivery = screen.getAllByLabelText("Rekruter: Delivery");
 
-    expect(adminDelivery.every((control) => control.hasAttribute("disabled"))).toBe(
-      true,
-    );
+    expect(
+      adminDelivery.every((control) => control.hasAttribute("disabled")),
+    ).toBe(true);
     expect(
       recruiterSystem.every((control) => control.hasAttribute("disabled")),
     ).toBe(true);
@@ -249,9 +298,8 @@ describe("PermissionsTab", () => {
     const user = userEvent.setup();
     renderTab();
 
-    const deliverySelectors = await screen.findAllByLabelText(
-      "Rekruter: Delivery",
-    );
+    const deliverySelectors =
+      await screen.findAllByLabelText("Rekruter: Delivery");
     fireEvent.change(deliverySelectors[0], { target: { value: "read" } });
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     await user.click(
@@ -270,9 +318,8 @@ describe("PermissionsTab", () => {
     const user = userEvent.setup();
     const { queryClient } = renderTab();
 
-    const deliverySelectors = await screen.findAllByLabelText(
-      "Rekruter: Delivery",
-    );
+    const deliverySelectors =
+      await screen.findAllByLabelText("Rekruter: Delivery");
     fireEvent.change(deliverySelectors[0], { target: { value: "read" } });
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
     expect(
@@ -297,7 +344,9 @@ describe("PermissionsTab", () => {
       }),
     ).not.toBeInTheDocument();
     expect(adminApi.updateRoleSectionPermissions).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Zapisz zmiany" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Zapisz zmiany" }),
+    ).toBeDisabled();
   });
 
   it("zamyka nieaktualny modal wyjątku po zmianie rewizji listy", async () => {
@@ -331,6 +380,8 @@ describe("PermissionsTab", () => {
       }),
     ).not.toBeInTheDocument();
     expect(adminApi.updateUserSectionPermissions).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Zapisz wyjątek" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Zapisz wyjątek" }),
+    ).toBeDisabled();
   });
 });

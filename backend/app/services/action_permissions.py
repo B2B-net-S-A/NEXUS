@@ -19,6 +19,7 @@ from app.models.user import User, UserRole
 
 class ProductAction(StrEnum):
     b2b_contract_generator = "b2b_contract_generator"
+    b2b_signature_confirmation = "b2b_signature_confirmation"
 
 
 class ActionAccess(IntEnum):
@@ -43,14 +44,24 @@ def _policy(**overrides: ActionAccess) -> dict[ProductAction, ActionAccess]:
 # read-only TCM persona. The legacy viewer remains view-only because its
 # Sourcing section ceiling is also read-only.
 DEFAULT_ROLE_ACTION_ACCESS: dict[UserRole, dict[ProductAction, ActionAccess]] = {
-    UserRole.admin: _policy(b2b_contract_generator=ActionAccess.manage),
+    UserRole.admin: _policy(
+        b2b_contract_generator=ActionAccess.manage,
+        b2b_signature_confirmation=ActionAccess.manage,
+    ),
     UserRole.finance: _policy(b2b_contract_generator=ActionAccess.manage),
     UserRole.head_of_recruitment: _policy(b2b_contract_generator=ActionAccess.manage),
-    UserRole.delivery_lead: _policy(b2b_contract_generator=ActionAccess.manage),
-    UserRole.talent_community_manager: _policy(
-        b2b_contract_generator=ActionAccess.view
+    UserRole.delivery_lead: _policy(
+        b2b_contract_generator=ActionAccess.manage,
+        b2b_signature_confirmation=ActionAccess.manage,
     ),
-    UserRole.tac: _policy(b2b_contract_generator=ActionAccess.manage),
+    UserRole.talent_community_manager: _policy(
+        b2b_contract_generator=ActionAccess.view,
+        b2b_signature_confirmation=ActionAccess.manage,
+    ),
+    UserRole.tac: _policy(
+        b2b_contract_generator=ActionAccess.manage,
+        b2b_signature_confirmation=ActionAccess.manage,
+    ),
     UserRole.recruiter: _policy(b2b_contract_generator=ActionAccess.manage),
     UserRole.sourcer: _policy(b2b_contract_generator=ActionAccess.manage),
     UserRole.user: _policy(b2b_contract_generator=ActionAccess.view),
