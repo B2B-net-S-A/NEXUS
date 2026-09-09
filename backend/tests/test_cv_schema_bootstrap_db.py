@@ -1,7 +1,9 @@
 """Hosted PostgreSQL test of the production fallback, isolated and rolled back."""
 
 from uuid import uuid4
+import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 from app.core.database import engine
 from app.services.cv_schema_bootstrap import ensure_cv_schema
 
@@ -75,5 +77,21 @@ async def test_cv_bootstrap_repairs_old_schema_and_is_repeatable():
                 assert preview["options"]["ondelete"] == "SET NULL"
 
             await connection.run_sync(verify)
+            await connection.execute(
+                text("INSERT INTO cv_generated_documents (id) VALUES (1)")
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO cv_document_versions (id, generated_owner_id, version) VALUES (1, 1, 1)"
+                )
+            )
+            for statement in (
+                "INSERT INTO cv_document_versions (id, version) VALUES (2, 1)",
+                "INSERT INTO cv_document_versions (id, generated_owner_id, candidate_stage_cv_id, version) VALUES (2, 1, 5, 2)",
+                "INSERT INTO cv_document_versions (id, generated_owner_id, version) VALUES (2, 1, 1)",
+            ):
+                with pytest.raises(IntegrityError):
+                    async with connection.begin_nested():
+                        await connection.execute(text(statement))
         finally:
             await transaction.rollback()
