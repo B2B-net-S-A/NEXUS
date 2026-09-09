@@ -86,7 +86,7 @@ function CVBrandedEditContent({
  null,
  );
 
- const { data, isLoading } = useQuery<CVBrandedState>({
+ const { data, isLoading, error: loadError, refetch, isFetching } = useQuery<CVBrandedState>({
  queryKey: [scopeKey, stageId],
  queryFn: () =>
  editorApi.get(stageId).then((r) => r.data),
@@ -339,7 +339,7 @@ function CVBrandedEditContent({
  <Select
  value={pendingTemplate ?? data?.template ??"standard"}
  onValueChange={(v) => handleTemplateChange(v as CVTemplate)}
- disabled={isFinalized || data?.from_generator}
+ disabled={!data || isFinalized || data?.from_generator}
  >
  <SelectTrigger className="w-36 h-8 text-xs">
  <SelectValue />
@@ -355,7 +355,7 @@ function CVBrandedEditContent({
  <Select
  value={pendingLanguage ?? data?.language ??"pl"}
  onValueChange={(v) => handleLanguageChange(v as CVLanguage)}
- disabled={isFinalized || data?.from_generator}
+ disabled={!data || isFinalized || data?.from_generator}
  >
  <SelectTrigger className="w-24 h-8 text-xs">
  <SelectValue />
@@ -405,13 +405,19 @@ function CVBrandedEditContent({
  </div>
 
  <div className="flex-1 overflow-auto p-5 bg-background">
+ {loadError && <div role="alert" className="mb-4 space-y-2 text-sm text-destructive">
+ <p>Nie udało się wczytać CV: {getErrorMessage(loadError)}</p>
+ <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
+ Ponów wczytanie
+ </Button>
+ </div>}
  {isLoading ? (
  <div className="text-center text-sm text-muted-foreground py-10">
  Ładowanie…
  </div>
- ) : (
+ ) : data ? (
  <EditorContent editor={editor} />
- )}
+ ) : null}
  </div>
 
  <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-t border-border">

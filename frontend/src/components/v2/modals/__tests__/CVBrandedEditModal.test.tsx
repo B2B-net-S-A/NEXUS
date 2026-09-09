@@ -55,6 +55,7 @@ vi.mock("@/lib/api", () => {
   return { candidateStageCvApi: { branded: adapter }, cvGeneratedEditorApi: adapter };
 });
 
+import { cvGeneratedEditorApi } from "@/lib/api";
 import { CVBrandedEditModal } from "../CVBrandedEditModal";
 import { downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 
@@ -89,4 +90,21 @@ it.each(["pipeline", "standalone"])("%s finalize before autosave includes the la
   await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
     `${base}/versions/1/docx`, "Reviewed.docx",
   ));
+});
+
+
+it("shows the source recovery error and retries loading instead of a blank editor", async () => {
+  const get = vi.spyOn(cvGeneratedEditorApi, "get").mockRejectedValueOnce({
+    response: { data: { detail: "Brak źródeł. Wybierz oryginalne CV i wygeneruj ponownie." } },
+  });
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={()=>{}}
+    generatedId={999} candidateName="Synthetic person" /></QueryClientProvider>);
+  expect(await screen.findByRole("alert")).toHaveTextContent("Wybierz oryginalne CV");
+  expect(screen.queryByLabelText("audit editor")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Ponów wczytanie"}));
+  await screen.findByLabelText("audit editor");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(get).toHaveBeenCalledTimes(2);
+  get.mockRestore();
 });
