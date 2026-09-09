@@ -147,7 +147,7 @@ export function CVGeneratorV2({
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
-          consent_screenshot_key: consentKey ?? "",
+          consent_screenshot_token: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -174,6 +174,7 @@ export function CVGeneratorV2({
   // Reset the „enqueued" success view when the dialog closes so re-opening lands
   // on the form again.
   function handleOpenChange(next: boolean) {
+    if (!next) setConsentKey(null);
     if (!next) {
       setEnqueued(false);
       setGeneratedId(null);
@@ -390,6 +391,7 @@ export function CVGeneratorV2({
             </div>
 
             <ConsentScreenshotField
+              context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id }}
               value={consentKey}
               onChange={(key: string | null) => setConsentKey(key)}
               required={consentRequired}

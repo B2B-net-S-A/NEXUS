@@ -179,7 +179,7 @@ def test_refusal_happens_before_the_ai_quota_is_charged() -> None:
     # Tylko WYWOŁANIA (`await ...`), nie definicje: `async def` stoi wyżej niż
     # jakikolwiek strażnik i sam z siebie fałszywie alarmował.
     guards = [
-        m.start() for m in re.finditer(r"^\s+_require_consent_screenshot\(", src, re.M)
+        m.start() for m in re.finditer(r"^\s+consent = _verified_consent\(", src, re.M)
     ]
     charges = [
         m.start() for m in re.finditer(r"await _charge_cv_generation_quota\(", src)
@@ -217,7 +217,11 @@ EMU_PER_INCH = 914400
 
 @pytest.mark.parametrize(
     ("size", "opis"),
-    [((300, 900), "wąski-długi-z-telefonu"), ((2400, 800), "szeroki"), ((400, 200), "mały")],
+    [
+        ((300, 900), "wąski-długi-z-telefonu"),
+        ((2400, 800), "szeroki"),
+        ((400, 200), "mały"),
+    ],
 )
 def test_screenshot_always_fits_the_page(size: tuple[int, int], opis: str) -> None:
     """Zrzut mieści się w kolumnie tekstu I na stronie, z proporcjami.
@@ -274,14 +278,13 @@ def test_image_type_is_sniffed_from_bytes_not_from_the_client_header() -> None:
         assert _sniff_image_type(hostile) is None
 
 
-def test_payload_carries_only_the_storage_key() -> None:
-    """Bez osobnego `filename` — klucz i tak niesie nazwę pliku.
+def test_payload_has_verified_subject_without_a_reusable_token() -> None:
+    from app.api.cv_generator_b2b import _verified_consent
+    from app.services.cv_generator_b2b import consent_binding
 
-    Pole dublujące ją było PUSTE na ścieżce `/generate` (front przesyła tam sam
-    klucz), a pole, które w połowie wywołań kłamie, jest gorsze niż jego brak.
-    """
-    from app.api.cv_generator_b2b import _consent_payload
-
-    assert _consent_payload("cv/2026/09/abc-zgoda.png") == {
-        "storage_key": "cv/2026/09/abc-zgoda.png"
-    }
+    context = consent_binding.subject(candidate_id=1, stage_id=2, client_id=3)
+    token = consent_binding.issue("cv/2026/09/abc-zgoda.png", 4, context)
+    payload = _verified_consent(None, token, "", 4, context)
+    assert payload["storage_key"] == "cv/2026/09/abc-zgoda.png"
+    assert payload["binding"]["subject"] == context
+    assert "token" not in payload
