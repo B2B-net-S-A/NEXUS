@@ -51,7 +51,9 @@ def source():
     )
 
 
-@pytest.mark.parametrize("failure", [None, "missing", "corrupt", "changed_context"])
+@pytest.mark.parametrize(
+    "failure", [None, "missing", "corrupt", "changed_context", "changed_file"]
+)
 async def test_source_is_captured_before_charge_and_scheduled_as_value(
     monkeypatch, failure
 ):
@@ -80,6 +82,7 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     order = []
 
     async def load(*args, **kwargs):
+        assert kwargs["cv_document_id"] == 9
         order.append("source")
         if failure == "missing":
             raise StandaloneGenerationError(
@@ -87,6 +90,8 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
             )
         if failure == "changed_context":
             return replace(captured, client_id=999)
+        if failure == "changed_file":
+            return replace(captured, cv_document_id=99)
         if failure == "corrupt":
             return replace(captured, cv_bytes=b"not a document")
         return captured
@@ -112,12 +117,13 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/cv-generator/generate", json={"candidate_id": 2, "stage_id": 3}
+            "/cv-generator/generate",
+            json={"candidate_id": 2, "stage_id": 3, "cv_document_id": 9},
         )
     if failure:
-        assert response.status_code == (409 if failure == "changed_context" else 422), (
-            response.text
-        )
+        assert response.status_code == (
+            409 if failure in {"changed_context", "changed_file"} else 422
+        ), response.text
         assert order == ["source"]
         pending.assert_not_awaited()
         worker.assert_not_awaited()
@@ -208,3 +214,14 @@ async def test_second_language_and_requirement_map_do_not_reload_changed_inputs(
         for call in generate.call_args_list
     )
     forbidden.assert_not_awaited()
+
+
+@pytest.mark.parametrize("value", [None, 0, -1])
+def test_generation_requires_explicit_positive_source_selection(value):
+    from pydantic import ValidationError
+
+    payload = {"candidate_id": 2, "stage_id": 3}
+    if value is not None:
+        payload["cv_document_id"] = value
+    with pytest.raises(ValidationError):
+        api.GenerateRequest.model_validate(payload)

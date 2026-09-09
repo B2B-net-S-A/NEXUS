@@ -413,3 +413,18 @@ are not proof of semantic role classification if a caller deliberately relabels
 content; real-client usability/visual acceptance and broader policy coverage remain
 open. CI 34409180558 completed successfully for 2d5a3c80 (all backend shards and
 frontend build). This subsequent asset/privacy/policy package requires new CI.
+
+
+### Explicit candidate source selection at the API boundary
+
+Public candidate generation now requires a positive `cv_document_id`, matching the
+existing panel selection. The captured source must match that ID as well as candidate,
+stage, job and client before admission. Internal source-loader defaults used by other
+workflows are unchanged. Existing consent/resource tests now supply explicit source
+IDs so they continue exercising their intended guards instead of schema rejection.
+
+Seventy-one focused input/readiness/consent/source tests pass. New cases reject a
+missing/nonpositive selection and a changed captured file before charging or enqueue.
+The CV-08 table entry was refreshed; hosted exact-head and production proof remain
+pending. Older open clients must refresh after eventual deployment. No deployment
+has occurred for this consolidated PR.

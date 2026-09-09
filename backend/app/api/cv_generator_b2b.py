@@ -163,7 +163,7 @@ class RecruitmentOption(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    cv_document_id: Optional[int] = Field(default=None, ge=1)
+    cv_document_id: int = Field(..., ge=1)
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
     # Klient jest wyprowadzany z rekrutacji; jawna wartość służy wyłącznie do
@@ -1451,11 +1451,18 @@ async def generate(
         )
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
-    if (source.candidate_id, source.stage_id, source.job_id, source.client_id) != (
+    if (
+        source.candidate_id,
+        source.stage_id,
+        source.job_id,
+        source.client_id,
+        source.cv_document_id,
+    ) != (
         payload.candidate_id,
         payload.stage_id,
         stage.job_id,
         client_id,
+        payload.cv_document_id,
     ):
         raise HTTPException(
             status_code=409,
