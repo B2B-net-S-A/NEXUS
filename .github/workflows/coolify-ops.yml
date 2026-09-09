@@ -42,7 +42,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality]
+        options: [staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -173,12 +173,40 @@ permissions:
   contents: read
 
 jobs:
+  staging-status:
+    name: Read configured staging application
+    if: inputs.action == 'staging-status'
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read application metadata only
+        env:
+          CO_URL: ${{ vars.STAGING_COOLIFY_BASE_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_READ_TOKEN }}
+          APP_UUID: ${{ vars.NEXUS_STAGING_APPLICATION_UUID }}
+        run: |
+          set -euo pipefail
+          test -n "$CO_URL" && test -n "$CO_TOKEN" && test -n "$APP_UUID"
+          body=$(mktemp)
+          trap 'rm -f "$body"' EXIT
+          code=$(curl --silent --show-error --max-time 30 -o "$body" -w '%{http_code}' \
+            -H "Authorization: Bearer $CO_TOKEN" -H 'Accept: application/json' \
+            "${CO_URL%/}/api/v1/applications/$APP_UUID")
+          if [ "$code" != 200 ]; then
+            echo "Staging application lookup returned HTTP $code"
+            exit 1
+          fi
+          jq -e 'if type == "object" and .uuid then
+            {uuid, status, git_branch, git_commit_sha, build_pack, fqdn}
+            else empty end' "$body" 2>/dev/null
+
   ops:
     name: Coolify queue ops
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    if: ${{ inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
