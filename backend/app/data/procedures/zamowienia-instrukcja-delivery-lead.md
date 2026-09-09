@@ -416,10 +416,18 @@ sprawdza **pełną, aktualną listę konsultantów przypisanych umową do tego
 klienta**, także z dawniej zakończonymi umowami. Nie szuka wśród osób innego
 klienta.
 
+**Spacje, wielkość liter, polskie znaki i kolejność imienia oraz nazwiska
+nie wymagają ręcznego potwierdzenia**, jeśli pasuje dokładnie jedna osoba
+u klienta. Dotyczy to także niewidocznych znaków formatowania z PDF-a
+oraz różnych znaków łącznika w nazwisku dwuczłonowym. System porównuje
+następnie osobę wraz z jej stawką i jednostką z polami dokumentu. Sama zgodność
+kwot bez potwierdzenia nazwiska nie wystarcza do automatycznego zapisu.
+
 **Drobna literówka albo odmiana imienia i nazwiska nie wyklucza dopasowania.**
 Na przykład „Konrada Korcza" może zostać powiązany z „Konrad Korcz".
 Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
-osób, system zgłasza niejednoznaczność; gdy nie pasuje żadna, wiersz zostaje
+osób, system pokazuje ich imiona i nazwiska, identyfikatory rekordów oraz
+numery kontraktów do ręcznego rozstrzygnięcia; gdy nie pasuje żadna, wiersz zostaje
 **„Pomijany"** z komunikatem **„Brak takiej osoby wśród konsultantów tego klienta"**.
 
 **Brutto/netto jest sprawdzane dla każdej odczytanej stawki na podstawie
@@ -904,6 +912,13 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 * **Powiadomienia:** standardowe.
 
 ### PFRON
+
+* **Osoba i jej stawka są niezależnie potwierdzane z pól „Imię i nazwisko”
+  oraz „Stawka za jedną Roboczogodzinę” w tym samym bloku specjalisty.
+  Dopisek stanowiska po oddzielonym spacjami myślniku nie jest częścią nazwiska.**
+  Brak kompletnego potwierdzenia wymaga weryfikacji dokumentu, nawet gdy
+  konsultant istnieje w bazie. Informacyjna liczba RBH nie tworzy budżetu MD
+  ani ostrzeżenia o jednostce pomijanej liczby MD.
 
 * **Klient**: zamówienia trafiają do aktywnego rekordu „Państwowy Fundusz
   Rehabilitacji Osób Niepełnosprawnych”, a osoby są szukane w jego liście

@@ -259,7 +259,15 @@ def resolve_rows(
                     row_name=row.consultant_name,
                     match_kind=MATCH_AMBIGUOUS,
                     candidate_ids=tuple(p.candidate_id for p in pool),
-                    reason=f"Pasuje {len(pool)} osób u tego klienta — wybierz ręcznie",
+                    reason=(
+                        f"Pasuje {len(pool)} osób u tego klienta — wybierz ręcznie: "
+                        + "; ".join(
+                            f"{p.full_name} (ID {p.candidate_id}; kontrakty: "
+                            + ", ".join(str(c.contract_id) for c in p.contracts)
+                            + ")"
+                            for p in pool
+                        )
+                    ),
                 )
             )
             continue

@@ -99,6 +99,8 @@ class CvRuleSnapshot:
     why_points_max: int | None = None
     date_format: str | None = None
     glossary: tuple[tuple[str, str], ...] = ()
+    highlight_policy: str = "technologies"
+    highlight_terms: tuple[str, ...] = ()
     # Wersja reguły — stemplowana na wygenerowanym CV.
     version: int | None = None
 
@@ -161,6 +163,8 @@ def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
     if rule is None:
         return None
     return CvRuleSnapshot(
+        highlight_policy=getattr(rule, "highlight_policy", None) or "technologies",
+        highlight_terms=tuple(getattr(rule, "highlight_terms", None) or []),
         filename_pattern=rule.filename_pattern,
         spaces_to_underscores=bool(rule.spaces_to_underscores),
         cv_language=rule.cv_language,

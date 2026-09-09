@@ -3038,6 +3038,13 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
+    # 0284: independent formatting policy (same constraint as the migration).
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_policy VARCHAR(24) NOT NULL DEFAULT 'technologies'",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS highlight_terms JSONB",
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules ADD CONSTRAINT ck_cv_highlight_policy
+            CHECK (highlight_policy IN ('none', 'technologies', 'must', 'must_nice', 'explicit'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0283: immutable publications and isolated drafts (Alembic safety net).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS cv_rule_edit_revision INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS draft_payload JSONB",

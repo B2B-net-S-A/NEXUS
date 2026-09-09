@@ -281,21 +281,14 @@ def test_tailored_still_sends_the_champion_profile(captured_prompt: dict) -> Non
     assert "Kubernetes" in seen["user"]
 
 
-@pytest.mark.parametrize("mode", ["basic", "polished"])
-def test_lower_modes_do_not_bold_the_clients_requirement_list(
-    mode: str, captured_prompt: dict
-) -> None:
-    """Pogrubianie listy wymagań klienta to najsilniejszy sygnał „pisane pod ofertę”."""
+@pytest.mark.parametrize("mode", CONTENT_MODES)
+def test_default_highlighting_uses_candidate_technologies_in_every_mode(
+    mode, captured_prompt
+):
     result, _ = _run(mode, captured_prompt)
-    assert not result.render_payload.get("highlight_keywords")
-
-
-def test_tailored_bolds_the_clients_requirement_list(captured_prompt: dict) -> None:
-    result, _ = _run("tailored", captured_prompt)
-    assert result.render_payload.get("highlight_keywords") == [
-        "Kubernetes",
-        "Terraform",
-    ]
+    assert result.render_payload["highlight_keywords"] == ["Python", "PostgreSQL"]
+    # The job advert must not inject technologies absent from the source.
+    assert "Kubernetes" not in result.render_payload["highlight_keywords"]
 
 
 @pytest.mark.parametrize("mode", CONTENT_MODES)
@@ -327,3 +320,33 @@ def test_used_mode_is_recorded_in_the_saved_payload(
 def test_each_mode_gets_its_own_system_prompt(mode: str, captured_prompt: dict) -> None:
     _, seen = _run(mode, captured_prompt)
     assert seen["system"] == get_prompt("pl", False, mode)
+
+
+@pytest.mark.parametrize("mode", ["basic", "polished", "tailored"])
+def test_champion_does_not_prioritize_trimmed_technologies_below_tailored(
+    captured_prompt, monkeypatch, mode
+):
+    technologies = [
+        "Python",
+        "SQL",
+        "Java",
+        "C++",
+        "Go",
+        "Rust",
+        "Ruby",
+        "C#",
+        ".NET",
+        "PHP",
+        "React",
+        "Vue",
+        "Kubernetes",
+    ]
+    payload = {
+        **_AI_JSON,
+        "experience": [{**_AI_JSON["experience"][0], "technologies": technologies}],
+    }
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    result, _ = _run(mode, captured_prompt)
+    selected = result.render_payload["experience"][0]["technologies"]
+    assert len(selected) == 12
+    assert ("Kubernetes" in selected) is (mode == "tailored")

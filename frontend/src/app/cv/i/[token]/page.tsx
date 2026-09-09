@@ -1,4 +1,5 @@
 "use client";
+import { HighlightedCvText } from "@/components/v2/cv-generator/HighlightedCvText";
 
 /**
  * Interaktywne CV — publiczny widok wygenerowanego CV (Generator B2B).
@@ -63,6 +64,7 @@ interface PublicCvPayload {
   languages: string[];
   experience: CvExperience[];
   highlight_keywords: string[];
+  text_runs?: Record<string, Array<{ text: string; bold: boolean }>>;
 }
 
 interface RequirementEvidence {
@@ -218,6 +220,7 @@ function CvDocument({
   t: Labels;
   highlightedExp: number | null;
 }) {
+  const highlighted = (text: string) => <HighlightedCvText text={text} runs={cv.text_runs?.[text]} />;
   return (
     <article className="rounded-lg border border-border bg-card shadow-xs p-6 sm:p-8">
       {/* Nagłówek dokumentu */}
@@ -230,7 +233,7 @@ function CvDocument({
             <span className="font-medium text-foreground">
               {t.consideredFor}
             </span>{" "}
-            {cv.considered_for}
+            {highlighted(cv.considered_for)}
           </p>
         ) : null}
       </header>
@@ -243,7 +246,7 @@ function CvDocument({
             {cv.why_points.map((point, i) => (
               <li key={i} className="flex gap-2 text-sm text-foreground">
                 <span className="text-primary mt-0.5">•</span>
-                <span>{point}</span>
+                <span>{highlighted(point)}</span>
               </li>
             ))}
           </ul>
@@ -260,15 +263,15 @@ function CvDocument({
                 <div className="text-muted-foreground">{edu.dates}</div>
                 <div>
                   <span className="font-medium text-foreground">
-                    {edu.institution}
+                    {highlighted(edu.institution)}
                   </span>
                   {edu.degree ? (
-                    <span className="text-muted-foreground"> — {edu.degree}</span>
+                    <span className="text-muted-foreground"> — {highlighted(edu.degree)}</span>
                   ) : null}
                   {edu.location ? (
                     <span className="text-muted-foreground">
                       {" "}
-                      · {edu.location}
+                      · {highlighted(edu.location)}
                     </span>
                   ) : null}
                 </div>
@@ -290,7 +293,7 @@ function CvDocument({
               return (
                 <p key={i} className="text-sm text-foreground">
                   {label ? <span className="font-medium">{label}: </span> : null}
-                  <span className="text-muted-foreground">{group.content}</span>
+                  <span className="text-muted-foreground">{highlighted(group.content)}</span>
                 </p>
               );
             })}
@@ -306,7 +309,7 @@ function CvDocument({
             {cv.certifications.map((cert, i) => (
               <li key={i} className="flex gap-2">
                 <span className="text-primary mt-0.5">•</span>
-                <span>{cert}</span>
+                <span>{highlighted(cert)}</span>
               </li>
             ))}
           </ul>
@@ -345,7 +348,7 @@ function CvDocument({
                   <p className="text-xs text-muted-foreground">{job.dates}</p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {job.company}
+                  {highlighted(job.company)}
                   {job.industry ? ` · ${job.industry}` : ""}
                 </p>
                 {job.responsibilities.length > 0 && (
@@ -360,7 +363,7 @@ function CvDocument({
                           className="flex gap-2 text-sm text-foreground"
                         >
                           <span className="text-primary mt-0.5">•</span>
-                          <span>{r}</span>
+                          <span>{highlighted(r)}</span>
                         </li>
                       ))}
                     </ul>
@@ -372,7 +375,7 @@ function CvDocument({
                       {t.tech}
                     </span>{" "}
                     <span className="text-muted-foreground">
-                      {job.technologies.join(", ")}
+                      {highlighted(job.technologies.join(", "))}
                     </span>
                   </p>
                 )}
