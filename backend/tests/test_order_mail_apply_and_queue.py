@@ -326,9 +326,10 @@ async def test_notify_review_falls_back_to_admins(seeded):
 
 
 @pytest.mark.asyncio
-async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
-    """Wiersz 1 zapisany, wiersz 2 pada → outcome zostaje needs_review; drugi
-    „Zastosuj" nie może założyć wierszowi 1 drugiego zamówienia."""
+async def test_stale_proposal_is_replanned_and_reapply_does_not_duplicate_orders(
+    seeded,
+):
+    """Stale targets are discarded; retries never duplicate the current source row."""
     async with AsyncSessionLocal() as db:
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
         good = dict(doc.proposal["rows"][0])
@@ -338,8 +339,8 @@ async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
 
         first = await apply_document(db, doc, actor_user_id=None)
         await db.commit()
-        assert first.ok is False
-        assert first.rows[0].order_id and first.rows[1].error
+        assert first.ok is True
+        assert len(first.rows) == 1 and first.rows[0].order_id
 
         second = await apply_document(db, doc, actor_user_id=None)
         await db.commit()

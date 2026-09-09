@@ -1,23 +1,8 @@
-"""Plan zapisu zamówienia z maila — CZYSTY (bez bazy): co i gdzie powstałoby.
+"""Pure order lifecycle plan, shared by ingestion, refresh and the writer.
 
-Klasyfikacja z ticketu §3, per osoba:
-* konsultant ma DRAFT (szkic-zaślepkę „(bez numeru)" albo szkic bez okresu)
-  → ``fill_draft``: uzupełniamy ten szkic zamiast zakładać nowy rekord;
-* konsultant ma AKTYWNE zamówienie, a nowe jest jego kontynuacją na nowy
-  okres (start po końcu dotychczasowego) → ``future``: nowe zamówienie z
-  przyszłą datą startu;
-* brak zamówienia → ``new``.
-
-Do tego dwa przypadki, których ticket nie nazywa, a korpus ma:
-* ``revision`` — zamówienie o tym numerze już istnieje u tego kontraktu
-  (Fieldglass „Rev. 13" zmienia okres istniejącego, BIK ma numer długi
-  ``4500030751`` i krótki ``30751``) → zawsze kolejka z diffem;
-* ``overlap`` — nowy okres nachodzi na otwarte zamówienie o innym numerze →
-  kolejka (addytywność: automat nie skraca ani nie nakłada).
-
-Klient wielo-konsultantowy (grupa nad ``client_orders``) → ``group`` — writer
-v1 obsługuje wyłącznie zamówienia samodzielne, więc grupa idzie do kolejki
-z opisem linii. BIK/Polsat/Polkomtel i tak nie mają okresu w dokumencie.
+Existing live orders take priority over drafts. A first order creates a draft,
+any single existing draft is filled, a completed order is reused with history.
+Actual period overlaps, ambiguous targets and revisions require review.
 """
 
 from __future__ import annotations
@@ -25,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+import re
 from typing import Optional
 
 from app.services.order_mail_resolver import ResolvedConsultant
@@ -119,6 +105,11 @@ def _number_variants(title: Optional[str]) -> set[str]:
 
 
 def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
+    # PFRON's labelled title is the same identity as its historical bare number.
+    # Strip only this explicit prefix; generic short digit extraction would
+    # conflate unrelated order numbers such as ABC/22 and DEF/22.
+    a = re.sub(r"^zlecenie\s+nr\.?\s+", "", (a or "").strip(), flags=re.I)
+    b = re.sub(r"^zlecenie\s+nr\.?\s+", "", (b or "").strip(), flags=re.I)
     va, vb = _number_variants(a), _number_variants(b)
     if not va or not vb:
         return False

@@ -334,3 +334,18 @@ async def test_286408_auto_verdict_calls_writer_even_when_old_shadow_flag_false(
     assert row.outcome == "auto_applied"
     apply.assert_awaited_once()
     db.flush.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "old,new,expected",
+    [
+        ("22", "Zlecenie nr 22", True),
+        ("Zlecenie nr 34", "34", True),
+        ("22", "Zlecenie nr 23", False),
+        ("ABC/22", "Zlecenie nr 22", False),
+    ],
+)
+def test_pfron_short_numbers_keep_their_identity(old, new, expected):
+    from app.services.order_mail_planner import titles_collide
+
+    assert titles_collide(old, new) is expected

@@ -118,7 +118,24 @@ async def client_inventory(db):
             )
         )
     ).all()
-    fk_pairs = {(spec["table"], spec["column"]) for spec in specs}
+    # A column named client_id may refer to another module's own client table
+    # (e.g. DynaReporter). Only genuinely unconstrained columns are soft links.
+    fk_pairs = set(
+        (
+            await db.execute(
+                text("""
+        SELECT k.table_name, k.column_name
+        FROM information_schema.key_column_usage k
+        JOIN information_schema.table_constraints t
+          ON t.constraint_catalog=k.constraint_catalog
+         AND t.constraint_schema=k.constraint_schema
+         AND t.constraint_name=k.constraint_name
+         AND t.table_name=k.table_name
+        WHERE t.table_schema=current_schema() AND t.constraint_type='FOREIGN KEY'
+    """)
+            )
+        ).all()
+    )
     for table, column in sorted(columns):
         if (column == "client_id" or column.endswith("_client_id")) and (
             table,

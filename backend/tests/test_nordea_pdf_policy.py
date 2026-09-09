@@ -234,6 +234,11 @@ def gate_for(ex, doc):
 
 @pytest.mark.asyncio
 async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypatch):
+    from app.services import order_mail_apply as writer
+    from app.services.order_mail_apply import ApplyResult
+
+    apply = AsyncMock(return_value=ApplyResult())
+    monkeypatch.setattr(writer, "apply_document", apply)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
     monkeypatch.setattr(ingest.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
     doc = OrderDocumentText(ORDER + SUMMARY, 4, False, False, None, 0.0)
@@ -262,6 +267,7 @@ async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypat
     await ingest.process_pdf_bytes(
         AsyncMock(), row, b"%PDF-dummy", registry=ClientRegistry({})
     )
+    apply.assert_awaited_once()
     sent = parser.call_args.args[0]
     assert "Summary" not in sent and "Quantity" not in sent and "999,00" not in sent
     assert row.gate_verdict == "auto"
@@ -317,7 +323,7 @@ async def test_refresh_uses_order_rows_and_restores_raw_net_amount(
     monkeypatch.setattr(ingest, "_plan_and_gate", planner)
     await ingest.refresh_review_plan(AsyncMock(), row)
     await ingest.refresh_review_plan(AsyncMock(), row)
-    assert row.extraction["rate_client"] == "175"
+    assert Decimal(row.extraction["rate_client"]) == Decimal("175")
     assert row.extraction["rate_client_gross"] is None
     assert row.extraction["md_total"] is None
     assert [r["consultant_name"] for r in row.extraction["consultant_rows"]] == [

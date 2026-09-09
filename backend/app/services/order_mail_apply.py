@@ -120,6 +120,10 @@ async def _new_person_contract(db, doc, rp):
         candidate = Candidate(name=" ".join(tokens[:-1]), lastname=tokens[-1])
         db.add(candidate)
         await db.flush()
+        from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
+
+        # Same transaction as the draft: rollback must also remove index intent.
+        await record_bulk_reindex(db, CANDIDATE, [candidate.id])
     contract = Contract(
         client_id=doc.client_id,
         candidate_id=candidate.id,

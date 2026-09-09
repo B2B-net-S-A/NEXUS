@@ -427,8 +427,26 @@ kwot bez potwierdzenia nazwiska nie wystarcza do automatycznego zapisu.
 Na przykład „Konrada Korcza" może zostać powiązany z „Konrad Korcz".
 Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
 osób, system pokazuje ich imiona i nazwiska, identyfikatory rekordów oraz
-numery kontraktów do ręcznego rozstrzygnięcia; gdy nie pasuje żadna, wiersz zostaje
-**„Pomijany"** z komunikatem **„Brak takiej osoby wśród konsultantów tego klienta"**.
+numery kontraktów do ręcznego rozstrzygnięcia. **Brak osoby u klienta tworzy
+nowy draft z numerem, okresem i stawką przychodową z maila.** DL otrzymuje raz
+powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”.
+Aktualizacje tego draftu nie powtarzają powiadomienia.
+
+System uzupełnia istniejący draft, także opisany nazwą rekrutacji. Aktywne lub
+kończące się zamówienie ma pierwszeństwo przed draftem: kolejny okres tworzy
+przedłużenie przy dotychczasowym kontrakcie. Po zakończonej współpracy aktualizuje
+i aktywuje dotychczasowe zamówienie, zachowując poprzednie dane w historii
+oraz dopisując faktyczny odstęp w dniach. Rzeczywisty konflikt okresów albo kilka
+możliwych osób lub kontraktów nadal wymaga decyzji.
+
+**„Automat: pewne” zawsze uruchamia zapis bez przycisku „Zastosuj”.** Wynik jest
+w zakładce **„Zapisane automatycznie”**. Dotyczy to również pierwszego zamówienia
+na nową osobę. Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
+zapis dokumentu i pozostawia konkretny powód weryfikacji.
+
+Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
+podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
+Jeśli podpisana umowa była pierwsza, koszt jest uzupełniany już przy odczycie maila.
 
 **Brutto/netto jest sprawdzane dla każdej odczytanej stawki na podstawie
 dokumentu.** Przy oznaczeniu brutto system dzieli kwotę przez **1,23** przed
@@ -436,15 +454,17 @@ wpisaniem jej do planu. Na przykład **100,08 zł/h brutto → 81,37 zł/h netto
 obok stawki netto widać oryginalną kwotę brutto. Jawne netto pozostaje bez
 przeliczenia. Brak jednoznacznego oznaczenia oznacza niepewny odczyt do
 weryfikacji. **Wyjątkiem jest Nordea: stawka jest zawsze netto za godzinę,
-bez dzielenia przez 1,23. Kolumna „Quantity (max Xh/month)” nie określa
+bez dzielenia przez 1,23. W PFRON stawka z pola „Stawka za jedną Roboczogodzinę”
+jest brutto i zawsze jest dzielona przez 1,23. Kolumna „Quantity (max Xh/month)” nie określa
 liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
 listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
 Dla PFRON ponownie wybiera aktywny rekord klienta, odczytuje numer z nazwy PDF
 i datę końca z pola „Termin wykonania Prac”. Dla pozostałych klientów zachowuje
-rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób. **Przeliczenie nie zapisuje zamówienia** — plan
-nadal czeka na weryfikację. Przycisk jest dostępny administratorowi albo
+rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób.
+**Pewny plan zapisuje się automatycznie; plan z konkretną wątpliwością pozostaje
+w weryfikacji.** Przycisk jest dostępny administratorowi albo
 Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
@@ -534,7 +554,7 @@ reakcji. Pięć rodzajów:
 
 | Sprawa | Kiedy powstaje | Czy się powtarza |
 |---|---|---|
-| **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (czeka na uzupełnienie) | co 7 dni |
+| **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (czeka na uzupełnienie); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni; bez powtarzania alertu dla pierwszego draftu z maila |
 | **[Klient] — brak stawki przychodowej** | zamówienie bez stawki, którą płaci klient | co 7 dni |
 | **[Klient] — mało MD na zamówieniu [numer]** | zostało 15 MD lub mniej — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | co 7 dni |
 | **[Klient] — zamówienie [numer] wyczerpane** | budżet **kosztowy** albo **wspólna pula MD** zeszły do zera | raz |
@@ -817,6 +837,10 @@ ani nie przelicza z dni lub miesięcy. **Quantity (max Xh/month) jest
 ignorowane**: nie uzupełnia godzin ani MD i nie służy do kontroli
 „ilość × stawka = subtotal”. Przy odczycie załącznika brane jest właściwe
 zamówienie, bez sekcji/strony **summary** i bez powielania jej osób.
+Osobne certyfikaty DocuSign („Certificate of Completion”, „Record Tracking”,
+„Signer Events”) są pomijane niezależnie od nazwy pliku i nie trafiają na listy
+zamówień. Załącznik bez cech zamówienia także jest pomijany. Właściwy dokument
+z tego samego maila oraz PDF łączący zamówienie z certyfikatem są odczytywane.
 Te trzy reguły nie powodują „odczytu niepewnego”; inne błędy, np. niejasna
 osoba lub okres, nadal wymagają weryfikacji. „Przelicz plan” ponownie
 odczytuje osoby z właściwej tabeli zapisanego PDF-a Nordea.
@@ -924,22 +948,27 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   Rehabilitacji Osób Niepełnosprawnych”, a osoby są szukane w jego liście
   konsultantów. Nieaktywny duplikat „PFRON” nie jest wybierany. Jednoznaczny
   marker lub domena PFRON nie wymagają dodatkowego numeru rejestrowego.
-* **Numer zamówienia** pochodzi wyłącznie z nazwy pliku PDF: „Zlecenie nr 34
-  …pdf” daje **34**. Numer umowy i numer zapotrzebowania nie są używane.
-  Brak jednoznacznego numeru w nazwie wymaga sprawdzenia przez operatora.
+* **Numer zamówienia** pochodzi z tytułu „Zlecenie nr …” w dokumencie lub
+  nazwie PDF i zachowuje pełny zapis, np. **Zlecenie nr 22**. Imię i nazwisko,
+  daty oraz numer umowy i zapotrzebowania nie wchodzą do numeru. Historyczne
+  „22” i „Zlecenie nr 22” są rozpoznawane jako to samo zamówienie.
 * **Liczba MD z dokumentu jest zawsze pomijana** — bezwarunkowo, szerzej niż
   u Orlena.
+* **Data początku** pochodzi wyłącznie z pola **„Data rozpoczęcia wykonywania
+  Prac przez Specjalistę”**. Pole „Okres realizacji Prac” (np. do 160 RBH
+  miesięcznie) jest pomijane.
 * **Data zakończenia** pochodzi wyłącznie z pola **„Termin wykonania Prac”**.
   Opcja przedłużenia i pozostałe daty w treści nie zmieniają daty końca — ani
   dokumentu, ani wiersza osoby. Brak lub niejednoznaczność tego pola wymaga
   sprawdzenia przez operatora. W formularzu sprawdź też wcześniejszą wartość.
 * Oczekujący wpis z błędnym klientem, numerem lub datą popraw przyciskiem
-  **„Przelicz plan”**. Przeliczenie nie tworzy ani nie zmienia zamówień.
-* **Stawka oznaczona w dokumencie jako brutto jest przeliczana na netto**
-  (dzielona przez 1,23), a jednostka ustawiana na **godzinę**. Przy przeliczeniu
-  pod polem zobaczysz podpis „Z dokumentu: X/h brutto → Y/h netto (÷ 1,23)".
-  Jawne netto nie jest dzielone; brak jednoznacznego oznaczenia wymaga
-  weryfikacji. Nie ma domyślnej reguły brutto dla tego klienta.
+  **„Przelicz plan”**. Kompletny i pewny wynik jest od razu zapisywany.
+* **Stawka z pola „Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy)”
+  jest brutto i zawsze jest dzielona przez 1,23**, z jednostką godzinową.
+  Przykład: 172,20 zł brutto/h daje **140,00 zł netto/h**. To przeliczenie nie
+  powoduje niepewności odczytu; oryginalna kwota brutto pozostaje widoczna.
+* Przy wdrożeniu jednorazowo poprawiane są oczekujące wpisy z tymi błędami.
+  Dokumenty z innymi, nierozstrzygniętymi wątpliwościami pozostają bez zmian.
 * **Wartość całkowita zamówienia nie jest przeliczana** — sprawdź ją sam.
 * Ta reguła **działa zawsze**, bez żadnej konfiguracji.
 * **Powiadomienia:** standardowe.
@@ -1054,9 +1083,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
   kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
   oznaczenia, kwota zostaje bez zmian; **brak oznaczenia albo konflikt
-  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea**, także
+  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea i wskazanym polem PFRON**, także
   spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
-  system ją przeliczy. U Erste i PFRON dokumenty są zwykle brutto, ale i tam
+  system ją przeliczy. U Erste dokumenty są zwykle brutto, ale także tam
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy
   przeliczenia nie ma. Zawsze zerknij na kwotę brutto pokazaną obok pola.
 * **Powiadomienia:** standardowe, a na zamówieniach MD dodatkowo alert

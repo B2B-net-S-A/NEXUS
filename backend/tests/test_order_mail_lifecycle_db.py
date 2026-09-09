@@ -6,7 +6,7 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
@@ -196,8 +196,6 @@ async def test_error_in_second_person_rolls_back_first_person(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations():
-    from app.models.dr_przetargi import DrPrzetargiProject
-
     async with AsyncSessionLocal() as db:
         no_history = Client(name=f"Inactive membership {uuid.uuid4().hex}")
         history = Client(
@@ -218,8 +216,12 @@ async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations()
                 )
             )
         await db.flush()
-        db.add(DrPrzetargiProject(name="Soft client relation", client_id=no_history.id))
-        await db.flush()
+        soft_table = "test_mail_cleanup_soft_" + uuid.uuid4().hex
+        await db.execute(text(f'CREATE TABLE "{soft_table}" (client_id integer)'))
+        await db.execute(
+            text(f'INSERT INTO "{soft_table}" (client_id) VALUES (:id)'),
+            {"id": no_history.id},
+        )
         before = set(db.dirty), set(db.deleted)
         plan = await client_inventory(db)
         assert no_history.id in [r["id"] for r in plan["blocked"]]
@@ -232,7 +234,7 @@ async def test_cleanup_uses_effective_inactive_tab_and_preserves_all_relations()
             for r in c["dependencies"]
         )
         assert any(
-            r["table"] == "dr_przetargi_projects"
+            r["table"] == soft_table
             for c in plan["blocked"]
             if c["id"] == no_history.id
             for r in c["dependencies"]
@@ -274,4 +276,27 @@ async def test_signature_completes_mail_draft_with_agreement_cost(monkeypatch):
         assert order.rate_candidate == Decimal("100")
         assert order.status == ClientOrderStatus.active
         assert await signature.complete_signed_mail_drafts(db, contract.id) == 0
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_fingerprint_guard_and_durable_receipt(monkeypatch):
+    from app.services import order_mail_cleanup as cleanup
+    from app.models.app_setting import AppSetting
+
+    plan = {
+        "clients": {"delete_candidates": [], "blocked": [], "preserved": []},
+        "queue": [],
+        "review_reasons_by_client": {},
+        "fingerprint": "expected",
+    }
+    monkeypatch.setattr(cleanup, "build_cleanup_plan", AsyncMock(return_value=plan))
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(ValueError, match="Dane zmieniły"):
+            await cleanup.apply_cleanup_plan(db, "stale")
+        assert await db.get(AppSetting, cleanup.RECEIPT_KEY) is None
+        result = await cleanup.apply_cleanup_plan(db, "expected")
+        assert result["deleted_clients"] == []
+        assert (await db.get(AppSetting, cleanup.RECEIPT_KEY)).value == result
+        assert await cleanup.apply_cleanup_plan(db, "expected") == result
         await db.rollback()
