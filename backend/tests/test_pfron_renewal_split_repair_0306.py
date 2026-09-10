@@ -42,11 +42,51 @@ from app.services.pfron_renewal_split_repair import (
     REVENUE_RESYNC_PENDING,
     SplitTarget,
     build_renewal_split_sql,
+    renewal_split_details_key,
     summarize_receipt_for_log,
 )
 from app.services.startup_locks import is_lock_timeout
+from scripts.show_migration_receipts import is_receipt_key
 
 BACKEND = Path(__file__).resolve().parents[1]
+
+# Pola, których NIE może być w paragonie pod kluczem migracji: workflow
+# „migration-receipts” drukuje go do logu Actions, a repo jest publiczne.
+_NON_PUBLIC_RECEIPT_KEYS = frozenset(
+    {
+        "title",
+        "current_title",
+        "expected_title",
+        "notes",
+        "rate_client",
+        "rate_candidate",
+        "rate_candidate_before_repair",
+        "before_rate_client",
+        "current_rate_client",
+        "total_value",
+        "total_value_left_on_previous",
+        "file_path",
+        "file_path_before_overwrite",
+        "filename",
+        "order_before_repair",
+    }
+)
+
+
+def _assert_receipt_is_public_safe(value, path="receipt"):
+    if isinstance(value, dict):
+        leaked = _NON_PUBLIC_RECEIPT_KEYS & value.keys()
+        assert not leaked, f"{path}: {sorted(leaked)} w publicznym paragonie"
+        for key, child in value.items():
+            _assert_receipt_is_public_safe(child, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _assert_receipt_is_public_safe(child, f"{path}[{index}]")
+
+
+def test_details_key_is_never_printed_by_the_receipts_workflow():
+    assert is_receipt_key(PFRON_RENEWAL_SPLIT_MARKER)
+    assert not is_receipt_key(renewal_split_details_key(PFRON_RENEWAL_SPLIT_MARKER))
 MIGRATION = BACKEND / "alembic/versions/0306_pfron_renewal_split_repair.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 ORDER_API = BACKEND / "app/api/client_orders.py"
@@ -796,6 +836,16 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
             )
             assert (receipt["split"], receipt["skipped"]) == (3, 6)
             by_order = {r["order_id"]: r for r in receipt["orders"]}
+            _assert_receipt_is_public_safe(receipt)
+            assert receipt["details_key"] == renewal_split_details_key(marker)
+            details = json.loads(
+                await db.scalar(
+                    text("SELECT value::text FROM app_settings WHERE key = :k"),
+                    {"k": renewal_split_details_key(marker)},
+                )
+            )
+            details_by_order = {r["order_id"]: r for r in details["orders"]}
+            assert set(details_by_order) == set(by_order)
             for key, reason in skipped.items():
                 assert by_order[seeded[key]["order_id"]]["reason"] == reason, key
             assert {
@@ -984,7 +1034,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
             assert {
                 table: len(ids) for table, ids in entry_a["moved_row_ids"].items()
             } == entry_a["moved_to_new_order"]
-            snapshot_a = entry_a["order_before_repair"]
+            snapshot_a = details_by_order[a["order_id"]]["order_before_repair"]
             assert snapshot_a["id"] == a["order_id"]
             for column in (
                 "status",
@@ -999,7 +1049,11 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 assert snapshot_a[column] == original_a_before[column].isoformat()
             for column in ("rate_client", "rate_candidate", "total_value"):
                 assert Decimal(str(snapshot_a[column])) == original_a_before[column]
-            assert entry_a["restored_order"]["notes"] == "Notatka starej umowy"
+            assert entry_a["restored_order"]["notes_restored"] is True
+            assert (
+                details_by_order[a["order_id"]]["restored_order"]["notes"]
+                == "Notatka starej umowy"
+            )
             assert (
                 entry_a["kept_on_previous_order_after_incident"][
                     "md_consumptions_before_new_period"
@@ -1047,7 +1101,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
             assert entry_b["restored_order"]["file_mode"] == (
                 "previous_order_had_no_file"
             )
-            assert entry_b["restored_order"]["notes"] is None
+            assert details_by_order[b["order_id"]]["restored_order"]["notes"] is None
             # Bez daty startu przywrócony okres nie tworzy kroku przychodu.
             assert entry_b["contract_revenue_resync"] == REVENUE_RESYNC_NOT_APPLICABLE
 
@@ -1111,9 +1165,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
         # Trzeci bieg BEZ markera: tożsamość sama chroni przed drugim podziałem
         # (oryginały są już zakończone ze starym okresem → „state_changed”).
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                text("DELETE FROM app_settings WHERE key = :k"), {"k": marker}
-            )
+            await _delete_receipts(db, marker)
             await db.execute(text(sql))
             await db.commit()
         async with AsyncSessionLocal() as db:
@@ -1192,9 +1244,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 text("DELETE FROM clients WHERE id = :c"), {"c": client_id}
             )
             await db.execute(text("DELETE FROM users WHERE id = :u"), {"u": dl_id})
-            await db.execute(
-                text("DELETE FROM app_settings WHERE key = :k"), {"k": marker}
-            )
+            await _delete_receipts(db, marker)
             await db.commit()
 
 
@@ -1248,6 +1298,13 @@ def _sql(marker, client_id, seeded, **kwargs):
         previous_end=PREVIOUS_PERIOD_END,
         incident_window=INCIDENT_WINDOW,
         **kwargs,
+    )
+
+
+async def _delete_receipts(db, marker):
+    await db.execute(
+        text("DELETE FROM app_settings WHERE key IN (:k, :d)"),
+        {"k": marker, "d": renewal_split_details_key(marker)},
     )
 
 
@@ -1332,7 +1389,7 @@ async def _cleanup(client_id, dl_id, marker):
         )
         await db.execute(text("DELETE FROM clients WHERE id = :c"), {"c": client_id})
         await db.execute(text("DELETE FROM users WHERE id = :u"), {"u": dl_id})
-        await db.execute(text("DELETE FROM app_settings WHERE key = :k"), {"k": marker})
+        await _delete_receipts(db, marker)
         await db.commit()
 
 
@@ -1511,7 +1568,11 @@ async def test_title_changed_after_incident_without_history_skips_the_order():
         entry = await _assert_skipped_and_untouched(
             marker, client_id, s, before, "title_differs_from_mail_plan"
         )
-        assert entry["detail"] == {
+        # Tytuły bywają z nazwiskiem — publiczny paragon ich nie niesie.
+        assert entry["detail"] is None
+        async with AsyncSessionLocal() as db:
+            details = await _receipt(db, renewal_split_details_key(marker))
+        assert details["orders"][0]["detail"] == {
             "current_title": "ZMYSLONY/99",
             "expected_title": "PFRON/2026/NOWE-n",
         }

@@ -55,10 +55,19 @@ c. przypięty dokument z maila i jego ``apply_result`` wskazują nowy wiersz
 d. wiersze potomne powstałe w T0 lub później idą za nowym okresem; starsze
    zostają przy oryginale. Tabele z miesiącem rozliczenia rozstrzyga miesiąc.
 
-Paragon (``app_settings``, NIE log kontenera — logi idą do Grafany) pozwala
-cofnąć korektę ręcznie: pełna migawka wiersza sprzed korekty, id nowego
-wiersza, id każdego przeniesionego wiersza per tabela i przywrócona treść
-notatek. Do logu idą wyłącznie liczby i powody pominięcia
+Dwa wiersze w ``app_settings`` (NIE log kontenera — logi idą do Grafany):
+
+* paragon pod markerem migracji — liczniki, id nowego wiersza, id każdego
+  przeniesionego wiersza per tabela, daty, tryby i powody pominięcia. Czyta go
+  workflow „migration-receipts” i drukuje do logu GitHub Actions, a repo jest
+  publiczne, więc NIE ma tu tytułów (bywa w nich nazwisko), stawek, kwot,
+  notatek, ścieżek plików ani migawek;
+* szczegóły pod :func:`renewal_split_details_key` — pełna migawka wiersza
+  sprzed korekty, tytuły, stawki, notatki i ścieżki potrzebne do ręcznego
+  odwrócenia. Klucz celowo nie ma kształtu paragonu migracji, więc workflow
+  go nie wydrukuje.
+
+Do logu kontenera idą wyłącznie liczby i powody pominięcia
 (:func:`summarize_receipt_for_log`).
 
 Kontrakty 397–399: sam blok ich nie dotyka (surowy SQL nie wyzwala
@@ -87,6 +96,28 @@ from datetime import date, datetime, timezone
 from typing import Any, Mapping, Optional, Sequence
 
 PFRON_RENEWAL_SPLIT_MARKER = "0306_pfron_renewal_split_repair"
+
+_RECEIPT_SHAPED_KEY_RE = re.compile(r"\A[0-9]{4}_[a-z0-9_]+\Z")
+
+
+def renewal_split_details_key(marker: str) -> str:
+    """Klucz szczegółów korekty (migawki, tytuły, stawki, notatki, ścieżki).
+
+    Paragon pod ``marker`` drukuje workflow „migration-receipts” do logu
+    GitHub Actions, a repo jest publiczne — tam idą tylko liczniki, ID,
+    statusy i powody. Szczegóły potrzebne do ręcznego odwrócenia korekty
+    leżą pod tym kluczem, który celowo NIE ma kształtu paragonu migracji
+    (``show_migration_receipts`` przepuszcza wyłącznie ``NNNN_nazwa``).
+    """
+    key = f"repair_details_{marker}"
+    if _RECEIPT_SHAPED_KEY_RE.match(key) or len(key) > 100:
+        raise ValueError(
+            "Klucz szczegółów musi mieć ≤100 znaków i inny kształt niż paragon"
+        )
+    return key
+
+
+PFRON_RENEWAL_SPLIT_DETAILS_KEY = renewal_split_details_key(PFRON_RENEWAL_SPLIT_MARKER)
 
 #: Wartość ``contract_revenue_resync`` w paragonie, którą podejmuje krok
 #: ``pfron_revenue_resync`` (synchronizacja przychodu kontraktu po korekcie).
@@ -165,6 +196,8 @@ DECLARE
     v_copy_columns TEXT;
     v_fk_inventory JSONB;
     v_results JSONB := '[]'::jsonb;
+    v_details JSONB := '[]'::jsonb;
+    v_public_detail JSONB;
     v_split_count INTEGER := 0;
     v_skipped_count INTEGER := 0;
     v_target RECORD;
@@ -684,11 +717,30 @@ BEGIN
 
         IF v_reason IS NOT NULL THEN
             v_skipped_count := v_skipped_count + 1;
+            -- Paragon pod kluczem migracji drukuje workflow „migration-receipts”
+            -- do logu Actions, a repo jest publiczne: tytuły (bywa w nich
+            -- nazwisko) i stawki idą wyłącznie do klucza szczegółów.
+            v_public_detail := CASE
+                WHEN v_reason IN (
+                    'title_differs_from_mail_plan',
+                    'rate_unit_unverifiable',
+                    'rate_unit_change_suspected'
+                ) THEN NULL
+                ELSE v_reason_detail
+            END;
             v_results := v_results || jsonb_build_array(
                 jsonb_build_object(
                     'order_id', v_target.order_id,
                     'contract_id', v_target.contract_id,
                     'document_id', v_target.document_id,
+                    'status', 'skipped',
+                    'reason', v_reason,
+                    'detail', v_public_detail
+                )
+            );
+            v_details := v_details || jsonb_build_array(
+                jsonb_build_object(
+                    'order_id', v_target.order_id,
                     'status', 'skipped',
                     'reason', v_reason,
                     'detail', v_reason_detail
@@ -1285,6 +1337,8 @@ BEGIN
         );
 
         v_split_count := v_split_count + 1;
+        -- Publiczny paragon: identyfikatory, daty, tryby i liczniki — to, co
+        -- wystarcza do weryfikacji i czego nie szkoda w publicznym logu.
         v_results := v_results || jsonb_build_array(
             jsonb_build_object(
                 'order_id', v_target.order_id,
@@ -1294,6 +1348,38 @@ BEGIN
                 'new_order_id', v_new_id,
                 'incident_at', v_activity.created_at,
                 'reverted_activity_id', v_activity.id,
+                'restored_order', jsonb_build_object(
+                    'start_date', v_before_start,
+                    'end_date', v_previous_end,
+                    'rate_candidate_source', v_cost_source,
+                    'notes_restored', v_notes_restorable,
+                    'filled_at', v_restored_filled,
+                    'file_mode', v_file_mode,
+                    'file_path_also_on_orders', v_shared_file
+                ),
+                'new_order', jsonb_build_object(
+                    'start_date', v_order.start_date,
+                    'end_date', v_order.end_date,
+                    'total_value_source', v_total_source,
+                    'filled_at', v_new_filled
+                ),
+                'moved_to_new_order', v_moved,
+                'moved_row_ids', v_moved_ids,
+                'kept_on_previous_order_after_incident', v_kept,
+                'documents_left_for_review', v_other_documents,
+                -- Krok przychodu dla przywróconego okresu dopisuje
+                -- ``pfron_revenue_resync`` (entrypoint, zaraz po tym bloku).
+                'contract_revenue_resync', v_revenue_resync
+            )
+        );
+        -- Szczegóły do ręcznego odwrócenia: migawka wiersza, tytuły, stawki,
+        -- notatki i ścieżki plików. Klucz NIE ma kształtu paragonu migracji,
+        -- więc ``show_migration_receipts`` go nie wydrukuje.
+        v_details := v_details || jsonb_build_array(
+            jsonb_build_object(
+                'order_id', v_target.order_id,
+                'status', 'split',
+                'new_order_id', v_new_id,
                 'order_before_repair', v_order_snapshot,
                 'restored_order', jsonb_build_object(
                     'title', v_before_title_raw,
@@ -1330,14 +1416,7 @@ BEGIN
                         WHEN v_new_row_drops_file THEN NULL
                         ELSE v_order.file_path
                     END
-                ),
-                'moved_to_new_order', v_moved,
-                'moved_row_ids', v_moved_ids,
-                'kept_on_previous_order_after_incident', v_kept,
-                'documents_left_for_review', v_other_documents,
-                -- Krok przychodu dla przywróconego okresu dopisuje
-                -- ``pfron_revenue_resync`` (entrypoint, zaraz po tym bloku).
-                'contract_revenue_resync', v_revenue_resync
+                )
             )
         );
     END LOOP;
@@ -1354,8 +1433,15 @@ BEGIN
             'split', v_split_count,
             'skipped', v_skipped_count,
             'foreign_keys_to_client_orders', v_fk_inventory,
-            'orders', v_results
+            'orders', v_results,
+            'details_key', '__DETAILS_KEY__'
         )
+    )
+    ON CONFLICT (key) DO NOTHING;
+    INSERT INTO app_settings (key, value)
+    VALUES (
+        '__DETAILS_KEY__',
+        jsonb_build_object('revision', v_marker, 'orders', v_details)
     )
     ON CONFLICT (key) DO NOTHING;
 
@@ -1412,6 +1498,7 @@ def build_renewal_split_sql(
         f"('{table}', '{column}')" for table, column in HANDLED_FOREIGN_KEYS
     )
     replacements = {
+        "__DETAILS_KEY__": renewal_split_details_key(marker),
         "__MARKER__": marker,
         "__CLIENT_ID__": str(int(client_id)),
         "__NEW_START__": new_start.isoformat(),
