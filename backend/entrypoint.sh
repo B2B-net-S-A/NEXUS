@@ -7327,26 +7327,78 @@ PY
 # bywa osierocony). Jedno źródło SQL-a w `app/services/pfron_renewal_split_repair.py`;
 # marker + advisory lock → drugi start kończy się natychmiast, a zamówienie,
 # którego tożsamość się nie zgadza, zostaje nietknięte z powodem w paragonie.
+# Blok czeka na blokady najwyżej `lock_timeout` (15 s) i bierze blokadę wiersza
+# klienta jak writer maila starego kontenera; po przekroczeniu pada w całości,
+# bez zapisu i bez markera — następny start spróbuje ponownie.
+# Log idzie do Grafany (Loki): wypisujemy WYŁĄCZNIE liczby i powody pominięcia,
+# nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
 echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
 python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
 import asyncio
+import json
+import sys
 from sqlalchemy import text
 from app.core.database import engine
 from app.services.pfron_renewal_split_repair import (
     PFRON_RENEWAL_SPLIT_MARKER,
     PFRON_RENEWAL_SPLIT_SQL,
+    summarize_receipt_for_log,
 )
 
 async def repair():
-    async with engine.begin() as conn:
-        await conn.execute(text(PFRON_RENEWAL_SPLIT_SQL))
-        receipt = await conn.scalar(
-            text("SELECT value::text FROM app_settings WHERE key = :key"),
-            {"key": PFRON_RENEWAL_SPLIT_MARKER},
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(PFRON_RENEWAL_SPLIT_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": PFRON_RENEWAL_SPLIT_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"pfron renewal split repair failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
         )
-    print(f"pfron renewal split repair: {receipt}")
+        sys.exit(1)
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"pfron renewal split repair: {summary}")
 
 asyncio.run(repair())
+PY
+
+# PFRON 507–509 (0306) — krok przychodu kontraktu zaraz po rozdzieleniu: surowy
+# SQL wyżej nie wyzwala synchronizacji kontrakt ↔ zamówienia, więc przywrócony
+# okres nie ma kroku przychodu, a czerwiec–sierpień czytałby stawkę nowego
+# okresu do najbliższego zapisu zamówienia. `app/services/pfron_revenue_resync.py`
+# woła tę samą synchronizację co zwykły zapis zamówienia (tylko przy włączonej
+# 0304); własny marker + advisory lock, jednorazowy. Log: tylko liczby.
+echo "PFRON 507-509: contract revenue schedule resync after the split (one-shot)..."
+python - <<'PY' || echo "pfron revenue resync skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.pfron_revenue_resync import (
+    run_pfron_revenue_resync,
+    summarize_for_log,
+)
+
+async def resync():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pfron_revenue_resync(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"pfron revenue resync failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"pfron revenue resync: {summarize_for_log(summary)}")
+
+asyncio.run(resync())
 PY
 
 # Reset any m365_connections stuck in 'running' from a killed sync task.

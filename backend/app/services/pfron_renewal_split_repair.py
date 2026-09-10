@@ -4,22 +4,35 @@ Co się stało (produkcja, noc 9/10.09.2026, ok. 22.07 UTC, jednorazowe
 czyszczenie kolejki zamówień z maila po #1472): dokumenty 20, 19 i 18 klienta
 122 (PFRON) dostały plan „reactivate”. Ówczesny writer brał ZAKOŃCZONE
 zamówienie (koniec 31.08.2026) i przepisywał je W MIEJSCU nowym okresem
-01.09–30.11.2026 — numer, okres, stawkę przychodową, koszt i PDF — dopisywał
-do ``notes`` zdanie „Powrót po N dniach…” i aktywował. Na tych zamówieniach
-rozliczono już faktury za poprzedni okres. Decyzja z 10.09.2026: powrót po
-przerwie to NOWE zamówienie (writer poprawiony w P0), a historię odtwarzamy
-z zapisu w aplikacji — Delivery Lead weryfikuje wynik.
+01.09–30.11.2026 — numer, okres, stawkę przychodową, jednostkę, koszt i PDF —
+dopisywał do ``notes`` zdanie „Powrót po N dniach…” i aktywował. Na tych
+zamówieniach rozliczono już faktury za poprzedni okres. Decyzja z 10.09.2026:
+powrót po przerwie to NOWE zamówienie (writer poprawiony w P0), a historię
+odtwarzamy z zapisu w aplikacji — Delivery Lead weryfikuje wynik.
 
 Źródłem prawdy jest Activity ``order_mail_reactivate``: jej ``details.before``
 trzyma tytuł, okres, stawkę przychodową i ścieżkę PDF sprzed nadpisania,
 ``details.message`` — dokładnie dopisane do notatek zdanie, a ``created_at``
 — początek transakcji, w której nadpisanie się wydarzyło (T0).
 
-Dla każdego zamówienia przypiętego PEŁNĄ tożsamością biznesową (klient,
-kontrakt, zamówienie, stan bieżący, Activity z dokumentem i datą 31.08, wpis
-z maila z planem „reactivate” na 01.09, brak drugiego zamówienia na nowy ani
-na przywracany okres, sprawdzalna jednostka stawki) — inaczej pomijamy
-i zapisujemy powód, nigdy nie zgadujemy:
+Dla każdego zamówienia przypiętego PEŁNĄ tożsamością biznesową — inaczej
+pomijamy i zapisujemy powód, nigdy nie zgadujemy:
+
+* klient, kontrakt, zamówienie i stan bieżący (aktywne, okres 01.09–30.11,
+  poza grupą MD), Activity z dokumentem i datą 31.08, wpis z maila z planem
+  „reactivate” na 01.09;
+* ŻADNEJ ręcznej edycji po T0 (``order_updated``, PDF wgrany/usunięty,
+  zakończenie, anulowanie) — blok zakłada, że od T0 wiersz zmieniał wyłącznie
+  automat; ręcznej zmiany nie da się przypisać do jednego z dwóch okresów
+  (``edited_after_incident``, lista edycji w paragonie);
+* tytuł i jednostka stawki takie, jakie zostawił writer z wiersza planu —
+  inna wartość to zmiana po T0, także bez śladu w historii;
+* brak drugiego zamówienia TEJ OSOBY u tego klienta (na dowolnym jej
+  kontrakcie — „Nowy kontraktor / zamówienie” zakłada nowy) na nowy albo na
+  przywracany okres;
+* sprawdzalna jednostka stawki i brak nieznanych kluczy obcych.
+
+Zapis:
 
 a. nowy wiersz ``client_orders`` przejmuje BIEŻĄCY stan (kopia wszystkich
    kolumn z katalogu, więc kolumna dopisana w przyszłości też przejdzie);
@@ -28,11 +41,13 @@ a. nowy wiersz ``client_orders`` przejmuje BIEŻĄCY stan (kopia wszystkich
    idempotencji writera, ``total_value`` z planu dokumentu (writer nie ruszał
    tej kolumny, więc bieżąca wartość opisuje POPRZEDNIE zamówienie — nigdy
    nie trafia do nowego wiersza), ``filled_at`` = pierwsza aktywacja nowego
-   okresu;
+   okresu, ``predecessor_order_id`` puste (to zamiana kontraktora na linii MD,
+   nie przedłużenie);
 b. oryginał wraca do stanu ``before``: zakończony, stary tytuł/okres/stawka/
-   PDF, notatki bez dopisku, koszt z harmonogramu umowy na OSTATNI dzień
-   starego okresu (``cost_reference_day`` zamówienia zakończonego — ten sam
-   dzień czyta raport zgodności zamówienie ↔ kontrakt), przeliczony jak
+   PDF (z metadanymi, gdy ``before`` je niesie), notatki bez dopisku, koszt
+   z harmonogramu umowy na OSTATNI dzień starego okresu
+   (``cost_reference_day`` zamówienia zakończonego — ten sam dzień czyta
+   raport zgodności zamówienie ↔ kontrakt), przeliczony jak
    ``convert_rate_between``;
 c. przypięty dokument z maila i jego ``apply_result`` wskazują nowy wiersz
    (inne dokumenty wskazujące zamówienie po T0 tylko w paragonie — mogły
@@ -40,12 +55,23 @@ c. przypięty dokument z maila i jego ``apply_result`` wskazują nowy wiersz
 d. wiersze potomne powstałe w T0 lub później idą za nowym okresem; starsze
    zostają przy oryginale. Tabele z miesiącem rozliczenia rozstrzyga miesiąc.
 
-Kontrakty 397–399 zostają nietknięte. Krok harmonogramu przychodu dla
-przywróconego okresu dopisze synchronizacja kontrakt ↔ zamówienia przy
-najbliższym zapisie zamówienia tej osoby (surowy SQL jej nie wyzwala) —
-paragon ma to jako ``contract_revenue_resync``. Blok jest jednorazowy (marker +
-advisory lock) i atomowy; jedno źródło SQL-a dla migracji 0306 i dla bloku
-w ``entrypoint.sh`` (alembic na produkcji bywa osierocony).
+Paragon (``app_settings``, NIE log kontenera — logi idą do Grafany) pozwala
+cofnąć korektę ręcznie: pełna migawka wiersza sprzed korekty, id nowego
+wiersza, id każdego przeniesionego wiersza per tabela i przywrócona treść
+notatek. Do logu idą wyłącznie liczby i powody pominięcia
+(:func:`summarize_receipt_for_log`).
+
+Kontrakty 397–399: sam blok ich nie dotyka (surowy SQL nie wyzwala
+synchronizacji kontrakt ↔ zamówienia), więc krok harmonogramu przychodu dla
+przywróconego okresu dopisuje osobny krok ``pfron_revenue_resync``, który
+``entrypoint.sh`` woła zaraz po tym bloku (paragon: ``contract_revenue_resync``).
+
+Blok jest jednorazowy (marker + advisory lock) i atomowy; czekanie na blokady
+ograniczone ``lock_timeout`` (po przekroczeniu blok pada, nic nie zapisuje
+i nie stawia markera — następny start spróbuje ponownie), a blokada wiersza
+klienta serializuje go z writerem maila starego kontenera przy rolling
+deployu. Jedno źródło SQL-a dla migracji 0306 i dla bloku w ``entrypoint.sh``
+(alembic na produkcji bywa osierocony).
 
 Uwaga dla edytujących SQL: ``text()`` SQLAlchemy traktuje ``:słowo`` jako
 parametr — w treści bloku nie ma godzin („22.07”, nie z dwukropkiem) ani
@@ -54,11 +80,23 @@ znaczników w rodzaju ``klucz:wartość``; stąd ``make_timestamptz``.
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 PFRON_RENEWAL_SPLIT_MARKER = "0306_pfron_renewal_split_repair"
+
+#: Wartość ``contract_revenue_resync`` w paragonie, którą podejmuje krok
+#: ``pfron_revenue_resync`` (synchronizacja przychodu kontraktu po korekcie).
+REVENUE_RESYNC_PENDING = "pending_revenue_resync_step"
+#: Przywrócony okres bez daty startu albo bez stawki nie tworzy kroku
+#: przychodu (``contract_order_sync.order_revenue_terms`` → ``None``).
+REVENUE_RESYNC_NOT_APPLICABLE = "not_applicable"
+
+#: Ile blok czeka na blokadę (advisory, wiersz klienta, zamówienia, dokumenty).
+DEFAULT_LOCK_TIMEOUT = "15s"
 
 
 @dataclass(frozen=True)
@@ -101,6 +139,17 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     ("order_mail_documents", "applied_order_id"),
 )
 
+#: Ręczne edycje samodzielnego zamówienia — Activity klienta z
+#: ``details.order_id`` (``api/client_orders.py``: PATCH, PDF, anulowanie).
+HUMAN_EDIT_ACTIONS_ON_CLIENT: tuple[str, ...] = (
+    "order_updated",
+    "order_file_uploaded",
+    "order_file_deleted",
+    "order_cancelled",
+)
+#: …i Activity samego zamówienia (``POST …/orders/{id}/close``).
+HUMAN_EDIT_ACTIONS_ON_ORDER: tuple[str, ...] = ("order_closed",)
+
 _TEMPLATE = r"""
 DO $pfron_renewal_split$
 DECLARE
@@ -112,6 +161,7 @@ DECLARE
     v_window_start CONSTANT TIMESTAMPTZ := __WINDOW_START__;
     v_window_end CONSTANT TIMESTAMPTZ := __WINDOW_END__;
     v_new_month CONSTANT TEXT := to_char(DATE '__NEW_START__', 'YYYY-MM');
+    v_previous_lock_timeout CONSTANT TEXT := current_setting('lock_timeout');
     v_copy_columns TEXT;
     v_fk_inventory JSONB;
     v_results JSONB := '[]'::jsonb;
@@ -125,6 +175,7 @@ DECLARE
     v_contract_client_id INTEGER;
     v_contract_unit TEXT;
     v_contract_hours INTEGER;
+    v_candidate_id INTEGER;
     v_count INTEGER;
     v_reason TEXT;
     v_reason_detail JSONB;
@@ -135,9 +186,16 @@ DECLARE
     v_before_start DATE;
     v_before_rate NUMERIC;
     v_before_file TEXT;
+    v_before_filename TEXT;
+    v_before_content_type TEXT;
+    v_before_size INTEGER;
+    v_before_uploaded_by INTEGER;
+    v_before_uploaded_at TIMESTAMPTZ;
     v_applied_rows JSONB;
     v_plan_row JSONB;
     v_row_index TEXT;
+    v_expected_title TEXT;
+    v_expected_unit TEXT;
     v_message TEXT;
     v_notes_restorable BOOLEAN;
     v_restored_notes TEXT;
@@ -149,20 +207,36 @@ DECLARE
     v_new_filled TIMESTAMPTZ;
     v_restored_filled TIMESTAMPTZ;
     v_file_mode TEXT;
-    v_file_changed BOOLEAN;
     v_new_row_drops_file BOOLEAN;
     v_order_hours INTEGER;
+    v_revenue_resync TEXT;
+    v_order_snapshot JSONB;
     v_new_id INTEGER;
+    v_ids JSONB;
     v_moved JSONB;
+    v_moved_ids JSONB;
     v_kept JSONB;
     v_shared_file JSONB;
     v_other_documents JSONB;
 BEGIN
+    -- Czekanie na blokadę ograniczone: stary kontener przy rolling deployu
+    -- może trzymać wiersz klienta, zamówienia albo dokumentu. Po przekroczeniu
+    -- blok pada w całości — nic nie zapisuje, marker nie powstaje, następny
+    -- start spróbuje ponownie. Ustawienie jest lokalne dla transakcji
+    -- i wraca do poprzedniej wartości na końcu bloku (alembic wykonuje
+    -- kolejne migracje w tej samej transakcji).
+    PERFORM set_config('lock_timeout', '__LOCK_TIMEOUT__', true);
     -- Rolling deploy potrafi uruchomić blok dwa razy równolegle.
     PERFORM pg_advisory_xact_lock(hashtext(v_marker));
     IF EXISTS (SELECT 1 FROM app_settings WHERE key = v_marker) THEN
+        PERFORM set_config('lock_timeout', v_previous_lock_timeout, true);
         RETURN;
     END IF;
+    -- Ta sama blokada, od której zaczyna writer maila
+    -- (``order_mail_apply.apply_document``: wiersz klienta FOR UPDATE):
+    -- cogodzinny odczyt skrzynki w starym kontenerze nie wejdzie w środek
+    -- korekty, a korekta nie wejdzie w środek jego zapisu.
+    PERFORM 1 FROM clients WHERE id = v_client_id FOR UPDATE;
 
     -- Kolumny do skopiowania bieżącego stanu: z katalogu, bez klucza
     -- głównego i kolumn generowanych — kolumna dopisana w przyszłości też
@@ -229,8 +303,10 @@ BEGIN
         END IF;
 
         IF v_reason IS NULL THEN
-            SELECT c.client_id, c.rate_unit::text, c.billing_hours_per_month
-              INTO v_contract_client_id, v_contract_unit, v_contract_hours
+            SELECT c.client_id, c.rate_unit::text, c.billing_hours_per_month,
+                   c.candidate_id
+              INTO v_contract_client_id, v_contract_unit, v_contract_hours,
+                   v_candidate_id
               FROM contracts AS c
              WHERE c.id = v_target.contract_id;
             IF NOT FOUND OR v_contract_client_id IS DISTINCT FROM v_client_id THEN
@@ -279,6 +355,50 @@ BEGIN
                    OR v_activity.created_at >= v_window_end THEN
                     v_reason := 'reactivate_activity_mismatch';
                 END IF;
+            END IF;
+        END IF;
+
+        -- ── Człowiek poprawił zamówienie po nadpisaniu ─────────────────────────
+        -- Blok zakłada, że od T0 wiersz zmieniał wyłącznie automat: bieżące
+        -- pola kopiuje do nowego okresu, a ``total_value`` zostawia
+        -- oryginałowi. Ręczna edycja po T0 (PATCH, PDF, zakończenie,
+        -- anulowanie) łamie to założenie — nie wiadomo, któremu z dwóch
+        -- okresów ją przypisać. Decyduje człowiek; edycje idą do paragonu.
+        IF v_reason IS NULL THEN
+            SELECT coalesce(
+                       jsonb_agg(
+                           jsonb_build_object(
+                               'activity_id', a.id,
+                               'action', a.action,
+                               'created_at', a.created_at,
+                               'user_id', a.user_id,
+                               'changed', a.details -> 'changed'
+                           )
+                           ORDER BY a.created_at, a.id
+                       ),
+                       '[]'::jsonb
+                   )
+              INTO v_reason_detail
+              FROM activities AS a
+             WHERE a.created_at >= v_activity.created_at
+               AND a.id <> v_activity.id
+               AND (
+                   (
+                       a.entity_type = 'client'
+                       AND a.entity_id = v_order.client_id
+                       AND a.details ->> 'order_id' = v_order.id::text
+                       AND a.action IN (__HUMAN_CLIENT_ACTIONS__)
+                   )
+                   OR (
+                       a.entity_type = 'client_order'
+                       AND a.entity_id = v_order.id
+                       AND a.action IN (__HUMAN_ORDER_ACTIONS__)
+                   )
+               );
+            IF jsonb_array_length(v_reason_detail) > 0 THEN
+                v_reason := 'edited_after_incident';
+            ELSE
+                v_reason_detail := NULL;
             END IF;
         END IF;
 
@@ -365,48 +485,139 @@ BEGIN
             END IF;
         END IF;
 
+        -- ── Tytuł i jednostka takie, jakie zostawił writer ─────────────────────
+        -- Writer: ``title = rp["title"] or title`` i ``rate_unit =
+        -- _rate_unit(rp["rate_unit"]) or contract.rate_unit``. Inna wartość
+        -- w wierszu to zmiana po T0 — także taka, która nie zostawiła Activity.
+        -- (Jednostka umowy jest dzisiejsza, nie z T0: jej zmiana od tamtej
+        -- pory też zatrzymuje zamówienie — w bezpieczną stronę.)
+        IF v_reason IS NULL THEN
+            v_expected_title := CASE
+                WHEN coalesce(v_plan_row ->> 'title', '') = '' THEN v_before_title_raw
+                ELSE v_plan_row ->> 'title'
+            END;
+            v_expected_unit := CASE v_plan_row ->> 'rate_unit'
+                WHEN 'hour' THEN 'hourly'
+                WHEN 'day' THEN 'daily'
+                WHEN 'month' THEN 'monthly'
+                WHEN 'hourly' THEN 'hourly'
+                WHEN 'daily' THEN 'daily'
+                WHEN 'monthly' THEN 'monthly'
+                ELSE v_contract_unit
+            END;
+            IF v_order.title IS DISTINCT FROM v_expected_title THEN
+                v_reason := 'title_differs_from_mail_plan';
+                v_reason_detail := jsonb_build_object(
+                    'current_title', v_order.title,
+                    'expected_title', v_expected_title
+                );
+            ELSIF v_order.rate_unit::text IS DISTINCT FROM v_expected_unit THEN
+                v_reason := 'rate_unit_differs_from_mail_plan';
+                v_reason_detail := jsonb_build_object(
+                    'current_rate_unit', v_order.rate_unit::text,
+                    'expected_rate_unit', v_expected_unit,
+                    'plan_rate_unit', v_plan_row -> 'rate_unit'
+                );
+            END IF;
+        END IF;
+
         -- ── Nikt nie założył już zamówienia na nowy okres tej osoby ────────────
-        IF v_reason IS NULL
-           AND EXISTS (
-               SELECT 1
-                 FROM client_orders AS o2
-                WHERE o2.contract_id = v_order.contract_id
-                  AND o2.id <> v_order.id
-                  AND (o2.start_date IS NULL OR o2.start_date <= v_new_end)
-                  AND (
-                      (
-                          o2.status::text IN ('draft', 'active', 'paused')
-                          AND (o2.end_date IS NULL OR o2.end_date >= v_new_start)
-                      )
-                      OR (
-                          o2.status::text = 'completed'
-                          AND o2.end_date >= v_new_start
-                      )
-                  )
-           ) THEN
-            v_reason := 'another_order_covers_new_period';
+        -- Każdy kontrakt TEJ OSOBY u tego klienta, nie tylko przypięty:
+        -- „Nowy kontraktor / zamówienie” zakłada nowy kontrakt, więc ręcznie
+        -- wpisane przedłużenie ląduje zwykle właśnie tam.
+        IF v_reason IS NULL THEN
+            SELECT coalesce(
+                       jsonb_agg(
+                           jsonb_build_object(
+                               'order_id', o2.id,
+                               'contract_id', o2.contract_id,
+                               'status', o2.status::text,
+                               'start_date', o2.start_date,
+                               'end_date', o2.end_date
+                           )
+                           ORDER BY o2.id
+                       ),
+                       '[]'::jsonb
+                   )
+              INTO v_reason_detail
+              FROM client_orders AS o2
+              JOIN contracts AS c2
+                ON c2.id = o2.contract_id
+             WHERE o2.id <> v_order.id
+               AND (
+                   o2.contract_id = v_order.contract_id
+                   OR (
+                       c2.candidate_id = v_candidate_id
+                       AND (
+                           o2.client_id = v_order.client_id
+                           OR c2.client_id = v_order.client_id
+                       )
+                   )
+               )
+               AND (o2.start_date IS NULL OR o2.start_date <= v_new_end)
+               AND (
+                   (
+                       o2.status::text IN ('draft', 'active', 'paused')
+                       AND (o2.end_date IS NULL OR o2.end_date >= v_new_start)
+                   )
+                   OR (
+                       o2.status::text = 'completed'
+                       AND o2.end_date >= v_new_start
+                   )
+               );
+            IF jsonb_array_length(v_reason_detail) > 0 THEN
+                v_reason := 'another_order_covers_new_period';
+            ELSE
+                v_reason_detail := NULL;
+            END IF;
         END IF;
 
         -- ── …ani na okres, który przywracamy (ktoś go odtworzył ręcznie) ──────
         -- Zamówienie założone PO nadpisaniu na stary okres = przywrócenie
         -- oryginału policzyłoby ten okres dwa razy. Starsze zamówienia są
         -- historią, która istniała obok oryginału — nie przeszkadzają.
-        IF v_reason IS NULL
-           AND EXISTS (
-               SELECT 1
-                 FROM client_orders AS o4
-                WHERE o4.contract_id = v_order.contract_id
-                  AND o4.id <> v_order.id
-                  AND o4.status::text <> 'cancelled'
-                  AND o4.created_at >= v_activity.created_at
-                  AND (o4.start_date IS NULL OR o4.start_date <= v_previous_end)
-                  AND (
-                      o4.end_date IS NULL
-                      OR v_before_start IS NULL
-                      OR o4.end_date >= v_before_start
-                  )
-           ) THEN
-            v_reason := 'another_order_covers_previous_period';
+        IF v_reason IS NULL THEN
+            SELECT coalesce(
+                       jsonb_agg(
+                           jsonb_build_object(
+                               'order_id', o4.id,
+                               'contract_id', o4.contract_id,
+                               'status', o4.status::text,
+                               'start_date', o4.start_date,
+                               'end_date', o4.end_date
+                           )
+                           ORDER BY o4.id
+                       ),
+                       '[]'::jsonb
+                   )
+              INTO v_reason_detail
+              FROM client_orders AS o4
+              JOIN contracts AS c4
+                ON c4.id = o4.contract_id
+             WHERE o4.id <> v_order.id
+               AND (
+                   o4.contract_id = v_order.contract_id
+                   OR (
+                       c4.candidate_id = v_candidate_id
+                       AND (
+                           o4.client_id = v_order.client_id
+                           OR c4.client_id = v_order.client_id
+                       )
+                   )
+               )
+               AND o4.status::text <> 'cancelled'
+               AND o4.created_at >= v_activity.created_at
+               AND (o4.start_date IS NULL OR o4.start_date <= v_previous_end)
+               AND (
+                   o4.end_date IS NULL
+                   OR v_before_start IS NULL
+                   OR o4.end_date >= v_before_start
+               );
+            IF jsonb_array_length(v_reason_detail) > 0 THEN
+                v_reason := 'another_order_covers_previous_period';
+            ELSE
+                v_reason_detail := NULL;
+            END IF;
         END IF;
 
         -- ── Jednostka stawki: ``before`` jej nie niesie ────────────────────────
@@ -487,6 +698,9 @@ BEGIN
         END IF;
 
         -- ── Wyliczenia przed zapisem ───────────────────────────────────────────
+        -- Migawka wiersza sprzed korekty: z niej da się korektę cofnąć ręcznie.
+        v_order_snapshot := to_jsonb(v_order);
+
         -- Notatki: writer dopisał dokładnie ``details.message`` po znaku nowej
         -- linii (albo w miejsce pustych notatek — pusty napis i NULL są wtedy
         -- nie do odróżnienia, wraca NULL).
@@ -565,7 +779,8 @@ BEGIN
         -- do POPRZEDNIEGO zamówienia i zostaje przy nim. Nowy okres dostaje
         -- wartość z przypiętego wiersza planu (jak nowe zamówienie
         -- w poprawionym writerze) — w razie wątpliwości pustą, nigdy starą:
-        -- stara zdublowałaby przychód w sumach ``total_value``.
+        -- stara zdublowałaby przychód w sumach ``total_value``. (Ręczną
+        -- zmianę tej kolumny po T0 wyklucza ``edited_after_incident``.)
         v_text := v_plan_row ->> 'total_value';
         IF v_text IS NULL OR v_text IN ('', 'None') THEN
             v_new_total := NULL;
@@ -593,29 +808,52 @@ BEGIN
             v_restored_filled := v_order.filled_at;
         END IF;
 
+        -- Przychód kontraktu: krok z przywróconego okresu powstanie tylko
+        -- wtedy, gdy ``before`` niesie start i dodatnią stawkę
+        -- (``contract_order_sync.order_revenue_terms``) — inaczej krok
+        -- ``pfron_revenue_resync`` nie ma tu czego zrobić.
+        v_revenue_resync := CASE
+            WHEN v_before_start IS NULL
+              OR v_before_rate IS NULL
+              OR v_before_rate <= 0
+                THEN '__REVENUE_NOT_APPLICABLE__'
+            ELSE '__REVENUE_PENDING__'
+        END;
+
         -- PDF: ścieżka sprzed nadpisania wraca do oryginału (writer nie kasował
-        -- zastąpionego pliku). Metadane poza ścieżką nie są w ``before`` —
-        -- nazwa z nazwy pliku na dysku, reszta pusta. Wgranie albo usunięcie
-        -- PDF-u w aplikacji po T0 mogło skasować właśnie ten plik z dysku
-        -- (zastąpiony blob jest zwalniany po zapisie), więc wtedy nie
-        -- podpinamy ścieżki — zostaje w paragonie do sprawdzenia.
-        v_file_changed := EXISTS (
-            SELECT 1
-              FROM activities
-             WHERE entity_type = 'client'
-               AND entity_id = v_order.client_id
-               AND action IN ('order_file_uploaded', 'order_file_deleted')
-               AND details ->> 'order_id' = v_order.id::text
-               AND created_at >= v_activity.created_at
-        );
+        -- zastąpionego pliku). Metadane — z ``before``, gdy je niesie; inaczej
+        -- nazwa z nazwy pliku na dysku, typ z rozszerzenia, reszta pusta.
+        -- Wgranie albo usunięcie PDF-u w aplikacji po T0 (zastąpiony blob
+        -- jest wtedy zwalniany) wyklucza ``edited_after_incident`` wyżej.
         IF v_before_file IS NULL THEN
             v_file_mode := 'previous_order_had_no_file';
-        ELSIF v_file_changed THEN
-            v_file_mode := 'previous_file_uncertain_after_file_change';
         ELSIF v_before_file IS NOT DISTINCT FROM v_order.file_path THEN
             v_file_mode := 'writer_did_not_replace_file';
         ELSE
             v_file_mode := 'previous_file_restored';
+        END IF;
+        v_before_filename := left(nullif(v_before ->> 'filename', ''), 255);
+        v_before_content_type := left(nullif(v_before ->> 'content_type', ''), 128);
+        v_text := v_before ->> 'size_bytes';
+        v_before_size := CASE
+            WHEN v_text ~ '^[0-9]{1,9}$' THEN v_text::integer
+        END;
+        v_text := v_before ->> 'file_uploaded_by';
+        v_before_uploaded_by := CASE
+            WHEN v_text ~ '^[0-9]{1,9}$' THEN v_text::integer
+        END;
+        IF v_before_uploaded_by IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM users WHERE id = v_before_uploaded_by) THEN
+            v_before_uploaded_by := NULL;
+        END IF;
+        v_text := v_before ->> 'file_uploaded_at';
+        v_before_uploaded_at := NULL;
+        IF v_text IS NOT NULL AND v_text NOT IN ('', 'None') THEN
+            BEGIN
+                v_before_uploaded_at := v_text::timestamptz;
+            EXCEPTION WHEN others THEN
+                v_before_uploaded_at := NULL;
+            END;
         END IF;
         -- Ten sam plik w obu wierszach = skasowanie go w jednym osierociłoby
         -- drugi. Plik sprzed nadpisania należy do oryginału.
@@ -668,6 +906,9 @@ BEGIN
                END,
                total_value = v_new_total,
                filled_at = v_new_filled,
+               -- Przedłużenie, nie zamiana kontraktora na linii MD: link do
+               -- poprzedniego zamówienia żyje w Activity ``order_mail_renewal``.
+               predecessor_order_id = NULL,
                -- PDF nowego okresu nie został dołączony: nie dzielimy pliku
                -- oryginału (skasowanie go w jednym wierszu osierociłoby drugi).
                filename = CASE WHEN v_new_row_drops_file THEN NULL ELSE filename END,
@@ -689,10 +930,13 @@ BEGIN
                notes = v_restored_notes,
                filled_at = v_restored_filled,
                filename = CASE v_file_mode
-                   WHEN 'previous_file_restored' THEN regexp_replace(
-                       substring(v_before_file from '([^/]+)$'),
-                       '^[0-9a-f]{8}-',
-                       ''
+                   WHEN 'previous_file_restored' THEN coalesce(
+                       v_before_filename,
+                       regexp_replace(
+                           substring(v_before_file from '([^/]+)$'),
+                           '^[0-9a-f]{8}-',
+                           ''
+                       )
                    )
                    WHEN 'writer_did_not_replace_file' THEN filename
                END,
@@ -701,201 +945,260 @@ BEGIN
                    WHEN 'writer_did_not_replace_file' THEN file_path
                END,
                content_type = CASE v_file_mode
-                   WHEN 'previous_file_restored' THEN CASE
-                       WHEN v_before_file ILIKE '%.pdf' THEN 'application/pdf'
-                   END
+                   WHEN 'previous_file_restored' THEN coalesce(
+                       v_before_content_type,
+                       CASE WHEN v_before_file ILIKE '%.pdf' THEN 'application/pdf' END
+                   )
                    WHEN 'writer_did_not_replace_file' THEN content_type
                END,
-               size_bytes = CASE
-                   WHEN v_file_mode = 'writer_did_not_replace_file' THEN size_bytes
+               size_bytes = CASE v_file_mode
+                   WHEN 'previous_file_restored' THEN v_before_size
+                   WHEN 'writer_did_not_replace_file' THEN size_bytes
                END,
-               file_uploaded_by = CASE
-                   WHEN v_file_mode = 'writer_did_not_replace_file' THEN file_uploaded_by
+               file_uploaded_by = CASE v_file_mode
+                   WHEN 'previous_file_restored' THEN v_before_uploaded_by
+                   WHEN 'writer_did_not_replace_file' THEN file_uploaded_by
                END,
-               file_uploaded_at = CASE
-                   WHEN v_file_mode = 'writer_did_not_replace_file' THEN file_uploaded_at
+               file_uploaded_at = CASE v_file_mode
+                   WHEN 'previous_file_restored' THEN v_before_uploaded_at
+                   WHEN 'writer_did_not_replace_file' THEN file_uploaded_at
                END,
                updated_at = now()
          WHERE id = v_order.id;
 
         -- ── c. Przypięty dokument z maila wskazuje nowy wiersz ─────────────────
+        -- Każde przeniesienie zapisuje LICZBĘ (``moved_to_new_order``) i id
+        -- wierszy (``moved_row_ids``) — z tych id da się korektę cofnąć.
         v_moved := '{}'::jsonb;
-        UPDATE order_mail_documents AS d
-           SET applied_order_id = CASE
-                   WHEN d.applied_order_id = v_order.id THEN v_new_id
-                   ELSE d.applied_order_id
-               END,
-               proposal = CASE
-                   WHEN jsonb_typeof(d.proposal -> 'apply_result' -> 'rows') = 'array'
-                   THEN jsonb_set(
-                       d.proposal,
-                       ARRAY['apply_result', 'rows'],
-                       coalesce(
+        v_moved_ids := '{}'::jsonb;
+        WITH m AS (
+            UPDATE order_mail_documents AS d
+               SET applied_order_id = CASE
+                       WHEN d.applied_order_id = v_order.id THEN v_new_id
+                       ELSE d.applied_order_id
+                   END,
+                   proposal = CASE
+                       WHEN jsonb_typeof(d.proposal -> 'apply_result' -> 'rows') = 'array'
+                       THEN jsonb_set(
+                           d.proposal,
+                           ARRAY['apply_result', 'rows'],
+                           coalesce(
+                               (
+                                   SELECT jsonb_agg(
+                                              CASE
+                                                  WHEN e.value ->> 'order_id' = v_order.id::text
+                                                  THEN jsonb_set(e.value, ARRAY['order_id'], to_jsonb(v_new_id))
+                                                  ELSE e.value
+                                              END
+                                              ORDER BY e.ordinality
+                                          )
+                                     FROM jsonb_array_elements(d.proposal -> 'apply_result' -> 'rows')
+                                          WITH ORDINALITY AS e(value, ordinality)
+                               ),
+                               '[]'::jsonb
+                           )
+                       )
+                       ELSE d.proposal
+                   END
+             WHERE d.id = v_target.document_id
+            RETURNING d.id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('order_mail_documents', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('order_mail_documents', v_ids);
+
+        -- ── d. Wiersze potomne nowego okresu (T0 lub później) ──────────────────
+        -- Activity nadpisania zostaje przy oryginale: opisuje, co mu zrobiono.
+        WITH m AS (
+            UPDATE activities
+               SET entity_id = v_new_id
+             WHERE entity_type = 'client_order'
+               AND entity_id = v_order.id
+               AND created_at >= v_activity.created_at
+               AND id <> v_activity.id
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('activities_client_order', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('activities_client_order', v_ids);
+
+        WITH m AS (
+            UPDATE activities
+               SET details = jsonb_set(details, ARRAY['order_id'], to_jsonb(v_new_id))
+             WHERE entity_type = 'client'
+               AND entity_id = v_order.client_id
+               AND details ->> 'order_id' = v_order.id::text
+               AND created_at >= v_activity.created_at
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('activities_client_details', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('activities_client_details', v_ids);
+
+        -- ``ix_notif_dedup_daily`` nie zawiera typu encji — kolizji z cudzym
+        -- powiadomieniem o tym samym numerze nie przenosimy (liczba w paragonie).
+        WITH m AS (
+            UPDATE notifications AS n
+               SET related_entity_id = v_new_id
+             WHERE n.related_entity_type = 'client_order'
+               AND n.related_entity_id = v_order.id
+               AND n.created_at >= v_activity.created_at
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM notifications AS x
+                    WHERE x.user_id = n.user_id
+                      AND x.notification_type = n.notification_type
+                      AND x.related_entity_id = v_new_id
+                      AND date_trunc('day', x.created_at AT TIME ZONE 'Europe/Warsaw')
+                          = date_trunc('day', n.created_at AT TIME ZONE 'Europe/Warsaw')
+               )
+            RETURNING n.id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('notifications', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('notifications', v_ids);
+
+        -- Klucz sprawy w ``dedupe_key`` niesie id zamówienia — bez przepisania
+        -- „obsłużone” przestałoby wyciszać sprawę nowego wiersza.
+        WITH m AS (
+            UPDATE dl_alerts
+               SET order_id = v_new_id,
+                   dedupe_key = left(
+                       regexp_replace(
+                           dedupe_key,
+                           ':(order|mail-draft):' || v_order.id || ':',
+                           ':\1:' || v_new_id || ':'
+                       ),
+                       255
+                   )
+             WHERE order_id = v_order.id
+               AND created_at >= v_activity.created_at
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('dl_alerts', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('dl_alerts', v_ids);
+
+        WITH m AS (
+            UPDATE contract_client_rates
+               SET source_order_id = v_new_id
+             WHERE source_order_id = v_order.id
+               AND created_at >= v_activity.created_at
+               AND effective_from >= v_new_start
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('contract_client_rates', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('contract_client_rates', v_ids);
+
+        WITH m AS (
+            UPDATE client_order_md_consumptions
+               SET order_id = v_new_id
+             WHERE order_id = v_order.id
+               AND created_at >= v_activity.created_at
+               AND period_month >= v_new_month
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_order_md_consumptions', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_order_md_consumptions', v_ids);
+
+        WITH m AS (
+            UPDATE client_order_invoice_consumptions
+               SET order_id = v_new_id
+             WHERE order_id = v_order.id
+               AND created_at >= v_activity.created_at
+               AND period_month >= v_new_month
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_order_invoice_consumptions', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_order_invoice_consumptions', v_ids);
+
+        WITH m AS (
+            UPDATE md_consumption_import_rows AS r
+               SET matched_order_id = CASE
+                       WHEN r.matched_order_id = v_order.id THEN v_new_id
+                       ELSE r.matched_order_id
+                   END,
+                   candidate_order_ids = CASE
+                       WHEN jsonb_typeof(r.candidate_order_ids) = 'array' THEN coalesce(
                            (
                                SELECT jsonb_agg(
                                           CASE
-                                              WHEN e.value ->> 'order_id' = v_order.id::text
-                                              THEN jsonb_set(e.value, ARRAY['order_id'], to_jsonb(v_new_id))
+                                              WHEN e.value = to_jsonb(v_order.id) THEN to_jsonb(v_new_id)
                                               ELSE e.value
                                           END
                                           ORDER BY e.ordinality
                                       )
-                                 FROM jsonb_array_elements(d.proposal -> 'apply_result' -> 'rows')
+                                 FROM jsonb_array_elements(r.candidate_order_ids)
                                       WITH ORDINALITY AS e(value, ordinality)
                            ),
                            '[]'::jsonb
                        )
+                       ELSE r.candidate_order_ids
+                   END
+              FROM md_consumption_imports AS i
+             WHERE i.id = r.import_id
+               AND r.created_at >= v_activity.created_at
+               AND i.period_month >= v_new_month
+               AND (
+                   r.matched_order_id = v_order.id
+                   OR (
+                       jsonb_typeof(r.candidate_order_ids) = 'array'
+                       AND r.candidate_order_ids @> jsonb_build_array(v_order.id)
                    )
-                   ELSE d.proposal
-               END
-         WHERE d.id = v_target.document_id;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('order_mail_documents', v_count);
-
-        -- ── d. Wiersze potomne nowego okresu (T0 lub później) ──────────────────
-        -- Activity nadpisania zostaje przy oryginale: opisuje, co mu zrobiono.
-        UPDATE activities
-           SET entity_id = v_new_id
-         WHERE entity_type = 'client_order'
-           AND entity_id = v_order.id
-           AND created_at >= v_activity.created_at
-           AND id <> v_activity.id;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('activities_client_order', v_count);
-
-        UPDATE activities
-           SET details = jsonb_set(details, ARRAY['order_id'], to_jsonb(v_new_id))
-         WHERE entity_type = 'client'
-           AND entity_id = v_order.client_id
-           AND details ->> 'order_id' = v_order.id::text
-           AND created_at >= v_activity.created_at;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('activities_client_details', v_count);
-
-        -- ``ix_notif_dedup_daily`` nie zawiera typu encji — kolizji z cudzym
-        -- powiadomieniem o tym samym numerze nie przenosimy (liczba w paragonie).
-        UPDATE notifications AS n
-           SET related_entity_id = v_new_id
-         WHERE n.related_entity_type = 'client_order'
-           AND n.related_entity_id = v_order.id
-           AND n.created_at >= v_activity.created_at
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM notifications AS x
-                WHERE x.user_id = n.user_id
-                  AND x.notification_type = n.notification_type
-                  AND x.related_entity_id = v_new_id
-                  AND date_trunc('day', x.created_at AT TIME ZONE 'Europe/Warsaw')
-                      = date_trunc('day', n.created_at AT TIME ZONE 'Europe/Warsaw')
-           );
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('notifications', v_count);
-
-        -- Klucz sprawy w ``dedupe_key`` niesie id zamówienia — bez przepisania
-        -- „obsłużone” przestałoby wyciszać sprawę nowego wiersza.
-        UPDATE dl_alerts
-           SET order_id = v_new_id,
-               dedupe_key = left(
-                   regexp_replace(
-                       dedupe_key,
-                       ':(order|mail-draft):' || v_order.id || ':',
-                       ':\1:' || v_new_id || ':'
-                   ),
-                   255
                )
-         WHERE order_id = v_order.id
-           AND created_at >= v_activity.created_at;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('dl_alerts', v_count);
+            RETURNING r.id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('md_consumption_import_rows', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('md_consumption_import_rows', v_ids);
 
-        UPDATE contract_client_rates
-           SET source_order_id = v_new_id
-         WHERE source_order_id = v_order.id
-           AND created_at >= v_activity.created_at
-           AND effective_from >= v_new_start;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('contract_client_rates', v_count);
+        WITH m AS (
+            UPDATE client_order_offboarding_cases
+               SET order_id = v_new_id
+             WHERE order_id = v_order.id
+               AND created_at >= v_activity.created_at
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_order_offboarding_cases', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_order_offboarding_cases', v_ids);
 
-        UPDATE client_order_md_consumptions
-           SET order_id = v_new_id
-         WHERE order_id = v_order.id
-           AND created_at >= v_activity.created_at
-           AND period_month >= v_new_month;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_order_md_consumptions', v_count);
+        WITH m AS (
+            UPDATE client_order_offboarding_cases
+               SET target_order_id = v_new_id
+             WHERE target_order_id = v_order.id
+               AND created_at >= v_activity.created_at
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_order_offboarding_targets', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_order_offboarding_targets', v_ids);
 
-        UPDATE client_order_invoice_consumptions
-           SET order_id = v_new_id
-         WHERE order_id = v_order.id
-           AND created_at >= v_activity.created_at
-           AND period_month >= v_new_month;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_order_invoice_consumptions', v_count);
+        WITH m AS (
+            UPDATE client_order_group_events
+               SET order_id = v_new_id
+             WHERE order_id = v_order.id
+               AND created_at >= v_activity.created_at
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_order_group_events', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_order_group_events', v_ids);
 
-        UPDATE md_consumption_import_rows AS r
-           SET matched_order_id = CASE
-                   WHEN r.matched_order_id = v_order.id THEN v_new_id
-                   ELSE r.matched_order_id
-               END,
-               candidate_order_ids = CASE
-                   WHEN jsonb_typeof(r.candidate_order_ids) = 'array' THEN coalesce(
-                       (
-                           SELECT jsonb_agg(
-                                      CASE
-                                          WHEN e.value = to_jsonb(v_order.id) THEN to_jsonb(v_new_id)
-                                          ELSE e.value
-                                      END
-                                      ORDER BY e.ordinality
-                                  )
-                             FROM jsonb_array_elements(r.candidate_order_ids)
-                                  WITH ORDINALITY AS e(value, ordinality)
-                       ),
-                       '[]'::jsonb
-                   )
-                   ELSE r.candidate_order_ids
-               END
-          FROM md_consumption_imports AS i
-         WHERE i.id = r.import_id
-           AND r.created_at >= v_activity.created_at
-           AND i.period_month >= v_new_month
-           AND (
-               r.matched_order_id = v_order.id
-               OR (
-                   jsonb_typeof(r.candidate_order_ids) = 'array'
-                   AND r.candidate_order_ids @> jsonb_build_array(v_order.id)
-               )
-           );
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('md_consumption_import_rows', v_count);
-
-        UPDATE client_order_offboarding_cases
-           SET order_id = v_new_id
-         WHERE order_id = v_order.id
-           AND created_at >= v_activity.created_at;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_order_offboarding_cases', v_count);
-
-        UPDATE client_order_offboarding_cases
-           SET target_order_id = v_new_id
-         WHERE target_order_id = v_order.id
-           AND created_at >= v_activity.created_at;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_order_offboarding_targets', v_count);
-
-        UPDATE client_order_group_events
-           SET order_id = v_new_id
-         WHERE order_id = v_order.id
-           AND created_at >= v_activity.created_at;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_order_group_events', v_count);
-
-        UPDATE client_orders
-           SET predecessor_order_id = v_new_id
-         WHERE predecessor_order_id = v_order.id
-           AND created_at >= v_activity.created_at
-           AND id <> v_new_id;
-        GET DIAGNOSTICS v_count = ROW_COUNT;
-        v_moved := v_moved || jsonb_build_object('client_orders_predecessor', v_count);
+        WITH m AS (
+            UPDATE client_orders
+               SET predecessor_order_id = v_new_id
+             WHERE predecessor_order_id = v_order.id
+               AND created_at >= v_activity.created_at
+               AND id <> v_new_id
+            RETURNING id
+        )
+        SELECT coalesce(jsonb_agg(m.id ORDER BY m.id), '[]'::jsonb) INTO v_ids FROM m;
+        v_moved := v_moved || jsonb_build_object('client_orders_predecessor', jsonb_array_length(v_ids));
+        v_moved_ids := v_moved_ids || jsonb_build_object('client_orders_predecessor', v_ids);
 
         -- Co zostało przy oryginale MIMO daty po T0 (miesiąc sprzed nowego
         -- okresu albo kolizja powiadomienia) — do przeglądu w paragonie.
@@ -991,6 +1294,7 @@ BEGIN
                 'new_order_id', v_new_id,
                 'incident_at', v_activity.created_at,
                 'reverted_activity_id', v_activity.id,
+                'order_before_repair', v_order_snapshot,
                 'restored_order', jsonb_build_object(
                     'title', v_before_title_raw,
                     'start_date', v_before_start,
@@ -1001,6 +1305,7 @@ BEGIN
                     'rate_candidate_before_repair', v_order.rate_candidate,
                     'rate_candidate_source', v_cost_source,
                     'notes_restored', v_notes_restorable,
+                    'notes', v_restored_notes,
                     'filled_at', v_restored_filled,
                     'file_mode', v_file_mode,
                     'file_path', CASE v_file_mode
@@ -1027,11 +1332,12 @@ BEGIN
                     END
                 ),
                 'moved_to_new_order', v_moved,
+                'moved_row_ids', v_moved_ids,
                 'kept_on_previous_order_after_incident', v_kept,
                 'documents_left_for_review', v_other_documents,
-                -- Krok przychodu dla przywróconego okresu dopisze synchronizacja
-                -- kontrakt ↔ zamówienia przy najbliższym zapisie zamówienia.
-                'contract_revenue_resync', 'pending_next_order_write'
+                -- Krok przychodu dla przywróconego okresu dopisuje
+                -- ``pfron_revenue_resync`` (entrypoint, zaraz po tym bloku).
+                'contract_revenue_resync', v_revenue_resync
             )
         );
     END LOOP;
@@ -1053,10 +1359,13 @@ BEGIN
     )
     ON CONFLICT (key) DO NOTHING;
 
+    PERFORM set_config('lock_timeout', v_previous_lock_timeout, true);
     RAISE NOTICE '0306 PFRON split % order(s), skipped %', v_split_count, v_skipped_count;
 END
 $pfron_renewal_split$;
 """
+
+_LOCK_TIMEOUT_RE = re.compile(r"[1-9][0-9]{0,5}(ms|s)")
 
 
 def _timestamptz_literal(moment: datetime) -> str:
@@ -1068,6 +1377,10 @@ def _timestamptz_literal(moment: datetime) -> str:
     )
 
 
+def _sql_list(values: Sequence[str]) -> str:
+    return ", ".join(f"'{value}'" for value in values)
+
+
 def build_renewal_split_sql(
     *,
     marker: str,
@@ -1077,16 +1390,20 @@ def build_renewal_split_sql(
     new_end: date,
     previous_end: date,
     incident_window: tuple[datetime, datetime],
+    lock_timeout: str = DEFAULT_LOCK_TIMEOUT,
 ) -> str:
     """Blok SQL dla podanych celów — produkcja i test używają tej samej treści.
 
     Wartości są liczbami i datami z kodu, nie wejściem użytkownika; marker
-    przechodzi przez walidację, bo ląduje w literale SQL.
+    i limit czekania na blokadę przechodzą przez walidację, bo lądują
+    w literale SQL.
     """
     if not targets:
         raise ValueError("Brak zamówień do korekty")
     if not marker.replace("_", "").isalnum() or len(marker) > 100:
         raise ValueError("Marker musi być identyfikatorem (litery, cyfry, _)")
+    if not _LOCK_TIMEOUT_RE.fullmatch(lock_timeout):
+        raise ValueError("lock_timeout w formacie liczba + ms/s, np. 15s")
     values = ", ".join(
         f"({int(t.order_id)}, {int(t.contract_id)}, {int(t.document_id)})"
         for t in targets
@@ -1102,13 +1419,39 @@ def build_renewal_split_sql(
         "__PREVIOUS_END__": previous_end.isoformat(),
         "__WINDOW_START__": _timestamptz_literal(incident_window[0]),
         "__WINDOW_END__": _timestamptz_literal(incident_window[1]),
+        "__LOCK_TIMEOUT__": lock_timeout,
         "__TARGETS__": values,
         "__HANDLED_FKS__": handled,
+        "__HUMAN_CLIENT_ACTIONS__": _sql_list(HUMAN_EDIT_ACTIONS_ON_CLIENT),
+        "__HUMAN_ORDER_ACTIONS__": _sql_list(HUMAN_EDIT_ACTIONS_ON_ORDER),
+        "__REVENUE_PENDING__": REVENUE_RESYNC_PENDING,
+        "__REVENUE_NOT_APPLICABLE__": REVENUE_RESYNC_NOT_APPLICABLE,
     }
     sql = _TEMPLATE
     for token, value in replacements.items():
         sql = sql.replace(token, value)
     return sql
+
+
+def summarize_receipt_for_log(receipt: Optional[Mapping[str, Any]]) -> str:
+    """Jedna linia do logu kontenera: liczby i powody pominięcia, nic więcej.
+
+    Logi kontenera trafiają do Grafany (Loki), więc tytuły zamówień, stawki
+    i ścieżki plików zostają wyłącznie w paragonie w ``app_settings``.
+    """
+    if not receipt:
+        return "no receipt"
+    reasons = Counter(
+        str(entry.get("reason"))
+        for entry in receipt.get("orders") or []
+        if entry.get("status") == "skipped"
+    )
+    line = f"split={int(receipt.get('split') or 0)} skipped={int(receipt.get('skipped') or 0)}"
+    if reasons:
+        line += " skip_reasons=" + ",".join(
+            f"{reason}:{count}" for reason, count in sorted(reasons.items())
+        )
+    return line
 
 
 PFRON_RENEWAL_SPLIT_SQL = build_renewal_split_sql(
