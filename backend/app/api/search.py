@@ -1,7 +1,7 @@
 import time
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,6 @@ from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
-from app.models.match_score import CandidateJobMatchScore
 from app.models.recruitment_pipeline import CandidateStage
 from app.schemas.candidate_search import (
     CandidateSearchItem,
@@ -28,7 +27,6 @@ from app.schemas.candidate_search import (
     SearchMeta,
     WaterfallStage,
 )
-from app.services.match_score_cache import fresh_score_conditions
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
@@ -206,38 +204,76 @@ async def candidate_match_scores(
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> MatchScoresResponse:
-    """Read-only cached hybrid match scores (0-100) for candidates against a
-    job (SEARCH-P1-03).
+    """Canonical base fit (0-100) of the VISIBLE search rows against a job.
 
-    Returns only candidates that already have a fresh cached score (computed by
-    recommendations / kanban). This endpoint NEVER computes or writes a score,
-    so it cannot pollute the shared cache with semantic-less values — it just
-    surfaces the same numbers shown elsewhere on job-context search rows.
+    The same number every C2 screen shows for the pair (recommendations,
+    /ai-matches, shortlist, proposals, pipeline badges): ``score_candidates``
+    with the viewer's active profile, measured on demand. Until 09.2026 this
+    read only fresh rows of the legacy composite cache — a cache nothing on the
+    current ranker writes any more, so on production the column was silently
+    empty for every row. Nothing is read from or written to that cache here, so
+    the route stays a read-only POST (``request_semantics``).
+
+    Bounded by the request schema (``MATCH_SCORES_MAX_CANDIDATES`` ids — the
+    front end asks only for rows on screen) and scoped by recruitment read
+    access. A candidate without a verified measurement (stale/missing vector,
+    provider outage) gets no score — never a retrieval score in disguise — and
+    its breakdown says why (``measurement``), so the row can say "not
+    measured" instead of looking unscored.
     """
     if not body.candidate_ids:
         return MatchScoresResponse(scores={})
 
-    from app.services.scoring_service import DEFAULT_PROFILE  # noqa: PLC0415
-
-    rows = (
-        await db.execute(
-            select(
-                CandidateJobMatchScore.candidate_id,
-                CandidateJobMatchScore.total_score,
-                CandidateJobMatchScore.breakdown,
-            ).where(
-                *fresh_score_conditions(
-                    job_id=body.job_id,
-                    profile_id=DEFAULT_PROFILE.id,
-                    candidate_ids=body.candidate_ids,
-                )
-            )
-        )
-    ).all()
-    return MatchScoresResponse(
-        scores={str(cid): round(total) for cid, total, _ in rows},
-        breakdowns={str(cid): bd for cid, _, bd in rows if bd},
+    from app.analytics.capabilities import (  # noqa: PLC0415
+        AnalyticsCapability,
+        user_has_capability,
     )
+    from app.api.recommendations import _score_breakdown_payload  # noqa: PLC0415
+    from app.api.recruitment_access import ensure_job_read_access  # noqa: PLC0415
+    from app.services.canonical_fit import (  # noqa: PLC0415
+        display_score,
+        score_candidates,
+    )
+    from app.services.request_matching_context import (  # noqa: PLC0415
+        build_request_context,
+    )
+    from app.services.scoring_service import resolve_active_profile  # noqa: PLC0415
+
+    await ensure_job_read_access(db, current_user, body.job_id)
+    job = await db.scalar(select(Job).where(Job.id == body.job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    candidate_ids = list(dict.fromkeys(body.candidate_ids))
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids))))
+        .scalars()
+        .all()
+    )
+    if not candidates:
+        return MatchScoresResponse(scores={})
+
+    profile = await resolve_active_profile(
+        db, user_id=current_user.id, client_id=job.client_id
+    )
+    fits = await score_candidates(db, build_request_context(job, profile), candidates)
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
+    scores: dict[str, int] = {}
+    breakdowns: dict[str, Any] = {}
+    for fit in fits:
+        key = str(fit.breakdown.candidate_id)
+        score = display_score(fit.fit_score)
+        if score is None:
+            breakdowns[key] = {"total": None, "measurement": fit.measurement}
+            continue
+        scores[key] = score
+        breakdowns[key] = {
+            **_score_breakdown_payload(fit.breakdown, include_finance=include_finance),
+            "total": fit.fit_score,
+            "measurement": fit.measurement,
+        }
+    return MatchScoresResponse(scores=scores, breakdowns=breakdowns)
 
 
 async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:

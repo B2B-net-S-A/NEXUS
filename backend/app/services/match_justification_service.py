@@ -13,6 +13,13 @@ Pipeline for one (candidate, job) pair:
 The LLM only produces prose (summary / pros / watch-outs). The number always
 comes from the deterministic engine, so the ring stays consistent with the rest
 of the app and the model can't inflate a match.
+
+Displayed score vs prose input (09.2026): the ring shows the CANONICAL base fit
+under the viewer's active profile (``display_fit``) — the number every C2
+screen shows for the pair since #1428. The prose is still generated from, and
+cached under, the legacy breakdown (steps 1-3 above, unchanged): switching its
+input would change every ``input_hash`` at once (one paid regeneration per
+viewed pair) and make the cache key depend on the viewer's weight profile.
 """
 
 from __future__ import annotations
@@ -441,6 +448,57 @@ async def _compute_breakdown(
         semantic_similarity=similarity,
         allow_cache_write=not provider_outage,
     )
+
+
+async def display_fit(
+    candidate_id: int,
+    job_id: int,
+    db: AsyncSession,
+    *,
+    user_id: Optional[int],
+) -> tuple[Optional[int], str]:
+    """``(score, measurement)`` the tab shows — the number C2 shows for the pair.
+
+    Canonical base fit (``score_candidates``) under the viewer's active
+    profile, exactly like the kanban ring (``/pipeline-scores``), /ai-matches
+    and the shortlist. ``score`` is ``None`` when the pair has no verified
+    semantic measurement (stale/missing vector, provider outage): the ring then
+    says "not measured" instead of showing a number no other screen shows.
+
+    Never raises: the justification must stay readable even if the measurement
+    fails. On a failure the session is rolled back (a failed query would
+    otherwise poison the request transaction) — so callers compute this BEFORE
+    loading anything they still need from the session.
+    """
+    from app.services.canonical_fit import display_score, score_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    try:
+        candidate = await db.get(Candidate, candidate_id)
+        job = await db.get(Job, job_id)
+        if candidate is None or job is None:
+            return None, "unavailable"
+        profile = await resolve_active_profile(
+            db, user_id=user_id, client_id=job.client_id
+        )
+        fits = await score_candidates(
+            db, build_request_context(job, profile), [candidate]
+        )
+    except Exception as exc:  # noqa: BLE001 — the number is best-effort here
+        logger.warning(
+            "match_justification: canonical fit failed candidate=%s job=%s: %s",
+            candidate_id,
+            job_id,
+            exc,
+        )
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001 — a dead connection fails the caller anyway
+            logger.warning("match_justification: rollback after fit failure failed")
+        return None, "unavailable"
+    fit = fits[0]
+    return display_score(fit.fit_score), fit.measurement
 
 
 # ── Orchestration ───────────────────────────────────────────────────────────

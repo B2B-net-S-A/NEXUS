@@ -32,9 +32,9 @@ function StatusCell({ status }: { status: CompareStatus }) {
 
 /**
  * Request-aware compare (SEARCH-P1-06): a candidate × requirement matrix for
- * 2–5 shortlisted/selected candidates, built from the cached score breakdowns
- * (read-only). Shows the request-fit score plus matched/missing must & nice
- * skills side by side.
+ * 2–5 shortlisted/selected candidates, built from the canonical fit
+ * breakdowns (measured on demand, read-only). Shows the request-fit score plus
+ * matched/missing must & nice skills side by side.
  */
 export function CandidateCompareModal({
   jobId,
@@ -170,8 +170,8 @@ export function CandidateCompareModal({
             </table>
             {!hasAny && (
               <p className="py-4 text-center text-xs text-zinc-500 dark:text-zinc-400">
-                Brak zapisanych wyników dopasowania dla wybranych kandydatów —
-                porównanie skryteriów pojawi się po ich ocenieniu w dopasowaniu.
+                Brak kryteriów do porównania — rekrutacja nie ma wymagań albo
+                wybrani kandydaci nie mają jeszcze pomiaru dopasowania.
               </p>
             )}
           </div>

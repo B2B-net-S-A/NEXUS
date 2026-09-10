@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -46,9 +53,14 @@ import {
 import {
   hasBreakdownDetail,
   summarizeBreakdown,
+  unmeasuredReason,
   type MatchBreakdown,
 } from "@/lib/match-breakdown";
 import { assignErrorMessage } from "@/lib/assign-error";
+import {
+  MATCH_SCORES_MAX_CANDIDATES,
+  useVisibleMatchScores,
+} from "@/hooks/useVisibleMatchScores";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
@@ -139,10 +151,6 @@ export function CandidateSearchView({
   const [diagnostics, setDiagnostics] =
     useState<SearchDiagnosticsResponse | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
-  const [matchScores, setMatchScores] = useState<Record<string, number>>({});
-  const [matchBreakdowns, setMatchBreakdowns] = useState<
-    Record<string, MatchBreakdown>
-  >({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
   const [bulkPending, setBulkPending] = useState(false);
@@ -460,39 +468,15 @@ export function CandidateSearchView({
     return `Wśród ${total} wyników: ${parts.join(", ")}.`;
   }, [data]);
 
-  // Match scores (job context only): read-only cached hybrid scores for the
-  // visible page. Best-effort — only candidates already scored (by kanban /
-  // recommendations) get a badge; this never computes, so it can't be slow or
-  // pollute the shared cache.
-  useEffect(() => {
-    if (!addToJob || !data || data.items.length === 0) {
-      setMatchScores({});
-      setMatchBreakdowns({});
-      return;
-    }
-    let cancelled = false;
-    candidateSearchApi
-      .matchScores(
-        addToJob.id,
-        data.items.map((c) => c.id),
-      )
-      .then((s) => {
-        if (!cancelled) {
-          setMatchScores(s.scores);
-          setMatchBreakdowns(s.breakdowns);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setMatchScores({});
-          setMatchBreakdowns({});
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, addToJob]);
+  // Match scores (job context only): canonical fit — the number C2 screens
+  // show — measured on demand for the rows on screen only, at most 20 per
+  // request (`useVisibleMatchScores`). Until 09.2026 this read a legacy cache
+  // nothing writes any more, so the column was silently empty.
+  const {
+    scores: matchScores,
+    breakdowns: matchBreakdowns,
+    onRowVisible,
+  } = useVisibleMatchScores(addToJob?.id, data?.items);
 
   const ccCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -875,7 +859,7 @@ export function CandidateSearchView({
             />
           </li>
         )}
-        {data?.items.map((c) => (
+        {data?.items.map((c, index) => (
           <CandidateSearchRow
             key={c.id}
             item={c}
@@ -884,6 +868,8 @@ export function CandidateSearchView({
             onToggleSelect={() => toggleSelect(c.id)}
             score={matchScores[String(c.id)]}
             breakdown={matchBreakdowns[String(c.id)]}
+            onVisible={addToJob ? onRowVisible : undefined}
+            scoreWithoutObserver={index < MATCH_SCORES_MAX_CANDIDATES}
           />
         ))}
       </ul>
@@ -1086,10 +1072,44 @@ interface CandidateSearchRowProps {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
-  /** Cached hybrid match score (0-100) vs. the job, if one exists. */
+  /** Canonical fit (0-100) vs. the job — the number C2 screens show. */
   score?: number;
-  /** Cached score breakdown (per-layer points + matched/gap skills). */
+  /** Fit breakdown (per-layer points + matched/gap skills, or why unmeasured). */
   breakdown?: MatchBreakdown;
+  /** Reports the row once it is on screen, so only visible rows get scored. */
+  onVisible?: (candidateId: number) => void;
+  /**
+   * Without IntersectionObserver (SSR, very old browsers) nothing is "on
+   * screen"; only the first `MATCH_SCORES_MAX_CANDIDATES` rows then ask.
+   */
+  scoreWithoutObserver?: boolean;
+}
+
+/** Calls `onVisible(id)` the first time the element enters the viewport. */
+function useReportWhenVisible(
+  ref: RefObject<HTMLElement | null>,
+  id: number,
+  onVisible: ((candidateId: number) => void) | undefined,
+  fallback: boolean,
+) {
+  useEffect(() => {
+    if (!onVisible) return;
+    const element = ref.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      if (fallback) onVisible(id);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        observer.disconnect();
+        onVisible(id);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+    // `onVisible` changes identity per result set, re-arming the observer.
+  }, [ref, id, onVisible, fallback]);
 }
 
 export function scoreBadgeClass(score: number): string {
@@ -1107,9 +1127,15 @@ function CandidateSearchRow({
   onToggleSelect,
   score,
   breakdown,
+  onVisible,
+  scoreWithoutObserver = false,
 }: CandidateSearchRowProps) {
+  const rowRef = useRef<HTMLLIElement>(null);
+  useReportWhenVisible(rowRef, item.id, onVisible, scoreWithoutObserver);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const canExpand = typeof score === "number" && hasBreakdownDetail(breakdown);
+  const notMeasured =
+    typeof score !== "number" ? unmeasuredReason(breakdown?.measurement) : null;
   const skillsList = Array.isArray(item.skills)
     ? (item.skills as Array<string | { name?: string }>)
     : [];
@@ -1120,7 +1146,7 @@ function CandidateSearchRow({
   const formattedLocation = formatCandidateLocation(item.location);
 
   return (
-    <li className="p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+    <li ref={rowRef} className="p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
       <div className="flex items-start gap-3">
       {selectable && (
         <input
@@ -1139,7 +1165,7 @@ function CandidateSearchRow({
           title={
             canExpand
               ? "Pokaż dopasowanie do requestu"
-              : "Dopasowanie do requestu (hybrydowy wynik 0-100)"
+              : "Dopasowanie do requestu (0-100, ten sam wynik co w dopasowaniu AI)"
           }
           className={`mt-0.5 inline-flex h-6 w-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold tabular-nums ${scoreBadgeClass(
             score,
@@ -1151,6 +1177,16 @@ function CandidateSearchRow({
         >
           {score}
         </button>
+      )}
+      {notMeasured && (
+        <span
+          role="img"
+          aria-label={`Ocena niepełna: ${notMeasured}`}
+          title={`Ocena niepełna: ${notMeasured}`}
+          className="mt-0.5 inline-flex h-6 w-9 shrink-0 cursor-help items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground"
+        >
+          —
+        </span>
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
