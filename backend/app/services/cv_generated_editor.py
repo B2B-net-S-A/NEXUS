@@ -59,7 +59,13 @@ async def load_draft(db, generated):
             )
             metadata.update(capture_editor_origin(html, generated.render_payload))
     except CvAssetsError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(
+            422,
+            {
+                "code": "cv_editor_assets_unavailable",
+                "message": str(exc),
+            },
+        ) from exc
     draft = CvGeneratedDraft(
         generated_document_id=generated.id,
         edit_revision=0,

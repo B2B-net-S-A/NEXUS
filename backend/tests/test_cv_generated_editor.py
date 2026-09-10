@@ -101,3 +101,23 @@ async def test_real_editor_docx_keeps_submitted_text_and_bold(monkeypatch):
     assert "Original" not in "\n".join(p.text for p in document.paragraphs)
     assert version.content_html == item.branded_draft_html
     assert version.render_metadata["content_review"]["status"] == "verified"
+
+
+async def test_missing_assets_returns_recovery_code_without_creating_draft(monkeypatch):
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, None]), add=Mock(), flush=AsyncMock()
+    )
+    generated = SimpleNamespace(
+        id=7, status="ready", render_payload={"language": "pl", "name": "Synthetic"}
+    )
+    monkeypatch.setattr(
+        editor,
+        "generated_assets",
+        Mock(side_effect=editor.CvAssetsError("Missing original template")),
+    )
+    with pytest.raises(HTTPException) as exc:
+        await editor.load_draft(db, generated)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "cv_editor_assets_unavailable"
+    db.add.assert_not_called()
+    db.flush.assert_not_awaited()

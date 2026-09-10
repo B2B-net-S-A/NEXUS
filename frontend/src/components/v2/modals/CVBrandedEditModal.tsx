@@ -489,6 +489,11 @@ function CVBrandedEditContent({
  <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
  Ponów wczytanie
  </Button>
+ {!data && onRegenerate && (loadError as {response?: {data?: {detail?: {code?: string}}}}).response?.data?.detail?.code === "cv_editor_assets_unavailable" && (
+ <Button variant="outline" size="sm" disabled={isFetching} onClick={() => { onOpenChange(false); onRegenerate(); }}>
+ Przejdź do generatora
+ </Button>
+ )}
  </div>}
  {isLoading ? (
  <div className="text-center text-sm text-muted-foreground py-10">

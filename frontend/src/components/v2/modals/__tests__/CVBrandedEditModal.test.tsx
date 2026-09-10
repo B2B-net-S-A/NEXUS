@@ -196,3 +196,20 @@ it("cancelling after a polling timeout preserves edits made while the review was
   expect(state.html).toBe("<p>New edits after timeout</p>");
   expect(state.snapshot).toBe("");
 });
+
+it("offers regeneration for missing assets before editor load without saving empty content", async () => {
+  const get = vi.spyOn(cvGeneratedEditorApi, "get").mockRejectedValue({
+    response: {data: {detail: {code: "cv_editor_assets_unavailable", message: "Brak szablonu."}}},
+  });
+  const update = vi.spyOn(cvGeneratedEditorApi, "update");
+  const close = vi.fn();
+  const regenerate = vi.fn();
+  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={queryClient}><CVBrandedEditModal open onOpenChange={close}
+    generatedId={12} candidateName="Synthetic" onRegenerate={regenerate} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", {name: "Przejdź do generatora"}));
+  expect(close).toHaveBeenCalledOnce();
+  expect(regenerate).toHaveBeenCalledOnce();
+  expect(update).not.toHaveBeenCalled();
+  expect(get).toHaveBeenCalledOnce();
+});
