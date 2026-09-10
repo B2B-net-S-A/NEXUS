@@ -53,8 +53,9 @@ async def execute_review_job(job_id: int):
             ):
                 raise ValueError("Review target changed")
             user_id = job.user_id
-            if user_id is None or await db.get(User, user_id) is None:
-                raise ValueError("Review owner missing")
+            user = await db.get(User, user_id) if user_id is not None else None
+            if user is None or not user.is_active:
+                raise ValueError("Review owner unavailable")
             # Release every read transaction before provider execution. The
             # immutable input, not a locked ORM draft, crosses this boundary.
             await db.commit()

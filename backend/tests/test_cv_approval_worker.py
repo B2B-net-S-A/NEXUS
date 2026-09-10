@@ -11,7 +11,9 @@ from app.services.cv_approval_review import PreparedApprovalReview
 from app.services.cv_approval_snapshot import serialize_review
 
 
-@pytest.mark.parametrize("outcome", ["verified", "rejected", "unavailable", "stale"])
+@pytest.mark.parametrize(
+    "outcome", ["verified", "rejected", "unavailable", "stale", "inactive"]
+)
 async def test_worker_uses_committed_snapshot_and_does_not_approve_draft(
     monkeypatch, outcome
 ):
@@ -42,7 +44,7 @@ async def test_worker_uses_committed_snapshot_and_does_not_approve_draft(
             return job
         if model is worker.CvGeneratedDraft:
             return draft
-        return SimpleNamespace(id=7)
+        return SimpleNamespace(id=7, is_active=outcome != "inactive")
 
     db.get.side_effect = get
 
@@ -83,9 +85,10 @@ async def test_worker_uses_committed_snapshot_and_does_not_approve_draft(
             "rejected": "rejected",
             "unavailable": "failed",
             "stale": "failed",
+            "inactive": "failed",
         }[outcome]
     )
-    if outcome == "stale":
+    if outcome in {"stale", "inactive"}:
         verification.assert_not_awaited()
     else:
         verification.assert_awaited_once()
