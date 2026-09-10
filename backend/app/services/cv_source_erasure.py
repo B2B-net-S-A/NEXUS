@@ -2,6 +2,7 @@
 
 from fastapi import HTTPException
 from sqlalchemy import or_, select
+from sqlalchemy.exc import DBAPIError
 
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -21,22 +22,32 @@ async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
     previews = select(ClientCvRulePreview.id).where(
         ClientCvRulePreview.candidate_id == candidate_id
     )
-    jobs = list(
-        (
-            await db.scalars(
-                select(CvGenerationJob)
-                .where(
-                    or_(
-                        CvGenerationJob.generated_id.in_(documents),
-                        CvGenerationJob.second_generated_id.in_(documents),
-                        CvGenerationJob.preview_id.in_(previews),
+    try:
+        jobs = list(
+            (
+                await db.scalars(
+                    select(CvGenerationJob)
+                    .where(
+                        or_(
+                            CvGenerationJob.generated_id.in_(documents),
+                            CvGenerationJob.second_generated_id.in_(documents),
+                            CvGenerationJob.preview_id.in_(previews),
+                        )
                     )
+                    .order_by(CvGenerationJob.id)
+                    .with_for_update(nowait=True)
                 )
-                .order_by(CvGenerationJob.id)
-                .with_for_update()
-            )
-        ).all()
-    )
+            ).all()
+        )
+    except DBAPIError as exc:
+        # The worker can hold the job before inserting a candidate-linked result.
+        # Do not wait while holding the candidate lock in the opposite order.
+        code = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if code != "55P03":
+            raise
+        raise HTTPException(
+            409, "Generator aktualizuje CV kandydata. Ponów usunięcie za chwilę."
+        ) from exc
     if any(job.status in {"queued", "running"} for job in jobs):
         raise HTTPException(
             409,
