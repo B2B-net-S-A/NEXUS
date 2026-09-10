@@ -576,11 +576,18 @@ def _current_title_predicate(values: list[str]):
 def _past_company_predicate(values: list[str]):
     """Match candidates with any NON-current experience at company matching value.
 
-    Uses jsonb_array_elements WITH ORDINALITY; `ordinality > 1` skips the
-    current job (index 0 in SQL ordinality terms). OR-combined across values.
+    An entry counts as past when it has an ``end`` date OR is not at position 0.
+    ``end IS NULL`` is the canonical current-job marker (see
+    ``_current_company_predicate``), so a finished job counts wherever it sits
+    — including position 0. The older rule was ``idx > 1`` alone ("index 0 is
+    the current job"), which silently dropped everyone whose MOST RECENT job
+    had already ended and sat at index 0: exactly the people a "worked at X
+    before" lookup is for. Entries at index 1+ still match regardless of
+    ``end``, so no row the old predicate returned disappears.
 
-    Guards against non-array `experience` values (legacy rows may have scalar/
-    object JSONB) — `jsonb_array_elements` raises otherwise.
+    OR-combined across values. Guards against non-array ``experience`` values
+    (legacy rows may hold scalar/object JSONB) — ``jsonb_array_elements``
+    raises otherwise.
     """
     clauses = []
     for i, v in enumerate(values):
@@ -595,7 +602,8 @@ def _past_company_predicate(values: list[str]):
                 "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
                 "THEN candidates.experience ELSE '[]'::jsonb END"
                 ") WITH ORDINALITY AS e(elem, idx) "
-                f"WHERE idx > 1 AND lower(elem->>'company') LIKE :past_co_{i}"
+                "WHERE (idx > 1 OR coalesce(elem->>'end', '') <> '') "
+                f"AND lower(coalesce(elem->>'company', '')) LIKE :past_co_{i}"
                 ")"
             ).bindparams(**{f"past_co_{i}": pat})
         )
