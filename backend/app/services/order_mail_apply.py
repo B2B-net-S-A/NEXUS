@@ -174,22 +174,16 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
 
 
 async def _notify_new_draft(db, doc, order, name):
-    from app.services.dl_alerts import dl_user_ids_for_client, emit
+    """Jednorazowy alert DL o pierwszym drafcie nowej osoby.
 
-    client = await db.get(Client, doc.client_id)
-    await emit(
-        db,
-        alert_type="draft_consultant_unassigned",
-        user_ids=await dl_user_ids_for_client(db, doc.client_id),
-        client_id=doc.client_id,
-        entity_key=f"mail-draft:{order.id}",
-        order_id=order.id,
-        repeat_every_days=None,
-        title=f"Nowy kontraktor {name} w {client.display_name or client.name}",
-        message=f"Nowy kontraktor {name} w {client.display_name or client.name} — uzupełnij dane: stawka kosztowa.",
-        # Klucz zakładki z `frontend/src/lib/client-tab.ts` — nieznany klucz
-        # (dawniej „orders") otwierał profil zamiast zakładki ze sprawą.
-        link=f"/clients/{doc.client_id}?tab=zamowienia",
+    Klient bez przypisanego Delivery Leada nie ma dziś odbiorcy — alert
+    dostarczy wtedy dobowy backstop (``reconcile_mail_new_draft_alerts``) po
+    przypisaniu DL, z tym samym kluczem, więc bez duplikatu.
+    """
+    from app.services.dl_alerts import emit_mail_new_draft
+
+    await emit_mail_new_draft(
+        db, client_id=doc.client_id, order_id=order.id, consultant=name
     )
 
 
@@ -267,8 +261,21 @@ async def apply_document(
     *,
     actor_user_id: Optional[int],
     only_actions: frozenset[str] = AUTO_ACTIONS,
+    confirmed_by_human: Optional[bool] = None,
 ) -> ApplyResult:
-    """Wykonaj plan z ``doc.proposal``. Nie rzuca; wynik w ``ApplyResult``."""
+    """Wykonaj plan z ``doc.proposal``. Nie rzuca; wynik w ``ApplyResult``.
+
+    ``actor_user_id`` to ATRYBUCJA (kto uruchomił zapis: Activity, autor
+    zamówienia i pliku, ``applied_by``), a ``confirmed_by_human`` — czy ten
+    człowiek ZATWIERDZIŁ plan („Zastosuj”). Tylko zatwierdzenie zdejmuje dwie
+    blokady automatu: dopięcie jedynego imiennika z bazy i dopasowanie osoby
+    inne niż dokładne. „Przelicz plan” klika człowiek, ale zapis pewnego planu
+    jest tam automatyczny (słucha też wyłącznika automatu), więc idzie
+    z aktorem i bez zatwierdzenia. Domyślnie: zatwierdza każdy aktor —
+    zachowanie sprzed rozdzielenia dla „Zastosuj”.
+    """
+    if confirmed_by_human is None:
+        confirmed_by_human = actor_user_id is not None
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
     await db.scalar(
@@ -291,7 +298,7 @@ async def apply_document(
                     ]
                 )
             )
-        if actor_user_id is None and any(
+        if not confirmed_by_human and any(
             r.match_kind not in ("exact", "none") for r in resolved
         ):
             return ApplyResult(
@@ -305,7 +312,11 @@ async def apply_document(
         }
     async with db.begin_nested() as transaction:
         result = await _write_document(
-            db, doc, actor_user_id=actor_user_id, only_actions=only_actions
+            db,
+            doc,
+            actor_user_id=actor_user_id,
+            only_actions=only_actions,
+            confirmed_by_human=confirmed_by_human,
         )
         if not result.ok:
             await transaction.rollback()
@@ -319,13 +330,20 @@ async def apply_document(
     return result
 
 
-async def _write_document(db, doc, *, actor_user_id, only_actions):
+async def _write_document(
+    db, doc, *, actor_user_id, only_actions, confirmed_by_human=None
+):
     from app.api.client_orders import (
         _activate_complete_draft,
         _attach_po_bytes,
         _materialize_group_after_activation,
     )
 
+    if confirmed_by_human is None:
+        confirmed_by_human = actor_user_id is not None
+    # Dopięcie imiennika wymaga ZATWIERDZENIA, nie samego aktora (patrz
+    # ``apply_document``): „Przelicz plan” przekazuje aktora do atrybucji.
+    confirming_user_id = actor_user_id if confirmed_by_human else None
     result = ApplyResult()
     proposal = doc.proposal or {}
     rows = proposal.get("rows") or []
@@ -369,7 +387,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
             continue
         try:
             if applied.action == ACTION_NEW_DRAFT:
-                contract = await _new_person_contract(db, doc, rp, actor_user_id)
+                contract = await _new_person_contract(db, doc, rp, confirming_user_id)
             else:
                 contract = await db.scalar(
                     select(Contract)
