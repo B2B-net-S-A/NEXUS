@@ -452,7 +452,14 @@ def response_context(job):
         "validation": validation(job.champion_profile, job),
         "fingerprint": fingerprint(job),
         "job_values": {
-            **{key: getattr(job, column, None) for key, column in RUBRICS.items()},
+            **{
+                key: (
+                    float(getattr(job, column))
+                    if key == "rate_value" and getattr(job, column, None) is not None
+                    else getattr(job, column, None)
+                )
+                for key, column in RUBRICS.items()
+            },
             **{
                 key: "\n".join(effective_skill_names(job, key))
                 for key, column in STACK_COLUMNS.items()

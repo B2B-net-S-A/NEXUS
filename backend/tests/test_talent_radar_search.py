@@ -444,7 +444,7 @@ class _FakeUpload:
     filename = "profil-championa.docx"
     size = 4096
 
-    async def read(self) -> bytes:
+    async def read(self, size=-1) -> bytes:
         return b"x" * 4096
 
 
@@ -482,6 +482,7 @@ def _stub_champion_path(monkeypatch, *, parsed=None, error=None):
         return parsed or {}
 
     monkeypatch.setattr(ingest, "parse_champion_document", _parse)
+    monkeypatch.setattr("app.services.champion_intake.table_profile", lambda _data: None)
 
     @contextlib.asynccontextmanager
     async def _feature(*_a, **_k):

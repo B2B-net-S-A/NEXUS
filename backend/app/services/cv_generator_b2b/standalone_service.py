@@ -2357,7 +2357,9 @@ async def load_candidate_generation_source(
         champion_profile=job.champion_profile,
         requirements=job.requirements,
     )
-    champion_dto.requirements_reviewed = bool(job.requirements_reviewed)
+    champion_dto.requirements_reviewed = bool(
+        getattr(job, "requirements_reviewed", False)
+    )
 
     source_warnings: list[str] = []
     screening_notes_text = await collect_screening_notes_text(

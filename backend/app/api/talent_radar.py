@@ -232,4 +232,6 @@ async def talent_radar_parse_champion(
 ) -> dict[str, Any]:
     from app.api.champion_intake import read_preview
 
-    return await read_preview(file, db)
+    result = await read_preview(file, db)
+    result["champion_profile"]["_source"] = "talent_radar_upload"
+    return result

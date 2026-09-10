@@ -40,6 +40,18 @@ describe("Champion import review", () => {
     expect(post.mock.calls[0][1].profile.intake.unresolved).toEqual({});
   });
 
+  it("keeps accepted skills alongside fragments that still need review", async () => {
+    const incoming = profile(150);
+    incoming.stack.must = [{ name: "Python" }];
+    incoming.intake!.unresolved["stack.must"] = "do ustalenia";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} onApply={onApply} onClose={() => {}} />);
+    expect(screen.getByLabelText(/MUST — jeden wpis/)).toHaveValue("Python\ndo ustalenia");
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.stack.must).toBe("Python\ndo ustalenia");
+  });
+
   it("refreshes the comparison after 409 and requires applying the new snapshot", async () => {
     const onApply = vi.fn(); let conflicted = false;
     post.mockImplementation(async (url, body) => {

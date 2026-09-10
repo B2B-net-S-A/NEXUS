@@ -29,7 +29,9 @@ function readValues(profile: ChampionProfile): Values {
   return Object.fromEntries(fields.map(([path]) => {
     const [section, key] = path.split(".");
     const value = obj[section]?.[key];
-    return [path, profile.intake?.unresolved?.[path] ?? (Array.isArray(value) ? value.map(v => typeof v === "object" ? v.name : v).join("\n") : String(value ?? ""))];
+    const canonical = Array.isArray(value) ? value.map(v => typeof v === "object" ? v.name : v).join("\n") : String(value ?? "");
+    const unresolved = profile.intake?.unresolved?.[path];
+    return [path, Array.isArray(value) && unresolved ? [canonical, unresolved].filter(Boolean).join("\n") : unresolved ?? canonical];
   }));
 }
 function withValues(base: ChampionProfile, values: Values): ChampionProfile {
@@ -126,7 +128,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
       </div>)}
       <h3 id="champion-field-screening_questions" className="font-medium">Pytania screeningowe</h3>
       {existing && <><p className="text-sm whitespace-pre-wrap">Obecnie: {existing.screening_questions.map(q => `${q.question}\n${q.ideal_answer}\n${q.deal_breaker}`).join("\n\n") || "—"}</p><label><input type="checkbox" checked={useQuestions} onChange={e => setUseQuestions(e.target.checked)} /> Zastąp pytania odczytanymi</label></>}
-      {questions.map((q, i) => <div key={q.id} className="border rounded p-2 space-y-2">{(["question", "ideal_answer", "deal_breaker"] as const).map((key, j) => <label key={key} className="block text-sm">{["Pytanie", "Idealna odpowiedź", "Deal breaker"][j]}<textarea className="w-full border rounded bg-background p-2" value={q[key]} onChange={e => { setQuestions(qs => qs.map((v, n) => n === i ? { ...v, [key]: e.target.value } : v)); setUseQuestions(true); }} /></label>)}<Button variant="outline" onClick={() => setQuestions(qs => qs.filter((_, n) => n !== i))}>Usuń pytanie</Button></div>)}
+      {questions.map((q, i) => <div key={q.id} className="border rounded p-2 space-y-2">{(["question", "ideal_answer", "deal_breaker"] as const).map((key, j) => <label key={key} className="block text-sm">{["Pytanie", "Idealna odpowiedź", "Deal breaker"][j]}<textarea className="w-full border rounded bg-background p-2" value={q[key]} onChange={e => { setQuestions(qs => qs.map((v, n) => n === i ? { ...v, [key]: e.target.value } : v)); setUseQuestions(true); }} /></label>)}<Button variant="outline" onClick={() => { setQuestions(qs => qs.filter((_, n) => n !== i)); setUseQuestions(true); }}>Usuń pytanie</Button></div>)}
       <Button variant="outline" onClick={() => { setQuestions(qs => [...qs, { id: `q${Date.now()}`, question: "", ideal_answer: "", deal_breaker: "" }]); setUseQuestions(true); }}>Dodaj pytanie</Button>
       {error && <p role="alert" className="text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2 sticky bottom-0 bg-background py-3"><Button disabled={busy} onClick={() => apply(true)}>Zastosuj / zapisz szkic</Button><Button variant="outline" disabled={busy} onClick={() => apply(false)}>Sprawdź poprawki</Button><Button variant="ghost" onClick={onClose}>Anuluj</Button></div>

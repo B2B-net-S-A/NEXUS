@@ -300,3 +300,14 @@ def test_reviewed_contract_cannot_mask_a_different_profile():
     sync_selected_rubrics(j, cp, ["must"])
     assert j.matching_requirements is None
     assert validation(cp, j)["blocked_operations"] == []
+
+
+def test_preview_job_rate_is_numeric_even_when_database_uses_decimal():
+    from decimal import Decimal
+    from app.services.champion_intake import response_context
+
+    j = job(filled())
+    j.rate_budget_hourly = Decimal("170.00")
+    value = response_context(j)["job_values"]["rate_value"]
+    assert isinstance(value, float)
+    assert value == 170.0
