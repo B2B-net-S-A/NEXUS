@@ -110,6 +110,10 @@ class ClaudeOverloaded(ClaudeError):
     """
 
 
+class ClaudeDeadlineExceeded(ClaudeError):
+    """The bounded call budget expired; this is not an overload verdict."""
+
+
 def env_number(name: str, default: float, cast):
     """Liczba ze zmiennej środowiskowej, odporna na pustą wartość i śmieci.
 
@@ -307,6 +311,9 @@ def _call_one_model(
     raise_on_truncation: bool,
     started: float,
     kwargs: dict[str, Any],
+    stream_response: bool = False,
+    deadline: float | None = None,
+    request_timeout: float | None = None,
 ) -> anthropic.types.Message:
     """Jeden model z pełnym budżetem ponowień. Rzuca `_ModelExhausted`."""
     last_err: BaseException | None = None
@@ -314,13 +321,37 @@ def _call_one_model(
 
     for attempt in range(retries + 1):
         attempt_started = time.monotonic()
+        if deadline is not None and attempt_started >= deadline:
+            raise ClaudeDeadlineExceeded("AI response deadline exceeded")
         try:
-            message = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=messages,
-                **kwargs,
-            )
+            call_kwargs = dict(kwargs)
+            if deadline is not None:
+                call_kwargs["timeout"] = min(
+                    request_timeout or 120.0, deadline - attempt_started
+                )
+            if stream_response:
+                # A full CV plus evidence can take longer than the idle read
+                # timeout. SSE keeps that connection alive while the model works.
+                # Only the complete accumulated message reaches the caller.
+                with client.messages.stream(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=messages,
+                    **call_kwargs,
+                ) as stream:
+                    for _event in stream:
+                        if deadline is not None and time.monotonic() >= deadline:
+                            raise ClaudeDeadlineExceeded(
+                                "AI response deadline exceeded"
+                            )
+                    message = stream.get_final_message()
+            else:
+                message = client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=messages,
+                    **call_kwargs,
+                )
             # Ucięcie to NIE awaria dostawcy: wywołanie WRÓCIŁO i zostało
             # opłacone. Zaliczenie go jako porażki otwierałoby circuit breaker
             # na zdrowym Claude, a pominięcie tokenów zaniżałoby rachunek
@@ -352,8 +383,10 @@ def _call_one_model(
                         f"tokenów (model={model})."
                     )
             return message
-        except ClaudeTruncated:
-            raise  # długość treści — identyczna na każdym modelu, bez fallbacku
+        except (ClaudeTruncated, ClaudeDeadlineExceeded):
+            # Neither an incomplete response nor an exhausted shared time
+            # budget can be recovered by retrying or switching models here.
+            raise
         except BaseException as err:  # noqa: BLE001 — klasyfikuj, potem re-raise
             last_err = err
             last_retryable = is_retryable_anthropic_error(err)
@@ -370,6 +403,8 @@ def _call_one_model(
             delay = min(_BACKOFF_CAP, _BACKOFF_BASE * (2**attempt)) + random.uniform(
                 0, _BACKOFF_JITTER
             )
+            if deadline is not None and time.monotonic() + delay >= deadline:
+                raise ClaudeDeadlineExceeded("AI response deadline exceeded") from err
             time.sleep(delay)
 
     raise _ModelExhausted(last_err, last_retryable)
@@ -386,6 +421,8 @@ def call_claude(
     fallback_models: Sequence[str] | None = None,
     cache_system: bool = False,
     raise_on_truncation: bool = False,
+    stream_response: bool = False,
+    total_timeout: float | None = None,
     **kwargs: Any,
 ) -> anthropic.types.Message:
     """Wywołaj model z jawnym timeoutem, ponowieniami i (opcjonalnie) fallbackiem.
@@ -432,6 +469,7 @@ def call_claude(
 
     chain = _model_chain(model, fallback_models)
     started = time.monotonic()
+    deadline = started + total_timeout if total_timeout is not None else None
     last_err: BaseException | None = None
     any_retryable = False
 
@@ -446,7 +484,13 @@ def call_claude(
                 raise_on_truncation=raise_on_truncation,
                 started=started,
                 kwargs=kwargs,
+                stream_response=stream_response,
+                deadline=deadline,
+                request_timeout=request_timeout,
             )
+        except ClaudeDeadlineExceeded:
+            _record_health(started, failed=True)
+            raise
         except _ModelExhausted as exhausted:
             last_err = exhausted.cause
             any_retryable = any_retryable or exhausted.retryable

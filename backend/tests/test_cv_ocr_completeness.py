@@ -94,8 +94,8 @@ def test_mixed_pdf_preserves_native_pages_and_ocr_order(monkeypatch):
 
     native = "Original searchable employment history. " * 10
     pages = [
-        SimpleNamespace(images=[], extract_text=lambda: native),
-        SimpleNamespace(images=[{}], extract_text=lambda: "Page 2"),
+        SimpleNamespace(images=[], extract_text=Mock(return_value=native)),
+        SimpleNamespace(images=[{}], extract_text=Mock(return_value="Page 2")),
     ]
     import pdfplumber
 
@@ -110,6 +110,8 @@ def test_mixed_pdf_preserves_native_pages_and_ocr_order(monkeypatch):
     assert result.endswith("Earlier scanned employment")
     ocr.assert_called_once_with(b"mixed", native_pages={1: native})
     ordinary.assert_not_called()
+    for page in pages:
+        page.extract_text.assert_called_once_with(x_tolerance=1)
 
 
 def test_ocr_keeps_native_text_without_rendering_its_page(monkeypatch):
