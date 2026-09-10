@@ -221,3 +221,90 @@ async def test_hard_delete_audit_records_revoked_share_links(
         )
     assert row is not None
     assert row.details.get("share_tokens_revoked") == 1
+
+
+async def test_hard_delete_cleans_private_job_source_and_rolls_back_on_storage_error(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from unittest.mock import Mock
+    from app.models.candidate import Candidate
+    from app.models.cv_generation_job import CvGenerationJob
+    from app.services import object_storage
+
+    (
+        candidate_id,
+        document_id,
+        _raw,
+        _revoke_key,
+    ) = await _seed_candidate_with_public_cv_link()
+    async with AsyncSessionLocal() as db:
+        job = CvGenerationJob(
+            generated_id=document_id,
+            kind="new",
+            status="complete",
+            input_storage_key="synthetic-private-source",
+            input_sha256="a" * 64,
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+    monkeypatch.setattr(object_storage, "is_available", lambda: True)
+    cleanup = Mock(side_effect=RuntimeError("temporary storage failure"))
+    monkeypatch.setattr(object_storage, "delete_cv", cleanup)
+    failed = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert failed.status_code == 503, failed.text
+    cleanup.assert_called_once_with("synthetic-private-source")
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Candidate, candidate_id) is not None
+        retained = await db.get(CvGenerationJob, job_id)
+        assert retained is not None
+        assert retained.input_storage_key == "synthetic-private-source"
+    cleanup.side_effect = None
+    cleanup.reset_mock()
+    retried = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert retried.status_code == 204, retried.text
+    cleanup.assert_called_once_with("synthetic-private-source")
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Candidate, candidate_id) is None
+        assert await db.get(CvGenerationJob, job_id) is None
+
+
+async def test_hard_delete_waits_for_active_cv_generation(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from unittest.mock import Mock
+    from app.models.candidate import Candidate
+    from app.models.cv_generation_job import CvGenerationJob
+    from app.services import object_storage
+
+    (
+        candidate_id,
+        document_id,
+        _raw,
+        _revoke_key,
+    ) = await _seed_candidate_with_public_cv_link()
+    async with AsyncSessionLocal() as db:
+        job = CvGenerationJob(
+            generated_id=document_id,
+            kind="new",
+            status="running",
+            input_storage_key="synthetic-active-source",
+            input_sha256="b" * 64,
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
+    cleanup = Mock()
+    monkeypatch.setattr(object_storage, "delete_cv", cleanup)
+    response = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert response.status_code == 409, response.text
+    cleanup.assert_not_called()
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Candidate, candidate_id) is not None
+        assert (await db.get(CvGenerationJob, job_id)).status == "running"
