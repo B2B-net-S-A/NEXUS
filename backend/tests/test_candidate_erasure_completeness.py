@@ -300,11 +300,22 @@ async def test_hard_delete_waits_for_active_cv_generation(
         job_id = job.id
     cleanup = Mock()
     monkeypatch.setattr(object_storage, "delete_cv", cleanup)
-    response = await app_client.delete(
-        f"/api/candidates/{candidate_id}", headers=app_auth_headers
-    )
-    assert response.status_code == 409, response.text
-    cleanup.assert_not_called()
-    async with AsyncSessionLocal() as db:
-        assert await db.get(Candidate, candidate_id) is not None
-        assert (await db.get(CvGenerationJob, job_id)).status == "running"
+    try:
+        response = await app_client.delete(
+            f"/api/candidates/{candidate_id}", headers=app_auth_headers
+        )
+        assert response.status_code == 409, response.text
+        cleanup.assert_not_called()
+        async with AsyncSessionLocal() as db:
+            assert await db.get(Candidate, candidate_id) is not None
+            assert (await db.get(CvGenerationJob, job_id)).status == "running"
+    finally:
+        # This intentionally running fixture must not occupy global worker
+        # capacity in the next test, even if an assertion above fails.
+        from sqlalchemy import delete
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CvGenerationJob).where(CvGenerationJob.id == job_id)
+            )
+            await db.commit()
