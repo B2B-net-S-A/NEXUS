@@ -52,7 +52,7 @@
     "backend/app/services/shared_md_orders.py": "5f043db87c75a8b22d7f1e0f8cfca7b38560c6a3bb043aba0d39d2bdc362803f",
     "backend/app/tasks/contract_alerts.py": "03bdb102722165aaad460270ac073751c41cd0e1be5a8a487cee40604d20f464",
     "backend/app/tasks/dl_alerts_scanner.py": "a41c8fc99503d0d8a0fea49552d19910358e53fda2eb76b78eb8b51a9714f38a",
-    "backend/app/tasks/dl_portal_expiry_scanner.py": "1fdc6a9f592d14871156ddd26116cb059d2c3405449aa5d4112cded742c71691",
+    "backend/app/tasks/dl_portal_expiry_scanner.py": "5983ad5aeb8f1e468ff348804908f21580266b9cad9fced03dec1e09f6417f26",
     "backend/app/tasks/order_mail_ingest.py": "02e110ce41fa133bf75eebcae841d4ed4f2c644d5aafd3cc6864c90e73edf498",
     "frontend/src/components/EditOrderDialog.tsx": "4a8a4fded787a89c476d691570687d68a7871e12815194572d3d915d1fb1ef4b",
     "frontend/src/components/ExtendOrderDialog.tsx": "ba4a01e961a196ad39900c9ac0add8f5b744a4c66da921bbb0cecc8deb77f933",

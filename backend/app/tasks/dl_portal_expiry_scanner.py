@@ -28,7 +28,8 @@ import asyncio
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, literal_column, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -102,12 +103,16 @@ async def _already_notified(
     jednorazowego zalewu powtórek. Ten sam wzorzec „epizod w kluczu” co
     ``[Nd|<data>]`` w ``contract_alerts``; tytuł zostaje czytelny.
 
-    Drugi warunek to bezpiecznik ``ix_notif_dedup_daily`` (odbiorca, typ,
-    encja, dzień w Warszawie): próg liczony od ``date.today()`` (UTC) potrafi
-    trafić tę samą encję dwa razy w jednej warszawskiej dobie, gdy między
-    biegami ktoś przesunie datę o dzień. Drugi wpis rozbiłby się o indeks
-    i wycofał cały przebieg — z przejściami statusów włącznie — więc taki
-    próg tego dnia odpuszczamy.
+    Drugi warunek to bezpiecznik ``ix_notif_dedup_daily`` i jest DOKŁADNIE
+    jego kluczem: odbiorca, typ, numer encji, dzień w Warszawie — BEZ typu
+    encji, bo indeks go nie zna. ``contract_alerts`` pisze
+    ``client_order_ending_30d`` z ``related_entity_type='contract'``, więc
+    kontrakt #N i zamówienie #N u tego samego odbiorcy w jednej warszawskiej
+    dobie to dla indeksu ten sam wpis. To samo przy przesunięciu daty o dzień
+    między biegami (próg liczony od ``date.today()`` w UTC). Taki próg tego
+    dnia odpuszczamy; ostatnia linia obrony to ``ON CONFLICT DO NOTHING`` przy
+    zapisie (:func:`_insert_notification`) — kolizja nie może wycofać całego
+    przebiegu razem z przejściami statusów.
     """
     warsaw_day = func.date_trunc(
         "day", func.timezone("Europe/Warsaw", Notification.created_at)
@@ -116,17 +121,45 @@ async def _already_notified(
         select(Notification.id)
         .where(
             Notification.user_id == user_id,
-            Notification.related_entity_type == related_entity_type,
             Notification.related_entity_id == related_entity_id,
             Notification.notification_type == ntype,
             or_(
-                Notification.message.contains(end_phrase, autoescape=True),
+                and_(
+                    Notification.related_entity_type == related_entity_type,
+                    Notification.message.contains(end_phrase, autoescape=True),
+                ),
                 warsaw_day,
             ),
         )
         .limit(1)
     )
     return res.scalar_one_or_none() is not None
+
+
+async def _insert_notification(db: AsyncSession, **values: object) -> bool:
+    """Wstaw powiadomienie; kolizja z ``ix_notif_dedup_daily`` = pominięcie.
+
+    ``INSERT … ON CONFLICT DO NOTHING`` na tym właśnie indeksie (te same
+    kolumny i wyrażenie dnia, ten sam warunek częściowy), więc inny błąd
+    integralności nadal wychodzi na wierzch. Zwraca ``True``, gdy wiersz powstał.
+    """
+    statement = (
+        pg_insert(Notification)
+        .values(**values)
+        .on_conflict_do_nothing(
+            index_elements=[
+                Notification.user_id,
+                Notification.notification_type,
+                Notification.related_entity_id,
+                literal_column(
+                    "(date_trunc('day', created_at AT TIME ZONE 'Europe/Warsaw'))"
+                ),
+            ],
+            index_where=Notification.related_entity_id.is_not(None),
+        )
+        .returning(Notification.id)
+    )
+    return (await db.execute(statement)).scalar_one_or_none() is not None
 
 
 async def _promote_statuses(
@@ -207,22 +240,21 @@ async def _scan_framework_contracts(
                     end_phrase=end_phrase,
                 ):
                     continue
-                db.add(
-                    Notification(
-                        user_id=user_id,
-                        title=f"Umowa ramowa wygasa za {days} dni",
-                        message=(
-                            f"'{fc.name}' {end_phrase}. "
-                            "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
-                        ),
-                        notification_type=ntype,
-                        related_entity_type="client_framework_contract",
-                        related_entity_id=fc.id,
-                        # Klucz z `frontend/src/lib/client-tab.ts`.
-                        link=f"/clients/{fc.client_id}?tab=umowy-ramowe",
-                    )
-                )
-                sent += 1
+                if await _insert_notification(
+                    db,
+                    user_id=user_id,
+                    title=f"Umowa ramowa wygasa za {days} dni",
+                    message=(
+                        f"'{fc.name}' {end_phrase}. "
+                        "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
+                    ),
+                    notification_type=ntype,
+                    related_entity_type="client_framework_contract",
+                    related_entity_id=fc.id,
+                    # Klucz z `frontend/src/lib/client-tab.ts`.
+                    link=f"/clients/{fc.client_id}?tab=umowy-ramowe",
+                ):
+                    sent += 1
     return sent
 
 
@@ -269,21 +301,20 @@ async def _scan_orders(
                     end_phrase=end_phrase,
                 ):
                     continue
-                db.add(
-                    Notification(
-                        user_id=user_id,
-                        title=f"Zamówienie {cand_name} kończy się za {days} dni",
-                        message=(
-                            f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
-                            "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
-                        ),
-                        notification_type=ntype,
-                        related_entity_type="client_order",
-                        related_entity_id=o.id,
-                        link=f"/clients/{o.client_id}?tab=zamowienia",
-                    )
-                )
-                sent += 1
+                if await _insert_notification(
+                    db,
+                    user_id=user_id,
+                    title=f"Zamówienie {cand_name} kończy się za {days} dni",
+                    message=(
+                        f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
+                        "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
+                    ),
+                    notification_type=ntype,
+                    related_entity_type="client_order",
+                    related_entity_id=o.id,
+                    link=f"/clients/{o.client_id}?tab=zamowienia",
+                ):
+                    sent += 1
     return sent
 
 
