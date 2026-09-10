@@ -2,12 +2,37 @@ import asyncio
 from contextlib import asynccontextmanager
 from copy import deepcopy
 import os
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from scripts import eval_cv_full_documents as runner
+
+
+async def test_output_of_another_run_is_preserved_before_preparation_or_charge(
+    tmp_path, monkeypatch
+):
+    sha = "a" * 40
+    monkeypatch.setenv("GIT_SHA", sha)
+    original = json.dumps(
+        {"run_identity": "123-1", "results": [{"artifact": "old.docx"}]}
+    )
+    (tmp_path / "report.json").write_text(original)
+    (tmp_path / "old.docx").write_bytes(b"original artifact")
+    prepare = Mock()
+    claim = AsyncMock()
+    monkeypatch.setattr(runner, "prepare", prepare)
+    monkeypatch.setattr(runner, "claim_run", claim)
+    with pytest.raises(ValueError, match="another evaluation"):
+        await runner.run(
+            tmp_path, identity="124-1", expected_sha=sha, limit=2, models="primary"
+        )
+    prepare.assert_not_called()
+    claim.assert_not_called()
+    assert (tmp_path / "report.json").read_text() == original
+    assert (tmp_path / "old.docx").read_bytes() == b"original artifact"
 
 
 @pytest.mark.parametrize("months,matched", [(132, True), (36, False)])

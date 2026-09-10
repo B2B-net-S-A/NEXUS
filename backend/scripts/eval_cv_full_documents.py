@@ -174,11 +174,17 @@ async def run(
     ):
         raise ValueError("Runtime revision mismatch")
     output.mkdir(parents=True, exist_ok=True)
+    report_path = output / "report.json"
+    if report_path.exists():
+        previous_report = json.loads(report_path.read_text())
+        if previous_report.get("run_identity") != identity:
+            raise ValueError(
+                "Output belongs to another evaluation; use a new directory"
+            )
     manifest = prepare(output / "inputs")
     requested = list(
         dict.fromkeys([_model(), *(_fallback_models() if models == "all" else [])])
     )
-    report_path = output / "report.json"
     report = {
         "scope": "synthetic complete CV generation; human acceptance required",
         "runtime_sha": expected_sha,
