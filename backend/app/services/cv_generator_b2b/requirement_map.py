@@ -181,7 +181,13 @@ def _sanitize_items(
             if not quote or _normalize_for_match(quote) not in haystack:
                 continue  # parafraza/fabrykacja — odrzucamy
             idx: Optional[int] = ev.get("experience_index")
-            if not isinstance(idx, int) or not (0 <= idx < experience_count):
+            if type(idx) is not int or not (0 <= idx < experience_count):
+                idx = None
+            elif _normalize_for_match(quote) not in _normalize_for_match(
+                public_payload_text({"experience": [public_payload["experience"][idx]]})
+            ):
+                # A quote elsewhere in the CV cannot justify a pointer to this
+                # employer/role. Keep the quote but do not invent an association.
                 idx = None
             evidence_out.append({"experience_index": idx, "quote": quote})
             if len(evidence_out) >= _MAX_EVIDENCE_PER_REQ:

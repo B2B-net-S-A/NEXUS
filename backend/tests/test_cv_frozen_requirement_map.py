@@ -5,6 +5,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.services.cv_generator_b2b import requirement_map as mapping
 
 
@@ -58,3 +60,30 @@ async def test_missing_provider_does_not_return_false_completed_map(monkeypatch)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
     assert await mapping.generate_map_result({"language": "pl"}, []) is None
+
+
+@pytest.mark.parametrize(
+    "index,expected", [(0, 0), (1, None), (True, None), (-1, None)]
+)
+def test_evidence_cannot_point_to_another_employer(index, expected):
+    quote = "Testy AWS tylko szkoleniowo."
+    payload = {
+        "experience": [
+            {"company": "Training", "responsibilities": [quote]},
+            {"company": "Employer", "responsibilities": ["Tworzył API w Pythonie."]},
+        ]
+    }
+    result = mapping._sanitize_items(
+        {
+            "items": [
+                {
+                    "requirement": "AWS",
+                    "status": "partial",
+                    "evidence": [{"quote": quote, "experience_index": index}],
+                }
+            ]
+        },
+        [{"name": "AWS", "kind": "must"}],
+        payload,
+    )
+    assert result[0]["evidence"] == [{"quote": quote, "experience_index": expected}]
