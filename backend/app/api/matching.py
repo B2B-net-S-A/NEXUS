@@ -746,6 +746,8 @@ async def get_ai_matches(
             query_variants=build_job_query_variants(job, query_text),
             bm25_query=build_job_bm25_query(job),
             must_groups=build_job_must_groups(job),
+            # Wynik sortuje kanoniczny fit — kolejność rerankera byłaby wyrzucona.
+            use_rerank=False,
         )
     except SemanticSearchUnavailable as e:
         semantic_unavailable = True
