@@ -11,6 +11,7 @@ from app.services.cv_generator_b2b.source_lines import (
 )
 from app.services.cv_generator_b2b.source_quotes import (
     same_source_value,
+    source_column_dates,
     source_role_text,
 )
 from tests.test_cv_complete_source_facts import SOURCE, response
@@ -22,6 +23,24 @@ def line_response():
         item.pop("quote")
         item.update(start_line=line, end_line=line)
     return result
+
+
+@pytest.mark.parametrize(
+    "value,quote,accepted",
+    [
+        ("2006–2008", "2006 - 2008 University", True),
+        ("2002 - 2006", "2002– 2006 University", True),
+        ("01.2020–12.2021", "Role: 01.2020 - 12.2021", True),
+        ("2020–2021", "01.2020-12.2021 Role", False),
+        ("2020–2021", "2020-2021.12 Role", False),
+        ("2020–2021", "12020-2021 Role", False),
+        ("01.2020–12.2021", "2020-2021 Role", False),
+    ],
+)
+def test_inline_date_separators_preserve_both_endpoints_and_precision(
+    value, quote, accepted
+):
+    assert source_column_dates(value, quote) is accepted
 
 
 def test_original_offsets_survive_pdf_page_breaks_crlf_and_blank_lines():

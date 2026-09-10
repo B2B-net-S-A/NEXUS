@@ -58,6 +58,16 @@ def source_column_dates(value: str, quote: str) -> bool:
     date_range = _COLUMN_RANGE.fullmatch(value.strip())
     if date_range is None:
         return False
+    # A range separator is layout too: '2006 - 2008' and '2006–2008'
+    # contain the same unchanged endpoints. Never accept a partial date match.
+    inline = re.compile(rf"(?<![\w./-]){_COLUMN_RANGE.pattern}(?![\w./-])", re.I)
+    for line in quote.splitlines():
+        for candidate in inline.finditer(line):
+            if (
+                candidate["start"] == date_range["start"]
+                and candidate["end"] == date_range["end"]
+            ):
+                return True
     lines = quote.splitlines()
     for index, line in enumerate(lines):
         start = _COLUMN_START.match(line)
