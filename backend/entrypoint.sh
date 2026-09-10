@@ -6645,7 +6645,7 @@ _INDEX_STATEMENTS = [
     # 0281: pochodzenie umiejętności z ręcznych edycji kandydata (log audytu).
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_activities_candidate_manual_edit "
     "ON activities (entity_type, entity_id, action, external_source)",
-    # 0304: retencja pełnego przeglądu bazy (wybór po `completed_at`) oraz
+    # 0305: retencja pełnego przeglądu bazy (wybór po `completed_at`) oraz
     # kasowanie kandydata ze wszystkich przeglądów — klucz główny wyników
     # zaczyna się od `run_id`, więc bez tego indeksu każde usunięcie osoby
     # skanowałoby całą tabelę wyników.

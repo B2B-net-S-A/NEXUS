@@ -5,14 +5,14 @@
 person's rows from every run without scanning the whole results table (its
 primary key starts with `run_id`, so it cannot serve that lookup).
 
-Revision ID: 0304_candidate_search_retention_indexes
-Revises: 0303_inactive_client_cleanup
+Revision ID: 0305_candidate_search_retention_indexes
+Revises: 0304_contract_order_sync
 """
 
 from alembic import op
 
-revision = "0304_candidate_search_retention_indexes"
-down_revision = "0303_inactive_client_cleanup"
+revision = "0305_candidate_search_retention_indexes"
+down_revision = "0304_contract_order_sync"
 branch_labels = None
 depends_on = None
 

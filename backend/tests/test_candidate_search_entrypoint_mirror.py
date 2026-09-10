@@ -1,9 +1,9 @@
-"""Migracje 0281/0282/0304 i ich lustro w ``entrypoint.sh`` muszą się zgadzać.
+"""Migracje 0281/0282/0305 i ich lustro w ``entrypoint.sh`` muszą się zgadzać.
 
 Prod alembic bywa osierocony — safety-net w ``entrypoint.sh`` jest realnym
 wdrożeniem. Model ``Job`` deklaruje ``matching_requirements`` i
 ``requirements_reviewed`` (0282), więc brak tych kolumn wywala KAŻDY odczyt
-ofert; indeksy 0281/0304 bez lustra po prostu nigdy nie powstają.
+ofert; indeksy 0281/0305 bez lustra po prostu nigdy nie powstają.
 
 Obie strony czytane ze źródeł (AST, bez wykonania). Świadomie NIE importujemy
 heredocu jako modułu — ``test_entrypoint_ddl_guards.py`` robi to i podmienia
@@ -81,11 +81,11 @@ def _migration_executes(filename: str) -> list[str]:
     return statements
 
 
-def test_index_migrations_0281_and_0304_are_mirrored_verbatim():
+def test_index_migrations_0281_and_0305_are_mirrored_verbatim():
     mirrored = _entrypoint_list("_INDEX_STATEMENTS")
     for migration in (
         "0281_candidate_skill_audit_index.py",
-        "0304_candidate_search_retention_indexes.py",
+        "0305_candidate_search_retention_indexes.py",
     ):
         statements = _migration_executes(migration)
         assert statements, f"{migration}: brak CREATE INDEX w upgrade()"
@@ -111,7 +111,7 @@ def test_0282_job_columns_are_mirrored_with_the_migration_types():
     assert "server_default=sa.false()" in migration
 
 
-def test_model_declares_the_0304_indexes_for_create_all():
+def test_model_declares_the_0305_indexes_for_create_all():
     """`create_all` in the entrypoint builds fresh tables from the model."""
     from app.models.candidate_search_run import (
         CandidateSearchResult,

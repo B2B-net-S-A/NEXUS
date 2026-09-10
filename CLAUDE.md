@@ -1109,6 +1109,44 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   wspomina ten import, żeby przed nim ostrzec, więc szukanie stringu wywalało
   się na własnym ostrzeżeniu.
 
+### Pełny przegląd bazy (#1428): retencja, cykl życia, bramka must-have (10.09.2026)
+
+Od #1428 Radar i „cała baza” w rekrutacji oceniają CAŁĄ populację (~60 tys.)
+w trwałym przeglądzie (`candidate_search_runs` + wiersz na kandydata
+w `candidate_search_results`, ~100–130 MB na przegląd). Worker działa w procesie
+web — jeden przegląd naraz, ~3 min.
+
+- **Retencja (decyzja 10.09):** pętla `candidate_search_retention` kasuje
+  zakończone przeglądy (`complete`/`partial`/`failed`) starsze niż
+  `CANDIDATE_SEARCH_RETENTION_DAYS` (7), ale najnowszy przegląd z wynikami
+  zostaje zawsze — na (autor, rekrutacja), a bez rekrutacji na (autor,
+  `request_fingerprint`). Kill-switch `CANDIDATE_SEARCH_RETENTION_ENABLED`
+  (pętla kończy się przed `while True`). Indeksy z migracji 0305 (`completed_at`
+  przeglądu, `candidate_id` wyników) mają lustro w `_INDEX_STATEMENTS`.
+  Rozmiar tabeli widać w `GET /api/admin/index-coverage` (blok `candidate_search`).
+- **Stan `failed`:** przejęcie przeglądu zwiększa `metrics.claims` w tym samym
+  UPDATE; trzecia porażka (albo czwarte przejęcie) kończy przegląd jako `failed`,
+  a reaper kończy przejęte przeglądy bez postępu od 30 min. Do 10.09 przegląd,
+  który padł, był podejmowany na nowo w nieskończoność i trwale zajmował jeden
+  z dwóch slotów autora. `failed` nie liczy się do limitu; front pokazuje
+  „Uruchom ponownie”, a odpytywanie staje po błędzie (także po 409 zmiany
+  wymagań) — „Spróbuj ponownie” czyta przegląd, a nie odpala nowego skanu.
+- **RODO:** twarde usunięcie kandydata kasuje jego wiersze wyników, a aktywne
+  przeglądy z tą osobą kończy jako `failed` (`candidate_erased`) —
+  `finish_run` wymaga rozliczenia całej migawki.
+- **Bramka must-have (decyzja 10.09): `requirement_contract.search_dealbreaker_inputs`
+  to JEDNO miejsce polityki dla wszystkich powierzchni.** Polityka `review`
+  (domyślna) ukrywa kandydata, którego ZNANE umiejętności nie obejmują
+  must-have rozpoznanego jako technologia; kandydat bez danych przechodzi;
+  proza nigdy nie bramkuje. `exclude` dokłada ukrywanie braku dowodu. Po #1428
+  do 10.09 `review` zdejmowało bramkę w całości (nikt nie był ukrywany).
+  `MUST_GATE_POLICY_VERSION` jest częścią odcisku requestu — zmiana znaczenia
+  polityki = bump, inaczej stare rankingi udają aktualne. Kill-switch
+  `RUBRIC_DEALBREAKERS_ENABLED` działa raz, w `apply_dealbreakers`.
+- **„Przekaż do searchu” liczy must-have podane prozą jako podane**
+  (`must_skills or must_skills_ignored` w `job_readiness.py`). Do 10.09 rekrutacja
+  z samą prozą dostawała 422, choć dok gotowości pokazywał ✓.
+
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
 Druga klasa poświadczeń obok JWT użytkownika — dla automatyzacji (cron, CI, skrypty
