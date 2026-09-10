@@ -7,6 +7,7 @@ Generated artifacts remain explicitly pending human quality review.
 
 import argparse
 import asyncio
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 from io import BytesIO
@@ -132,6 +133,23 @@ def generate_case(case, directory):
         for fact in case["expected"].get("must_preserve", [])
         if normalized(fact) not in source_text
     ]
+
+    # Compare complete role identities as a multiset: duplicated employers or
+    # dates/titles moved between roles must not pass merely by matching counts.
+    def role_identity(role):
+        return tuple(
+            normalized(str(role.get(key, "")))
+            for key in ("dates", "company", "position")
+        )
+
+    expected_roles = case["expected"].get("role_identities")
+    identities_match = (
+        isinstance(source_roles, list)
+        and isinstance(expected_roles, list)
+        and all(isinstance(role, dict) for role in source_roles)
+        and Counter(map(role_identity, source_roles))
+        == Counter(map(role_identity, expected_roles))
+    )
     return {
         "outcome": "generated",
         "artifact": output.name,
@@ -140,6 +158,7 @@ def generate_case(case, directory):
         "career_months": actual_months,
         "source_roles": actual_roles,
         "source_role_count_matches": actual_roles == case["expected"]["source_roles"],
+        "source_role_identities_match": identities_match,
         "missing_required_source_facts": missing_source_facts,
         "required_source_facts_preserved": not missing_source_facts,
         "tenure_matches": actual_months == expected if expected is not None else None,
@@ -321,6 +340,7 @@ async def run(
                 and row["metering_complete"]
                 and row.get("tenure_matches") is not False
                 and row.get("source_role_count_matches") is True
+                and row.get("source_role_identities_match") is True
                 and row.get("required_source_facts_preserved") is True
                 and row.get("known_unsupported_claims_absent") is True
                 for row in report["results"]

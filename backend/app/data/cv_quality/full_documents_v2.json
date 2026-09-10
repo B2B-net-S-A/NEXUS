@@ -37,7 +37,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2010 – 12.2017",
+            "company": "Firma Testowa 1",
+            "position": "Magazynier"
+          },
+          {
+            "dates": "01.2018 – 12.2020",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -74,7 +86,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2010 – 12.2017",
+            "company": "Firma Testowa 1",
+            "position": "Magazynier"
+          },
+          {
+            "dates": "01.2018 – 12.2020",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -111,7 +135,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2022",
+            "company": "Firma Testowa 1",
+            "position": "Software Developer"
+          },
+          {
+            "dates": "01.2021 – 12.2023",
+            "company": "Firma Testowa 2",
+            "position": "Consultant"
+          }
+        ]
       }
     },
     {
@@ -148,7 +184,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2022",
+            "company": "Firma Testowa 1",
+            "position": "Software Developer"
+          },
+          {
+            "dates": "01.2021 – 12.2023",
+            "company": "Firma Testowa 2",
+            "position": "Consultant"
+          }
+        ]
       }
     },
     {
@@ -185,7 +233,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2018 – 12.2019",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          },
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -222,7 +282,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2018 – 12.2019",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          },
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -257,7 +329,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 11.2022",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -292,7 +371,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 11.2022",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -327,7 +413,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "2020 – 2022",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -362,7 +455,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "2020 – 2022",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -397,7 +497,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Software Developer"
+          }
+        ]
       }
     },
     {
@@ -432,7 +539,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Software Developer"
+          }
+        ]
       }
     },
     {
@@ -467,7 +581,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Administrator"
+          }
+        ]
       }
     },
     {
@@ -502,7 +623,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Administrator"
+          }
+        ]
       }
     },
     {
@@ -537,7 +665,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2021 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Młodszy programista"
+          }
+        ]
       }
     },
     {
@@ -572,7 +707,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2021 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Młodszy programista"
+          }
+        ]
       }
     },
     {
@@ -607,7 +749,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Tester"
+          }
+        ]
       }
     },
     {
@@ -642,7 +791,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Tester"
+          }
+        ]
       }
     },
     {
@@ -676,7 +832,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Tester"
+          }
+        ]
       }
     },
     {
@@ -710,7 +873,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Tester"
+          }
+        ]
       }
     },
     {
@@ -745,7 +915,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2021",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -780,7 +957,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2021",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -815,7 +999,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2018 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -850,7 +1041,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2018 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -885,7 +1083,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Księgowa"
+          }
+        ]
       }
     },
     {
@@ -920,7 +1125,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Księgowa"
+          }
+        ]
       }
     },
     {
@@ -955,7 +1167,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Junior Software Developer"
+          }
+        ]
       }
     },
     {
@@ -990,7 +1209,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2022 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Junior Software Developer"
+          }
+        ]
       }
     },
     {
@@ -1026,7 +1252,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1062,7 +1295,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1097,7 +1337,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -1132,7 +1379,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Programista"
+          }
+        ]
       }
     },
     {
@@ -1169,7 +1423,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2010 – 12.2017",
+            "company": "Firma Testowa 1",
+            "position": "Magazynier"
+          },
+          {
+            "dates": "01.2018 – 12.2020",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1206,7 +1472,19 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2010 – 12.2017",
+            "company": "Firma Testowa 1",
+            "position": "Magazynier"
+          },
+          {
+            "dates": "01.2018 – 12.2020",
+            "company": "Firma Testowa 2",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1241,7 +1519,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Administrator"
+          }
+        ]
       }
     },
     {
@@ -1276,7 +1561,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Administrator"
+          }
+        ]
       }
     },
     {
@@ -1308,7 +1600,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1340,7 +1639,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Analityk"
+          }
+        ]
       }
     },
     {
@@ -1375,7 +1681,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Specjalista obsługi klienta"
+          }
+        ]
       }
     },
     {
@@ -1410,7 +1723,14 @@
           "Zofia Testowa",
           "Firma Testowa 1"
         ],
-        "requires_human_review": true
+        "requires_human_review": true,
+        "role_identities": [
+          {
+            "dates": "01.2020 – 12.2023",
+            "company": "Firma Testowa 1",
+            "position": "Specjalista obsługi klienta"
+          }
+        ]
       }
     }
   ],

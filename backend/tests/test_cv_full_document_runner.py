@@ -69,6 +69,37 @@ def test_changed_input_stops_before_paid_generation(tmp_path, monkeypatch):
     generate.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "mutation", ["reorder", "swap_dates", "swap_titles", "duplicate"]
+)
+def test_role_identity_check_rejects_cross_role_fact_transfers(
+    tmp_path, monkeypatch, mutation
+):
+    case = runner.prepare(tmp_path)["cases"][0]
+    roles = [dict(role) for role in case["expected"]["role_identities"]]
+    if mutation == "reorder":
+        roles.reverse()
+    elif mutation == "duplicate":
+        roles[1] = dict(roles[0])
+    else:
+        field = "dates" if mutation == "swap_dates" else "position"
+        roles[0][field], roles[1][field] = roles[1][field], roles[0][field]
+    monkeypatch.setattr(
+        runner,
+        "generate_cv_from_uploads",
+        Mock(
+            return_value=SimpleNamespace(
+                docx_bytes=b"synthetic",
+                warnings=[],
+                render_payload={"source_facts": {"document": {"experience": roles}}},
+            )
+        ),
+    )
+    report = runner.generate_case(case, tmp_path)
+    assert report["source_role_count_matches"] is True
+    assert report["source_role_identities_match"] is (mutation == "reorder")
+
+
 def test_matching_role_count_does_not_hide_missing_named_source_facts(
     tmp_path, monkeypatch
 ):
@@ -264,7 +295,18 @@ async def test_finished_run_links_model_artifacts_from_root_report(
                         "tenure": {"career_months": 132},
                         "document": {
                             "name": "Zofia Testowa",
-                            "experience": [{"company": "Firma Testowa 1"}, {}],
+                            "experience": [
+                                {
+                                    "dates": "01.2010 – 12.2017",
+                                    "company": "Firma Testowa 1",
+                                    "position": "Magazynier",
+                                },
+                                {
+                                    "dates": "01.2018 – 12.2020",
+                                    "company": "Firma Testowa 2",
+                                    "position": "Analityk",
+                                },
+                            ],
                         },
                     }
                 },

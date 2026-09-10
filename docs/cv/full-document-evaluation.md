@@ -61,6 +61,16 @@ Host-native validation: 22 runner tests passed, including complete batch return
 codes with and without an invented career-duration claim in a real DOCX file.
 No live provider evaluation was performed for this change. Read-only staging
 status run 34417172000 still reported `exited:unhealthy` on another task's branch.
+# Source role identity acceptance
+
+All 40 corpus cases now specify the expected source date/company/title triples.
+The runner compares these as a multiset against the extracted source ledger,
+independently of presentation language and role ordering. A matching role count
+cannot conceal duplicated roles or dates/titles transferred to another employer.
+This changes the corpus digest; use a new output directory and run identity.
+The check does not establish responsibility-level completeness or semantic truth;
+real-model runs and human review remain required.
+
 # Scanned source variants
 
 Both preparation and full evaluation accept `--scan-font /absolute/path/to/font.ttf`.
