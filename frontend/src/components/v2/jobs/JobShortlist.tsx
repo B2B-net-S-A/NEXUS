@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowUpRight, Check, Trash2, UserCheck } from "lucide-react";
 
@@ -28,6 +29,83 @@ function isoToLocalInput(iso: string | null | undefined): string {
   return (
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
     `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/** Wartość `<input type="datetime-local">` jako znacznik czasu (`null` = puste). */
+function localInputMs(value: string): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+interface ServerSyncedInputProps
+  extends Omit<
+    InputHTMLAttributes<HTMLInputElement>,
+    "value" | "defaultValue" | "onChange" | "onFocus" | "onBlur"
+  > {
+  /** Wartość z serwera w formacie pola (np. lokalny datetime). */
+  serverValue: string;
+  /** `ShortlistEntry.version` — każda zmiana wpisu na serwerze ją podbija. */
+  serverVersion: number;
+  /** Czy dwie wartości pola znaczą to samo (np. ta sama chwila w czasie). */
+  sameValue: (a: string, b: string) => boolean;
+  /**
+   * Zapis zmiany UŻYTKOWNIKA. `baseVersion` to wersja wpisu, od której zaczęła
+   * się edycja — jeśli ktoś zapisał wpis w międzyczasie, serwer odpowie 409
+   * zamiast po cichu nadpisać jego zmianę.
+   */
+  onCommit: (value: string, baseVersion: number) => void;
+}
+
+/**
+ * Pole tekstowe zapisywane na blur, zsynchronizowane z serwerem.
+ *
+ * Do 09.2026 notatka i termin były polami NIEKONTROLOWANYMI z wartością
+ * z pierwszego renderu. Gdy kolega zmienił wpis, pole dalej pokazywało stary
+ * tekst, a samo przejście przez nie (blur bez zmiany) porównywało ten stary
+ * tekst z nową wartością serwera, widziało różnicę i zapisywało STARY tekst
+ * z NOWĄ wersją — blokada optymistyczna przepuszczała to bez 409, bo wersja
+ * się zgadzała. Teraz:
+ *  - poza edycją pole idzie za serwerem (zmiana wartości albo wersji),
+ *  - blur bez zmiany wprowadzonej przez użytkownika NIE zapisuje niczego,
+ *  - zapis niesie wersję, na której użytkownik ZACZĄŁ edycję.
+ */
+function ServerSyncedInput({
+  serverValue,
+  serverVersion,
+  sameValue,
+  onCommit,
+  ...inputProps
+}: ServerSyncedInputProps) {
+  const [draft, setDraft] = useState(serverValue);
+  // Stan serwera z chwili wejścia w pole; `null` = pole nie jest edytowane.
+  const editRef = useRef<{ baseValue: string; baseVersion: number } | null>(null);
+
+  useEffect(() => {
+    if (editRef.current === null) setDraft(serverValue);
+  }, [serverValue, serverVersion]);
+
+  return (
+    <input
+      {...inputProps}
+      value={draft}
+      onFocus={() => {
+        editRef.current = { baseValue: serverValue, baseVersion: serverVersion };
+      }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const edit = editRef.current;
+        editRef.current = null;
+        if (!edit || sameValue(draft, edit.baseValue)) {
+          // Nic nie zmieniono — pokaż aktualny stan serwera (mógł się zmienić
+          // w trakcie, gdy pole miało fokus) i NIE zapisuj.
+          setDraft(serverValue);
+          return;
+        }
+        onCommit(draft, edit.baseVersion);
+      }}
+    />
   );
 }
 
@@ -387,26 +465,23 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
                 {/* Termin następnej akcji — zapis na blur, nie na każdy krok
                     (datetime-local emituje onChange przy każdej cyfrze/kliknięciu
                     strzałki; kolejne PATCH-e z tą samą `version` dawały 409).
-                    Uncontrolled + porównanie po czasie, żeby identyczna wartość
-                    nie generowała zapisu. (PR #1374 review.) */}
-                <input
+                    Pole zsynchronizowane z serwerem — patrz `ServerSyncedInput`. */}
+                <ServerSyncedInput
                   type="datetime-local"
-                  defaultValue={isoToLocalInput(entry.next_action_at)}
+                  serverValue={isoToLocalInput(entry.next_action_at)}
+                  serverVersion={entry.version}
+                  sameValue={(a, b) => localInputMs(a) === localInputMs(b)}
                   disabled={busy}
-                  onBlur={(e) => {
-                    const nextIso = e.target.value
-                      ? new Date(e.target.value).toISOString()
-                      : null;
-                    const curMs = entry.next_action_at
-                      ? new Date(entry.next_action_at).getTime()
-                      : null;
-                    const nextMs = nextIso ? new Date(nextIso).getTime() : null;
-                    if (curMs === nextMs) return;
+                  onCommit={(value, baseVersion) =>
                     patchMutation.mutate({
-                      entry,
-                      patch: { next_action_at: nextIso },
-                    });
-                  }}
+                      entry: { ...entry, version: baseVersion },
+                      patch: {
+                        next_action_at: value
+                          ? new Date(value).toISOString()
+                          : null,
+                      },
+                    })
+                  }
                   className={
                     "h-8 shrink-0 rounded-lg border bg-card px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 " +
                     (overdue
@@ -416,21 +491,20 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
                   aria-label={`Termin następnej akcji: ${fullName}`}
                 />
 
-                {/* Notatka — zapis na blur, gdy zmieniona (uncontrolled, żeby
-                    refetch innego pola nie kasował wpisywanego tekstu). */}
-                <input
+                {/* Notatka — zapis na blur, wyłącznie gdy UŻYTKOWNIK ją zmienił. */}
+                <ServerSyncedInput
                   type="text"
-                  defaultValue={entry.note ?? ""}
+                  serverValue={entry.note ?? ""}
+                  serverVersion={entry.version}
+                  sameValue={(a, b) => a.trim() === b.trim()}
                   disabled={busy}
                   placeholder="Notatka…"
-                  onBlur={(e) => {
-                    const next = e.target.value.trim();
-                    if (next === (entry.note ?? "").trim()) return;
+                  onCommit={(value, baseVersion) =>
                     patchMutation.mutate({
-                      entry,
-                      patch: { note: next || null },
-                    });
-                  }}
+                      entry: { ...entry, version: baseVersion },
+                      patch: { note: value.trim() || null },
+                    })
+                  }
                   className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50"
                   aria-label={`Notatka: ${fullName}`}
                 />
