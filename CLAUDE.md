@@ -1555,8 +1555,21 @@ nie ma żadnej reguły do utrzymania.
   z `before` (koszt z harmonogramu umowy na ostatni dzień okresu), a konsumpcje,
   alerty i dokument maila od 09.2026 idą za nowym wierszem. Każde zamówienie
   jest przypięte tożsamością biznesową i pomijane z powodem, gdy stan produkcji
-  się nie zgadza; paragon w `app_settings['0306_pfron_renewal_split_repair']`.
-  Wynik weryfikuje Delivery Lead.
+  się nie zgadza — w tym gdy po T0 ktoś je edytował (`edited_after_incident`:
+  PATCH/PDF/anulowanie/zakończenie), gdy tytuł albo jednostka różni się od planu
+  z maila, i gdy TA SAMA OSOBA ma u klienta inne zamówienie na którykolwiek
+  z dwóch okresów, także na innej umowie („Nowy kontraktor / zamówienie” zakłada
+  nową umowę). Blok ma `lock_timeout` 15 s i blokuje wiersz klienta jak writer
+  maila; po timeoucie nic nie zapisuje i ponawia przy następnym starcie.
+  Harmonogram przychodu umów domyka krok `pfron_revenue_resync` (entrypoint, tuż
+  po korekcie) przez `resync_contract` — ten sam kod co zwykły zapis zamówienia.
+  **Dwa klucze w `app_settings`:** paragon `0306_pfron_renewal_split_repair`
+  (liczniki, ID, daty, powody — czyta go `coolify-ops` `migration-receipts`,
+  którego log jest PUBLICZNY) i szczegóły `repair_details_0306_…` (migawki,
+  tytuły, stawki, notatki, ścieżki — do ręcznego odwrócenia; kształt klucza
+  sprawia, że workflow ich nie wydrukuje). Wynik weryfikuje Delivery Lead.
+  **Nowy paragon naprawy danych = tylko liczniki i ID pod kluczem `NNNN_…`**;
+  wszystko z kwotą, tytułem albo nazwiskiem idzie pod klucz innego kształtu.
 - **Dedup alertów wygasania = (odbiorca, obiekt, próg, data końca)**
   (`dl_portal_expiry_scanner.py`, także umowy ramowe). Data pochodzi z treści
   komunikatu („kończy się/wygasa RRRR-MM-DD”), którą alerty niosą od maja —
