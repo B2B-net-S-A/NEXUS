@@ -479,3 +479,11 @@ def test_nordea_missing_table_is_reviewed_and_polish_total_warning_is_ignored():
     assert ex.uncertain_reasons == [
         "Nie znaleziono osób i stawek w tabeli Consultant(s)"
     ]
+
+
+def test_only_consultant_table_supplies_people_even_when_other_sections_look_like_rows():
+    decoy = "Anna Kontaktowa IT Developer Poland - 100 Hours 999,00 PLN\n"
+    text = decoy + ORDER + "\nContact persons\n" + decoy
+    assert [r.consultant_name for r in nordea.extract_rows(text)] == ["Jan Testowy"]
+    assert "Anna Kontaktowa" not in nordea.parser_text(text)
+    assert nordea.extract_rows(decoy) == []

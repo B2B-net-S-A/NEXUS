@@ -272,8 +272,14 @@ def initial_term(text: str) -> tuple[Optional[str], Optional[str]]:
 def extract_rows(text: str) -> list[ConsultantOrderRow]:
     text = order_text_only(text)
     start, end = initial_term(text)
+    header = re.search(r"Person\(s\)\s+at\s+the\s+Supplier", text, re.I)
+    if not header:
+        return []
+    table = re.split(
+        r"Contact\s+persons|Copies", text[header.start() :], maxsplit=1, flags=re.I
+    )[0]
     rows: list[ConsultantOrderRow] = []
-    for m in _ROW_RE.finditer(text or ""):
+    for m in _ROW_RE.finditer(table):
         rate = normalize_amount(m.group("rate"))
         rows.append(
             ConsultantOrderRow(
