@@ -347,6 +347,16 @@ describe("moveBlockedReason", () => {
     ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
   });
 
+  it("powód „Pending” nie każe czytającemu akceptować — robi to wyłącznie administrator", () => {
+    // `accept-verification` / `reject-verification` stoją za `AdminUser`;
+    // rekruter czytający „najpierw zaakceptuj" dostawał polecenie nie do
+    // wykonania. Funkcja nie zna roli, więc zdanie ma być prawdziwe dla KAŻDEGO.
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).toContain("czeka na akceptację");
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).toMatch(/administrator/);
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/najpierw zaakceptuj/i);
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/odrzuć weryfikację/i);
+  });
+
   it("karta bez weta i bez „Pending” przechodzi", () => {
     expect(
       moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),

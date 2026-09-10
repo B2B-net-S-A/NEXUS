@@ -257,11 +257,19 @@ export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
   "client_interview",
 ]);
 
-/** Powód blokady karty czekającej na akceptację stawki (409 w `/move`). */
+/**
+ * Powód blokady karty czekającej na akceptację stawki (409 w `/move`).
+ *
+ * Neutralny co do tego, KTO czyta: akceptację i odrzucenie weryfikacji
+ * przyjmuje wyłącznie administrator (`accept-verification` /
+ * `reject-verification` stoją za `AdminUser`), a ta funkcja nie zna roli
+ * czytającego. Dawne „najpierw zaakceptuj albo odrzuć" kazało rekruterowi
+ * zrobić coś, czego serwer mu nie pozwoli.
+ */
 export const PENDING_VERIFICATION_MOVE_BLOCK =
-  "Stawka tego kandydata czeka na akceptację (Pending) — najpierw zaakceptuj " +
-  "albo odrzuć weryfikację. Do tego czasu serwer odmawia każdego ruchu, także " +
-  "odrzucenia.";
+  "Stawka tego kandydata czeka na akceptację (Pending) — weryfikację akceptuje " +
+  "albo odrzuca administrator. Do tego czasu serwer odmawia każdego ruchu, " +
+  "także odrzucenia.";
 
 /**
  * Powód, dla którego ruchu NIE wolno wykonać — albo `null`, gdy wolno.
