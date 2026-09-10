@@ -355,6 +355,7 @@ async def get_client_portfolio_import_health(
         "framework_contracts": 0,
         "live_portfolio_scopes": 0,
         "live_framework_contracts": 0,
+        "purged_rows": 0,
         "category_rows": {category.value: 0 for category in PortfolioCategory},
     }
 
@@ -397,6 +398,9 @@ async def get_client_portfolio_import_health(
                 func.count(func.distinct(ClientImportRow.framework_contract_id)).label(
                     "framework_contracts"
                 ),
+                func.count(ClientImportRow.id)
+                .filter(ClientImportRow.purged_at.is_not(None))
+                .label("purged_rows"),
                 *(
                     func.count(ClientImportRow.id)
                     .filter(
@@ -470,19 +474,26 @@ async def get_client_portfolio_import_health(
         "framework_contracts": int(count_row.framework_contracts),
         "live_portfolio_scopes": live_scope_rows,
         "live_framework_contracts": live_framework_contracts,
+        "purged_rows": int(count_row.purged_rows),
         "category_rows": {
             category.value: int(getattr(count_row, f"{category.value}_rows"))
             for category in PortfolioCategory
         },
     }
     applied_manifest_sha256 = (run.summary or {}).get("normalized_manifest_sha256")
+    # Wiersze, których klienta usunęło jednorazowe czyszczenie nieaktywnych
+    # (0303), nie mają już zakresu z definicji — FK zerują powiązanie. Liczą się
+    # dalej jako wiersze MANIFESTU (``imported_manifest_rows``/``category_rows``
+    # porównują się z plikiem, a plik się nie zmienił), ale nie jako zakresy,
+    # które muszą żyć. Każdy INNY brak zakresu nadal jest dryfem.
+    retained_audit_rows = counts["audit_rows"] - counts["purged_rows"]
     is_consistent = (
         run.applied_at is not None
         and applied_manifest_sha256 == expected_manifest_sha256
         and counts["imported_manifest_rows"] == expected_manifest_rows
         and counts["category_rows"] == expected_category_rows
-        and counts["portfolio_scopes"] == counts["audit_rows"]
-        and counts["live_portfolio_scopes"] == counts["audit_rows"]
+        and counts["portfolio_scopes"] == retained_audit_rows
+        and counts["live_portfolio_scopes"] == retained_audit_rows
         and counts["framework_contracts"] == expected_framework_contracts
         and counts["live_framework_contracts"] == expected_framework_contracts
     )
@@ -2405,6 +2416,18 @@ async def rollback_client_portfolio_import(
     conflicts: list[dict[str, Any]] = []
     if not rows:
         conflicts.append({"reason": "missing_import_audit_rows"})
+    # Klienta z wiersza usunęło jednorazowe czyszczenie nieaktywnych (0303) —
+    # nie ma czego przywracać, a rollback operujący na wyzerowanych FK
+    # przepisywałby stan, którego już nie ma. Odmowa zamiast zgadywania.
+    purged_row_ids = [row.id for row in rows if row.purged_at is not None]
+    if purged_row_ids:
+        conflicts.append(
+            {
+                "reason": "rows_purged_by_inactive_client_cleanup",
+                "row_ids": purged_row_ids[:50],
+                "count": len(purged_row_ids),
+            }
+        )
 
     # Every dependency moved by the KIR merge must have an exact row-level
     # ledger. Missing or inconsistent audit data blocks before any business

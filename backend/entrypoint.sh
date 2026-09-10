@@ -3139,6 +3139,47 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_playbook_events_client_created "
     "ON client_playbook_events (client_id, created_at)",
+    # 0303: jednorazowe czyszczenie „Nieaktywnych klientów". Kolumny na
+    # client_import_rows MUSZĄ być przed `client_portfolio_import --apply-once`
+    # (koniec pliku): inwariant portfela czyta `purged_at`, a brak kolumny
+    # wywróciłby jego zapytanie. `purged_clients` to też nagrobek czytany
+    # przez nocny sync Traffita (faza clients).
+    "ALTER TABLE client_import_rows ADD COLUMN IF NOT EXISTS purged_at TIMESTAMPTZ",
+    "ALTER TABLE client_import_rows ADD COLUMN IF NOT EXISTS purged_client_id INTEGER",
+    """CREATE TABLE IF NOT EXISTS client_cleanup_runs (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(48) NOT NULL,
+        executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        executed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        executed_by_name VARCHAR(255),
+        candidates_count INTEGER NOT NULL,
+        kept_count INTEGER NOT NULL,
+        deleted_count INTEGER NOT NULL,
+        held_count INTEGER NOT NULL,
+        held JSONB NOT NULL DEFAULT '[]'::jsonb,
+        summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+        CONSTRAINT uq_client_cleanup_runs_kind UNIQUE (kind)
+    )""",
+    """CREATE TABLE IF NOT EXISTS purged_clients (
+        id SERIAL PRIMARY KEY,
+        run_id INTEGER NOT NULL
+            REFERENCES client_cleanup_runs(id) ON DELETE RESTRICT,
+        client_id INTEGER NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255),
+        legal_name VARCHAR(255),
+        nip VARCHAR(32),
+        status VARCHAR(32),
+        external_source VARCHAR(50),
+        external_id VARCHAR(100),
+        client_created_at TIMESTAMPTZ,
+        snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+        purged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_purged_clients_client_id UNIQUE (client_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_purged_clients_run_id ON purged_clients (run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_purged_clients_external "
+    "ON purged_clients (external_source, external_id)",
     "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
     "client_rule_version INTEGER",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "

@@ -21,6 +21,7 @@ import {
   Plus,
   Search,
   SearchX,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ import {
   type PortfolioScopePlacementUpdate,
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
+import { InactiveClientsCleanupDialog } from "@/components/clients/InactiveClientsCleanupDialog";
 import { cn } from "@/lib/utils";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -207,6 +209,7 @@ export function ClientsListV2() {
   const [placementTarget, setPlacementTarget] =
     useState<ClientDirectoryItem | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [showCleanup, setShowCleanup] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const didCanonicalizeUrl = useRef(false);
   const searchSyncTarget = useRef<string | null>(null);
@@ -466,6 +469,19 @@ export function ClientsListV2() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Jednorazowe czyszczenie — tylko w zakładce, której dotyczy,
+              i tylko dla administratora portfela (backend: AdminUser). Po
+              wykonaniu ten sam przycisk otwiera raport z dwiema listami. */}
+          {category === "inactive" && canManagePortfolio ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowCleanup(true)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Czyszczenie listy
+            </Button>
+          ) : null}
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="outline" disabled={exporting}>
@@ -896,6 +912,15 @@ export function ClientsListV2() {
           onClose={() => setShowAdd(false)}
           onSuccess={onAdded}
           category={category}
+        />
+      ) : null}
+      {showCleanup ? (
+        <InactiveClientsCleanupDialog
+          onClose={() => setShowCleanup(false)}
+          onExecuted={(message) => {
+            setToast(message);
+            setTimeout(() => setToast(null), 4500);
+          }}
         />
       ) : null}
       {placementTarget ? (
