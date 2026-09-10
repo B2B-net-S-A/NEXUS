@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
 from app.services.cv_generator_b2b.rule_feedback import presentation_feedback
 
@@ -92,6 +94,11 @@ def test_dates_distinguish_conflict_unknown_and_absent():
     for dates, expected in [
         ("01.2020", "conflict"),
         ("January 2020", "needs_review"),
+        ("2020-01 – 2024-12", "satisfied"),
+        ("2020-01 – present", "satisfied"),
+        ("2020 – 2024", "needs_review"),
+        ("2020-13", "needs_review"),
+        ("2020-01 additional unknown text", "needs_review"),
         ("", "not_applicable"),
     ]:
         result = presentation_feedback(
@@ -119,3 +126,22 @@ def test_glossary_explains_rejected_wrong_language_and_untranslated_entries():
         "not_applicable",
         "conflict",
     ]
+
+
+@pytest.mark.parametrize(
+    "fmt,dates",
+    [
+        ("MM.YYYY", "01.2020–12.2024"),
+        ("MM/YYYY", "01/2020 do obecnie"),
+        ("YYYY-MM", "2020-01 to current"),
+        ("YYYY", "2020-2024"),
+    ],
+)
+def test_recognizes_complete_date_format_without_claiming_source_accuracy(fmt, dates):
+    feedback = presentation_feedback(
+        {"education": [{"dates": dates}]}, rule(date_format=fmt)
+    )
+    assert (
+        next(item for item in feedback if item["field"] == "date_format")["status"]
+        == "satisfied"
+    )

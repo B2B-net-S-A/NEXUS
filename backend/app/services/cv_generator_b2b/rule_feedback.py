@@ -1,11 +1,31 @@
 """Check observable presentation outcomes; never certify free-text instructions."""
 
+import re
+
 from app.services.cv_generator_b2b.client_rules import SECTION_LABELS, reformat_dates
 from app.services.cv_generator_b2b.language_aliases import resolve_alias
 from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
 )
+
+
+def _date_format_status(value: str, fmt: str) -> str:
+    year = r"[12]\d{3}"
+    month = r"(?:0[1-9]|1[0-2])"
+    token = {
+        "YYYY": year,
+        "YYYY-MM": rf"{year}-{month}",
+        "MM.YYYY": rf"{month}\.{year}",
+        "MM/YYYY": rf"{month}/{year}",
+    }.get(fmt)
+    if token and re.fullmatch(
+        rf"{token}(?:\s*(?:–|—|-|do|to)\s*(?:{token}|obecnie|present|current))?",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return "satisfied"
+    return "conflict" if reformat_dates(value, fmt) != value else "needs_review"
 
 
 def presentation_feedback(payload: dict, rule) -> list[dict]:
@@ -137,19 +157,20 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
             for entry in payload.get(section) or []
             if isinstance(entry, dict) and entry.get("dates")
         ]
-        # Unchanged text is not proof: the formatter deliberately preserves
-        # unknown formats rather than guessing dates or their precision.
+        # Certify only the complete recognized shape. Unchanged unknown text
+        # and year-only precision under a month policy still require review.
+        statuses = [_date_format_status(value, rule.date_format) for value in dates]
         feedback.append(
             {
                 "field": "date_format",
-                "label": f"Format dat: {rule.date_format} — sprawdź daty w dokumencie",
+                "label": f"Format dat: {rule.date_format}",
                 "status": "not_applicable"
                 if not dates
                 else "conflict"
-                if any(
-                    reformat_dates(value, rule.date_format) != value for value in dates
-                )
-                else "needs_review",
+                if "conflict" in statuses
+                else "needs_review"
+                if "needs_review" in statuses
+                else "satisfied",
             }
         )
     titles = [

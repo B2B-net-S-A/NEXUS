@@ -671,3 +671,7 @@ No production migration or deployment has occurred.
 ### CV-18: widoczność wybranych pogrubień
 
 Podgląd receptury sprawdza teraz każdą wybraną frazę w końcowych polach, które renderer obejmuje pogrubieniem. Dopasowanie korzysta z tego samego mechanizmu granic słów co DOCX. Fraza obecna tylko w źródle, nagłówku lub usuniętej części historii otrzymuje status pominięcia; fraza obecna w treści, lecz brakująca na liście pogrubień — konflikt. Nie jest to dowód wizualnego wyglądu pliku ani prawdziwości kompetencji. Dziewięć testów informacji zwrotnej i Ruff przeszły lokalnie; hosted CI dla tej zmiany pozostaje wymagane.
+
+### CV-18: rozpoznawanie wyniku reguły dat
+
+Informacja zwrotna rozpoznaje pełny poprawny zapis dla czterech obsługiwanych formatów, zakresy dat i końce „obecnie/present/current”. Nie uznaje nieznanego tekstu, miesiąca spoza 01–12 ani samego roku przy polityce miesięcznej za potwierdzone wykonanie reguły. Ten wynik dotyczy kształtu dat, nie ich zgodności ze źródłem ani obliczenia stażu. Trzynaście testów informacji zwrotnej i Ruff przeszły lokalnie.
