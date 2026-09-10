@@ -83,6 +83,12 @@ it.each(["pipeline", "standalone"])("%s keeps legacy recovery visible and saves 
   await screen.findByText("Brak zamrożonych źródeł.");
   expect(screen.getByText(/Wybierz oryginalny plik CV/)).toBeTruthy();
   expect(state.status).toBe("draft");
+  vi.spyOn(cvGeneratedEditorApi, "update").mockRejectedValueOnce(new Error("Save unavailable"));
+  fireEvent.click(screen.getByRole("button", {name: regenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}));
+  await screen.findByText("Błąd zapisu — poprawki pozostają w edytorze");
+  expect(close).not.toHaveBeenCalled();
+  if (regenerate) expect(regenerate).not.toHaveBeenCalled();
+  expect(state.stored).toBe("<p>Old text</p>");
   fireEvent.click(screen.getByRole("button", {name: regenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   expect(state.stored).toBe("<p>Preserve my changes</p>");
