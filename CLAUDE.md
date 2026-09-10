@@ -424,6 +424,47 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
   niesie adres e-mail kandydata — inny kanał to osobna decyzja.
 
+## Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
+
+Między 09.09 a 10.09 generator przebudowano (#1444 i poprawki #1476/#1478/#1479):
+osobne wywołanie AI wyciągające „fakty źródłowe”, redakcja z samego JSON-a
+faktów (model nie widzi surowego CV), nowy krótki angielski prompt v10 zamiast
+szczegółowego polskiego v7, przepisywanie długich punktów przez AI, pogrubianie
+technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
+„generują się inaczej”, więc **domyślnie działa przepływ z 2bc6b14f**.
+
+- **Przełącznik:** `CV_GENERATION_PIPELINE` — brak/`legacy` = stary przepływ,
+  `v10` = przebudowany. Kod v10 zostaje nietknięty i wybieralny (analiza „co
+  poszło nie tak” i ewentualny powrót bez deployu).
+- **Kod:** `services/cv_generator_b2b/legacy_v7/` — zamrożone kopie z 2bc6b14f
+  (prompt, odczyt PDF/DOCX, sekcja Championa, reguły w prompcie i polityka
+  prezentacji, pomocniki lat/normalizacji). Wejścia: `prepare_source_facts`
+  i `_run_generation_pipeline` w `standalone_service` (import leniwy —
+  `legacy_v7.pipeline` importuje `standalone_service`).
+- **Świadomie NIE cofnięte (poprawki błędów):** `apply_date_format`/
+  `reformat_dates` (stary regex psuł `15.03.2020`), renderer DOCX (marginesy
+  papieru firmowego #1449, filtr „Jest”), streaming/deadline w `provider.py`
+  (przywrócenie starego pliku wywala start backendu). Zostaje też cała nowa
+  infrastruktura: zadania trwałe, wersje, zatwierdzanie, zgoda RODO, dostęp.
+- **Zatwierdzanie przy `CV_SOURCE_EVIDENCE_ENFORCED` wyłączonym (domyślnie):**
+  „Zatwierdź wygenerowane CV” nie wymaga kontroli AI, a akceptacja z edytora
+  nie odpala płatnej kontroli AI (zapis: `status="unverified"`,
+  `method="evidence_enforcement_off"` — nigdy fałszywe „verified”). Kontrole
+  prywatności i struktury klienta działają dalej. Dwa dni wcześniej bramki
+  zatwierdzania nie było wcale. **Włączaj `CV_SOURCE_EVIDENCE_ENFORCED`
+  wyłącznie razem z `CV_GENERATION_PIPELINE=v10`** — przepływ legacy nie robi
+  kontroli AI, więc z włączonym egzekwowaniem każde „Zatwierdź” skończy się 409.
+- **Zachowane zachowania sprzed przebudowy (wiedz, zanim „naprawisz”):** pełny
+  słownik klienta (także wpisy sprzed #1445) trafia do promptu i podmienia
+  tekst we wszystkich polach; długie punkty są skracane z „…”; w trybie
+  `polished`/`basic` nie ma pogrubień (tylko `tailored` pogrubia MUST/NICE
+  Championa); brak branży w blind = „IT”; nagłówek lat zaokrągla sumę
+  przedziałów; strony PDF będące samym obrazem są pomijane zamiast blokować.
+  Ustawienia „wyróżnień” w regułach CV (0284) są w tym trybie nieaktywne.
+- **Testy:** `conftest` przypina `v10` + ścisłe dowody dla dotychczasowych
+  testów; domyślne zachowanie produkcyjne pilnuje
+  `tests/test_cv_generator_legacy_v7.py`.
+
 ## Reguły CV per klient — pełna recepta Delivery Leada
 
 `/settings/cv-rules` jest JEDYNYM ekranem polityki CV klienta (od 09.2026).

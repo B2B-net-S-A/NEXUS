@@ -143,6 +143,21 @@ def _detach_canonical_order_type_policy(monkeypatch):
     monkeypatch.setattr("app.services.order_types._PINNED_ALLOWED_ORDER_TYPES", {})
 
 
+# ── CV generator: existing suite covers the rebuilt pipeline, strictly ──────
+
+
+@pytest.fixture(autouse=True)
+def _pin_cv_generator_rebuilt_pipeline(monkeypatch):
+    """Production defaults to the 2bc6b14f flow with advisory source evidence
+    (``legacy_v7``). The existing CV tests were written for the rebuilt (v10)
+    pipeline with strict evidence, and that code stays selectable, so pin it
+    here. Tests of the production defaults delete both variables themselves
+    (``test_cv_generator_legacy_v7.py``)."""
+
+    monkeypatch.setenv("CV_GENERATION_PIPELINE", "v10")
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+
+
 # ── Global skill-taxonomy isolation ─────────────────────────────────────────
 
 

@@ -1434,6 +1434,17 @@ def prepare_source_facts(
     request_id: str,
 ) -> PreparedSourceFacts:
     """One independent extraction and dated tenure ledger for all preview variants."""
+    from app.services.cv_generator_b2b.legacy_v7 import legacy_pipeline_enabled
+
+    if legacy_pipeline_enabled():
+        # The pre-rebuild flow reads the raw CV; no AI extraction at all.
+        from app.services.cv_generator_b2b.legacy_v7.pipeline import prepare_sources
+
+        return prepare_sources(
+            cv_bytes=cv_bytes,
+            cv_filename=cv_filename,
+            screening_notes_text=screening_notes_text,
+        )
     # ── 1. Extract CV text ───────────────────────────────────────────────
     try:
         cv_text = extract_text_from_file(cv_bytes, cv_filename or "cv.pdf")
@@ -1512,6 +1523,33 @@ def _run_generation_pipeline(
     the model at all, so the prompt's whole positioning section has nothing to
     act on, and the client's requirement list stops driving what gets bolded.
     """
+    from app.services.cv_generator_b2b.legacy_v7 import legacy_pipeline_enabled
+
+    if legacy_pipeline_enabled():
+        # Default: the 2bc6b14f flow (prompt v7, one call on the raw CV).
+        # CV_GENERATION_PIPELINE=v10 selects the rebuilt pipeline below.
+        from app.services.cv_generator_b2b.legacy_v7.pipeline import (
+            run_legacy_generation,
+        )
+
+        return run_legacy_generation(
+            cv_bytes=cv_bytes,
+            cv_filename=cv_filename,
+            champion_dto=champion_dto,
+            screening_notes_text=screening_notes_text,
+            language=language,
+            blind_cv=blind_cv,
+            request_id=request_id,
+            fallback_name=fallback_name,
+            started_at=started_at,
+            job_id=job_id,
+            job_title=job_title,
+            content_mode=content_mode,
+            client_rule=client_rule,
+            project_ref=project_ref,
+            position_ref=position_ref,
+            prepared_source_facts=prepared_source_facts,
+        )
     if content_mode == "tailored" and champion_dto and champion_dto.intake_profile:
         from types import SimpleNamespace
         from app.services.champion_intake import enforce_operation

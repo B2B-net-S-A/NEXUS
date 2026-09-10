@@ -78,6 +78,18 @@ async def prepare_approval_review(
             "presentation_review": presentation,
             "html_sha256": provenance["approved_editor_html_sha256"],
         }
+    from app.services.cv_generator_b2b.source_facts import source_evidence_enforced
+
+    if not source_evidence_enforced():
+        # Enforcement off (default): privacy and client structure checks above
+        # still apply, but no paid AI source review blocks the approval. The
+        # record says so honestly — it is not "verified".
+        return {
+            "status": "unverified",
+            "method": "evidence_enforcement_off",
+            "presentation_review": presentation,
+            "html_sha256": provenance["approved_editor_html_sha256"],
+        }
     generated_id = csv.generated_document_id
     if generated_id is None:
         raise HTTPException(
