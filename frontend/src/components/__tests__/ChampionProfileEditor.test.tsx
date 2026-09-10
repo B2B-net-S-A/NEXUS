@@ -13,7 +13,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,7 @@ import { useAuthStore, type User } from "@/store/auth";
 const BASICS_LABEL = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
 
 const getMock = vi.fn();
+const putMock = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -33,9 +34,16 @@ vi.mock("@/lib/api", async (importOriginal) => {
     championApi: {
       ...actual.championApi,
       get: (...args: unknown[]) => getMock(...args),
+      put: (...args: unknown[]) => putMock(...args),
     },
   };
 });
+
+// Panel źródeł ma WŁASNE zapytania (notatki, oczekujące propozycje) — dla
+// testu zapisu wystarczy, że się nie montuje z siecią.
+vi.mock("@/components/ChampionProfileSourcesPanel", () => ({
+  ChampionProfileSourcesPanel: () => null,
+}));
 
 const recruiter = {
   id: 7,
@@ -63,6 +71,7 @@ function renderEditor(jobId: number) {
 
 beforeEach(() => {
   getMock.mockReset();
+  putMock.mockReset();
   useAuthStore.setState({
     user: recruiter,
     realUser: null,
@@ -210,6 +219,31 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
     expect(screen.getByText("Musi mieć · 2")).toBeInTheDocument();
     expect(screen.getByText("Mile widziane · 1")).toBeInTheDocument();
     expect(container.textContent).toContain("wystarczy jedna z tych umiejętności");
+  });
+});
+
+describe("ChampionProfileEditor — zapis odświeża werdykt gotowości", () => {
+  it("„Zapisz” unieważnia `[\"job-readiness\", jobId]` — inaczej „Przekaż do searchu” zostaje wyszarzone po uzupełnieniu braków", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 12, champion_profile: {} } });
+    putMock.mockResolvedValue({ data: { job_id: 12, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={12} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByTestId("save-champion-profile"));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["job-readiness", 12] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["champion-profile", 12] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["job", "12"] });
   });
 });
 
