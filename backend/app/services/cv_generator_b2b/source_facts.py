@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -18,6 +19,7 @@ from app.services.cv_generator_b2b.provider import analyze_with_ai
 from app.services.cv_generator_b2b.source_quotes import (
     source_quote_span,
     same_source_value,
+    source_column_dates,
 )
 
 
@@ -37,6 +39,11 @@ notes does not belong to every role. Screening facts need an explicit role link
 to be added to that role. Exclude salary, availability, recruitment assessments,
 private circumstances and other recruitment processes from document facts.
 Sort experience newest first, but never omit older roles.
+For dates in a separate PDF column, the start and end may be on adjacent lines
+with a company/title between them. Join those two verbatim endpoints with a dash
+in the dates field. Never change an endpoint's wording, format or precision.
+The evidence quote must keep the ORIGINAL source block, including intervening
+company/title text; never rearrange or join fragments inside an evidence quote.
 
 Return ONLY JSON, with exactly these keys:
 {"document": {
@@ -56,6 +63,8 @@ objects. Every nonempty factual leaf needs evidence at its own path OR an
 ancestor's path. Skill category labels are structural, not factual evidence.
 Use ONLY source identifiers cv and screening_notes. Quotes must be exact source
 substrings, and every extracted value must occur verbatim in its quoted evidence.
+The sole exception is a joined date column: both unchanged endpoints must occur
+in the original nearby source lines of that role's quoted block.
 For role objects, quote the block that actually belongs to that role, not text
 from other roles. A responsibility supplemented from notes needs its own leaf
 evidence. Do not cite the whole input as a shortcut. No extra keys or markdown.
@@ -178,7 +187,11 @@ def validate_extraction(response: str, sources: dict[str, str]) -> dict:
         for path in matching:
             # Values are raw source extracts. Wording changes belong to the
             # later editorial phase, after the full history has been captured.
-            if same_source_value(leaves[path], source[start:end]):
+            quoted_source = source[start:end]
+            if same_source_value(leaves[path], quoted_source) or (
+                re.fullmatch(r"/(experience|education)/\d+/dates", path)
+                and source_column_dates(leaves[path], quoted_source)
+            ):
                 coverage[path].append(index)
     if any(not citations for citations in coverage.values()):
         raise SourceFactsError("unbound_fact")
