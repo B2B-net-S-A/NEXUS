@@ -360,14 +360,14 @@ def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
 
 
 async def _interactive_flags(
-    db: AsyncSession, doc: CvGeneratedDocument
+    db: AsyncSession, doc: CvGeneratedDocument, *, approved_version: bool = False
 ) -> tuple[bool, bool]:
     """Resolve client policy identically for upload and recruitment documents."""
     from app.services.cv_generator_b2b.document_policy import (
         interactive_client_enabled,
     )
 
-    tiles = bool((doc.requirement_map or {}).get("items"))
+    tiles = approved_version or bool((doc.requirement_map or {}).get("items"))
     if not await interactive_client_enabled(db, doc):
         return False, False
     if (doc.mode != "new" or doc.job_id is None) and not tiles:
@@ -432,7 +432,7 @@ async def get_public_generated_cv(
         from app.services.cv_generated_approval import approved_version_for_generation
 
         approved = await approved_version_for_generation(db, doc, version_id)
-        _tiles, chat = await _interactive_flags(db, doc)
+        _tiles, chat = await _interactive_flags(db, doc, approved_version=True)
         tiles = _tiles
         if tiles:
             from app.services.cv_version_map_view import approved_map_view
@@ -533,7 +533,9 @@ async def post_public_generated_cv_chat(
             raise HTTPException(
                 409, "Nie można odczytać zatwierdzonej treści dla chatu."
             ) from None
-    _tiles, chat_enabled = await _interactive_flags(db, doc)
+    _tiles, chat_enabled = await _interactive_flags(
+        db, doc, approved_version=row.document_version_id is not None
+    )
     if not chat_enabled:
         raise HTTPException(
             status_code=404, detail="Chat nie jest dostępny dla tego linku."

@@ -135,3 +135,30 @@ async def test_public_question_uses_exact_approval_before_calling_chat(
         resolver.assert_not_awaited()
     else:
         resolver.assert_awaited_once_with(db, doc, 71)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_approved_interactivity_does_not_require_obsolete_generated_map(
+    monkeypatch, enabled
+):
+    from unittest.mock import AsyncMock
+    from app.api.public_share import _interactive_flags
+    from app.services.cv_generator_b2b import document_policy
+    from app.services import ai_quota
+
+    db = AsyncMock()
+    doc = SimpleNamespace(mode="upload", job_id=None, requirement_map=None)
+    monkeypatch.setattr(
+        document_policy, "interactive_client_enabled", AsyncMock(return_value=enabled)
+    )
+    monkeypatch.setattr(ai_quota, "get_master_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        ai_quota,
+        "get_feature_config",
+        AsyncMock(return_value=SimpleNamespace(enabled=True)),
+    )
+    assert await _interactive_flags(db, doc, approved_version=True) == (
+        enabled,
+        enabled,
+    )
+    assert await _interactive_flags(db, doc) == (False, False)

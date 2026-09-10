@@ -104,7 +104,7 @@ async def test_public_link_uses_selected_approval_without_original_claims(
     assert response.headers["Cache-Control"] == "no-store"
     if pinned:
         resolver.assert_awaited_once_with(db, doc, 12)
-        flags.assert_awaited_once_with(db, doc)
+        flags.assert_awaited_once_with(db, doc, approved_version=True)
         assert result["cv_html"] == version.content_html
         assert result["cv"]["position"] == "Approved title"
         assert result["requirements"] == []
