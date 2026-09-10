@@ -268,8 +268,12 @@ def _attributed_progress(
     """
     progress = PhaseProgress(phase=phase)
     error_ids = stats.get("error_ids") or []
+    # Nazwa klasy wyjątku (nie treść — ta bywa cytatem z CV) na końcu próbki.
+    error_types = stats.get("error_types") or {}
     for row_id in error_ids:
-        progress.add_error(f"{verb} {entity} id={row_id}: {detail}")
+        kind = error_types.get(row_id)
+        suffix = f" ({kind})" if kind else ""
+        progress.add_error(f"{verb} {entity} id={row_id}: {detail}{suffix}")
     # Źródło o starym kształcie statystyk (bez ``error_ids``) degraduje się do
     # stanu sprzed poprawki — błędy nieprzypisane, watermark stoi — zamiast
     # wymuszać zmianę kontraktu wszystkich źródeł naraz.
@@ -534,6 +538,22 @@ def _phase_plan(
         # Ostatnia i wyłącznie raportowa — nic nie zapisuje, nic nie blokuje.
         ("reconcile", lambda: _reconcile_phase(importer)),
     ]
+
+
+# Fazy WZBOGACANIA: wyprowadzają dane z tego, co Nexus JUŻ ma (zapisane CV),
+# a nie z okna zmian Traffita wyznaczanego przez `__daily__` — imię z CV,
+# pola strukturalne CV, fakty Cortexa. Wstrzymanie globalnego watermarku z ich
+# powodu niczego im nie ponawia: kolejna delta importuje od Traffita coraz
+# szersze okno kandydatów, a wiersz, który padł, pada dalej. Kwarantanna też
+# ich nie ratuje — pełny bieg przemiata budżetowany wycinek, więc wiersz jest
+# oglądany raz na przebieg, a `_next_quarantine` zapomina go następnej nocy
+# (nieobecny = „zaimportował się") i licznik nigdy nie dobija do limitu.
+# Tak jeden nieparsowalny CV (kandydat 287387) zamroził `__daily__` od
+# 2026-09-08. Ich błędy ZOSTAJĄ widoczne — status fazy `errors`, próbki,
+# referencje i kwarantanna w `/sync/status` — tylko nie blokują watermarku.
+ADVISORY_PHASES = frozenset(
+    {"candidates_enrich_names", "candidates_cv_fields", "cortex"}
+)
 
 
 # Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
@@ -826,7 +846,11 @@ async def run_traffit_sync(
                             for ref, n in quarantine.items()
                             if n >= settings.TRAFFIT_MAX_ROW_ATTEMPTS
                         }
-                        if blocking:
+                        if blocking and name in ADVISORY_PHASES:
+                            # Counted and shown, but under a key the global gate
+                            # below does not read — see `ADVISORY_PHASES`.
+                            summary["advisory_errors"] = blocking
+                        elif blocking:
                             # Read by the global gate below. Absent when zero so
                             # the stats stay quiet on a clean phase.
                             summary["blocking_errors"] = blocking
@@ -860,6 +884,8 @@ async def run_traffit_sync(
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("Traffit phase %s failed", name)
                         results[name] = {"error": repr(exc)}
+                        if name in ADVISORY_PHASES:
+                            results[name]["advisory"] = True
                         try:
                             await db.rollback()
                         except Exception:  # noqa: BLE001
@@ -949,10 +975,27 @@ async def run_traffit_sync(
                 # is NOT a blocker. Reading `v.get("errors")` here instead would
                 # re-freeze the daily watermark on the very rows the phase just
                 # decided to park, and the whole mechanism would be a no-op.
+                # Enrichment phases never gate it, not even when they crash —
+                # `ADVISORY_PHASES`; their own rows keep status `errors`/`error`.
                 any_error = any(
                     isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
-                    for v in results.values()
+                    for phase_name, v in results.items()
+                    if phase_name not in ADVISORY_PHASES
                 )
+                advisory_failures = sorted(
+                    phase_name
+                    for phase_name, v in results.items()
+                    if phase_name in ADVISORY_PHASES
+                    and isinstance(v, dict)
+                    and ("error" in v or v.get("advisory_errors"))
+                )
+                if advisory_failures:
+                    logger.warning(
+                        "Traffit %s: enrichment phase(s) with errors, not "
+                        "holding the watermark: %s",
+                        mode,
+                        ", ".join(advisory_failures),
+                    )
                 status = "errors" if any_error else "ok"
 
                 # Advance the delta watermark (``last_synced_at``) ONLY on a
@@ -1019,6 +1062,7 @@ async def run_traffit_sync(
             "since": since.isoformat() if since else None,
             "notes_promoted": notes,
             "phases": results,
+            **({"advisory_failures": advisory_failures} if advisory_failures else {}),
         }
 
 

@@ -2855,8 +2855,17 @@ class TraffitImporter:
         # bare "candidate": the candidates phase keys its refs on the Traffit
         # external id, and these are Nexus ids, so sharing the word would merge
         # two different id spaces into one quarantine entry.
+        # The exception class goes into the sample: "backfill failed" alone does
+        # not say whether the parser, the file store or the write broke — three
+        # different fixes. Class name only, never the message (it can quote CV
+        # content), and AFTER the `id=` key the quarantine regex reads.
+        error_types = stats.get("error_types") or {}
         for cand_id in stats.get("error_ids") or []:
-            progress.add_error(f"enrich candidate_name id={cand_id}: backfill failed")
+            kind = error_types.get(cand_id)
+            progress.add_error(
+                f"enrich candidate_name id={cand_id}: backfill failed"
+                + (f" ({kind})" if kind else "")
+            )
         leftover = int(stats.get("errors") or 0) - len(stats.get("error_ids") or [])
         if leftover > 0:  # defensive: keep the count honest if ids go missing
             progress.errors += leftover

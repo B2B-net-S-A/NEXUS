@@ -381,6 +381,9 @@ async def backfill_missing_names(
         "unresolved": 0,
         "errors": 0,
         "error_ids": [],
+        # Klasa wyjątku per ID: próbka „backfill failed" bez niej nie mówi, czy
+        # padł parser, magazyn plików czy zapis — a to trzy różne naprawy.
+        "error_types": {},
         "last_id": ids[-1] if ids else None,
     }
     if progress is not None:
@@ -433,6 +436,7 @@ async def backfill_missing_names(
             # per-row errors so the quarantine can park a permanently broken
             # candidate instead of freezing the watermark for everyone.
             stats["error_ids"].append(cand_id)
+            stats["error_types"][cand_id] = type(e).__name__
             logger.warning("[cv_backfill] candidate %s failed: %s", cand_id, e)
         stats["processed"] += 1
         if progress is not None:
