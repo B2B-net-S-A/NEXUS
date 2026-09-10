@@ -214,6 +214,14 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
   jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
   pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
+- **TCM działa w całej organizacji (decyzja Artura, 10.09.2026).** #1430 dał
+  roli TCM `confirm-fully-signed`, a #1421 zmianę statusu kontraktu
+  (`PATCH /contracts/{id}/status`) — obie akcje bez zakresu klienta, bo nie ma
+  modelu przypisania TCM do klienta. To jest stan docelowy, nie przeoczenie:
+  ścisły client-scope z punktu wyżej dotyczy DL/TAC. Jedyna granica TCM to
+  sekcja Delivery: wyjątek TCM w `section_access.py` wymaga co najmniej
+  odczytu Delivery, więc odebranie sekcji w panelu naprawdę odbiera akcję
+  (do 10.09 wyjątek wracał, zanim porównał `granted`).
 - **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
   „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
   kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia
@@ -464,6 +472,26 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
 - **Testy:** `conftest` przypina `v10` + ścisłe dowody dla dotychczasowych
   testów; domyślne zachowanie produkcyjne pilnuje
   `tests/test_cv_generator_legacy_v7.py`.
+- **Generować CV może każdy (decyzja Artura, 10.09.2026).** #1448 dołożył
+  wymóg członkostwa w zespole rekrutacji do `/generate`, `/generate-upload`
+  i zrzutu zgody — cofnięty. Zostaje bramka roli (`CandidateWriteAccess`)
+  i poprawność „etap musi należeć do kandydata” (404). Picker rekrutacji
+  w generatorze (`/candidates/{id}/recruitments`) nie jest zawężany — to on
+  decyduje, pod którą rekrutacją da się wygenerować CV.
+  Istniejące CV (`_load_generated_document`): **autor zawsze**; cudzy dokument
+  związany z rekrutacją wymaga odczytu tej rekrutacji (`ensure_job_read_access`
+  — obejmuje Finanse, więc Finanse może też zatwierdzić/udostępnić cudze CV,
+  jak przed 09.09); usunięcie nadal autor albo admin. Lista `/generated` to
+  zakres odczytu **lub** własne CV. Podpięcie CV do etapu w pipeline
+  (`candidate_stage_cv.py`) nadal wymaga członkostwa — to reguła sprzed #1448.
+- **CV sprzed #1444 da się zatwierdzić.** Wiersze bez `docx_content` i
+  `docx_sha256` (każde CV sprzed 10.09, 09:04) dostają DOCX renderowany raz
+  z `render_payload` przy zatwierdzeniu, zapisany na wierszu
+  (`docx_rendered_at_approval`). Stan częściowy (plik bez skrótu, skrót bez
+  pliku, rozjazd) to nadal 409 integralności.
+- **Zadania z kolejki przeżywają deploy.** `job_snapshot.py` przyjmuje snapshot
+  bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
+  z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
 
 ## Reguły CV per klient — pełna recepta Delivery Leada
 
@@ -685,6 +713,17 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   `scripts/champion_template_clients.json` został usunięty po jednorazowej
   konwersji skryptem `scripts/build_client_playbook_seed.py`, który sprawdza
   KOMPLETNOŚĆ: każda linia 14 wzorów musi trafić do karty (inaczej pada).
+- **Walidacja szkicu v4 (#1477) jest doradcza: `CHAMPION_INTAKE_GATE_ENABLED`
+  (domyślnie OFF, #1481).** Włączona blokuje search, handoff i generację CV
+  (`enforce_operation` → 422 „Profil Championa wymaga poprawy przed
+  użyciem”) dla profili ostemplowanych `policy_version=1` — a stempel dostaje
+  każdy profil przy zapisie zmieniającym treść, klonowaniu oferty, imporcie
+  z Traffita i akceptacji draftu AI. 10.09 zablokowało to pracę zespołu, stąd
+  domyślne OFF. **Uwaga:** `prepare_profile` normalizuje profil przy każdym
+  takim zapisie NIEZALEŻNIE od flagi — stawka podana zakresem staje się pusta,
+  a pozycje MUST dłuższe niż 12 słów lub 120 znaków lądują w
+  `intake.unresolved` i znikają z `jobs.must_skills`. Do poprawienia (normalizacja
+  tylko edytowanych pól); nie włączaj bramki, zanim to wejdzie.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1201,6 +1240,35 @@ nie ma żadnej reguły do utrzymania.
   robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
   a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
   i przesuwał okno wstecz).
+- **`ORDER_MAIL_AUTOAPPLY_ENABLED` jest żywym wyłącznikiem (od 10.09.2026).**
+  #1472 zrobił z niej flagę „legacy” — bramka jej nie czytała, a status zwracał
+  na sztywno `true`. Teraz działa w jednym miejscu,
+  `hold_when_autoapply_disabled` (`order_mail_ingest.py`), przy TRZECH zapisach
+  bez człowieka: odczyt maila, „Przelicz plan” i jednorazowe czyszczenie
+  kolejki. Wyłączona flaga zostawia werdykt „auto” w kolejce z powodem
+  „Automatyczny zapis jest wyłączony…”. `evaluate()` jej NIE czyta (zostaje
+  czyste), a ręczne „Zastosuj” ją ignoruje.
+- **Powrót po przerwie = NOWE zamówienie (decyzja Artura, 10.09.2026).** Do
+  10.09 automat „reaktywował” zakończone zamówienie: przepisywał w nim tytuł,
+  okres, stawkę, koszt i PDF — tak w nocy 9/10.09 nadpisał PFRON 507–509.
+  Teraz powrót idzie tą samą ścieżką co nowe zamówienie, a zakończone jest
+  tylko czytane (`FOR SHARE`, ponowne sprawdzenie warunków planera). Link do
+  poprzedniego żyje w Activity `order_mail_renewal` (`renewal_of_order_id`,
+  `gap_days`, `previous_end_date`) — NIE w `notes` (tam jest znacznik
+  idempotencji porównywany dosłownie) i NIE w `predecessor_order_id` (to
+  zamiana kontraktora na linii grupy MD). Linie grup MD nigdy nie są
+  „poprzednim zamówieniem”.
+- **Mail nie wskrzesza wypowiedzianej umowy.** `can_activate_mail_order`
+  odmawia umowie z `terminated_at` albo `termination_reason` przed
+  sprawdzeniem podpisu (dotyczy też `complete_signed_mail_drafts`). Ścieżki
+  ludzkie (`reopen_contract` z aneksu/przedłużenia) zostają bez zmian, więc
+  umowa przedłużona ręcznie po wypowiedzeniu dostaje zamówienia z maila jako
+  szkice.
+- **Jedyny imiennik w bazie wymaga człowieka.** Nowa osoba z maila jest
+  szukana po nazwisku ze zwiniętymi polskimi znakami po obu stronach. Jeden
+  imiennik bez umowy u tego klienta zostaje dopięty tylko przy ręcznym
+  „Zastosuj”; automat odsyła dokument do kolejki (samo nazwisko to za mało,
+  żeby dać komuś cudze zamówienie).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
@@ -1520,6 +1588,13 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 - **Zakończenie jest LUSTREM syncu terminacji kontraktu** ([contracts.py:2918](backend/app/api/contracts.py)):
   data zapisuje się zawsze, ale `completed` dostają tylko linie, których dzień już
   nadszedł. Bez tego zakończenie zaplanowane w przód wyłączałoby kogoś, kto dziś pracuje.
+  **Import MD/kosztowy rozlicza taką grupę do daty zakończenia** (od 10.09.2026):
+  grupa ma `completed` od razu, a jej linie są aktywne, więc
+  `active_md_lines`/`active_cost_lines`/`active_shared_md_lines` przyjmują grupę
+  `completed` z `closure_date ≥` pierwszy dzień importowanego miesiąca
+  (`group_settles_in_month`). Ta sama reguła MUSI być w walidacji po blokadach
+  (`md_consumption._ordinary_locked_target_is_valid`) — bez niej cała partia
+  kosztowa lub wspólnej puli dostaje 409.
 - **Usunięcie nie kasuje linii z historią** — zdejmuje ją z grupy (`order_group_id=NULL`).
   Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
   reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
@@ -1631,6 +1706,10 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   przetestować bez montowania całego ciężkiego profilu — efekt zależy od WARTOŚCI
   parametru, nie od tożsamości `searchParams`, więc ręczne kliknięcie w inną zakładkę
   nie jest cofane przy najbliższym renderze.
+  **Klucze `?tab=` w backendzie muszą pochodzić z `client-tab.ts`** — pilnuje tego
+  `tests/test_client_tab_links.py`. Do 10.09 alert nowego szkicu z maila linkował
+  do `?tab=orders`, a alerty umów ramowych do `?tab=framework-contracts`; oba
+  klucze nie istnieją, więc odbiorca lądował na Profilu.
 - **Aktywacja na prodzie: `COST_ORDER_CLIENT_IDS=15` (Polkomtel) USTAWIONE 2026-08-18.**
   Nie panelem i nie po SSH (klucze martwe, hasła do panelu nie znamy) — workflow
   **„Coolify set env"** (`.github/workflows/coolify-set-env.yml`, `workflow_dispatch`);
