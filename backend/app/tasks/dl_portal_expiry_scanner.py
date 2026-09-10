@@ -28,7 +28,7 @@ import asyncio
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -101,7 +101,17 @@ async def _already_notified(
     wpisy sprzed tej zmiany dalej deduplikują swój epizod — bez migracji i bez
     jednorazowego zalewu powtórek. Ten sam wzorzec „epizod w kluczu” co
     ``[Nd|<data>]`` w ``contract_alerts``; tytuł zostaje czytelny.
+
+    Drugi warunek to bezpiecznik ``ix_notif_dedup_daily`` (odbiorca, typ,
+    encja, dzień w Warszawie): próg liczony od ``date.today()`` (UTC) potrafi
+    trafić tę samą encję dwa razy w jednej warszawskiej dobie, gdy między
+    biegami ktoś przesunie datę o dzień. Drugi wpis rozbiłby się o indeks
+    i wycofał cały przebieg — z przejściami statusów włącznie — więc taki
+    próg tego dnia odpuszczamy.
     """
+    warsaw_day = func.date_trunc(
+        "day", func.timezone("Europe/Warsaw", Notification.created_at)
+    ) == func.date_trunc("day", func.timezone("Europe/Warsaw", func.now()))
     res = await db.execute(
         select(Notification.id)
         .where(
@@ -109,7 +119,10 @@ async def _already_notified(
             Notification.related_entity_type == related_entity_type,
             Notification.related_entity_id == related_entity_id,
             Notification.notification_type == ntype,
-            Notification.message.contains(end_phrase, autoescape=True),
+            or_(
+                Notification.message.contains(end_phrase, autoescape=True),
+                warsaw_day,
+            ),
         )
         .limit(1)
     )

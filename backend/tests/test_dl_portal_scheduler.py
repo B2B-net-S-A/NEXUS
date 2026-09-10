@@ -385,6 +385,62 @@ async def test_extended_order_and_framework_contract_rearm_thresholds():
         )
 
 
+async def test_same_warsaw_day_alert_for_moved_date_does_not_crash_the_run():
+    """Data przesunięta o dzień między biegami w jednej warszawskiej dobie.
+
+    Próg liczony od daty UTC trafia wtedy tę samą encję drugi raz tego samego
+    warszawskiego dnia, a ``ix_notif_dedup_daily`` nie zna daty końca: drugi
+    wpis wywaliłby commit i wycofał cały przebieg (z przejściami statusów).
+    """
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    contract_id, candidate_id = await _new_contract(client_id)
+    end = date.today() + timedelta(days=7)
+    try:
+        async with AsyncSessionLocal() as db:
+            order = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title="Przesunięte zamówienie",
+                status=ClientOrderStatus.active,
+                start_date=date.today() - timedelta(days=30),
+                end_date=end,
+            )
+            db.add(order)
+            await db.flush()
+            # Wpis z DZIŚ dla poprzedniej daty końca (dzień wcześniej).
+            db.add(
+                Notification(
+                    user_id=dl_id,
+                    title="Zamówienie kończy się za 7 dni",
+                    message=(
+                        "Zamówienie dla X u Y kończy się "
+                        f"{(end - timedelta(days=1)).isoformat()}. Skontaktuj się."
+                    ),
+                    notification_type=NotificationType.client_order_ending_7d,
+                    related_entity_type="client_order",
+                    related_entity_id=order.id,
+                )
+            )
+            await db.commit()
+            order_id = order.id
+
+        await run_once()  # nie może rzucić IntegrityError
+
+        async with AsyncSessionLocal() as db:
+            count = await db.scalar(
+                select(__import__("sqlalchemy").func.count()).where(
+                    Notification.user_id == dl_id,
+                    Notification.related_entity_type == "client_order",
+                    Notification.related_entity_id == order_id,
+                    Notification.notification_type
+                    == NotificationType.client_order_ending_7d,
+                )
+            )
+            assert count == 1
+    finally:
+        await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
+
+
 async def test_order_alert_dispatched():
     """Order ending in 7d → notification."""
     admin_id, dl_id, client_id = await _setup_dl_with_client()

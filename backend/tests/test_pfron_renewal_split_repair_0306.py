@@ -89,8 +89,11 @@ def test_every_order_that_can_be_skipped_is_left_untouched_by_construction():
         "state_changed",
         "reactivate_activity_mismatch",
         "document_not_applied_to_order",
+        "document_plan_mismatch",
         "another_order_covers_new_period",
+        "another_order_covers_previous_period",
         "rate_unit_change_suspected",
+        "rate_unit_unverifiable",
         "unknown_foreign_key_reference",
     ):
         assert f"'{reason}'" in sql, reason
@@ -224,10 +227,12 @@ async def _seed_target(db, *, tag, client, dl_user, spec):
             "rows": [
                 {
                     "row_index": 0,
-                    "action": "reactivate",
+                    "action": spec.get("plan_action", "reactivate"),
                     "target_order_id": order.id,
                     "title": spec["new_title"],
-                    "total_value": None,
+                    "start_date": str(NEW_PERIOD_START),
+                    "end_date": str(NEW_PERIOD_END),
+                    "total_value": spec.get("plan_total"),
                 }
             ],
             "apply_result": {
@@ -276,7 +281,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
     from app.core.security import hash_password
     from app.models.activity import Activity
     from app.models.client import Client
-    from app.models.client_order import ClientOrder
+    from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract_client_rate import ContractClientRate
     from app.models.dl_alert import DlAlert
     from app.models.md_consumption import ClientOrderMdConsumption
@@ -351,6 +356,56 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 filled_at=T0 + timedelta(seconds=3),
                 before_file=lambda oid: None,
             ),
+            # Stary okres ktoś już odtworzył ręcznie po nadpisaniu.
+            "e": dict(
+                key="e",
+                new_title="PFRON/2026/NOWE-E",
+                old_title="PFRON/2026/STARE-E",
+                rate_client=Decimal("81.370"),
+                before_rate="85.000",
+                before_start="2026-06-01",
+                notes=MESSAGE,
+                filled_at=T0 + timedelta(seconds=3),
+                before_file=lambda oid: None,
+            ),
+            # PDF zmieniony w aplikacji po nadpisaniu — stary plik mógł zniknąć.
+            "f": dict(
+                key="f",
+                new_title="PFRON/2026/NOWE-F",
+                old_title="PFRON/2026/STARE-F",
+                rate_client=Decimal("81.370"),
+                before_rate="85.000",
+                before_start="2026-06-01",
+                notes=MESSAGE,
+                filled_at=T0 + timedelta(seconds=3),
+                before_file=lambda oid: f"client_orders/{oid}/cafebabe-stare.pdf",
+                plan_total="25000.00",
+            ),
+            # Bez bieżącej stawki nie ma czym sprawdzić jednostki.
+            "g": dict(
+                key="g",
+                new_title="PFRON/2026/NOWE-G",
+                old_title="PFRON/2026/STARE-G",
+                rate_client=None,
+                before_rate="85.000",
+                before_start="2026-06-01",
+                notes=MESSAGE,
+                filled_at=T0 + timedelta(seconds=3),
+                before_file=lambda oid: None,
+            ),
+            # Plan dokumentu nie jest powrotem po przerwie z tego zamówienia.
+            "h": dict(
+                key="h",
+                new_title="PFRON/2026/NOWE-H",
+                old_title="PFRON/2026/STARE-H",
+                rate_client=Decimal("81.370"),
+                before_rate="85.000",
+                before_start="2026-06-01",
+                notes=MESSAGE,
+                filled_at=T0 + timedelta(seconds=3),
+                before_file=lambda oid: None,
+                plan_action="new",
+            ),
         }
         seeded = {
             key: await _seed_target(
@@ -361,6 +416,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
         a = seeded["a"]
         after = datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc)
         before = datetime(2026, 8, 10, 8, 0, tzinfo=timezone.utc)
+        stale_message_id = f"<{uuid.uuid4()}@pfron.test>"
         db.add_all(
             [
                 DlAlert(
@@ -418,9 +474,62 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 Activity(
                     entity_type="client",
                     entity_id=client.id,
-                    action="order_file_uploaded",
-                    details={"order_id": a["order_id"], "filename": "x.pdf"},
+                    action="order_viewed",
+                    details={"order_id": a["order_id"]},
                     created_at=after,
+                ),
+                # F: nowy PDF wgrany w aplikacji po nadpisaniu.
+                Activity(
+                    entity_type="client",
+                    entity_id=client.id,
+                    action="order_file_uploaded",
+                    details={
+                        "order_id": seeded["f"]["order_id"],
+                        "filename": "poprawiony.pdf",
+                        "replaced": True,
+                    },
+                    created_at=after,
+                ),
+                # E: stary okres odtworzony ręcznie po nadpisaniu.
+                ClientOrder(
+                    client_id=client.id,
+                    contract_id=seeded["e"]["contract_id"],
+                    title="PFRON/2026/STARE-E (ręcznie)",
+                    status=ClientOrderStatus.completed,
+                    start_date=date(2026, 6, 1),
+                    end_date=PREVIOUS_PERIOD_END,
+                    created_at=after,
+                ),
+                # A: inny dokument z tego samego biegu, który zapisał zamówienie
+                # jeszcze w STARYM stanie („bez zmian”) — nie wolno go przepiąć.
+                OrderMailDocument(
+                    internet_message_id=stale_message_id,
+                    client_id=client.id,
+                    outcome="auto_applied",
+                    gate_verdict="auto",
+                    applied_order_id=a["order_id"],
+                    applied_at=T0 + timedelta(seconds=1),
+                    created_at=datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc),
+                    proposal={
+                        "rows": [
+                            {
+                                "row_index": 0,
+                                "action": "unchanged",
+                                "target_order_id": a["order_id"],
+                                "start_date": "2026-06-01",
+                            }
+                        ],
+                        "apply_result": {
+                            "error": None,
+                            "rows": [
+                                {
+                                    "row_index": 0,
+                                    "action": "unchanged",
+                                    "order_id": a["order_id"],
+                                }
+                            ],
+                        },
+                    },
                 ),
                 ContractClientRate(
                     contract_id=a["contract_id"],
@@ -462,11 +571,18 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
         previous_end=PREVIOUS_PERIOD_END,
         incident_window=INCIDENT_WINDOW,
     )
+    skipped = {
+        "c": "state_changed",
+        "d": "rate_unit_change_suspected",
+        "e": "another_order_covers_previous_period",
+        "g": "rate_unit_unverifiable",
+        "h": "document_plan_mismatch",
+    }
     try:
         async with AsyncSessionLocal() as db:
             untouched_before = {
                 key: dict(await _order_row(db, seeded[key]["order_id"]))
-                for key in ("c", "d")
+                for key in skipped
             }
             await db.execute(text(sql))
             await db.commit()
@@ -478,13 +594,10 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                     {"k": marker},
                 )
             )
-            assert (receipt["split"], receipt["skipped"]) == (2, 2)
+            assert (receipt["split"], receipt["skipped"]) == (3, 5)
             by_order = {r["order_id"]: r for r in receipt["orders"]}
-            assert by_order[seeded["c"]["order_id"]]["reason"] == "state_changed"
-            assert (
-                by_order[seeded["d"]["order_id"]]["reason"]
-                == "rate_unit_change_suspected"
-            )
+            for key, reason in skipped.items():
+                assert by_order[seeded[key]["order_id"]]["reason"] == reason, key
             assert {
                 (fk["table"], fk["column"])
                 for fk in receipt["foreign_keys_to_client_orders"]
@@ -500,7 +613,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 PREVIOUS_PERIOD_END,
             )
             assert original["rate_client"] == Decimal("85.000")
-            # Koszt z harmonogramu umowy na 01.06 (krok 55 od 01.01, nie 60 od 01.09).
+            # Koszt z harmonogramu umowy na 31.08 (krok 55 od 01.01, nie 60 od 01.09).
             assert original["rate_candidate"] == Decimal("55.000")
             assert original["notes"] == "Notatka starej umowy"
             assert original["filled_at"] is None
@@ -545,6 +658,18 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
             assert doc.proposal["apply_result"]["rows"][0]["order_id"] == new_a
             # Plan nadal wskazuje poprzednika jako cel „powrotu po przerwie”.
             assert doc.proposal["rows"][0]["target_order_id"] == a["order_id"]
+            # Dokument z tego samego biegu, który zapisał STARY stan, zostaje
+            # przy oryginale i trafia do przeglądu — nie zgadujemy okresu.
+            stale_doc = await db.scalar(
+                select(OrderMailDocument).where(
+                    OrderMailDocument.internet_message_id == stale_message_id
+                )
+            )
+            assert stale_doc.applied_order_id == a["order_id"]
+            assert (
+                stale_doc.proposal["apply_result"]["rows"][0]["order_id"]
+                == (a["order_id"])
+            )
 
             alerts = {
                 row.title: row
@@ -606,14 +731,14 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 )
             )
             assert moved_note == new_a
-            upload = await db.scalar(
+            viewed = await db.scalar(
                 select(Activity).where(
                     Activity.entity_type == "client",
                     Activity.entity_id == client_id,
-                    Activity.action == "order_file_uploaded",
+                    Activity.action == "order_viewed",
                 )
             )
-            assert upload.details["order_id"] == new_a
+            assert viewed.details["order_id"] == new_a
             step = await db.scalar(
                 select(ContractClientRate).where(
                     ContractClientRate.contract_id == a["contract_id"],
@@ -643,7 +768,12 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 == 1
             )
             assert entry_a["restored_order"]["rate_candidate_source"] == (
-                "contract_schedule_at_previous_start"
+                "contract_schedule_on_previous_last_day"
+            )
+            assert entry_a["documents_left_for_review"] == [stale_doc.id]
+            assert entry_a["contract_revenue_resync"] == "pending_next_order_write"
+            assert entry_a["new_order"]["total_value_source"] == (
+                "plan_without_total_value"
             )
 
             # ── B: bez startu i PDF-u w `before`, aktywacja sprzed nadpisania ─
@@ -654,9 +784,8 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
             assert original_b["start_date"] is None
             assert original_b["end_date"] == PREVIOUS_PERIOD_END
             assert original_b["rate_client"] == Decimal("150.000")
-            assert original_b["rate_candidate"] == Decimal(
-                "60.000"
-            )  # bez startu: bez zmian
+            # Koszt NIGDY nie jest kosztem nowego okresu (60) — dzień 31.08.
+            assert original_b["rate_candidate"] == Decimal("55.000")
             assert original_b["notes"] is None
             assert original_b["filled_at"] == datetime(
                 2026, 6, 1, 10, 0, tzinfo=timezone.utc
@@ -672,23 +801,47 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 renewal_b["file_path"]
                 == f"client_orders/{b['order_id']}/abcd1234-nowe.pdf"
             )
-            assert by_order[b["order_id"]]["restored_order"][
-                "rate_candidate_source"
-            ] == ("kept_current_no_previous_start")
+            assert (
+                by_order[b["order_id"]]["restored_order"]["file_mode"]
+                == "previous_order_had_no_file"
+            )
 
-            # ── C, D: pominięte i nietknięte ───────────────────────────────────
-            for key in ("c", "d"):
+            # ── F: PDF zmieniony w aplikacji po T0 — ścieżki nie podpinamy ────
+            f = seeded["f"]
+            new_f = by_order[f["order_id"]]["new_order_id"]
+            original_f = await _order_row(db, f["order_id"])
+            assert original_f["status"] == "completed"
+            assert original_f["file_path"] is None and original_f["filename"] is None
+            entry_f = by_order[f["order_id"]]
+            assert entry_f["restored_order"]["file_mode"] == (
+                "previous_file_uncertain_after_file_change"
+            )
+            assert (
+                entry_f["restored_order"]["file_path_before_overwrite"]
+                == (f["before_file"])
+            )
+            renewal_f = await _order_row(db, new_f)
+            assert renewal_f["file_path"] == (
+                f"client_orders/{f['order_id']}/abcd1234-nowe.pdf"
+            )
+            # Wartość z planu dokumentu, nie stara kolumna poprzedniego okresu.
+            assert renewal_f["total_value"] == Decimal("25000.000")
+            assert original_f["total_value"] == Decimal("12345.000")
+
+            # ── C, D, E, G, H: pominięte i nietknięte ─────────────────────────
+            for key in skipped:
                 assert (
                     dict(await _order_row(db, seeded[key]["order_id"]))
                     == (untouched_before[key])
-                )
+                ), key
+            # 8 zamówień + ręcznie odtworzony stary okres E + 3 wydzielone.
             assert (
                 await db.scalar(
                     select(func.count())
                     .select_from(ClientOrder)
                     .where(ClientOrder.contract_id.in_(contract_ids))
                 )
-                == 6
+                == 12
             )
 
             snapshot = (
@@ -705,7 +858,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 .select_from(Activity)
                 .where(Activity.details["source"].astext == marker)
             )
-            assert activities_count == 4
+            assert activities_count == 6
 
         # Drugi bieg: marker zatrzymuje blok — nic się nie zmienia.
         async with AsyncSessionLocal() as db:
@@ -736,7 +889,7 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                     .select_from(Activity)
                     .where(Activity.details["source"].astext == marker)
                 )
-                == 4
+                == 6
             )
             third = json.loads(
                 await db.scalar(
@@ -745,10 +898,11 @@ async def test_repair_splits_overwritten_orders_and_is_idempotent():
                 )
             )
             assert third["split"] == 0
-            assert {r["reason"] for r in third["orders"]} <= {
-                "state_changed",
-                "rate_unit_change_suspected",
-            }
+            third_reasons = {r["order_id"]: r["reason"] for r in third["orders"]}
+            for key in ("a", "b", "f"):
+                assert third_reasons[seeded[key]["order_id"]] == "state_changed"
+            for key, reason in skipped.items():
+                assert third_reasons[seeded[key]["order_id"]] == reason
     finally:
         async with AsyncSessionLocal() as db:
             order_ids = [
