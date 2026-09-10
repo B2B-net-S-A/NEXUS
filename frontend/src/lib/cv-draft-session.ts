@@ -64,6 +64,11 @@ export class CvDraftSession {
     this.notify("finalizing");
     try {
       await this.settle();
+      if (this.html !== this.persistedInput) {
+        const saved = await this.transport.save(this.html, this.revision);
+        this.revision = saved.edit_revision;
+        this.persistedInput = this.html;
+      }
       const result = await this.transport.finalize(this.html, this.revision);
       this.revision = result.edit_revision;
       this.persistedInput = this.html;

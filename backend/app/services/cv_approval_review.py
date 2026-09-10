@@ -52,7 +52,13 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     prepared = await prepare_approval_review(db, csv, content_html)
     if isinstance(prepared, dict):
         return prepared
-    return await execute_approval_review(db, prepared, user_id)
+    raise HTTPException(
+        409,
+        {
+            "code": "cv_review_required",
+            "message": "Uruchom kontrolę bieżącej treści CV przed zatwierdzeniem.",
+        },
+    )
 
 
 async def prepare_approval_review(

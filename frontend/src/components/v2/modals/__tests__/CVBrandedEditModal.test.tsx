@@ -77,18 +77,19 @@ it.each(["pipeline", "standalone"])("%s keeps legacy recovery visible and saves 
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
     candidateName="Synthetic" onRegenerate={regenerate} {...target} /></QueryClientProvider>);
   await screen.findByLabelText("audit editor");
-  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Preserve my changes</p>"}});
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Before review</p>"}});
   fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
   fireEvent.click(await screen.findByRole("button", {name: "Sfinalizuj"}));
   await screen.findByText("Brak zamrożonych źródeł.");
   expect(screen.getByText(/Wybierz oryginalny plik CV/)).toBeTruthy();
   expect(state.status).toBe("draft");
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Preserve my changes</p>"}});
   vi.spyOn(cvGeneratedEditorApi, "update").mockRejectedValueOnce(new Error("Save unavailable"));
   fireEvent.click(screen.getByRole("button", {name: regenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}));
   await screen.findByText("Błąd zapisu — poprawki pozostają w edytorze");
   expect(close).not.toHaveBeenCalled();
   if (regenerate) expect(regenerate).not.toHaveBeenCalled();
-  expect(state.stored).toBe("<p>Old text</p>");
+  expect(state.stored).toBe("<p>Before review</p>");
   fireEvent.click(screen.getByRole("button", {name: regenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   expect(state.stored).toBe("<p>Preserve my changes</p>");

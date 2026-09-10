@@ -1,3 +1,4 @@
+import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
@@ -5267,12 +5268,8 @@ export const candidateStageCvApi = {
     // plik — 120 s zamiast domyślnych 30 s (patrz `lib/http-timeouts.ts`).
     newDraft: (stageId: number, expected_revision: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/new-draft`, { expected_revision }),
-    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }) =>
-      api.post<CVBrandedFinalizeResponseT>(
-        `/api/candidates/stages/${stageId}/cv/branded/finalize`,
-        payload,
-        { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
-      ),
+    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }, signal?: AbortSignal) =>
+      finalizeReviewedCv(`/api/candidates/stages/${stageId}/cv/branded`, payload, signal),
   },
   share: {
     // M4 PR-04: default TTL 14 dni (backend max 90), opcjonalny limit wyświetleń.
@@ -5338,8 +5335,8 @@ export const cvGeneratedEditorApi = {
     api.patch<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`, payload),
   newDraft: (id: number, expected_revision: number) =>
     api.post<CVBrandedState>(`/api/cv-generator/generated/${id}/editor/new-draft`, { expected_revision }),
-  finalize: (id: number, payload: { content_html: string; expected_revision: number }) =>
-    api.post<CVBrandedFinalizeResponseT>(`/api/cv-generator/generated/${id}/editor/finalize`, payload, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
+  finalize: (id: number, payload: { content_html: string; expected_revision: number }, signal?: AbortSignal) =>
+    finalizeReviewedCv(`/api/cv-generator/generated/${id}/editor`, payload, signal),
 };
 
 export interface CvGeneratedApprovedVersion {
@@ -6796,3 +6793,12 @@ export type DrAccelerationPath = {
 // w NEXUS-ie (481 kontraktów od 2022), a liczby pokazuje /insights.
 
 export default api;
+
+
+function finalizeReviewedCv(path: string, payload: {content_html: string; expected_revision: number}, signal?: AbortSignal) {
+  return reviewBeforeFinalize(path + "/review", payload, {
+    start: key => api.post<CvReviewState>(path + "/review", {...payload, request_key: key}, {signal, timeout: SLOW_ENDPOINT_TIMEOUT_MS}).then(r => r.data),
+    get: id => api.get<CvReviewState>(`${path}/review/${id}`, {signal}).then(r => r.data),
+    finalize: () => api.post<CVBrandedFinalizeResponseT>(path + "/finalize", payload, {signal, timeout: SLOW_ENDPOINT_TIMEOUT_MS}),
+  }, signal);
+}

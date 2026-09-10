@@ -9,6 +9,13 @@ from app.services import cv_approval_review as review
 from app.services.cv_generator_b2b.factual_verification import FactualVerificationError
 
 
+async def inline_review_for_test(db, draft, content, user_id):
+    prepared = await review.prepare_approval_review(db, draft, content)
+    if isinstance(prepared, dict):
+        return prepared
+    return await review.execute_approval_review(db, prepared, user_id)
+
+
 async def test_prepared_review_survives_draft_changes_without_reading_them(monkeypatch):
     from dataclasses import FrozenInstanceError, asdict
     import json
@@ -102,12 +109,10 @@ async def test_edited_content_is_reviewed_against_frozen_source(
     )
     if unsupported:
         with pytest.raises(HTTPException) as error:
-            await review.review_for_approval(
-                AsyncMock(), csv, "<p>Changed claim</p>", 7
-            )
+            await inline_review_for_test(AsyncMock(), csv, "<p>Changed claim</p>", 7)
         assert error.value.status_code == 422
     else:
-        result = await review.review_for_approval(
+        result = await inline_review_for_test(
             AsyncMock(), csv, "<p>Changed claim</p>", 7
         )
         assert result["method"] == "edited_source_review"
@@ -166,7 +171,7 @@ async def test_provider_failure_does_not_approve_document(monkeypatch):
         id=1, edit_revision=3, generated_document_id=11, branded_render_metadata={}
     )
     with pytest.raises(HTTPException) as error:
-        await review.review_for_approval(AsyncMock(), csv, "<p>Claim</p>", 7)
+        await inline_review_for_test(AsyncMock(), csv, "<p>Claim</p>", 7)
     assert error.value.status_code == 503
     assert "Nie zatwierdzono" in error.value.detail
 
@@ -196,7 +201,7 @@ async def test_unchanged_verified_content_does_not_charge_or_reload_sources(
     quota = Mock(side_effect=AssertionError("must not charge"))
     monkeypatch.setattr(review, "load_review_source", load)
     monkeypatch.setattr(review, "ai_feature", quota)
-    result = await review.review_for_approval(AsyncMock(), csv, content, 7)
+    result = await inline_review_for_test(AsyncMock(), csv, content, 7)
     assert result["method"] == "unchanged_generation"
     load.assert_not_awaited()
     quota.assert_not_called()
@@ -262,10 +267,10 @@ async def test_only_exact_current_source_review_can_be_reused(monkeypatch, chang
     monkeypatch.setattr(review, "ai_feature", quota)
     if changed:
         with pytest.raises(RuntimeError, match="fresh review required"):
-            await review.review_for_approval(AsyncMock(), csv, content, 7)
+            await inline_review_for_test(AsyncMock(), csv, content, 7)
         quota.assert_called_once()
     else:
-        result = await review.review_for_approval(AsyncMock(), csv, content, 7)
+        result = await inline_review_for_test(AsyncMock(), csv, content, 7)
         assert result["reused"] is True
         assert result["html_sha256"] == receipt["html_sha256"]
         quota.assert_not_called()
@@ -297,7 +302,7 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
         branded_render_metadata={},
     )
     with pytest.raises(HTTPException) as error:
-        await review.review_for_approval(AsyncMock(), draft, "<p>Changed claim</p>", 7)
+        await inline_review_for_test(AsyncMock(), draft, "<p>Changed claim</p>", 7)
     assert error.value.status_code == 422
     admission.assert_not_called()
     verification.assert_not_called()
@@ -318,7 +323,7 @@ async def test_missing_source_returns_recovery_code_without_charging(
         generated_document_id=generated_id, branded_render_metadata={}
     )
     with pytest.raises(HTTPException) as error:
-        await review.review_for_approval(AsyncMock(), draft, "<p>Changed claim</p>", 7)
+        await inline_review_for_test(AsyncMock(), draft, "<p>Changed claim</p>", 7)
     assert error.value.status_code == 409
     assert error.value.detail["code"] == "cv_source_regeneration_required"
     assert error.value.detail["message"]
@@ -371,3 +376,22 @@ async def test_completed_background_review_reused_only_for_current_source(
         assert prepared["reused"] is True
         extract.assert_not_called()
     quota.assert_not_called()
+
+
+async def test_finalize_never_calls_model_without_completed_review(monkeypatch):
+    monkeypatch.setattr(
+        review,
+        "prepare_approval_review",
+        AsyncMock(
+            return_value=review.PreparedApprovalReview(
+                "<p>Claim</p>", "Source", "", "", 11, "a" * 64, "review:1:2", "{}"
+            )
+        ),
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(review, "execute_approval_review", execute)
+    with pytest.raises(HTTPException) as error:
+        await review.review_for_approval(AsyncMock(), object(), "<p>Claim</p>", 7)
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "cv_review_required"
+    execute.assert_not_awaited()

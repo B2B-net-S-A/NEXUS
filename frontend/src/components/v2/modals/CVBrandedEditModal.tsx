@@ -108,19 +108,26 @@ function CVBrandedEditContent({
  });
 
  const sessionRef = useRef<CvDraftSession | null>(null);
+ const approvalAbort = useRef<AbortController | null>(null);
+ useEffect(() => () => approvalAbort.current?.abort(), [open]);
  const loadedStage = useRef<number | null>(null);
  const replacingRef = useRef(false);
  const [saveState, setSaveState] = useState<CvSaveState>("saved");
 
  const loadState = (state: CVBrandedState) => {
+   approvalAbort.current?.abort();
    const session = new CvDraftSession(state.content_html ?? "<p></p>", state.edit_revision,
      state.status === "finalized", {
        save: (html, revision) => editorApi.update(stageId, {
          content_html: html, expected_revision: revision,
        }).then((r) => { queryClient.setQueryData([scopeKey, stageId], r.data); return r.data; }),
-       finalize: (html, revision) => editorApi.finalize(stageId, {
-         content_html: html, expected_revision: revision,
-       }).then((r) => r.data),
+       finalize: (html, revision) => {
+         approvalAbort.current?.abort();
+         approvalAbort.current = new AbortController();
+         return editorApi.finalize(stageId, {
+           content_html: html, expected_revision: revision,
+         }, approvalAbort.current.signal).then((r) => r.data);
+       },
      }, (status) => {
        if (sessionRef.current === session) setSaveState(status);
      });
@@ -420,7 +427,7 @@ function CVBrandedEditContent({
  <div className="ml-auto flex items-center gap-2">
  <span className="text-[11px] text-muted-foreground" role="status">
  {{ saved: "Zapisano", unsaved: "Niezapisane zmiany", saving: "Zapisywanie…",
-    error: "Błąd zapisu — poprawki pozostają w edytorze", finalizing: "Zatwierdzanie…",
+    error: "Błąd zapisu — poprawki pozostają w edytorze", finalizing: "Kontrola treści i zatwierdzanie…",
     finalized: `Zatwierdzona wersja ${data?.version ?? ""}` }[saveState]}
  </span>
  {saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
