@@ -1682,15 +1682,9 @@ async def enqueue_client_cv_rule_preview(
         )
     # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
     # kolejnego — bez osobnego crona.
-    from sqlalchemy import delete as sa_delete
+    from app.services.cv_preview_retention import retire_previews
 
-    await db.execute(
-        sa_delete(ClientCvRulePreview).where(
-            ClientCvRulePreview.client_id == client_id,
-            ClientCvRulePreview.created_at
-            < datetime.now(timezone.utc) - PREVIEW_RETENTION,
-        )
-    )
+    await retire_previews(db, client_id, datetime.now(timezone.utc) - PREVIEW_RETENTION)
 
     async def charge_preview():
         try:
