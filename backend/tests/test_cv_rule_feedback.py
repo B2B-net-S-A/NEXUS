@@ -58,6 +58,36 @@ def test_missing_champion_does_not_claim_highlighting_satisfied():
     assert all(item["status"] == "not_applicable" for item in result)
 
 
+def test_highlight_feedback_checks_final_content_not_source_or_heading():
+    result = presentation_feedback(
+        {
+            "position": "Python Developer",
+            "highlight_keywords": ["Python", "Java"],
+            "highlight_policy_result": {
+                "policy": "explicit",
+                "selected": ["Python", "Java", "SQL"],
+            },
+            "source_facts": {"skills": ["Python"]},
+            "experience": [{"responsibilities": ["Implemented Java and SQL services"]}],
+        },
+        rule(highlight_policy="explicit"),
+    )
+    terms = [item for item in result if item["field"] == "highlight_terms"]
+    assert [item["status"] for item in terms] == ["skipped", "satisfied", "conflict"]
+
+
+def test_highlight_feedback_uses_renderer_word_boundaries():
+    result = presentation_feedback(
+        {
+            "why_points": ["JavaScript developer"],
+            "highlight_keywords": ["Java"],
+            "highlight_policy_result": {"policy": "explicit", "selected": ["Java"]},
+        },
+        rule(highlight_policy="explicit"),
+    )
+    assert result[-1]["status"] == "skipped"
+
+
 def test_dates_distinguish_conflict_unknown_and_absent():
     for dates, expected in [
         ("01.2020", "conflict"),

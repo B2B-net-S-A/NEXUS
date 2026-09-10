@@ -2,6 +2,10 @@
 
 from app.services.cv_generator_b2b.client_rules import SECTION_LABELS, reformat_dates
 from app.services.cv_generator_b2b.language_aliases import resolve_alias
+from app.services.cv_generator_b2b.docx_renderer import (
+    compile_keyword_patterns,
+    highlight_spans,
+)
 
 
 def presentation_feedback(payload: dict, rule) -> list[dict]:
@@ -74,6 +78,40 @@ def presentation_feedback(payload: dict, rule) -> list[dict]:
                     "field": "highlight_terms",
                     "label": f"Fraza „{term}” nie występuje w źródle — pominięta",
                     "status": "skipped",
+                }
+            )
+        # Check only fields rendered with keyword emphasis. Headings, dates,
+        # private source facts and the keyword list itself are not evidence.
+        highlightable = [
+            *(payload.get("why_points") or []),
+            *(payload.get("certifications") or []),
+            *(payload.get("languages") or []),
+            *[group.get("content") or "" for group in payload.get("skills") or []],
+            *[text for role in roles for text in role.get("responsibilities") or []],
+            *[", ".join(role.get("technologies") or []) for role in roles],
+        ]
+        for term in highlighting.get("selected") or []:
+            patterns = compile_keyword_patterns([term])
+            present = any(
+                highlight_spans(str(text), patterns) for text in highlightable
+            )
+            registered = term in (payload.get("highlight_keywords") or [])
+            feedback.append(
+                {
+                    "field": "highlight_terms",
+                    "label": f"Fraza „{term}” — "
+                    + (
+                        "brak w końcowej treści objętej pogrubieniem"
+                        if not present
+                        else "dopasowana w końcowej treści"
+                        if registered
+                        else "brak na liście pogrubień dokumentu"
+                    ),
+                    "status": "skipped"
+                    if not present
+                    else "satisfied"
+                    if registered
+                    else "conflict",
                 }
             )
         if highlighting.get("requires_champion"):

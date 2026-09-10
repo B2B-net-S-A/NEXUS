@@ -667,3 +667,7 @@ No production migration or deployment has occurred.
 - Usunięcie ostatniej wersji językowej zapisuje w tej samej transakcji trwałe zlecenie usunięcia źródła (migracja `0301_cv_source_cleanup`). Worker ponawia błędy magazynu i nie usuwa źródła nadal używanego przez zadanie. Nie wykonuje historycznego czyszczenia.
 - Lokalne: 32 testy jednostkowe usuwania i trwałych zadań przeszły; Ruff i pojedyncza głowa Alembic potwierdzone. Dwa rozszerzone testy PostgreSQL sprawdzające obie kolejności usuwania języków i rollback zlecenia wymagają wykonania w CI.
 - Ta zmiana nie zamyka luki awarii procesu pomiędzy zapisem nowego obiektu a utworzeniem zadania w bazie ani odbioru jakości na rzeczywistych modelach.
+
+### CV-18: widoczność wybranych pogrubień
+
+Podgląd receptury sprawdza teraz każdą wybraną frazę w końcowych polach, które renderer obejmuje pogrubieniem. Dopasowanie korzysta z tego samego mechanizmu granic słów co DOCX. Fraza obecna tylko w źródle, nagłówku lub usuniętej części historii otrzymuje status pominięcia; fraza obecna w treści, lecz brakująca na liście pogrubień — konflikt. Nie jest to dowód wizualnego wyglądu pliku ani prawdziwości kompetencji. Dziewięć testów informacji zwrotnej i Ruff przeszły lokalnie; hosted CI dla tej zmiany pozostaje wymagane.
