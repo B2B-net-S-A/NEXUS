@@ -229,6 +229,13 @@ class OrderExtractionConsultant(BaseModel):
     end_date: Optional[str] = None
     rate_client: Optional[Decimal] = None
     rate_unit: Optional[str] = None
+    md_total: Optional[Decimal] = None
+    """Limit MD tej osoby (BIK: kolumna „Ilość zamów.") — operacyjny, jak
+    ``OrderExtractionResult.md_total``, więc bez redakcji finansowej."""
+    uncertain: bool = False
+    uncertain_reason: Optional[str] = None
+    """Powód niepewności wiersza (np. nieczytelne nazwisko). Tekst reguły, nie
+    kwota — ale bywa, że cytuje stawkę, więc redagowany jak ``uncertain_reasons``."""
 
 
 class OrderExtractionResult(BaseModel):
@@ -285,6 +292,12 @@ class OrderExtractionResult(BaseModel):
     objawem jest numer zamówienia wzięty z niewłaściwego pola dokumentu.
 
     Nie jest kwotą — przeżywa redakcję finansową, jak ``title_needs_review``."""
+
+    open_ended: bool = False
+    """Reguła klienta mówi, że zamówienie jest BEZTERMINOWE (BIK: koniec
+    wyznacza wyczerpanie limitów MD, nie data). Front czyści wtedy pole „do"
+    zamiast zostawiać wpisaną wcześniej datę — samo ``end_date=None`` nie
+    odróżnia „bezterminowo" od „nie znaleziono daty"."""
 
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)

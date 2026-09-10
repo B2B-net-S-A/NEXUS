@@ -143,6 +143,29 @@ def _detach_canonical_order_type_policy(monkeypatch):
     monkeypatch.setattr("app.services.order_types._PINNED_ALLOWED_ORDER_TYPES", {})
 
 
+@pytest.fixture(autouse=True)
+def _detach_bik_canonical_client(monkeypatch):
+    """18. testowy klient nie może stać się BIK-iem (odczyt PDF + koniec po MD).
+
+    Polityka BIK ma kanoniczne ID produkcyjne 18. Bez tej fikstury klient
+    testowy, który trafi na ten serial, dostawałby regułę odczytu BIK i —
+    groźniej — automatyczne kończenie zamówień po wyczerpaniu limitów MD,
+    czyli czerwień w teście, który o BIK-u nic nie wie. Testy BIK włączają
+    politykę przez ``BIK_ORDER_CLIENT_IDS`` na własnym kliencie.
+    """
+    from dataclasses import replace
+
+    from app.services.order_policies import registry
+
+    detached = replace(registry.policy_by_key("bik"), canonical_client_ids=frozenset())
+    monkeypatch.setattr(
+        registry,
+        "POLICIES",
+        tuple(detached if p.key == "bik" else p for p in registry.POLICIES),
+    )
+    monkeypatch.setitem(registry._BY_KEY, "bik", detached)
+
+
 # ── CV generator: existing suite covers the rebuilt pipeline, strictly ──────
 
 

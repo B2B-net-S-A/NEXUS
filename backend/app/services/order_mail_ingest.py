@@ -81,6 +81,7 @@ from app.services.order_policies import (
     apply_rate_kind,
     client_ids_from_env,
     is_client_in_policy,
+    open_ended_period,
     policy_by_key,
     prepare_document_text,
     prepare_parser_text,
@@ -662,6 +663,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
             trusted_policy_identity=(
                 "pfron" if is_client_in_policy("pfron", client_id) else None
             ),
+            open_ended_period=open_ended_period(policies),
             policies_applied=tuple(p.display_name for p in policies),
             extraction=extraction,
             document_truncated=extraction.document_truncated,

@@ -169,13 +169,23 @@ export interface ClientOrdersGroupedResponse {
 
 /** Wynik "Zczytaj dane z dokumentu" — odczyt PDF/DOCX zamówienia. */
 export interface OrderExtractionResult {
+  /** Tabela osób z dokumentu — wyłącznie u klientów z deterministyczną
+   *  tabelą (Nordea, BIK). `consultant_name` bywa PUSTE, gdy reguła nie
+   *  potrafiła jednoznacznie odczytać osoby (powód w `uncertain_reason`). */
   consultant_rows?: Array<{
     consultant_name: string;
     start_date: string | null;
     end_date: string | null;
     rate_client: number | null;
     rate_unit: string | null;
+    /** Limit MD tej osoby (BIK). Operacyjny — bez redakcji finansowej. */
+    md_total?: number | null;
+    uncertain?: boolean;
+    uncertain_reason?: string | null;
   }>;
+  /** Reguła klienta: zamówienie jest BEZTERMINOWE (BIK). Formularz czyści
+   *  wtedy datę „do" — samo `end_date: null` znaczy tylko „nie znaleziono". */
+  open_ended?: boolean;
   title: string | null;
   start_date: string | null; // ISO YYYY-MM-DD
   end_date: string | null;

@@ -957,6 +957,14 @@ async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
     remaining = quantize_md(Decimal(str(order.md_total)) - consumed + adjustment)
     order.md_remaining = remaining
     await sync_md_line_status(db, order)
+    if order.order_group_id is not None:
+        # Klienci, u których zamówienie kończy wyczerpanie limitów WSZYSTKICH
+        # osób (BIK) — import leniwy: moduł importuje stąd `record_event`.
+        from app.services.order_md_exhaustion import sync_md_group_exhaustion
+
+        await sync_md_group_exhaustion(
+            db, order.order_group_id, client_id=order.client_id
+        )
     return remaining
 
 

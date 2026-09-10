@@ -497,6 +497,10 @@ z danego wpisu.
   dopóki nie klikniesz **Zakończ** albo dopóki nie wyczerpie się budżet — więc
   można do niego dopisywać kolejne osoby także po dacie z dokumentu, mimo że
   wcześniej dodani zostali już domknięci.
+* **U BIK kończy zamówienie ostatnia osoba, która wyczerpie swój limit MD.**
+  Zamówienie zostaje „Aktywne", dopóki choć jeden przypisany konsultant ma
+  niewykorzystane dni; gdy wszyscy zejdą do zera, przechodzi na **„Zakończone"**
+  samo (patrz sekcja BIK).
 * **Po każdej zmianie przelicza budżet na nowo**, dzięki czemu powtórny import
   tego samego miesiąca nie odejmuje dni drugi raz. Przy budżecie przypisanym
   osobie możesz mimo to wpisać właściwą pozostałość ręcznie — system potraktuje
@@ -510,8 +514,9 @@ z danego wpisu.
 
 Automaty chodzą **raz na dobę**, licząc od ostatniego restartu aplikacji — nie ma
 stałej godziny. Wejście na zakładkę „Zamówienia" dodatkowo uruchamia zamówienia
-przyszłe, którym minął dzień startu, ale **niczego nie zamyka po dacie** — na to
-trzeba poczekać na nocny przebieg.
+przyszłe, którym minął dzień startu, i kończy zamówienia BIK, w których wszyscy
+wyczerpali limit MD, ale **niczego nie zamyka po dacie** — na to trzeba poczekać
+na nocny przebieg.
 
 ## Co zawsze robisz ręcznie
 
@@ -726,8 +731,8 @@ normalne, nie brak w instrukcji.
 
 Reguły odczytu dokumentu włącza administrator osobno dla każdego klienta.
 Jeżeli u Ciebie odczyt zachowuje się inaczej, niż opisano poniżej, **zgłoś to
-administratorowi** zamiast obchodzić regułę ręcznie — z wyjątkiem Orlenu i PFRON,
-które działają zawsze.
+administratorowi** zamiast obchodzić regułę ręcznie — z wyjątkiem Orlenu, PFRON
+i BIK, które działają zawsze.
 
 Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 **30, 14 i 7 dni** przed datą (dzwonek) oraz sprawy **„bez zamówienia"** i
@@ -763,6 +768,42 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * **Tylko zamówienia typu MD** — tak samo jak BNP i z tego samego powodu.
 * Budżet dni przy każdej osobie; import dopasowuje wiersze po imieniu
   i nazwisku.
+* **BIK ma własną regułę odczytu dokumentu** — działa zawsze, bez włączania
+  przez administratora, i tak samo w każdej ścieżce: w odczycie maila,
+  w **Nowe zamówienie**, w **Uzupełnij zamówienie**, w **Dodaj przedłużenie**
+  i przy dodawaniu konsultanta. Dokument ma dwie części:
+  * **wspólne dla zamówienia** — z pola **„Numer/data zamówienia"**: część
+    **przed ukośnikiem** to numer zamówienia (np. „4500012345"), część **po
+    ukośniku** (RRRRMMDD, np. „20260903") to **data rozpoczęcia**
+    (03.09.2026). **Data zakończenia jest zawsze „bezterminowo"** — odczyt
+    czyści wpisaną wcześniej datę „do" (przy rozbieżności zapyta). Pole
+    **„Termin dostawy" jest pomijane**;
+  * **per konsultant — każda pozycja tabeli („Poz." 10, 20, …) to jedna
+    osoba.** Liczba z kolumny **„Ilość zamów."** (jednostka SZT) jest
+    **limitem MD tej osoby**, a **„Cena jednostk."** jej **stawką przychodową
+    za 1 MD**. Imię i nazwisko system znajduje w treści pozycji (zwykle
+    w linii „Profil UR - Imię Nazwisko") — **z myślnikiem albo bez niego**,
+    także gdy PDF skleił wyrazy („ProfilUR-JanKowalski").
+* **Nie są brane pod uwagę:** „Wart.netto" pozycji, „Łącz. wart. netto bez
+  VAT", adresy, osoba do kontaktów, NIP, warunki płatności. Iloczyn „ilość ×
+  cena" jest porównywany z „Wart.netto" wyłącznie jako kontrola — gdy się nie
+  zgadza, dostaniesz „Sprawdź dane!" z numerem pozycji.
+* **Gdy imienia i nazwiska nie da się jednoznacznie odczytać** (brak osoby
+  w pozycji, dwie możliwe osoby, inicjał w opisie niezgodny z osobą z profilu),
+  system **zostawia nazwisko puste i podaje powód z numerem pozycji**. Mail
+  z takim dokumentem trafia do weryfikacji, a nie zakłada błędnego wpisu.
+* W **Nowe zamówienie**, **Uzupełnij zamówienie** i **Dodaj przedłużenie**
+  pod plikiem zobaczysz listę konsultantów odczytanych z PDF-a (limit MD
+  i stawka każdej osoby). Przy przedłużeniu system sam wpisuje limit MD
+  i stawkę przychodową **przenoszonym osobom o tym samym imieniu i nazwisku**.
+* **Zamówienie kończy wyczerpanie limitów, nie data.** Zamówienie pozostaje
+  **„Aktywne"**, dopóki choć jedna przypisana osoba ma niewykorzystane dni;
+  gdy **wszystkie** osoby wyczerpią swój limit (według importu z Finansów),
+  przechodzi na **„Zakończone"** samo — ostatnia osoba kończy całe
+  zamówienie. Osoba bez wpisanego limitu MD trzyma zamówienie otwarte.
+  **„Przywróć" nie zadziała** na tak zakończonym zamówieniu — zwiększ budżet
+  MD konsultanta albo skoryguj zużycie, a zamówienie wróci do „Aktywnych"
+  samo; nowy limit to przedłużenie.
 * **Powiadomienia:** jak u BNP — standardowe plus „mało MD" przy 15 dniach.
 
 ### Polkomtel

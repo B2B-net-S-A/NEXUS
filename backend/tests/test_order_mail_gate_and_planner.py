@@ -463,6 +463,94 @@ class TestGate:
             "okres niepełny" in r for r in v.reasons
         )
 
+    def test_open_ended_policy_accepts_missing_end_date(self):
+        """BIK: „bezterminowo" z reguły klienta nie jest niepełnym okresem."""
+        rows = [_row("Jan Kowalski", end=None)]
+        ex = _extraction(rows)
+        ex.end_date = None
+        prop = plan_document(
+            client_id=1,
+            extraction=ex,
+            resolved=[_resolved(0, "Jan Kowalski")],
+            existing_orders_by_contract={},
+            is_group_client=False,
+            today=TODAY,
+        )
+        v = evaluate(
+            _gate_input(
+                extraction=ex,
+                proposal=prop,
+                deterministic_rows=tuple(rows),
+                policies_applied=("BIK",),
+                open_ended_period=True,
+            )
+        )
+        assert v.verdict == VERDICT_AUTO, v.reasons
+
+    def test_open_ended_policy_still_requires_start_date(self):
+        rows = [_row("Jan Kowalski", start=None, end=None)]
+        ex = _extraction(rows)
+        ex.start_date = None
+        ex.end_date = None
+        prop = plan_document(
+            client_id=1,
+            extraction=ex,
+            resolved=[_resolved(0, "Jan Kowalski")],
+            existing_orders_by_contract={},
+            is_group_client=False,
+            today=TODAY,
+        )
+        v = evaluate(
+            _gate_input(
+                extraction=ex,
+                proposal=prop,
+                deterministic_rows=tuple(rows),
+                open_ended_period=True,
+            )
+        )
+        assert v.verdict == VERDICT_REVIEW
+
+    def test_bik_row_without_readable_name_goes_to_review(self):
+        """Pozycja BIK bez imienia i nazwiska nie może zostać zapisana automatem."""
+        from app.services.order_policies import (
+            PolicyContext,
+            apply_policies,
+            policy_by_key,
+        )
+        from tests.test_bik_order_policy import SPACED
+
+        text = SPACED.replace("Profil UR - Piotr Łęcki", "Profil UR - 12345")
+        ex, _ = apply_policies(
+            OrderExtraction(source="claude"),
+            PolicyContext(document_text=text),
+            [policy_by_key("bik")],
+        )
+        resolved = [
+            _resolved(0, "Krystian Sowiński"),
+            _resolved(1, "", kind="none", contract_id=None, live=()),
+        ]
+        prop = plan_document(
+            client_id=1,
+            extraction=ex,
+            resolved=resolved,
+            existing_orders_by_contract={},
+            is_group_client=True,
+            today=TODAY,
+        )
+        v = evaluate(
+            _gate_input(
+                extraction=ex,
+                proposal=prop,
+                resolved=tuple(resolved),
+                deterministic_rows=tuple(policy_by_key("bik").extract_rows(text)),
+                policies_applied=("BIK",),
+                open_ended_period=True,
+                current_rates={},
+            )
+        )
+        assert v.verdict == VERDICT_REVIEW
+        assert any("Pozycja 20" in r for r in v.reasons)
+
     def test_shadow_mode_still_reports_auto_verdict(self):
         v = evaluate(_gate_input(autoapply_enabled=False))
         assert v.verdict == VERDICT_AUTO

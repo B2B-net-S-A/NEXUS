@@ -17,10 +17,12 @@
 // scenariusze pracy z dokumentem.
 
 import type { OrderExtractionResult } from "@/lib/api/dlPortal";
+import { foldText } from "@/lib/contract-client-filter";
 
 export interface ExtractionFieldSpec {
-  /** Klucz pola w wyniku odczytu. */
-  key: keyof OrderExtractionResult;
+  /** Klucz pola w wyniku odczytu; pola linii konsultanta (przedłużenie
+   *  zamówienia wieloosobowego) mają klucz `line:<id>:<pole>`. */
+  key: keyof OrderExtractionResult | `line:${number}:${string}`;
   /** Etykieta po polsku — trafia wprost do dialogu rozbieżności. */
   label: string;
   /** Aktualna wartość w formularzu (już jako tekst, tak jak widzi ją user). */
@@ -78,4 +80,50 @@ export function extractionErrorMessage(
 export function numberToField(value: number | string | null | undefined): string {
   if (value === null || value === undefined) return "";
   return String(value);
+}
+
+/** Tekst pola „do", gdy reguła klienta mówi „bezterminowo" — trafia do
+ *  dialogu rozbieżności, a sam formularz dostaje pusty string. */
+export const OPEN_ENDED_LABEL = "bezterminowo";
+
+/** Data „do" z odczytu: `value` wpisujesz do pola, `display` pokazujesz
+ *  w dialogu rozbieżności. `null` = dokument nie mówi nic o końcu.
+ *
+ *  Bez rozróżnienia „bezterminowo" (reguła BIK) od „nie znaleziono daty"
+ *  formularz zostawiałby wcześniej wpisaną datę, choć reguła klienta mówi
+ *  wprost, że zamówienie nie ma końca. */
+export function extractedEndDate(
+  data: Pick<OrderExtractionResult, "end_date" | "open_ended">,
+): { value: string; display: string } | null {
+  if (data.end_date) {
+    const iso = data.end_date.slice(0, 10);
+    return { value: iso, display: iso };
+  }
+  if (data.open_ended) return { value: "", display: OPEN_ENDED_LABEL };
+  return null;
+}
+
+type ExtractedRow = NonNullable<OrderExtractionResult["consultant_rows"]>[number];
+
+function nameKey(name: string): string {
+  return foldText(name)
+    .split(/[\s-]+/)
+    .filter(Boolean)
+    .sort()
+    .join(" ");
+}
+
+/** Wiersz dokumentu tej samej osoby — imię i nazwisko w dowolnej kolejności,
+ *  bez polskich znaków i wielkości liter. Dokładnie jedno trafienie albo
+ *  `null`: dwie osoby o tym samym nazwisku nie dostają cudzego limitu MD. */
+export function matchExtractedConsultant(
+  consultantName: string,
+  rows: readonly ExtractedRow[],
+): ExtractedRow | null {
+  const key = nameKey(consultantName);
+  if (!key) return null;
+  const hits = rows.filter(
+    (row) => row.consultant_name && nameKey(row.consultant_name) === key,
+  );
+  return hits.length === 1 ? hits[0] : null;
 }
