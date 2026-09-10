@@ -93,21 +93,49 @@ async def prepare_approval_review(
         raise HTTPException(409, str(exc)) from exc
     html_sha256 = hashlib.sha256(content_html.encode()).hexdigest()
     prompt_sha256 = hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest()
-    previous = (csv.branded_render_metadata or {}).get("content_review")
-    if isinstance(previous, dict) and all(
-        (
-            previous.get("status") == "verified",
-            previous.get("method") == "edited_source_review",
-            previous.get("generated_document_id") == generated_id,
-            previous.get("html_sha256") == html_sha256,
-            previous.get("source_snapshot_sha256") == source.snapshot_sha256,
-            previous.get("verifier_version") == VERIFIER_VERSION,
-            previous.get("editor_review_version") == EDITOR_REVIEW_VERSION,
-            previous.get("prompt_sha256") == prompt_sha256,
-            previous.get("response_schema_sha256") == REVIEW_RESPONSE_SCHEMA_SHA256,
+    expected_receipt = {
+        "status": "verified",
+        "method": "edited_source_review",
+        "generated_document_id": generated_id,
+        "html_sha256": html_sha256,
+        "source_snapshot_sha256": source.snapshot_sha256,
+        "verifier_version": VERIFIER_VERSION,
+        "editor_review_version": EDITOR_REVIEW_VERSION,
+        "prompt_sha256": prompt_sha256,
+        "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
+    }
+
+    def matches(receipt):
+        return isinstance(receipt, dict) and all(
+            receipt.get(key) == value for key, value in expected_receipt.items()
         )
-    ):
+
+    previous = (csv.branded_render_metadata or {}).get("content_review")
+    if matches(previous):
         return {**previous, "reused": True, "presentation_review": presentation}
+    from sqlalchemy import select
+    from app.models.cv_approval_job import CvApprovalJob
+    from app.models.cv_generated_draft import CvGeneratedDraft
+
+    owner = (
+        CvApprovalJob.generated_draft_id == csv.id
+        if isinstance(csv, CvGeneratedDraft)
+        else CvApprovalJob.candidate_stage_cv_id == csv.id
+    )
+    completed = await db.scalar(
+        select(CvApprovalJob.result)
+        .where(
+            owner,
+            CvApprovalJob.expected_revision == csv.edit_revision,
+            CvApprovalJob.generated_document_id == generated_id,
+            CvApprovalJob.status == "verified",
+            CvApprovalJob.result["html_sha256"].as_string() == html_sha256,
+        )
+        .order_by(CvApprovalJob.id.desc())
+        .limit(1)
+    )
+    if matches(completed):
+        return {**completed, "reused": True, "presentation_review": presentation}
     try:
         # Reading the frozen file is local preflight, not an AI operation.
         # Reject unreadable inputs before consuming the user's review allowance.

@@ -12,6 +12,8 @@ Mirror `app/schemas/contract.py` (Contract Draft):
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -91,6 +93,10 @@ class CVBrandedUpdate(BaseModel):
 class CVBrandedFinalize(BaseModel):
     expected_revision: int = Field(ge=0)
     content_html: str = Field(min_length=1, max_length=500000)
+
+
+class CVBrandedReview(CVBrandedFinalize):
+    request_key: UUID
 
 
 class CVBrandedNewDraft(BaseModel):

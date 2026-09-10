@@ -2389,6 +2389,7 @@ async def revoke_generated_cv_share_token(
 from app.schemas.candidate_stage_cv import (  # noqa: E402
     CVBrandedUpdate,
     CVBrandedFinalize,
+    CVBrandedReview,
     CVBrandedNewDraft,
 )
 from app.services import cv_generated_editor as generated_editor  # noqa: E402
@@ -2549,3 +2550,48 @@ async def download_generated_approved_version(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.post("/generated/{generated_id}/editor/review")
+async def start_generated_cv_review(
+    generated_id: int,
+    payload: CVBrandedReview,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import enqueue_review
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await enqueue_review(db, draft, payload, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.get("/generated/{generated_id}/editor/review/{review_id}")
+async def get_generated_cv_review(
+    generated_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await review_state(db, draft, review_id, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.delete("/generated/{generated_id}/editor/review/{review_id}")
+async def cancel_generated_cv_review(
+    generated_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await review_state(db, draft, review_id, current_user.id, cancel=True)
+    await db.commit()
+    return result

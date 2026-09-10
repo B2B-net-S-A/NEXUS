@@ -323,3 +323,51 @@ async def test_missing_source_returns_recovery_code_without_charging(
     assert error.value.detail["code"] == "cv_source_regeneration_required"
     assert error.value.detail["message"]
     admission.assert_not_called()
+
+
+@pytest.mark.parametrize("changed", [None, "source_snapshot_sha256", "prompt_sha256"])
+async def test_completed_background_review_reused_only_for_current_source(
+    monkeypatch, changed
+):
+    import hashlib
+
+    content = "<p>Verified claim</p>"
+    receipt = {
+        "status": "verified",
+        "method": "edited_source_review",
+        "generated_document_id": 11,
+        "html_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        "source_snapshot_sha256": "snapshot",
+        "verifier_version": review.VERIFIER_VERSION,
+        "editor_review_version": review.EDITOR_REVIEW_VERSION,
+        "prompt_sha256": hashlib.sha256(
+            review.VERIFICATION_PROMPT.encode()
+        ).hexdigest(),
+        "response_schema_sha256": review.REVIEW_RESPONSE_SCHEMA_SHA256,
+    }
+    if changed:
+        receipt[changed] = "outdated"
+    source = SimpleNamespace(
+        snapshot_sha256="snapshot",
+        cv_bytes=b"source",
+        cv_filename="cv.docx",
+        screening_notes="",
+        identity="",
+    )
+    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    extract = Mock(return_value="Source")
+    monkeypatch.setattr(review, "extract_text_from_file", extract)
+    quota = Mock(side_effect=AssertionError("must not charge during preparation"))
+    monkeypatch.setattr(review, "ai_feature", quota)
+    db = AsyncMock()
+    db.scalar.return_value = receipt
+    draft = SimpleNamespace(
+        id=5, edit_revision=2, generated_document_id=11, branded_render_metadata={}
+    )
+    prepared = await review.prepare_approval_review(db, draft, content)
+    if changed:
+        assert isinstance(prepared, review.PreparedApprovalReview)
+    else:
+        assert prepared["reused"] is True
+        extract.assert_not_called()
+    quota.assert_not_called()

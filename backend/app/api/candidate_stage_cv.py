@@ -70,6 +70,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.candidate_stage_cv import (
     CVBrandedFinalize,
+    CVBrandedReview,
     CVBrandedNewDraft,
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
@@ -1124,3 +1125,48 @@ async def revoke_all_cv_share_tokens(
     )
     await db.commit()
     return {"status": "revoked_all", "count": result.rowcount or 0}
+
+
+@router.post("/candidates/stages/{stage_id}/cv/branded/review")
+async def start_stage_cv_review(
+    stage_id: int,
+    payload: CVBrandedReview,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import enqueue_review
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    result = await enqueue_review(db, draft, payload, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.get("/candidates/stages/{stage_id}/cv/branded/review/{review_id}")
+async def get_stage_cv_review(
+    stage_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    result = await review_state(db, draft, review_id, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.delete("/candidates/stages/{stage_id}/cv/branded/review/{review_id}")
+async def cancel_stage_cv_review(
+    stage_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    result = await review_state(db, draft, review_id, current_user.id, cancel=True)
+    await db.commit()
+    return result
