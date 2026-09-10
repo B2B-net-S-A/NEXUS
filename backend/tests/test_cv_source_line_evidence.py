@@ -17,6 +17,13 @@ from app.services.cv_generator_b2b.source_quotes import (
 from tests.test_cv_complete_source_facts import SOURCE, response
 
 
+@pytest.fixture(autouse=True)
+def _enforce_source_evidence(monkeypatch):
+    # Asserts the strict provenance rejection contract; it ships behind a flag
+    # defaulting OFF (advisory) in production.
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+
+
 def line_response():
     result = response()
     for item, line in zip(result["evidence"], (1, 1, 2, 3, 4), strict=True):

@@ -15,6 +15,13 @@ from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
 from app.services.cv_generator_b2b.public_view import build_public_payload
 
 
+@pytest.fixture(autouse=True)
+def _enforce_source_evidence(monkeypatch):
+    # Asserts the strict provenance rejection contract; it ships behind a flag
+    # defaulting OFF (advisory) in production.
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+
+
 SOURCE = """Jan Testowy
 01.2018 – 12.2020 Firma B. Analityk. Przygotowywał zapytania SQL.
 01.2010 – 12.2017 Firma A. Magazynier. Kompletował zamówienia.
