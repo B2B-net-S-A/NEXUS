@@ -311,3 +311,17 @@ def test_preview_job_rate_is_numeric_even_when_database_uses_decimal():
     value = response_context(j)["job_values"]["rate_value"]
     assert isinstance(value, float)
     assert value == 170.0
+
+
+def test_vertical_merge_is_read_once_and_does_not_multiply_questions():
+    d = Document(FIXTURES / "v4-two-questions.docx")
+    questions = next(t for t in d.tables if "Pytania od Delivery" in t.cell(0, 0).text)
+    for col in (0, 1):
+        first = questions.cell(1, col).text
+        questions.cell(1, col).merge(questions.cell(2, col)).text = first
+    first_question = questions.cell(1, 0).text
+    stream = BytesIO()
+    d.save(stream)
+    data = stream.getvalue()
+    assert document_text(data).count(first_question) == 1
+    assert len(table_profile(data)["profile"]["screening_questions"]) == 1

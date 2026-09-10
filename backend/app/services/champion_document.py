@@ -34,8 +34,8 @@ def document_text(data: bytes) -> str:
                 if block.text.strip():
                     yield block.text
             else:
+                seen = set()
                 for row in block.rows:
-                    seen = set()
                     cells = []
                     for cell in row.cells:
                         if cell._tc in seen:
@@ -100,7 +100,17 @@ def table_profile(data: bytes) -> dict | None:
             elif heading.startswith("uwagi / standardy"):
                 section = "standards"
             continue
-        rows = [[cell.text.strip() for cell in row.cells] for row in block.rows]
+        rows = []
+        seen_cells = set()
+        for row in block.rows:
+            cells, row_cells = [], set()
+            for cell in row.cells:
+                if cell._tc in row_cells:
+                    continue
+                row_cells.add(cell._tc)
+                cells.append("" if cell._tc in seen_cells else cell.text.strip())
+                seen_cells.add(cell._tc)
+            rows.append(cells)
         if rows and any("pytania od delivery" in folded(c) for c in rows[0]):
             found.add("screening_questions")
             for cells in rows[1:]:
