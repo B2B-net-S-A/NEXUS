@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import re
 import time
+import urllib.error
+import urllib.request
 
 spec = importlib.util.spec_from_file_location(
     "cv_ops", Path(__file__).with_name("cv-quality-ops.py")
@@ -79,7 +81,14 @@ def main():
     command = f"if mkdir /tmp/{name} 2>/dev/null; then cd /app && echo {code} | base64 -d | python; fi"
     task_id = None
     try:
-        api.request("POST", api.tasks, {"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True})
+        request = urllib.request.Request(api.base + api.tasks, data=json.dumps({"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True}).encode(), headers={"Authorization": "Bearer " + api.token, "Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+        try:
+            with urllib.request.build_opener(ops.NoRedirect).open(request, timeout=30) as remote:
+                remote.read()
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode(errors="replace")
+            print(json.dumps({"probe_create_http": exc.code, "signals": [code for literal, code in [("Data too long", "column_too_long"), ("value too long", "column_too_long"), ("SQLSTATE", "sql_error"), ("command", "command_field"), ("container", "container_field"), ("permission", "permission_error")] if literal in body]}))
+            raise ops.OpsError("probe_create_failed") from None
         owned = [t for t in api.inventory() if t.get("name") == name and t.get("command") == command]
         if len(owned) != 1:
             raise ops.OpsError("ambiguous_probe_task")
