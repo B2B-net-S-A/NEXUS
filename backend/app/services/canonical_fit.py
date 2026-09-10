@@ -6,6 +6,7 @@ exact, provenance-checked semantic measurement used in a fit score.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,10 @@ from app.services.search_telemetry import stage
 
 if TYPE_CHECKING:
     from app.services.scoring_service import ScoreBreakdown
+
+# Scoring a base fit never awaits real I/O, so a 1000-candidate pool would
+# otherwise hold the event loop for the whole loop in the web process.
+YIELD_EVERY = 32
 
 
 @dataclass
@@ -76,7 +81,9 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
             outcome["failed"] = any(
                 m.status == "unavailable" for m in measurements.values()
             )
-        for candidate in batch:
+        for index, candidate in enumerate(batch):
+            if index and index % YIELD_EVERY == 0:
+                await asyncio.sleep(0)
             results.append(
                 await score_pair(db, context, candidate, measurements[candidate.id])
             )
