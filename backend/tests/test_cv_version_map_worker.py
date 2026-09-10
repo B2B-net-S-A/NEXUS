@@ -60,3 +60,41 @@ async def test_worker_checks_snapshot_before_model_and_records_terminal_result(
         assert finish.call_args.kwargs["result"] == {"items": []}
     else:
         assert finish.call_args.kwargs["error"] == "mapping_unavailable"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_approval_captures_requirements_without_copying_old_evidence(
+    monkeypatch, enabled
+):
+    from app.services.cv_generator_b2b import document_policy
+
+    doc = SimpleNamespace(
+        job_id=None,
+        requirement_map={
+            "items": [
+                {
+                    "requirement": "AWS",
+                    "kind": "must",
+                    "note": "OLD CLAIM",
+                    "evidence": [{"quote": "OLD TEXT"}],
+                },
+                {"requirement": "AWS", "kind": "must"},
+            ]
+        },
+    )
+    db = AsyncMock()
+    db.get.return_value = doc
+    version = SimpleNamespace(generated_document_id=11)
+    monkeypatch.setattr(
+        document_policy, "interactive_client_enabled", AsyncMock(return_value=enabled)
+    )
+    enqueue = AsyncMock()
+    monkeypatch.setattr(worker, "enqueue_version_map", enqueue)
+    await worker.schedule_approved_map(db, version, 3)
+    if enabled:
+        enqueue.assert_awaited_once_with(
+            db, version, [{"name": "AWS", "kind": "must"}], 3
+        )
+    else:
+        enqueue.assert_not_awaited()
+    db.commit.assert_not_awaited()

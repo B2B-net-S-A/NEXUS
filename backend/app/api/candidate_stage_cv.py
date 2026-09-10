@@ -785,6 +785,9 @@ async def finalize_branded_cv(
         docx_filename=docx_filename,
         render_metadata=metadata,
     )
+    from app.services.cv_version_map_jobs import schedule_approved_map
+
+    await schedule_approved_map(db, version, current_user.id)
     db.add(
         Activity(
             entity_type="candidate_stage_cv",

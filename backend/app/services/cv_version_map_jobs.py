@@ -225,3 +225,60 @@ async def recovery_loop():
         for task in active.values():
             task.cancel()
         await asyncio.gather(*active.values(), return_exceptions=True)
+
+
+async def schedule_approved_map(db, version, user_id):
+    """Capture requirements at approval, never during public reads."""
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.models.job import Job
+    from app.services.cv_generator_b2b.document_policy import interactive_client_enabled
+    from app.services.cv_generator_b2b.requirement_map import build_requirements
+
+    if version.generated_document_id is None:
+        return
+    doc = await db.get(CvGeneratedDocument, version.generated_document_id)
+    if doc is None or not await interactive_client_enabled(db, doc):
+        return
+    requirements = []
+    seen = set()
+    cached = doc.requirement_map if isinstance(doc.requirement_map, dict) else {}
+    items = cached.get("items") if isinstance(cached.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name, kind = item.get("requirement"), item.get("kind")
+        if (
+            isinstance(name, str)
+            and name.strip()
+            and isinstance(kind, str)
+            and kind in {"must", "nice"}
+        ):
+            key = name.strip().casefold()
+            if key not in seen:
+                seen.add(key)
+                requirements.append({"name": name.strip(), "kind": kind})
+    if not requirements and doc.job_id is not None:
+        job = await db.get(Job, doc.job_id)
+        if job is not None:
+            requirements = build_requirements(job)
+    if not requirements:
+        return
+    try:
+        await enqueue_version_map(db, version, requirements, user_id)
+    except ValueError:
+        # Approved CV stays available; record why optional mapping cannot run.
+        import hashlib
+
+        await db.execute(
+            insert(CvVersionMap)
+            .values(
+                document_version_id=version.id,
+                user_id=user_id,
+                content_sha256=version.content_sha256,
+                input_sha256=hashlib.sha256(b"").hexdigest(),
+                status="failed",
+                error_code="input_unavailable",
+                finished_at=func.now(),
+            )
+            .on_conflict_do_nothing(index_elements=["document_version_id"])
+        )

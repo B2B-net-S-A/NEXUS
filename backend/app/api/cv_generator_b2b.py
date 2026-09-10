@@ -2467,6 +2467,9 @@ async def finalize_generated_editor(
     version = await generated_editor.finalize(
         db, draft, payload.expected_revision, payload.content_html, current_user.id
     )
+    from app.services.cv_version_map_jobs import schedule_approved_map
+
+    await schedule_approved_map(db, version, current_user.id)
     result = {
         **generated_editor.state(draft),
         "document_version_id": version.id,
