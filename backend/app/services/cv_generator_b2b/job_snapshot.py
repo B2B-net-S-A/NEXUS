@@ -5,7 +5,7 @@ SHA belong in the durable job record, never in the public CV payload.
 """
 
 import base64
-from dataclasses import fields, is_dataclass
+from dataclasses import MISSING, fields, is_dataclass
 from datetime import date
 import hashlib
 import json
@@ -84,7 +84,19 @@ def _decode(value, depth=0):
         return {key: _decode(item, depth + 1) for key, item in data.items()}
     if isinstance(kind, str) and kind in _TYPES and isinstance(data, dict):
         cls = _TYPES[kind]
-        if set(data) != {field.name for field in fields(cls)}:
+        declared = {field.name: field for field in fields(cls)}
+        # A snapshot queued before a deploy that ADDED a defaulted field (e.g.
+        # UploadGenerationInput.champion_profile, #1477) is still complete: the
+        # dataclass supplies the default. Unknown keys and missing required
+        # fields remain corruption — never guess their meaning.
+        required = {
+            name
+            for name, field in declared.items()
+            if field.init
+            and field.default is MISSING
+            and field.default_factory is MISSING
+        }
+        if not set(data) <= set(declared) or not required <= set(data):
             raise ValueError("Snapshot type fields changed")
         return cls(**{key: _decode(item, depth + 1) for key, item in data.items()})
     raise ValueError("Unsupported CV snapshot type")
