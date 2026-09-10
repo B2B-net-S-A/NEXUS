@@ -14,6 +14,7 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { contractRateUnitSuffix } from"@/lib/rate-unit";
 import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
 import {
@@ -73,9 +74,12 @@ interface ContractGroupMemberRow {
  start_date?: string | null;
  end_date?: string | null;
  latest_order_end_date?: string | null;
+ client_order_start_date?: string | null;
+ client_order_end_date?: string | null;
  contract_type?: string;
  rate_client?: number | null;
  rate_candidate?: number | null;
+ rate_unit?: string | null;
  margin?: number | null;
  status?: string;
  currency?: string | null;
@@ -92,9 +96,12 @@ interface ContractRow {
  start_date?: string;
  end_date?: string;
  latest_order_end_date?: string | null;
+ client_order_start_date?: string | null;
+ client_order_end_date?: string | null;
  contract_type?: string;
  rate_client?: number;
  rate_candidate?: number;
+ rate_unit?: string | null;
  margin?: number;
  status?: string;
  currency?: string;
@@ -229,6 +236,18 @@ export function formatContractListDate(
  }).format(new Date(date));
 }
 
+// Jednostka obok kwoty: kontrakt zmienia ją razem z zamówieniem (120 zł/h →
+// 960 zł/MD), więc sama kwota nie mówi, ile kosztuje godzina pracy.
+function RateUnitSuffix({ unit }: { unit?: string | null }) {
+ const suffix = contractRateUnitSuffix(unit);
+ if (!suffix) return null;
+ return (
+ <span className="ml-0.5 font-sans text-[10px] font-normal text-muted-foreground">
+ {suffix}
+ </span>
+ );
+}
+
 function CompactDate({ value }: { value: string }) {
  const fullDate = formatDate(value);
  return (
@@ -258,9 +277,12 @@ function rowAsGroupMember(row: ContractRow): ContractGroupMemberRow {
  start_date: row.start_date,
  end_date: row.end_date,
  latest_order_end_date: row.latest_order_end_date,
+ client_order_start_date: row.client_order_start_date,
+ client_order_end_date: row.client_order_end_date,
  contract_type: row.contract_type,
  rate_client: row.rate_client,
  rate_candidate: row.rate_candidate,
+ rate_unit: row.rate_unit,
  margin: row.margin,
  status: row.status,
  currency: row.currency,
@@ -933,7 +955,21 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  {m.end_date ? <CompactDate value={m.end_date} /> : "bezterminowo"}
  </span>
  </div>
- {m.latest_order_end_date &&
+ {m.client_order_start_date ? (
+ <div
+ className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground"
+ title="Okres zamówienia — z najnowszego uzupełnionego zamówienia tej osoby. Nie zmienia okresu umowy."
+ >
+ zam. <CompactDate value={m.client_order_start_date} />
+ <span className="mx-0.5" aria-hidden="true">→</span>
+ {m.client_order_end_date ? (
+ <CompactDate value={m.client_order_end_date} />
+ ) : (
+ "bezterminowo"
+ )}
+ </div>
+ ) : (
+ m.latest_order_end_date &&
  m.latest_order_end_date !== m.end_date && (
  <div
  className="whitespace-nowrap text-[10px] leading-4 text-warning-muted-foreground"
@@ -941,6 +977,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  >
  zam. do <CompactDate value={m.latest_order_end_date} />
  </div>
+ )
  )}
  </TableCell>
 
@@ -951,18 +988,28 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
  <MobileFieldLabel>Stawka kosztowa</MobileFieldLabel>
- {m.rate_candidate != null
- ? formatCurrency(m.rate_candidate, candidateCurrency(m))
- :"—"}
+ {m.rate_candidate != null ? (
+ <>
+ {formatCurrency(m.rate_candidate, candidateCurrency(m))}
+ <RateUnitSuffix unit={m.rate_unit} />
+ </>
+ ) : (
+"—"
+ )}
  </TableCell>
  <TableCell
  data-label="Stawka przychodowa"
  className="px-2 py-1.5 text-right align-top font-mono text-[12px] font-semibold leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
  >
  <MobileFieldLabel>Stawka przychodowa</MobileFieldLabel>
- {m.rate_client != null
- ? formatCurrency(m.rate_client, clientCurrency(m))
- :"—"}
+ {m.rate_client != null ? (
+ <>
+ {formatCurrency(m.rate_client, clientCurrency(m))}
+ <RateUnitSuffix unit={m.rate_unit} />
+ </>
+ ) : (
+"—"
+ )}
  </TableCell>
  <TableCell
  data-label="Marża"

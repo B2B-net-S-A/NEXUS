@@ -160,6 +160,13 @@ class OrderExtraction:
     """Pozycje osobowe z dokumentu. Nie wychodzą do API; serwer używa ich
     wyłącznie do jednoznacznego wyboru stawki i MD wskazanego konsultanta."""
 
+    model_rows: Optional[list[ConsultantOrderRow]] = None
+    """Niezależny odczyt osób przez model, zachowany przez regułę klienta, która
+    zastępuje ``consultant_rows`` tabelą z PDF-a (Alior). „Przelicz plan"
+    porównuje tabelę z TYM odczytem, a nie z własnym wynikiem — inaczej wiersz,
+    którego model nie potwierdził, potwierdzałby sam siebie. ``None`` = reguła
+    klienta odczytu nie przechowuje. Kwoty: ta sama redakcja co wiersze osób."""
+
     consultant_rate_matched: bool = False
     consultant_md_matched: bool = False
     """Wewnętrzne dowody, które pola pochodzą z jednoznacznego wiersza osoby.

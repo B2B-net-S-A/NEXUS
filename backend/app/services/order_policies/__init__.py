@@ -29,6 +29,7 @@ from app.services.order_policies.registry import (
     policy_by_key,
     prepare_document_text,
     prepare_parser_text,
+    reapplies_on_refresh,
 )
 
 __all__ = [
@@ -47,4 +48,5 @@ __all__ = [
     "policy_by_key",
     "prepare_document_text",
     "prepare_parser_text",
+    "reapplies_on_refresh",
 ]

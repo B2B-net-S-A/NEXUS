@@ -800,6 +800,7 @@ function ContractorCard({
   );
   const displayedRateCandidate =
     activeOrder?.rate_candidate ?? contractor.rate_candidate;
+  const costFromContract = contractor.rate_candidate != null;
 
   /**
    * Zapis pola karty, gdy kontraktor NIE MA jeszcze żadnego zamówienia.
@@ -1138,7 +1139,10 @@ function ContractorCard({
                       )
                     }
                     ariaLabel="Stawka kosztowa"
-                    editable={canManageOrders}
+                    // Kontrakt jest źródłem prawdy dla stawki kosztowej
+                    // (09.2026) — zapis tutaj i tak nadpisałaby synchronizacja.
+                    // Edycja zostaje tylko dla kontraktu bez stawki.
+                    editable={canManageOrders && !costFromContract}
                     inputMode="decimal"
                     sanitize={sanitizeDecimalInput}
                     placeholder="np. 12000"
@@ -1158,6 +1162,14 @@ function ContractorCard({
                       onChange();
                     }}
                   />
+                  {costFromContract && (
+                    <span
+                      className="ml-1 text-[10px] text-muted-foreground"
+                      title="Stawka kosztowa pochodzi z kontraktu tej osoby — zmień ją w kontrakcie. Zaplanowane podwyżki wchodzą do zamówienia w swoim dniu."
+                    >
+                      (z kontraktu)
+                    </span>
+                  )}
                 </span>
                 {/* Warunek NIE obejmuje już `activeOrder`: bez zamówienia to
                     pole pozostaje widoczne z pustą wartością. */}

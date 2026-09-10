@@ -142,18 +142,25 @@ def _redact_extraction(
     if extraction is None or show_finance:
         return extraction
     out = {k: (None if k in _FINANCE_KEYS else v) for k, v in extraction.items()}
-    out["consultant_rows"] = [
-        {
-            **r,
-            **{key: None for key in _FINANCE_KEYS if key in r},
-            "uncertain_reason": (
-                "Sprawdź odczytane dane przed zapisem."
-                if r.get("uncertain_reason")
-                else None
-            ),
-        }
-        for r in (extraction.get("consultant_rows") or [])
-    ]
+
+    def redact_rows(rows: list) -> list:
+        return [
+            {
+                **r,
+                **{key: None for key in _FINANCE_KEYS if key in r},
+                "uncertain_reason": (
+                    "Sprawdź odczytane dane przed zapisem."
+                    if r.get("uncertain_reason")
+                    else None
+                ),
+            }
+            for r in rows
+        ]
+
+    out["consultant_rows"] = redact_rows(extraction.get("consultant_rows") or [])
+    # Niezależny odczyt modelu (Alior) niesie te same kwoty co wiersze osób.
+    if extraction.get("model_rows") is not None:
+        out["model_rows"] = redact_rows(extraction["model_rows"])
     out["confidence"] = {
         k: v
         for k, v in (extraction.get("confidence") or {}).items()

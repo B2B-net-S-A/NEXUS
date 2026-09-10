@@ -42,6 +42,14 @@ class ContractClientRate(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Krok wyprowadzony z zamówienia (migracja 0304). NULL = krok ręczny albo
+    # z aneksu ``rate_change`` — synchronizacja z zamówieniami go nie dotyka.
+    # CASCADE: skasowany szkic zamówienia zabiera swoją stawkę.
+    source_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_orders.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     contract = relationship("Contract", back_populates="client_rate_schedule")
 

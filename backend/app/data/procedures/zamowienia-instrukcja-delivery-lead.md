@@ -157,8 +157,9 @@ Zapisujesz przyciskiem **Stwórz Contract + Order**.
 > dużą. Nie zatwierdzaj formularza klawiszem Enter, dopóki jednostka nie jest
 > ustawiona.
 
-> **Umowa powstaje jako szkic** i tym formularzem jej nie domkniesz — zrobisz to
-> w rejestrze umów. Dopóki jest szkicem, ta osoba nie liczy się do przychodów.
+> **Umowa aktywuje się sama, gdy ma komplet:** datę startu umowy, stawkę kosztową
+> i stawkę przychodową (tę bierze z zamówienia). Bez kompletu zostaje szkicem —
+> dopóki jest szkicem, ta osoba nie liczy się do przychodów.
 >
 > **Jeżeli zapis zwróci błąd pliku, kontraktor i zamówienie i tak powstały.**
 > Plik idzie osobnym żądaniem, więc komunikat mówi wprost, żeby wgrać go
@@ -496,7 +497,14 @@ kończące się zamówienie ma pierwszeństwo przed draftem: kolejny okres tworz
 przedłużenie przy dotychczasowym kontrakcie. Po zakończonej współpracy aktualizuje
 i aktywuje dotychczasowe zamówienie, zachowując poprzednie dane w historii
 oraz dopisując faktyczny odstęp w dniach. Rzeczywisty konflikt okresów albo kilka
-możliwych osób lub kontraktów nadal wymaga decyzji.
+możliwych osób lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
+PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
+zamówieniem tej samej osoby na **inny, rozłączny okres** (np. wrzesień, a potem
+październik–grudzień) — kolejny dokument zakłada osobne zamówienie. Ten sam
+numer albo nachodzący okres (poprawiony dokument) nadal uzupełnia ten sam draft.
+Draft wypełniony ręcznie, **bez pliku zamówienia**, system traktuje jak pusty —
+dołącz do niego PDF, jeśli ma zostać nietknięty. Draft na linii zamówienia MD
+zostaje przy linii: osobnego zamówienia obok niej system sam nie założy.
 
 **„Automat: pewne” zawsze uruchamia zapis bez przycisku „Zastosuj”.** Wynik jest
 w zakładce **„Zapisane automatycznie”**. Dotyczy to również pierwszego zamówienia
@@ -516,14 +524,18 @@ wpisaniem jej do planu. Na przykład **100,08 zł/h brutto → 81,37 zł/h netto
 obok stawki netto widać oryginalną kwotę brutto. Jawne netto pozostaje bez
 przeliczenia. Brak jednoznacznego oznaczenia oznacza niepewny odczyt do
 weryfikacji. **Wyjątkiem jest Nordea: stawka jest zawsze netto za godzinę,
-bez dzielenia przez 1,23. W PFRON stawka z pola „Stawka za jedną Roboczogodzinę”
+bez dzielenia przez 1,23. U Aliora stawka jest domyślnie netto: brak oznaczenia
+nie jest wątpliwością, a jawne „brutto” w tabeli Konsultantów kieruje zamówienie
+do weryfikacji bez przeliczenia. W PFRON stawka z pola „Stawka za jedną Roboczogodzinę”
 jest brutto i zawsze jest dzielona przez 1,23. Kolumna „Quantity (max Xh/month)” nie określa
 liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
 listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
 Dla PFRON ponownie wybiera aktywny rekord klienta, odczytuje numer z nazwy PDF
-i datę końca z pola „Termin wykonania Prac”. Dla pozostałych klientów zachowuje
+i datę końca z pola „Termin wykonania Prac”. Dla Nordei i Aliora ponownie stosuje
+regułę odczytu klienta do zachowanego PDF-a — wpis zatrzymany przed poprawką
+reguły przelicza się według aktualnej. Dla pozostałych klientów zachowuje
 rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób.
 **Pewny plan zapisuje się automatycznie; plan z konkretną wątpliwością pozostaje
 w weryfikacji.** Przycisk jest dostępny administratorowi albo
@@ -533,10 +545,30 @@ z danego wpisu.
 
 ## Co system robi sam
 
-* **Zakłada szkic umowy i szkic zamówienia** po przejściu kandydata na etap
-  „zatrudniony" albo po potwierdzeniu obustronnie podpisanej umowy (u Polkomtela
-  — nie, patrz sekcja tego klienta). Umowa powstaje jako **szkic**: dopóki jej
-  nie domkniesz, ta osoba nie liczy się do przychodów.
+* **Zakłada umowę i szkic zamówienia** po potwierdzeniu obustronnie podpisanej
+  umowy w Generatorze umów B2B — umowa jest od razu **Aktywna**: okres od daty
+  startu z umowy, bezterminowo, stawka kosztowa godzinowa z umowy. Po samym
+  przejściu kandydata na etap „zatrudniony" (bez podpisanej umowy) umowa powstaje
+  jako **szkic**. U Polkomtela szkicu zamówienia nie ma — patrz sekcja tego
+  klienta.
+* **Przenosi dane zamówienia do umowy tej osoby** przy każdym zapisie zamówienia.
+  Z najnowszego uzupełnionego zamówienia (data rozpoczęcia + stawka przychodowa)
+  do umowy trafiają: **okres zamówienia** — osobne pole, okres umowy się nie
+  zmienia; kolejne zamówienie nadpisuje poprzedni okres — oraz **stawka
+  przychodowa**. Stawka z zamówienia zaczynającego się w przyszłości obowiązuje
+  w umowie dopiero od jego daty startu. Szkic umowy, który dzięki temu ma
+  komplet danych, sam przechodzi na **Aktywny**.
+* **Dopasowuje jednostkę umowy do zamówienia** (1 MD = 8 godzin). Umowa z
+  generatora jest godzinowa; pierwsze zamówienie w MD przestawia ją na MD
+  i przelicza stawkę kosztową (120 zł/h → 960 zł/MD). Umowa zostaje w MD, dopóki
+  nie przyjdzie zamówienie w innej jednostce.
+* **Ustawia stawkę kosztową zamówienia z umowy.** Umowa jest jej jedynym
+  źródłem: pole w zamówieniu jest tylko do odczytu (dopisek „z kontraktu"),
+  a zaplanowane w umowie zmiany stawki — także kilka naraz, np. od 01.10 i od
+  01.12 — wchodzą do zamówienia każda w swoim dniu, w jednostce zamówienia.
+  Zamówień zakończonych nie przepisuje. **Nie dotyczy konsultantów na
+  zamówieniach zbiorczych MD i kosztowych** — tam stawkę kosztową nadal
+  ustawiasz przy konsultancie.
 * **Awansuje szkic pojedynczej osoby na Aktywne** w chwili zapisu, gdy komplet
   danych jest na miejscu. Nowe zbiorcze MD z wyborem trybu budżetu aktywujesz
   sam w edycji zamówienia.
@@ -579,7 +611,11 @@ na nocny przebieg.
 
 ## Co zawsze robisz ręcznie
 
-* **Stawkę kosztową** — nie ma jej w żadnym dokumencie klienta.
+* **Stawkę kosztową** — nie ma jej w żadnym dokumencie klienta. Wpisujesz ją
+  (i planujesz podwyżki) **w umowie**, nie w zamówieniu — zamówienie przejmie ją
+  samo. Pole w zamówieniu jest edytowalne tylko wtedy, gdy umowa stawki
+  kosztowej jeszcze nie ma. Wyjątek: przy konsultancie na zamówieniu zbiorczym
+  MD albo kosztowym stawkę kosztową wpisujesz jak dotąd — w jego linii.
 * **Sprawdzenie tego, co odczytał PDF.** Odczyt jest podpowiedzią, nie źródłem
   prawdy — zwłaszcza gdy zapalił się baner „Sprawdź dane!".
 * **Jednostkę stawki** (godzina / dzień / miesiąc) — ustawiasz sam, ale odczyt
@@ -587,7 +623,9 @@ na nocny przebieg.
   obie wpisane stawki. Po każdej zmianie sprawdź kwoty w obu polach.
 * **Wgranie pliku zamówienia** przy zamówieniach okresowych — formularz
   zakładania nie ma pola na plik.
-* **Domknięcie umowy** konsultanta wziętego z „Bazy Nexus" — powstaje jako szkic.
+* **Stawkę kosztową w umowie** konsultanta wziętego z „Bazy Nexus" — umowa
+  powstaje jako szkic bez stawki kosztowej; gdy ją uzupełnisz, przejdzie na
+  Aktywną sama (okres i stawkę przychodową dostanie z zamówienia).
 * **Decyzję o niewykorzystanych MD** po zakończeniu współpracy (patrz niżej).
 
 ---
@@ -1163,14 +1201,50 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Alior
 
-* **Alior ma własną regułę odczytu dokumentu.**
-  * **Numer** bierze z **„Zamówienie nr: OIT/…"** (a nie z „Do Umowy Ramowej:
+* **Alior ma własną regułę odczytu dokumentu — tę samą przy mailu, „Zczytaj
+  dane z dokumentu", uzupełnianiu i przedłużaniu zamówienia.** Z PDF-a czyta
+  wyłącznie cztery pola:
+  * **Numer** z **„Zamówienie nr: OIT/…"** (a nie z „Do Umowy Ramowej:
     OIT/…").
-  * **Stawka** to pozycja **„Razem stawka dla Banku"**; jednostka ustawiana na
-    dzień.
-  * **Okres** z „Moment wejścia w życie Zamówienia" / „czas oznaczony".
-  * System sprawdza rachunek: suma (MD × stawka) = „Maksymalna wartość
-    Zamówienia" — rozbieżność to sygnał źle odczytanego wiersza.
+  * **Imię i nazwisko** z kolumny **„Imię i Nazwisko Konsultanta / członków
+    Zespołu"**.
+  * **Okres**: najpierw zakres w nawiasie pod nazwiskiem, np.
+    „(05.10.2026-28.10.2026)"; gdy go nie ma — początek z „Moment wejścia
+    w życie Zamówienia", koniec z „czas oznaczony" w „Okresie obowiązywania".
+  * **Stawka** z kolumny **„Razem stawka dla Banku [PLN netto]"**, za dzień (MD)
+    — nie „Stawka bazowa za MD" ani „Total". Kwota bywa zapisana bez groszy
+    albo z jedną cyfrą po przecinku („1265,5") — to nadal ta sama stawka.
+* **Rodzaj kompetencji, Liczba Roboczodni, Stawka bazowa, Marża, Total
+  i warunki szczególne są pomijane.** Nie trafiają do zamówienia i nie są
+  powodem do weryfikacji — także ich zgodność z „Maksymalną wartością
+  Zamówienia" nie jest już sprawdzana.
+* **Stawka jest domyślnie netto.** Brak słowa „netto" przy kwocie nie zatrzymuje
+  zamówienia i nic nie jest przeliczane. Gdy w tabeli Konsultantów stoi jawnie
+  „brutto" (nagłówek kolumny albo sama kwota), zamówienie trafia do weryfikacji
+  z powodem **„Stawka oznaczona w dokumencie jako brutto, mimo że dla Alior Bank
+  domyślnie jest netto — zweryfikuj"**; kwota nie jest wtedy dzielona przez
+  1,23 — decyzja należy do Ciebie. „Brutto" przy sumie „Razem PLN" pod tabelą
+  dotyczy pomijanego Totalu, nie stawki, i niczego nie zatrzymuje.
+* **Osoba z PDF-a jest dopasowywana do konsultantów Aliora** po imieniu
+  i nazwisku. Gdy ma szkic zamówienia (📝 Draft), zamówienie z maila **samo go
+  uzupełnia** numerem, okresem i stawką — bez przycisku „Zastosuj". Imię
+  i nazwisko z tabeli musi zgadzać się z niezależnym odczytem modelu; każda
+  rozbieżność (osoba, stawka, okres) trafia do weryfikacji z konkretnym powodem
+  — także wtedy, gdy model stawki albo okresu nie potwierdził.
+* **Żadna pozycja nie znika po cichu.** Osoba z odczytu, której wiersza system
+  nie odczytał z tabeli (np. druga pozycja tej samej osoby z inną stawką albo
+  wiersz w nietypowym układzie na kolejnej stronie), zatrzymuje cały dokument
+  do weryfikacji. Pomijane jest wyłącznie dokładne powtórzenie tej samej osoby
+  z tą samą stawką i okresem. Okres odwrócony (początek po końcu) też zawsze
+  trafia do weryfikacji.
+* **W formularzu („Zczytaj dane z dokumentu", uzupełnienie, przedłużenie)
+  stawka pochodzi wyłącznie z wiersza tej samej osoby.** Podobne nazwisko to
+  inna osoba — np. dla „Anna Nowak" wiersz „Anna Nowak-Kowalska" nie daje
+  stawki i pole zostaje puste do wpisania.
+* **„Przelicz plan" na wpisie zapisanym przed zmianą reguły:** dokument
+  w starszym układzie tabeli (kwoty z groszami, marża z przecinkiem) zostaje
+  w weryfikacji z powodem „odczyt zapisany przed zmianą reguły Aliora nie
+  potwierdza osób z tabeli" — sprawdź osobę, okres i stawkę i zapisz ręcznie.
 * Warto też wiedzieć (to działa u każdego klienta, nie tylko tutaj):
   **stawki godzinowe zapisują się z dokładnością do trzech miejsc po przecinku**
   — np. 164,375 zł/h. System niczego nie zaokrągla, więc wpisuj wartość
@@ -1191,7 +1265,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
   kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
   oznaczenia, kwota zostaje bez zmian; **brak oznaczenia albo konflikt
-  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea i wskazanym polem PFRON**, także
+  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordeą, Aliorem i wskazanym polem PFRON**, także
   spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
   system ją przeliczy. U Erste dokumenty są zwykle brutto, ale także tam
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy

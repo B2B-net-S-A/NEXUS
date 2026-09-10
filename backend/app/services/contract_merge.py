@@ -215,7 +215,7 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
     {"activities", "notifications", "notification_link_refs", "alert_dedup"}
 )
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
-_CONTRACT_DERIVED_FIELDS = {"client_order_end_date"}
+_CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
@@ -1991,6 +1991,13 @@ async def build_contract_merge_plan(
             if order_resolution.order is not None
             else None
         )
+        # Para z końcem: „okres zamówienia" (0304) opisuje to samo bieżące
+        # zamówienie, więc scalony kontrakt bierze oba krańce z jednego źródła.
+        field_updates["client_order_start_date"] = (
+            order_resolution.order.get("start_date")
+            if order_resolution.order is not None
+            else None
+        )
 
         cand_rows = [
             row for row in candidate_schedule if int(row["contract_id"]) in group_ids
@@ -2691,7 +2698,7 @@ async def _update_contract_fields(
 ) -> None:
     if not updates:
         return
-    bad = set(updates) - (set(_MERGEABLE_FIELDS) | {"client_order_end_date"})
+    bad = set(updates) - (set(_MERGEABLE_FIELDS) | _CONTRACT_DERIVED_FIELDS)
     if bad:
         raise ContractMergeError(f"unsafe contract fields in plan: {sorted(bad)}")
     assignments = ", ".join(
@@ -2721,6 +2728,7 @@ def _database_value(field: str, value: Any) -> Any:
         "start_date",
         "end_date",
         "terminated_at",
+        "client_order_start_date",
         "client_order_end_date",
     }:
         return _date_value(value)

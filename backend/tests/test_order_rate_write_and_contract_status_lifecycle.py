@@ -437,7 +437,13 @@ async def test_contractor_card_reports_one_rate_source_not_two(
 async def test_patching_the_cost_rate_actually_moves_the_money(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    """PATCH zmienia snapshot i marżę jednego zamówienia, nie jego Contract."""
+    """Ręczny koszt w zamówieniu nie przepisuje umowy — i sam przegrywa z umową.
+
+    Od synchronizacji kontrakt ↔ zamówienia (09.2026) kontrakt jest JEDYNYM
+    źródłem stawki kosztowej: wartość wpisana w zamówieniu zostaje przy zapisie
+    nadpisana stawką z harmonogramu kontraktu. Umowa i sąsiednie zamówienia
+    nadal nie zmieniają się od edycji jednego zamówienia.
+    """
     client_id, contract_id, order_id = await _seed_scheduled_contract_with_order()
     new_rate = Decimal("13500.000")
 
@@ -458,5 +464,7 @@ async def test_patching_the_cost_rate_actually_moves_the_money(
     # zamówienia nie może przepisać umowy ani sąsiednich zamówień tej osoby.
     assert Decimal(str(row["rate_candidate"])) == _P2_CANDIDATE
     order_row = next(order for order in row["orders"] if order["id"] == order_id)
-    assert Decimal(str(order_row["rate_candidate"])) == new_rate
-    assert Decimal(str(row["latest_order_monthly_margin"])) == _P2_CLIENT - new_rate
+    assert Decimal(str(order_row["rate_candidate"])) == _P2_CANDIDATE != new_rate
+    assert (
+        Decimal(str(row["latest_order_monthly_margin"])) == _P2_CLIENT - _P2_CANDIDATE
+    )

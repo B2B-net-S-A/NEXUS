@@ -28,6 +28,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Import na poziomie modułu, nie w funkcji: ładuje listener ``after_flush``,
+# który zbiera kontrakty ruszonych zamówień. Zarejestrowany dopiero przy
+# pierwszym commicie przegapiłby flushe pierwszego żądania po starcie.
+from app.services.contract_order_sync import sync_pending_order_contracts
+
 logger = logging.getLogger(__name__)
 
 
@@ -105,16 +110,25 @@ def integrity_error_conflict(error: IntegrityError) -> HTTPException:
     )
 
 
-async def commit_order_write(db: AsyncSession) -> None:
+async def commit_order_write(
+    db: AsyncSession, *, actor_id: Optional[int] = None
+) -> None:
     """``db.commit()``, ale naruszenie więzów kończy się 409, nie „Network Error".
 
     Rollback jest tu OBOWIĄZKOWY: po nieudanym flushu sesja zostaje w stanie
     ``PendingRollbackError`` i każde kolejne użycie tej samej sesji (choćby
     odczyt do zbudowania odpowiedzi) wywaliłoby się ponownie — tym razem już
     poza tym blokiem, czyli znowu jako 500 bez CORS.
+
+    Przed commitem kontrakty, których zamówienia ten zapis ruszył, dostają
+    okres zamówienia i stawkę przychodową, a zamówienia — stawkę kosztową
+    z kontraktu (``contract_order_sync``). To jedyny punkt, przez który
+    przechodzą wszystkie zapisy zamówień, więc nowy endpoint nie musi pamiętać
+    o synchronizacji.
     """
 
     try:
+        await sync_pending_order_contracts(db, actor_id=actor_id)
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()

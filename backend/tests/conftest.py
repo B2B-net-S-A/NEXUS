@@ -166,6 +166,24 @@ def _detach_bik_canonical_client(monkeypatch):
     monkeypatch.setitem(registry._BY_KEY, "bik", detached)
 
 
+# ── Synchronizacja kontrakt ↔ zamówienia (0304) ─────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _enable_contract_order_sync(monkeypatch):
+    """Na produkcji synchronizacja rusza po markerze jednorazowej korekty.
+
+    Świeża baza testowa go nie ma, a większość testów opisuje zachowanie PO
+    wdrożeniu. Sama bramka ma własny test (``test_contract_order_sync``),
+    który przywraca ją lokalnie; przebieg dobowy sprawdza marker sam.
+    """
+
+    async def _enabled(_db) -> bool:
+        return True
+
+    monkeypatch.setattr("app.services.contract_order_sync.sync_enabled", _enabled)
+
+
 # ── CV generator: existing suite covers the rebuilt pipeline, strictly ──────
 
 

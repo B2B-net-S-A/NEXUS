@@ -1751,7 +1751,7 @@ BEZTERMINOWY** (od 09.2026; do tego czasu dostawał datę końca zamówienia,
 a gdy jej okres mijał, cron kończył umowę ponownie — patrz sekcja o zakładce
 „Zakończeni"). Nocny `_promote_statuses` pomija `end_date IS NULL`, więc nie
 demotuje go „tej samej nocy". Data z zamówienia ma swoje miejsce w „Końcu
-zamówienia u klienta" (`client_order_end_date`, tylko gdy śledzony). Historię
+zamówienia u klienta" (`client_order_end_date` — od 09.2026 okres zamówienia zawsze z najnowszego uzupełnionego zamówienia, patrz „Synchronizacja kontrakt ↔ zamówienia"). Historię
 leczy migracja `0243` (reguła ogólna, zero ID w SQL-u).
 
 **Każdy writer aktywnego zamówienia musi wołać tę samą regułę.** Po 0243
@@ -1794,7 +1794,89 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
-## Polityki odczytu PDF per klient — jeden wzorzec, osiem bramek
+## Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
+
+Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
+bez przychodu i okresu zamówienia), choć zamówienie OIT/0189/2026/ITVM miało
+okres 15.09–31.12.2026 i 1340 PLN/MD. Serwis: `services/contract_order_sync.py`.
+Każda strona jest źródłem prawdy dla SWOICH pól:
+
+- **Podpis obustronny w Generatorze B2B = kontrakt AKTYWNY od razu**
+  (`confirm-fully-signed` → `contract_lifecycle.activate_without_revenue_gate`,
+  `source="b2b_signed_agreement"`): start z umowy → bezterminowo, stawka
+  kosztowa godzinowa z umowy. Bramka kompletności wymaga obu stawek, a
+  przychodowa przychodzi dopiero z zamówienia — dlatego osobne przejście
+  z DWOMA dozwolonymi źródłami (drugie: jednorazowa korekta). Wymaga daty startu.
+  Rusza też `ready_for_signature` (podpis obustronny zamyka tor QES).
+- **Zamówienie → kontrakt** (każdy zapis zamówienia): z najnowszego
+  „uzupełnionego" zamówienia (status ≠ cancelled, jest `start_date` I dodatnia
+  stawka przychodowa — auto-szkic z podpisu ma start umowy i PUSTĄ stawkę, więc
+  nie udaje okresu) kontrakt dostaje **okres zamówienia** w OSOBNYCH polach
+  `client_order_start_date`/`client_order_end_date` (nigdy `start_date`/
+  `end_date`; kolejne zamówienie nadpisuje poprzednie) oraz **stawkę
+  przychodową** jako krok `client_rate_schedule` od daty startu zamówienia
+  (`source_order_id` — krok z zamówienia vs krok ręczny/z aneksu; przyszła
+  stawka obowiązuje od swojej daty). **Jednostka kontraktu = jednostka
+  najnowszego zamówienia** (1 MD = 8 h, `convert_rate_between`): przełączenie
+  przelicza KAŻDĄ kwotę kontraktu (obie stawki + harmonogramy, ramowa, widełki).
+  Szkic z kompletem danych przechodzi na `active` przez zwykłą bramkę
+  (`auto_activate_complete_draft`) — ale nie szkic, którego `end_date` minęło.
+- **Kontrakt → zamówienie: stawka kosztowa.** Kontrakt jest JEDYNYM źródłem:
+  ręczny koszt w zamówieniu przegrywa przy zapisie (UI: pole tylko do odczytu,
+  „z kontraktu", gdy kontrakt ma stawkę). Zamówienie niesie jedną liczbę, więc
+  dostaje stawkę z harmonogramu na „dziś przycięte do okresu zamówienia"
+  (`cost_reference_day`), a przebieg dobowy (`run_daily_order_cost_sync` w cyklu
+  `contract_alerts`) wprowadza każdą zaplanowaną podwyżkę w jej dniu. Zakończone
+  i anulowane zamówienia są historią — nietknięte.
+- **Linie zamówień zbiorczych MD/kosztowych (`order_group_id`) są POZA
+  kierunkiem kosztowym — świadomie.** Ich stawkę kosztową prowadzi per linia DL
+  (patrz „Zamówienia wielo-konsultantowe"), a kontrakty tych osób bywają szkicami
+  z obsady bez stawki albo ze stawką sprzed lat — nadpisanie przestawiłoby
+  rozliczenia BIK/Polkomtela/BNP pierwszej nocy. Kierunek zamówienie → kontrakt
+  (okres, przychód, jednostka) je obejmuje.
+- **Hak jest JEDEN: `order_write_errors.commit_order_write`** (22 wywołania).
+  Listener `after_flush` na `Session` zbiera `contract_id` ruszonych zamówień
+  w `session.info`, a `sync_pending_order_contracts` synchronizuje je przed
+  commitem — w savepoincie, fail-soft (awaria = log, zamówienie i tak zapisane).
+  Writery spoza routerów wołają go jawnie: auto-zapis z maila
+  (`order_mail_apply.apply_document`), import Nordea (`admin_import`). Nowy
+  writer spoza tych ścieżek MUSI zrobić to samo.
+- **Po synchronizacji `_refresh_expired` doczytuje TYLKO wygasłe atrybuty.**
+  Sync zmienia zamówienie, które handler już `refresh`-ował, więc serwerowe
+  `updated_at` wygasa → `MissingGreenlet` przy serializacji. `refresh` całego
+  obiektu wygasiłby relacje (harmonogramy) — dlatego lista atrybutów.
+- **PATCH kontraktu**: jawna `rate_unit`/waluta w tym zapisie wygrywa z
+  zamówieniem (`follow_order_unit`/`follow_order_currency=False`); ręczna
+  stawka przychodowa przy istniejącym harmonogramie dopisuje krok od dziś
+  (`apply_manual_client_rate`) — ale TYLKO przy realnej zmianie, bo formularz
+  wysyła całą stawkę także nieruszaną, a krok z niezmienioną wartością
+  przykryłby późniejszą korektę w zamówieniu.
+- **Cała synchronizacja czeka na marker jednorazowej korekty**
+  (`sync_enabled`): padnięty blok w entrypoincie (loguje i idzie dalej) nie
+  może pozwolić zapisom zamówień zatrzeć niezgodności przed migawką. Ścieżki
+  kontraktu (PATCH, aneksy, `/bulk-extend`, `/bulk-mark-ended`, `/terminate`,
+  potwierdzenie podpisu) wołają `resync_contract_safely` — savepoint + log;
+  błąd projekcji nie cofa zapisu użytkownika. Przedłużenie/zakończenie MUSI
+  resyncować: `_synced_client_order_end` wpisałby datę końca UMOWY w okres
+  zamówienia.
+- **Alert kontraktowy „koniec zamówienia u klienta" pomija okres prowadzony
+  synchronizacją** (`client_order_start_date IS NOT NULL`) — o końcu zamówienia
+  ostrzega już skaner zamówień; dwa alerty nie deduplikują się (inne encje).
+- **Jednorazowo (`contract_order_sync_repair.py`, blok w `entrypoint.sh`,
+  marker `0304_contract_order_sync_repair`)**: NAJPIERW migawka raportu zgodności
+  zamówienie ↔ kontrakt (stan sprzed wdrożenia — potem sync by go zatarł), POTEM
+  szkice: zwykły → `active` (z okresem i przychodem, gdy osoba ma uzupełnione
+  zamówienie); minione `end_date` + trwające zamówienie → bezterminowy
+  `active` (aktywny z minioną datą zakończyłby cron razem z zamówieniami
+  i sprawami offboardingu MD); minione bez zamówienia → `ended` bez
+  offboardingu; **duplikat żywego kontraktu tej osoby u klienta → ZOSTAJE
+  szkicem** (aktywny podwoiłby MRR; decyzja w raporcie). Przebieg dobowy kosztów
+  rusza dopiero po markerze i odświeża też cache `rate_client` kontraktów,
+  którym wszedł krok (formularz odsyła kolumnę). Excel:
+  `GET /api/contracts/order-sync-report` (Admin, bez przycisku w UI) — arkusze
+  „Przed wdrożeniem", „Poprawione szkice", „Stan bieżący".
+
+## Polityki odczytu PDF per klient — jeden wzorzec, bramka per klient
 
 Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model
 wybiera interpretację, nie stosuje reguł), bramkowana CSV `client_id` z env,
@@ -1810,6 +1892,7 @@ fail-closed:
 | Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
 | PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
 | BIK | `BIK_ORDER_CLIENT_IDS` (+ kanoniczne ID 18) | numer/data z „Numer/data zamówienia” (start = data, koniec = bezterminowo); każda „Poz.” = osoba z własnym limitem MD („Ilość zamów.”, SZT) i stawką PLN/MD („Cena jednostk.”); wartości netto tylko do kontroli |
+| Alior | `ALIOR_ORDER_EXTRACTION_CLIENT_IDS` | tylko 4 pola: „Zamówienie nr:”, nazwisko z kolumny konsultanta, okres z nawiasu pod nazwiskiem (inaczej „Moment wejścia w życie” / „czas oznaczony”), stawka z „Razem stawka dla Banku” za MD; zawsze netto, jawne „brutto” w tabeli → weryfikacja bez ÷1,23; Roboczodni/Stawka bazowa/Marża/Total ignorowane |
 
 - **BIK: tekst z SAP-a jest SKLEJONY** — pdfplumber oddaje
   „ProfilUR-JanKowalski”, „4500012345/20260903”, a etykieta „Numer/data”
@@ -1841,6 +1924,40 @@ fail-closed:
   alertami). Korekta przywracająca komuś MD wskrzesza grupę automatycznie —
   tylko zakończoną automatycznie; ręczne „Przywróć” takiej grupy daje 409
   z instrukcją. Siatka: dobowy skaner i `GET …/order-groups` (reconcile).
+- **Nordea i Alior mają tabelę osób jako źródło prawdy** (`table_authoritative`
+  w rejestrze): formularze czytają wszystkie osoby tak jak mail (parser
+  all-rows, osobę wybiera polityka), a „Przelicz plan” stosuje regułę ponownie
+  na zapisanym odczycie. U Aliora wiersz kotwiczy MARŻA (token z „%”), kwoty
+  mają spację jako separator tysięcy, a nazwisko to słowa bloku wiersza bez
+  słownika kompetencji. Model czyta osoby niezależnie: rozbieżność nazwiska,
+  stawki albo okresu z tabelą idzie do weryfikacji — także PUSTA stawka/okres
+  w odczycie modelu (prompt każe je zostawić puste, gdy model nie umie ich
+  powiązać z osobą, więc brak to nie zgoda).
+- **Alior porównuje tabelę z ZAPISANYM odczytem modelu** —
+  `OrderExtraction.model_rows`, utrwalane w `order_mail_documents.extraction`
+  i odtwarzane przez `restore_extraction`. Powody są budowane od zera przy
+  każdym zastosowaniu. Bez tego „Przelicz plan” porównywałby tabelę z własnym
+  wynikiem (`consultant_rows` po pierwszym zastosowaniu SĄ wierszami tabeli)
+  i każda rozbieżność znikałaby po jednym kliknięciu. Zapis sprzed tej reguły
+  nie ma `model_rows`; gdy dokument ma wiersze w starym kształcie
+  (`_LEGACY_ROW_RE` — stara reguła mogła podstawić tabelę za odczyt modelu),
+  nie potwierdza osób i idzie do człowieka. `model_rows` niesie kwoty, więc
+  kolejka redaguje je jak `consultant_rows`.
+- **U Aliora żadna pozycja nie znika po cichu**: osoba z odczytu modelu bez
+  odczytanego wiersza w tabeli (druga pozycja tej samej osoby, wiersz
+  w nietypowym układzie na kolejnej stronie) zostaje w wynikach jako niepewna.
+  Pomijane jest wyłącznie powtórzenie z IDENTYCZNĄ stawką i okresem.
+  Formularz z osobą (`target_consultant`) wybiera wiersz wspólnym ścisłym
+  matcherem `_name_match_score` — nie „wszystkie człony w bloku”, bo
+  „Anna Nowak” zawiera się w „Anna Nowak-Kowalska”.
+- **Szkic, który niesie już zamówienie, nie jest nadpisywany dokumentem na
+  rozłączny okres** (planer: `from_order_mail` z Activity `order_mail_*` albo
+  `has_file`): Alior przysyła wrzesień i październik–grudzień osobnymi mailami,
+  a szkic nie aktywuje się przed podpisem umowy. Ten sam numer albo nachodzący
+  okres (korekta dokumentu) nadal uzupełnia ten sam szkic; szkic linii grupy
+  zostaje przy `ACTION_GROUP` (osobne zamówienie obok linii MD rozdwoiłoby
+  współpracę). Szkic wypełniony ręcznie bez pliku nadal jest „pusty” — znane
+  ograniczenie, instrukcja każe dołączyć PDF.
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
 - **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją

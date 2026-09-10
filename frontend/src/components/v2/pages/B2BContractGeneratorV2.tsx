@@ -973,8 +973,15 @@ function ConfirmFullySignedDialog({
               System wykona atomowo:
             </p>
             <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-              <li>• utworzy albo powiąże istniejącego kontraktora,</li>
+              <li>
+                • utworzy albo powiąże kontraktora jako <strong>aktywny</strong>{" "}
+                kontrakt (start z umowy → bezterminowo, stawka godzinowa z umowy),
+              </li>
               <li>• zapewni szkic zamówienia klienta,</li>
+              <li>
+                • okres zamówienia i stawka przychodowa trafią do kontraktu po
+                uzupełnieniu zamówienia,
+              </li>
               <li>• ustawi etap kandydata na „Zatrudniony”,</li>
               <li>• zapisze pełny ślad audytowy.</li>
             </ul>
@@ -1881,7 +1888,7 @@ export function GeneratedContractsTab() {
   const handleConfirmed = (result: B2BConfirmFullySignedResult) => {
     const fallbackMessage =
       result.outcome === "created"
-        ? "Umowa podpisana — utworzono szkic kontraktora."
+        ? "Umowa podpisana — utworzono aktywny kontrakt."
         : result.outcome === "linked_existing"
           ? "Umowa podpisana — powiązano istniejącego kontraktora bez duplikatu."
           : "Umowa była już przetworzona — nie utworzono duplikatu.";

@@ -410,7 +410,7 @@ describe("GeneratedContractsTab — status podpisu", () => {
   });
 
   it.each([
-    ["created", "Umowa podpisana — utworzono szkic kontraktora."],
+    ["created", "Umowa podpisana — utworzono aktywny kontrakt."],
     [
       "linked_existing",
       "Umowa podpisana — powiązano istniejącego kontraktora bez duplikatu.",

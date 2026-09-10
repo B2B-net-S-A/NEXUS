@@ -85,6 +85,7 @@ from app.services.order_policies import (
     policy_by_key,
     prepare_document_text,
     prepare_parser_text,
+    reapplies_on_refresh,
 )
 from app.services.order_policies.known_clients import (
     KNOWN_MARKERS,
@@ -98,6 +99,13 @@ _MESSAGE_SELECT = (
     "id,internetMessageId,subject,from,sender,receivedDateTime,hasAttachments"
 )
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+#: Activity, które zostawia writer (``order_mail_apply``) na zapisanym zamówieniu.
+_MAIL_ORDER_ACTIONS = (
+    "order_mail_fill_draft",
+    "order_mail_reactivate",
+    "order_mail_created",
+    "order_mail_new_draft",
+)
 
 
 def ingest_is_running() -> bool:
@@ -511,6 +519,10 @@ def restore_extraction(data):
         restore(ConsultantOrderRow, value)
         for value in (data or {}).get("consultant_rows", [])
     ]
+    if (data or {}).get("model_rows") is not None:
+        extraction.model_rows = [
+            restore(ConsultantOrderRow, value) for value in data["model_rows"]
+        ]
     return extraction
 
 
@@ -518,7 +530,9 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
 
     PFRON ponownie rozpoznaje aktywnego klienta i pola ze źródłowego PDF-a.
-    Pozostali klienci zachowują numer i okres. Bez modelu i auto-zapisu.
+    Klienci, u których tabela PDF-a jest źródłem prawdy (Nordea, Alior), mają
+    regułę zastosowaną ponownie na zapisanym odczycie. Pozostali zachowują numer
+    i okres. Bez modelu; zapis rozstrzyga wywołujący na podstawie werdyktu.
     """
 
     extraction = restore_extraction(row.extraction)
@@ -548,14 +562,21 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         row.client_policy = " + ".join(applied) or None
     policies = active_policies(row.client_id)
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    if reapplies_on_refresh(policies):
+        # Tabela z PDF-a jest źródłem prawdy (Nordea, Alior): reguła klienta
+        # działa ponownie na zapisanym odczycie, bez modelu. Dokument sprzed
+        # poprawki reguły nie może zostać w kolejce z jej starymi powodami.
+        extraction, applied = apply_policies(
+            extraction,
+            PolicyContext(
+                document_text=doc.text, filename=row.attachment_name, reapplied=True
+            ),
+            policies,
+        )
+        row.client_policy = " + ".join(applied) or None
     if any(p.key == "nordea" for p in policies):
         # Stary model mógł dodać osoby z summary. Przeliczenie korzysta z
         # właściwej tabeli PDF-a, zachowując zaakceptowany numer i okres.
-        extraction, _ = apply_policies(
-            extraction,
-            PolicyContext(document_text=doc.text, filename=row.attachment_name),
-            policies,
-        )
         extraction.consultant_rows = policy_by_key("nordea").extract_rows(doc.text)
     extraction = apply_rate_kind(extraction, doc.text, policies)
     row.extraction = extraction_to_json(extraction)
@@ -574,6 +595,7 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
 
 async def current_proposal(db, extraction, client_id):
     from app.services.order_types import suggested_order_type
+    from app.models.activity import Activity
     from app.models.client_order import ClientOrder
     from app.models.contract import Contract
     from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
@@ -594,6 +616,24 @@ async def current_proposal(db, extraction, client_id):
             .scalars()
             .all()
         )
+        # Zamówienia zapisane już z maila (writer zostawia Activity
+        # ``order_mail_*``): ich szkic niesie tamten PDF i nie może zostać
+        # nadpisany kolejnym dokumentem tej samej osoby.
+        mail_order_ids = (
+            set(
+                (
+                    await db.execute(
+                        select(Activity.entity_id).where(
+                            Activity.entity_type == "client_order",
+                            Activity.entity_id.in_([o.id for o in orders]),
+                            Activity.action.in_(_MAIL_ORDER_ACTIONS),
+                        )
+                    )
+                ).scalars()
+            )
+            if orders
+            else set()
+        )
         for o in orders:
             existing.setdefault(o.contract_id, []).append(
                 ExistingOrder(
@@ -610,6 +650,7 @@ async def current_proposal(db, extraction, client_id):
                     rate_unit=o.rate_unit.value
                     if hasattr(o.rate_unit, "value")
                     else o.rate_unit,
+                    from_order_mail=o.id in mail_order_ids,
                 )
             )
         contracts = (

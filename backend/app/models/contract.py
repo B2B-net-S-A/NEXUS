@@ -247,6 +247,12 @@ class Contract(Base, TimestampMixin):
     client_order_end_date: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, index=True
     )
+    # „Okres zamówienia" (migracja 0304) — początek bieżącego zamówienia tej
+    # osoby, parą z ``client_order_end_date``. Osobne pole, nie ``start_date``:
+    # okres ZAMÓWIENIA nigdy nie nadpisuje okresu UMOWY. Wypełnia go
+    # ``app.services.contract_order_sync`` z najnowszego uzupełnionego
+    # zamówienia; kolejne zamówienie nadpisuje poprzedni okres.
+    client_order_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     # ── Per-klient rejestr kontraktów (migracja 0138) ─────────────────────
     # Numer/kod projektu po stronie klienta (np. wewnętrzny ID projektu w
