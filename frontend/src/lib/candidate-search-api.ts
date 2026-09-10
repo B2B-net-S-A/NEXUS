@@ -182,9 +182,12 @@ export const candidateSearchApi = {
       .post<SearchDiagnosticsResponse>("/api/search/candidates/diagnostics", body)
       .then((r) => r.data),
   /**
-   * Read-only cached hybrid match scores (0-100) + breakdowns for candidates
-   * against a job. Only returns candidates that already have a fresh cached
-   * score.
+   * Canonical fit (0-100) + breakdowns of the given candidates against a job —
+   * the same number C2 screens show, measured on demand. At most
+   * `MATCH_SCORES_MAX_CANDIDATES` ids per call (see `useVisibleMatchScores`;
+   * the backend answers 422 beyond that): ask only for rows on screen.
+   * Unmeasured candidates have no score and a `{ total: null, measurement }`
+   * breakdown.
    */
   matchScores: (
     jobId: number,

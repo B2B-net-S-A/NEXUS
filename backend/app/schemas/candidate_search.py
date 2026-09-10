@@ -191,21 +191,31 @@ class CandidateSearchResponse(BaseModel):
     meta: SearchMeta = Field(default_factory=SearchMeta)
 
 
+# The scores endpoint measures canonical fit ON DEMAND (query vector + exact
+# vector provenance + scoring), so one request is bounded to what a recruiter
+# can see at once. The front end asks only for rows on screen; a wider page is
+# scored in several requests as the user scrolls.
+MATCH_SCORES_MAX_CANDIDATES = 20
+
+
 class MatchScoresRequest(BaseModel):
-    """Ask for cached hybrid match scores of some candidates against a job."""
+    """Ask for the canonical fit of the visible candidates against a job."""
 
     job_id: int
-    candidate_ids: list[int] = Field(default_factory=list, max_length=200)
+    candidate_ids: list[int] = Field(
+        default_factory=list, max_length=MATCH_SCORES_MAX_CANDIDATES
+    )
 
 
 class MatchScoresResponse(BaseModel):
-    """``candidate_id`` (string key for JSON) → hybrid match score in [0, 100].
+    """``candidate_id`` (string key for JSON) → canonical fit score in [0, 100].
 
-    Only candidates with a fresh cached score are present; the rest simply have
-    no entry (the endpoint never computes, so coverage depends on prior
-    recommendation/kanban scoring). ``breakdowns`` carries the stored
-    explainability payload (per-layer points + matched/gap skills) for the same
-    candidates, for the request-fit detail panel."""
+    Only measured candidates have a score; a candidate without a verified
+    measurement (stale/missing vector, provider outage) has none — it is never
+    shown as 0. ``breakdowns`` carries the explainability payload (per-layer
+    points + matched/gap skills, salary redacted without ``view_finance``) plus
+    ``total`` and ``measurement``; for an unmeasured candidate it holds only
+    ``{"total": null, "measurement": "<reason>"}``."""
 
     scores: dict[str, int] = Field(default_factory=dict)
     breakdowns: dict[str, Any] = Field(default_factory=dict)

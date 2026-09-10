@@ -1149,8 +1149,15 @@ export interface MatchJustification {
   candidate_id: number;
   job_id: number;
   job_title: string | null;
-  /** Hybrid composite score, 0-100 (same number the kanban ring shows). */
-  score: number;
+  /**
+   * Canonical base fit, 0-100, under the viewer's weight profile — the same
+   * number the kanban ring and every C2 screen show for the pair. `null` when
+   * the pair has no verified semantic measurement (see `score_measurement`);
+   * never replaced by another number.
+   */
+  score: number | null;
+  /** `measured` | `stale` | `missing_index` | `unavailable`. */
+  score_measurement?: string;
   /** "Podsumowanie" — prose verdict. */
   summary: string;
   /** "Może być dobrym wyborem, ponieważ" — positive bullets. */

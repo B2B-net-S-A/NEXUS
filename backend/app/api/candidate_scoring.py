@@ -32,6 +32,7 @@ from app.services.ai_quota import AIQuotaExceeded
 from app.services.match_justification_service import (
     MatchJustificationLLMError,
     MatchJustificationNotFound,
+    display_fit,
     get_cached,
     get_or_generate,
     notes_gap_warnings_from_extracted,
@@ -55,7 +56,11 @@ class MatchJustificationOut(BaseModel):
     candidate_id: int
     job_id: int
     job_title: Optional[str] = None
-    score: int
+    # Canonical base fit under the viewer's profile — the number C2 and the
+    # kanban ring show for this pair. None = no verified semantic measurement
+    # (see ``score_measurement``); never a substitute number.
+    score: Optional[int] = None
+    score_measurement: str = "measured"
     summary: str
     pros: list[str]
     watchouts: list[str]
@@ -76,12 +81,18 @@ def _serialize(
     row: CandidateMatchJustification,
     job_title: Optional[str],
     notes_warnings: Optional[list[dict]] = None,
+    *,
+    fit: tuple[Optional[int], str],
 ) -> MatchJustificationOut:
+    # `row.score` (the legacy composite the prose was generated from) is
+    # deliberately NOT the displayed number any more — see `display_fit`.
+    score, measurement = fit
     return MatchJustificationOut(
         candidate_id=row.candidate_id,
         job_id=row.job_id,
         job_title=job_title,
-        score=row.score,
+        score=score,
+        score_measurement=measurement,
         summary=row.summary,
         pros=list(row.pros or []),
         watchouts=list(row.watchouts or []),
@@ -134,6 +145,9 @@ async def get_scoring_justification(
 ) -> MatchJustificationOut:
     """AI justification of the (candidate, job) match score. Cached per pair;
     regenerates on ``refresh`` or when the underlying inputs change."""
+    # FIRST: on a failure it rolls the session back, which must not expire the
+    # justification row we are about to serialize.
+    fit = await display_fit(candidate_id, job_id, db, user_id=current_user.id)
     try:
         row = await get_or_generate(
             candidate_id, job_id, db, user_id=current_user.id, force=refresh
@@ -150,7 +164,7 @@ async def get_scoring_justification(
         ) from exc
 
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
-    return _serialize(row, job_title, warnings)
+    return _serialize(row, job_title, warnings, fit=fit)
 
 
 @router.post(
@@ -165,6 +179,9 @@ async def rate_scoring_justification(
     db: AsyncSession = Depends(get_db),
 ) -> MatchJustificationOut:
     """Record "Oceń ten scoring" feedback on an existing justification."""
+    # The response replaces the tab's data, so it must carry the same number
+    # as the GET — and it is computed first for the same rollback reason.
+    fit = await display_fit(candidate_id, job_id, db, user_id=current_user.id)
     row = await get_cached(candidate_id, job_id, db)
     if row is None:
         raise HTTPException(
@@ -187,4 +204,4 @@ async def rate_scoring_justification(
     await db.refresh(row)
 
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
-    return _serialize(row, job_title, warnings)
+    return _serialize(row, job_title, warnings, fit=fit)
