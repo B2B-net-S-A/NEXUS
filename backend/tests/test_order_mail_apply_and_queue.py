@@ -495,18 +495,24 @@ async def test_refresh_auto_verdict_applies_without_another_click(
         doc.gate_verdict = "auto"
         doc.gate_reasons = []
 
-    async def write(db, doc, *, actor_user_id):
-        assert actor_user_id is None
+    calls = []
+
+    async def write(db, doc, *, actor_user_id, confirmed_by_human):
+        calls.append((actor_user_id, confirmed_by_human))
         return ApplyResult(rows=[AppliedRow(row_index=0, action="new")])
 
     monkeypatch.setattr(queue, "refresh_review_plan", certain)
     monkeypatch.setattr(queue, "apply_document", write)
     headers = await _headers_for_role(app_client, UserRole.admin)
+    me = await app_client.get("/api/auth/me", headers=headers)
     response = await app_client.post(
         f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
     )
     assert response.status_code == 200, response.text
     assert response.json()["outcome"] == "auto_applied"
+    # Aktor do atrybucji, ale bez zatwierdzenia planu (imiennik, dopasowanie
+    # niedokładne) — to dalej zapis automatu.
+    assert calls == [(me.json()["id"], False)]
 
 
 @pytest.mark.asyncio

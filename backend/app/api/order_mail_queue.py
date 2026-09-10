@@ -434,10 +434,15 @@ async def refresh_queue_plan(
     # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje prawa
     # do nowego rekordu ani jego danych finansowych.
     await _require_apply_rights(db, doc, user)
-    # Zapis poniżej idzie BEZ aktora (automat), więc słucha wyłącznika
-    # ``ORDER_MAIL_AUTOAPPLY_ENABLED`` — wyłączony zostawia pewny plan w kolejce.
+    # Zapis pewnego planu jest tu AUTOMATYCZNY (człowiek kliknął „Przelicz”,
+    # nie „Zastosuj”), więc słucha wyłącznika ``ORDER_MAIL_AUTOAPPLY_ENABLED``
+    # i nie zdejmuje blokad zarezerwowanych dla zatwierdzenia (imiennik z bazy,
+    # dopasowanie niedokładne). Aktor idzie wyłącznie do atrybucji: historia
+    # i zamówienie mają wskazywać osobę, która zapis uruchomiła.
     if not hold_when_autoapply_disabled(doc) and doc.gate_verdict == "auto":
-        result = await apply_document(db, doc, actor_user_id=None)
+        result = await apply_document(
+            db, doc, actor_user_id=user.id, confirmed_by_human=False
+        )
         if result.ok:
             doc.outcome = OUTCOME_AUTO_APPLIED
         else:

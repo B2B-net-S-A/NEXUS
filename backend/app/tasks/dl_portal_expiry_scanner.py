@@ -15,8 +15,9 @@ Lifecycle:
 Odbiorcy: aktywni admini globalnie oraz aktywni Delivery Leadzi wyłącznie dla
 przypisanych klientów i tylko z effective ``delivery >= read``.
 
-Dedup: ``Notification.related_entity_*`` + ``notification_type`` per próg
-(jeden alert 30d + jeden 14d + jeden 7d na entity per timeline).
+Dedup: ``Notification.related_entity_*`` + ``notification_type`` + DATA KOŃCA
+per próg — jeden alert 30d + jeden 14d + jeden 7d na encję na KAŻDĄ datę
+końca, więc przedłużenie zamówienia/umowy ramowej uzbraja progi od nowa.
 
 Wzorzec: `app/tasks/contract_alerts.py` — daily loop z 24h sleep.
 """
@@ -70,6 +71,17 @@ _ORDER_NTYPE_BY_DAY = {
 }
 
 
+def _end_phrase(verb: str, end: date) -> str:
+    """Fragment treści niosący datę końca — i zarazem klucz epizodu w dedupie.
+
+    Jedno źródło dla treści i dla ``_already_notified``: rozjazd tych dwóch
+    (np. zmiana formatu daty tylko w treści) zamieniłby dedup w no-op, a drugi
+    wpis tego samego dnia rozbiłby się o ``ix_notif_dedup_daily`` i wycofał cały
+    przebieg skanera, łącznie z przejściami statusów.
+    """
+    return f"{verb} {end.isoformat()}"
+
+
 async def _already_notified(
     db: AsyncSession,
     *,
@@ -77,14 +89,29 @@ async def _already_notified(
     related_entity_type: str,
     related_entity_id: int,
     ntype: NotificationType,
+    end_phrase: str,
 ) -> bool:
+    """Czy ten próg dla TEJ daty końca poszedł już do tej osoby.
+
+    Epizod = (odbiorca, encja, próg, data końca). Klucz bez daty (do 09.2026)
+    wyciszał próg na zawsze: zamówienie albo umowa ramowa przedłużone na nowy
+    okres nie dostawały już ostrzeżeń 30/14/7 — dokładnie wtedy, gdy zbliżał
+    się kolejny koniec. Data stoi w treści powiadomienia („… kończy się
+    RRRR-MM-DD.” / „… wygasa RRRR-MM-DD.”) od pierwszej wersji skanera, więc
+    wpisy sprzed tej zmiany dalej deduplikują swój epizod — bez migracji i bez
+    jednorazowego zalewu powtórek. Ten sam wzorzec „epizod w kluczu” co
+    ``[Nd|<data>]`` w ``contract_alerts``; tytuł zostaje czytelny.
+    """
     res = await db.execute(
-        select(Notification.id).where(
+        select(Notification.id)
+        .where(
             Notification.user_id == user_id,
             Notification.related_entity_type == related_entity_type,
             Notification.related_entity_id == related_entity_id,
             Notification.notification_type == ntype,
+            Notification.message.contains(end_phrase, autoescape=True),
         )
+        .limit(1)
     )
     return res.scalar_one_or_none() is not None
 
@@ -156,6 +183,7 @@ async def _scan_framework_contracts(
         )
         ntype = _FC_NTYPE_BY_DAY[days]
         for fc in rows:
+            end_phrase = _end_phrase("wygasa", fc.expiry_date)
             for user_id in recipient_scope.for_client(fc.client_id):
                 if await _already_notified(
                     db,
@@ -163,6 +191,7 @@ async def _scan_framework_contracts(
                     related_entity_type="client_framework_contract",
                     related_entity_id=fc.id,
                     ntype=ntype,
+                    end_phrase=end_phrase,
                 ):
                     continue
                 db.add(
@@ -170,7 +199,7 @@ async def _scan_framework_contracts(
                         user_id=user_id,
                         title=f"Umowa ramowa wygasa za {days} dni",
                         message=(
-                            f"'{fc.name}' wygasa {fc.expiry_date.isoformat()}. "
+                            f"'{fc.name}' {end_phrase}. "
                             "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
                         ),
                         notification_type=ntype,
@@ -215,6 +244,7 @@ async def _scan_orders(
             o: ClientOrder = row[0]
             cand_name: str = row.candidate_name or "kontraktor"
             cli_name: str = row.client_name or "klient"
+            end_phrase = _end_phrase("kończy się", o.end_date)
 
             for user_id in recipient_scope.for_client(o.client_id):
                 if await _already_notified(
@@ -223,6 +253,7 @@ async def _scan_orders(
                     related_entity_type="client_order",
                     related_entity_id=o.id,
                     ntype=ntype,
+                    end_phrase=end_phrase,
                 ):
                     continue
                 db.add(
@@ -230,9 +261,8 @@ async def _scan_orders(
                         user_id=user_id,
                         title=f"Zamówienie {cand_name} kończy się za {days} dni",
                         message=(
-                            f"Zamówienie dla {cand_name} u {cli_name} kończy się "
-                            f"{o.end_date.isoformat()}. Skontaktuj się z klientem, "
-                            "aby przedyskutować przedłużenie."
+                            f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
+                            "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
                         ),
                         notification_type=ntype,
                         related_entity_type="client_order",

@@ -260,6 +260,131 @@ async def test_alert_dedup_no_duplicate_on_second_run():
         await _cleanup(client_id, [admin_id, dl_id])
 
 
+async def test_extended_order_and_framework_contract_rearm_thresholds():
+    """Próg przychodzi raz na DATĘ KOŃCA, nie raz na zawsze.
+
+    Do 09.2026 klucz (odbiorca, encja, próg) bez daty wyciszał próg na zawsze:
+    zamówienie przedłużone na nowy okres nie dostawało ostrzeżeń przed kolejnym
+    końcem. Wpis z tą samą datą (także sprzed zmiany) nadal deduplikuje.
+    """
+    from datetime import datetime, timezone
+
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    renewed_contract, renewed_candidate = await _new_contract(client_id)
+    same_contract, same_candidate = await _new_contract(client_id)
+    new_end = date.today() + timedelta(days=7)
+    fc_end = date.today() + timedelta(days=14)
+    long_ago = datetime.now(timezone.utc) - timedelta(days=60)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    try:
+        async with AsyncSessionLocal() as db:
+            renewed = ClientOrder(
+                client_id=client_id,
+                contract_id=renewed_contract,
+                title="Przedłużone zamówienie",
+                status=ClientOrderStatus.active,
+                start_date=date.today() - timedelta(days=90),
+                end_date=new_end,
+            )
+            same = ClientOrder(
+                client_id=client_id,
+                contract_id=same_contract,
+                title="To samo zamówienie",
+                status=ClientOrderStatus.active,
+                start_date=date.today() - timedelta(days=90),
+                end_date=new_end,
+            )
+            fc = ClientFrameworkContract(
+                client_id=client_id,
+                name="MSA przedłużona",
+                status=FrameworkContractStatus.active,
+                expiry_date=fc_end,
+            )
+            db.add_all([renewed, same, fc])
+            await db.flush()
+            old_end = (date.today() - timedelta(days=53)).isoformat()
+            db.add_all(
+                [
+                    # Poprzedni okres przedłużonego zamówienia — ten sam próg.
+                    Notification(
+                        user_id=dl_id,
+                        title="Zamówienie kończy się za 7 dni",
+                        message=f"Zamówienie dla X u Y kończy się {old_end}. Skontaktuj się.",
+                        notification_type=NotificationType.client_order_ending_7d,
+                        related_entity_type="client_order",
+                        related_entity_id=renewed.id,
+                        created_at=long_ago,
+                    ),
+                    # Wpis sprzed zmiany dla TEJ SAMEJ daty — dalej deduplikuje.
+                    Notification(
+                        user_id=dl_id,
+                        title="Zamówienie kończy się za 7 dni",
+                        message=(
+                            f"Zamówienie dla X u Y kończy się {new_end.isoformat()}. "
+                            "Skontaktuj się."
+                        ),
+                        notification_type=NotificationType.client_order_ending_7d,
+                        related_entity_type="client_order",
+                        related_entity_id=same.id,
+                        created_at=yesterday,
+                    ),
+                    Notification(
+                        user_id=dl_id,
+                        title="Umowa ramowa wygasa za 14 dni",
+                        message=f"'MSA przedłużona' wygasa {old_end}. Skontaktuj się.",
+                        notification_type=NotificationType.framework_contract_expiring_14d,
+                        related_entity_type="client_framework_contract",
+                        related_entity_id=fc.id,
+                        created_at=long_ago,
+                    ),
+                ]
+            )
+            await db.commit()
+            renewed_id, same_id, fc_id = renewed.id, same.id, fc.id
+
+        async def messages(entity_type, entity_id, ntype):
+            async with AsyncSessionLocal() as db:
+                return sorted(
+                    (
+                        await db.scalars(
+                            select(Notification.message).where(
+                                Notification.user_id == dl_id,
+                                Notification.related_entity_type == entity_type,
+                                Notification.related_entity_id == entity_id,
+                                Notification.notification_type == ntype,
+                            )
+                        )
+                    ).all()
+                )
+
+        for _ in range(2):  # drugi przebieg tego samego dnia nie dubluje
+            await run_once()
+            renewed_msgs = await messages(
+                "client_order", renewed_id, NotificationType.client_order_ending_7d
+            )
+            assert len(renewed_msgs) == 2
+            assert any(f"kończy się {new_end.isoformat()}." in m for m in renewed_msgs)
+            assert (
+                len(
+                    await messages(
+                        "client_order", same_id, NotificationType.client_order_ending_7d
+                    )
+                )
+                == 1
+            )
+            fc_msgs = await messages(
+                "client_framework_contract",
+                fc_id,
+                NotificationType.framework_contract_expiring_14d,
+            )
+            assert len(fc_msgs) == 2
+            assert any(f"wygasa {fc_end.isoformat()}." in m for m in fc_msgs)
+    finally:
+        await _cleanup(
+            client_id, [admin_id, dl_id], [renewed_candidate, same_candidate]
+        )
+
+
 async def test_order_alert_dispatched():
     """Order ending in 7d → notification."""
     admin_id, dl_id, client_id = await _setup_dl_with_client()

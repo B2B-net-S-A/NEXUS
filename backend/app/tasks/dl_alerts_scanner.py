@@ -15,7 +15,9 @@ przypisanego Delivery Leada, emisja szła do pustej listy i alert przepadał bez
 śladu. ``reconcile_exhausted_group_budget_alerts`` (dobowo, poza rejestrem
 ``ALERT_RULES``, bo to nie reguła stanowa z powtórką) dostarcza go po
 przypisaniu DL — dla zamówień kosztowych i wspólnej puli MD to jedyny sygnał
-o końcu budżetu.
+o końcu budżetu. Tak samo ``reconcile_mail_new_draft_alerts`` dostarcza
+jednorazowy alert o pierwszym drafcie z maila (nowa osoba u klienta), którego
+cotygodniowa reguła „bez zamówienia” świadomie nie obejmuje.
 
 Trzy pozostałe są STANOWE: warunek trwa, dopóki ktoś czegoś nie uzupełni, więc
 powtarzają się co ``DL_ALERT_REPEAT_DAYS`` dni — każda powtórka jako nowy wiersz
@@ -55,6 +57,7 @@ from app.services.dl_alerts import (
     dl_user_ids_for_client,
     emit,
     reconcile_exhausted_group_budget_alerts,
+    reconcile_mail_new_draft_alerts,
 )
 from app.services.shared_md_orders import uses_shared_md_pool
 
@@ -393,6 +396,18 @@ async def _run_rules(db: AsyncSession) -> dict[str, int]:
     except Exception:  # noqa: BLE001
         logger.exception("dl_alerts exhausted-budget backstop failed")
         created["exhausted_budget_backstop"] = 0
+    # Ten sam backstop dla JEDNORAZOWEGO alertu o pierwszym drafcie z maila:
+    # klient bez DL w chwili zapisu draftu dostaje go po przypisaniu DL.
+    try:
+        async with db.begin_nested():
+            created["mail_new_draft_backstop"] = await reconcile_mail_new_draft_alerts(
+                db, recipient_scope
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("dl_alerts mail-new-draft backstop failed")
+        created["mail_new_draft_backstop"] = 0
     await db.commit()
     return created
 
