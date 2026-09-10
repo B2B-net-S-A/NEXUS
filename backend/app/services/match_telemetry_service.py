@@ -16,10 +16,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -38,6 +39,63 @@ logger = logging.getLogger(__name__)
 OUTCOME_EVENTS = frozenset(
     {"view", "shortlist", "add_to_pipeline", "reject", "interview", "hire"}
 )
+
+# Durable full-search results pages (`GET /api/candidate-search/runs/{id}`):
+# a saved recruitment (the C2 screens) vs an ad-hoc Talent Radar request.
+FULL_SEARCH_SURFACE = "full_search"
+RADAR_SEARCH_SURFACE = "talent_radar"
+
+# Hard ceiling on rows written by ONE call. The served page is already bounded
+# (`limit` <= 100, bulk-add <= 100 ids); this keeps a future caller from turning
+# telemetry into an unbounded write on the request path.
+MAX_ROWS_PER_CALL = 100
+
+# The only breakdown keys copied into `match_impressions.fit_breakdown`:
+# numbers and a status, never the free-text `reason` (it can quote a location,
+# a rate or a skill list verbatim).
+_BREAKDOWN_LAYERS = (
+    "semantic",
+    "skills",
+    "salary",
+    "location",
+    "availability",
+    "champion_fit",
+)
+
+
+def _number(value) -> Optional[float]:
+    # NaN/inf would serialize to invalid JSON and fail the WHOLE page insert.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def numeric_fit_breakdown(
+    breakdown: Optional[dict],
+    *,
+    total: Optional[float] = None,
+    measurement: Optional[str] = None,
+) -> dict:
+    """Ids-and-numbers projection of a served breakdown (PII policy above).
+
+    Per layer only ``points``/``max`` (``None`` where the response redacted
+    them, e.g. salary without ``view_finance``); plus the served ``total`` and
+    the ``measurement`` status. Reasons, skill names and any other free text
+    are dropped structurally, not by convention.
+    """
+    source = breakdown if isinstance(breakdown, dict) else {}
+    out: dict = {}
+    for name in _BREAKDOWN_LAYERS:
+        layer = source.get(name)
+        if isinstance(layer, dict):
+            out[name] = {
+                "points": _number(layer.get("points")),
+                "max": _number(layer.get("max")),
+            }
+    out["total"] = _number(total)
+    if measurement is not None:
+        out["measurement"] = str(measurement)[:24]
+    return out
 
 
 def telemetry_enabled() -> bool:
@@ -170,6 +228,18 @@ async def record_impressions(
     return inserted
 
 
+_OUTCOME_INSERT = text(
+    """
+    INSERT INTO match_outcomes (
+        event_id, run_id, candidate_id, job_id, event_type, reason_code
+    ) VALUES (
+        :event_id, :run_id, :candidate_id, :job_id, :event_type, :reason_code
+    )
+    ON CONFLICT (event_id) DO NOTHING
+    """
+)
+
+
 async def record_outcome(
     db: AsyncSession,
     *,
@@ -191,22 +261,12 @@ async def record_outcome(
     if event_type not in OUTCOME_EVENTS:
         logger.warning("[telemetry] ignoring unknown outcome event_type=%s", event_type)
         return False
-    stmt = text(
-        """
-        INSERT INTO match_outcomes (
-            event_id, run_id, candidate_id, job_id, event_type, reason_code
-        ) VALUES (
-            :event_id, :run_id, :candidate_id, :job_id, :event_type, :reason_code
-        )
-        ON CONFLICT (event_id) DO NOTHING
-        """
-    )
     try:
         # Dedicated session (M3-TX-01): see record_impressions. ``db`` stays
         # untouched so an outcome-write failure never disturbs the caller's txn.
         async with AsyncSessionLocal() as s:
             result = await s.execute(
-                stmt,
+                _OUTCOME_INSERT,
                 {
                     "event_id": event_id,
                     "run_id": run_id,
@@ -267,3 +327,156 @@ async def emit_match_outcome(
         job_id=job_id,
         reason_code=reason_code,
     )
+
+
+# ── Full search (C2 / Talent Radar) ───────────────────────────────────────────
+#
+# Until 09.2026 the only impression writer was `matching_orchestrator._emit`,
+# which no live surface calls — so with the flag ON in production the table
+# stayed at 0 rows and every outcome pointed at a run nobody could replay. The
+# durable full search is the ranking users actually see; its run id
+# (`candidate_search_runs.id`) is the impression run id, so an outcome can be
+# joined back to the exact page, rank and fit that preceded it.
+
+
+def _stamp(trace: Optional[dict], key: str, default: str) -> str:
+    value = trace.get(key) if isinstance(trace, dict) else None
+    return str(value)[:64] if value else default
+
+
+async def record_full_search_page(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    job_id: Optional[int],
+    client_id: Optional[int],
+    user_id: Optional[int],
+    version_trace: Optional[dict],
+    entries: Sequence[ImpressionEntry],
+    degraded: bool,
+) -> int:
+    """Impressions for one served results page of a durable full search.
+
+    Only the rows actually served (the page), capped at ``MAX_ROWS_PER_CALL``;
+    idempotent per (run, candidate), so re-reading the page writes nothing.
+    Version stamps come from the RUN, not from the process: the page shows the
+    ranking frozen when the scan ran. Never raises.
+    """
+    if not telemetry_enabled() or not entries:
+        return 0
+    return await record_impressions(
+        db,
+        run_id=run_id,
+        surface=FULL_SEARCH_SURFACE if job_id is not None else RADAR_SEARCH_SURFACE,
+        entries=list(entries)[:MAX_ROWS_PER_CALL],
+        job_id=job_id,
+        user_id=user_id,
+        client_id=client_id,
+        ranker_version=_stamp(version_trace, "ranker_version", LEGACY_RANKER_VERSION),
+        index_version=_stamp(version_trace, "index_version", LEGACY_INDEX_VERSION),
+        text_schema_version=_stamp(
+            version_trace, "text_schema_version", LEGACY_TEXT_SCHEMA_VERSION
+        ),
+        taxonomy_version=_stamp(
+            version_trace, "taxonomy_version", LEGACY_TAXONOMY_VERSION
+        ),
+        degraded=degraded,
+    )
+
+
+async def latest_impression_runs(
+    *, job_id: int, candidate_ids: Sequence[int], user_id: Optional[int]
+) -> dict[int, str]:
+    """``{candidate_id: run_id}`` of the most recent impression THIS user was
+    shown for this job — the run an action on the candidate follows from.
+
+    Own session, never raises (an unknown run is ``{}``, not an error).
+    """
+    ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
+    if not telemetry_enabled() or not ids or user_id is None:
+        return {}
+    stmt = text(
+        """
+        SELECT DISTINCT ON (candidate_id) candidate_id, run_id
+        FROM match_impressions
+        WHERE job_id = :job_id
+          AND user_ref = :user_ref
+          AND candidate_id IN :ids
+        ORDER BY candidate_id, created_at DESC, id DESC
+        """
+    ).bindparams(bindparam("ids", expanding=True))
+    try:
+        async with AsyncSessionLocal() as s:
+            rows = await s.execute(
+                stmt,
+                {"job_id": job_id, "user_ref": pseudonymize(user_id), "ids": ids},
+            )
+            return {int(cid): str(run) for cid, run in rows.all()}
+    except Exception as exc:  # noqa: BLE001 — telemetry never breaks the action
+        logger.warning("[telemetry] impression run lookup failed: %s", exc)
+        return {}
+
+
+async def _latest_proposal_run(job_id: int) -> Optional[str]:
+    """The job's latest proposals run — ``emit_match_outcome``'s correlation,
+    looked up in an OWN session (a failed read must not poison the caller's)."""
+    from sqlalchemy import select
+
+    from app.models.proposal_snapshot import ProposalSnapshot
+
+    try:
+        async with AsyncSessionLocal() as s:
+            return await s.scalar(
+                select(ProposalSnapshot.run_id)
+                .where(ProposalSnapshot.job_id == job_id)
+                .order_by(ProposalSnapshot.created_at.desc())
+                .limit(1)
+            )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def emit_pipeline_additions(
+    *, job_id: int, candidate_ids: Sequence[int], user_id: Optional[int]
+) -> int:
+    """``add_to_pipeline`` outcomes for candidates just added to a pipeline.
+
+    Each outcome is correlated with the full-search run in which this user was
+    last shown the candidate for this job (so it joins its impression: page,
+    rank, fit). A candidate added without having been shown there falls back to
+    the job's latest proposals run, exactly like ``emit_match_outcome``. Same
+    idempotency key shape as ``emit_match_outcome``. One session for the whole
+    batch, at most ``MAX_ROWS_PER_CALL`` rows. Never raises; returns the number
+    of NEW outcome rows.
+    """
+    ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
+    if not telemetry_enabled() or not ids:
+        return 0
+    try:
+        runs = await latest_impression_runs(
+            job_id=job_id, candidate_ids=ids, user_id=user_id
+        )
+        fallback = await _latest_proposal_run(job_id) if len(runs) < len(ids) else None
+        params = []
+        for cid in ids:
+            run_id = runs.get(cid) or fallback
+            params.append(
+                {
+                    "event_id": f"add_to_pipeline:{run_id or 'norun'}:{job_id}:{cid}",
+                    "run_id": run_id,
+                    "candidate_id": cid,
+                    "job_id": job_id,
+                    "event_type": "add_to_pipeline",
+                    "reason_code": None,
+                }
+            )
+        inserted = 0
+        async with AsyncSessionLocal() as s:
+            for row in params:
+                result = await s.execute(_OUTCOME_INSERT, row)
+                inserted += result.rowcount or 0
+            await s.commit()
+        return inserted
+    except Exception as exc:  # noqa: BLE001 — telemetry never breaks the action
+        logger.warning("[telemetry] pipeline outcome write failed: %s", exc)
+        return 0
