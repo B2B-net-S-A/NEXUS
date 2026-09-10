@@ -24,6 +24,8 @@ import os
 import time
 from typing import Any
 
+import anthropic
+
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.claude_client import (
@@ -224,8 +226,6 @@ def analyze_with_ai(
     except ClaudeTruncated as exc:
         raise CVGeneratorTruncatedError(str(exc)) from exc
     except ClaudeOverloaded as exc:
-        import anthropic
-
         if isinstance(exc.__cause__, anthropic.APITimeoutError):
             raise CVGeneratorTimeoutError(
                 "Usługa AI nie odpowiedziała w wymaganym czasie. "
@@ -238,8 +238,6 @@ def analyze_with_ai(
     except ClaudeError as exc:
         raise CVGeneratorAIError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — surowy błąd SDK (4xx, brak sieci)
-        import anthropic
-
         if isinstance(exc, anthropic.APITimeoutError):
             raise CVGeneratorTimeoutError(
                 "Usługa AI nie odpowiedziała w wymaganym czasie. "

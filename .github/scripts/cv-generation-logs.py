@@ -84,7 +84,8 @@ def main():
             name = "nexus-cv-state-" + identity + "-" + label
             code = 'import os,psycopg2;c=psycopg2.connect(os.environ["DATABASE_URL"].replace("+asyncpg","")).cursor();c.execute("' + query + '");print(c.fetchall())'
             command = "python -c '" + code + "'"
-            assert len(command) <= 255
+            if len(command) > 255:
+                raise ops.OpsError("probe_command_too_long")
             api.request("POST", api.tasks, {"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True})
             owned = [t for t in api.inventory() if t.get("name") == name and t.get("command") == command]
             if len(owned) != 1:
@@ -101,7 +102,10 @@ def main():
                     for line in (execution.get("message") or "").splitlines():
                         if not line.startswith("[("):
                             continue
-                        rows = ast.literal_eval(line)
+                        try:
+                            rows = ast.literal_eval(line)
+                        except (ValueError, SyntaxError):
+                            raise ops.OpsError("invalid_metadata") from None
                         if not isinstance(rows, list) or len(rows) > 6:
                             raise ops.OpsError("invalid_metadata")
                         print(json.dumps({label: rows}), flush=True)

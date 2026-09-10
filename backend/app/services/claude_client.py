@@ -384,7 +384,9 @@ def _call_one_model(
                     )
             return message
         except (ClaudeTruncated, ClaudeDeadlineExceeded):
-            raise  # długość treści — identyczna na każdym modelu, bez fallbacku
+            # Neither an incomplete response nor an exhausted shared time
+            # budget can be recovered by retrying or switching models here.
+            raise
         except BaseException as err:  # noqa: BLE001 — klasyfikuj, potem re-raise
             last_err = err
             last_retryable = is_retryable_anthropic_error(err)
