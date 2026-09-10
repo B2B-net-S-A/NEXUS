@@ -2073,6 +2073,16 @@ async def extract_order_pdf(
         }
 
     return OrderExtractionResult(
+        consultant_rows=[
+            {
+                "consultant_name": row.consultant_name,
+                "start_date": row.start_date,
+                "end_date": row.end_date,
+                "rate_client": row.rate_client if show_finance else None,
+                "rate_unit": row.rate_unit if show_finance else None,
+            }
+            for row in extraction.consultant_rows
+        ],
         title=extraction.title,
         start_date=extraction.start_date,
         end_date=extraction.end_date,
@@ -2980,6 +2990,8 @@ async def _extract_with_plan(
     są tu istotne: BNP dostaje sam tekst (fail-closed matcher nie miałby czego
     dopasować), PFRON i Erste dokładają domyślną jednostkę stawki.
     """
+    if plan.all_rows:
+        return await parse_order_document(text, all_rows=True)
     if plan.single_consultant_document:
         return await parse_order_document(text)
     if target_consultant and plan.rate_unit_default:

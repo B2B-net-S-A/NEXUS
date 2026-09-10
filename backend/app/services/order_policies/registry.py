@@ -346,6 +346,7 @@ class ParsePlan:
 
     single_consultant_document: bool = False
     rate_unit_default: Optional[str] = None
+    all_rows: bool = False
 
 
 def parse_plan(policies: list[OrderClientPolicy]) -> ParsePlan:
@@ -355,7 +356,11 @@ def parse_plan(policies: list[OrderClientPolicy]) -> ParsePlan:
     # PFRON-u — spójnie z ``suppressed_by``, przez które PFRON wyłącza Erste.
     ordered = sorted(policies, key=lambda p: p.order)
     unit = next((p.rate_unit_default for p in ordered if p.rate_unit_default), None)
-    return ParsePlan(single_consultant_document=single, rate_unit_default=unit)
+    return ParsePlan(
+        single_consultant_document=single,
+        rate_unit_default=unit,
+        all_rows=any(p.key == "nordea" for p in policies),
+    )
 
 
 def apply_policies(

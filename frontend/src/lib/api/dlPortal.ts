@@ -169,6 +169,13 @@ export interface ClientOrdersGroupedResponse {
 
 /** Wynik "Zczytaj dane z dokumentu" — odczyt PDF/DOCX zamówienia. */
 export interface OrderExtractionResult {
+  consultant_rows?: Array<{
+    consultant_name: string;
+    start_date: string | null;
+    end_date: string | null;
+    rate_client: number | null;
+    rate_unit: string | null;
+  }>;
   title: string | null;
   start_date: string | null; // ISO YYYY-MM-DD
   end_date: string | null;

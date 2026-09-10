@@ -38,6 +38,7 @@ from app.services.order_policies._shared import (
 )
 from app.services.order_pdf_parser import (
     _fold_policy_text,
+    _names_exactly_equivalent,
     apply_consultant_row_match,
     nordea_call_off_agreement_number,
 )
@@ -49,7 +50,7 @@ _TWO_ISO_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})")
 _AMT = r"\d[\d\s  ]*,\d{2}"
 _ROW_RE = re.compile(
     rf"^(?P<name>\S+[ \t]+\S+(?:-\S+)?)[ \t]+(?P<rest>.*?)[ \t]+(?:(?:\d[\d  ]*|[-–—])[ \t]+)?(?:Hours?|Days?|Months?|MD|h|d)"
-    rf"[ \t]+(?P<rate>{_AMT})[ \t]*PLN(?:[ \t]+{_AMT}[ \t]*PLN)?[ \t]*$",
+    rf"[ \t]+(?P<rate>{_AMT})[ \t]*PLN[^\n]*$",
     re.MULTILINE | re.IGNORECASE,
 )
 _ORDER_TITLE_RE = re.compile(r"^[ \t]*Call[ -]?Off[ \t]+Agreement[ \t]*$", re.I | re.M)
@@ -113,17 +114,37 @@ def non_order_reason(text: str) -> Optional[str]:
 
 
 def parser_text(text: str) -> str:
-    """Model dostaje osobę i surową stawkę; kolumna limitu nie jest wejściem."""
+    """Five-field projection shared by mail, create, fill and extension.
+
+    The model never sees totals, subtotals, quantity, contact people or other
+    dates. Missing labeled fields stay missing rather than using unrelated data.
+    """
     text = order_text_only(text)
-    text = _ROW_RE.sub(
-        lambda m: (
-            f"{m.group('name')} {m.group('rest')} "
-            f"Rate: {m.group('rate')} PLN/hour netto"
-        ),
-        text,
-    )
-    text = re.sub(r"Quantity[ \t]*\(max[ \t]*", "", text, flags=re.I)
-    return re.sub(r"\b\d+[ \t]*h/month\)", "", text, flags=re.I)
+    number = call_off_number_interleaved(text) or nordea_call_off_agreement_number(text)
+    start, end = initial_term(text)
+    lines = [
+        "Call Off Agreement",
+        f"Call Off Agreement number: {number or ''}",
+        "Initial Term",
+        f"Start date: {start or ''}",
+        f"End date: {end or ''}",
+        "Consultant(s)",
+    ]
+    for row in extract_rows(text):
+        rate = (
+            format(row.rate_client, ".2f").replace(".", ",")
+            if row.rate_client is not None
+            else ""
+        )
+        lines.append(
+            f"Person(s) at the Supplier who it is intended to perform the service: {row.consultant_name}; Rate: {rate} PLN/hour netto"
+        )
+    return "\n".join(lines)
+
+
+_IGNORED_SUM_RE = re.compile(
+    r"total[_ ]value|total\s*,?\s*excl\.?\s*vat|subtotal", re.I
+)
 
 
 def _resolved_reason(reason: str) -> bool:
@@ -147,11 +168,22 @@ def _resolved_reason(reason: str) -> bool:
 
 
 def _remaining_reasons(reason: str) -> str:
+    # Remove the known optional quantity remark before splitting conjunctions.
+    reason = re.sub(
+        "można by je wyliczyć z kwoty i stawki, ale to niedozwolone",
+        "",
+        reason,
+        flags=re.I,
+    )
     # Model potrafi połączyć kilka niezależnych powodów średnikami.
     return "; ".join(
         part.strip()
-        for part in re.split(r"[;\n]+", reason)
-        if part.strip() and not _resolved_reason(part)
+        for part in re.split(
+            r"[;\n]+|,?\s+(?:ale|jednak|natomiast|but)\s+", reason, flags=re.I
+        )
+        if part.strip()
+        and not _IGNORED_SUM_RE.search(part)
+        and not _resolved_reason(part)
     )
 
 
@@ -171,9 +203,18 @@ def apply_rate_rules(result: OrderExtraction) -> OrderExtraction:
             remaining = _remaining_reasons(item.uncertain_reason)
             item.uncertain_reason = remaining or None
             item.uncertain = bool(remaining)
+    result.total_value = None
+    result.consultant_ref = None
     result.rate_client_md = None
     result.consultant_md_matched = False
-    for key in ("md_total", "rate_client_md", "rate_client_gross"):
+    for key in (
+        "total_value",
+        "subtotal",
+        "consultant_ref",
+        "md_total",
+        "rate_client_md",
+        "rate_client_gross",
+    ):
         result.confidence.pop(key, None)
     result.confidence["rate_unit"] = 1.0
     before = result.uncertain_reasons
@@ -203,16 +244,29 @@ def call_off_number_interleaved(text: str) -> Optional[str]:
 
 
 def initial_term(text: str) -> tuple[Optional[str], Optional[str]]:
-    lines = (text or "").splitlines()
-    for i, ln in enumerate(lines):
-        if _TERM_HEADER_RE.search(ln):
-            for nxt in lines[i + 1 : i + 3]:
-                m = _TWO_ISO_RE.search(nxt)
-                if m:
-                    return normalize_date(m.group(1), end=False), normalize_date(
-                        m.group(2), end=True
-                    )
-    return None, None
+    section = re.search(
+        r"Initial\s+Term\b(.*?)(?:Miscellaneous|Consultant\(s\)|Contact persons|$)",
+        text or "",
+        re.I | re.S,
+    )
+    if not section:
+        return None, None
+    body = section.group(1)
+    paired = re.search(
+        r"Start\s+date\s+End\s+date\s+(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})",
+        body,
+        re.I,
+    )
+    if paired:
+        return normalize_date(paired.group(1), end=False), normalize_date(
+            paired.group(2), end=True
+        )
+    start = re.search(r"Start\s+date\s*:?\s*(\d{4}-\d{2}-\d{2})", body, re.I)
+    end = re.search(r"End\s+date\s*:?\s*(\d{4}-\d{2}-\d{2})", body, re.I)
+    return (
+        normalize_date(start.group(1), end=False) if start else None,
+        normalize_date(end.group(1), end=True) if end else None,
+    )
 
 
 def extract_rows(text: str) -> list[ConsultantOrderRow]:
@@ -261,16 +315,41 @@ def apply_nordea_layout(
             r for r in result.uncertain_reasons if "Call Off Agreement number" not in r
         ]
     start, end = initial_term(document_text)
-    if start and end:
-        set_field(result, "start_date", start)
-        set_field(result, "end_date", end)
+    for key, value in (("start_date", start), ("end_date", end)):
+        if value:
+            set_field(result, key, value)
+        else:
+            setattr(result, key, None)
+            result.confidence.pop(key, None)
+            reason = (
+                "Nie znaleziono pola "
+                + ("Start date" if key == "start_date" else "End date")
+                + " w Initial Term"
+            )
+            if reason not in result.uncertain_reasons:
+                result.uncertain_reasons.append(reason)
     rows = extract_rows(document_text)
     if len(rows) == 1 and not rows[0].uncertain and not target_consultant:
         set_field(result, "rate_client", rows[0].rate_client)
         set_field(result, "rate_unit", rows[0].rate_unit)
         result.consultant_rate_matched = True
-    if rows and not result.consultant_rows:
-        result.consultant_rows = rows
+    # The labeled table is authoritative in every entry path. Keep meaningful
+    # model concerns on the same person, but never lose a second table row.
+    for row in rows:
+        concerns = [
+            old.uncertain_reason or "Niepewny odczyt wiersza konsultanta"
+            for old in result.consultant_rows
+            if old.uncertain
+            and _names_exactly_equivalent(old.consultant_name, row.consultant_name)
+        ]
+        if concerns:
+            row.uncertain = True
+            row.uncertain_reason = "; ".join(dict.fromkeys(concerns))
+    result.consultant_rows = rows
+    result.currency = "PLN"
+    if len(rows) != 1 and not target_consultant:
+        result.rate_client = None
+        result.consultant_rate_matched = False
     if target_consultant:
         # Poprzedni matcher mógł odrzucić wiersz przez VAT/Quantity. Po
         # normalizacji nadal musi dopasować WSKAZANĄ osobę, nie pierwszą z PDF-a.

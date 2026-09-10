@@ -223,6 +223,14 @@ class ClientOrderExportRequest(BaseModel):
         return self
 
 
+class OrderExtractionConsultant(BaseModel):
+    consultant_name: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    rate_client: Optional[Decimal] = None
+    rate_unit: Optional[str] = None
+
+
 class OrderExtractionResult(BaseModel):
     """`POST /api/clients/{client_id}/orders/extract` — odczyt pól z PDF/DOCX.
 
@@ -231,6 +239,7 @@ class OrderExtractionResult(BaseModel):
     Kwoty (rate_client/total_value/currency) są zredagowane dla ról bez VIEW_FINANCE.
     """
 
+    consultant_rows: list[OrderExtractionConsultant] = Field(default_factory=list)
     title: Optional[str] = None
     # Daty jako ISO "YYYY-MM-DD" — front (dateInput) przyjmuje je wprost.
     start_date: Optional[str] = None

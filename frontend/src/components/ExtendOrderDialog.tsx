@@ -1,5 +1,6 @@
 "use client";
 
+import { ExtractedConsultants, type ExtractedConsultantRows } from "@/components/orders/ExtractedConsultants";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Trash2 } from "lucide-react";
@@ -123,6 +124,7 @@ export function ExtendOrderDialog({
   // dodania pliku. Dodanie pliku samo w sobie NIC nie zmienia w formularzu.
   const [extracting, setExtracting] = useState(false);
   // Baner „Sprawdź dane!" — pokazywany gdy odczyt był niepewny (uncertain).
+  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
   // Polityka klientowa (Bank Pocztowy) nie znalazła numeru w dokumencie —
@@ -204,6 +206,7 @@ export function ExtendOrderDialog({
     // na linię konsultanta. Pole tutaj nie miałoby gdzie się zapisać.
     // Poza blokiem `canManageFinance` — numer ID nie jest kwotą.
     setConsultantRef(d.consultant_ref ?? null);
+    setExtractedRows(d.client_policy === "Nordea" ? (d.consultant_rows ?? []) : []);
     setCheckData(Boolean(d.uncertain));
     setCheckReasons(d.uncertain_reasons ?? []);
   };
@@ -285,7 +288,8 @@ export function ExtendOrderDialog({
         </div>
 
         {/* Baner „Sprawdź dane!" — nad tytułem zamówienia, gdy odczyt niepewny. */}
-        {checkData && (
+        <ExtractedConsultants rows={extractedRows} />
+          {checkData && (
           <div
             role="alert"
             className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
@@ -519,7 +523,8 @@ export function ExtendOrderDialog({
               // z poprzedniego odczytu (dotyczył innego pliku).
               setFile(picked);
               setFileError(null);
-              setCheckData(false);
+              setExtractedRows([]);
+      setCheckData(false);
               setCheckReasons([]);
               setTitleCheck(false);
               setConsultantRef(null);
@@ -556,7 +561,8 @@ export function ExtendOrderDialog({
                   ) {
                     setFile(null);
                     setFileError(null);
-                    setCheckData(false);
+                    setExtractedRows([]);
+      setCheckData(false);
                     setCheckReasons([]);
                     setTitleCheck(false);
                     setConsultantRef(null);

@@ -1,5 +1,6 @@
 "use client";
 
+import { ExtractedConsultants, type ExtractedConsultantRows } from "@/components/orders/ExtractedConsultants";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileSearch, Search } from "lucide-react";
@@ -136,6 +137,7 @@ export function NewContractorOrderDialog({
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
+  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
   // `null` = odczytu jeszcze nie było. Pusty string = odczyt był, ale ten
@@ -185,7 +187,8 @@ export function NewContractorOrderDialog({
   const extractionEpochRef = useRef(0);
 
   function resetExtraction() {
-    setCheckData(false);
+    setExtractedRows([]);
+      setCheckData(false);
     setCheckReasons([]);
     setClientPolicy(null);
   }
@@ -268,6 +271,7 @@ export function NewContractorOrderDialog({
       if (data.currency) setRateClientCurrency(data.currency.toUpperCase());
     }
     setClientPolicy(data.client_policy ?? "");
+    setExtractedRows(data.client_policy === "Nordea" ? (data.consultant_rows ?? []) : []);
     setCheckData(Boolean(data.uncertain));
     setCheckReasons(data.uncertain_reasons ?? []);
   }
@@ -649,6 +653,7 @@ export function NewContractorOrderDialog({
             </p>
           )}
 
+          <ExtractedConsultants rows={extractedRows} />
           {checkData && (
             <div
               role="alert"
