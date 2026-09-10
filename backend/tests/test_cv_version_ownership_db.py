@@ -117,7 +117,13 @@ async def test_approval_without_an_owner_is_rejected():
 async def test_standalone_approval_share_roundtrip(
     app_client, app_auth_headers, monkeypatch
 ):
+    from unittest.mock import AsyncMock
+    from app.services import ai_quota
     from app.services.cv_approval_provenance import capture_editor_origin
+
+    # This roundtrip exercises a disabled chat explicitly. Approved uploads no
+    # longer implicitly disable chat merely because their original map is empty.
+    monkeypatch.setattr(ai_quota, "get_master_enabled", AsyncMock(return_value=False))
 
     payload = {
         "name": "Private Identity",
