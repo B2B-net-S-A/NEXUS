@@ -573,3 +573,17 @@ These checks do not cover skewed/low-resolution scans, handwriting, mixed conten
 within a page with a substantial but incomplete text layer, or full generator
 primary/fallback acceptance. Full semantic and Delivery Lead acceptance remain
 open. No real model quality or production OCR success is claimed here.
+
+## First hosted native OCR result — 2026-09-10
+
+Job 102693878981 in CI 34420248256 ran the native OCR step for 65f3da40.
+The mixed PDF OCR test and real page-detection test passed. The twelve-page test
+returned text for all twelve pages but failed its exact `Company10` comparison:
+Tesseract inserted whitespace before some numeric suffixes (`Company 10`,
+`Company 11`). Result: 1 failed, 2 passed in 10.65 seconds; this is not a green gate.
+
+Commit a86ef1c0 changes only the assertion to extract employer numbers with an
+optional whitespace boundary, requiring the exact ordered list 01 through 12.
+It does not accept missing, duplicated or substituted employer numbers. The
+corrected gate awaits CI 34420500564. No generator output normalization or OCR
+text rewriting was introduced by this assertion change.
