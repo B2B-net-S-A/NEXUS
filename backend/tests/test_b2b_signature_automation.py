@@ -441,8 +441,11 @@ async def test_confirm_fully_signed_creates_complete_atomic_handoff(
         assert contract.id == body["contract_id"]
         assert contract.client_id == scenario["client_id"]
         assert contract.contract_type == ContractType.b2b
-        assert contract.status == ContractStatus.draft
+        # Podpisana obustronnie umowa = kontrakt AKTYWNY od razu (09.2026),
+        # okres: start z umowy → bezterminowo, stawka kosztowa godzinowa.
+        assert contract.status == ContractStatus.active
         assert contract.start_date == date(2026, 8, 1)
+        assert contract.end_date is None
         assert contract.rate_candidate == Decimal("150.500")
         assert contract.rate_unit == RateUnit.hourly
 
@@ -643,10 +646,14 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
 
     async with AsyncSessionLocal() as db:
         orders = (
-            await db.execute(
-                select(ClientOrder.id).where(ClientOrder.contract_id == existing_id)
+            (
+                await db.execute(
+                    select(ClientOrder.id).where(ClientOrder.contract_id == existing_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         # The MD line is still the ONLY order on the contract — no standalone
         # draft was added next to it.
         assert orders == [line_id]
@@ -908,16 +915,23 @@ async def test_confirm_links_existing_ready_contract_and_lists_contractor(
         1,
     )
 
-    contractors = await app_client.get(
-        "/api/contractors?status=draft&page_size=200",
-        headers=app_auth_headers,
-    )
-    assert contractors.status_code == 200, contractors.text
-    item = next(
-        row for row in contractors.json()["items"] if row["contract_id"] == existing_id
-    )
+    # Obustronny podpis zamyka tor „do podpisu": kontrakt jest aktywny.
+    # Aktywnych kontraktorów we wspólnej bazie testowej bywa więcej niż jedna
+    # strona — szukamy po wszystkich stronach, nie tylko w pierwszej.
+    item = None
+    for page in range(1, 50):
+        contractors = await app_client.get(
+            f"/api/contractors?status=active&page_size=200&page={page}",
+            headers=app_auth_headers,
+        )
+        assert contractors.status_code == 200, contractors.text
+        rows = contractors.json()["items"]
+        item = next((row for row in rows if row["contract_id"] == existing_id), None)
+        if item is not None or not rows:
+            break
+    assert item is not None
     assert item["candidate"]["id"] == scenario["candidate_id"]
-    assert item["status"] == "ready_for_signature"
+    assert item["status"] == "active"
 
     async with AsyncSessionLocal() as db:
         linked_audit = await db.scalar(
@@ -1189,12 +1203,16 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
         assert contract.rate_unit == RateUnit.daily
         assert contract.start_date == date(2026, 8, 1)
         schedule = (
-            await db.execute(
-                select(ContractCandidateRate).where(
-                    ContractCandidateRate.contract_id == existing_id
+            (
+                await db.execute(
+                    select(ContractCandidateRate).where(
+                        ContractCandidateRate.contract_id == existing_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert [row.rate for row in schedule] == [Decimal("1204.000")]
 
         # Absent values are still completed from the document: the B2B detail
@@ -1222,14 +1240,18 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
         assert order.rate_unit == RateUnit.daily
 
         audit = (
-            await db.execute(
-                select(Activity).where(
-                    Activity.entity_type == "b2b_generated_contract",
-                    Activity.entity_id == scenario["generated_id"],
-                    Activity.action == "fully_signed_confirmed",
+            (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.entity_type == "b2b_generated_contract",
+                        Activity.entity_id == scenario["generated_id"],
+                        Activity.action == "fully_signed_confirmed",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(audit) == 1
         assert audit[0].details["acknowledged_conflicts"] == [
             "stawka kandydata",
@@ -2124,7 +2146,9 @@ async def test_confirming_signature_does_not_reopen_a_closed_contract(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("clientless", [False, True])
-async def test_tcm_confirms_without_document_management_and_override_revokes(app_client, clientless):
+async def test_tcm_confirms_without_document_management_and_override_revokes(
+    app_client, clientless
+):
     from app.models.section_permission import UserActionOverride
 
     admin_id = await _current_admin_id(app_client)
@@ -2136,21 +2160,35 @@ async def test_tcm_confirms_without_document_management_and_override_revokes(app
             await db.commit()
     headers = await _headers_for_role(app_client, UserRole.talent_community_manager)
     user_id = int(headers["X-Test-User-Id"])
-    listing = await app_client.get("/api/b2b-generator/generated?limit=200", headers=headers)
+    listing = await app_client.get(
+        "/api/b2b-generator/generated?limit=200", headers=headers
+    )
     assert listing.status_code == 200, listing.text
-    item = next(item for item in listing.json() if item["id"] == scenario["generated_id"])
+    item = next(
+        item for item in listing.json() if item["id"] == scenario["generated_id"]
+    )
     assert item["can_confirm_signed"] is True
     assert item["can_edit"] is False
     assert item["can_change_status"] is False
 
     async with AsyncSessionLocal() as db:
-        db.add(UserActionOverride(user_id=user_id, action="b2b_signature_confirmation", access="none"))
+        db.add(
+            UserActionOverride(
+                user_id=user_id, action="b2b_signature_confirmation", access="none"
+            )
+        )
         await db.commit()
     denied = await _confirm(app_client, headers, scenario["generated_id"])
     assert denied.status_code == 403, denied.text
-    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (0, 0, 0)
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
     async with AsyncSessionLocal() as db:
-        override = await db.get(UserActionOverride, (user_id, "b2b_signature_confirmation"))
+        override = await db.get(
+            UserActionOverride, (user_id, "b2b_signature_confirmation")
+        )
         await db.delete(override)
         await db.commit()
     confirmed = await _confirm(app_client, headers, scenario["generated_id"])

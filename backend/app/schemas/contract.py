@@ -309,6 +309,9 @@ class ContractGroupMember(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     latest_order_end_date: Optional[date] = None
+    # Okres zamówienia (synchronizowany z zamówień) — obok okresu umowy.
+    client_order_start_date: Optional[date] = None
+    client_order_end_date: Optional[date] = None
     job_title: Optional[str] = None
     rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
@@ -337,6 +340,9 @@ class ContractResponse(BaseModel):
     job_id: Optional[int]
     start_date: Optional[date] = None
     end_date: Optional[date]
+    # „Okres zamówienia" — osobny od okresu umowy (start_date/end_date).
+    # Wypełnia go synchronizacja z najnowszego uzupełnionego zamówienia.
+    client_order_start_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float]
     rate_client: Optional[float]

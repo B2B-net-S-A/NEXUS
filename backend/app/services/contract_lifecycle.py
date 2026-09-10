@@ -288,6 +288,93 @@ async def activate_contract(
     )
 
 
+SIGNED_AGREEMENT_ACTIVATION = "b2b_signed_agreement"
+DRAFT_REPAIR_ACTIVATION = "0304_draft_contract_repair"
+_UNGATED_ACTIVATION_SOURCES = frozenset(
+    {SIGNED_AGREEMENT_ACTIVATION, DRAFT_REPAIR_ACTIVATION}
+)
+
+
+async def activate_without_revenue_gate(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    source: str,
+    extra: Optional[dict] = None,
+) -> bool:
+    """Aktywuj kontrakt, zanim ma stawkę przychodową. Zwraca True przy zmianie.
+
+    Bramka :func:`activate_contract` wymaga obu stawek, a stawka PRZYCHODOWA
+    pochodzi z zamówienia klienta, które w chwili podpisania umowy z
+    kontraktorem zwykle jeszcze nie istnieje. Stąd do 09.2026 kontrakt po
+    potwierdzeniu obustronnego podpisu zostawał „Szkicem" — także wtedy, gdy
+    zamówienie było już w pełni uzupełnione (Bartosz Czapelka, Alior).
+
+    Tylko dwa uprawnione źródła, każde z decyzji produktowej:
+
+    * ``b2b_signed_agreement`` — podpisana obustronnie umowa jest dowodem
+      współpracy; okres (start → bezterminowo) i stawka kosztowa są w niej;
+    * ``0304_draft_contract_repair`` — jednorazowa korekta istniejących
+      szkiców („żaden kontrakt nie zostaje w statusie Szkic").
+
+    Przejście nadal idzie przez maszynę stanów (``assert_transition``) i ten
+    sam wpis audytu ``contract_activated`` co ścieżka ręczna, z polem
+    ``source``. Rusza WYŁĄCZNIE ``draft`` i ``ready_for_signature`` —
+    kontrakt aktywny, kończący się albo zakończony zostaje, jaki był.
+    """
+    if source not in _UNGATED_ACTIVATION_SOURCES:
+        raise ValueError(f"unknown ungated activation source: {source}")
+    previous = contract.status
+    if previous not in (ContractStatus.draft, ContractStatus.ready_for_signature):
+        return False
+    assert_transition(previous, ContractStatus.active)
+    contract.status = ContractStatus.active
+    db.add(
+        _audit(
+            contract.id,
+            "contract_activated",
+            actor_id,
+            from_status=previous,
+            to_status=ContractStatus.active,
+            extra={"source": source, **(extra or {})},
+        )
+    )
+    return True
+
+
+async def end_expired_draft(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    source: str,
+) -> bool:
+    """Szkic, którego data końca minęła i który niczego nie rozlicza → ``ended``.
+
+    Wyłącznie dla jednorazowej korekty szkiców (0304). Bez offboardingu
+    zamówień: wołający sprawdził, że żadne zamówienie tej osoby dziś nie trwa,
+    a zakończenie szkicu nie jest wypowiedzeniem współpracy.
+    """
+    if source not in _UNGATED_ACTIVATION_SOURCES:
+        raise ValueError(f"unknown draft repair source: {source}")
+    if contract.status != ContractStatus.draft or contract.end_date is None:
+        return False
+    assert_transition(ContractStatus.draft, ContractStatus.ended)
+    contract.status = ContractStatus.ended
+    db.add(
+        _audit(
+            contract.id,
+            "contract_ended",
+            actor_id,
+            from_status=ContractStatus.draft,
+            to_status=ContractStatus.ended,
+            extra={"source": source, "reason": "draft_end_date_passed"},
+        )
+    )
+    return True
+
+
 async def auto_activate_complete_draft(
     db: AsyncSession,
     contract: Contract,

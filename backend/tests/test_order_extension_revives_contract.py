@@ -787,11 +787,15 @@ async def test_running_extension_moves_the_tracked_client_order_end(
     assert await _client_order_end(contract_id) == new_end
 
 
-async def test_untracked_client_order_end_is_not_invented(app_client, app_auth_headers):
-    """…ale NULL zostaje NULL-em — nie wymyślamy daty, której nikt nie śledził.
+async def test_filled_order_period_is_mirrored_on_the_contract(
+    app_client, app_auth_headers
+):
+    """Okres uzupełnionego zamówienia trafia do kontraktu (09.2026).
 
-    Lustro `_synced_client_order_end` (ta sama reguła co przy aneksie
-    i `/bulk-extend`).
+    Do 09.2026 NULL zostawał NULL-em („nie wymyślamy daty, której nikt nie
+    śledził"). Synchronizacja kontrakt ↔ zamówienia zmieniła regułę: okres
+    zamówienia JEST polem kontraktu — osobnym od okresu umowy — i pochodzi
+    z najnowszego uzupełnionego zamówienia, więc nie jest wymyślony.
     """
     today = date.today()
     client_id, contract_id = await _seed_ended_contract(
@@ -806,7 +810,10 @@ async def test_untracked_client_order_end_is_not_invented(app_client, app_auth_h
         end=today + timedelta(days=36),
     )
     assert resp.status_code == 201, resp.text
-    assert await _client_order_end(contract_id) is None
+    assert await _client_order_end(contract_id) == today + timedelta(days=36)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.client_order_start_date == today - timedelta(days=25)
 
 
 async def test_draft_extension_is_not_evidence_of_running_work(

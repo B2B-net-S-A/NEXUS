@@ -31,6 +31,7 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client import Client
+from app.services.contract_order_sync import sync_pending_order_contracts
 from app.services.nordea_order_import import (
     MAX_NORDEA_IMPORT_BYTES,
     NordeaImportError,
@@ -312,6 +313,9 @@ async def import_nordea_client_orders(
                     },
                 )
             )
+            # Import zapisuje zamówienia poza `commit_order_write` — kontrakty
+            # tych osób dostają okres i stawkę przychodową tą samą regułą.
+            await sync_pending_order_contracts(db, actor_id=admin.id)
             await db.commit()
         return report
     except NordeaImportError as exc:

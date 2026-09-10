@@ -154,8 +154,9 @@ Zapisujesz przyciskiem **Stwórz Contract + Order**.
 > dużą. Nie zatwierdzaj formularza klawiszem Enter, dopóki jednostka nie jest
 > ustawiona.
 
-> **Umowa powstaje jako szkic** i tym formularzem jej nie domkniesz — zrobisz to
-> w rejestrze umów. Dopóki jest szkicem, ta osoba nie liczy się do przychodów.
+> **Umowa aktywuje się sama, gdy ma komplet:** datę startu umowy, stawkę kosztową
+> i stawkę przychodową (tę bierze z zamówienia). Bez kompletu zostaje szkicem —
+> dopóki jest szkicem, ta osoba nie liczy się do przychodów.
 >
 > **Jeżeli zapis zwróci błąd pliku, kontraktor i zamówienie i tak powstały.**
 > Plik idzie osobnym żądaniem, więc komunikat mówi wprost, żeby wgrać go
@@ -485,10 +486,30 @@ z danego wpisu.
 
 ## Co system robi sam
 
-* **Zakłada szkic umowy i szkic zamówienia** po przejściu kandydata na etap
-  „zatrudniony" albo po potwierdzeniu obustronnie podpisanej umowy (u Polkomtela
-  — nie, patrz sekcja tego klienta). Umowa powstaje jako **szkic**: dopóki jej
-  nie domkniesz, ta osoba nie liczy się do przychodów.
+* **Zakłada umowę i szkic zamówienia** po potwierdzeniu obustronnie podpisanej
+  umowy w Generatorze umów B2B — umowa jest od razu **Aktywna**: okres od daty
+  startu z umowy, bezterminowo, stawka kosztowa godzinowa z umowy. Po samym
+  przejściu kandydata na etap „zatrudniony" (bez podpisanej umowy) umowa powstaje
+  jako **szkic**. U Polkomtela szkicu zamówienia nie ma — patrz sekcja tego
+  klienta.
+* **Przenosi dane zamówienia do umowy tej osoby** przy każdym zapisie zamówienia.
+  Z najnowszego uzupełnionego zamówienia (data rozpoczęcia + stawka przychodowa)
+  do umowy trafiają: **okres zamówienia** — osobne pole, okres umowy się nie
+  zmienia; kolejne zamówienie nadpisuje poprzedni okres — oraz **stawka
+  przychodowa**. Stawka z zamówienia zaczynającego się w przyszłości obowiązuje
+  w umowie dopiero od jego daty startu. Szkic umowy, który dzięki temu ma
+  komplet danych, sam przechodzi na **Aktywny**.
+* **Dopasowuje jednostkę umowy do zamówienia** (1 MD = 8 godzin). Umowa z
+  generatora jest godzinowa; pierwsze zamówienie w MD przestawia ją na MD
+  i przelicza stawkę kosztową (120 zł/h → 960 zł/MD). Umowa zostaje w MD, dopóki
+  nie przyjdzie zamówienie w innej jednostce.
+* **Ustawia stawkę kosztową zamówienia z umowy.** Umowa jest jej jedynym
+  źródłem: pole w zamówieniu jest tylko do odczytu (dopisek „z kontraktu"),
+  a zaplanowane w umowie zmiany stawki — także kilka naraz, np. od 01.10 i od
+  01.12 — wchodzą do zamówienia każda w swoim dniu, w jednostce zamówienia.
+  Zamówień zakończonych nie przepisuje. **Nie dotyczy konsultantów na
+  zamówieniach zbiorczych MD i kosztowych** — tam stawkę kosztową nadal
+  ustawiasz przy konsultancie.
 * **Awansuje szkic pojedynczej osoby na Aktywne** w chwili zapisu, gdy komplet
   danych jest na miejscu. Nowe zbiorcze MD z wyborem trybu budżetu aktywujesz
   sam w edycji zamówienia.
@@ -531,7 +552,11 @@ na nocny przebieg.
 
 ## Co zawsze robisz ręcznie
 
-* **Stawkę kosztową** — nie ma jej w żadnym dokumencie klienta.
+* **Stawkę kosztową** — nie ma jej w żadnym dokumencie klienta. Wpisujesz ją
+  (i planujesz podwyżki) **w umowie**, nie w zamówieniu — zamówienie przejmie ją
+  samo. Pole w zamówieniu jest edytowalne tylko wtedy, gdy umowa stawki
+  kosztowej jeszcze nie ma. Wyjątek: przy konsultancie na zamówieniu zbiorczym
+  MD albo kosztowym stawkę kosztową wpisujesz jak dotąd — w jego linii.
 * **Sprawdzenie tego, co odczytał PDF.** Odczyt jest podpowiedzią, nie źródłem
   prawdy — zwłaszcza gdy zapalił się baner „Sprawdź dane!".
 * **Jednostkę stawki** (godzina / dzień / miesiąc) — ustawiasz sam, ale odczyt
@@ -539,7 +564,9 @@ na nocny przebieg.
   obie wpisane stawki. Po każdej zmianie sprawdź kwoty w obu polach.
 * **Wgranie pliku zamówienia** przy zamówieniach okresowych — formularz
   zakładania nie ma pola na plik.
-* **Domknięcie umowy** konsultanta wziętego z „Bazy Nexus" — powstaje jako szkic.
+* **Stawkę kosztową w umowie** konsultanta wziętego z „Bazy Nexus" — umowa
+  powstaje jako szkic bez stawki kosztowej; gdy ją uzupełnisz, przejdzie na
+  Aktywną sama (okres i stawkę przychodową dostanie z zamówienia).
 * **Decyzję o niewykorzystanych MD** po zakończeniu współpracy (patrz niżej).
 
 ---

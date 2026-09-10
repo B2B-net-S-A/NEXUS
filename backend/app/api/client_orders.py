@@ -2767,9 +2767,11 @@ async def create_contract_with_order(
         end_date=payload.contract_end_date,
         # Flow B collects only a subset of activation fields (it has no
         # contract_type/work_mode at all), so neither Admin nor an operational
-        # role may bypass the canonical contract lifecycle. Activation belongs
-        # exclusively to contract_lifecycle.activate_contract(), which validates
-        # the complete draft and signed evidence when required.
+        # role may bypass the canonical contract lifecycle. The row is born a
+        # draft; since the contract ↔ order sync (09.2026) the commit below
+        # (`commit_order_write`) promotes it through
+        # `auto_activate_complete_draft` → `activate_contract` when start date
+        # and both rates are present — the same gate as explicit activation.
         status=ContractStatus.draft,
         handover_notes=payload.notes,
         rate_unit=resolved_rate_unit,

@@ -27,6 +27,7 @@ from app.models.activity import Activity
 from app.models.order_mail import OrderMailDocument
 from app.services import storage_service
 from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_order_sync import sync_pending_order_contracts
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.services.order_mail_planner import (
@@ -220,6 +221,9 @@ async def apply_document(
         error = result.error or "; ".join(r.error for r in result.rows if r.error)
         await db.refresh(doc)
         return ApplyResult(error=error)
+    # Zamówienie z maila to zwykły zapis zamówienia — kontrakt tej osoby
+    # dostaje okres zamówienia i stawkę przychodową, zamówienie koszt z umowy.
+    await sync_pending_order_contracts(db, actor_id=actor_user_id)
     return result
 
 
