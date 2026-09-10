@@ -20,6 +20,21 @@ Usage
 -----
     python -m scripts.eval_matching --jobs 10 --output docs/matching-eval.md
     python -m scripts.eval_matching --ablation --output docs/matching-ablation.md
+    python -m scripts.eval_matching --scorer canonical --json --output /tmp/c.md
+
+Scorers
+-------
+``--scorer legacy`` (default) ranks the pool with ``rank_candidates_for_job`` —
+the composite the historical baselines were measured with, so a run without the
+flag stays comparable with them. ``--scorer canonical`` ranks the SAME pool with
+``canonical_fit.score_candidates`` — the base fit every C2 screen shows
+(recommendations, /ai-matches, shortlist, proposals, digest, pipeline badges):
+the full request document, exact vector provenance (a stale or missing vector is
+"not measured" and ranks last, never a retrieval score in disguise), no
+screening/champion component and no penalties. Only the ranking differs between
+the two arms; the retrieval pool is built identically. Recruiter-reviewed
+requirement evidence is masked in the canonical arm by default (label leakage,
+see ``_rank_canonical``); ``--include-reviewed-evidence`` restores it.
 
 Ground truth definition
 -----------------------
@@ -76,13 +91,31 @@ from app.services.similar_job_candidates import (  # noqa: E402
     fetch_historical_boost_map,
 )
 from app.services.canonical_text import build_job_query_variants  # noqa: E402
+from app.services.canonical_fit import score_candidates  # noqa: E402
 from app.services.hybrid_search import (  # noqa: E402
     build_job_bm25_query,
     build_job_must_groups,
 )
+from app.services.request_matching_context import (  # noqa: E402
+    base_fit_profile,
+    build_request_context,
+)
 from app.services.retrieval_pool import retrieve_candidate_pool  # noqa: E402
 
 logger = logging.getLogger("eval_matching")
+
+# Which ranking the harness measures. `legacy` stays the default so every run
+# without the flag reproduces the historical baselines (docs/matching-*.md).
+SCORER_LEGACY = "legacy"
+SCORER_CANONICAL = "canonical"
+SCORERS = (SCORER_LEGACY, SCORER_CANONICAL)
+_SCORER_LABELS = {
+    SCORER_LEGACY: "legacy (composite — rank_candidates_for_job)",
+    SCORER_CANONICAL: (
+        "canonical (base fit — canonical_fit.score_candidates, the number "
+        "C2 screens show)"
+    ),
+}
 
 # Ustawiany z CLI (--dump-layers); _score_job_candidates dopisuje wiersze.
 _DUMP_HANDLE = None
@@ -500,6 +533,38 @@ async def _seed_job_ids(db: AsyncSession) -> list[int]:
     return [jid for (jid,) in res.all()]
 
 
+async def _rank_canonical(
+    job: Job,
+    candidates: Sequence[Candidate],
+    db: AsyncSession,
+    *,
+    profile: WeightProfile,
+    include_reviewed_evidence: bool = False,
+) -> list:
+    """Rank the pool exactly as the C2 screens do (``score_candidates``).
+
+    ``build_request_context`` applies ``base_fit_profile``: the champion layer
+    is zeroed and the remaining five layers are rescaled to 100, which keeps
+    their ratios — so the eval profile reaches the scorer as the same ratios a
+    user's ``resolve_active_profile`` result would. The returned list is already
+    in display order: measured fits descending, then every "not measured"
+    candidate (stale/missing vector, provider outage), ties by candidate id.
+    Retrieval scores from the pool are deliberately NOT passed: in the canonical
+    contract they select candidates, they never stand in for a measurement.
+
+    Reviewed requirement evidence (``requirement_verifications``) is MASKED by
+    default — the same leakage class as champion_fit (AI-P0-01): a recruiter
+    verifies requirements for people they already engaged with, i.e. mostly the
+    ground-truth positives, so reading it lets the model peek at the label.
+    Base fit reads the database for nothing else (no champion layer, no
+    penalties), so ``db=None`` removes exactly that input and nothing more.
+    ``--include-reviewed-evidence`` restores it for a fidelity check.
+    """
+    context = build_request_context(job, _to_scoring_profile(profile))
+    evidence_db = db if include_reviewed_evidence else None
+    return await score_candidates(evidence_db, context, list(candidates))
+
+
 async def _score_job_candidates(
     job: Job,
     db: AsyncSession,
@@ -507,6 +572,8 @@ async def _score_job_candidates(
     profile: WeightProfile = DEFAULT_PROFILE,
     pool_cap: int = 200,
     with_historical_boost: bool = False,
+    scorer: str = SCORER_LEGACY,
+    include_reviewed_evidence: bool = False,
 ) -> tuple[list[int], int, dict[int, int]]:
     """
     Reproduce the recommendations endpoint pipeline for one job:
@@ -516,7 +583,18 @@ async def _score_job_candidates(
     where ``boost_map`` is ``{candidate_id -> source_count}`` from
     similar-job history. When ``with_historical_boost`` is True, the map is
     also folded into ranking as ``total += min(count, 3) * 5``.
+
+    ``scorer`` picks the ranking of the (identically built) pool — see the
+    module docstring. The historical boost is a legacy-only knob: the canonical
+    fit never folds process history into the number users see.
     """
+    if scorer not in SCORERS:
+        raise ValueError(f"unknown scorer {scorer!r}; expected one of {SCORERS}")
+    if scorer == SCORER_CANONICAL and with_historical_boost:
+        raise ValueError(
+            "--with-historical-boost is a legacy-only knob: canonical fit does "
+            "not fold similar-job history into the score"
+        )
     query_text = _build_job_text(job)
 
     try:
@@ -560,13 +638,30 @@ async def _score_job_candidates(
     )
     candidates = cand_res.scalars().all()
 
-    breakdowns = await rank_candidates_for_job(
-        job,
-        candidates,
-        db,
-        similarity_map=similarity_map,
-        profile=_to_scoring_profile(profile),
-    )
+    # Canonical only: the fit score the ranking used (None = not measured) and
+    # its measurement status, for the layer dump.
+    totals: dict[int, Optional[float]] = {}
+    measurements: dict[int, str] = {}
+    if scorer == SCORER_CANONICAL:
+        fits = await _rank_canonical(
+            job,
+            candidates,
+            db,
+            profile=profile,
+            include_reviewed_evidence=include_reviewed_evidence,
+        )
+        breakdowns = [fit.breakdown for fit in fits]
+        for fit in fits:
+            totals[fit.breakdown.candidate_id] = fit.fit_score
+            measurements[fit.breakdown.candidate_id] = fit.measurement
+    else:
+        breakdowns = await rank_candidates_for_job(
+            job,
+            candidates,
+            db,
+            similarity_map=similarity_map,
+            profile=_to_scoring_profile(profile),
+        )
 
     try:
         boost_map = await fetch_historical_boost_map(db, job.id)
@@ -586,39 +681,42 @@ async def _score_job_candidates(
         gt = _DUMP_GT.get(job.id, set())
         cand_by_id = {c.id: c for c in candidates}
         for b in breakdowns:
-            _DUMP_HANDLE.write(
-                json.dumps(
-                    {
-                        "job_id": job.id,
-                        "candidate_id": b.candidate_id,
-                        "gt": b.candidate_id in gt,
-                        "total": round(b.total, 4),
-                        "layers": {
-                            name: {
-                                "points": round(layer.points, 4),
-                                "max": layer.max_points,
-                            }
-                            for name, layer in (
-                                ("semantic", b.semantic),
-                                ("skills", b.skills),
-                                ("salary", b.salary),
-                                ("location", b.location),
-                                ("availability", b.availability),
-                                ("champion_fit", b.champion_fit),
-                            )
-                        },
-                        "seniority_note": b.seniority_note,
-                        # Cechy kandydackie do nominacji offline (weight_search
-                        # --with-feature) — nie wchodza do score'u.
-                        "features": {
-                            "title_match": title_match_feature(
-                                job, cand_by_id.get(b.candidate_id)
-                            )
-                        },
+            row = {
+                "job_id": job.id,
+                "candidate_id": b.candidate_id,
+                "gt": b.candidate_id in gt,
+                "scorer": scorer,
+                "total": round(b.total, 4),
+                "layers": {
+                    name: {
+                        "points": round(layer.points, 4),
+                        "max": layer.max_points,
                     }
-                )
-                + "\n"
-            )
+                    for name, layer in (
+                        ("semantic", b.semantic),
+                        ("skills", b.skills),
+                        ("salary", b.salary),
+                        ("location", b.location),
+                        ("availability", b.availability),
+                        ("champion_fit", b.champion_fit),
+                    )
+                },
+                "seniority_note": b.seniority_note,
+                # Cechy kandydackie do nominacji offline (weight_search
+                # --with-feature) — nie wchodza do score'u.
+                "features": {
+                    "title_match": title_match_feature(
+                        job, cand_by_id.get(b.candidate_id)
+                    )
+                },
+            }
+            if scorer == SCORER_CANONICAL:
+                # The number the ranking used: null when not measured, even
+                # though the breakdown still carries a (neutral) semantic layer.
+                fit = totals[b.candidate_id]
+                row["total"] = None if fit is None else round(fit, 4)
+                row["measurement"] = measurements[b.candidate_id]
+            _DUMP_HANDLE.write(json.dumps(row) + "\n")
 
     return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
@@ -681,6 +779,8 @@ async def evaluate_profile(
     *,
     with_historical_boost: bool = False,
     pool_cap: int = 200,
+    scorer: str = SCORER_LEGACY,
+    include_reviewed_evidence: bool = False,
 ) -> ProfileEval:
     result = ProfileEval(profile=profile, with_boost=with_historical_boost)
     for job, gt_ids, relevance in job_records:
@@ -690,6 +790,8 @@ async def evaluate_profile(
             profile=profile,
             with_historical_boost=with_historical_boost,
             pool_cap=pool_cap,
+            scorer=scorer,
+            include_reviewed_evidence=include_reviewed_evidence,
         )
         p5, r20, r20n, mrr, ndcg = _metrics(ranked_ids, relevance)
         hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
@@ -819,12 +921,16 @@ def _render_markdown(
     voyage_configured: bool,
     error_cases_max: int = 10,
     pool_strategy: str | None = None,
+    scorer: str = SCORER_LEGACY,
 ) -> str:
     lines: list[str] = []
     lines.append("# Matching Quality Audit — Phase 0")
     lines.append("")
     lines.append(f"Generated at: `{generated_at.isoformat()}`")
     lines.append(f"Pool strategy: **{pool_strategy or _pool_strategy_label()}**")
+    # Two reports of different scorers are NOT comparable; the header must say
+    # which one this is before anyone reads a delta off it.
+    lines.append(f"Scorer: **{_SCORER_LABELS.get(scorer, scorer)}**")
     lines.append("")
     lines.append("## Data quality snapshot")
     lines.append("")
@@ -945,6 +1051,14 @@ def _render_markdown(
                 p.profile.budget,
             )
         )
+        if scorer == SCORER_CANONICAL:
+            effective = _effective_base_fit_weights(p.profile)
+            lines.append("")
+            lines.append(
+                "Canonical base fit scores with champion_fit=0 and the other "
+                "layers rescaled to 100: "
+                + ", ".join(f"{k}={v:.1f}" for k, v in effective.items())
+            )
         lines.append("")
         lines.append(
             "| Job ID | Title | GT size | GT indexed | Pool | P@5 | R@20 "
@@ -988,11 +1102,133 @@ def _render_markdown(
     lines.append("## Reproduce")
     lines.append("")
     lines.append("```bash")
-    lines.append("cd backend && python -m scripts.eval_matching --ablation \\")
+    lines.append(
+        "cd backend && python -m scripts.eval_matching --ablation"
+        + (f" --scorer {scorer}" if scorer != SCORER_LEGACY else "")
+        + " \\"
+    )
     lines.append("    --output ../docs/matching-eval-$(date +%F).md")
     lines.append("```")
     lines.append("")
     return "\n".join(lines)
+
+
+def _effective_base_fit_weights(profile: WeightProfile) -> dict[str, float]:
+    """The weights canonical fit actually scores with (``base_fit_profile``)."""
+    effective = base_fit_profile(_to_scoring_profile(profile))
+    return {
+        name: getattr(effective, name)
+        for name in ("semantic", "skills", "salary", "location", "availability")
+    }
+
+
+def _build_json_payload(
+    *,
+    generated_at: datetime,
+    args: argparse.Namespace,
+    num_jobs: int,
+    profile_results: list[ProfileEval],
+    fit_versions: Optional[dict] = None,
+) -> dict:
+    """The ``--json`` artefact. Pure, so the manifest contract is testable.
+
+    ``manifest.scorer`` is load-bearing: the weekly guard (app/tasks/
+    weekly_eval.py) compares a run only with a previous run of the SAME scorer,
+    and an artefact without the key is, by construction, a legacy run.
+    """
+    from app.services.embedding_service import VECTOR_SIZE as _VEC
+
+    canonical = args.scorer == SCORER_CANONICAL
+    manifest = {
+        # Explicit legacy placeholders until later plan PRs introduce
+        # real runtime versioning (PR4 scoring, PR6 index, PR10 taxonomy).
+        # Call it, never read a module constant: the version has to
+        # reflect the knobs this run actually scored with, otherwise the
+        # report claims a provenance it does not have.
+        "scoring_algorithm_version": scoring_service.scoring_algorithm_version(),
+        "scorer": args.scorer,
+        "embedding_model": os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
+        "embedding_dimension": _VEC,
+        "index_version": "index-legacy-v1",
+        "taxonomy_version": "taxonomy-legacy-v1",
+        "eval_dataset": "historical_pipeline_stages",
+        "unknown_treated_as_negative": False,
+        "num_jobs": num_jobs,
+        "min_ground_truth": args.min_gt,
+        "pool_cap": args.pool,
+        "pool_strategy": _pool_strategy_label(),
+    }
+    if canonical:
+        manifest["fit_versions"] = fit_versions
+        # Leakage guard state, like champion masking: a "masked" and an
+        # "included" run are two different measurements.
+        manifest["reviewed_evidence"] = (
+            "included" if args.include_reviewed_evidence else "masked"
+        )
+    profiles = []
+    for p in profile_results:
+        entry = {
+            "profile": p.profile.as_dict(),
+            "with_boost": p.with_boost,
+            "mean_precision_at_5": p.mean_precision_at_5,
+            "mean_recall_at_20": p.mean_recall_at_20,
+            "mean_recall_at_20_normalized": (p.mean_recall_at_20_normalized),
+            "fully_indexed_jobs": len(p.fully_indexed_jobs),
+            "mean_precision_at_5_fully_indexed": (p.mean_precision_at_5_fully_indexed),
+            "mean_recall_at_20_normalized_fully_indexed": (
+                p.mean_recall_at_20_normalized_fully_indexed
+            ),
+            "mean_mrr": p.mean_mrr,
+            "mean_ndcg_at_10": p.mean_ndcg_at_10,
+            "mean_historical_hit_rate_at_10": (p.mean_historical_hit_rate_at_10),
+            "per_job": [asdict(j) for j in p.per_job],
+        }
+        if canonical:
+            entry["effective_weights"] = _effective_base_fit_weights(p.profile)
+        profiles.append(entry)
+    return {
+        "generated_at": generated_at.isoformat(),
+        "manifest": manifest,
+        "profiles": profiles,
+    }
+
+
+def _scorer_conflicts(args: argparse.Namespace) -> list[str]:
+    """Flags that cannot mean anything under ``--scorer canonical``.
+
+    Rejected, not silently ignored: a report labelled "canonical, champion
+    included" or "canonical + boost" would describe a ranking no screen shows.
+    """
+    if args.scorer != SCORER_CANONICAL:
+        if args.include_reviewed_evidence:
+            return [
+                "--include-reviewed-evidence działa tylko z --scorer canonical: "
+                "ranking legacy nie czyta zweryfikowanych wymagań"
+            ]
+        return []
+    problems: list[str] = []
+    if args.include_champion:
+        problems.append(
+            "--include-champion nie działa z --scorer canonical: base fit "
+            "(request_matching_context.base_fit_profile) zawsze zeruje "
+            "champion_fit — screening jest oceniany osobno"
+        )
+    if args.with_historical_boost:
+        problems.append(
+            "--with-historical-boost nie działa z --scorer canonical: "
+            "kanoniczny fit nie wlicza historii podobnych ofert do wyniku"
+        )
+    for spec in args.weights or []:
+        try:
+            parts = [float(x) for x in spec.split(",")]
+        except ValueError:
+            continue  # the shape error is reported by _run with its own message
+        if len(parts) == 6 and sum(parts[:5]) <= 0:
+            problems.append(
+                f"--weights {spec!r}: pod --scorer canonical champion_fit jest "
+                "zerowany, więc profil bez żadnej innej wagi nie ma czym punktować"
+            )
+    return problems
 
 
 def _apply_structured_pool_args(args: argparse.Namespace) -> None:
@@ -1041,7 +1277,13 @@ async def _run(args: argparse.Namespace) -> int:
         total = sum(parts)
         if abs(total - 100.0) > 0.01:
             raise SystemExit(f"--weights musi sumować się do 100, jest {total}: {spec!r}")
-        if parts[5] > 0 and not args.include_champion:
+        if parts[5] > 0 and args.scorer == SCORER_CANONICAL:
+            logger.warning(
+                "--weights champion_fit=%.1f nie ma znaczenia pod --scorer "
+                "canonical: base fit zeruje tę warstwę i skaluje pozostałe do 100",
+                parts[5],
+            )
+        elif parts[5] > 0 and not args.include_champion:
             logger.warning(
                 "--weights champion_fit=%.1f zostanie wyzerowane przez leakage "
                 "guard (efektywny budżet %g); --include-champion, żeby zachować",
@@ -1114,6 +1356,7 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
         profile_results: list[ProfileEval] = []
+        logger.info("Scorer: %s", _SCORER_LABELS[args.scorer])
         try:
             for profile in profiles:
                 logger.info("-> profile %s", profile.name)
@@ -1123,12 +1366,25 @@ async def _run(args: argparse.Namespace) -> int:
                     db,
                     with_historical_boost=args.with_historical_boost,
                     pool_cap=args.pool,
+                    scorer=args.scorer,
+                    include_reviewed_evidence=args.include_reviewed_evidence,
                 )
                 profile_results.append(res)
 
             # Ablation mode additionally runs the default profile WITH boost
-            # so the markdown table shows the direct delta vs. baseline.
-            if args.ablation and not args.with_historical_boost:
+            # so the markdown table shows the direct delta vs. baseline. Legacy
+            # only: canonical fit never folds process history into the score,
+            # so a "+boost" arm would measure a scorer nobody is shown.
+            if args.ablation and args.scorer == SCORER_CANONICAL:
+                logger.info(
+                    "-> skipping the default+boost delta arm: canonical fit has "
+                    "no historical boost"
+                )
+            if (
+                args.ablation
+                and not args.with_historical_boost
+                and args.scorer == SCORER_LEGACY
+            ):
                 logger.info("-> profile default + historical_boost (delta run)")
                 delta_res = await evaluate_profile(
                     DEFAULT_PROFILE,
@@ -1170,6 +1426,7 @@ async def _run(args: argparse.Namespace) -> int:
         generated_at,
         data_quality=data_quality,
         voyage_configured=voyage_configured,
+        scorer=args.scorer,
     )
 
     out_path = Path(args.output).expanduser().resolve()
@@ -1179,50 +1436,22 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.json:
         json_path = out_path.with_suffix(".json")
-        from app.services.embedding_service import VECTOR_SIZE as _VEC
-
-        payload = {
-            "generated_at": generated_at.isoformat(),
-            "manifest": {
-                # Explicit legacy placeholders until later plan PRs introduce
-                # real runtime versioning (PR4 scoring, PR6 index, PR10 taxonomy).
-                # Call it, never read a module constant: the version has to
-                # reflect the knobs this run actually scored with, otherwise the
-                # report claims a provenance it does not have.
-                "scoring_algorithm_version": scoring_service.scoring_algorithm_version(),
-                "embedding_model": os.environ.get("EMBEDDING_MODEL", "voyage-3-large"),
-                "embedding_dimension": _VEC,
-                "index_version": "index-legacy-v1",
-                "taxonomy_version": "taxonomy-legacy-v1",
-                "eval_dataset": "historical_pipeline_stages",
-                "unknown_treated_as_negative": False,
-                "num_jobs": len(job_records),
-                "min_ground_truth": args.min_gt,
-            },
-            "profiles": [
-                {
-                    "profile": p.profile.as_dict(),
-                    "with_boost": p.with_boost,
-                    "mean_precision_at_5": p.mean_precision_at_5,
-                    "mean_recall_at_20": p.mean_recall_at_20,
-                    "mean_recall_at_20_normalized": (p.mean_recall_at_20_normalized),
-                    "fully_indexed_jobs": len(p.fully_indexed_jobs),
-                    "mean_precision_at_5_fully_indexed": (
-                        p.mean_precision_at_5_fully_indexed
-                    ),
-                    "mean_recall_at_20_normalized_fully_indexed": (
-                        p.mean_recall_at_20_normalized_fully_indexed
-                    ),
-                    "mean_mrr": p.mean_mrr,
-                    "mean_ndcg_at_10": p.mean_ndcg_at_10,
-                    "mean_historical_hit_rate_at_10": (
-                        p.mean_historical_hit_rate_at_10
-                    ),
-                    "per_job": [asdict(j) for j in p.per_job],
-                }
-                for p in profile_results
-            ],
-        }
+        # The request-matching version stamps are global (no job-specific
+        # part), so the first evaluated job is enough to read them.
+        fit_versions = (
+            build_request_context(
+                job_records[0][0], _to_scoring_profile(profiles[0])
+            ).versions
+            if args.scorer == SCORER_CANONICAL
+            else None
+        )
+        payload = _build_json_payload(
+            generated_at=generated_at,
+            args=args,
+            num_jobs=len(job_records),
+            profile_results=profile_results,
+            fit_versions=fit_versions,
+        )
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         logger.info("JSON dump written to %s", json_path)
 
@@ -1422,7 +1651,35 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "with ground-truth size, so it cannot carry a fixed threshold)."
         ),
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--scorer",
+        choices=SCORERS,
+        default=SCORER_LEGACY,
+        help=(
+            "Ranking to measure on the same retrieval pool. `legacy` (default, "
+            "keeps the historical baselines comparable) = rank_candidates_for_"
+            "job composite. `canonical` = canonical_fit.score_candidates, the "
+            "base fit C2 screens show (full request text, exact vector "
+            "provenance, no champion layer, no penalties; unmeasured "
+            "candidates rank last). Never compare metrics across scorers."
+        ),
+    )
+    parser.add_argument(
+        "--include-reviewed-evidence",
+        action="store_true",
+        help=(
+            "Canonical only: let the fit read recruiter-reviewed requirement "
+            "evidence (requirement_verifications). OFF by default — it exists "
+            "mostly for candidates recruiters already engaged with, i.e. the "
+            "ground-truth positives (the same label leakage as champion_fit). "
+            "Use it only to check fidelity to what users see."
+        ),
+    )
+    args = parser.parse_args(argv)
+    conflicts = _scorer_conflicts(args)
+    if conflicts:
+        parser.error("; ".join(conflicts))
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

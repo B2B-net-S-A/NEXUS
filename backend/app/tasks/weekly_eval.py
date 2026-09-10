@@ -18,6 +18,12 @@ Mechanika:
   pomiaru → `logger.error` (LoggingIntegration niesie go do Sentry)
   + `last_status='regression'`. Próg 15% > szum harnessu (~1-2%), więc
   alarm oznacza realne zdarzenie, nie fluktuację.
+- **Scorer** (09.2026): strażnik mierzy `--scorer canonical`, czyli ranking,
+  który użytkownicy faktycznie widzą na ekranach C2 (#1428). Każdy zapisany
+  pomiar niesie `metrics.scorer`; porównanie tydzień do tygodnia zachodzi
+  WYŁĄCZNIE między pomiarami tego samego scorera. Pomiar sprzed tej zmiany
+  nie ma klucza i z konstrukcji jest `legacy` — pierwszy bieg kanoniczny nie
+  ma więc bazy porównania i nie może zgłosić regresu (to inna skala, nie spadek).
 
 Wzorce operacyjne jak w notes_insights_sync: kill-switch kończy pętlę PRZED
 while, watermark w bazie (restart-safe przy redeployach Coolify), wspólny
@@ -45,6 +51,12 @@ _run_lock = asyncio.Lock()
 
 # Względny spadek, od którego mówimy o regresie (nie szumie).
 _REGRESSION_DROP = 0.15
+
+# Ranking mierzony co tydzień: ten, który widzą użytkownicy (C2).
+WEEKLY_SCORER = "canonical"
+# Pomiar bez klucza `scorer` powstał przed wprowadzeniem przełącznika, czyli
+# harnessem legacy — ta wartość domyślna jest faktem historycznym, nie zgadywaniem.
+_UNLABELLED_SCORER = "legacy"
 
 
 def sync_is_running() -> bool:
@@ -131,6 +143,12 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
     return now.hour >= int(settings.WEEKLY_EVAL_HOUR_UTC)
 
 
+def _scorer_of(metrics: Optional[dict[str, Any]]) -> str:
+    """Scorer, którym policzono pomiar; brak klucza = pomiar legacy."""
+    scorer = metrics.get("scorer") if isinstance(metrics, dict) else None
+    return scorer if isinstance(scorer, str) and scorer else _UNLABELLED_SCORER
+
+
 def _extract_metrics(payload: dict) -> dict[str, Any]:
     profiles = payload.get("profiles") or []
     if not profiles:
@@ -145,14 +163,24 @@ def _extract_metrics(payload: dict) -> dict[str, Any]:
         "mrr": round(float(prof["mean_mrr"]), 4),
         "ndcg10": round(float(prof["mean_ndcg_at_10"]), 4),
         "jobs": len(prof.get("per_job") or []),
+        # Z manifestu artefaktu, nie z komendy: liczy się to, czym harness
+        # FAKTYCZNIE policzył, a nie to, o co go poproszono.
+        "scorer": _scorer_of(payload.get("manifest")),
     }
 
 
 def detect_regression(
     current: dict[str, Any], previous: Optional[dict[str, Any]]
 ) -> list[str]:
-    """Nazwy metryk z regresem >15% względem poprzedniego pomiaru."""
+    """Nazwy metryk z regresem >15% względem poprzedniego pomiaru.
+
+    Tylko w obrębie jednego scorera: legacy i canonical to dwie różne skale
+    (inny tekst zapytania, brak warstwy Championa i kar, niezmierzeni na końcu),
+    więc różnica między nimi jest zmianą przyrządu, a nie regresem jakości.
+    """
     if not isinstance(previous, dict):
+        return []
+    if _scorer_of(previous) != _scorer_of(current):
         return []
     regressed: list[str] = []
     for key in ("p5", "r20n"):
@@ -168,15 +196,16 @@ def detect_regression(
     return regressed
 
 
-async def run_weekly_eval() -> dict[str, Any]:
-    """Jeden pomiar: subproces harnessu → metryki → porównanie → zapis."""
+def _harness_command() -> list[str]:
+    """Komenda harnessu. Osobno od biegu, żeby kontrakt był testowalny."""
     from scripts.eval_frozen_set import frozen_ids_csv
 
-    started = datetime.now(timezone.utc)
-    cmd = [
+    return [
         sys.executable,
         "-m",
         "scripts.eval_matching",
+        "--scorer",
+        WEEKLY_SCORER,
         "--job-ids",
         frozen_ids_csv(),
         "--jobs",
@@ -189,6 +218,23 @@ async def run_weekly_eval() -> dict[str, Any]:
         "--output",
         "/tmp/weekly-eval.md",
     ]
+
+
+def _baseline_status(
+    current: dict[str, Any], previous: Optional[dict[str, Any]]
+) -> str:
+    """Czy poprzedni pomiar w ogóle jest bazą porównania dla bieżącego."""
+    if not isinstance(previous, dict):
+        return "none"
+    if _scorer_of(previous) != _scorer_of(current):
+        return "scorer_changed"
+    return "same_scorer"
+
+
+async def run_weekly_eval() -> dict[str, Any]:
+    """Jeden pomiar: subproces harnessu → metryki → porównanie → zapis."""
+    started = datetime.now(timezone.utc)
+    cmd = _harness_command()
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.DEVNULL,
@@ -230,6 +276,7 @@ async def run_weekly_eval() -> dict[str, Any]:
         previous = prev_state["stats"].get("metrics")
 
     regressed = detect_regression(metrics, previous)
+    baseline = _baseline_status(metrics, previous)
     status = "regression" if regressed else "ok"
     if regressed:
         logger.error(
@@ -240,13 +287,23 @@ async def run_weekly_eval() -> dict[str, Any]:
             metrics,
             previous,
         )
+    elif baseline == "scorer_changed":
+        logger.info(
+            "weekly-eval: %s — pierwszy pomiar scorerem %s; poprzedni (%s) "
+            "policzono innym scorerem, więc nie jest bazą porównania",
+            metrics,
+            metrics["scorer"],
+            _scorer_of(previous),
+        )
     else:
         logger.info("weekly-eval: %s (poprzednio %s)", metrics, previous)
 
     return {
         "status": status,
+        "scorer": metrics["scorer"],
         "metrics": metrics,
         "previous": previous,
+        "baseline": baseline,
         "regressed": regressed,
         "measured_at": started.isoformat(),
         "duration_s": int((datetime.now(timezone.utc) - started).total_seconds()),
