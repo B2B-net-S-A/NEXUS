@@ -2,6 +2,7 @@
 
 from io import BytesIO
 import os
+import re
 import shutil
 
 import pytest
@@ -38,8 +39,11 @@ def test_native_ocr_reads_all_twelve_scanned_pages():
             output, format="PDF", save_all=True, append_images=pages[1:], resolution=150
         )
         result = extract_text_from_file(output.getvalue(), "synthetic-scanned-cv.pdf")
-        for number in range(1, 13):
-            assert f"Company{number:02d}" in result, result
+        # OCR may insert whitespace at the letter/digit boundary. Require
+        # every exact employer number, in order, without accepting substitutions.
+        assert re.findall(r"Employer Company\s*(\d{2})\b", result) == [
+            f"{number:02d}" for number in range(1, 13)
+        ], result
     finally:
         for page in pages:
             page.close()
