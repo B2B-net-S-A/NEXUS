@@ -124,3 +124,31 @@ async def test_empty_upload_map_recovers_original_requirements(monkeypatch):
     recover.assert_awaited_once_with(db, 11)
     enqueue.assert_awaited_once_with(db, version, requirements, 3)
     db.commit.assert_not_awaited()
+
+
+async def test_unreadable_upload_records_failed_assessment_without_model(monkeypatch):
+    from app.services import cv_review_sources
+    from app.services.cv_generator_b2b import document_policy
+
+    doc = SimpleNamespace(id=11, mode="upload", job_id=None, requirement_map=None)
+    db = AsyncMock()
+    db.get.return_value = doc
+    version = SimpleNamespace(id=71, generated_document_id=11, content_sha256="a" * 64)
+    monkeypatch.setattr(
+        document_policy, "interactive_client_enabled", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(
+        cv_review_sources,
+        "load_upload_requirements",
+        AsyncMock(side_effect=cv_review_sources.ReviewSourceUnavailable("unreadable")),
+    )
+    enqueue = AsyncMock()
+    monkeypatch.setattr(worker, "enqueue_version_map", enqueue)
+    await worker.schedule_approved_map(db, version, 3)
+    enqueue.assert_not_awaited()
+    params = db.execute.call_args.args[0].compile().params
+    assert params["document_version_id"] == 71
+    assert params["status"] == "failed"
+    assert params["error_code"] == "input_unavailable"
+    assert "input_content" not in params
+    db.commit.assert_not_awaited()
