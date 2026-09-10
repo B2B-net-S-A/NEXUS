@@ -41,6 +41,7 @@ _RATE_LIMITED_MODULES = (
     # (to drugie zamienia guard `Annotated` w parametr QUERY, czyli 422 na
     # poprawnym żądaniu).
     "api/integrations_compass.py",
+    "api/champion_intake.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

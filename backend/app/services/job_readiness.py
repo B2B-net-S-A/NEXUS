@@ -121,4 +121,15 @@ def job_handoff_blockers(job: Job) -> list[str]:
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę
     dosłownie, a braki briefu są bardziej podstawowe niż braki rubryk.
     """
-    return job_readiness_blockers(job) + job_rubric_blockers(job)
+    from app.services.champion_intake import validation
+
+    issues = validation(job.champion_profile, job)["issues"]
+    return (
+        job_readiness_blockers(job)
+        + job_rubric_blockers(job)
+        + [
+            issue["message"]
+            for issue in issues
+            if "handoff" in issue["blocked_operations"]
+        ]
+    )

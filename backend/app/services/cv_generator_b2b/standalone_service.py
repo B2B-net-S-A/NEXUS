@@ -192,6 +192,7 @@ class UploadGenerationInput:
     screening_notes: str = ""
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
+    champion_profile: dict | None = None
     content_mode: ContentMode = DEFAULT_CONTENT_MODE
     # Ręczne wymagania na kafelki interaktywnego CV (upload nie ma joba, więc
     # nie ma skąd wziąć must/nice). Stringi rozdzielane przecinkami/nowymi
@@ -1506,6 +1507,20 @@ def _run_generation_pipeline(
     the model at all, so the prompt's whole positioning section has nothing to
     act on, and the client's requirement list stops driving what gets bolded.
     """
+    if content_mode == "tailored" and champion_dto and champion_dto.intake_profile:
+        from types import SimpleNamespace
+        from app.services.champion_intake import enforce_operation
+
+        enforce_operation(
+            SimpleNamespace(
+                champion_profile=champion_dto.intake_profile,
+                title=job_title,
+                must_skills=champion_dto.must_have,
+                nice_skills=champion_dto.nice_to_have,
+                requirements_reviewed=champion_dto.requirements_reviewed,
+            ),
+            "cv",
+        )
     facts = prepared_source_facts or prepare_source_facts(
         cv_bytes=cv_bytes,
         cv_filename=cv_filename,
@@ -2342,6 +2357,9 @@ async def load_candidate_generation_source(
         champion_profile=job.champion_profile,
         requirements=job.requirements,
     )
+    champion_dto.requirements_reviewed = bool(
+        getattr(job, "requirements_reviewed", False)
+    )
 
     source_warnings: list[str] = []
     screening_notes_text = await collect_screening_notes_text(
@@ -2528,7 +2546,9 @@ def generate_cv_from_uploads(
     )
 
     champion_dto: ChampionProfileForPrompt | None = None
-    if payload.champion_bytes is not None:
+    if payload.champion_profile is not None:
+        champion_dto = from_nexus_job(None, None, payload.champion_profile)
+    elif payload.champion_bytes is not None:
         if not payload.champion_filename:
             raise StandaloneGenerationError(
                 code="invalid_input",

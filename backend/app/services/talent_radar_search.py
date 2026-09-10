@@ -354,6 +354,9 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         )
 
     job = build_ephemeral_job(query)
+    from app.services.champion_intake import enforce_operation
+
+    enforce_operation(job, "search", force=True)
     # `max_field_chars=None` — radar embeduje CAŁY wklejony request. Domyślne
     # 1200 znaków sprawiało, że mail z wymaganiami na końcu był rankowany po
     # akapicie grzeczności (zmierzone: `must 1/2`, podobieństwo 0,65 zamiast

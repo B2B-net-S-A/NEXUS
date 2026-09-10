@@ -14,8 +14,12 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from app.services.champion_document import _split_skills
 from app.services import champion_view
-from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
+from app.services.cv_generator_b2b.text_extractor import (
+    extract_text_from_file,
+    CVTextExtractionError,
+)
 from app.services.skill_normalize import iter_skill_names
 
 logger = logging.getLogger(__name__)
@@ -89,6 +93,9 @@ class ChampionProfileForPrompt:
     screening_questions: str = ""
     historical_questions: str = ""
     consultant_insight: str = ""
+    additional_context: str = ""
+    intake_profile: dict | None = None
+    requirements_reviewed: bool = False
     diagnostics: ChampionParseDiagnostics = field(
         default_factory=ChampionParseDiagnostics
     )
@@ -126,8 +133,12 @@ def from_nexus_job(
     # list[dict], list[str], dict {"technologies": [...]}, a JSON-encoded
     # string, or a comma list — so a dict/string column no longer collapses to
     # the literal key "technologies" or gets iterated character-by-character.
-    must = iter_skill_names(must_skills)
-    nice = iter_skill_names(nice_skills)
+    must = iter_skill_names(must_skills) or iter_skill_names(
+        (champion_profile or {}).get("stack", {}).get("must")
+    )
+    nice = iter_skill_names(nice_skills) or iter_skill_names(
+        (champion_profile or {}).get("stack", {}).get("nice")
+    )
 
     # Przez `champion_view`, więc ta sama ścieżka obsługuje profil sprzed i po
     # przebudowie szablonu (09.2026). Bez tego generator CV dla oferty zapisanej
@@ -179,6 +190,17 @@ def from_nexus_job(
         screening_questions=screening_str,
         historical_questions=historical,
         consultant_insight=insight,
+        additional_context="\n".join(
+            str(value)
+            for value in [
+                (cp.get("stack") or {}).get("notes"),
+                (cp.get("search") or {}).get("notes"),
+                cli.get("priority_rules"),
+                cli.get("about"),
+            ]
+            if value
+        ),
+        intake_profile=cp if cp.get("intake") else None,
     )
 
 
@@ -218,6 +240,11 @@ def build_champion_section(profile: ChampionProfileForPrompt, language: str) -> 
         label = "Consultant Insight" if language == "en" else "Insight konsultanta"
         section += f"\n\n{label}: {profile.consultant_insight}"
 
+    if profile.additional_context:
+        section += (
+            "\n\nDodatkowe kryteria i niuanse roli: " + profile.additional_context
+        )
+    section += "\nWymagania i idealne odpowiedzi opisują rolę. Nie są dowodem doświadczenia ani odpowiedziami kandydata."
     return section
 
 
@@ -375,44 +402,6 @@ _BULLET_STRIP_RE = re.compile(r"^[\s\-•·*]+|[\s\-•·*]+$")
 _ONLY_BULLET_RE = re.compile(r"^[\s\-•·*]+$")
 
 
-def _split_skills(raw: str) -> list[str]:
-    r"""Split MUST-HAVE / NICE-TO-HAVE blob into discrete tech names.
-
-    Splits on newline, and on comma/semicolon only OUTSIDE parentheses, so a
-    chip like ``Java (Spring, Hibernate)`` or ``WCAG 2.1/2.2 (AA, AAA)`` stays
-    whole instead of shattering at the inner comma. Trims bullets/whitespace,
-    drops empty and pure-bullet fragments.
-
-    (Deliberately diverges from the JS 1:1 port ``text.split(/[\n,;]/)`` in
-    ``lib/cv-shared.ts``, which broke parenthesised list items.)
-    """
-    if not raw:
-        return []
-    parts: list[str] = []
-    buf: list[str] = []
-    depth = 0
-    for ch in raw:
-        if ch in "([{":
-            depth += 1
-            buf.append(ch)
-        elif ch in ")]}":
-            depth = max(0, depth - 1)
-            buf.append(ch)
-        elif ch == "\n" or (ch in ",;" and depth == 0):
-            parts.append("".join(buf))
-            buf = []
-        else:
-            buf.append(ch)
-    parts.append("".join(buf))
-    out: list[str] = []
-    for p in parts:
-        s = _BULLET_STRIP_RE.sub("", p).strip()
-        if not s or _ONLY_BULLET_RE.match(s):
-            continue
-        out.append(s)
-    return out
-
-
 # ── Shape guard on the parsed skill lists ──────────────────────────────────
 #
 # The segmentation above fixes the *known* layouts. This guard is the backstop
@@ -562,10 +551,32 @@ def parse_champion_from_docx_bytes(
     :func:`from_nexus_job`, which reads structured JSONB from ``Job`` directly
     and so cannot hit any of this.
     """
+    from app.services.champion_document import table_profile, document_text
+    from app.services.champion_intake import prepare_profile, MAX_TEXT
+
+    if filename.lower().endswith(".docx"):
+        text = document_text(data)
+        if len(text) > MAX_TEXT:
+            raise CVTextExtractionError(
+                "Profil przekracza limit 14000 znaków. Skróć dokument."
+            )
+        structured = table_profile(data)
+        if structured is not None:
+            cp = prepare_profile(
+                structured["profile"],
+                raw_fields=structured["raw_fields"],
+                template_version=structured["template_version"],
+            )
+            return from_nexus_job(None, None, cp)
     # NFC first: the fold map keys are precomposed codepoints, and pasted /
     # IME-produced text can arrive decomposed. Normalising once up front means
     # every later offset refers to this same string.
-    text = unicodedata.normalize("NFC", extract_text_from_file(data, filename))
+    text = unicodedata.normalize(
+        "NFC",
+        text
+        if filename.lower().endswith(".docx")
+        else extract_text_from_file(data, filename),
+    )
     segments = _segment_champion_text(text)
 
     picked: dict[str, _Segment] = {}

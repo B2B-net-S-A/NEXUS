@@ -406,7 +406,7 @@ def test_parser_prompt_leaves_client_card_fields_to_nexus():
     """
     from app.services.champion_profile_ingest import PROMPT
 
-    assert PARSER_VERSION == "champion_parse:v6:haiku-4.5"
+    assert PARSER_VERSION == "champion_parse:v7:table-intake"
     client_block = PROMPT.split('"client": {', 1)[1]
     for key in (
         '"about"',

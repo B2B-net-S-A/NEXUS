@@ -4101,6 +4101,7 @@ export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
  * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
  */
 export interface ChampionProfile {
+  intake?: { policy_version: number; template_version?: string | null; unresolved: Record<string, string>; document_context?: Record<string, string>; applied_by?: number | null; applied_at?: string | null } | null;
   basics: ChampionBasics;
   search: ChampionSearch;
   stack: ChampionStack;
@@ -4160,6 +4161,9 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
 };
 
 export interface ChampionProfileResponse {
+  validation?: import("@/components/ChampionIntake").ChampionValidation;
+  fingerprint?: string;
+  job_values?: Record<string, unknown>;
   job_id: number;
   job_title?: string;
   champion_profile: ChampionProfile | Record<string, never>;

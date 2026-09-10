@@ -48,6 +48,7 @@ export interface TalentRadarSessionState {
    */
   onsiteDaysPerWeek?: string;
   officeLocation?: string;
+  championImportedValues?: Record<string, string>;
   championProfile: Record<string, unknown> | null;
   championSummary: ChampionParseSummary | null;
   /**
@@ -75,6 +76,7 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
   if (!isRecord(value)) return false;
   if (typeof value.title !== "string") return false;
   if (typeof value.text !== "string") return false;
+  if (value.championImportedValues !== undefined && (!isRecord(value.championImportedValues) || !Object.values(value.championImportedValues).every(v => typeof v === "string"))) return false;
   const preview = value.requirementsPreview;
   if (preview != null && (!isRecord(preview) || typeof preview.source !== "string"
     || typeof preview.must !== "string" || typeof preview.nice !== "string"

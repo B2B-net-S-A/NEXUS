@@ -25,6 +25,13 @@ def upload_requirements(
     requirements = parse_manual_requirements(
         payload.must_requirements, payload.nice_requirements
     )
+    if not requirements and payload.champion_profile:
+        from app.services.cv_generator_b2b.champion_builder import from_nexus_job
+
+        champ = from_nexus_job(None, None, payload.champion_profile)
+        return parse_manual_requirements(
+            "\n".join(champ.must_have), "\n".join(champ.nice_to_have)
+        )
     if not requirements and payload.champion_bytes:
         try:
             from app.services.cv_generator_b2b.champion_builder import (

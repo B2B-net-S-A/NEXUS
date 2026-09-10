@@ -61,7 +61,8 @@ import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotFiel
 import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
-import api from "@/lib/api";
+import api, { extractErrorMsg, type ChampionProfile } from "@/lib/api";
+import { championErrorValidation, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
 import {
   ClientSinglePicker,
   type ClientRef,
@@ -189,6 +190,9 @@ export function CVGeneratorStandaloneV2({
   // ── Old mode state ──────────────────────────────────────────────────────
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [championFile, setChampionFile] = useState<File | null>(null);
+  const [championProfile, setChampionProfile] = useState<ChampionProfile | null>(null);
+  const [championValidation, setChampionValidation] = useState<ChampionValidation>();
+  const [championPreview, setChampionPreview] = useState<{ file: File; data: ChampionPreview } | null>(null);
   // Durable rejection reason. A toast alone was not enough: it self-destructs
   // and the dropzone re-renders its untouched empty state, so a recruiter whose
   // champion file was rejected saw no trace of it and generated a CV with no
@@ -522,6 +526,7 @@ export function CVGeneratorStandaloneV2({
       );
     },
     onError: async (err: unknown) => {
+      setChampionValidation(championErrorValidation(err));
       const detail = await extractErrorDetail(err);
       toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
@@ -547,6 +552,7 @@ export function CVGeneratorStandaloneV2({
       if (niceRequirements.trim())
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
+      if (championFile && championProfile) fd.append("champion_profile_json", JSON.stringify(championProfile));
       if (consentKey) fd.append("consent_screenshot_token", consentKey);
       const res = await withCvGenerationRequest("/api/cv-generator/generate-upload", fd, key => api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
@@ -571,6 +577,8 @@ export function CVGeneratorStandaloneV2({
       setConsentKey(null);
       setUploadCandidate(null);
       setChampionFile(null);
+      setChampionProfile(null);
+      setChampionValidation(undefined);
       setChampionError(null);
       setScreeningNotes("");
       // Klient, stanowisko i numer projektu ZOSTAJĄ — rekruter zwykle robi
@@ -582,6 +590,7 @@ export function CVGeneratorStandaloneV2({
       );
     },
     onError: async (err: unknown) => {
+      setChampionValidation(championErrorValidation(err));
       const detail = await extractErrorDetail(err);
       toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
@@ -674,17 +683,16 @@ export function CVGeneratorStandaloneV2({
     setCvFile(f);
   }
 
-  function handleChampionFile(f: File | null) {
-    if (f) {
-      const err = fileValidationError(f, CHAMPION_ACCEPT);
-      if (err) {
-        setChampionError(err);
-        toast.showError(`Profil Championa: ${err}`);
-        return;
-      }
-    }
+  async function handleChampionFile(f: File | null) {
+    if (!f) { setChampionFile(null); setChampionProfile(null); setChampionValidation(undefined); return; }
+    const err = fileValidationError(f, CHAMPION_ACCEPT);
+    if (err) { setChampionError(err); toast.showError(`Profil Championa: ${err}`); return; }
     setChampionError(null);
-    setChampionFile(f);
+    try {
+      const form = new FormData(); form.append("file", f);
+      const { data } = await api.post<ChampionPreview>("/api/champion/preview", form, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000 });
+      setChampionPreview({ file: f, data });
+    } catch (e) { setChampionError(extractErrorMsg(e)); }
   }
 
   function handleChampionEmptyDrop() {
@@ -776,6 +784,9 @@ export function CVGeneratorStandaloneV2({
           setStageId={setStageId}
         />
       ) : (
+        <>
+        <ChampionTemplateDownload />
+        {championPreview && <ChampionImportReview initial={championPreview.data} current={championProfile ?? undefined} onClose={() => setChampionPreview(null)} onApply={(cp, result) => { setChampionProfile(cp); setChampionFile(championPreview.file); setChampionValidation(result); }} />}
         <OldModeForm
           cvFile={cvFile}
           championFile={championFile}
@@ -790,8 +801,10 @@ export function CVGeneratorStandaloneV2({
           setMustRequirements={setMustRequirements}
           setNiceRequirements={setNiceRequirements}
         />
+        </>
       )}
 
+      <ChampionValidationPanel validation={championValidation} />
       {mode === "new" && candidate && (
         <Card className="mt-4">
           <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>

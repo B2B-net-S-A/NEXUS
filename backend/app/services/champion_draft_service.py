@@ -975,7 +975,14 @@ async def apply_suggestion(
 
     # Final validation — guarantees we never write a bad profile to DB.
     validated = ChampionProfile.model_validate(current_profile)
-    job.champion_profile = validated.model_dump(mode="json")
+    from app.services.champion_intake import user_edit
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    apply_requirement_source_update(
+        job,
+        "champion_profile",
+        user_edit(job.champion_profile, validated.model_dump(mode="json"), user_id),
+    )
 
     # Status: full accept iff all sections with value=non-null were accepted,
     # otherwise partially_accepted.
@@ -1142,17 +1149,15 @@ async def generate_recommended_searches(
         logger.warning("recommended_searches: column coverage unavailable: %s", exc)
         coverage_block = ""
 
+    from app.services.skill_normalize import iter_skill_names
+
     prompt = CHAMPION_RECOMMENDED_SEARCHES.render(
         column_coverage=coverage_block,
         job_title=job.title or "",
         client_name=client_name,
         requirements=(job.requirements or "")[:4000],
-        must_skills=", ".join(job.must_skills or [])
-        if isinstance(job.must_skills, list)
-        else (job.must_skills or ""),
-        nice_skills=", ".join(job.nice_skills or [])
-        if isinstance(job.nice_skills, list)
-        else (job.nice_skills or ""),
+        must_skills=", ".join(iter_skill_names(job.must_skills)),
+        nice_skills=", ".join(iter_skill_names(job.nice_skills)),
         champion_profile_json=json.dumps(
             champion_excerpt, ensure_ascii=False, indent=1
         )[:6000],

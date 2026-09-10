@@ -179,6 +179,7 @@ from app.api import invite_links as invite_links_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import settings as app_settings_api
+from app.api import champion_intake as champion_intake_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
@@ -848,6 +849,8 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
+
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its
 # `/pins` listing route matches before the catch-all `/{candidate_id}`

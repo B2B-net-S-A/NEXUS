@@ -23,7 +23,6 @@ from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.rate_limit import limiter
-from app.services import champion_view
 from app.schemas.matching_requirements import MatchingRequirements
 from app.services.talent_radar_search import (
     normalize_skill_names,
@@ -231,121 +230,8 @@ async def talent_radar_parse_champion(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Plik profilu Championa (docx/pdf) → sparsowany profil dla radaru.
+    from app.api.champion_intake import read_preview
 
-    Rekruter dostaje profil od zespołu jako DOKUMENT — wklejanie go ręcznie
-    do pola tekstowego gubi strukturę (stawka, must/nice, screening). Ten
-    endpoint parsuje plik tym samym promptem v3 co import sierpniowy i zwraca
-    kształt zgodny z `TalentRadarSearchRequest.champion_profile`, więc wynik
-    idzie prosto w wyszukiwanie — bez zakładania rekrutacji i BEZ zapisu
-    czegokolwiek do bazy (radar pozostaje bezstanowy).
-
-    Kwota: ten sam kubełek co ingest (`champion_profile_parse`).
-    """
-    import anthropic
-
-    from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import AIQuotaExceeded, ai_feature
-    from app.services.champion_profile_ingest import (
-        build_champion_dict,
-        extract_document_text,
-        oversize_precheck,
-        parse_champion_document,
-        validate_upload,
-    )
-
-    # Odbij za duży plik PRZED wczytaniem do pamięci (Content-Length), nie po.
-    too_big = oversize_precheck(getattr(file, "size", None))
-    if too_big:
-        raise HTTPException(status_code=413, detail=too_big)
-    content = await file.read()
-    error = validate_upload(file.filename or "", len(content))
-    if error:
-        raise HTTPException(status_code=422, detail=error)
-
-    # Świadomie POZA `try` niżej: ta funkcja nie dotyka dostawcy i połyka
-    # własne błędy (zwraca None na nieczytelnym docx/pdf), więc objęcie jej
-    # mapowaniem „dostawca padł" zamieniłoby zepsuty plik w komunikat
-    # „spróbuj za chwilę" — czyli kazałoby czekać na coś, co samo nie minie.
-    text = extract_document_text(content, file.filename or "")
-    if not text or len(text) < 200:
-        raise HTTPException(
-            status_code=422,
-            detail="Nie udało się odczytać tekstu z pliku (skan bez OCR albo pusty dokument).",
-        )
-
-    try:
-        async with ai_feature(db, AIFeatureKey.champion_profile_parse):
-            parsed = await parse_champion_document(text)
-    except AIQuotaExceeded as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except anthropic.APIError as exc:
-        # Awaria dostawcy to NIE jest zepsuty plik. `parse_champion_document`
-        # zamienia na `ValueError` wyłącznie błędy parsowania ODPOWIEDZI —
-        # przeciążenie (529), timeout i zerwane połączenie lecą wyżej i do
-        # teraz kończyły się 500, a 500 z tej trasy nie ma nagłówków CORS,
-        # więc w przeglądarce widać było „Network Error". Rekruter czytał to
-        # jako „ten plik jest do niczego" i próbował kolejnych zamiast
-        # poczekać minutę. 503 z komunikatem po polsku mówi, co się stało, i
-        # jest odróżnialne od 422 (dokument), i od 413 (rozmiar).
-        logger.warning("[talent-radar] parse-champion — dostawca AI padł: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail="Model AI chwilowo niedostępny — spróbuj za chwilę.",
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Nie udało się sparsować profilu: {exc}",
-        ) from exc
-
-    # file_id=None jako sentinel: to upload bez rekrutacji, nie plik Traffita
-    # (build_champion_dict tworzy _source, który i tak nadpisujemy — sentinel
-    # unika mylącego pośredniego "traffit_recruitment_file:0").
-    profile = build_champion_dict(parsed, file_id=None)
-    profile["_source"] = "talent_radar_upload"
-
-    # Listy WRACAJĄ do klienta, nie tylko ich długość. Do teraz endpoint je
-    # parsował, pokazywał „8 must · 5 nice" i WYRZUCAŁ, a ranking liczył z
-    # wymagań wywodzonych regexem z prozy — plakietka obiecywała wiedzę,
-    # której scoring nigdy nie dostał. `build_champion_dict` ich NIE kopiuje
-    # i nie będzie: jego wyjście to 1:1 kształt `jobs.champion_profile`
-    # utrwalany przez import, więc dokładanie tam radarowych kluczy zmieniłoby
-    # JSONB zapisywany w całym systemie.
-    #
-    # UWAGA: przy `TALENT_RADAR_STRUCTURED_SKILLS_ENABLED=false` (default)
-    # backend te listy PRZYJMIE i zignoruje — łańcuch jest kompletny, ale
-    # ranking dalej wywodzi wymagania z prozy. Plakietka pozostaje więc
-    # obietnicą na wyrost do czasu flipu; odpowiedź świadomie NIE niesie
-    # pozycji flagi, żeby kształt tej odpowiedzi nie zależał od konfiguracji.
-    _stack = parsed.get("stack") if isinstance(parsed.get("stack"), dict) else {}
-    musts = normalize_skill_names(_stack.get("must") or parsed.get("must_skills"))
-    nices = normalize_skill_names(_stack.get("nice") or parsed.get("nice_skills"))
-    _summary_basics = champion_view.basics(profile)
-    return {
-        "champion_profile": profile,
-        "must_skills": musts,
-        "nice_skills": nices,
-        "summary": {
-            # Przez `champion_view.basics`, jak trzy pola niżej. Prompt v5
-            # zwraca nazwę roli w sekcji „basics", a v3 kładł ją płasko —
-            # odczyt wprost z `parsed` widział WYŁĄCZNIE stary kształt, więc
-            # chip pokazywał „Profil wczytany", a request wyszukiwania nie
-            # niósł `title` i nazwa roli nigdy nie trafiała do embeddingu.
-            # `basics` podnosi płaskie pole starego kształtu (`_FLAT_TO_BASICS`),
-            # więc jedna wartość obsługuje oba prompty.
-            "role_name": _summary_basics.get("role_name"),
-            # Liczniki liczą to, co POJEDZIE do rankingu — wpis bez `name`
-            # odpada w normalizacji, więc licznik z surowej listy pokazywałby
-            # więcej wymagań, niż system faktycznie zna.
-            "must_count": len(musts),
-            "nice_count": len(nices),
-            # Przez `champion_view.basics`, bo prompt v4 zwraca te trzy fakty
-            # w sekcji 1, a v3 kładł je płasko. Odczyt wprost pokazywałby
-            # w podsumowaniu „—" przy stawce, którą model właśnie odczytał.
-            "rate_value": _summary_basics.get("rate_value"),
-            "location": _summary_basics.get("candidate_location_pref")
-            or parsed.get("location"),
-            "work_mode": _summary_basics.get("work_mode"),
-        },
-    }
+    result = await read_preview(file, db)
+    result["champion_profile"]["_source"] = "talent_radar_upload"
+    return result
