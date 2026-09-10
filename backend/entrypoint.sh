@@ -7192,6 +7192,13 @@ PY
 # 0282: mirror signature policy for installations with an orphaned Alembic
 # bookmark. Reuse the migration only when the schema/policy is missing; a
 # normal restart must never recreate user overrides or increment the revision.
+#
+# MIĘKKI i z `lock_timeout` (09.2026). Ten krok nie jest warunkiem startu:
+# bez polityki aplikacja wstaje i działa, brakuje jedynie osobnego uprawnienia
+# do potwierdzania podpisu — a następny start ponawia naprawę. Pod `set -e`
+# bez limitu zamka start potrafił wisieć bez końca (DDL z 0282 czeka na ACCESS
+# EXCLUSIVE za nocnym pg_dump), więc błąd jest łapany W bloku, nie przez `||`
+# (test wycina ten heredoc i kompiluje go w całości).
 python - <<'PY_SIGNATURE_POLICY'
 import asyncio
 import importlib.util
@@ -7202,30 +7209,36 @@ from sqlalchemy import text
 from app.core.database import engine
 
 async def prepare_signature_policy():
-    async with engine.begin() as connection:
-        await connection.execute(text("SELECT pg_advisory_xact_lock(734092782)"))
-        await connection.execute(text("SELECT id FROM rbac_policy_state WHERE id = 1 FOR UPDATE"))
-        ready = await connection.scalar(text("""
-            SELECT (
-                SELECT count(*) FROM pg_constraint
-                WHERE conname IN ('ck_rbac_role_action_permissions_action',
-                                  'ck_rbac_user_action_overrides_action')
-                  AND pg_get_constraintdef(oid) LIKE '%b2b_signature_confirmation%'
-            ) = 2 AND EXISTS (
-                SELECT 1 FROM rbac_role_action_permissions
-                WHERE action = 'b2b_signature_confirmation'
-            )
-        """))
-        if not ready:
-            path = Path("/app/alembic/versions/0282_b2b_signature_permission.py")
-            spec = importlib.util.spec_from_file_location("signature_policy_schema", path)
-            migration = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(migration)
-            def upgrade(sync_connection):
-                with Operations.context(MigrationContext.configure(sync_connection)):
-                    migration.upgrade()
-            await connection.run_sync(upgrade)
-    await engine.dispose()
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("SET LOCAL lock_timeout = '10s'"))
+            await connection.execute(text("SELECT pg_advisory_xact_lock(734092782)"))
+            await connection.execute(text("SELECT id FROM rbac_policy_state WHERE id = 1 FOR UPDATE"))
+            ready = await connection.scalar(text("""
+                SELECT (
+                    SELECT count(*) FROM pg_constraint
+                    WHERE conname IN ('ck_rbac_role_action_permissions_action',
+                                      'ck_rbac_user_action_overrides_action')
+                      AND pg_get_constraintdef(oid) LIKE '%b2b_signature_confirmation%'
+                ) = 2 AND EXISTS (
+                    SELECT 1 FROM rbac_role_action_permissions
+                    WHERE action = 'b2b_signature_confirmation'
+                )
+            """))
+            if not ready:
+                path = Path("/app/alembic/versions/0282_b2b_signature_permission.py")
+                spec = importlib.util.spec_from_file_location("signature_policy_schema", path)
+                migration = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(migration)
+                def upgrade(sync_connection):
+                    with Operations.context(MigrationContext.configure(sync_connection)):
+                        migration.upgrade()
+                await connection.run_sync(upgrade)
+    except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
+        print(f"Signature confirmation policy skipped (next start retries): {exc!r}")
+        return
+    finally:
+        await engine.dispose()
     print("Signature confirmation policy verified")
 
 asyncio.run(prepare_signature_policy())
@@ -7234,34 +7247,15 @@ PY_SIGNATURE_POLICY
 # Availability/allocation must be in place before ORM reads at login or startup.
 # Reuse the exact idempotent migration in one transaction when the historical
 # Alembic bookmark is orphaned; do not maintain a second divergent SQL copy.
-python - <<'PY_ALLOCATION'
-import asyncio
-import importlib.util
-from pathlib import Path
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import text
-from app.core.database import engine
-
-async def prepare_allocation():
-    path = Path("/app/alembic/versions/0277_recruitment_allocation.py")
-    spec = importlib.util.spec_from_file_location("allocation_schema", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    def upgrade(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
-    async with engine.begin() as connection:
-        await connection.execute(text("SELECT pg_advisory_xact_lock(734092771)"))
-        await connection.run_sync(upgrade)
-    await engine.dispose()
-    print("Availability/allocation schema verified")
-
-asyncio.run(prepare_allocation())
-PY_ALLOCATION
+# TWARDY celowo (ORM czyta te kolumny przy logowaniu), ale z `lock_timeout`:
+# upadek po timeoucie zamka tylko wtedy, gdy schematu naprawdę brakuje — przy
+# kompletnym start idzie dalej (szczegóły w docstringu modułu).
+python -m app.services.allocation_schema_bootstrap
 
 # CV schema 0290–0299 must exist before workers or ORM reads start.
 # Fail startup on an incomplete repair; reuse canonical table migrations.
+# Ta sama polityka zamka co wyżej: `lock_timeout`, a timeout jest fatalny
+# wyłącznie przy niekompletnym schemacie (`cv_schema_bootstrap.main`).
 python -m app.services.cv_schema_bootstrap
 
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
@@ -7417,6 +7411,11 @@ python seed.py || echo "seed.py failed (likely pre-existing schema drift from un
 # (a scope archived/edited in the app after import), the command exits 0 and
 # startup continues.  That drift is reported by /api/health/deep as degraded
 # instead of crash-looping the whole backend on every restart.
+#
+# Lock waits are already bounded INSIDE the importer (`lock_timeout` = 15 s,
+# set before its advisory lock — `client_portfolio_import.POSTGRES_LOCK_TIMEOUT`),
+# and the applied-hash path takes no lock that pg_dump's ACCESS SHARE blocks.
+# It stays fail-closed on purpose: a half-known portfolio must not go live.
 echo "Applying client portfolio manifest (transactional apply-once)..."
 python -m app.cli.client_portfolio_import --apply-once
 
