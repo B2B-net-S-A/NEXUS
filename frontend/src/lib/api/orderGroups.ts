@@ -6,6 +6,7 @@
 // gotowe flagi z odpowiedzi `GET /api/clients/{id}`.
 
 import { api } from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { OrderType } from "@/lib/api/dlPortal";
 
 export type { OrderType } from "@/lib/api/dlPortal";
@@ -249,6 +250,66 @@ export interface ConsultantOptionsResponse {
   total: number;
 }
 
+/** Kontrakt u klienta dopasowany (albo do wyboru) do osoby z PDF-a. */
+export interface OrderPlanContract {
+  contract_id: number;
+  candidate_id: number;
+  /** Zapis dokładnie z kontraktu — z dopiskiem, jeśli jest („Active …"). */
+  contractor_name: string;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  rate_cost: number | null;
+  rate_cost_unit: "hourly" | "daily" | "monthly" | null;
+  rate_cost_currency: string | null;
+  rate_cost_rate_to_pln: number | null;
+  rate_cost_per_md_pln: number | null;
+}
+
+/** Wynik dopasowania osoby z dokumentu do kontraktu (odznaka karty). */
+export type OrderPlanMatchStatus = "auto" | "confirm" | "ambiguous" | "none";
+
+/** Jedna pozycja osobowa z PDF-a — karta konsultanta w oknie. */
+export interface OrderPlanLine {
+  ordinal: number;
+  document_name: string | null;
+  /** Numer pozycji tabeli PDF-a („10") — `null`, gdy nie dało się go ustalić. */
+  position_label: string | null;
+  rate_revenue: number | null;
+  rate_revenue_unit: "hour" | "day" | "month" | null;
+  rate_revenue_gross: number | null;
+  md_total: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  match_status: OrderPlanMatchStatus;
+  match_reason: string;
+  contract: OrderPlanContract | null;
+  options: OrderPlanContract[];
+  nearest_names: string[];
+  warnings: string[];
+}
+
+/** `POST /order-groups/extract` — całe zamówienie z jednego PDF-a. */
+export interface OrderGroupExtraction {
+  order_number: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  total_value: number | null;
+  currency: string | null;
+  md_total: number | null;
+  suggested_order_type: OrderType;
+  client_policy: string | null;
+  consultant_ref: string | null;
+  title_needs_review: boolean;
+  /** Reguła klienta mówi „bezterminowo" (BIK) — brak daty końca to odczyt,
+   *  nie jego brak; formularz czyści pole „do". */
+  open_ended?: boolean;
+  document_incomplete: boolean;
+  uncertain: boolean;
+  uncertain_reasons: string[];
+  lines: OrderPlanLine[];
+}
+
 export interface OrderLineInput {
   rate_candidate_currency?: string | null;
   rate_client_currency?: string | null;
@@ -476,6 +537,23 @@ export const orderGroupsApi = {
 
   deleteFile: (clientId: number, groupId: number) =>
     api.delete(`/api/clients/${clientId}/order-groups/${groupId}/file`),
+
+  /** „Zczytaj i uzupełnij całe zamówienie" — jeden odczyt PDF-a dla
+   *  wszystkich osób, z dopasowaniem do kontraktów. Nic nie zapisuje. */
+  extractPlan: (clientId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<OrderGroupExtraction>(
+      `/api/clients/${clientId}/order-groups/extract`,
+      form,
+      {
+        // Bez jawnego nagłówka instancja wysłałaby FormData jako JSON (422).
+        headers: { "Content-Type": "multipart/form-data" },
+        // Model czyta cały dokument — domyślne 30 s jest skrojone pod CRUD-y.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      },
+    );
+  },
 
   /** Kogo można dołożyć do zamówienia: osoby z kontraktem u tego klienta
    *  ORAZ pozostali aktywni konsultanci z bazy — jedna lista, z etykietą

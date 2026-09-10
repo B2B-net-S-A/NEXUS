@@ -1,5 +1,13 @@
+"""Polityka typów zamówień po zniesieniu blokady per klient (09.2026).
+
+Ticket „jedno okno Nowe zamówienie": wszystkie trzy typy (okresowe, kosztowe,
+MD) są dostępne dla KAŻDEGO klienta; formularz jedynie podpowiada najczęstszy
+typ. Historyczna mapa czterech klientów rozliczanych w MD (BNP, BIK,
+Polkomtel, Wedel) zostaje wyłącznie jako interpretacja legacy ``NULL``.
+"""
+
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
 import pytest
@@ -13,72 +21,56 @@ from app.services.order_types import (
     allowed_order_types,
     assert_order_type_allowed,
     effective_standalone_order_type,
+    legacy_null_order_type,
+    most_common_order_type,
     should_process_active_standalone_order,
     suggested_order_type,
 )
 
+_ALL = (OrderType.periodic, OrderType.cost, OrderType.md)
+_FORMER_PINNED = {
+    12: OrderType.md,
+    18: OrderType.md,
+    15: OrderType.md,
+    155: OrderType.md,
+}
 
-def test_existing_forbidden_active_order_stays_editable_before_cleanup(monkeypatch):
-    """Deploying the policy must not freeze rows awaiting approved deletion."""
+
+@pytest.mark.parametrize(
+    "client_id", [12, 15, 18, 155, CYFROWY_POLSAT_CLIENT_ID, 999_999]
+)
+def test_every_client_can_create_every_order_type(monkeypatch, client_id):
+    """BIK i BNP nie są już zablokowane na samym MD — każdy typ dla każdego."""
 
     monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {12: (OrderType.md,)},
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
     )
+    monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", "")
+    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "")
 
-    for forbidden_type in (OrderType.periodic, OrderType.cost):
+    assert allowed_order_types(client_id) == _ALL
+    for order_type in _ALL:
+        assert_order_type_allowed(client_id, order_type)
         assert (
-            should_process_active_standalone_order(12, forbidden_type, was_active=True)
-            is False
+            should_process_active_standalone_order(
+                client_id, order_type, was_active=False
+            )
+            is True
         )
-    assert (
-        should_process_active_standalone_order(12, OrderType.md, was_active=True)
-        is True
+
+
+def test_serialized_client_flags_offer_every_type(monkeypatch):
+    """Profil klienta nie może już podawać frontowi zawężonej listy typów."""
+
+    monkeypatch.setattr(
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
     )
-    with pytest.raises(ValueError, match="periodic"):
-        should_process_active_standalone_order(12, OrderType.periodic, was_active=False)
-
-
-def test_ticket_clients_have_pinned_allowed_types(monkeypatch):
-    # Polityka nie może zależeć od chwilowego braku zmiennej Coolify — te
-    # cztery rekordy są kanonicznym, zamkniętym zakresem korekty.
     monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", "")
     monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "")
-    monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {
-            12: (OrderType.md,),
-            18: (OrderType.md,),
-            15: (OrderType.md, OrderType.cost),
-            155: (OrderType.md, OrderType.cost),
-        },
-    )
-
-    assert allowed_order_types(12) == (OrderType.md,)
-    assert allowed_order_types(18) == (OrderType.md,)
-    assert allowed_order_types(15) == (OrderType.md, OrderType.cost)
-    assert allowed_order_types(155) == (OrderType.md, OrderType.cost)
-
-
-def test_serialized_client_flags_follow_the_exact_ticket_policy(monkeypatch):
-    """The profile wire contract must mirror the same per-client write policy."""
-
-    monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", "")
-    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "")
-    monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {
-            12: (OrderType.md,),
-            18: (OrderType.md,),
-            15: (OrderType.md, OrderType.cost),
-            155: (OrderType.md, OrderType.cost),
-        },
-    )
-
     now = datetime.now(timezone.utc)
 
-    def flags(client_id: int) -> tuple[bool, bool]:
-        wire = ClientSafeResponse(
+    def wire(client_id: int) -> dict:
+        return ClientSafeResponse(
             id=client_id,
             name=f"Client {client_id}",
             industry=None,
@@ -90,73 +82,122 @@ def test_serialized_client_flags_follow_the_exact_ticket_policy(monkeypatch):
             created_at=now,
             updated_at=now,
         ).model_dump(mode="json")
-        return wire["periodic_orders_enabled"], wire["cost_orders_enabled"]
 
-    assert flags(12) == (False, False)  # BNP: MD only
-    assert flags(18) == (False, False)  # BIK: MD only
-    assert flags(15) == (False, True)  # Polkomtel: MD + cost
-    assert flags(155) == (False, True)  # Wedel: MD + cost
-    assert flags(999_999) == (True, False)  # ordinary client unchanged
-
-    # A stale broad Coolify capability may not override the pinned write
-    # policy. BNP/BIK stay MD-only while Polkomtel/Wedel stay MD + cost.
-    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "12,15,18,155,999999")
-    assert flags(12) == (False, False)
-    assert flags(18) == (False, False)
-    assert flags(15) == (False, True)
-    assert flags(155) == (False, True)
-    assert flags(999_999) == (True, True)
+    for client_id in (12, 15, 18, 155, 999_999):
+        assert wire(client_id)["periodic_orders_enabled"] is True
+    # Historyczna interpretacja legacy NULL zostaje per klient.
+    assert wire(18)["legacy_null_order_type"] == "md"
+    assert wire(12)["legacy_null_order_type"] == "md"
+    assert wire(999_999)["legacy_null_order_type"] == "periodic"
 
 
-def test_cyfrowy_polsat_and_ordinary_client_keep_all_existing_choices(monkeypatch):
-    monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", "")
-    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "")
+def test_legacy_null_standalone_type_keeps_the_historical_reading(monkeypatch):
+    """Zdjęcie blokady nie przeklasyfikowuje historycznych kart MD na okresowe."""
 
-    assert allowed_order_types(CYFROWY_POLSAT_CLIENT_ID) == (
-        OrderType.periodic,
-        OrderType.cost,
-        OrderType.md,
-    )
-    assert allowed_order_types(999_999) == (
-        OrderType.periodic,
-        OrderType.cost,
-        OrderType.md,
-    )
-
-
-def test_periodic_write_is_rejected_for_ticket_clients(monkeypatch):
     monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {12: (OrderType.md,)},
-    )
-    with pytest.raises(ValueError, match="periodic"):
-        assert_order_type_allowed(12, OrderType.periodic)
-    assert_order_type_allowed(12, OrderType.md)
-
-
-def test_legacy_null_standalone_type_uses_client_policy(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {
-            12: (OrderType.md,),
-            15: (OrderType.md, OrderType.cost),
-        },
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
     )
 
+    assert legacy_null_order_type(12) == OrderType.md
     assert effective_standalone_order_type(12, None) == OrderType.md
     assert effective_standalone_order_type(15, None) == OrderType.md
     assert effective_standalone_order_type(999_999, None) == OrderType.periodic
     assert effective_standalone_order_type(12, OrderType.cost) == OrderType.cost
+    assert legacy_null_order_type(None) == OrderType.periodic
 
 
 @pytest.mark.asyncio
-async def test_suggestion_cannot_resurrect_historical_periodic_for_bnp(monkeypatch):
+async def test_latest_suggestion_is_no_longer_filtered_by_a_pinned_list(monkeypatch):
     monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {12: (OrderType.md,)},
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
     )
     db = SimpleNamespace(
         scalar=AsyncMock(side_effect=[SimpleNamespace(order_type="periodic"), None])
     )
 
-    assert await suggested_order_type(db, 12) == OrderType.md
+    assert await suggested_order_type(db, 12) == OrderType.periodic
+
+
+@pytest.mark.asyncio
+async def test_latest_suggestion_without_history_uses_the_historical_type(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
+    )
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[None, None]))
+    assert await suggested_order_type(db, 18) == OrderType.md
+
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[None, None]))
+    assert await suggested_order_type(db, 999_999) == OrderType.periodic
+
+
+def _rows(values):
+    result = MagicMock()
+    result.all.return_value = values
+    return result
+
+
+@pytest.mark.asyncio
+async def test_most_common_type_counts_groups_and_standalone_orders(monkeypatch):
+    """BIK → MD: przewaga zamówień MD wygrywa z ostatnim okresowym."""
+
+    monkeypatch.setattr(
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                # grupy: 4 × MD jawne, 1 × legacy kosztowa
+                _rows([("md", False, 4), (None, True, 1)]),
+                # samodzielne: 2 × okresowe, 1 × legacy NULL (u BIK = MD)
+                _rows([("periodic", 2), (None, 1)]),
+            ]
+        ),
+        scalar=AsyncMock(),
+    )
+
+    assert await most_common_order_type(db, 18) == OrderType.md
+    db.scalar.assert_not_called()  # brak remisu = bez pytania o ostatni typ
+
+
+@pytest.mark.asyncio
+async def test_most_common_type_breaks_ties_with_the_latest_order(monkeypatch):
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                _rows([("cost", True, 2)]),
+                _rows([("periodic", 2)]),
+            ]
+        ),
+        # suggested_order_type: najnowszy samodzielny, najnowsza grupa
+        scalar=AsyncMock(
+            side_effect=[
+                SimpleNamespace(
+                    order_type="periodic",
+                    created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    order_type="cost",
+                    is_cost_based=True,
+                    created_at=datetime(2026, 9, 5, tzinfo=timezone.utc),
+                ),
+            ]
+        ),
+    )
+
+    assert await most_common_order_type(db, 999_999) == OrderType.cost
+
+
+@pytest.mark.asyncio
+async def test_most_common_type_without_history_uses_the_historical_type(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES", _FORMER_PINNED
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_rows([]), _rows([])]), scalar=AsyncMock()
+    )
+    assert await most_common_order_type(db, 12) == OrderType.md
+
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_rows([]), _rows([])]), scalar=AsyncMock()
+    )
+    assert await most_common_order_type(db, 999_999) == OrderType.periodic

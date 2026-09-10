@@ -104,15 +104,15 @@ interface Props {
   clientId: number;
   /** Zachowuje klientowe dodatki dotychczasowego rejestru okresowego (np. import Nordei). */
   clientName?: string;
-  /** Czy u tego klienta wolno zakładać zamówienia KOSZTOWE.
-   *
-   *  Flagę liczy SERWER (konfiguracja lub jawny predykat klienta) i przekazuje
-   *  ją profil klienta, który i tak ma już pobrany rekord. Front nie trzyma
-   *  kopii listy klientów ani nie robi drugiego zapytania o ten sam obiekt. */
-  costOrdersEnabled?: boolean;
-  /** Trwała konfiguracja klienta; `false` usuwa typ okresowy z tworzenia. */
-  periodicOrdersEnabled?: boolean;
+  /** Jak klasyfikować historyczne zamówienia bez jawnego typu — liczone przez
+   *  SERWER (`legacy_null_order_type` klienta). U klientów rozliczanych w MD
+   *  (BNP, BIK, Polkomtel, Wedel) to „md", u pozostałych „periodic". */
+  legacyNullOrderType?: LegacyClientOrderType;
 }
+
+/** Od 09.2026 każdy klient ma wszystkie trzy typy — bez blokady per klient.
+ *  Formularz jedynie podpowiada typ najczęstszy u klienta. */
+const ALL_ORDER_TYPES: readonly OrderType[] = ["periodic", "cost", "md"];
 
 /**
  * Jedna zakładka i jeden zestaw kontrolek dla wszystkich typów zamówień.
@@ -122,8 +122,7 @@ interface Props {
 export function MultiConsultantOrdersTab({
   clientId,
   clientName = "",
-  costOrdersEnabled = false,
-  periodicOrdersEnabled = true,
+  legacyNullOrderType = "periodic",
 }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -137,14 +136,7 @@ export function MultiConsultantOrdersTab({
   const canExport =
     !hasRole(user, "talent_community_manager") ||
     hasRole(user, "admin", "delivery_lead", "finance");
-  const legacyNullOrderType: LegacyClientOrderType = periodicOrdersEnabled
-    ? "periodic"
-    : "md";
-  const allowedOrderTypes: readonly OrderType[] = periodicOrdersEnabled
-    ? ["periodic", "cost", "md"]
-    : costOrdersEnabled
-      ? ["cost", "md"]
-      : ["md"];
+  const allowedOrderTypes = ALL_ORDER_TYPES;
 
   const [pill, setPill] = useState<UnifiedOrderPill>("all");
   const [search, setSearch] = useState("");
@@ -153,6 +145,9 @@ export function MultiConsultantOrdersTab({
   });
   const [exporting, setExporting] = useState(false);
   const [newOrderType, setNewOrderType] = useState<OrderType>("periodic");
+  // PDF wgrany w jednym formularzu przechodzi do drugiego przy zmianie typu
+  // (MD/kosztowe ↔ okresowe) — bez ponownego wgrywania.
+  const [carriedFile, setCarriedFile] = useState<File | null>(null);
   const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
   const [groupModal, setGroupModal] = useState<{
     open: boolean;
@@ -207,11 +202,12 @@ export function MultiConsultantOrdersTab({
     ? serverSuggestedOrderType
     : allowedOrderTypes[0];
 
-  function openNewOrderForm(orderType: OrderType) {
+  function openNewOrderForm(orderType: OrderType, file: File | null = null) {
     const allowedType = allowedOrderTypes.includes(orderType)
       ? orderType
       : allowedOrderTypes[0];
     setFormError(null);
+    setCarriedFile(file);
     setNewOrderType(allowedType);
     if (allowedType === "periodic") {
       setGroupModal({ open: false, group: null });
@@ -889,8 +885,9 @@ export function MultiConsultantOrdersTab({
               ? "cost"
               : newOrderType
         }
-        onOrderTypeChange={(orderType) => openNewOrderForm(orderType)}
+        onOrderTypeChange={(orderType, file) => openNewOrderForm(orderType, file)}
         allowedOrderTypes={allowedOrderTypes}
+        initialFile={carriedFile}
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values, file) => saveGroup.mutate({ values, file })}
@@ -913,6 +910,7 @@ export function MultiConsultantOrdersTab({
           orderType={newOrderType}
           onOrderTypeChange={openNewOrderForm}
           allowedOrderTypes={allowedOrderTypes}
+          initialFile={carriedFile}
           onClose={() => setStandardOrderModalOpen(false)}
           onCreated={() => {
             setStandardOrderModalOpen(false);

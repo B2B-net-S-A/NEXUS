@@ -1403,6 +1403,70 @@ budżet MD tej samej osoby. Migracja `0262_separate_md_periodic`.
   zamówieniem okresowym obok linii MD nadal ma obie pozycje: to dwa różne
   zaangażowania i o ich rozdzielenie w tym tickecie chodzi.
 
+## Okno „Nowe zamówienie" — jeden odczyt PDF-a, karty wszystkich osób (09.2026)
+
+„Nowe zamówienie" (MD/kosztowe) i „Uzupełnij zamówienie" połączone w JEDNO okno
+(`OrderGroupFormModal` w trybie nowego zamówienia): PDF → **„Zczytaj i uzupełnij całe
+zamówienie"** (`POST /api/clients/{id}/order-groups/extract`) → karta na każdą osobę
+z dokumentu (`OrderPlanLineCard`, logika w `lib/order-plan.ts`) → JEDNO
+`POST /order-groups` z `lines` (atomowo — endpoint od zawsze przyjmował linie).
+Tryb edycji istniejącego zamówienia zostaje przy starym „Zczytaj dane z dokumentu".
+
+- **Typy bez blokady per klient.** `order_types.allowed_order_types` zwraca wszystkie
+  trzy typy dla każdego klienta (dawne `_PINNED_ALLOWED_ORDER_TYPES`: BNP/BIK tylko MD,
+  Polkomtel/Wedel MD+kosztowe — ZNIESIONE). Mapa czterech klientów przetrwała
+  wyłącznie jako **interpretacja legacy `NULL`** (`_LEGACY_NULL_ORDER_TYPES` →
+  `ClientSafeResponse.legacy_null_order_type`) — bez niej historyczne karty MD
+  przeskoczyłyby do sekcji „Okresowe". Front: `MultiConsultantOrdersTab` ma stałe
+  `ALL_ORDER_TYPES`, a propsy `costOrdersEnabled`/`periodicOrdersEnabled` zniknęły.
+  Konsekwencja zamierzona: jednorazowa korekta sierpniowa (`nexus_data_correction`)
+  jest teraz zablokowana `order_type_runtime_policy_drift` — jej przesłanka („te typy
+  są niedozwolone") przestała obowiązywać, a ponowne uruchomienie skasowałoby
+  poprawne zamówienia. Nie „naprawiaj" tego blokera.
+- **Domyślny typ = NAJCZĘSTSZY u klienta** (`most_common_order_type`: grupy +
+  samodzielne bez anulowanych; remis → ostatni typ; brak historii → typ legacy).
+  Zasila `OrderGroupListResponse.suggested_order_type`. Automaty (szkic po zatrudnieniu,
+  poczta) nadal biorą OSTATNI typ (`suggested_order_type`) — świadomie nie ruszone.
+- **Odczyt = ten sam pipeline co poczta zamówień**: `extract_order_text` → polityki →
+  `parse_order_document(all_rows=True)` (dokument jednoosobowy BNP → tryb zwykły, jedna
+  karta bez osoby) → `apply_policies` → `apply_rate_kind`. Pola dokumentu (stawka/MD
+  z nagłówka) zastępują brak w wierszu TYLKO przy jednej osobie. Nic nie zapisuje.
+- **Dopasowanie osoby do KONTRAKTU — `order_consultant_match`, NIE `order_mail_resolver`.**
+  Resolver poczty toleruje odmianę i literówkę (trafia do kolejki), tu trafienie
+  zapisałoby cudzą stawkę jednym kliknięciem. Reguła z ticketu: rdzeń = od
+  przedostatniego wyrazu z wielkiej litery do końca, wcześniej dopisek („Active",
+  „UR –", „Projekt 2"); tolerowane tylko dopisek, polskie znaki, wielkość liter,
+  myślnik/spacja. `auto` = identyczne; `confirm` = dopisek / odwrotna kolejność /
+  kontrakt zakończony (jedno kliknięcie DL); `ambiguous` = >1 RÓŻNA osoba w puli
+  (także gdy jedna ma kontrakt aktywny, a druga szkic ALBO zakończony — powrót po
+  przerwie) albo ta sama osoba z >1 żywym
+  kontraktem; `none` = reszta. Pula: żywe + szkice (+ `ready_for_signature`); dopiero
+  bez nich — zakończone (powrót osoby). `nearest_names` (difflib ≥ 0,75) to WYŁĄCZNIE
+  podpowiedź tekstowa, nigdy wybór.
+- **Wiersze modelu weryfikowane regułą klienta.** Gdy aktywna polityka ma
+  `extract_rows` (deterministyczny regex tabeli), wartość z tabeli wygrywa z modelem
+  (`_reconcile_with_evidence`; lustro `order_mail_gate._row_evidence_reasons`),
+  a rozbieżność i brak osoby w tabeli są ostrzeżeniem na karcie. Orlen (`requires_target`,
+  więc tu jego polityka się nie odpala): MD z PDF-a zawsze pomijane, wiersze on/off-site
+  tej samej stawki zlewane. Bank Pocztowy: linia MD dostaje oryginalne `rate_client_md`,
+  nie godzinówkę ×8 (zaokrąglenie w górę zawyżałoby stawkę). Dokument wieloosobowy
+  bez wierszy NIE tworzy karty z pól nagłówka — tylko jednoosobowy BNP. Brak jednostki
+  stawki blokuje kartę (`revenueUnit: null`), a nie domyślnie „MD".
+- **Stawka kosztowa z TEGO kontraktu** (`client_order_lines.contract_cost_rate`,
+  wyciągnięte z `_rate_suggestion` — ta sama arytmetyka co picker), nie z „najnowszego
+  żywego" osoby. Kwoty redagowane jak na liście (`_can_see_finance`); MD operacyjne.
+- **Źródło każdej wartości** jedzie z odpowiedzi (`position_label` = numer pozycji
+  tabeli PDF-a, szukany deterministycznie nad linią z nazwiskiem, nigdy wyżej niż linia
+  poprzedniej osoby; brak pewności → „N. osoba w dokumencie"). Ręczna poprawka na karcie
+  przestawia źródło na „wpisano ręcznie" — opis nie może twierdzić „z PDF", gdy liczbę
+  wpisał człowiek.
+- **Nowe MD jest domyślnie „Aktywne"** (dotąd wyłącznie „Draft"). `create_order_group`
+  przy `status="active"` + `md_budget_mode` waliduje jak aktywacja szkicu (PATCH):
+  per osoba — ≥1 linia i każda z `input_value > 0`; wspólna pula — `md_budget_total > 0`.
+- **Zmiana typu na „Okresowe" przenosi wgrany PDF** do `NewContractorOrderDialog`
+  (`initialFile`) i z powrotem — formularze są różne, plik ten sam.
+- Harness wizualny (publiczny, zero zapytań): `/preview/order-new-from-pdf`.
+
 ## Eksport zamówień do Excela pokazuje stan NA DZIŚ
 
 `POST /api/clients/{id}/orders/export` bierze wyłącznie zamówienia
@@ -1578,6 +1642,9 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   `GET /api/clients/{id}` zwraca `cost_orders_enabled`. To pole było zaplanowane,
   udokumentowane i konsumowane przez front, a mimo to nigdy nie powstało (PR #1196);
   wyszło z odpytania produkcji, nie z zielonych testów.
+  **Od 09.2026 `cost_orders_enabled` NIE bramkuje już UI** — typ kosztowy jest
+  dostępny u każdego klienta (patrz „Okno „Nowe zamówienie"…"). Flaga zostaje jako
+  informacja dla automatów (np. brak auto-szkicu po zatrudnieniu).
 
 ## Decyzja Delivery Leada po zakończeniu współpracy konsultanta MD
 

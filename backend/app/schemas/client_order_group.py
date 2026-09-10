@@ -606,6 +606,96 @@ class ConsultantOptionsResponse(BaseModel):
     się jako komplet."""
 
 
+class OrderPlanContractRead(BaseModel):
+    """Kontrakt u klienta dopasowany (albo do wyboru) dla osoby z PDF-a."""
+
+    contract_id: int
+    candidate_id: int
+    contractor_name: str
+    """Nazwa kontraktora DOKŁADNIE tak, jak jest zapisana — z dopiskiem, jeśli
+    jest („Active Jan Kowalski"). Operator potwierdza właśnie ten zapis."""
+
+    status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    rate_cost: Optional[ContractRateValue] = None
+    """Surowa efektywna stawka kosztowa TEGO kontraktu (na dziś)."""
+
+    rate_cost_unit: Optional[RateUnit] = None
+    rate_cost_currency: Optional[str] = None
+    rate_cost_rate_to_pln: Optional[FxRateValue] = None
+    rate_cost_per_md_pln: Optional[MoneyPLN] = None
+
+
+class OrderPlanLineRead(BaseModel):
+    """Jedna pozycja osobowa z dokumentu — karta konsultanta w oknie."""
+
+    ordinal: int
+    """Kolejność osoby w dokumencie (1..N) — opis źródła, gdy brak numeru pozycji."""
+
+    document_name: Optional[str] = None
+    """Imię i nazwisko z PDF-a; `null` = dokument nie podaje osoby (BNP)."""
+
+    position_label: Optional[str] = None
+    """Numer pozycji tabeli PDF-a („10"), pod którą stoi osoba — do opisu
+    źródła „z PDF, poz. 10". `null` = nie dało się go ustalić pewnie."""
+
+    rate_revenue: Optional[ContractRateValue] = None
+    rate_revenue_unit: Optional[str] = None
+    """„hour" | „day" | „month" — jednostka stawki z dokumentu."""
+
+    rate_revenue_gross: Optional[ContractRateValue] = None
+    md_total: Optional[MdValue] = None
+    """Liczba MD pozycji. Operacyjna, NIE redagowana (jak w ``/orders/extract``)."""
+
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    """Okres WŁASNY pozycji, gdy dokument podaje go per osoba."""
+
+    match_status: Literal["auto", "confirm", "ambiguous", "none"]
+    match_reason: str
+    contract: Optional[OrderPlanContractRead] = None
+    options: list[OrderPlanContractRead] = Field(default_factory=list)
+    """Kontrakty do ręcznego wyboru przy `ambiguous` (np. dwie osoby o tym
+    samym imieniu i nazwisku) — system żadnego nie wybiera sam."""
+
+    nearest_names: list[str] = Field(default_factory=list)
+    """Najbliższe zapisy w kontraktach przy `none` — wyłącznie podpowiedź."""
+
+    warnings: list[str] = Field(default_factory=list)
+
+
+class OrderGroupExtractionResult(BaseModel):
+    """`POST /order-groups/extract` — całe zamówienie z jednego PDF-a.
+
+    Nic nie zapisuje. Kwoty (stawki, wartość zamówienia) są zredagowane dla ról
+    bez odczytu finansów — tak samo jak na liście zamówień.
+    """
+
+    order_number: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    total_value: Optional[MoneyPLN] = None
+    currency: Optional[str] = None
+    md_total: Optional[MdValue] = None
+    """Liczba MD na poziomie dokumentu (wspólna pula MD)."""
+
+    suggested_order_type: OrderType
+    """Najczęstszy typ zamówień klienta — domyślny wybór w oknie."""
+
+    client_policy: Optional[str] = None
+    consultant_ref: Optional[str] = None
+    title_needs_review: bool = False
+    open_ended: bool = False
+    """Reguła klienta mówi „bezterminowo" (BIK) — brak daty końca to odczyt."""
+    document_incomplete: bool = False
+    """OCR objął tylko część stron — lista osób może być niepełna."""
+
+    uncertain: bool = False
+    uncertain_reasons: list[str] = Field(default_factory=list)
+    lines: list[OrderPlanLineRead] = Field(default_factory=list)
+
+
 class SwapPreview(BaseModel):
     """Podgląd przeliczenia MD przy zamianie — liczony po stronie serwera."""
 

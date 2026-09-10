@@ -105,6 +105,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # (re-ekstrakcja przy literowaniu spacjami, cap OCR).
     "backend/app/services/order_client_identity.py",
     "backend/app/services/order_document_text.py",
+    # Okno „Nowe zamówienie": odczyt wszystkich osób z PDF-a i reguła
+    # tolerancji dopasowania osoby do kontraktu (odznaki kart).
+    "backend/app/services/order_group_extraction.py",
+    "backend/app/services/order_consultant_match.py",
     # Zamówienia z maila: pobieranie ze skrzynki kopii, sloty dobowe, dziennik.
     "backend/app/services/order_mail_ingest.py",
     "backend/app/tasks/order_mail_ingest.py",
@@ -160,6 +164,8 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/orders/OrderTypeSwitch.tsx",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
+    "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
+    "frontend/src/lib/order-plan.ts",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx",

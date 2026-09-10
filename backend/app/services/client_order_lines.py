@@ -257,6 +257,76 @@ def _contract_recency_key(contract: Contract) -> tuple[date, int]:
     return (contract.start_date or date.min, contract.id)
 
 
+def contract_rate_cost_per_md_pln(
+    contract: Contract,
+    *,
+    on: date,
+    currency_rates: dict[str, Optional[Decimal]],
+) -> Optional[Decimal]:
+    """Efektywna stawka kosztowa kontraktu w kanonicznym PLN/MD.
+
+    Godzina × 8, dzień × 1, miesiąc ÷ 22, na końcu kurs waluty. Brak stawki
+    albo kursu = ``None`` — nigdy nie udajemy kursu 1:1.
+    """
+    raw_rate = contract.effective_candidate_rate(on)
+    currency = contract.resolved_rate_candidate_currency
+    rate_to_pln = currency_rates.get(currency)
+    if raw_rate is None or rate_to_pln is None:
+        return None
+
+    rate = Decimal(str(raw_rate))
+    unit = RateUnit(contract.rate_unit)
+    if unit == RateUnit.hourly:
+        rate_per_md = rate * HOURS_PER_MD
+    elif unit == RateUnit.daily:
+        rate_per_md = rate
+    else:  # RateUnit.monthly
+        rate_per_md = rate / STANDARD_WORKING_DAYS_PER_MONTH
+    # Linia zapisuje Numeric(12,2), więc pole zgodności i ostrzeżenie
+    # operują dokładnie na wartościach, które mogą się różnić po zapisie.
+    return (rate_per_md * rate_to_pln).quantize(MONEY_SCALE, rounding=ROUND_HALF_UP)
+
+
+@dataclass(frozen=True)
+class ContractCostRate:
+    """Stawka kosztowa JEDNEGO kontraktu: surowa (jednostka, waluta) + PLN/MD."""
+
+    raw: Decimal
+    unit: RateUnit
+    currency: str
+    rate_to_pln: Optional[Decimal]
+    per_md_pln: Decimal
+
+
+def contract_cost_rate(
+    contract: Contract,
+    *,
+    on: date,
+    currency_rates: dict[str, Optional[Decimal]],
+) -> Optional[ContractCostRate]:
+    """Stawka kosztowa wskazanego kontraktu — podpowiedź dla linii zamówienia.
+
+    Te same zasady co podpowiedź pickera (``_rate_suggestion``), ale dla
+    konkretnego kontraktu, a nie „najnowszego żywego" osoby: okno „Nowe
+    zamówienie" dopasowuje osobę z PDF-a do KONTRAKTU i stawka musi pochodzić
+    dokładnie z niego.
+    """
+    per_md_pln = contract_rate_cost_per_md_pln(
+        contract, on=on, currency_rates=currency_rates
+    )
+    raw = contract.effective_candidate_rate(on)
+    if per_md_pln is None or raw is None:
+        return None
+    currency = contract.resolved_rate_candidate_currency
+    return ContractCostRate(
+        raw=Decimal(str(raw)),
+        unit=RateUnit(contract.rate_unit),
+        currency=currency,
+        rate_to_pln=currency_rates.get(currency),
+        per_md_pln=per_md_pln,
+    )
+
+
 def _rate_suggestion(
     contracts: list[Contract],
     *,
@@ -294,23 +364,9 @@ def _rate_suggestion(
     """
 
     def rate_per_md_pln(contract: Contract) -> Optional[Decimal]:
-        raw_rate = contract.effective_candidate_rate(on)
-        currency = contract.resolved_rate_candidate_currency
-        rate_to_pln = currency_rates.get(currency)
-        if raw_rate is None or rate_to_pln is None:
-            return None
-
-        rate = Decimal(str(raw_rate))
-        unit = RateUnit(contract.rate_unit)
-        if unit == RateUnit.hourly:
-            rate_per_md = rate * HOURS_PER_MD
-        elif unit == RateUnit.daily:
-            rate_per_md = rate
-        else:  # RateUnit.monthly
-            rate_per_md = rate / STANDARD_WORKING_DAYS_PER_MONTH
-        # Linia zapisuje Numeric(12,2), więc pole zgodności i ostrzeżenie
-        # operują dokładnie na wartościach, które mogą się różnić po zapisie.
-        return (rate_per_md * rate_to_pln).quantize(MONEY_SCALE, rounding=ROUND_HALF_UP)
+        return contract_rate_cost_per_md_pln(
+            contract, on=on, currency_rates=currency_rates
+        )
 
     live = [c for c in contracts if c.status in LIVE_CONTRACT_STATUSES]
     current = max(live, key=_contract_recency_key) if live else None

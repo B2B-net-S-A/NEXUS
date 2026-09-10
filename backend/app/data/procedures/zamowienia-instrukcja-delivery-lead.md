@@ -97,9 +97,12 @@ Przy wspólnej puli import z Finansów wymaga numeru zamówienia w kolumnie
 budżet, łączne zużycie i pozostałość raz na całe zamówienie. Przy budżecie
 per osoba liczby i ostrzeżenia dotyczą poszczególnych konsultantów.
 
-**Nie u każdego klienta masz wszystkie trzy do wyboru.** Cztery firmy mają
-zawężoną listę wpisaną na stałe w systemie (szczegóły w sekcjach per klient);
-u wszystkich pozostałych przełącznik pokazuje wszystkie trzy typy.
+**Każdy klient ma wszystkie trzy typy do wyboru.** Okno „Nowe zamówienie"
+**domyślnie zaznacza typ najczęstszy u danego klienta** (np. u BIK — MD), ale to
+tylko podpowiedź: typ zmienisz jednym kliknięciem, także po odczycie PDF-a.
+Dawnych blokad (BNP i BIK tylko MD, Polkomtel i Lotte Wedel bez okresowych) już
+nie ma. Historyczne zamówienia tych czterech klientów zapisane bez typu nadal
+widać w sekcji **MD**.
 
 ---
 
@@ -213,22 +216,75 @@ to dwa różne modele rozliczenia i są od siebie niezależne.
 
 ## Jak dodać zamówienie MD albo kosztowe (kilku konsultantów, jeden numer)
 
-Najpierw powstaje samo zamówienie, a **dopiero potem dokładasz do niego ludzi**.
-Nowe zamówienie MD zapisuje się jako szkic i po uzupełnieniu wymaga aktywacji.
+**Wszystko dzieje się w jednym oknie „Nowe zamówienie"** — numer, data, typ,
+wszyscy konsultanci, ich stawki i MD. Nie ma już pustego zamówienia, do którego
+potem osobno dokładasz ludzi.
 
-**Krok 1 — załóż zamówienie.** Przycisk **Nowe zamówienie**, typ **MD** albo
-**Kosztowe**. W formularzu **„Nowe zamówienie"**:
+**Krok 1 — wgraj PDF i kliknij „Zczytaj i uzupełnij całe zamówienie".** Przycisk
+**Nowe zamówienie** otwiera okno z typem najczęstszym u klienta. Wgraj PDF
+zamówienia (`.pdf`, do 25 MB) i kliknij **Zczytaj i uzupełnij całe zamówienie**.
+System jednym odczytem:
 
-* **Typ zamówienia** — wybierany raz, później zablokowany
-* **Numer zamówienia \*** — ten, który nadał klient (np. „445")
-* **Budżet MD na całe zamówienie** — przy typie MD, domyślnie odznaczony
-* **Budżet w MD \*** — tylko przy zaznaczonej wspólnej puli; w trybie per osoba podasz go przy konsultantach
-* **Budżet całkowity (PLN) \*** — przy typie kosztowym
-* **Obowiązuje od \*** i **Obowiązuje do** — puste „do" znaczy bezterminowo
-* **Notatki**
-* **PDF zamówienia od klienta** — tylko rozszerzenie `.pdf`, do 25 MB
+* wpisuje **numer zamówienia** i **daty** (jeżeli wpisałeś je wcześniej ręcznie
+  i dokument mówi co innego — najpierw zapyta „Tak/Nie"),
+* przy typie kosztowym wpisuje **kwotę zamówienia**, a przy wspólnej puli MD —
+  **budżet w MD**,
+* **rozpoznaje, ilu konsultantów jest w dokumencie, i dla każdego tworzy kartę**.
 
-Zapisujesz przyciskiem **Utwórz zamówienie**. Nowe MD zobaczysz w **📝 Draft**.
+Na każdej karcie stoją trzy wartości, a pod każdą — **skąd pochodzi**:
+
+* **Stawka kosztowa** — **„z kontraktu"** dopasowanej osoby (dokument klienta
+  jej nie zawiera),
+* **Stawka przychodowa** i **Liczba MD** — **„z PDF, poz. 10"** (numer pozycji
+  z tabeli dokumentu; gdy go nie ma — „2. osoba w dokumencie").
+
+Gdy u klienta działa reguła odczytu tabeli PDF-a (np. Credit Agricole, Erste,
+Nordea), **stawka i MD na karcie pochodzą z tej tabeli**, a jeśli odczyt AI
+podał co innego, karta mówi o tym wprost. Gdy dokument podaje stawkę **bez
+jednostki**, obok kwoty świeci na czerwono **„jednostka?"** — wybierz ją, bo bez
+tego zamówienia nie zapiszesz (stawka godzinowa zapisana jako „za MD" byłaby
+ośmiokrotnie za niska). U **Orlenu** liczby MD z PDF-a nie są używane — wpisujesz
+je ręcznie. Kwota zamówienia w obcej walucie nie trafia sama do „Budżet
+całkowity (PLN)".
+
+Każdą wartość możesz poprawić — opis źródła zmienia się wtedy na **„wpisano
+ręcznie"**. Jednostkę stawki (zł/MD, zł/h, zł/mc) zmieniasz obok liczby, kwota
+przelicza się sama. Waluta pochodzi z kontraktu i z dokumentu; gdy trzeba ją
+zmienić, zrób to po zapisie w **Edytuj linię**. Na zamówieniu kosztowym i przy
+wspólnej puli MD karta nie ma pola **Liczba MD** — budżet jest wtedy wspólny
+dla całego zamówienia.
+
+**Krok 2 — sprawdź odznaki na kartach.** System dopasowuje osobę z PDF-a do
+kontraktu u tego klienta i oznacza wynik:
+
+| Odznaka | Co znaczy | Co robisz |
+|---|---|---|
+| zielona **Dopasowano automatycznie** | zapis identyczny jak w kontrakcie; różnice tylko w polskich znakach („Pawel Laski" = „Paweł Łaski") lub wielkości liter | nic |
+| żółta **Dopasowano — potwierdź** | rdzeń imienia i nazwiska się zgadza, ale w kontrakcie przed nim jest dopisek („Active", „UR –", „Projekt 2"), imię i nazwisko stoją w odwrotnej kolejności albo kontrakt jest zakończony | **To ta osoba — potwierdzam** albo **To nie ta osoba** |
+| czerwona **Kilka osób — wybierz ręcznie** | u tego klienta są dwie różne osoby o tym samym imieniu i nazwisku — także gdy jedna z nich ma już tylko zakończony kontrakt — albo ta sama osoba ma dwa aktywne kontrakty | wybierasz właściwy kontrakt po numerze i dacie rozpoczęcia |
+| czerwona **Wymaga ręcznego wskazania** | każda inna różnica w imieniu lub nazwisku albo brak takiej osoby | **Wybierz kontraktora ręcznie** z listy |
+
+**Rdzeń** to dwa ostatnie wyrazy pisane wielką literą w nazwie kontraktora —
+wszystko przed nimi to dopisek. **System nigdy nie poprawia literówek i nie
+zgaduje podobieństwa**: „Jan Kowalczyk" w kontrakcie nie zostanie dopasowany do
+„Jan Kowalski" z PDF-a, nawet gdy to jedyny podobny zapis. Taki zapis zobaczysz
+najwyżej jako podpowiedź „Najbliższy zapis w kontraktach", ale wskazać musisz go
+sam.
+
+Pod listą kart widzisz **„X z Y pozycji gotowe do zapisania"** i łączną wartość
+zamówienia. Kartę możesz **usunąć** (kosz) albo **dodać kolejną** przyciskiem
+**Dodaj konsultanta** — wtedy wybierasz osobę z listy.
+
+**Krok 3 — Utwórz zamówienie.** Przycisk jest aktywny, gdy każda karta ma
+wskazaną osobę, potwierdzone dopasowanie i obie stawki (a przy MD per osoba —
+liczbę MD). Jednym kliknięciem powstaje zamówienie razem ze wszystkimi
+konsultantami. **Status** nowego zamówienia MD to domyślnie **„Aktywne — od razu
+po zapisaniu"**; jeżeli czegoś jeszcze nie wiesz, wybierz **„Draft — do
+uzupełnienia"** (zamówienie trafi do **📝 Draft**). Aktywne zamówienie MD
+z budżetem per osoba musi mieć co najmniej jednego konsultanta.
+
+Wybór typu **Okresowe** w tym oknie przenosi Cię do formularza „Nowy kontraktor
+/ zamówienie" (jedna osoba) — wgrany PDF przechodzi razem z Tobą.
 
 > **Jeżeli plik nie wejdzie, zamówienie i tak zostało zapisane.** Zapis
 > zamówienia i wysłanie pliku to dwie osobne operacje. System powie Ci wprost, że
@@ -239,8 +295,9 @@ w sekcji **„Dokumenty zamówień"** w dokumentach umowy konsultanta i w jego
 plikach. Rola bez dostępu do zamówień tego klienta tej sekcji po prostu nie
 zobaczy — bez żadnego komunikatu.
 
-**Krok 2 — dodaj konsultantów.** Na karcie zamówienia kliknij **Dodaj konsultanta
-do zamówienia**. Wyszukiwarka pokazuje dwa źródła:
+**Dokładanie konsultanta do istniejącego zamówienia.** Na karcie zamówienia
+kliknij **Dodaj konsultanta do zamówienia**. Tak samo działa ręczny wybór osoby
+na karcie w oknie „Nowe zamówienie". Wyszukiwarka pokazuje dwa źródła:
 
 * **Rekrutacja u klienta** — osoby, które mają u tego klienta umowę,
 * **Baza Nexus** — dowolny aktywny konsultant z całej firmy.
@@ -267,11 +324,11 @@ Przycisk **Dodaj konsultanta** jest wyszarzony tylko przy zamówieniu
 **zakończonym** albo **wyczerpanym**. Do zamówienia **przyszłego** (z datą startu
 w przód) konsultantów dodajesz normalnie — czekają razem z nim na dzień startu.
 
-**Krok 3 — aktywuj nowe zamówienie MD.** Po dodaniu konsultantów otwórz
-**Uzupełnij zamówienie**, wybierz status **Aktywne** i zapisz. Wymagana jest
-przynajmniej jedna linia oraz dodatnie budżety osób albo wspólny budżet.
-Od tej chwili tryb budżetu jest zablokowany. Jeśli data startu jest przyszła,
-zamówienie czeka na tę datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
+**Aktywacja zamówienia MD zapisanego jako Draft.** Otwórz **Uzupełnij
+zamówienie**, wybierz status **Aktywne** i zapisz. Wymagana jest przynajmniej
+jedna linia oraz dodatnie budżety osób albo wspólny budżet. Od tej chwili tryb
+budżetu jest zablokowany. Jeśli data startu jest przyszła, zamówienie czeka na tę
+datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 
 ### Co jeszcze możesz zrobić na karcie zamówienia zbiorczego
 
@@ -325,7 +382,9 @@ osobie — przy wspólnej puli i przy zamówieniu kosztowym nie ma czego zapisa�
 
 ## „Zczytaj dane z dokumentu" — co system odczyta z PDF-a
 
-W formularzach zamówienia jest pomarańczowy przycisk **Zczytaj dane z dokumentu**.
+W formularzach zamówienia jest przycisk **Zczytaj dane z dokumentu**, a w oknie
+**„Nowe zamówienie"** — **Zczytaj i uzupełnij całe zamówienie**, który czyta
+dokument raz dla wszystkich osób naraz (opis kart i odznak — w sekcji wyżej).
 
 > **Samo dodanie pliku niczego nie wypełnia.** Odczyt to osobne, świadome
 > kliknięcie. Odczyt **nie tworzy zamówienia i nie zapisuje wgranego pliku** —
@@ -373,7 +432,7 @@ zostanie odczytane.
   po polu, zanim cokolwiek zmieni. Wypełnienie pustego pola nie jest
   rozbieżnością i odbywa się bez pytania.
 
-**Przy dodawaniu konsultanta do zamówienia najpierw wybierz osobę** — bez tego
+**Przy dodawaniu konsultanta do istniejącego zamówienia najpierw wybierz osobę** — bez tego
 przycisk odczytu jest nieaktywny. System wiąże wtedy stawkę i liczbę MD
 z wierszem **tej konkretnej osoby** w dokumencie, a gdy nie potrafi tego zrobić
 jednoznacznie, **zostawia oba pola puste zamiast zgadywać**. Puste pole po
@@ -778,14 +837,15 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 ### BNP Paribas
 
-* **Tylko zamówienia typu MD.** Przełącznik nie pokazuje ani „Okresowe", ani
-  „Kosztowe" — to ustawienie wpisane na stałe w systemie, nie do zmiany
-  z poziomu aplikacji.
+* **Domyślnie podpowiadany typ to MD**, ale okresowe i kosztowe też są
+  dostępne.
 * Jeden numer, kilku konsultantów, **budżet dni przy każdej osobie**. Zużycie
   schodzi z miesięcznego importu z Finansów, dopasowywanego po imieniu
   i nazwisku.
 * **BNP ma własną regułę odczytu dokumentu.** Dokument jest jednoosobowy, więc
-  wszystko, co w nim stoi, dotyczy osoby, z której karty uruchamiasz odczyt:
+  wszystko, co w nim stoi, dotyczy osoby, z której karty uruchamiasz odczyt
+  (w oknie „Nowe zamówienie" powstaje jedna karta **„Wymaga ręcznego
+  wskazania"** z odczytaną stawką i MD — osobę wskazujesz sam):
   * **okres** czytany jest z zapisu **MM-RRRR do MM-RRRR** i rozwijany na
     pierwszy i ostatni dzień miesiąca,
   * **stawka** wchodzi z pola **„Cena netto"** i jest traktowana jako kwota
@@ -803,7 +863,9 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 ### BIK
 
-* **Tylko zamówienia typu MD** — tak samo jak BNP i z tego samego powodu.
+* **Domyślnie podpowiadany typ to MD**; okresowe i kosztowe też są dostępne.
+* Przykład z tabeli zamówienia BIK: pozycje **10** i **20** stają się dwiema
+  kartami konsultantów, a opis źródła mówi „z PDF, poz. 10" / „z PDF, poz. 20".
 * Budżet dni przy każdej osobie; import dopasowuje wiersze po imieniu
   i nazwisku.
 * **BIK ma własną regułę odczytu dokumentu** — działa zawsze, bez włączania
@@ -830,9 +892,10 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   w pozycji, dwie możliwe osoby, inicjał w opisie niezgodny z osobą z profilu),
   system **zostawia nazwisko puste i podaje powód z numerem pozycji**. Mail
   z takim dokumentem trafia do weryfikacji, a nie zakłada błędnego wpisu.
-* W **Nowe zamówienie**, **Uzupełnij zamówienie** i **Dodaj przedłużenie**
-  pod plikiem zobaczysz listę konsultantów odczytanych z PDF-a (limit MD
-  i stawka każdej osoby). Przy przedłużeniu system sam wpisuje limit MD
+* W **Nowe zamówienie** każda pozycja staje się **kartą konsultanta** z limitem
+  MD i stawką tej osoby (opis kart — w części ogólnej). W **Uzupełnij
+  zamówienie** i **Dodaj przedłużenie** pod plikiem zobaczysz listę
+  konsultantów odczytanych z PDF-a (limit MD i stawka każdej osoby). Przy przedłużeniu system sam wpisuje limit MD
   i stawkę przychodową **przenoszonym osobom o tym samym imieniu i nazwisku**.
 * **Zamówienie kończy wyczerpanie limitów, nie data.** Zamówienie pozostaje
   **„Aktywne"**, dopóki choć jedna przypisana osoba ma niewykorzystane dni;
@@ -846,7 +909,8 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 ### Polkomtel
 
-* **Zamówienia MD i kosztowe.** Typ „Okresowe" jest niedostępny.
+* **Wszystkie trzy typy są dostępne**; domyślnie podpowiadany jest typ
+  najczęstszy w historii klienta.
 * **System NIE zakłada tu automatycznie zamówienia po zatrudnieniu konsultanta.**
   U pozostałych klientów po przejściu kandydata na „zatrudniony" pojawia się
   szkic zamówienia do uzupełnienia — u Polkomtela musisz założyć zamówienie sam.
@@ -867,14 +931,14 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 ### Lotte Wedel
 
-* **Zamówienia MD i kosztowe.** „Okresowe" są zablokowane nie tylko
-  w interfejsie — próba zapisu zostanie odrzucona.
+* **Wszystkie trzy typy są dostępne**; domyślnie podpowiadany jest typ
+  najczęstszy w historii klienta.
 * Historyczne zamówienia MD zachowują **wspólną pulę dni**. Przy nowym MD
   domyślny jest budżet per osoba; wspólną pulę wybierasz checkboxem.
 * Przy wspólnej puli import wymaga **jednocześnie nazwiska i numeru zamówienia**
   w kolumnie „Uwagi”. Konsultant nie dostaje wtedy osobnego budżetu.
-* Ograniczenie typów zamówień jest stałe. Wybór trybu budżetu nowych MD jest
-  taki sam jak u wszystkich klientów. Lotte Wedel nie ma własnej reguły PDF.
+* Wybór trybu budżetu nowych MD jest taki sam jak u wszystkich klientów.
+  Lotte Wedel nie ma własnej reguły PDF.
 * **Powiadomienia:** standardowe, a dla wspólnej puli MD dwa własne: **„mało MD"**,
   gdy w puli zostanie 15 dni lub mniej, oraz jednorazowy alert **o wyczerpaniu**,
   gdy zejdzie do zera i zamówienie przestanie przyjmować konsultantów. Przy
@@ -940,7 +1004,7 @@ nadpisuje go.
 **Stawki kosztowej nie rusza nigdy.** Powtórzenie tego samego pliku niczego nie
 duplikuje.
 
-* Nordea nie ma zawężonej listy typów — masz do wyboru wszystkie trzy. W praktyce
+* Nordea, jak każdy klient, ma do wyboru wszystkie trzy typy. W praktyce
   jej zamówienia prowadzi się jako **okresowe** (jedna osoba, jedno zamówienie)
   i takie właśnie tworzy import CSV.
 * **Powiadomienia:** koniec zamówienia 30/14/7 dni przed datą, plus sprawy
@@ -1221,8 +1285,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    zamówienia** (30/14/7 dni) dostaje globalnie także aktywny administrator,
    ale nie Head of Recruitment; Delivery Lead dostaje je tylko dla przypisanych
    klientów.
-2. **„Zamówienie utknęło w Draft."** Nowe zbiorcze MD trzeba po dodaniu osób
-   i budżetów aktywować przez **Uzupełnij zamówienie → Aktywne**.
+2. **„Zamówienie utknęło w Draft."** Zbiorcze MD zapisane świadomie jako
+   „Draft" trzeba po uzupełnieniu aktywować przez **Uzupełnij zamówienie →
+   Aktywne** (w oknie „Nowe zamówienie" domyślny jest status „Aktywne").
    Przy szkicu pojedynczej osoby brakuje zwykle jednej z czterech rzeczy: numeru,
    daty rozpoczęcia, stawki przychodowej albo kosztowej. **Jeżeli szkic ma typ MD
    albo Kosztowy, potrzebny jest jeszcze budżet** — bez niego cztery pozostałe
@@ -1231,7 +1296,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 3. **„Odczyt zostawił puste stawki."** Przy zamówieniach z wieloma osobami to
    zwykle znaczy, że system nie potrafił jednoznacznie znaleźć wiersza wybranej
    osoby — i celowo nie zgadywał. Sprawdź, czy wybrałeś właściwego konsultanta,
-   i wpisz stawkę ręcznie.
+   i wpisz stawkę ręcznie. Pusta **stawka kosztowa** na karcie w oknie „Nowe
+   zamówienie" znaczy, że osoba nie ma jeszcze wskazanego kontraktu albo kontrakt
+   nie ma stawki — wskaż osobę albo wpisz stawkę.
 4. **„Wybrałem zły typ zamówienia."** Zamówienie **zbiorcze** ma typ zablokowany
    od razu po zapisie. Zamówienie **pojedynczej osoby, dopóki jest w Draft**,
    poprawisz bez zakładania nowego: otwórz „Uzupełnij zamówienie" i przełącz typ.

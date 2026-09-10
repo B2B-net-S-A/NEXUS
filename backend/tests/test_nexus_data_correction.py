@@ -43,17 +43,26 @@ from scripts.reconcile_nexus_data_correction import build_reconciliation_receipt
 def _restore_correction_order_type_policy(
     monkeypatch, _detach_canonical_order_type_policy
 ):
-    """This module validates the real pinned policy, unlike generic ID fixtures."""
+    """Validate the engine under the August policy it was designed for.
 
+    Since 09.2026 the runtime writer allows every order type for every client
+    (``order_types.allowed_order_types``), so the real correction is blocked by
+    ``order_type_runtime_policy_drift`` — see the dedicated test below. The
+    remaining tests exercise the engine itself against its original premise.
+    """
+
+    august_policy = {
+        12: (OrderType.md,),
+        18: (OrderType.md,),
+        15: (OrderType.md, OrderType.cost),
+        155: (OrderType.md, OrderType.cost),
+    }
     monkeypatch.setattr(
-        order_type_service,
-        "_PINNED_ALLOWED_ORDER_TYPES",
-        {
-            12: (OrderType.md,),
-            18: (OrderType.md,),
-            15: (OrderType.md, OrderType.cost),
-            155: (OrderType.md, OrderType.cost),
-        },
+        correction_service,
+        "allowed_order_types",
+        lambda client_id: august_policy.get(
+            client_id, (OrderType.periodic, OrderType.cost, OrderType.md)
+        ),
     )
 
 
@@ -692,7 +701,17 @@ def test_type_policy_deletes_only_explicit_periodic_and_preserves_legacy_null():
 
 
 def test_correction_detects_runtime_order_type_policy_drift(monkeypatch):
-    monkeypatch.setattr(order_type_service, "_PINNED_ALLOWED_ORDER_TYPES", {})
+    """Zniesienie blokady typów (09.2026) MUSI zablokować tę korektę.
+
+    Korekta kasuje zamówienia typów „niedozwolonych" u czterech klientów.
+    Skoro od 09.2026 każdy typ jest dozwolony, jej przesłanka nie obowiązuje —
+    ponowne uruchomienie usunęłoby poprawne, nowe zamówienia.
+    """
+    monkeypatch.setattr(
+        correction_service,
+        "allowed_order_types",
+        order_type_service.allowed_order_types,
+    )
 
     assert correction_service._runtime_order_type_policy_drift() == [
         {"client_id": 12},

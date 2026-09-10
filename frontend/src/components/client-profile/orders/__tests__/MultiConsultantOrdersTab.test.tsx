@@ -256,8 +256,7 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
 function renderTab(
   props: {
     clientId?: number;
-    costOrdersEnabled?: boolean;
-    periodicOrdersEnabled?: boolean;
+    legacyNullOrderType?: "periodic" | "md";
   } = {},
 ) {
   const { clientId = 7, ...tabProps } = props;
@@ -572,7 +571,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
   it("ma jedno wejście tworzenia i przełącznik trzech typów w formularzu", async () => {
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     expect(await screen.findByText("Zamówienia klienta")).toBeInTheDocument();
     expect(
@@ -606,7 +605,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
   it("standardowe otwiera istniejący dialog legacy", async () => {
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -628,7 +627,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       }),
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -642,15 +641,21 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     expect(
       screen.queryByRole("checkbox", { name: /kosztowe/i }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/Budżet MD ustawiasz osobno przy każdym konsultancie/),
-    ).toBeInTheDocument();
     expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-MD-1");
     fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
       target: { value: "2026-09-01" },
     });
+    // Nowe zamówienie jest domyślnie aktywne — aktywne MD bez konsultantów
+    // nie ma czego rozliczać, więc zapis czeka na karty albo na „Draft".
+    expect(
+      screen.getByRole("button", { name: "Utwórz zamówienie" }),
+    ).toBeDisabled();
+    await user.selectOptions(
+      screen.getByLabelText("Status zamówienia"),
+      "draft",
+    );
     await user.click(screen.getByRole("button", { name: "Utwórz zamówienie" }));
 
     await waitFor(() =>
@@ -684,7 +689,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       }),
     } as never);
     const user = userEvent.setup();
-    renderTab({ clientId: 38339, costOrdersEnabled: true });
+    renderTab({ clientId: 38339 });
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -708,7 +713,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     await waitFor(() =>
       expect(orderGroupsApi.create).toHaveBeenCalledWith(38339, {
         md_budget_mode: "shared",
-        status: "draft",
+        status: "active",
         order_number: "CP-MD-SHARED",
         start_date: "2026-09-01",
         end_date: null,
@@ -735,7 +740,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       }),
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -782,7 +787,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     expect(
       await screen.findByText("To zamówienie nie ma jeszcze konsultantów."),
@@ -821,7 +826,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     expect((await screen.findAllByText("MD")).length).toBeGreaterThanOrEqual(1);
     const budget = screen.getByText(/Budżet 100 MD/);
@@ -837,7 +842,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
   it("klient z historyczną flagą kosztową także korzysta z ogólnego przełącznika", async () => {
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -867,7 +872,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       },
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -1214,7 +1219,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     const badge = await screen.findByText("Zakończenie współpracy");
     const departingRow = badge.closest("li");
@@ -1429,7 +1434,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
       },
     } as never);
 
-    const rendered = renderTab({ costOrdersEnabled: true });
+    const rendered = renderTab();
     await screen.findByText("Zamówienie nr MD-12");
     const text = rendered.container.textContent ?? "";
     expect(text.indexOf("MD (1)")).toBeLessThan(text.indexOf("Kosztowe (1)"));
@@ -1612,7 +1617,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
       },
     } as never);
     const user = userEvent.setup();
-    const rendered = renderTab({ costOrdersEnabled: true });
+    const rendered = renderTab();
     await screen.findByText("Zamówienie nr GROUP-COST-100");
 
     await user.selectOptions(screen.getByLabelText("Sortowanie"), "cost_desc");
@@ -1674,7 +1679,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     expect(await screen.findByText("Anulowane MD")).toBeInTheDocument();
     expect(document.getElementById("orders-md-heading")).toHaveTextContent(
@@ -1778,32 +1783,31 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     ).toBeInTheDocument();
   });
 
-  it("nie oferuje typu okresowego klientowi z wyłączoną konfiguracją", async () => {
+  it("każdy klient ma wszystkie trzy typy, a domyślny jest najczęstszy u klienta", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [],
         total_groups: 0,
         total_consultants: 0,
-        suggested_order_type: "periodic",
+        // BIK: najczęstszy typ to MD — ale okresowe i kosztowe nie znikają.
+        suggested_order_type: "md",
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true, periodicOrdersEnabled: false });
+    renderTab({ legacyNullOrderType: "md" });
     const user = userEvent.setup();
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
-    expect(
-      screen.queryByRole("radio", { name: "Okresowe" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
+    expect(screen.getByRole("radio", { name: "MD" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
-    expect(screen.getByRole("radio", { name: "MD" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Okresowe" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Kosztowe" })).toBeInTheDocument();
   });
 
-  it("klient bez periodic klasyfikuje legacy NULL jako MD, nie suggested cost", async () => {
+  it("klient rozliczany w MD klasyfikuje legacy NULL jako MD, nie suggested cost", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [
@@ -1838,7 +1842,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab({ costOrdersEnabled: true, periodicOrdersEnabled: false });
+    renderTab({ legacyNullOrderType: "md" });
 
     await screen.findByText("Zamówienie nr COST-11");
     expect(document.getElementById("orders-md-heading")).toHaveTextContent(
@@ -1902,7 +1906,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     } as never);
     const user = userEvent.setup();
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
 
     await screen.findByText("Zamówienie nr COST-11");
     expect(document.getElementById("orders-md-heading")).toBeNull();
@@ -1947,7 +1951,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true });
+    renderTab();
     const user = userEvent.setup();
     await user.click(
       await screen.findByRole("button", { name: "Pobierz do Excela" }),

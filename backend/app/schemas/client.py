@@ -116,30 +116,40 @@ class ClientSafeResponse(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def cost_orders_enabled(self) -> bool:
-        """Czy u tego klienta wolno założyć zamówienie KOSZTOWE (kwotowe).
+        """Czy klient jest na liście rozliczeń kosztowych (``COST_ORDER_CLIENT_IDS``).
 
-        Wyliczane z tej samej polityki co walidacja zapisu. Dzięki temu
-        Polkomtel i Wedel zachowują kosztowe niezależnie od chwilowego ENV,
-        a BIK i BNP nie dostają kontrolki prowadzącej do odrzuconego zapisu.
+        Od 09.2026 NIE bramkuje już tworzenia zamówień — typ kosztowy można
+        wybrać u każdego klienta (``allowed_order_types``). Flaga zostaje jako
+        informacja o konfiguracji klienta dla automatów (np. brak auto-szkicu
+        po zatrudnieniu u klienta kosztowego).
         """
-        from app.models.order_type import OrderType
         from app.services.cost_orders import is_cost_order_client
-        from app.services.order_types import allowed_order_types
 
-        allowed = allowed_order_types(self.id)
-        if OrderType.periodic not in allowed:
-            return OrderType.cost in allowed
         return is_cost_order_client(self.id)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def periodic_orders_enabled(self) -> bool:
-        """Czy klient może tworzyć nowe zamówienia okresowe."""
+        """Czy klient może tworzyć nowe zamówienia okresowe (od 09.2026 — każdy)."""
 
         from app.models.order_type import OrderType
         from app.services.order_types import allowed_order_types
 
         return OrderType.periodic in allowed_order_types(self.id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def legacy_null_order_type(self) -> str:
+        """Jak rejestr ma klasyfikować historyczne zamówienia bez jawnego typu.
+
+        Oddzielone od listy dozwolonych typów: zniesienie blokady typów per
+        klient nie może przeklasyfikować historycznych kart MD czterech
+        klientów rozliczanych w MD na „Okresowe".
+        """
+
+        from app.services.order_types import legacy_null_order_type
+
+        return legacy_null_order_type(self.id).value
 
     @computed_field  # type: ignore[prop-decorator]
     @property
