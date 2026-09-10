@@ -1515,6 +1515,8 @@ def _run_generation_pipeline(
             SimpleNamespace(
                 champion_profile=champion_dto.intake_profile,
                 title=job_title,
+                must_skills=champion_dto.must_have,
+                nice_skills=champion_dto.nice_to_have,
                 requirements_reviewed=champion_dto.requirements_reviewed,
             ),
             "cv",

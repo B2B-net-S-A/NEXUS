@@ -62,7 +62,7 @@ import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api, { extractErrorMsg, type ChampionProfile } from "@/lib/api";
-import { ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
+import { championErrorValidation, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
 import {
   ClientSinglePicker,
   type ClientRef,
@@ -526,6 +526,7 @@ export function CVGeneratorStandaloneV2({
       );
     },
     onError: async (err: unknown) => {
+      setChampionValidation(championErrorValidation(err));
       const detail = await extractErrorDetail(err);
       toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
@@ -576,6 +577,8 @@ export function CVGeneratorStandaloneV2({
       setConsentKey(null);
       setUploadCandidate(null);
       setChampionFile(null);
+      setChampionProfile(null);
+      setChampionValidation(undefined);
       setChampionError(null);
       setScreeningNotes("");
       // Klient, stanowisko i numer projektu ZOSTAJĄ — rekruter zwykle robi
@@ -587,6 +590,7 @@ export function CVGeneratorStandaloneV2({
       );
     },
     onError: async (err: unknown) => {
+      setChampionValidation(championErrorValidation(err));
       const detail = await extractErrorDetail(err);
       toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
@@ -782,7 +786,6 @@ export function CVGeneratorStandaloneV2({
       ) : (
         <>
         <ChampionTemplateDownload />
-        <ChampionValidationPanel validation={championValidation} />
         {championPreview && <ChampionImportReview initial={championPreview.data} current={championProfile ?? undefined} onClose={() => setChampionPreview(null)} onApply={(cp, result) => { setChampionProfile(cp); setChampionFile(championPreview.file); setChampionValidation(result); }} />}
         <OldModeForm
           cvFile={cvFile}
@@ -801,6 +804,7 @@ export function CVGeneratorStandaloneV2({
         </>
       )}
 
+      <ChampionValidationPanel validation={championValidation} />
       {mode === "new" && candidate && (
         <Card className="mt-4">
           <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>

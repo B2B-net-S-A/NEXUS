@@ -425,6 +425,89 @@ class ChampionIntake(BaseModel):
     applied_at: Optional[str] = None
 
 
+def migrate_legacy_champion_shape(data: Any) -> Any:
+    """Migrate the pre-09.2026 shape into the seven sections, on read.
+
+    Idempotent and non-destructive in one direction only: a legacy value is
+    copied into its new home ONLY when that home is still empty. Re-validating
+    an already-migrated profile is therefore a no-op, and a payload that
+    carries both shapes (an editor that has been open across a deploy) keeps
+    the new one.
+    """
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+
+    def _blank(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return not value.strip()
+        if isinstance(value, (list, dict)):
+            return not value
+        return False
+
+    def _fill(target: dict, key: str, value: Any) -> None:
+        if not _blank(value) and _blank(target.get(key)):
+            target[key] = value
+
+    # 1. Flat top-level engagement facts → basics. These are the keys the old
+    #    ChampionProfile did not declare, so `extra="ignore"` deleted them on
+    #    every save; that is the data loss this move closes.
+    basics = dict(out.get("basics") or {})
+    for key in (
+        "role_name",
+        "seniority_min_years",
+        "rate_value",
+        "rate_raw",
+        "work_mode",
+        "start_date",
+        "deadline",
+        "contract_length",
+    ):
+        _fill(basics, key, out.pop(key, None))
+    out["basics"] = basics
+
+    legacy_ctx = out.pop("project_context", None) or {}
+    legacy_ctx = legacy_ctx if isinstance(legacy_ctx, dict) else {}
+    legacy_sourcing = out.pop("sourcing", None) or {}
+    legacy_sourcing = legacy_sourcing if isinstance(legacy_sourcing, dict) else {}
+    legacy_standards = out.pop("client_standards", None) or {}
+    legacy_standards = legacy_standards if isinstance(legacy_standards, dict) else {}
+
+    # 2. sourcing → search (a plan becomes a query).
+    search = dict(out.get("search") or {})
+    for key in ("keywords", "target_companies", "notes", "sources"):
+        _fill(search, key, legacy_sourcing.get(key))
+    _fill(search, "disqualifiers", out.pop("disqualifiers", None))
+    out["search"] = search
+
+    # 4. project_context.{about,responsibilities} → project.
+    project = dict(out.get("project") or {})
+    _fill(project, "about", legacy_ctx.get("about"))
+    _fill(project, "responsibilities", legacy_ctx.get("responsibilities"))
+    out["project"] = project
+
+    # 6. selling_points + the three floating blocks + client_standards → client.
+    client = dict(out.get("client") or {})
+    _fill(client, "selling_points", legacy_ctx.get("selling_points"))
+    _fill(client, "consultant_insight", out.pop("internal_consultant_insight", None))
+    _fill(client, "historical_questions", out.pop("historical_client_questions", None))
+    _fill(client, "sectors", out.pop("sectors", None))
+    for key in ("priority_rules", "offlimit", "contract_type", "cv_language"):
+        _fill(client, key, legacy_standards.get(key))
+    out["client"] = client
+
+    provenance = dict(out.get("provenance") or {})
+    for key in ("_source", "_parsed_at", "_parser"):
+        value = out.pop(key, None)
+        if value is not None and key not in provenance:
+            provenance[key] = value
+    out["provenance"] = provenance
+
+    return out
+
+
 class ChampionProfile(BaseModel):
     """The seven-section Champion Profile.
 
@@ -468,92 +551,7 @@ class ChampionProfile(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _absorb_legacy_shape(cls, data: Any) -> Any:
-        """Migrate the pre-09.2026 shape into the seven sections, on read.
-
-        Idempotent and non-destructive in one direction only: a legacy value is
-        copied into its new home ONLY when that home is still empty. Re-validating
-        an already-migrated profile is therefore a no-op, and a payload that
-        carries both shapes (an editor that has been open across a deploy) keeps
-        the new one.
-        """
-        if not isinstance(data, dict):
-            return data
-        out = dict(data)
-
-        def _blank(value: Any) -> bool:
-            if value is None:
-                return True
-            if isinstance(value, str):
-                return not value.strip()
-            if isinstance(value, (list, dict)):
-                return not value
-            return False
-
-        def _fill(target: dict, key: str, value: Any) -> None:
-            if not _blank(value) and _blank(target.get(key)):
-                target[key] = value
-
-        # 1. Flat top-level engagement facts → basics. These are the keys the old
-        #    ChampionProfile did not declare, so `extra="ignore"` deleted them on
-        #    every save; that is the data loss this move closes.
-        basics = dict(out.get("basics") or {})
-        for key in (
-            "role_name",
-            "seniority_min_years",
-            "rate_value",
-            "rate_raw",
-            "work_mode",
-            "start_date",
-            "deadline",
-            "contract_length",
-        ):
-            _fill(basics, key, out.pop(key, None))
-        out["basics"] = basics
-
-        legacy_ctx = out.pop("project_context", None) or {}
-        legacy_ctx = legacy_ctx if isinstance(legacy_ctx, dict) else {}
-        legacy_sourcing = out.pop("sourcing", None) or {}
-        legacy_sourcing = legacy_sourcing if isinstance(legacy_sourcing, dict) else {}
-        legacy_standards = out.pop("client_standards", None) or {}
-        legacy_standards = (
-            legacy_standards if isinstance(legacy_standards, dict) else {}
-        )
-
-        # 2. sourcing → search (a plan becomes a query).
-        search = dict(out.get("search") or {})
-        for key in ("keywords", "target_companies", "notes", "sources"):
-            _fill(search, key, legacy_sourcing.get(key))
-        _fill(search, "disqualifiers", out.pop("disqualifiers", None))
-        out["search"] = search
-
-        # 4. project_context.{about,responsibilities} → project.
-        project = dict(out.get("project") or {})
-        _fill(project, "about", legacy_ctx.get("about"))
-        _fill(project, "responsibilities", legacy_ctx.get("responsibilities"))
-        out["project"] = project
-
-        # 6. selling_points + the three floating blocks + client_standards → client.
-        client = dict(out.get("client") or {})
-        _fill(client, "selling_points", legacy_ctx.get("selling_points"))
-        _fill(
-            client, "consultant_insight", out.pop("internal_consultant_insight", None)
-        )
-        _fill(
-            client, "historical_questions", out.pop("historical_client_questions", None)
-        )
-        _fill(client, "sectors", out.pop("sectors", None))
-        for key in ("priority_rules", "offlimit", "contract_type", "cv_language"):
-            _fill(client, key, legacy_standards.get(key))
-        out["client"] = client
-
-        provenance = dict(out.get("provenance") or {})
-        for key in ("_source", "_parsed_at", "_parser"):
-            value = out.pop(key, None)
-            if value is not None and key not in provenance:
-                provenance[key] = value
-        out["provenance"] = provenance
-
-        return out
+        return migrate_legacy_champion_shape(data)
 
     def model_dump(self, *args: Any, **kwargs: Any) -> dict:
         """Dump the seven sections plus the underscore provenance keys.

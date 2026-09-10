@@ -3,10 +3,14 @@
 import { useState } from "react";
 import { api, extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 export type ChampionIssue = { code: string; path: string; message: string; severity: "error" | "warning"; blocked_operations: string[]; source?: string | null };
 export type ChampionValidation = { status: string; issues: ChampionIssue[]; blocked_operations: string[] };
 export type ChampionPreview = { champion_profile: ChampionProfile; validation?: ChampionValidation };
+export function championErrorValidation(error: unknown): ChampionValidation | undefined {
+  return (error as { response?: { data?: { detail?: { validation?: ChampionValidation } } } } | null)?.response?.data?.detail?.validation;
+}
 const fields = [
   ["basics.role_name", "Nazwa roli"], ["basics.seniority_min_years", "Doświadczenie łącznie w IT (lata)"],
   ["basics.rate_value", "Maksymalna stawka PLN/h"], ["basics.work_mode", "Tryb pracy: zdalnie / hybrydowo / stacjonarnie"],
@@ -18,7 +22,7 @@ const fields = [
   ["project.about", "O projekcie"], ["project.responsibilities", "Obowiązki"], ["client.selling_points", "Co przekona kandydata"],
   ["client.consultant_insight", "Insight konsultanta"], ["client.historical_questions", "Historyczne pytania klienta"], ["client.priority_rules", "Uwagi / standardy"],
 ] as const;
-const rubrics = ["rate_value", "work_mode", "onsite_days_per_week", "candidate_location_pref"];
+const rubrics = ["rate_value", "work_mode", "onsite_days_per_week", "candidate_location_pref", "must", "nice"];
 type Values = Record<string, string>;
 function readValues(profile: ChampionProfile): Values {
   const obj = profile as unknown as Record<string, Record<string, unknown>>;
@@ -76,6 +80,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
   const [values, setValues] = useState(() => readValues(initial.champion_profile));
   const [existing, setExisting] = useState(current);
   const [expected, setExpected] = useState(fingerprint);
+  const [currentJobValues, setCurrentJobValues] = useState(jobValues);
   const old = existing ? readValues(existing) : {};
   const [selected, setSelected] = useState<Record<string, boolean>>(() => Object.fromEntries(fields.map(([path]) => [path, !current || !readValues(current)[path]])));
   const [questions, setQuestions] = useState(initial.champion_profile.screening_questions ?? []);
@@ -86,6 +91,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     setBusy(true); setError("");
     try {
       const final = withValues(existing ?? source.champion_profile, Object.fromEntries(fields.map(([path]) => [path, selected[path] ? values[path] : old[path] ?? ""])));
+      final.intake = { ...final.intake, policy_version: 1, unresolved: {}, template_version: source.champion_profile.intake?.template_version };
       final.screening_questions = useQuestions ? questions : existing?.screening_questions ?? [];
       const { data: checked } = await api.post<ChampionPreview>("/api/champion/validate", { profile: final });
       setSource(checked);
@@ -98,23 +104,24 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
       }
     } catch (e) {
       setError(extractErrorMsg(e));
-      const response = (e as { response?: { status: number; data?: { detail?: { champion_profile: ChampionProfile; fingerprint: string } } } }).response;
+      const response = (e as { response?: { status: number; data?: { detail?: { champion_profile: ChampionProfile; fingerprint: string; job_values?: Record<string, unknown> } } } }).response;
       if (response?.status === 409 && response.data?.detail) {
-        setExisting(response.data.detail.champion_profile); setExpected(response.data.detail.fingerprint);
+        setExisting(response.data.detail.champion_profile); setExpected(response.data.detail.fingerprint); setCurrentJobValues(response.data.detail.job_values);
         setSelected({}); setUseQuestions(false); setSync([]);
       }
     } finally { setBusy(false); }
   }
-  return <div role="dialog" aria-modal="true" aria-label="Podgląd importu Championa" className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
-    <div className="bg-background rounded-lg border p-5 max-w-5xl w-full max-h-[90vh] overflow-y-auto space-y-4">
-      <h2 className="text-lg font-semibold">Podgląd importu Championa</h2>
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <DialogContent aria-describedby={undefined} className="max-w-5xl max-h-[90vh] overflow-y-auto space-y-4">
+      <DialogTitle>Podgląd importu Championa</DialogTitle>
       <p className="text-sm">Popraw odczytane dane. Istniejące niepuste wartości są zachowane; zaznacz pola, które chcesz zastąpić.</p>
       <ChampionValidationPanel validation={source.validation} />
       {fields.map(([path, label]) => <div id={`champion-field-${path}`} key={path} className="border-b pb-3 space-y-1">
         <label className="font-medium text-sm" htmlFor={`input-${path}`}>{label}</label>
         {existing && <><p className="text-xs whitespace-pre-wrap">Obecnie: {old[path] || "—"}</p><label className="text-sm flex gap-2"><input type="checkbox" checked={!!selected[path]} onChange={e => setSelected(s => ({ ...s, [path]: e.target.checked }))} />Użyj wartości z dokumentu</label></>}
         <textarea id={`input-${path}`} className="w-full rounded border bg-background p-2 text-sm" rows={path.startsWith("basics.") ? 1 : 3} value={values[path]} onChange={e => { setValues(v => ({ ...v, [path]: e.target.value })); setSelected(s => ({ ...s, [path]: true })); }} />
-        {jobId && rubrics.includes(path.split(".")[1]) && <label className="text-xs flex gap-2"><input type="checkbox" checked={sync.includes(path.split(".")[1])} onChange={e => setSync(s => e.target.checked ? [...s, path.split(".")[1]] : s.filter(k => k !== path.split(".")[1]))} />Uzgodnij też pole rekrutacji (obecnie: {String(jobValues?.[path.split(".")[1]] ?? "—")})</label>}
+        {existing && <p className="text-xs whitespace-pre-wrap">Wartość końcowa: {(selected[path] ? values[path] : old[path]) || "—"}</p>}
+        {jobId && rubrics.includes(path.split(".")[1]) && <label className="text-xs flex gap-2"><input type="checkbox" checked={sync.includes(path.split(".")[1])} onChange={e => setSync(s => e.target.checked ? [...s, path.split(".")[1]] : s.filter(k => k !== path.split(".")[1]))} />Uzgodnij też pole rekrutacji (obecnie: {String(currentJobValues?.[path.split(".")[1]] ?? "—")})</label>}
       </div>)}
       <h3 id="champion-field-screening_questions" className="font-medium">Pytania screeningowe</h3>
       {existing && <><p className="text-sm whitespace-pre-wrap">Obecnie: {existing.screening_questions.map(q => `${q.question}\n${q.ideal_answer}\n${q.deal_breaker}`).join("\n\n") || "—"}</p><label><input type="checkbox" checked={useQuestions} onChange={e => setUseQuestions(e.target.checked)} /> Zastąp pytania odczytanymi</label></>}
@@ -122,8 +129,8 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
       <Button variant="outline" onClick={() => { setQuestions(qs => [...qs, { id: `q${Date.now()}`, question: "", ideal_answer: "", deal_breaker: "" }]); setUseQuestions(true); }}>Dodaj pytanie</Button>
       {error && <p role="alert" className="text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2 sticky bottom-0 bg-background py-3"><Button disabled={busy} onClick={() => apply(true)}>Zastosuj / zapisz szkic</Button><Button variant="outline" disabled={busy} onClick={() => apply(false)}>Sprawdź poprawki</Button><Button variant="ghost" onClick={onClose}>Anuluj</Button></div>
-    </div>
-  </div>;
+    </DialogContent>
+  </Dialog>;
 }
 
 export function ChampionImportButton({ current, jobId, fingerprint, jobValues, onApply }: { current?: ChampionProfile; jobId?: number; fingerprint?: string; jobValues?: Record<string, unknown>; onApply: (profile: ChampionProfile, validation?: ChampionValidation) => void }) {

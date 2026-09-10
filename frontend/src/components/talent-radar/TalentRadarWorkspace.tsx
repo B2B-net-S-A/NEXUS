@@ -24,7 +24,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
-import { ChampionImportReview, ChampionImportButton, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
+import { championErrorValidation, ChampionImportReview, ChampionImportButton, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
 import {
   talentRadarApi,
   type ChampionParseSummary,
@@ -75,7 +75,7 @@ function AdHocTalentRadarWorkspace() {
   const [location, setLocation] = useState("");
   const actorId = useAuthStore(s => s.user?.id);
   const fullSearch = useFullCandidateSearch({ storageKey: actorId ? `nexus-full-radar:${actorId}` : undefined });
-  useEffect(() => { if (fullSearch.error) showError(extractErrorMsg(fullSearch.error)); }, [fullSearch.error, showError]);
+  useEffect(() => { if (fullSearch.error) { showError(extractErrorMsg(fullSearch.error)); setIntakeValidation(championErrorValidation(fullSearch.error)); } }, [fullSearch.error, showError]);
   // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty)
   // i SAMA jego obecność działa jako twardy sufit — bez marginesu, bez
   // osobnego uzbrajania (decyzja produktowa 19.08). Nieznana stawka/
@@ -179,6 +179,7 @@ function AdHocTalentRadarWorkspace() {
       setOfficeLocation(saved.officeLocation ?? "");
       setChampionProfile(saved.championProfile);
       setChampionSummary(saved.championSummary);
+      importedValues.current = saved.championImportedValues ?? {};
       // Old capped-pool responses are not valid full-population results.
     }
     setHydrated(true);
@@ -198,6 +199,7 @@ function AdHocTalentRadarWorkspace() {
       championProfile,
       championSummary,
       championSkills,
+      championImportedValues: importedValues.current,
       requirementsPreview,
       response: null,
     });

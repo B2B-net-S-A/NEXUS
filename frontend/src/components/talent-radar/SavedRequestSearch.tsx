@@ -1,5 +1,6 @@
 "use client";
 
+import { ChampionValidationPanel, championErrorValidation } from "@/components/ChampionIntake";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { jobsApi, extractErrorMsg } from "@/lib/api";
@@ -26,6 +27,7 @@ function RequestResults({ job }: { job: JobRef }) {
     <p className="text-sm text-muted-foreground">Klient, hiring manager, budżet, lokalizacja i wymagania pochodzą z zapisanej rekrutacji.</p>
     <SavedRequestRequirements jobId={job.id} canEdit={canEdit} onSaved={search.clear} />
     <Button disabled={search.running} onClick={() => void search.start({ job_id: job.id })}>{search.running ? "Przegląd trwa…" : "Szukaj w całej bazie"}</Button>
+    <ChampionValidationPanel validation={championErrorValidation(search.error)} />
     <FullCandidateSearchResults jobId={job.id} canVerify={canVerify} onVerified={() => { void search.refresh(); }} data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile} onRetry={() => { if (search.runId) void search.refresh(); else void search.start({ job_id: job.id }); }} />
   </div>;
 }

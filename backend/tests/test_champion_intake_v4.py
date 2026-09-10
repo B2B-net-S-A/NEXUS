@@ -217,3 +217,32 @@ def test_cv_context_parity_and_no_fake_screening():
     assert cp["stack"]["notes"] in build_champion_section(uploaded, "pl")
     assert cp["client"]["selling_points"] in build_champion_section(uploaded, "pl")
     assert parse_champion_from_docx_bytes(BLANK.read_bytes(), "blank.docx").is_empty()
+
+
+def test_legacy_malformed_fields_warn_without_adopting():
+    cp = filled()
+    cp.pop("intake")
+    cp["basics"]["rate_value"] = "100–150 EUR/h"
+    assert validation(cp)["blocked_operations"] == []
+
+
+def test_invalid_edit_is_retained_even_when_canonical_value_was_empty():
+    cp = filled()
+    cp["basics"]["start_date"] = None
+    updated = user_edit(cp, {"basics": {"start_date": "za miesiąc"}}, 9)
+    assert updated["basics"]["start_date"] is None
+    assert updated["intake"]["unresolved"]["basics.start_date"] == "za miesiąc"
+
+
+def test_conflicting_skill_columns_block_cv_and_search_until_reconciled():
+    from app.services.champion_intake import sync_selected_rubrics
+
+    cp = filled()
+    j = job(cp)
+    j.must_skills = [{"name": "Python", "level": None}]
+    j.nice_skills = []
+    assert "cv" in validation(cp, j)["blocked_operations"]
+    sync_selected_rubrics(j, cp, ["must"])
+    assert validation(cp, j)["blocked_operations"] == []
+    assert j.matching_requirements is None
+    assert not j.requirements_reviewed

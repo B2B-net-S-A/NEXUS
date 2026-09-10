@@ -9,7 +9,7 @@ import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from app.schemas.champion import ChampionProfile
+from app.schemas.champion import ChampionProfile, migrate_legacy_champion_shape
 from app.services.champion_document import folded, meaningful, table_profile
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,9 @@ RUBRICS = {
     "work_mode": "remote_policy",
     "candidate_location_pref": "location",
 }
+
+STACK_COLUMNS = {"must": "must_skills", "nice": "nice_skills"}
+SYNC_FIELDS = set(RUBRICS) | set(STACK_COLUMNS)
 
 
 def content(profile):
@@ -181,7 +184,10 @@ def validation(profile, job=None, *, enforce=False):
     except ValidationError:
         cp = prepare_profile(profile)
     meta = cp.get("intake") or {}
-    active = enforce or meta.get("policy_version") == POLICY_VERSION
+    active = (
+        enforce
+        or ((profile or {}).get("intake") or {}).get("policy_version") == POLICY_VERSION
+    )
     if active:
         cp = prepare_profile(cp)
         meta = cp.get("intake") or {}
@@ -286,6 +292,19 @@ def validation(profile, job=None, *, enforce=False):
         )
     values = dict(basics)
     if job is not None:
+        from app.services.skill_normalize import iter_skill_names
+
+        for key, column in STACK_COLUMNS.items():
+            declared = {
+                name.casefold() for name in iter_skill_names(getattr(job, column, None))
+            }
+            requested = {item["name"].casefold() for item in stack[key]}
+            if declared and declared != requested:
+                add(
+                    "skill_column_conflict",
+                    f"stack.{key}",
+                    "Profil i pola rekrutacji mają różne wymagania. Uzgodnij wybraną listę.",
+                )
         if getattr(job, "client_id", None) is None:
             add(
                 "missing_client", "client_id", "Wybierz klienta.", ["search", "handoff"]
@@ -415,36 +434,53 @@ def fingerprint(job):
         "reviewed": getattr(job, "requirements_reviewed", None),
         "office_location": getattr(job, "office_location", None),
     }
-    state.update({column: getattr(job, column, None) for column in RUBRICS.values()})
+    state.update(
+        {
+            column: getattr(job, column, None)
+            for column in [*RUBRICS.values(), *STACK_COLUMNS.values()]
+        }
+    )
     return hashlib.sha256(
         json.dumps(state, sort_keys=True, ensure_ascii=False, default=str).encode()
     ).hexdigest()
 
 
 def response_context(job):
+    from app.services.skill_normalize import iter_skill_names
+
     return {
         "validation": validation(job.champion_profile, job),
         "fingerprint": fingerprint(job),
         "job_values": {
-            key: getattr(job, column, None) for key, column in RUBRICS.items()
+            **{key: getattr(job, column, None) for key, column in RUBRICS.items()},
+            **{
+                key: "\n".join(iter_skill_names(getattr(job, column, None)))
+                for key, column in STACK_COLUMNS.items()
+            },
         },
     }
 
 
-async def preview_document(data, filename):
+async def preview_document(data, filename, *, db=None):
     from app.services.champion_profile_ingest import (
         extract_document_text,
         parse_champion_document,
     )
 
-    text = extract_document_text(data, filename)
+    from fastapi.concurrency import run_in_threadpool
+
+    text = await run_in_threadpool(extract_document_text, data, filename)
     if not text:
         raise ValueError("Nie odczytano tekstu dokumentu.")
     if len(text) > MAX_TEXT:
         raise ValueError(
             f"Dokument przekracza limit {MAX_TEXT} znaków. Skróć treść; niczego nie zaimportowano."
         )
-    structured = table_profile(data) if filename.lower().endswith(".docx") else None
+    structured = (
+        await run_in_threadpool(table_profile, data)
+        if filename.lower().endswith(".docx")
+        else None
+    )
     if structured:
         cp = prepare_profile(
             structured["profile"],
@@ -452,7 +488,14 @@ async def preview_document(data, filename):
             template_version=structured["template_version"],
         )
     else:
-        parsed = await parse_champion_document(text)
+        if db is None:
+            parsed = await parse_champion_document(text)
+        else:
+            from app.models.ai_feature import AIFeatureKey
+            from app.services.ai_quota import ai_feature
+
+            async with ai_feature(db, AIFeatureKey.champion_profile_parse):
+                parsed = await parse_champion_document(text)
         from app.services.champion_profile_ingest import build_champion_dict
 
         cp = prepare_profile(build_champion_dict(parsed, file_id=None))
@@ -479,7 +522,7 @@ async def preview_document(data, filename):
 
 def user_edit(old, patch, actor_id, *, imported=False):
     normalized = ChampionProfile.model_validate(old or {}).model_dump(mode="json")
-    patch = ChampionProfile._absorb_legacy_shape(patch)
+    patch = migrate_legacy_champion_shape(patch)
     merged = deepcopy(normalized)
     for key in SECTION_KEYS:
         if key in patch:
@@ -524,9 +567,32 @@ def sync_selected_rubrics(job, profile, fields):
     from app.services.requirement_contract import apply_requirement_source_update
 
     for key in fields:
+        if key in STACK_COLUMNS:
+            sync_skill_column(
+                job,
+                key,
+                [
+                    {"name": item["name"], "level": None}
+                    for item in profile["stack"][key]
+                ],
+            )
+            continue
         if key not in RUBRICS:
             raise ValueError("Nieznane pole uzgodnienia rekrutacji.")
         value = profile["basics"].get(key)
         if key == "work_mode":
             value = champion_work_mode_to_remote(value)
         apply_requirement_source_update(job, RUBRICS[key], value)
+
+
+def sync_skill_column(job, key, items):
+    from app.services.skill_normalize import iter_skill_names
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    column = STACK_COLUMNS[key]
+    current = getattr(job, column, None)
+    if {name.casefold() for name in iter_skill_names(current)} == {
+        item["name"].casefold() for item in items
+    }:
+        return
+    apply_requirement_source_update(job, column, items)

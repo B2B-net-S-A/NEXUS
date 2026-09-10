@@ -1905,7 +1905,7 @@ async def apply_champion_import(
     payload: dict,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    from app.services.champion_intake import RUBRICS
+    from app.services.champion_intake import SYNC_FIELDS
 
     expected = payload.get("expected_fingerprint")
     fields = payload.get("sync_fields", [])
@@ -1915,7 +1915,9 @@ async def apply_champion_import(
         or not isinstance(payload.get("profile"), dict)
     ):
         raise HTTPException(422, "Wymagany jest profil i odcisk aktualnego podglądu.")
-    if not isinstance(fields, list) or any(field not in RUBRICS for field in fields):
+    if not isinstance(fields, list) or any(
+        field not in SYNC_FIELDS for field in fields
+    ):
         raise HTTPException(422, "Nieznane pole uzgodnienia rekrutacji.")
     return await _save_champion_profile(
         job_id,
@@ -1960,6 +1962,7 @@ async def _save_champion_profile(
         response_context,
         user_edit,
         sync_selected_rubrics,
+        sync_skill_column,
     )
 
     if expected_fingerprint is not None and fingerprint(job) != expected_fingerprint:
@@ -1978,6 +1981,8 @@ async def _save_champion_profile(
         old_profile, payload or {}, current_user.id, imported=imported
     )
     profile = ChampionProfile.model_validate(new_profile)
+    # Explicit reconciliation can change recruitment columns even when the
+    # profile text stays the same; an empty selection performs no writes.
     sync_selected_rubrics(job, new_profile, sync_fields or [])
 
     # Sekcja 3 „Stack technologiczny" jest jedynym miejscem w profilu, które ma
@@ -1994,8 +1999,10 @@ async def _save_champion_profile(
     # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
     # odróżnia „wyczyściłem" od „nie dotykałem".
     if "stack" in (payload or {}):
-        job.must_skills = stack_must
-        job.nice_skills = stack_nice
+        if not imported or not job.must_skills or "must" in (sync_fields or []):
+            sync_skill_column(job, "must", stack_must)
+        if not imported or not job.nice_skills or "nice" in (sync_fields or []):
+            sync_skill_column(job, "nice", stack_nice)
 
     # Sekcja 1 „Podstawowe informacje" ma odpowiednik w KOLUMNACH oferty
     # (`rate_budget_hourly`, `onsite_days_per_week`, `remote_policy`,
@@ -2011,7 +2018,8 @@ async def _save_champion_profile(
     # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
-    if not fields_changed and not imported and old_profile:
+    intake_changed = old_profile.get("intake") != new_profile.get("intake")
+    if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
         # niezależnie od `champion_profile`. `get_db` commituje sesję na
