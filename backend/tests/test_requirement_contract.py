@@ -135,12 +135,15 @@ async def test_shared_gate_respects_review_policy_for_missing_proof(
     candidates = [
         make_candidate(id=1, skills=["java"]),
         make_candidate(id=2, skills=[]),
+        # A KNOWN gap hides under both policies (decision 10.09); only the
+        # missing-proof candidate (id=2) depends on the saved policy.
+        make_candidate(id=3, skills=["rust"]),
     ]
     now = datetime.now(timezone.utc)
     clean = evaluate_eligibility(EligibilityInput(candidate_status="active"), now=now)
     monkeypatch.setattr(
         "app.api.matching.evaluate_candidates_for_job",
-        AsyncMock(return_value={1: clean, 2: clean}),
+        AsyncMock(return_value={1: clean, 2: clean, 3: clean}),
     )
     kept, _, hidden, _, inputs = await _gate_and_dealbreakers(
         None,

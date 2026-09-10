@@ -41,6 +41,21 @@ test("saved Radar request starts by job ID and shares the pipeline run reference
   expect(mocks.list).toHaveBeenCalledWith({ page: 1, page_size: 20, q: undefined });
 });
 
+test("a stored run that no longer matches the request (409) is replaced by a new run, not re-read forever", async () => {
+  localStorage.setItem("nexus-full-job:7:42", "stale-run");
+  sessionStorage.setItem("nexus-radar-request:7", JSON.stringify({ id: 42, title: "Python request", client_name: "Acme" }));
+  mocks.page.mockRejectedValue(Object.assign(new Error("Request lub profil punktacji zmienił się."), { response: { status: 409 } }));
+  mocks.start.mockResolvedValue({ run_id: "fresh-run", state: "queued" });
+  mount(<SavedRequestSearch />);
+  expect(await screen.findByText(/Nie udało się odczytać wyszukiwania/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Spróbuj ponownie" })).not.toBeInTheDocument();
+  mocks.page.mockResolvedValue({ run_id: "fresh-run", state: "queued", counts: { population: 1, evaluated: 0, pending: 1, failed: 0, eligible: 0, excluded: 0, needs_verification: 0 }, results: [], versions: {} });
+  fireEvent.click(screen.getByRole("button", { name: "Uruchom ponownie" }));
+  await waitFor(() => expect(mocks.start).toHaveBeenCalledWith({ job_id: 42 }));
+  await waitFor(() => expect(localStorage.getItem("nexus-full-job:7:42")).toBe("fresh-run"));
+  expect(mocks.start).toHaveBeenCalledTimes(1);
+});
+
 test("same editor saves an explicitly empty reviewed list; read-only mode prevents mutation", async () => {
   const saved = vi.fn();
   const view = mount(<SavedRequestRequirements jobId={42} canEdit onSaved={saved} />);

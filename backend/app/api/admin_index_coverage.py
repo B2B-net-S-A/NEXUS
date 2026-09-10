@@ -12,12 +12,13 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_snapshot import _snapshot_auth
 from app.core.database import get_db
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate_search_run import CandidateSearchRun
 from app.models.index_outbox import IndexOutboxEvent
 from app.models.job import Job
 
@@ -47,6 +48,44 @@ async def _collection_points(collection: str) -> int | None:
     except Exception as exc:  # noqa: BLE001 — diagnostics must not 500
         logger.warning("index-coverage: collection %s unreadable: %s", collection, exc)
         return None
+
+
+async def _candidate_search_storage(db: AsyncSession) -> dict[str, Any]:
+    """Rozmiar pełnego przeglądu bazy — tanio, bez skanowania tabeli wyników.
+
+    Każdy przegląd dopisuje wiersz na każdego kandydata, więc to jest pomiar,
+    po którym widać, czy retencja (7 dni + najnowszy przegląd na autora
+    i rekrutację) trzyma rozmiar w ryzach. `pg_class.reltuples` to ESTYMATA
+    z ostatniego ANALYZE/VACUUM; -1 znaczy „nigdy nie liczone" i jest
+    raportowane jako `None`, nie jako zero.
+    """
+    storage = (
+        await db.execute(
+            text(
+                "SELECT pg_total_relation_size(to_regclass('candidate_search_results'))"
+                " AS bytes,"
+                " pg_size_pretty(pg_total_relation_size("
+                "to_regclass('candidate_search_results'))) AS pretty,"
+                " (SELECT reltuples FROM pg_class"
+                "  WHERE oid = to_regclass('candidate_search_results'))"
+                " AS estimated_rows"
+            )
+        )
+    ).one()
+    runs = await db.execute(
+        select(CandidateSearchRun.state, func.count(CandidateSearchRun.id)).group_by(
+            CandidateSearchRun.state
+        )
+    )
+    total, estimated = storage.bytes, storage.estimated_rows
+    return {
+        "results_total_bytes": int(total) if total is not None else None,
+        "results_total_pretty": storage.pretty,
+        "results_estimated_rows": (
+            int(estimated) if estimated is not None and estimated >= 0 else None
+        ),
+        "runs_by_state": {state: count for state, count in runs},
+    }
 
 
 def _gap(total: int, indexed: int | None) -> dict[str, Any]:
@@ -115,6 +154,7 @@ async def index_coverage(
         )
     )
     outbox = {status: count for status, count in outbox_rows}
+    candidate_search = await _candidate_search_storage(db)
 
     return {
         "auth_mode": auth_mode,
@@ -134,4 +174,5 @@ async def index_coverage(
             "dead": outbox.get("dead", 0),
             "done": outbox.get("done", 0),
         },
+        "candidate_search": candidate_search,
     }

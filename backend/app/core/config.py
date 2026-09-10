@@ -1238,6 +1238,17 @@ class Settings(BaseSettings):
     MATCH_DIGEST_MIN_SCORE: float = 55.0
     MATCH_DIGEST_TOP_N: int = 5
 
+    # ── Retencja pełnego przeglądu bazy (candidate_search_runs/results) ─────
+    # Każdy przegląd zapisuje wiersz na KAŻDEGO kandydata w bazie (z dowodami
+    # w JSONB), więc bez retencji tabela wyników rośnie o całą bazę na każde
+    # kliknięcie. Decyzja 10.09: 7 dni od zakończenia, ale najnowszy przegląd
+    # z wynikami na (autor, rekrutacja/request) zostaje zawsze. Patrz
+    # app/tasks/candidate_search_retention.py. Pętla kończy się PRZED
+    # `while True`, gdy wyłączona; interwał ma w pętli podłogę 300 s.
+    CANDIDATE_SEARCH_RETENTION_ENABLED: bool = True
+    CANDIDATE_SEARCH_RETENTION_DAYS: int = 7
+    CANDIDATE_SEARCH_RETENTION_CHECK_INTERVAL_SECONDS: int = 3600
+
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only
     # contact coordination inside Nexus; it never writes stages or contact

@@ -22,10 +22,10 @@ def job(policy="review"):
     )
 
 
-@pytest.mark.parametrize("skills", [[], ["Rust"]])
-def test_review_keeps_missing_proof_without_changing_evidence(skills):
+def test_review_keeps_missing_proof_without_changing_evidence():
+    """No skill data is not proof of inability: it stays for review."""
     target = job()
-    candidate = SimpleNamespace(skills=skills)
+    candidate = SimpleNamespace(skills=[])
     result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(target))
     assert result.kept == [candidate]
     assert result.hidden_missing_must == 0
@@ -33,6 +33,76 @@ def test_review_keeps_missing_proof_without_changing_evidence(skills):
         evaluate_requirements(requirements_for_job(target), candidate)[0]["status"]
         == "unknown"
     )
+
+
+def test_review_hides_a_known_technology_gap_by_default():
+    """Decision 10.09: known skills without the must-have technology hide."""
+    candidate = SimpleNamespace(skills=["Rust"])
+    result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(job()))
+    assert result.kept == []
+    assert result.hidden_missing_must == 1
+
+
+def test_default_job_without_saved_contract_gates_on_its_technology_column():
+    """The pre-#1428 default: the plain `must_skills` column gates again."""
+    target = SimpleNamespace(must_skills=[{"name": "Python"}])
+    inputs = search_dealbreaker_inputs(target)
+    assert inputs.must_skills and not inputs.exclude_unknown_skill_evidence
+    known_gap = SimpleNamespace(id=1, skills=["Java"])
+    no_data = SimpleNamespace(id=2, skills=[])
+    fits = SimpleNamespace(id=3, skills=["Python"])
+    result = apply_dealbreakers([known_gap, no_data, fits], inputs=inputs)
+    assert [c.id for c in result.kept] == [2, 3]
+
+
+@pytest.mark.parametrize("policy", ["review", "exclude"])
+def test_prose_must_have_never_hides_anyone(policy):
+    """Prose requirements are signals, never a gate (regression of 08.09)."""
+    target = SimpleNamespace(
+        matching_requirements={
+            "reviewed": True,
+            "missing_evidence_policy": policy,
+            "all_of": [
+                {
+                    "any_of": ["apache kafka – minimum 4 lata doświadczenia"],
+                    "level": "must",
+                }
+            ],
+        },
+        requirements_reviewed=True,
+    )
+    inputs = search_dealbreaker_inputs(target)
+    assert inputs.must_skills == ()
+    assert inputs.must_skills_ignored
+    candidates = [SimpleNamespace(skills=["Rust"]), SimpleNamespace(skills=[])]
+    assert apply_dealbreakers(candidates, inputs=inputs).kept == candidates
+
+
+def test_kill_switch_disables_the_default_must_gate(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RUBRIC_DEALBREAKERS_ENABLED", False)
+    candidate = SimpleNamespace(skills=["Rust"])
+    result = apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(job()))
+    assert result.kept == [candidate]
+    assert result.hidden_missing_must == 0
+
+
+def test_policy_semantics_are_part_of_every_request_fingerprint(monkeypatch):
+    """A ranking stored under an older gate policy never reads as current."""
+    from app.services import requirement_contract
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import DEFAULT_PROFILE
+    from tests.test_scoring_service import make_job
+
+    before = build_request_context(make_job(must_skills=["Python"]), DEFAULT_PROFILE)
+    assert (
+        before.versions["must_gate_policy"]
+        == requirement_contract.MUST_GATE_POLICY_VERSION
+    )
+    monkeypatch.setattr(requirement_contract, "MUST_GATE_POLICY_VERSION", "next")
+    after = build_request_context(make_job(must_skills=["Python"]), DEFAULT_PROFILE)
+    assert after.fingerprint != before.fingerprint
 
 
 @pytest.mark.parametrize(

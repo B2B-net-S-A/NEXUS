@@ -1,7 +1,9 @@
 import { api, type matchingApi, type MatchEligibility } from "@/lib/api";
 import type { TalentRadarCandidate, TalentRadarSearchRequest } from "@/lib/talent-radar-api";
+import { httpStatusFromError } from "@/lib/view-state";
 
-export type SearchState = "queued" | "running" | "complete" | "partial";
+/** `failed` is terminal: the run will never finish and holds no ranking. */
+export type SearchState = "queued" | "running" | "complete" | "partial" | "failed";
 export type StartCandidateSearch =
   | { job_id: number; radar?: never }
   | { radar: TalentRadarSearchRequest; job_id?: never };
@@ -47,6 +49,8 @@ export interface CandidateSearchRow {
 export interface CandidateSearchPage {
   run_id: string;
   state: SearchState;
+  /** Only for `failed`: a lifecycle/exception code, never provider text. */
+  error_code?: string | null;
   metrics?: {
     elapsed_ms?: number;
     estimated_cost_usd?: number | null;
@@ -95,3 +99,15 @@ export const candidateSearchApi = {
 };
 
 export const searchIsRunning = (state?: SearchState) => state === "queued" || state === "running";
+export const searchFailed = (state?: SearchState) => state === "failed";
+
+/**
+ * The stored run can no longer be read as current: 409 = the request, scoring
+ * profile or search policy changed since (or its recruitment was deleted),
+ * 404 = the run expired under retention. Re-reading returns the same answer
+ * forever, so the only way forward is a new run.
+ */
+export function searchNeedsNewRun(error: unknown): boolean {
+  const status = httpStatusFromError(error);
+  return status === 409 || status === 404;
+}

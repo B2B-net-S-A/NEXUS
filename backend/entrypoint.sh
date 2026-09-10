@@ -4117,6 +4117,13 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS onsite_days_per_week INTEGER NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
+    # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).
+    # Model `Job` deklaruje obie kolumny, więc bez nich KAŻDY odczyt ofert pada
+    # na UndefinedColumnError — lustro 1:1 z migracją (JSONB NULL; BOOLEAN
+    # NOT NULL DEFAULT false). Tabele przeglądów tworzy `create_all` niżej.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS matching_requirements JSONB NULL",
+    """ALTER TABLE jobs
+        ADD COLUMN IF NOT EXISTS requirements_reviewed BOOLEAN NOT NULL DEFAULT false""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6635,6 +6642,17 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_competence_category_id ON talent_pools (competence_category_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_talent_pools_external_id ON talent_pools (external_id)",
+    # 0281: pochodzenie umiejętności z ręcznych edycji kandydata (log audytu).
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_activities_candidate_manual_edit "
+    "ON activities (entity_type, entity_id, action, external_source)",
+    # 0304: retencja pełnego przeglądu bazy (wybór po `completed_at`) oraz
+    # kasowanie kandydata ze wszystkich przeglądów — klucz główny wyników
+    # zaczyna się od `run_id`, więc bez tego indeksu każde usunięcie osoby
+    # skanowałoby całą tabelę wyników.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_search_runs_completed_at "
+    "ON candidate_search_runs (completed_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_search_results_candidate_id "
+    "ON candidate_search_results (candidate_id)",
 ]
 
 

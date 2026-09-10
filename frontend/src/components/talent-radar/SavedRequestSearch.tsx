@@ -28,7 +28,9 @@ function RequestResults({ job }: { job: JobRef }) {
     <SavedRequestRequirements jobId={job.id} canEdit={canEdit} onSaved={search.clear} />
     <Button disabled={search.running} onClick={() => void search.start({ job_id: job.id })}>{search.running ? "Przegląd trwa…" : "Szukaj w całej bazie"}</Button>
     <ChampionValidationPanel validation={championErrorValidation(search.error)} />
-    <FullCandidateSearchResults jobId={job.id} canVerify={canVerify} onVerified={() => { void search.refresh(); }} data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile} onRetry={() => { if (search.runId) void search.refresh(); else void search.start({ job_id: job.id }); }} />
+    <FullCandidateSearchResults jobId={job.id} canVerify={canVerify} onVerified={() => { void search.refresh(); }} data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile}
+      onRetry={() => { if (search.runId) void search.refresh(); else void search.start({ job_id: job.id }); }}
+      needsNewRun={search.needsNewRun} onRestart={() => { void search.start({ job_id: job.id }); }} />
   </div>;
 }
 

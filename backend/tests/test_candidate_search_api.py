@@ -25,6 +25,86 @@ async def test_details_require_candidate_read_before_loading_any_results(monkeyp
     guard.assert_awaited_once()
 
 
+_COUNTS = dict(
+    population=10,
+    pending=4,
+    failed=0,
+    evaluated=6,
+    eligible=6,
+    excluded=0,
+    needs_verification=0,
+)
+
+
+@pytest.mark.asyncio
+async def test_failed_run_stays_readable_when_its_request_no_longer_matches(
+    monkeypatch,
+):
+    """A terminal run holds no ranking, so the fingerprint guard does not apply.
+
+    The stored context is deliberately unparseable — a broken context is one of
+    the ways a run fails — and the author must still see "failed", not a 500.
+    """
+    monkeypatch.setattr(api, "_search_access", lambda user: None)
+    run = SimpleNamespace(
+        id="r",
+        job_id=None,
+        client_id=1,
+        request_context={"not": "a request"},
+        request_fingerprint="old",
+        version_trace={"must_gate_policy": "old"},
+        state="failed",
+        error_code="attempts_exhausted",
+        metrics={"claims": 4},
+    )
+    monkeypatch.setattr(api.store, "owned_run", AsyncMock(return_value=run))
+    monkeypatch.setattr(api.store, "run_counts", AsyncMock(return_value=_COUNTS))
+    profile = AsyncMock()
+    monkeypatch.setattr(api, "resolve_active_profile", profile)
+    result = await api.search_results(
+        "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=object()
+    )
+    assert result["state"] == "failed"
+    assert result["error_code"] == "attempts_exhausted"
+    assert result["results"] == [] and result["counts"] == _COUNTS
+    profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["complete", "running"])
+async def test_changed_request_still_refuses_a_live_or_finished_ranking(
+    monkeypatch, state
+):
+    monkeypatch.setattr(api, "_search_access", lambda user: None)
+    job = make_job(must_skills=["Python"])
+    job.id = None
+    context = build_request_context(job, DEFAULT_PROFILE)
+    run = SimpleNamespace(
+        id="r",
+        job_id=None,
+        client_id=job.client_id,
+        request_context=context.as_dict(),
+        request_fingerprint=context.fingerprint,
+        version_trace=context.versions,
+        state=state,
+        metrics={},
+    )
+    monkeypatch.setattr(api.store, "owned_run", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        api, "resolve_active_profile", AsyncMock(return_value=DEFAULT_PROFILE)
+    )
+    monkeypatch.setattr(
+        api,
+        "build_request_context",
+        lambda *_args: SimpleNamespace(fingerprint="policy-or-request-changed"),
+    )
+    with pytest.raises(HTTPException) as error:
+        await api.search_results(
+            "r", SimpleNamespace(id=1), offset=0, limit=20, min_score=0, db=object()
+        )
+    assert error.value.status_code == 409
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "old_block,new_block", [(False, False), (False, True), (True, False)]

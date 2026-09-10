@@ -121,7 +121,9 @@ async def start_search(
         .select_from(CandidateSearchRun)
         .where(
             CandidateSearchRun.created_by == user.id,
-            CandidateSearchRun.state.in_(["queued", "running"]),
+            # `failed` is terminal and never counts: a broken run must not
+            # hold one of the author's two slots.
+            CandidateSearchRun.state.in_(store.ACTIVE_STATES),
         )
     )
     if active >= 2:
@@ -170,10 +172,22 @@ async def search_results(
     run = await store.owned_run(db, run_id, user.id)
     if run is None:
         raise HTTPException(404, "Wyszukiwanie nie istnieje")
+    saved_job = await _authorized_job(db, user, run.job_id) if run.job_id else None
+    if run.state == "failed":
+        # Terminal, with no ranking to protect: readable even when the request
+        # changed since (or its stored context is what broke the run), so the
+        # author sees "failed — start again" instead of an error loop.
+        return {
+            "run_id": run.id,
+            "state": run.state,
+            "error_code": run.error_code,
+            "counts": await store.run_counts(db, run.id),
+            "metrics": run.metrics or {},
+            "results": [],
+            "versions": run.version_trace,
+        }
     context = RequestMatchingContext(**run.request_context)
-    job = (
-        await _authorized_job(db, user, run.job_id) if run.job_id else context.as_job()
-    )
+    job = saved_job if saved_job is not None else context.as_job()
     # A deleted saved job must not silently become an ad-hoc request.
     if context.job_data.get("id") is not None and run.job_id is None:
         raise HTTPException(409, "Rekrutacja została usunięta")
@@ -185,7 +199,7 @@ async def search_results(
         )
     counts = await store.run_counts(db, run.id)
     # Stable pages are exposed only after every snapshot ID is accounted for.
-    if run.state not in {"complete", "partial"}:
+    if run.state not in store.RESULT_STATES:
         return {
             "run_id": run.id,
             "state": run.state,
@@ -311,7 +325,9 @@ async def search_results(
                     for r in requirements
                     if r["level"] == level and r["status"] != "met"
                 ]
-            # Missing evidence is a review item; the run's explicit policy owns exclusion.
+            # Requirement chips come from the frozen evidence above. Exclusion
+            # (known technology gap; missing proof only under "exclude") was
+            # decided by the run's gate, not re-derived from current data here.
             details["missing_must"] = []
         results.append(
             {

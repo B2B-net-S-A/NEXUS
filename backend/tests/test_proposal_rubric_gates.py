@@ -22,8 +22,10 @@ from app.models.job import Job
 from app.models.proposal_snapshot import ProposalSnapshot, STATUS_READY
 
 
-@pytest_asyncio.fixture
-async def rubric_gate_fixture():
+@pytest_asyncio.fixture(params=["review", "exclude"])
+async def rubric_gate_fixture(request):
+    # Domyślne „review” też ukrywa ZNANĄ lukę technologii (decyzja 10.09);
+    # „exclude” dokłada wyłącznie brak dowodu, którego tu nie ma.
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"ProposalRubric Client {unique}")
@@ -41,7 +43,7 @@ async def rubric_gate_fixture():
             requirements_reviewed=True,
             matching_requirements={
                 "reviewed": True,
-                "missing_evidence_policy": "exclude",
+                "missing_evidence_policy": request.param,
                 "all_of": [{"any_of": ["python"], "level": "must"}],
             },
             onsite_days_per_week=3,

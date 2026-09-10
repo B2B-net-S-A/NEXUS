@@ -1,11 +1,13 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
+import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 
 const exclusionLabels: Record<string, string> = {
   over_budget: "Powyżej budżetu",
-  missing_must: "Brak potwierdzenia must-have — wybrano wykluczanie",
+  // Domyślnie: znane umiejętności nie obejmują technologii must-have. Brak
+  // danych o umiejętnościach wyklucza tylko przy polityce „Wyklucz z wyników”.
+  missing_must: "Brak technologii must-have w profilu",
   office_days_exceeded: "Za dużo wymaganych dni w biurze",
   office_city_mismatch: "Niezgodne miasto biura",
   remote_only: "Wyłącznie praca zdalna",
@@ -13,14 +15,32 @@ const exclusionLabels: Record<string, string> = {
   unknown: "Brak zapisanej szczegółowej przyczyny",
 };
 
+const failureReasons: Record<string, string> = {
+  candidate_erased: "z bazy usunięto kandydata objętego tym przeglądem",
+  stalled: "przegląd przestał robić postępy",
+};
+
 /** Same population/coverage vocabulary in Radar and the recruitment pipeline. */
-export function FullCandidateSearchStatus({ data, offset, onPage, fetching = false }: {
+export function FullCandidateSearchStatus({ data, offset, onPage, fetching = false, onRestart, restarting = false }: {
   data: CandidateSearchPage;
   offset: number;
   onPage: (offset: number) => void;
   fetching?: boolean;
+  /** Starts a NEW run — offered only for a failed one, never as a re-read. */
+  onRestart?: () => void;
+  restarting?: boolean;
 }) {
   const { counts } = data;
+  if (searchFailed(data.state)) {
+    // Terminal: no ranking exists, so no pages, totals or "completed" wording —
+    // a failed scan must not read as an empty result.
+    const reason = failureReasons[data.error_code ?? ""] ?? "nie udało się dokończyć przeglądu bazy";
+    return <section className="space-y-2 rounded-lg border border-destructive/40 p-4" aria-label="Zakres wyszukiwania">
+      <p role="status" className="font-medium text-destructive">Przegląd przerwany — {reason}. Wyników nie pokazujemy, bo przegląd nie objął całej bazy.</p>
+      <p className="text-sm text-muted-foreground">Sprawdzono {counts.evaluated} z {counts.population} kandydatów.</p>
+      {onRestart && <Button disabled={restarting} onClick={onRestart}>Uruchom ponownie</Button>}
+    </section>;
+  }
   const active = searchIsRunning(data.state);
   return <section className="space-y-2 rounded-lg border p-4" aria-label="Zakres wyszukiwania">
     <p role="status">{active ? "Przeglądamy bazę" : "Przegląd zakończony"}: {counts.evaluated} z {counts.population} kandydatów sprawdzonych.

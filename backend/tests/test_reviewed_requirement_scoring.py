@@ -51,7 +51,7 @@ async def test_review_drives_or_group_score_and_explicit_gate_without_inventing_
     assert bool(
         apply_dealbreakers([candidate], inputs=search_dealbreaker_inputs(job)).kept
     ) == (status == "met")
-    # Default review policy does not acquire a new silent exclusion rule.
+    # An explicit per-request switch-off disables the must-have gate entirely.
     assert apply_dealbreakers(
         [candidate], inputs=search_dealbreaker_inputs(job, exclude_missing_must=False)
     ).kept == [candidate]

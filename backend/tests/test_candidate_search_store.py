@@ -46,7 +46,8 @@ async def test_durable_run_accounts_for_entire_snapshot_and_preserves_unknown():
             assert await store.claim_run(db, run.id) is None
             await store.save_metrics(db, run.id, token, {"attempts": 1})
             await db.refresh(run)
-            assert run.metrics == {"attempts": 1}
+            # Telemetry replaces metrics; the durable claim counter survives it.
+            assert run.metrics == {"attempts": 1, "claims": 1}
             with pytest.raises(ValueError, match="unaccounted"):
                 await store.finish_run(db, run.id, token)
             while batch := await store.pending_batch(db, run.id, limit=1000):
@@ -142,6 +143,203 @@ async def test_expired_worker_cannot_finalize_after_another_claim():
                 await store.finish_run(db, run.id, old_token)
             with pytest.raises(store.SearchLeaseLost):
                 await store.save_metrics(db, run.id, old_token, {"attempts": 99})
+        finally:
+            await db.rollback()
+
+
+async def _actor_and_client(db, label: str):
+    unique = uuid.uuid4().hex
+    user = User(
+        name=f"{label} test",
+        email=f"{label}-{unique}@example.com",
+        password_hash="test-unused",
+        role=UserRole.admin,
+        is_active=True,
+    )
+    client = Client(name=f"{label} client {unique}")
+    db.add_all([user, client])
+    await db.flush()
+    return user, client
+
+
+def _bare_run(user, client, *, state="queued", **values):
+    from app.models.candidate_search_run import CandidateSearchRun
+
+    return CandidateSearchRun(
+        id=str(uuid.uuid4()),
+        created_by=user.id,
+        client_id=client.id,
+        job_id=values.pop("job_id", None),
+        state=state,
+        request_fingerprint=values.pop("request_fingerprint", "c" * 64),
+        request_context={},
+        version_trace={},
+        population_size=values.pop("population_size", 0),
+        metrics=values.pop("metrics", {}),
+        **values,
+    )
+
+
+@pytest.mark.asyncio
+async def test_claims_are_counted_durably_and_a_failed_run_is_terminal():
+    from sqlalchemy import func, select
+    from app.models.candidate_search_run import CandidateSearchRun
+
+    async with AsyncSessionLocal() as db:
+        try:
+            user, client = await _actor_and_client(db, "claims")
+            run = _bare_run(user, client)
+            db.add(run)
+            await db.flush()
+            first = await store.claim_run(db, run.id)
+            await db.refresh(run)
+            assert store.claim_count(run.metrics) == 1
+            # A telemetry checkpoint replaces metrics without resetting claims.
+            await store.save_metrics(db, run.id, first, {"schema": "t", "attempts": 1})
+            run.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await db.flush()
+            second = await store.claim_run(db, run.id)
+            await db.refresh(run)
+            assert second and store.claim_count(run.metrics) == 2
+            assert run.metrics["schema"] == "t"
+            # Only the current lease owner may fail the run.
+            assert not await store.fail_run(db, run.id, "ValueError", token=first)
+            assert await store.fail_run(db, run.id, "ValueError", token=second)
+            await db.refresh(run)
+            assert run.state == "failed" and run.error_code == "ValueError"
+            assert run.completed_at is not None
+            assert run.lease_token is None and run.lease_expires_at is None
+            # Terminal: never claimed again, and it frees the author's slot.
+            assert await store.claim_run(db, run.id) is None
+            active = await db.scalar(
+                select(func.count())
+                .select_from(CandidateSearchRun)
+                .where(
+                    CandidateSearchRun.created_by == user.id,
+                    CandidateSearchRun.state.in_(store.ACTIVE_STATES),
+                )
+            )
+            assert active == 0
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_released_lease_is_reclaimed_at_once_and_counted():
+    async with AsyncSessionLocal() as db:
+        try:
+            user, client = await _actor_and_client(db, "release")
+            run = _bare_run(user, client)
+            db.add(run)
+            await db.flush()
+            token = await store.claim_run(db, run.id, lease_seconds=300)
+            assert await store.claim_run(db, run.id) is None
+            assert not await store.release_run(db, run.id, "someone-else")
+            assert await store.release_run(db, run.id, token)
+            assert await store.claim_run(db, run.id)
+            await db.refresh(run)
+            assert store.claim_count(run.metrics) == 2
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_reaper_fails_only_claimed_runs_without_progress_or_live_lease():
+    async with AsyncSessionLocal() as db:
+        try:
+            user, client = await _actor_and_client(db, "reaper")
+            now = datetime.now(timezone.utc)
+            long_ago = now - timedelta(minutes=45)
+            stalled = _bare_run(
+                user,
+                client,
+                state="running",
+                lease_expires_at=long_ago,
+                updated_at=long_ago,
+            )
+            leased = _bare_run(
+                user,
+                client,
+                state="running",
+                lease_expires_at=now + timedelta(minutes=5),
+                updated_at=long_ago,
+            )
+            recent = _bare_run(
+                user,
+                client,
+                state="running",
+                lease_expires_at=now - timedelta(minutes=1),
+                updated_at=now - timedelta(minutes=5),
+            )
+            waiting = _bare_run(user, client, state="queued", updated_at=long_ago)
+            db.add_all([stalled, leased, recent, waiting])
+            await db.flush()
+            reaped = await store.reap_stalled_runs(
+                db, stalled_after=timedelta(minutes=30)
+            )
+            assert stalled.id in reaped
+            assert not {leased.id, recent.id, waiting.id} & set(reaped)
+            await db.refresh(stalled)
+            assert stalled.state == "failed" and stalled.error_code == "stalled"
+            assert stalled.completed_at is not None
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_candidate_erasure_removes_rows_and_fails_only_active_runs():
+    from sqlalchemy import select
+    from app.models.candidate_search_run import CandidateSearchResult
+
+    async with AsyncSessionLocal() as db:
+        try:
+            user, client = await _actor_and_client(db, "erasure")
+            erased, other = (
+                Candidate(name="Erased", lastname="Person"),
+                Candidate(name="Other", lastname="Person"),
+            )
+            db.add_all([erased, other])
+            await db.flush()
+            finished = _bare_run(user, client, state="complete", population_size=2)
+            active = _bare_run(user, client, population_size=2)
+            db.add_all([finished, active])
+            await db.flush()
+            for run_id in (finished.id, active.id):
+                for cid in (erased.id, other.id):
+                    db.add(
+                        CandidateSearchResult(
+                            run_id=run_id,
+                            candidate_id=cid,
+                            candidate_version="v1",
+                            state="evaluated" if run_id == finished.id else "pending",
+                            evidence={"breakdown": {"total": 80}},
+                        )
+                    )
+            await db.flush()
+            token = await store.claim_run(db, active.id)
+
+            result = await store.erase_candidate(db, erased.id)
+
+            assert result == {"search_rows_deleted": 2, "search_runs_failed": 1}
+            remaining = [
+                tuple(row)
+                for row in await db.execute(
+                    select(
+                        CandidateSearchResult.run_id, CandidateSearchResult.candidate_id
+                    ).where(CandidateSearchResult.run_id.in_([finished.id, active.id]))
+                )
+            ]
+            assert sorted(remaining) == sorted(
+                [(finished.id, other.id), (active.id, other.id)]
+            )
+            await db.refresh(finished)
+            await db.refresh(active)
+            assert finished.state == "complete"
+            assert active.state == "failed"
+            assert active.error_code == "candidate_erased"
+            # The worker that held the lease can no longer write or finalize.
+            with pytest.raises(store.SearchLeaseLost):
+                await store.save_metrics(db, active.id, token, {})
         finally:
             await db.rollback()
 

@@ -9,7 +9,20 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import (
+    Integer,
+    Numeric,
+    String,
+    case,
+    delete,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.models.candidate_search_run import CandidateSearchResult, CandidateSearchRun
 from app.services.full_candidate_scan import (
@@ -18,9 +31,40 @@ from app.services.full_candidate_scan import (
     snapshot_candidate_population,
 )
 
+# Lifecycle vocabulary shared by the worker, the API, erasure and retention.
+# `failed` is terminal: it frees the author's active-search slot and is never
+# claimed again, so a poisoned run cannot be retried at every lease expiry.
+ACTIVE_STATES = ("queued", "running")
+RESULT_STATES = ("complete", "partial")
+FINISHED_STATES = (*RESULT_STATES, "failed")
+
+# Durable claim counter kept in `metrics`. It is incremented by the claim
+# UPDATE itself, so a crash between the claim commit and any later checkpoint
+# still counts as an attempt. Telemetry snapshots replace `metrics`, therefore
+# every write below re-applies the database value of these keys.
+CLAIMS_KEY = "claims"
+_LIFECYCLE_KEYS = (CLAIMS_KEY,)
+
 
 class SearchLeaseLost(RuntimeError):
     pass
+
+
+def claim_count(metrics: dict | None) -> int:
+    value = (metrics or {}).get(CLAIMS_KEY)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(0, value)
+
+
+def telemetry_metrics(metrics: dict | None) -> dict:
+    """Metrics without lifecycle keys — the part owned by SearchTelemetry."""
+    return {k: v for k, v in (metrics or {}).items() if k not in _LIFECYCLE_KEYS}
+
+
+def _with_lifecycle(current: dict | None, metrics: dict) -> dict:
+    kept = {k: v for k, v in (current or {}).items() if k in _LIFECYCLE_KEYS}
+    return {**metrics, **kept}
 
 
 async def create_run(
@@ -67,6 +111,21 @@ async def create_run(
     return run
 
 
+def _incremented_claims():
+    """`metrics || {"claims": claims + 1}`, tolerant of a missing/foreign value."""
+    stored = CandidateSearchRun.metrics[CLAIMS_KEY]
+    previous = case(
+        (
+            func.jsonb_typeof(stored) == "number",
+            stored.astext.cast(Numeric).cast(Integer),
+        ),
+        else_=0,
+    )
+    return func.coalesce(CandidateSearchRun.metrics, literal({}, JSONB)).op("||")(
+        func.jsonb_build_object(literal(CLAIMS_KEY, String), previous + 1)
+    )
+
+
 async def claim_run(db, run_id: str, *, lease_seconds: int = 120) -> str | None:
     now = datetime.now(timezone.utc)
     token = str(uuid.uuid4())
@@ -74,7 +133,7 @@ async def claim_run(db, run_id: str, *, lease_seconds: int = 120) -> str | None:
         update(CandidateSearchRun)
         .where(
             CandidateSearchRun.id == run_id,
-            CandidateSearchRun.state.in_(["queued", "running"]),
+            CandidateSearchRun.state.in_(ACTIVE_STATES),
             or_(
                 CandidateSearchRun.lease_expires_at.is_(None),
                 CandidateSearchRun.lease_expires_at < now,
@@ -84,10 +143,127 @@ async def claim_run(db, run_id: str, *, lease_seconds: int = 120) -> str | None:
             state="running",
             lease_token=token,
             lease_expires_at=now + timedelta(seconds=lease_seconds),
+            metrics=_incremented_claims(),
         )
         .returning(CandidateSearchRun.id)
     )
     return token if claimed.scalar_one_or_none() else None
+
+
+async def fail_run(db, run_id: str, reason: str, *, token: str | None = None) -> bool:
+    """Terminal failure of a still-active run; the caller commits.
+
+    With ``token`` only the current lease owner may fail the run, so a replaced
+    worker cannot overwrite its successor. Without a token (reaper, candidate
+    erasure) any active run is fenced: its next checkpoint raises
+    ``SearchLeaseLost`` because the state is no longer ``running``.
+    """
+    conditions = [
+        CandidateSearchRun.id == run_id,
+        CandidateSearchRun.state.in_(ACTIVE_STATES),
+    ]
+    if token is not None:
+        conditions.append(CandidateSearchRun.lease_token == token)
+    failed = await db.execute(
+        update(CandidateSearchRun)
+        .where(*conditions)
+        .values(
+            state="failed",
+            # Codes only (exception type or lifecycle reason), never provider
+            # text or candidate data.
+            error_code=(reason or "failed")[:100],
+            completed_at=datetime.now(timezone.utc),
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        .returning(CandidateSearchRun.id)
+    )
+    return failed.scalar_one_or_none() is not None
+
+
+async def release_run(db, run_id: str, token: str) -> bool:
+    """Expire our own lease now so a bounded retry does not wait for timeout."""
+    released = await db.execute(
+        update(CandidateSearchRun)
+        .where(
+            CandidateSearchRun.id == run_id,
+            CandidateSearchRun.state == "running",
+            CandidateSearchRun.lease_token == token,
+        )
+        .values(lease_expires_at=datetime.now(timezone.utc))
+        .returning(CandidateSearchRun.id)
+    )
+    return released.scalar_one_or_none() is not None
+
+
+async def reap_stalled_runs(db, *, stalled_after: timedelta) -> list[str]:
+    """Fail claimed runs without progress; the caller commits.
+
+    Every claim and checkpoint moves ``updated_at``, so a claimed run whose
+    timestamp stands still past ``stalled_after`` with no live lease is not
+    being worked on. Failing it frees the author's slot instead of leaving an
+    eternal "running" search that the per-user cap keeps counting. Never-claimed
+    ``queued`` runs are only waiting their turn in the single drain loop and
+    are left alone.
+    """
+    now = datetime.now(timezone.utc)
+    reaped = await db.execute(
+        update(CandidateSearchRun)
+        .where(
+            CandidateSearchRun.state == "running",
+            CandidateSearchRun.updated_at < now - stalled_after,
+            or_(
+                CandidateSearchRun.lease_expires_at.is_(None),
+                CandidateSearchRun.lease_expires_at < now,
+            ),
+        )
+        .values(
+            state="failed",
+            error_code="stalled",
+            completed_at=now,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        .returning(CandidateSearchRun.id)
+    )
+    return list(reaped.scalars().all())
+
+
+async def erase_candidate(db, candidate_id: int) -> dict:
+    """Remove one candidate's snapshot rows from every run (RODO erasure).
+
+    Finished runs simply lose the row. An active run cannot: ``finish_run``
+    requires every snapshot ID to stay accounted for, so the run is failed
+    first (the author restarts it) and then loses the row as well. Runs are
+    locked before their rows, in the same order as ``save_batch``. The caller
+    owns the transaction — the candidate delete commits it.
+    """
+    active_ids = list(
+        (
+            await db.scalars(
+                select(CandidateSearchRun.id)
+                .where(
+                    CandidateSearchRun.state.in_(ACTIVE_STATES),
+                    CandidateSearchRun.id.in_(
+                        select(CandidateSearchResult.run_id).where(
+                            CandidateSearchResult.candidate_id == candidate_id
+                        )
+                    ),
+                )
+                .order_by(CandidateSearchRun.id)
+                .with_for_update()
+            )
+        ).all()
+    )
+    failed = 0
+    for run_id in active_ids:
+        failed += int(await fail_run(db, run_id, "candidate_erased"))
+    removed = await db.execute(
+        delete(CandidateSearchResult).where(
+            CandidateSearchResult.candidate_id == candidate_id
+        )
+    )
+    return {"search_rows_deleted": removed.rowcount or 0, "search_runs_failed": failed}
 
 
 async def _locked_run(db, run_id: str, token: str):
@@ -171,13 +347,13 @@ async def save_batch(
     if error_code:
         run.error_code = error_code[:100]
     if metrics is not None:
-        run.metrics = metrics
+        run.metrics = _with_lifecycle(run.metrics, metrics)
     await db.flush()
 
 
 async def save_metrics(db, run_id: str, token: str, metrics: dict):
     run = await _locked_run(db, run_id, token)
-    run.metrics = metrics
+    run.metrics = _with_lifecycle(run.metrics, metrics)
     run.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=300)
     await db.flush()
 

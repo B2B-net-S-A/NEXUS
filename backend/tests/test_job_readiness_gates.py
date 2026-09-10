@@ -68,6 +68,24 @@ def test_missing_must_blocks_with_exact_polish_string():
     assert _MUST_HAVE_MSG in blockers
 
 
+def test_prose_only_must_haves_satisfy_the_must_rule():
+    """~70% ofert ma w `must_skills` punkty wymagań prozą. Nie bramkują one
+    rankingu (`must_skills_ignored`), ale Delivery Lead je PODAŁ — handoff nie
+    może odsyłać go po technologię, którą już wpisał zdaniem."""
+    from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
+
+    job = _job(
+        must_skills=[
+            {"name": "apache kafka – minimum 4 lata komercyjnego doświadczenia"},
+            {"name": "gotowość do pracy hybrydowej w warszawie"},
+        ]
+    )
+    inputs = dealbreaker_inputs_for_job(job)
+    assert inputs.must_skills == () and inputs.must_skills_ignored
+    assert _MUST_HAVE_MSG not in job_handoff_blockers(job)
+    assert _MUST_HAVE_MSG not in job_rubric_blockers(job)
+
+
 def test_champion_stack_must_satisfies_the_must_rule():
     """Bez kolumny `must_skills`, Tier 0 Championa (sekcja 3) wystarcza —
     bezwarunkowo, bez flagi: `job_explicit_must_skills` NIE jest gated przez

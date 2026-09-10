@@ -15,7 +15,14 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   parseChampion: vi.fn(),
   showError: vi.fn(),
+  page: vi.fn(),
 }));
+
+const completePage = {
+  run_id: "run", state: "complete", versions: {}, results: [],
+  counts: { population: 0, pending: 0, evaluated: 0, failed: 0, eligible: 0, excluded: 0, needs_verification: 0 },
+  ranking_complete: true, total_after_threshold: 0, next_offset: null,
+};
 
 vi.mock("next/link", () => ({
   default: ({
@@ -32,10 +39,8 @@ vi.mock("next/link", () => ({
 vi.mock("@/lib/full-candidate-search-api", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/full-candidate-search-api")>(),
   candidateSearchApi: {
-    start: async ({ radar }: { radar: unknown }) => { await mocks.search(radar); return { run_id: "run", state: "queued" }; },
-    page: async () => ({ run_id: "run", state: "complete", versions: {}, results: [],
-      counts: { population: 0, pending: 0, evaluated: 0, failed: 0, eligible: 0, excluded: 0, needs_verification: 0 },
-      ranking_complete: true, total_after_threshold: 0, next_offset: null }),
+    start: async ({ radar }: { radar: unknown }) => (await mocks.search(radar)) ?? { run_id: "run", state: "queued" },
+    page: (...args: unknown[]) => mocks.page(...args),
   },
 }));
 
@@ -108,7 +113,37 @@ async function searchOnce() {
 describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    localStorage.clear();
     vi.clearAllMocks();
+    // `clearAllMocks` keeps queued *Once values; an unconsumed one would leak
+    // into the next test as a successful start.
+    mocks.search.mockReset();
+    mocks.page.mockReset();
+    mocks.page.mockResolvedValue(completePage);
+  });
+
+  it("przegląd, którego nie da się już odczytać (409), uruchamia się od nowa zamiast pętli „Spróbuj ponownie”", async () => {
+    mocks.search
+      .mockResolvedValueOnce({ run_id: "stale-run", state: "queued" })
+      .mockResolvedValueOnce({ run_id: "fresh-run", state: "queued" });
+    mocks.page.mockRejectedValue(
+      Object.assign(new Error("Request lub profil punktacji zmienił się."), { response: { status: 409 } }),
+    );
+
+    const user = await searchOnce();
+    await screen.findByText(/Nie udało się odczytać wyszukiwania/);
+    expect(screen.queryByRole("button", { name: "Spróbuj ponownie" })).not.toBeInTheDocument();
+    const reads = mocks.page.mock.calls.length;
+
+    mocks.page.mockResolvedValue(completePage);
+    await user.click(screen.getByRole("button", { name: "Uruchom ponownie" }));
+
+    await waitFor(() => expect(mocks.search).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.page.mock.calls.length).toBeGreaterThan(reads));
+    expect(mocks.page.mock.calls.at(-1)?.[0]).toBe("fresh-run");
+    await waitFor(() =>
+      expect(screen.queryByText(/Nie udało się odczytać wyszukiwania/)).not.toBeInTheDocument(),
+    );
   });
 
   it("awaria zostaje na ekranie, a nie tylko w znikającym toaście", async () => {

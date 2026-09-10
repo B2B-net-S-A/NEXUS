@@ -62,11 +62,23 @@ def requirements_for_job(job) -> MatchingRequirements:
     )
 
 
-def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
-    """Shared default policy; an explicit request filter may override it.
+# Bumped whenever the meaning of `search_dealbreaker_inputs` changes: it is
+# part of every request fingerprint, so a stored ranking computed under the
+# previous policy can never be served as current.
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v1"
 
-    Clearing the gate changes no scoring requirement or evidence. Missing
-    proof stays reviewable unless exclusion was selected explicitly.
+
+def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
+    """The one must-have policy of every search surface (decision 10.09.2026).
+
+    The gate only ever compares must-haves recognised as technologies
+    (`gate_eligible_must_skills`); prose requirements never hide anyone.
+    ``review`` (the default) hides a candidate whose known skills lack such a
+    technology, while a candidate with no skill data passes — absence of data
+    is not proof. ``exclude`` additionally hides that missing proof. An
+    explicit per-request ``True``/``False`` overrides the saved policy (``True``
+    = ``exclude``, ``False`` = no must-have gate at all). The kill switch
+    ``RUBRIC_DEALBREAKERS_ENABLED`` is applied once, in ``apply_dealbreakers``.
     """
     from dataclasses import replace
     from app.services.dealbreaker_filters import dealbreaker_inputs_for_job
@@ -79,16 +91,14 @@ def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):
         verification_job_id=getattr(job, "id", None),
         verification_fingerprint=criteria_fingerprint(contract),
     )
+    if exclude_missing_must is False:
+        return replace(inputs, must_skills=())
     exclude = (
-        requirements_for_job(job).missing_evidence_policy == "exclude"
+        contract.missing_evidence_policy == "exclude"
         if exclude_missing_must is None
-        else exclude_missing_must
+        else True
     )
-    return (
-        replace(inputs, exclude_unknown_skill_evidence=True)
-        if exclude
-        else replace(inputs, must_skills=())
-    )
+    return replace(inputs, exclude_unknown_skill_evidence=exclude)
 
 
 def invalidate_changed_requirements(job, updates: dict) -> None:

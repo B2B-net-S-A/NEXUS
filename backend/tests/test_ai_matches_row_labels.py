@@ -253,8 +253,10 @@ class TestBuildMatchInfoRubricLabels:
 # w test_ai_matches_fallback_eligibility.py.
 
 
-@pytest_asyncio.fixture
-async def rubric_labels_fixture():
+@pytest_asyncio.fixture(params=["review", "exclude"])
+async def rubric_labels_fixture(request):
+    # Etykiety i bramka must-have są takie same dla obu polityk: znana luka
+    # technologii ukrywa także przy domyślnym „review” (decyzja 10.09).
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"AIMatch RowLabels Client {unique}")
@@ -266,7 +268,7 @@ async def rubric_labels_fixture():
             matching_requirements={
                 "version": 1,
                 "reviewed": True,
-                "missing_evidence_policy": "exclude",
+                "missing_evidence_policy": request.param,
                 "all_of": [
                     {
                         "any_of": ["python"],
