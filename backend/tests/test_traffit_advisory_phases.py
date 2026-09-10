@@ -1,11 +1,19 @@
-"""Enrichment phases report errors but never freeze the `__daily__` watermark.
+"""Row errors of enrichment phases never freeze `__daily__`; a phase crash does.
 
 Measured on prod: one unparseable CV (candidate 287387, `enrich candidate_name
 … backfill failed`) held `__daily__` from 2026-09-08. The quarantine could not
 release it — a budgeted full sweep sees a row once per pass, and
 `_next_quarantine` forgets a row that is absent from the next run, so the
-counter never reached the limit. Enrichment re-derives data Nexus already
-stores; holding the Traffit delta window back re-covers nothing for it.
+counter never reached the limit. Holding the watermark does retry the same
+candidates (the next delta re-imports the wider window and re-stamps their
+`updated_at`), but a permanently broken row just fails again — so per-row
+errors are advisory.
+
+A CRASH of the phase (a failed commit, a lost connection) is a different
+thing: nothing proves any row was processed, and `candidates_cv_fields` is
+delta-only — skipped by the full run, scoped to `updated_at >= run_start` —
+so the held watermark is the only retry it gets. A crash therefore still holds
+`__daily__`, exactly as before the advisory split.
 """
 
 from __future__ import annotations
@@ -61,20 +69,91 @@ async def test_row_errors_in_enrichment_do_not_freeze_the_watermark(monkeypatch,
     assert "blocking_errors" not in row.kwargs["stats"]
 
 
-async def test_a_crashing_enrichment_phase_does_not_freeze_it_either(monkeypatch):
+@pytest.mark.parametrize("phase", sorted(ADVISORY_PHASES))
+async def test_attributed_row_errors_stay_visible_without_freezing_it(
+    monkeypatch, phase
+):
+    """The /sync/status sample keeps the row key and the exception class."""
+    from app.services.traffit.importer import PhaseProgress
+
+    async def attributed():
+        progress = PhaseProgress(phase=phase)
+        progress.add_error(
+            "enrich candidate_name id=287387: backfill failed (ValueError)"
+        )
+        progress.started_at = progress.finished_at = datetime.now()
+        return progress
+
     upserts = await _run(
         monkeypatch,
         mode="delta",
-        phases=[
-            ("candidates", _ok_phase()),
-            ("candidates_enrich_names", _raising_phase()),
-        ],
+        phases=[("candidates", _ok_phase()), (phase, attributed)],
     )
 
-    daily = _marker_call(upserts, DAILY_MARKER)
-    assert isinstance(daily.kwargs["last_synced_at"], datetime)
-    row = _marker_call(upserts, "candidates_enrich_names")
+    assert isinstance(
+        _marker_call(upserts, DAILY_MARKER).kwargs["last_synced_at"], datetime
+    )
+    row = _marker_call(upserts, phase)
+    assert row.kwargs["last_status"] == "errors"
+    assert row.kwargs["stats"]["advisory_errors"] == 1
+    assert row.kwargs["stats"]["error_samples"] == [
+        "enrich candidate_name id=287387: backfill failed (ValueError)"
+    ]
+
+
+@pytest.mark.parametrize("mode", ["delta", "full"])
+@pytest.mark.parametrize("phase", sorted(ADVISORY_PHASES))
+async def test_a_crashing_enrichment_phase_still_holds_the_watermark(
+    monkeypatch, phase, mode
+):
+    """E.g. a failed commit: no row is known to be done, the retry is the hold."""
+    upserts = await _run(
+        monkeypatch,
+        mode=mode,
+        phases=[("candidates", _ok_phase()), (phase, _raising_phase())],
+    )
+
+    markers = [DAILY_MARKER] + ([traffit_sync.FULL_MARKER] if mode == "full" else [])
+    for marker in markers:
+        call = _marker_call(upserts, marker)
+        assert call.kwargs["last_synced_at"] is None, marker
+        assert call.kwargs["last_status"] == "errors", marker
+    row = _marker_call(upserts, phase)
     assert row.kwargs["last_status"] == "error"
+
+
+async def test_run_summary_reports_a_crashed_enrichment_phase_as_errors(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from tests.test_traffit_watermark_on_failure import _FakeClient, _FakeSessionCM
+
+    monkeypatch.setattr(traffit_sync, "_upsert_state", AsyncMock())
+    monkeypatch.setattr(
+        traffit_sync,
+        "_get_state",
+        AsyncMock(return_value=SimpleNamespace(last_synced_at=None, stats=None)),
+    )
+    monkeypatch.setattr(
+        traffit_sync,
+        "_phase_plan",
+        lambda importer, since, files_since: [
+            ("candidates_cv_fields", _raising_phase()),
+            ("cortex", _row_error_phase(1)),
+        ],
+    )
+    monkeypatch.setattr(traffit_sync, "TraffitImporter", lambda *a, **k: object())
+    monkeypatch.setattr(traffit_sync, "TraffitClient", _FakeClient)
+    monkeypatch.setattr(traffit_sync, "AsyncSessionLocal", lambda: _FakeSessionCM())
+    monkeypatch.setattr(
+        traffit_sync.TraffitConfig, "from_env", staticmethod(lambda: object())
+    )
+
+    summary = await traffit_sync.run_traffit_sync("delta")
+
+    assert summary["status"] == "errors"
+    assert "error" in summary["phases"]["candidates_cv_fields"]
+    # Only the row-level errors are advisory; the crash is not listed there.
+    assert summary["advisory_failures"] == ["cortex"]
 
 
 async def test_import_phase_errors_still_freeze_it(monkeypatch):
