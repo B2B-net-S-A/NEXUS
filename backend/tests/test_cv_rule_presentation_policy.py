@@ -127,14 +127,15 @@ def test_obedient_model_leaves_no_notes() -> None:
     assert notes == []
 
 
-def test_long_bullets_are_shortened_at_a_word_boundary() -> None:
+def test_long_bullets_require_rewrite_instead_of_cutting_qualifications() -> None:
+    from copy import deepcopy
+    from app.services.cv_generator_b2b.editorial_limits import EditorialLimitError
+
     data = _data()
-    notes = apply_presentation_policy(data, _rule(max_bullet_chars=40))
-    first = data["experience"][0]["responsibilities"][0]
-    assert len(first) <= 40
-    assert first.endswith("…")
-    assert " " not in first[-2:]  # bez wiszącej spacji przed wielokropkiem
-    assert any("skrócono" in n for n in notes)
+    before = deepcopy(data)
+    with pytest.raises(EditorialLimitError, match="responsibility_still_exceeds_limit"):
+        apply_presentation_policy(data, _rule(max_bullet_chars=40))
+    assert data == before
 
 
 def test_glossary_target_with_backslash_does_not_crash() -> None:
@@ -248,7 +249,17 @@ def test_required_inputs_report_each_missing_item_in_polish() -> None:
         has_champion=True,
     )
     assert problems_new == []
-    assert required_input_problems(None, mode="new", screening_chars=0, has_project_ref=False, has_position=False, has_champion=False) == []
+    assert (
+        required_input_problems(
+            None,
+            mode="new",
+            screening_chars=0,
+            has_project_ref=False,
+            has_position=False,
+            has_champion=False,
+        )
+        == []
+    )
 
 
 # ── Blok promptu ────────────────────────────────────────────────────────────
@@ -288,7 +299,9 @@ def test_notes_go_to_their_own_block_and_are_neutralized() -> None:
     assert "<" not in body and ">" not in body
     assert build_client_notes_block(_rule()) == ""
     combined = build_prompt_blocks(_rule(notes="x", generator_instructions="y"), "pl")
-    assert combined.index("<client_presentation_rules>") < combined.index("<client_notes>")
+    assert combined.index("<client_presentation_rules>") < combined.index(
+        "<client_notes>"
+    )
 
 
 def test_describe_rule_names_every_layer() -> None:

@@ -1687,12 +1687,12 @@ def _run_generation_pipeline(
         fit_responsibilities(
             candidate_data, client_rule, language=language, request_id=request_id
         )
+        policy_notes = apply_presentation_policy(candidate_data, client_rule)
     except (EditorialLimitError, CVGeneratorAIError) as err:
         raise StandaloneGenerationError(
             code="editorial_limits_failed",
             message="Nie udało się przygotować pełnych punktów w limicie znaków klienta. Zwiększ limit lub ponów generację; nie utworzono uciętego dokumentu.",
         ) from err
-    policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)
 
     # Check the actual final claims, including glossary replacements and date

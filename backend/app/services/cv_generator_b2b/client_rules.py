@@ -421,16 +421,6 @@ def build_prompt_blocks(rule: Optional[CvRuleSnapshot], language: str = "pl") ->
 # ── Polityka prezentacji egzekwowana w kodzie ───────────────────────────────
 
 
-def _shorten(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    cut = text[: max(limit - 1, 1)]
-    space = cut.rfind(" ")
-    if space > limit // 2:
-        cut = cut[:space]
-    return cut.rstrip(" ,;:") + "…"
-
-
 def apply_presentation_policy(
     candidate_data: dict[str, Any], rule: Optional[CvRuleSnapshot]
 ) -> list[str]:
@@ -467,21 +457,16 @@ def apply_presentation_policy(
                 f"ucięto punkty obowiązków do {rule.max_bullets_per_role} "
                 f"na stanowisko ({trimmed} stanowisk)"
             )
-    if rule.max_bullet_chars:
-        shortened = 0
-        for role in candidate_data.get("experience") or []:
-            bullets = role.get("responsibilities") or []
-            new_bullets = []
-            for bullet in bullets:
-                short = _shorten(str(bullet), rule.max_bullet_chars)
-                if short != bullet:
-                    shortened += 1
-                new_bullets.append(short)
-            role["responsibilities"] = new_bullets
-        if shortened:
-            notes.append(
-                f"skrócono {shortened} punktów obowiązków do {rule.max_bullet_chars} znaków"
-            )
+    if rule.max_bullet_chars and any(
+        len(str(bullet)) > rule.max_bullet_chars
+        for role in candidate_data.get("experience") or []
+        for bullet in role.get("responsibilities") or []
+    ):
+        from app.services.cv_generator_b2b.editorial_limits import EditorialLimitError
+
+        # The bounded rewrite must already have produced complete prose.
+        # Never hide a missed rewrite by cutting away factual qualifications.
+        raise EditorialLimitError("responsibility_still_exceeds_limit")
     why_points = candidate_data.get("why_points") or []
     if rule.why_points_max and len(why_points) > rule.why_points_max:
         candidate_data["why_points"] = why_points[: rule.why_points_max]

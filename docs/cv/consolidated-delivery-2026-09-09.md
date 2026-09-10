@@ -675,3 +675,7 @@ Podgląd receptury sprawdza teraz każdą wybraną frazę w końcowych polach, k
 ### CV-18: rozpoznawanie wyniku reguły dat
 
 Informacja zwrotna rozpoznaje pełny poprawny zapis dla czterech obsługiwanych formatów, zakresy dat i końce „obecnie/present/current”. Nie uznaje nieznanego tekstu, miesiąca spoza 01–12 ani samego roku przy polityce miesięcznej za potwierdzone wykonanie reguły. Ten wynik dotyczy kształtu dat, nie ich zgodności ze źródłem ani obliczenia stażu. Trzynaście testów informacji zwrotnej i Ruff przeszły lokalnie.
+
+### CV-15: brak mechanicznego ucinania obowiązków
+
+Usunięto awaryjne obcinanie punktów do limitu z wielokropkiem. Po istniejącym ograniczonym etapie redakcyjnego przepisania każdy pozostały zbyt długi punkt kończy generację błędem `editorial_limits_failed`, zamiast tracić końcowe zastrzeżenie lub zakres odpowiedzialności. Końcowa kontrola faktów pozostaje wymagana dla poprawnie przepisanej treści. 51 testów limitów, polityki prezentacji i bezpiecznych aliasów oraz Ruff przeszły lokalnie. Nie stanowi to pomiaru jakości podsumowań na rzeczywistym modelu.
