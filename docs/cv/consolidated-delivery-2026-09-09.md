@@ -588,3 +588,17 @@ It does not accept missing, duplicated or substituted employer numbers. The
 corrected native OCR gate passed in CI 34420500564, job 102694726055,
 for a86ef1c0. The remaining backend suite was still running at that checkpoint. No generator output normalization or OCR
 text rewriting was introduced by this assertion change.
+
+## Candidate erasure dependency for source retention
+
+Current candidate hard-delete collects `Candidate.cv_storage_key` and
+`CandidateDocument.storage_key`, then removes those storage objects. It does not
+collect `CvGenerationJob.input_storage_key`. Generated CV rows have a nullable
+candidate association and survive candidate deletion; their durable input jobs
+therefore also remain reachable without their original candidate association.
+The new private source snapshots need explicit integration with the existing
+erasure path before CV-09 retention can be accepted. The change must account for
+active generation leases, both language outputs, preview jobs, frozen approval
+assets and rollback/retry when storage deletion fails. No production erasure was
+performed during this inspection. This is an open implementation requirement,
+not evidence of complete retention.
