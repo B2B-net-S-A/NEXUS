@@ -246,3 +246,32 @@ def test_conflicting_skill_columns_block_cv_and_search_until_reconciled():
     assert validation(cp, j)["blocked_operations"] == []
     assert j.matching_requirements is None
     assert not j.requirements_reviewed
+
+
+@pytest.mark.asyncio
+async def test_parser_does_not_repair_a_truncated_response_into_success(monkeypatch):
+    from app.services import champion_profile_ingest as ingest
+
+    async def truncated(*args, **kwargs):
+        return SimpleNamespace(stop_reason="max_tokens", content=[])
+
+    monkeypatch.setattr(ingest, "run_in_threadpool", truncated)
+    with pytest.raises(ValueError, match="całego dokumentu"):
+        await ingest.parse_champion_document("synthetic legacy profile")
+
+
+def test_ai_legacy_envelope_preserves_zero_and_splits_string_skills():
+    from app.services.champion_profile_ingest import build_champion_dict
+
+    cp = prepare_profile(
+        build_champion_dict(
+            {
+                "basics": {"rate_value": 0, "seniority_min_years": 0},
+                "stack": {"must": "Python; Java"},
+            },
+            None,
+        )
+    )
+    assert cp["basics"]["seniority_min_years"] == 0
+    assert cp["intake"]["unresolved"]["basics.rate_value"] == "0"
+    assert cp["stack"]["must"] == [{"name": "Python"}, {"name": "Java"}]

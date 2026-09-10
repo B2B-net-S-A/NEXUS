@@ -264,9 +264,9 @@ export function ChampionProfileEditor({
               <Badge
                 variant="info"
                 size="sm"
-                title={`Profil zaimportowany z dokumentu (parser AI${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+                title={`Profil zaimportowany z dokumentu (parser${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
               >
-                {CHAMPION_AI_PROVENANCE_LABEL}
+                {draft._parser?.includes("table-intake") ? "Z importu dokumentu" : CHAMPION_AI_PROVENANCE_LABEL}
               </Badge>
             ) : null}
           </h2>
@@ -418,7 +418,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Min. lat doświadczenia">
+          <Labeled label="Doświadczenie łącznie w IT (lata)">
             <input
               type="number"
               min={0}
@@ -441,7 +441,8 @@ export function ChampionProfileEditor({
             <input
               type="number"
               min={0}
-              step="0.5"
+              max={2000}
+              step="0.01"
               disabled={disabled}
               value={draft.basics.rate_value ?? ""}
               onChange={(e) =>
@@ -454,14 +455,11 @@ export function ChampionProfileEditor({
             />
           </Labeled>
           <Labeled label="Tryb pracy">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.work_mode ?? ""}
-              onChange={(e) => patchBasics({ work_mode: e.target.value })}
-              placeholder="stacjonarnie / hybrydowo / zdalnie"
-              className={inputClass}
-            />
+            <select disabled={disabled} value={draft.basics.work_mode ?? ""} onChange={e => patchBasics({work_mode: e.target.value || null})} className={inputClass}>
+              <option value="">Wybierz tryb pracy</option>
+              <option value="zdalnie">Zdalnie</option><option value="hybrydowo">Hybrydowo</option><option value="stacjonarnie">Stacjonarnie</option>
+              {draft.basics.work_mode && !["zdalnie", "hybrydowo", "stacjonarnie"].includes(draft.basics.work_mode) && <option value={draft.basics.work_mode}>{draft.basics.work_mode} — zapis wcześniejszy</option>}
+            </select>
           </Labeled>
           <Labeled label="Dni stacjonarne / tydzień">
             <input
@@ -487,7 +485,7 @@ export function ChampionProfileEditor({
               onChange={(e) =>
                 patchBasics({ candidate_location_pref: e.target.value })
               }
-              placeholder="np. Warszawa, Al. Jerozolimskie / PL remote"
+              placeholder="Jedno miasto, np. Warszawa"
               className={inputClass}
             />
           </Labeled>
@@ -507,7 +505,7 @@ export function ChampionProfileEditor({
               disabled={disabled}
               value={draft.basics.start_date ?? ""}
               onChange={(e) => patchBasics({ start_date: e.target.value })}
-              placeholder="np. ASAP / 01.10.2026"
+              placeholder="RRRR-MM-DD, np. 2026-10-01"
               className={inputClass}
             />
           </Labeled>
@@ -517,7 +515,7 @@ export function ChampionProfileEditor({
               disabled={disabled}
               value={draft.basics.deadline ?? ""}
               onChange={(e) => patchBasics({ deadline: e.target.value })}
-              placeholder="np. 12.09.2026"
+              placeholder="RRRR-MM-DD, np. 2026-09-18"
               className={inputClass}
             />
           </Labeled>
@@ -590,10 +588,8 @@ export function ChampionProfileEditor({
           </Labeled>
         </div>
         <p className="text-[11px] text-muted-foreground mt-3">
-          Zapis synchronizuje stack do <code>must_skills</code>/
-          <code>nice_skills</code> — to one zasilają ranking C2, kafelki
-          interaktywnego CV i filtry wyszukiwarki. Oddzielaj przecinkiem lub
-          nową linią.
+          MUST to wymagania obowiązkowe, NICE to atuty opcjonalne. Oddzielaj wpisy nową linią.
+          Alternatywę zapisz w jednej pozycji jako „A lub B” — wystarczy jedna z tych umiejętności.
         </p>
       </Section>
 

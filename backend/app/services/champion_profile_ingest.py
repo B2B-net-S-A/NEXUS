@@ -155,6 +155,10 @@ async def parse_champion_document(text: str) -> dict:
         thinking={"type": "disabled"},
         messages=[{"role": "user", "content": PROMPT + text}],
     )
+    if getattr(msg, "stop_reason", None) == "max_tokens":
+        raise ValueError(
+            "Parser nie odczytał całego dokumentu. Skróć dokument i spróbuj ponownie."
+        )
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     start, end = raw.find("{"), raw.rfind("}")
     if start == -1 or end <= start:
@@ -198,6 +202,10 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
     client = parsed.get("client") or {}
 
     def _skills(raw: Any) -> list[dict]:
+        if isinstance(raw, str):
+            from app.services.champion_document import _split_skills
+
+            raw = _split_skills(raw)
         out: list[dict] = []
         for item in raw or []:
             name = item.get("name") if isinstance(item, dict) else item
@@ -208,9 +216,10 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
     return {
         "basics": {
             "role_name": basics.get("role_name") or parsed.get("role_name"),
-            "seniority_min_years": basics.get("seniority_min_years")
-            or parsed.get("seniority_min_years"),
-            "rate_value": basics.get("rate_value") or parsed.get("rate_value"),
+            "seniority_min_years": basics.get(
+                "seniority_min_years", parsed.get("seniority_min_years")
+            ),
+            "rate_value": basics.get("rate_value", parsed.get("rate_value")),
             "rate_raw": basics.get("rate_raw") or parsed.get("rate_raw"),
             "work_mode": basics.get("work_mode") or parsed.get("work_mode"),
             "onsite_days_per_week": basics.get("onsite_days_per_week"),

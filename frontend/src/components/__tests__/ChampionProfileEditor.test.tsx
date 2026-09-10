@@ -195,7 +195,7 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
     expect(screen.getByText("2 z 3 sekcji puste")).toBeInTheDocument();
   });
 
-  it("etykiety stacku niosą liczniki, a zdanie o synchronizacji nazywa konsumentów", async () => {
+  it("etykiety stacku niosą liczniki i wyjaśniają alternatywy", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 1,
@@ -209,7 +209,7 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
 
     expect(screen.getByText("Musi mieć · 2")).toBeInTheDocument();
     expect(screen.getByText("Mile widziane · 1")).toBeInTheDocument();
-    expect(container.textContent).toContain("ranking C2");
+    expect(container.textContent).toContain("wystarczy jedna z tych umiejętności");
   });
 });
 
