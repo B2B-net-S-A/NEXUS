@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -16,6 +17,22 @@ logger = logging.getLogger(__name__)
 POLICY_VERSION = 1
 MAX_TEXT = 14_000
 OPERATIONS = ["search", "handoff", "cv"]
+
+
+def gate_enabled() -> bool:
+    """Whether Champion draft issues hard-block search/handoff/CV.
+
+    Default OFF: issues are advisory only (pre-#1477 behavior). Flip
+    CHAMPION_INTAKE_GATE_ENABLED=true in Coolify to re-enable blocking
+    once the profiles have been cleaned up.
+    """
+
+    return os.getenv("CHAMPION_INTAKE_GATE_ENABLED", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 SECTION_KEYS = (
     "basics",
     "search",
@@ -193,6 +210,7 @@ def validation(profile, job=None, *, enforce=False):
         cp = prepare_profile(cp)
         meta = cp.get("intake") or {}
     issues = []
+    blocking = gate_enabled()
 
     def add(code, path, message, operations=OPERATIONS, source=None, warning=False):
         issues.append(
@@ -202,7 +220,7 @@ def validation(profile, job=None, *, enforce=False):
                 "message": message,
                 "severity": "warning" if warning or not active else "error",
                 "blocked_operations": list(operations)
-                if active and not warning
+                if active and not warning and blocking
                 else [],
                 "source": source,
             }

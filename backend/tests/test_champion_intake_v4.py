@@ -21,6 +21,14 @@ FIXTURES = Path(__file__).parent / "fixtures" / "champion"
 BLANK = Path(__file__).parents[1] / "app/assets/champion/Profil_Championa_v4.0.docx"
 
 
+@pytest.fixture(autouse=True)
+def _enable_champion_gate(monkeypatch):
+    # The gate defaults OFF in production (advisory only); these tests cover
+    # the blocking contract, so turn it on. Individual tests may delenv to
+    # exercise the default advisory behavior.
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+
+
 def filled():
     d = table_profile((FIXTURES / "v4-two-questions.docx").read_bytes())
     return prepare_profile(
@@ -164,6 +172,23 @@ def test_grandfathering_noop_workflow_changes_and_server_stamps():
     assert user_edit(legacy, legacy, 100, imported=True)["intake"]["applied_by"] == 100
     assert user_edit({}, {}, 100)["intake"]["policy_version"] == 1
     assert user_edit(edited, {"intake": None}, 101)["intake"] == edited["intake"]
+
+
+def test_gate_off_by_default_is_advisory_and_never_blocks(monkeypatch):
+    monkeypatch.delenv("CHAMPION_INTAKE_GATE_ENABLED", raising=False)
+    cp = filled()
+    cp["basics"].update(rate_value=None, rate_raw=None)
+    draft = job(cp)
+    result = validation(cp, draft)
+    # Issues are still surfaced (advisory), but nothing is blocked and
+    # enforce_operation is a no-op — pre-#1477 generator behavior.
+    assert result["issues"]
+    assert result["blocked_operations"] == []
+    assert all(i["blocked_operations"] == [] for i in result["issues"])
+    enforce_operation(draft, "cv")
+    enforce_operation(draft, "search")
+    enforce_operation(draft, "handoff")
+    enforce_operation(draft, "search", force=True)
 
 
 def test_draft_operation_specific_gates_and_revalidation():

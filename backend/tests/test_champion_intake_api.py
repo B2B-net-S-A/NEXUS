@@ -3,10 +3,19 @@
 import uuid
 from copy import deepcopy
 
+import pytest
+
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from tests.test_champion_intake_v4 import filled
+
+
+@pytest.fixture(autouse=True)
+def _enable_champion_gate(monkeypatch):
+    # Gate defaults OFF in production (advisory); this suite asserts the
+    # blocking API contract, so turn it on.
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
 
 
 async def seed():
