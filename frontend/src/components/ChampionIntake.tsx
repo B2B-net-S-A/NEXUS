@@ -91,7 +91,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     setBusy(true); setError("");
     try {
       const final = withValues(existing ?? source.champion_profile, Object.fromEntries(fields.map(([path]) => [path, selected[path] ? values[path] : old[path] ?? ""])));
-      final.intake = { ...final.intake, policy_version: 1, unresolved: {}, template_version: source.champion_profile.intake?.template_version };
+      final.intake = { ...final.intake, policy_version: 1, unresolved: {}, template_version: source.champion_profile.intake?.template_version, document_context: source.champion_profile.intake?.document_context };
       final.screening_questions = useQuestions ? questions : existing?.screening_questions ?? [];
       const { data: checked } = await api.post<ChampionPreview>("/api/champion/validate", { profile: final });
       setSource(checked);
@@ -115,6 +115,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     <DialogContent aria-describedby={undefined} className="max-w-5xl max-h-[90vh] overflow-y-auto space-y-4">
       <DialogTitle>Podgląd importu Championa</DialogTitle>
       <p className="text-sm">Popraw odczytane dane. Istniejące niepuste wartości są zachowane; zaznacz pola, które chcesz zastąpić.</p>
+      {source.champion_profile.intake?.document_context && <div className="rounded border p-3 text-sm space-y-1"><p className="font-medium">Informacje z dokumentu — sprawdź zgodność z wybraną rekrutacją</p>{Object.entries(source.champion_profile.intake.document_context).map(([key, value]) => <p key={key} className="whitespace-pre-wrap">{({ client_name: "Klient", delivery_lead: "Delivery Lead", profile_revision: "Data i wersja profilu", source_conversations: "Rozmowy źródłowe", prep_owner: "Za prep odpowiada", last_change: "Ostatnia zmiana" } as Record<string, string>)[key] ?? key}: {value}</p>)}</div>}
       <ChampionValidationPanel validation={source.validation} />
       {fields.map(([path, label]) => <div id={`champion-field-${path}`} key={path} className="border-b pb-3 space-y-1">
         <label className="font-medium text-sm" htmlFor={`input-${path}`}>{label}</label>

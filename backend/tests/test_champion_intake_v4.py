@@ -60,6 +60,14 @@ async def test_blank_and_two_question_template_without_ai(monkeypatch):
         assert valid["summary"]["onsite_days_per_week"] == 2
         assert valid["validation"]["issues"] == []
         assert valid["champion_profile"]["intake"]["template_version"] == "4.0"
+        assert (
+            valid["champion_profile"]["intake"]["document_context"]["client_name"]
+            == "Klient testowy"
+        )
+        assert (
+            "Rekruter"
+            in valid["champion_profile"]["intake"]["document_context"]["prep_owner"]
+        )
         assert valid["champion_profile"]["_parser"].startswith("champion_parse:v7:")
 
 
@@ -275,3 +283,20 @@ def test_ai_legacy_envelope_preserves_zero_and_splits_string_skills():
     assert cp["basics"]["seniority_min_years"] == 0
     assert cp["intake"]["unresolved"]["basics.rate_value"] == "0"
     assert cp["stack"]["must"] == [{"name": "Python"}, {"name": "Java"}]
+
+
+def test_reviewed_contract_cannot_mask_a_different_profile():
+    from app.services.champion_intake import sync_selected_rubrics
+    from app.services.requirement_contract import explicit_contract
+
+    cp = filled()
+    j = job(cp)
+    j.must_skills = cp["stack"]["must"]
+    j.matching_requirements = explicit_contract(
+        ["Python"], [], reviewed=True
+    ).model_dump()
+    j.requirements_reviewed = True
+    assert "cv" in validation(cp, j)["blocked_operations"]
+    sync_selected_rubrics(j, cp, ["must"])
+    assert j.matching_requirements is None
+    assert validation(cp, j)["blocked_operations"] == []

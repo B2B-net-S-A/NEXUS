@@ -59,6 +59,7 @@ def table_profile(data: bytes) -> dict | None:
     profile = {key: {} for key in ("basics", "search", "stack", "project", "client")}
     profile["screening_questions"] = []
     raw = {}
+    document_context = {}
     section = ""
     found = set()
     labels = (
@@ -125,6 +126,16 @@ def table_profile(data: bytes) -> dict | None:
         for cells in rows:
             for i in range(0, len(cells) - 1, 2):
                 label = folded(cells[i])
+                for prefix, key in (
+                    ("klient (", "client_name"),
+                    ("delivery lead", "delivery_lead"),
+                    ("data i wersja", "profile_revision"),
+                    ("rozmowy zrodlowe", "source_conversations"),
+                    ("za prep", "prep_owner"),
+                    ("ostatnia zmiana", "last_change"),
+                ):
+                    if label.startswith(prefix) and meaningful(cells[i + 1]):
+                        document_context[key] = cells[i + 1]
                 if label.startswith("uwagi / plan"):
                     put("search.notes", cells[i + 1])
                 elif label.startswith("uwagi / niuanse"):
@@ -143,6 +154,7 @@ def table_profile(data: bytes) -> dict | None:
     return {
         "profile": deepcopy(profile),
         "raw_fields": raw,
+        "document_context": document_context,
         "template_version": version.group(1) if version else None,
     }
 

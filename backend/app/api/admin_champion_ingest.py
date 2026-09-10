@@ -25,9 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, get_db
 from app.core.rate_limit import limiter
-from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
-from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.ai_quota import AIQuotaExceeded
 from app.services.champion_profile_ingest import (
     extract_document_text,
     ingest_parsed_profile,
@@ -132,12 +131,11 @@ async def champion_ingest(
         return _json({"outcome": "no_text", "external_rid": rid}, status_code=422)
 
     try:
-        async with ai_feature(db, AIFeatureKey.champion_profile_parse):
-            from app.services.champion_intake import preview_document
+        from app.services.champion_intake import preview_document
 
-            parsed = (await preview_document(content, file.filename or ""))[
-                "champion_profile"
-            ]
+        parsed = (await preview_document(content, file.filename or "", db=db))[
+            "champion_profile"
+        ]
     except AIQuotaExceeded as exc:
         return _json({"detail": str(exc)}, status_code=503)
     except ValueError as exc:

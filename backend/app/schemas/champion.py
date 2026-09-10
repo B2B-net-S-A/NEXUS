@@ -421,6 +421,7 @@ class ChampionIntake(BaseModel):
     policy_version: Literal[1] = 1
     template_version: Optional[str] = None
     unresolved: dict[str, str] = Field(default_factory=dict)
+    document_context: dict[str, str] = Field(default_factory=dict)
     applied_by: Optional[int] = None
     applied_at: Optional[str] = None
 

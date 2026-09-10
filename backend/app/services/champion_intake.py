@@ -170,6 +170,7 @@ def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=No
         "policy_version": POLICY_VERSION,
         "template_version": template_version or old_meta.get("template_version"),
         "unresolved": unresolved,
+        "document_context": old_meta.get("document_context", {}),
         "applied_by": actor_id,
         "applied_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -292,14 +293,14 @@ def validation(profile, job=None, *, enforce=False):
         )
     values = dict(basics)
     if job is not None:
-        from app.services.skill_normalize import iter_skill_names
-
         for key, column in STACK_COLUMNS.items():
-            declared = {
-                name.casefold() for name in iter_skill_names(getattr(job, column, None))
-            }
-            requested = {item["name"].casefold() for item in stack[key]}
-            if declared and declared != requested:
+            raw_column = getattr(job, column, None)
+            declared = effective_skill_names(job, key)
+            requested = [item["name"] for item in stack[key]]
+            if (
+                raw_column is not None
+                or getattr(job, "matching_requirements", None) is not None
+            ) and skill_groups(declared) != skill_groups(requested):
                 add(
                     "skill_column_conflict",
                     f"stack.{key}",
@@ -446,7 +447,6 @@ def fingerprint(job):
 
 
 def response_context(job):
-    from app.services.skill_normalize import iter_skill_names
 
     return {
         "validation": validation(job.champion_profile, job),
@@ -454,7 +454,7 @@ def response_context(job):
         "job_values": {
             **{key: getattr(job, column, None) for key, column in RUBRICS.items()},
             **{
-                key: "\n".join(iter_skill_names(getattr(job, column, None)))
+                key: "\n".join(effective_skill_names(job, key))
                 for key, column in STACK_COLUMNS.items()
             },
         },
@@ -482,6 +482,9 @@ async def preview_document(data, filename, *, db=None):
         else None
     )
     if structured:
+        structured["profile"]["intake"] = {
+            "document_context": structured.get("document_context", {})
+        }
         cp = prepare_profile(
             structured["profile"],
             raw_fields=structured["raw_fields"],
@@ -542,6 +545,7 @@ def user_edit(old, patch, actor_id, *, imported=False):
         merged["intake"] = {
             "unresolved": (patch.get("intake") or {}).get("unresolved", {}),
             "template_version": (patch.get("intake") or {}).get("template_version"),
+            "document_context": (patch.get("intake") or {}).get("document_context", {}),
         }
     else:
         unresolved = dict((normalized.get("intake") or {}).get("unresolved", {}))
@@ -589,6 +593,10 @@ def sync_skill_column(job, key, items):
     from app.services.skill_normalize import iter_skill_names
     from app.services.requirement_contract import apply_requirement_source_update
 
+    if getattr(job, "matching_requirements", None) is not None and skill_groups(
+        effective_skill_names(job, key)
+    ) != skill_groups([item["name"] for item in items]):
+        apply_requirement_source_update(job, "matching_requirements", None)
     column = STACK_COLUMNS[key]
     current = getattr(job, column, None)
     if {name.casefold() for name in iter_skill_names(current)} == {
@@ -596,3 +604,21 @@ def sync_skill_column(job, key, items):
     }:
         return
     apply_requirement_source_update(job, column, items)
+
+
+def effective_skill_names(job, key):
+    from app.services.requirement_contract import stored_contract, requirement_labels
+    from app.services.skill_normalize import iter_skill_names
+
+    contract = stored_contract(job)
+    return (
+        requirement_labels(contract)[key]
+        if contract is not None
+        else iter_skill_names(getattr(job, STACK_COLUMNS[key], None))
+    )
+
+
+def skill_groups(names):
+    from app.services.requirement_contract import explicit_contract
+
+    return {frozenset(group.any_of) for group in explicit_contract(names, []).all_of}

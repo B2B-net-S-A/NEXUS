@@ -4101,7 +4101,7 @@ export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
  * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
  */
 export interface ChampionProfile {
-  intake?: { policy_version: number; template_version?: string | null; unresolved: Record<string, string>; applied_by?: number | null; applied_at?: string | null } | null;
+  intake?: { policy_version: number; template_version?: string | null; unresolved: Record<string, string>; document_context?: Record<string, string>; applied_by?: number | null; applied_at?: string | null } | null;
   basics: ChampionBasics;
   search: ChampionSearch;
   stack: ChampionStack;

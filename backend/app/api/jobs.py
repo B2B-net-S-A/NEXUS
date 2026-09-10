@@ -1999,10 +1999,20 @@ async def _save_champion_profile(
     # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
     # odróżnia „wyczyściłem" od „nie dotykałem".
     if "stack" in (payload or {}):
-        if not imported or not job.must_skills or "must" in (sync_fields or []):
-            sync_skill_column(job, "must", stack_must)
-        if not imported or not job.nice_skills or "nice" in (sync_fields or []):
-            sync_skill_column(job, "nice", stack_nice)
+        stack_changed = normalized_old["stack"] != new_profile["stack"]
+        for key, items, column in (
+            ("must", stack_must, "must_skills"),
+            ("nice", stack_nice, "nice_skills"),
+        ):
+            empty_unreviewed = (
+                getattr(job, column) is None and job.matching_requirements is None
+            )
+            if (
+                (not imported and stack_changed)
+                or empty_unreviewed
+                or key in (sync_fields or [])
+            ):
+                sync_skill_column(job, key, items)
 
     # Sekcja 1 „Podstawowe informacje" ma odpowiednik w KOLUMNACH oferty
     # (`rate_budget_hourly`, `onsite_days_per_week`, `remote_policy`,
