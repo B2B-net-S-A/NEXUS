@@ -620,8 +620,8 @@ def test_legacy_null_activation_uses_the_pinned_client_type(monkeypatch):
     from app.models.order_type import OrderType
 
     monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {12: (OrderType.md,)},
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES",
+        {12: OrderType.md},
     )
     order = _complete_draft_order(_contract_with_future_progressive_rate())
     order.client_id = 12
@@ -658,12 +658,8 @@ def _md_client(monkeypatch, *, multi: str = "12,18", cost: str = "15"):
     monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", multi)
     monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", cost)
     monkeypatch.setattr(
-        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
-        {
-            12: (OrderType.md,),
-            18: (OrderType.md,),
-            15: (OrderType.md, OrderType.cost),
-        },
+        "app.services.order_types._LEGACY_NULL_ORDER_TYPES",
+        {12: OrderType.md, 18: OrderType.md, 15: OrderType.md},
     )
 
 

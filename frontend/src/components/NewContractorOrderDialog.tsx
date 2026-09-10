@@ -32,7 +32,10 @@ import {
 interface NewContractorOrderDialogProps {
   clientId: number;
   orderType?: OrderType;
-  onOrderTypeChange?: (orderType: OrderType) => void;
+  /** Zmiana typu przekazuje wgrany plik do formularza zamówienia MD/kosztowego. */
+  onOrderTypeChange?: (orderType: OrderType, file: File | null) => void;
+  /** Plik przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
+  initialFile?: File | null;
   allowedOrderTypes?: readonly OrderType[];
   canManageFinance?: boolean;
   /**
@@ -84,6 +87,7 @@ export function NewContractorOrderDialog({
   orderType = "periodic",
   onOrderTypeChange,
   allowedOrderTypes,
+  initialFile = null,
   canManageFinance: serverCanManageFinance,
   defaultRateUnit,
   onClose,
@@ -134,7 +138,7 @@ export function NewContractorOrderDialog({
   // (Nordea, Bank Pocztowy, BNP…) obowiązują tu bez żadnej dodatkowej
   // konfiguracji. Klienta NIE czytamy z dokumentu — wynika z profilu, z
   // którego formularz został otwarty.
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [fileError, setFileError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
@@ -450,7 +454,7 @@ export function NewContractorOrderDialog({
         {onOrderTypeChange ? (
           <OrderTypeSwitch
             value={orderType}
-            onChange={onOrderTypeChange}
+            onChange={(next) => onOrderTypeChange(next, file)}
             allowedTypes={allowedOrderTypes}
           />
         ) : null}

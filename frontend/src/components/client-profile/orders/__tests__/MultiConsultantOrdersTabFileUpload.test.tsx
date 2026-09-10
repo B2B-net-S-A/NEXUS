@@ -124,7 +124,7 @@ async function fillNewOrderForm(user: ReturnType<typeof userEvent.setup>) {
     target: { value: "2026-03-01" },
   });
   await user.upload(
-    screen.getByLabelText(/Zamień plik PDF/),
+    screen.getByLabelText(/Wgraj PDF zamówienia/),
     new File(["%PDF-1.7"], "zamowienie.pdf", { type: "application/pdf" }),
   );
 }

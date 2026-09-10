@@ -26,6 +26,16 @@ vi.mock("@/lib/api/dlPortal", () => ({
 
 import { dlPortalApi } from "@/lib/api/dlPortal";
 
+vi.mock("@/lib/api/orderGroups", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/orderGroups")>()),
+  orderGroupsApi: {
+    extractPlan: vi.fn(),
+    consultantOptions: vi.fn().mockResolvedValue({ data: { options: [], total: 0 } }),
+  },
+}));
+
+import { orderGroupsApi } from "@/lib/api/orderGroups";
+
 const BIK_READ: OrderExtractionResult = {
   title: "4500012345",
   start_date: "2031-09-03",
@@ -173,21 +183,60 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
     );
   }
 
-  it("nowe zamówienie: numer, data rozpoczęcia, bezterminowo i lista osób", async () => {
+  it("nowe zamówienie: numer, data rozpoczęcia, bezterminowo i karty osób", async () => {
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({
+      data: {
+        order_number: "4500012345",
+        start_date: "2031-09-03",
+        end_date: null,
+        open_ended: true,
+        total_value: null,
+        currency: "PLN",
+        md_total: null,
+        suggested_order_type: "md",
+        client_policy: "BIK",
+        consultant_ref: null,
+        title_needs_review: false,
+        document_incomplete: false,
+        uncertain: false,
+        uncertain_reasons: [],
+        lines: BIK_READ.consultant_rows!.map((row, index) => ({
+          ordinal: index + 1,
+          document_name: row.consultant_name,
+          position_label: String((index + 1) * 10),
+          rate_revenue: row.rate_client,
+          rate_revenue_unit: "day",
+          rate_revenue_gross: null,
+          md_total: row.md_total,
+          start_date: row.start_date,
+          end_date: null,
+          match_status: "none",
+          match_reason: "Brak kontraktu z tym imieniem i nazwiskiem u tego klienta",
+          contract: null,
+          options: [],
+          nearest_names: [],
+          warnings: [],
+        })),
+      },
+    } as never);
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     formModal(null);
-    await readDocument(user);
+    const endField = screen.getByLabelText("Obowiązuje do (puste = bezterminowo)");
+    fireEvent.change(endField, { target: { value: "2031-12-31" } });
+    await user.upload(screen.getByLabelText(/Wgraj PDF zamówienia/), PDF);
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj i uzupełnij całe zamówienie/ }),
+    );
 
+    // Wpisana wcześniej data końca różni się od „bezterminowo" — zgoda.
+    await user.click(await screen.findByRole("button", { name: /Tak/ }));
     expect(screen.getByLabelText("Numer zamówienia *")).toHaveValue("4500012345");
     expect(screen.getByLabelText("Obowiązuje od *")).toHaveValue("2031-09-03");
-    expect(
-      screen.getByLabelText("Obowiązuje do (puste = bezterminowo)"),
-    ).toHaveValue("");
-    expect(screen.getByText("Konsultanci odczytani z PDF")).toBeInTheDocument();
-    expect(screen.getByText("Krystian Sowiński")).toBeInTheDocument();
-    expect(screen.getByText(/limit 42 MD/)).toBeInTheDocument();
-    expect(screen.getByText(/1280 zł\/MD|1 280 zł\/MD/)).toBeInTheDocument();
-    expect(screen.getAllByText(/2031-09-03 – bezterminowo/)).toHaveLength(2);
+    expect(endField).toHaveValue("");
+    const piotr = screen.getByRole("article", { name: "Konsultant: Piotr Łęcki" });
+    expect(piotr).toHaveTextContent("z PDF, poz. 20");
+    expect(screen.getAllByLabelText("Liczba MD")[1]).toHaveValue("42");
+    expect(screen.getAllByLabelText("Stawka przychodowa")[1]).toHaveValue("1280");
   });
 
   it("uzupełnienie: „bezterminowo” zastępuje wpisaną datę dopiero po zgodzie", async () => {

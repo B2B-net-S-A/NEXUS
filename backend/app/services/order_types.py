@@ -2,40 +2,53 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.client_order import ClientOrder
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.order_type import OrderType
 
-# Kanoniczne rekordy produkcyjne wskazane w ticketcie korekty z 29.08.2026.
-# Bramka jest po ID, nie po nazwie: rodzina BNP zawiera kilka niezależnych
-# klientów, a nazwy są synchronizowane z Traffita. Cyfrowy Polsat świadomie
-# nie należy do tej listy — zachowuje trzy typy zamówień.
-_PINNED_ALLOWED_ORDER_TYPES: dict[int, tuple[OrderType, ...]] = {
-    12: (OrderType.md,),
-    18: (OrderType.md,),
-    15: (OrderType.md, OrderType.cost),
-    155: (OrderType.md, OrderType.cost),
+ALL_ORDER_TYPES: tuple[OrderType, ...] = (
+    OrderType.periodic,
+    OrderType.cost,
+    OrderType.md,
+)
+
+# Jak czytać historyczne samodzielne zamówienia BEZ jawnego typu (``NULL``).
+#
+# Do 09.2026 ta mapa była SZTYWNĄ polityką zapisu: BNP i BIK mogły tworzyć
+# wyłącznie MD, Polkomtel i Wedel MD + kosztowe. Ticket „jedno okno Nowe
+# zamówienie" znosi tę blokadę — każdy klient ma wszystkie trzy typy, a
+# formularz jedynie PODPOWIADA najczęstszy (``most_common_order_type``).
+#
+# Mapa zostaje wyłącznie jako INTERPRETACJA ODCZYTU: legacy ``NULL`` u tych
+# czterech klientów był od zawsze zamówieniem MD. Zdjęcie jej razem z blokadą
+# przeklasyfikowałoby ich historyczne karty na „Okresowe" — zmiana widoczna
+# w rejestrze, niezwiązana z tym, co ticket naprawia.
+_LEGACY_NULL_ORDER_TYPES: dict[int, OrderType] = {
+    12: OrderType.md,
+    18: OrderType.md,
+    15: OrderType.md,
+    155: OrderType.md,
 }
 
 
 def allowed_order_types(client_id: int) -> tuple[OrderType, ...]:
     """Zwróć typy, które wolno utworzyć dla konkretnego klienta.
 
-    BNP i BIK mają wyłącznie MD, Polkomtel i Wedel MD + kosztowe.
-    Pozostali klienci zachowują dotychczasowy jawny wybór wszystkich trzech
-    typów. Cztery wyjątki z ticketu są jedynym zawężeniem tej polityki.
+    Od 09.2026 wszystkie trzy typy są dostępne dla każdego klienta — bez
+    blokady per klient. Funkcja zostaje jako jeden punkt polityki, bo wołają
+    ją walidatory zapisu (``assert_order_type_allowed``) i audyt korekty
+    danych z sierpnia (``nexus_data_correction``), który przez nią wykrywa, że
+    jego założenia przestały obowiązywać.
     """
 
-    pinned = _PINNED_ALLOWED_ORDER_TYPES.get(client_id)
-    if pinned is not None:
-        return pinned
-
-    return (OrderType.periodic, OrderType.cost, OrderType.md)
+    del client_id  # polityka jest jednakowa dla wszystkich klientów
+    return ALL_ORDER_TYPES
 
 
 def assert_order_type_allowed(client_id: int, order_type: OrderType | str) -> None:
@@ -70,26 +83,27 @@ def should_process_active_standalone_order(
     return False
 
 
+def legacy_null_order_type(client_id: int | None) -> OrderType:
+    """Jak interpretować historyczne samodzielne zamówienie bez typu."""
+
+    if client_id is None:
+        return OrderType.periodic
+    return _LEGACY_NULL_ORDER_TYPES.get(client_id, OrderType.periodic)
+
+
 def effective_standalone_order_type(
     client_id: int, order_type: OrderType | str | None
 ) -> OrderType:
-    """Interpretuj legacy ``NULL`` zgodnie z polityką konkretnego klienta.
+    """Interpretuj legacy ``NULL`` zgodnie z historią konkretnego klienta.
 
     Przed dodaniem jawnego typu samodzielne zamówienia miały ``NULL``. Dla
-    klienta, który nadal dopuszcza okresowe, jest to historyczne ``periodic``.
-    Gdy okresowe są wyłączone, ``NULL`` oznacza pierwszy dozwolony typ (MD dla
-    czterech klientów z korekty), a nie zamówienie okresowe do pokazania lub
-    usunięcia.
+    zwykłego klienta jest to historyczne ``periodic``, a dla czterech klientów
+    rozliczanych w MD (BNP, BIK, Polkomtel, Wedel) — ``md``.
     """
 
     if order_type is not None:
         return OrderType(order_type)
-    allowed = allowed_order_types(client_id)
-    if OrderType.periodic in allowed:
-        return OrderType.periodic
-    if not allowed:
-        raise ValueError("Klient nie ma skonfigurowanego żadnego typu zamówienia")
-    return allowed[0]
+    return legacy_null_order_type(client_id)
 
 
 def effective_group_order_type(group: ClientOrderGroup) -> OrderType:
@@ -113,8 +127,12 @@ async def suggested_order_type(db: AsyncSession, client_id: int) -> OrderType:
     Samodzielny ``ClientOrder`` jest zamówieniem okresowym albo jeszcze
     nieuzupełnionym, jawnym szkicem kosztowym/MD. Linie grup są pomijane, bo
     inaczej każde zamówienie kosztowe/MD głosowałoby drugi raz jako osobny
-    order. Historia bez żadnego rekordu daje pierwszy typ dozwolony polityką
-    klienta (zwykle ``periodic``, a dla BNP/BIK/Polkomtela/Wedla ``md``).
+    order. Historia bez żadnego rekordu daje typ, którym klient rozlicza się
+    historycznie (``legacy_null_order_type``).
+
+    Ostatni typ podpowiadają automaty (szkic po zatrudnieniu, poczta
+    zamówień). Formularz „Nowe zamówienie" podpowiada NAJCZĘSTSZY typ —
+    patrz ``most_common_order_type``.
     """
 
     latest_order = await db.scalar(
@@ -133,24 +151,69 @@ async def suggested_order_type(db: AsyncSession, client_id: int) -> OrderType:
         .limit(1)
     )
 
-    allowed = allowed_order_types(client_id)
-    if not allowed:
-        raise ValueError("Klient nie ma skonfigurowanego żadnego typu zamówienia")
-
     if latest_order is None and latest_group is None:
-        return allowed[0]
+        return legacy_null_order_type(client_id)
     if latest_group is None:
-        suggested = effective_standalone_order_type(client_id, latest_order.order_type)
-        return suggested if suggested in allowed else allowed[0]
+        return effective_standalone_order_type(client_id, latest_order.order_type)
     if latest_order is None:
-        suggested = effective_group_order_type(latest_group)
-        return suggested if suggested in allowed else allowed[0]
+        return effective_group_order_type(latest_group)
 
     epoch = datetime.min.replace(tzinfo=timezone.utc)
     order_created = latest_order.created_at or epoch
     group_created = latest_group.created_at or epoch
     if group_created >= order_created:
-        suggested = effective_group_order_type(latest_group)
-    else:
-        suggested = effective_standalone_order_type(client_id, latest_order.order_type)
-    return suggested if suggested in allowed else allowed[0]
+        return effective_group_order_type(latest_group)
+    return effective_standalone_order_type(client_id, latest_order.order_type)
+
+
+async def most_common_order_type(db: AsyncSession, client_id: int) -> OrderType:
+    """Typ najczęściej występujący w historii zamówień klienta.
+
+    Podpowiedź domyślnego typu w oknie „Nowe zamówienie" (np. BIK → MD).
+    Liczone są grupy (kosztowe/MD) i samodzielne zamówienia bez anulowanych —
+    linie grup nie głosują drugi raz. Remis rozstrzyga typ ostatnio
+    utworzonego zamówienia, a brak historii — typ historyczny klienta.
+    Podpowiedź niczego nie blokuje: użytkownik zawsze może wybrać inny typ.
+    """
+
+    counts: Counter[OrderType] = Counter()
+    group_rows = await db.execute(
+        select(
+            ClientOrderGroup.order_type,
+            ClientOrderGroup.is_cost_based,
+            func.count(ClientOrderGroup.id),
+        )
+        .where(ClientOrderGroup.client_id == client_id)
+        .group_by(ClientOrderGroup.order_type, ClientOrderGroup.is_cost_based)
+    )
+    for order_type, is_cost_based, count in group_rows.all():
+        if order_type is not None:
+            resolved = OrderType(order_type)
+        else:
+            resolved = OrderType.cost if is_cost_based else OrderType.md
+        counts[resolved] += int(count)
+
+    order_rows = await db.execute(
+        select(ClientOrder.order_type, func.count(ClientOrder.id))
+        .where(
+            ClientOrder.client_id == client_id,
+            ClientOrder.order_group_id.is_(None),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+        .group_by(ClientOrder.order_type)
+    )
+    for order_type, count in order_rows.all():
+        counts[effective_standalone_order_type(client_id, order_type)] += int(count)
+
+    if not counts:
+        return legacy_null_order_type(client_id)
+    top = max(counts.values())
+    leaders = {order_type for order_type, count in counts.items() if count == top}
+    if len(leaders) == 1:
+        return next(iter(leaders))
+    latest = await suggested_order_type(db, client_id)
+    if latest in leaders:
+        return latest
+    # Ostatni typ nie należy do remisu (np. anulowane zamówienie) — kolejność
+    # stała, żeby odpowiedź nie zależała od kolejności słownika.
+    return next(order_type for order_type in ALL_ORDER_TYPES if order_type in leaders)

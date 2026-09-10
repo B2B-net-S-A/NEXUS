@@ -1019,8 +1019,9 @@ export default function ClientDetailPage() {
             <MultiConsultantOrdersTab
               clientId={Number(id)}
               clientName={client?.display_name || client?.name || ""}
-              costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
-              periodicOrdersEnabled={client?.periodic_orders_enabled !== false}
+              legacyNullOrderType={
+                client?.legacy_null_order_type === "md" ? "md" : "periodic"
+              }
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}

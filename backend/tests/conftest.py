@@ -135,12 +135,12 @@ def _detach_polkomtel_finance_matching_gate(monkeypatch):
 def _detach_canonical_order_type_policy(monkeypatch):
     """Testowe seriale 12/15/18/155 nie mogą udawać klientów produkcyjnych.
 
-    Regresje samej polityki ustawiają mapę jawnie w swoim teście. Pozostałe
-    fabryki klientów zachowują zwykły wybór typów niezależnie od kolejności
-    plików w shardzie CI.
+    Regresje samej interpretacji ustawiają mapę jawnie w swoim teście.
+    Pozostałe fabryki klientów czytają historyczny ``NULL`` jako okresowe
+    niezależnie od kolejności plików w shardzie CI.
     """
 
-    monkeypatch.setattr("app.services.order_types._PINNED_ALLOWED_ORDER_TYPES", {})
+    monkeypatch.setattr("app.services.order_types._LEGACY_NULL_ORDER_TYPES", {})
 
 
 @pytest.fixture(autouse=True)

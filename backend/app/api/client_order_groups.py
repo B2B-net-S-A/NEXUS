@@ -55,6 +55,7 @@ from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -98,6 +99,7 @@ from app.schemas.client_order_group import (
     OrderGroupEventRead,
     OrderGroupEventsResponse,
     OrderGroupExportRequest,
+    OrderGroupExtractionResult,
     OrderGroupListResponse,
     OrderGroupRead,
     OrderGroupUpdate,
@@ -107,7 +109,10 @@ from app.schemas.client_order_group import (
     OrderLineRead,
     OrderLineSwapRequest,
     OrderLineUpdate,
+    OrderPlanContractRead,
+    OrderPlanLineRead,
 )
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import (
     CLIENT_CONTRACT_STATUSES,
@@ -162,6 +167,14 @@ from app.services.multi_consultant_orders import (
     remaining_value_pln,
     swap_md_total,
 )
+from app.services.order_group_extraction import (
+    MAX_UPLOAD_BYTES as ORDER_UPLOAD_MAX_BYTES,
+    OrderDocumentError,
+    PlanContractOption,
+    build_plan_lines,
+    extract_all_rows,
+    read_order_document,
+)
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 from app.services.order_md_exhaustion import (
     closed_by_md_exhaustion,
@@ -171,7 +184,7 @@ from app.services.order_write_errors import commit_order_write
 from app.services.order_types import (
     assert_order_type_allowed,
     effective_group_order_type,
-    suggested_order_type,
+    most_common_order_type,
 )
 from app.services.fx_service import rates_to_pln
 from app.services.order_rate_snapshots import convert_order_rate
@@ -1555,7 +1568,9 @@ async def list_order_groups(
         groups=groups,
         total_groups=len(models),
         total_consultants=sum(read.active_consultants for read in reads_by_id.values()),
-        suggested_order_type=await suggested_order_type(db, client_id),
+        # Najczęstszy typ klienta (np. BIK → MD) — domyślny wybór w oknie
+        # „Nowe zamówienie". Podpowiedź, nie blokada: każdy typ jest dostępny.
+        suggested_order_type=await most_common_order_type(db, client_id),
         draft_orders=draft_orders,
         total_draft_orders=len(draft_orders),
     )
@@ -1813,6 +1828,134 @@ async def list_consultant_options_for_client(
             for o in options
         ],
         total=total,
+    )
+
+
+def _plan_contract_read(
+    option: Optional[PlanContractOption], *, with_finance: bool
+) -> Optional[OrderPlanContractRead]:
+    if option is None:
+        return None
+    rate = option.rate_cost if with_finance else None
+    return OrderPlanContractRead(
+        contract_id=option.contract_id,
+        candidate_id=option.candidate_id,
+        contractor_name=option.contractor_name,
+        status=option.status,
+        start_date=option.start_date,
+        end_date=option.end_date,
+        rate_cost=rate.raw if rate else None,
+        rate_cost_unit=rate.unit if rate else None,
+        rate_cost_currency=rate.currency if rate else None,
+        rate_cost_rate_to_pln=rate.rate_to_pln if rate else None,
+        rate_cost_per_md_pln=rate.per_md_pln if rate else None,
+    )
+
+
+@router.post(
+    "/{client_id}/order-groups/extract",
+    response_model=OrderGroupExtractionResult,
+)
+async def extract_order_group_pdf(
+    client_id: int,
+    user: DeliveryLeadOrAdmin,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """„Zczytaj i uzupełnij całe zamówienie" — wszystkie osoby z jednego PDF-a.
+
+    Jeden odczyt dokumentu zamiast odczytu per konsultant. Zwraca numer, okres,
+    wartość zamówienia oraz kartę dla KAŻDEJ rozpoznanej osoby: stawkę
+    przychodową i liczbę MD z pozycji PDF-a, dopasowany kontrakt u klienta
+    (odznaka: automatycznie / do potwierdzenia / do wskazania) i stawkę
+    kosztową z tego kontraktu. Nie tworzy zamówienia ani nie zapisuje pliku —
+    zapis to osobne ``POST /order-groups`` z liniami, po weryfikacji DL.
+
+    Bramkowane jak ``/orders/extract``: Delivery Lead lub Admin + kwota AI
+    ``order_parser``. Kwoty redagowane dla ról bez odczytu finansów klienta.
+    """
+    # Ta sama bramka odczytu co lista kandydatów na linię (`consultant-options`):
+    # odpowiedź niesie nazwiska kontraktorów i identyfikatory kontraktów klienta.
+    await _require_group_read(db, user, client_id)
+    payload = await file.read(ORDER_UPLOAD_MAX_BYTES + 1)
+    try:
+        document = await read_order_document(file.filename, payload)
+    except OrderDocumentError as exc:
+        raise HTTPException(exc.status_code, detail=exc.detail) from exc
+
+    try:
+        async with ai_feature(db, AIFeatureKey.order_parser, user_id=user.id):
+            await db.commit()
+            reading = await extract_all_rows(
+                document, client_id=client_id, filename=file.filename
+            )
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
+
+    lines = await build_plan_lines(
+        db, client_id=client_id, reading=reading, today=business_today()
+    )
+    extraction = reading.extraction
+    applied_policies = reading.applied_policies
+    with_finance = await _can_see_finance(db, user, client_id)
+    reasons = list(extraction.uncertain_reasons)
+    if not with_finance:
+        # Swobodne powody modelu potrafią cytować kwoty — jak w `/orders/extract`.
+        reasons = (
+            ["Sprawdź odczytane dane przed zapisem."] if extraction.uncertain else []
+        )
+    if document.ocr_capped:
+        reasons.append(
+            "Dokument jest skanem dłuższym niż limit OCR — lista osób może być "
+            "niepełna; porównaj z PDF-em"
+        )
+    return OrderGroupExtractionResult(
+        order_number=extraction.title,
+        start_date=extraction.start_date,
+        end_date=extraction.end_date,
+        total_value=extraction.total_value if with_finance else None,
+        currency=extraction.currency if with_finance else None,
+        md_total=extraction.md_total,
+        suggested_order_type=await most_common_order_type(db, client_id),
+        client_policy=" + ".join(applied_policies) or None,
+        consultant_ref=extraction.consultant_ref,
+        title_needs_review=extraction.title_needs_review,
+        open_ended=reading.open_ended,
+        document_incomplete=document.ocr_capped,
+        uncertain=extraction.uncertain or document.ocr_capped,
+        uncertain_reasons=reasons,
+        lines=[
+            OrderPlanLineRead(
+                ordinal=line.ordinal,
+                document_name=line.document_name,
+                position_label=line.position_label,
+                rate_revenue=line.rate_revenue if with_finance else None,
+                rate_revenue_unit=line.rate_revenue_unit if with_finance else None,
+                rate_revenue_gross=line.rate_revenue_gross if with_finance else None,
+                md_total=line.md_total,
+                start_date=line.start_date,
+                end_date=line.end_date,
+                match_status=line.match_status,
+                match_reason=line.match_reason,
+                contract=_plan_contract_read(line.contract, with_finance=with_finance),
+                options=[
+                    _plan_contract_read(option, with_finance=with_finance)
+                    for option in line.options
+                ],
+                nearest_names=line.nearest_names,
+                warnings=line.warnings if with_finance else [],
+            )
+            for line in lines
+        ],
     )
 
 
@@ -2147,6 +2290,25 @@ async def create_order_group(
             assert_cost_order_client(client_id)
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
+    if (
+        payload.status == "active"
+        and resolved_type == OrderType.md
+        and payload.md_budget_mode is not None
+    ):
+        # Okno „Nowe zamówienie" zakłada zamówienie MD od razu z konsultantami,
+        # więc może je od razu aktywować. Te same warunki co przy aktywacji
+        # szkicu (PATCH status=active) — inaczej aktywne zamówienie MD bez
+        # budżetu powstawałoby bokiem.
+        if payload.md_budget_mode == "shared":
+            if payload.md_budget_total is None or payload.md_budget_total <= 0:
+                raise HTTPException(422, detail="Podaj wspólny budżet MD")
+        elif not payload.lines or any(
+            line.input_value is None or line.input_value <= 0 for line in payload.lines
+        ):
+            raise HTTPException(
+                422,
+                detail="Przed aktywacją dodaj konsultantów i uzupełnij ich budżety MD",
+            )
 
     group = ClientOrderGroup(
         client_id=client_id,
