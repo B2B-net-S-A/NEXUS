@@ -16,10 +16,23 @@ from dataclasses import dataclass, field
 
 from app.services.champion_document import _split_skills
 from app.services import champion_view
+from app.services.champion_intake import MAX_TEXT
 from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
 from app.services.skill_normalize import iter_skill_names
 
 logger = logging.getLogger(__name__)
+
+# Bound of the Champion section in the paid generation prompt — the same
+# 14 000 characters the AI parser reads (`champion_intake.MAX_TEXT`). The
+# limit left `parse_champion_from_docx_bytes` because it refused long but
+# readable Word forms; without this cap nothing bounded what an uploaded
+# document or a stored profile copies into every generation call.
+CHAMPION_PROMPT_MAX_CHARS = MAX_TEXT
+CHAMPION_PROMPT_CAP_WARNING = (
+    "Profil Championa przycięty do "
+    + f"{CHAMPION_PROMPT_MAX_CHARS:,}".replace(",", " ")
+    + " znaków w prompcie — sprawdź, czy kluczowe wymagania są w CV."
+)
 
 
 @dataclass
@@ -243,6 +256,31 @@ def build_champion_section(profile: ChampionProfileForPrompt, language: str) -> 
         )
     section += "\nWymagania i idealne odpowiedzi opisują rolę. Nie są dowodem doświadczenia ani odpowiedziami kandydata."
     return section
+
+
+def cap_champion_prompt_section(
+    section: str, limit: int = CHAMPION_PROMPT_MAX_CHARS
+) -> tuple[str, list[str]]:
+    """The Champion section as it may enter the prompt, plus its warnings.
+
+    Both pipelines put ``section.strip()`` between the ``<champion_profile>``
+    tags. Within ``limit`` the section comes back as the very same object, so
+    the prompt of a normal profile stays byte-identical. A longer one keeps its
+    head — MUST/NICE come first — cut at the last line break in the final
+    quarter of the limit, else at the last space there, else hard at the limit.
+    The profile itself (stored or read from the Word tables) is never touched.
+    """
+    text = section.strip()
+    if len(text) <= limit:
+        return section, []
+    head = text[:limit]
+    floor = limit - limit // 4
+    cut = head.rfind("\n")
+    if cut < floor:
+        cut = max(head.rfind(" "), head.rfind("\t"))
+    if cut < floor:
+        cut = limit
+    return head[:cut].rstrip(), [CHAMPION_PROMPT_CAP_WARNING]
 
 
 def build_screening_notes_section(notes: str, language: str) -> str:

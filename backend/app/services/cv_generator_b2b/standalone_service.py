@@ -53,6 +53,7 @@ from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
     ChampionParseDiagnostics,
     build_champion_section,
+    cap_champion_prompt_section,
     from_nexus_job,
     parse_champion_from_docx_bytes,
 )
@@ -1603,6 +1604,17 @@ def _run_generation_pipeline(
         if champion_dto and mode == "tailored"
         else ""
     )
+    # Bounded here, not when the Champion is read: the stored profile and the
+    # Word form stay whole, only what the paid call receives is capped.
+    champion_section, champion_cap_warnings = cap_champion_prompt_section(
+        champion_section
+    )
+    if champion_cap_warnings:
+        logger.warning(
+            "[cv_b2b][%s] Champion section capped to %d chars",
+            request_id,
+            len(champion_section),
+        )
     if champion_section.strip():
         user_parts.append(
             f"<champion_profile>\n{champion_section.strip()}\n</champion_profile>"
@@ -1729,6 +1741,7 @@ def _run_generation_pipeline(
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
+    guard_warnings.extend(champion_cap_warnings)
 
     # Klocki reguły klienta domykane W KODZIE — PO bezpiecznikach, nie przed:
     # `_fix_experience_years` i `_derivable_years` liczą lata z osobnego
