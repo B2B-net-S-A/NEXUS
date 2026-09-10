@@ -50,7 +50,11 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     generated_id = csv.generated_document_id
     if generated_id is None:
         raise HTTPException(
-            409, "Wybierz wygenerowane CV z zapisanymi źródłami przed zatwierdzeniem."
+            409,
+            {
+                "code": "cv_source_regeneration_required",
+                "message": "Wybierz wygenerowane CV z zapisanymi źródłami przed zatwierdzeniem.",
+            },
         )
     try:
         editor_claims(content_html)

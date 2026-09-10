@@ -245,7 +245,10 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
     verification.assert_not_called()
 
 
-async def test_missing_source_returns_recovery_code_without_charging(monkeypatch):
+@pytest.mark.parametrize("generated_id", [None, 11])
+async def test_missing_source_returns_recovery_code_without_charging(
+    monkeypatch, generated_id
+):
     monkeypatch.setattr(
         review,
         "load_review_source",
@@ -253,12 +256,12 @@ async def test_missing_source_returns_recovery_code_without_charging(monkeypatch
     )
     admission = Mock()
     monkeypatch.setattr(review, "ai_feature", admission)
-    draft = SimpleNamespace(generated_document_id=11, branded_render_metadata={})
+    draft = SimpleNamespace(
+        generated_document_id=generated_id, branded_render_metadata={}
+    )
     with pytest.raises(HTTPException) as error:
         await review.review_for_approval(AsyncMock(), draft, "<p>Changed claim</p>", 7)
     assert error.value.status_code == 409
-    assert error.value.detail == {
-        "code": "cv_source_regeneration_required",
-        "message": "Wygeneruj CV ponownie.",
-    }
+    assert error.value.detail["code"] == "cv_source_regeneration_required"
+    assert error.value.detail["message"]
     admission.assert_not_called()
