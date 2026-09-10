@@ -38,8 +38,8 @@ zakończenie wybranej partii; `covers_full_corpus=false` nie jest oceną całego
 Dla każdego modelu zestaw wszystkie 40 identyfikatorów, bez braków i nieświadomych
 duplikatów. Oceń zgodność całej historii, staż pełny i branżowy, podmiot, negacje,
 jednostki, jakość podsumowania oraz zgodność pogrubień i reguł klienta. Otwórz
-DOCX i porównaj z podglądem. Sprawdź także przypadki skanów/OCR po ich dodaniu
-do korpusu — obecne 40 wariantów ich nie obejmuje.
+DOCX i porównaj z podglądem. Wykonaj również osobny przebieg 40 wariantów skanów/OCR opisany poniżej;
+przebieg DOCX nie stanowi dowodu jakości odczytu skanów.
 
 Odbiór Delivery Leada musi dotyczyć konkretnych plików i recept klientów.
 `human_accepted=null` pozostaje brakiem odbioru; skrypt nie nadaje go automatycznie.
@@ -86,3 +86,44 @@ their source paragraphs and acceptance criteria. Preparing these files does not
 run OCR or a model and does not establish quality acceptance. Model measurement,
 visual inspection of rendered inputs and outputs, and human acceptance remain
 required. Existing output and input evidence is not overwritten on reuse.
+
+## Arkusz odbioru jakości pojedynczego CV
+
+Wypełnia oceniający po otwarciu źródła, wynikowego DOCX i HTML. Sama obecność
+pliku lub status `verified` nie wypełnia żadnej oceny. Zapisz po jednym wierszu
+dla każdego przypadku, modelu i rodzaju źródła. Brak pliku, błąd generacji lub
+brak recenzji pozostaje jawnym wynikiem, a nie pominięciem z mianownika.
+
+| Pole | Wartość do zapisania |
+|---|---|
+| Tożsamość | run ID, case ID, runtime SHA, corpus SHA, żądany i rzeczywisty model, DOCX/skan |
+| Artefakty | ścieżka i SHA-256 źródła, DOCX, HTML oraz identyfikator i wersja receptury |
+| Oceniający | imię/nazwa użytkownika, rola, data oceny |
+| Fakty | każde twierdzenie bez potwierdzenia: cytat wyniku, lokalizacja i odpowiadający fragment źródła |
+| Staż | oczekiwany i podany staż całkowity; osobno każda deklaracja stażu roli/technologii; nakładające się okresy i niepełne daty |
+| Kompletność | pominięte fakty istotne dla roli; rozróżnij świadomy limit prezentacji od braku w ekstrakcji |
+| Podsumowanie | ocena 0–3 według skali poniżej i konkretny przykład wymagający poprawy |
+| Pogrubienia | frazy oczekiwane, brakujące i nadmiarowe; strona/akapit w DOCX i odpowiadający fragment HTML |
+| Reguły klienta | każda aktywna reguła: spełniona / konflikt / nie dotyczy / wymaga oceny, z dowodem w pliku |
+| Decyzja | zaakceptowane / do poprawy / brak oceny; przyczyna i zakres decyzji |
+
+Skala podsumowania: **0** — błędne lub nieprzydatne; **1** — ogólne frazesy albo
+lista technologii bez wyjaśnienia doświadczenia; **2** — zwięzły, czytelny opis
+potwierdzonego doświadczenia i jego związku z rolą; **3** — spełnia poziom 2 oraz
+jasno pokazuje wyróżniające, udokumentowane osiągnięcia lub odpowiedzialności bez
+powtarzania historii stanowisk. Brak osiągnięć w źródle nie upoważnia do ich dopisania
+w celu uzyskania wyższej oceny. Oceniaj źródło PL/EN, nie wyłącznie płynność tekstu.
+
+Zmyślona kompetencja, zmiana negacji, zawyżony staż, przypisanie pracy szkoleniowej
+do produkcyjnej lub ujawnienie prywatnej informacji oznacza „do poprawy” niezależnie
+od średniej ocen. Nie kompensuj takich błędów dobrym formatowaniem. Porównanie modeli
+musi pokazywać osobno: powodzenie generacji, odsetek odrzuceń kontroli, potwierdzone
+błędy faktów, oceny podsumowań, błędy pogrubień, czas i koszt. Podaj licznik i mianownik
+każdej miary; odrzucone generacje nie są poprawnymi CV.
+
+Proponowany próg redakcyjny do zatwierdzenia przez DL: minimum 2 dla każdego
+zaakceptowanego podsumowania, brak krytycznych błędów faktów i rozwiązanie wszystkich
+konfliktów obowiązkowych reguł. To propozycja kryterium, nie zapis uzyskanego odbioru.
+Recenzent zapisuje decyzję dla konkretnych artefaktów; nie nadpisuje automatycznie
+`human_accepted` w surowym raporcie pomiarowym. Zbiorczy protokół wskazuje te decyzje
+i brakujące przypadki osobno dla każdego modelu i formatu źródła.
