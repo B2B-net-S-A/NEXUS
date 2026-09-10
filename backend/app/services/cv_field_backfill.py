@@ -165,6 +165,9 @@ async def backfill_cv_fields(
     # watermark `__daily__` bezterminowo. `setdefault`, bo `stats` bywa
     # obiektem współdzielonym z wywołującym (`progress`).
     stats.setdefault("error_ids", [])
+    # Klasa wyjątku per ID — próbka błędu w `/sync/status` mówi wtedy, CO
+    # padło (limit, constraint, parser), a nie tylko że padło.
+    stats.setdefault("error_types", {})
     stats.setdefault("email_collisions", 0)
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
@@ -327,6 +330,7 @@ async def backfill_cv_fields(
                     # watermark całej bazie.
                     if len(stats["error_ids"]) < _MAX_ERROR_IDS:
                         stats["error_ids"].append(candidate.id)
+                        stats["error_types"][candidate.id] = type(exc).__name__
                     logger.warning(
                         "[cv-backfill] apply/flush padł dla id=%s: %r — wiersz "
                         "pominięty, bieg trwa",
