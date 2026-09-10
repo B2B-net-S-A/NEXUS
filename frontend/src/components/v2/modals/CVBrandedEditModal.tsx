@@ -50,6 +50,7 @@ import {
 type Props = {
  open: boolean;
  onOpenChange: (open: boolean) => void;
+ onRegenerate?: () => void;
 
  candidateName: string;
  jobTitle?: string;
@@ -68,6 +69,7 @@ export function CVBrandedEditModal(props: Props) {
 function CVBrandedEditContent({
  open,
  onOpenChange,
+ onRegenerate,
  stageId: pipelineStageId,
  generatedId,
  candidateName,
@@ -165,14 +167,15 @@ function CVBrandedEditContent({
  }, [open, stageId]);
 
  const closeEditor = async (nextOpen: boolean) => {
-   if (nextOpen) { onOpenChange(true); return; }
-   if (replacingRef.current || sessionRef.current?.state === "finalizing") return;
+   if (nextOpen) { onOpenChange(true); return true; }
+   if (replacingRef.current || sessionRef.current?.state === "finalizing") return false;
    try {
      await sessionRef.current?.settle();
      await sessionRef.current?.save();
      while (sessionRef.current?.state === "unsaved") await sessionRef.current.save();
      onOpenChange(false);
-   } catch (error) { showError(getErrorMessage(error)); }
+     return true;
+   } catch (error) { showError(getErrorMessage(error)); return false; }
  };
 
  const swapMut = useMutation({
@@ -298,7 +301,9 @@ function CVBrandedEditContent({
        <li>Wygeneruj nowe CV, sprawdź jego treść i zatwierdź nowy wynik.</li>
      </ol>
      <p className="mt-2">Nowa generacja zużyje zwykły limit AI. Obecne poprawki pozostają w szkicu; nie zostaną automatycznie przeniesione.</p>
-     <Button className="mt-2" size="sm" variant="outline" onClick={() => void closeEditor(false)}>Zapisz szkic i zamknij</Button>
+     <Button className="mt-2" size="sm" variant="outline" onClick={async () => {
+       if (await closeEditor(false)) onRegenerate?.();
+     }}>{onRegenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}</Button>
    </>}
  </div>}
  <div className="flex items-center justify-between px-5 py-3 border-b border-border">

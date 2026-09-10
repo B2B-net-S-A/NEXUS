@@ -1186,6 +1186,7 @@ export function CvHandoffWorkbench({
         <CVBrandedEditModal
           open
           onOpenChange={setOpenBranded}
+          onRegenerate={() => generatorRef.current?.scrollIntoView({behavior: "smooth", block: "start"})}
           stageId={selected.item.id}
           jobTitle={jobLabel}
           candidateName={fullName}

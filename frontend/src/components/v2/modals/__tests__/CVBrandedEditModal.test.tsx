@@ -68,10 +68,14 @@ it.each(["pipeline", "standalone"])("%s keeps legacy recovery visible and saves 
     response: {data: {detail: {code: "cv_source_regeneration_required", message: "Brak zamrożonych źródeł."}}},
   });
   const close = vi.fn();
+  const regenerate = mode === "pipeline" ? vi.fn(() => {
+    expect(state.stored).toBe("<p>Preserve my changes</p>");
+    expect(close).toHaveBeenCalledWith(false);
+  }) : undefined;
   const target = mode === "pipeline" ? {stageId: 21} : {generatedId: 7};
   const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
   render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
-    candidateName="Synthetic" {...target} /></QueryClientProvider>);
+    candidateName="Synthetic" onRegenerate={regenerate} {...target} /></QueryClientProvider>);
   await screen.findByLabelText("audit editor");
   fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Preserve my changes</p>"}});
   fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
@@ -79,9 +83,10 @@ it.each(["pipeline", "standalone"])("%s keeps legacy recovery visible and saves 
   await screen.findByText("Brak zamrożonych źródeł.");
   expect(screen.getByText(/Wybierz oryginalny plik CV/)).toBeTruthy();
   expect(state.status).toBe("draft");
-  fireEvent.click(screen.getByRole("button", {name: "Zapisz szkic i zamknij"}));
+  fireEvent.click(screen.getByRole("button", {name: regenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}));
   await waitFor(() => expect(close).toHaveBeenCalledWith(false));
   expect(state.stored).toBe("<p>Preserve my changes</p>");
+  if (regenerate) expect(regenerate).toHaveBeenCalledOnce();
   finalize.mockRestore();
 });
 
