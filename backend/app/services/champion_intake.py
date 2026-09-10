@@ -10,11 +10,19 @@ import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from app.schemas.champion import ChampionProfile, migrate_legacy_champion_shape
+from app.schemas.champion import (
+    STACK_ITEM_MAX_CHARS,
+    ChampionProfile,
+    migrate_legacy_champion_shape,
+)
 from app.services.champion_document import folded, meaningful, table_profile
 
 logger = logging.getLogger(__name__)
 POLICY_VERSION = 1
+# Input limit of the AI parser (`parse_champion_document`), and ONLY of it: a
+# longer text makes the model run out of output tokens and return a profile
+# with silently missing sections. The Word form read from its tables involves
+# no model, so it has no such limit.
 MAX_TEXT = 14_000
 OPERATIONS = ["search", "handoff", "cv"]
 
@@ -98,43 +106,182 @@ def date(value):
     return None
 
 
-def split_skills(value):
+# A requirement longer than this reads like prose rather than a technology. It
+# is KEPT (in the stack and in `jobs.must_skills`) and only flagged: until
+# 09.2026 crossing either bound moved the entry to `intake.unresolved` and out
+# of the requirement list, so scoring and the search lost a requirement the
+# Delivery Lead had written down.
+LONG_REQUIREMENT_WORDS = 12
+LONG_REQUIREMENT_CHARS = 120
+
+ADVISORY_ISSUES = {
+    "basics.rate_value": (
+        "rate_source_ambiguous",
+        "Stawka w dokumencie nie jest jedną liczbą PLN/h. Zachowano stawkę z "
+        "profilu — sprawdź, czy to właściwa maksymalna stawka kandydata.",
+    ),
+    "stack.must": (
+        "long_requirement",
+        "Wymaganie zapisane jest opisowo. Zostało zachowane; rozważ skrócenie "
+        "go do nazwy technologii.",
+    ),
+    "stack.nice": (
+        "long_requirement",
+        "Wymaganie zapisane jest opisowo. Zostało zachowane; rozważ skrócenie "
+        "go do nazwy technologii.",
+    ),
+}
+
+
+def split_skills(value, restored=()):
+    """Split MUST/NICE input into stack entries without losing a requirement.
+
+    Returns ``(items, placeholders, long_items, unstorable)``: every meaningful
+    entry (deduplicated case-insensitively, in input order), the non-answers
+    such as "brak"/"do ustalenia", the kept entries that read like prose
+    (advisory only) and the entries too long to store as one item.
+    ``restored`` are entries an earlier version of this function set aside in
+    ``intake.unresolved``; they rejoin the list instead of staying lost there.
+    """
     from app.services.champion_document import _split_skills
 
     if isinstance(value, str):
         value = _split_skills(value)
-    out, dropped = [], []
-    for item in value or []:
+    items, placeholders, long_items, unstorable = [], [], [], []
+    seen = set()
+    for item in [*(value or []), *restored]:
         text = str(item.get("name", "") if isinstance(item, dict) else item).strip()
-        if not meaningful(text) or len(text) > 120 or len(text.split()) > 12:
-            if text:
-                dropped.append(text)
-        elif text.casefold() not in {s["name"].casefold() for s in out}:
-            out.append({"name": text})
-    return out, dropped
+        if not text:
+            continue
+        if not meaningful(text):
+            placeholders.append(text)
+            continue
+        if len(text) > STACK_ITEM_MAX_CHARS:
+            unstorable.append(text)
+            continue
+        if text.casefold() in seen:
+            continue
+        seen.add(text.casefold())
+        items.append({"name": text})
+        if (
+            len(text) > LONG_REQUIREMENT_CHARS
+            or len(text.split()) > LONG_REQUIREMENT_WORDS
+        ):
+            long_items.append(text)
+    return items, placeholders, long_items, unstorable
 
 
-def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=None):
-    """Store unresolved input alongside null/empty canonical values, not guesses."""
+def _value_at(profile, path):
+    section, _, key = path.partition(".")
+    value = (profile or {}).get(section)
+    if not key:
+        return value
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def _normalize_rate(basics, raw_fields, unresolved, advisory):
+    """`rate_value` from the typed number or the document text, never lost to it.
+
+    The document text (`rate_raw`) wins when it parses — it is the source the
+    number was read from. When it does not ("120–140 zł/h", "do 140 PLN/h
+    netto", a currency), a valid number already in `rate_value` is KEPT and the
+    text is recorded as advisory. Until 09.2026 the text replaced the number
+    and nulled it on every content-changing save of the profile, so scoring
+    lost the Champion budget of every profile imported with a range.
+    """
+    path = "basics.rate_value"
+    advisory.pop(path, None)
+    raw = basics.get("rate_raw")
+    value = raw_fields.get(path, basics.get("rate_value"))
+    if raw and path not in raw_fields:
+        current = rate(value) if value not in (None, "") else None
+        if rate(raw) is None and current is not None:
+            basics["rate_value"] = current
+            unresolved.pop(path, None)
+            advisory[path] = str(raw)[:STACK_ITEM_MAX_CHARS]
+            if len(str(raw)) > 255:
+                basics["rate_raw"] = None
+            return
+        value = raw
+    if value in (None, ""):
+        basics["rate_value"] = None
+        return
+    result = rate(value)
+    if result is None:
+        unresolved[path] = str(value)
+    else:
+        unresolved.pop(path, None)
+    basics["rate_value"] = result
+    basics["rate_raw"] = str(value) if len(str(value)) <= 255 else None
+
+
+def prepare_profile(
+    data,
+    *,
+    actor_id=None,
+    template_version=None,
+    raw_fields=None,
+    previous=None,
+):
+    """Store unresolved input alongside null/empty canonical values, not guesses.
+
+    ``previous`` is the normalised stored profile. When given, only the fields
+    whose value differs from it are normalised; everything else stays exactly
+    as stored, together with its `unresolved`/`advisory` notes. An edit of the
+    project description must not re-parse, and so rewrite, a rate or a
+    requirement list nobody touched. Without ``previous`` (a fresh document,
+    a preview, validation) the whole profile is normalised.
+    """
     data = deepcopy(data or {})
     old_meta = data.get("intake") or {}
     unresolved = dict(old_meta.get("unresolved") or {})
+    advisory = dict(old_meta.get("advisory") or {})
     basics = data.setdefault("basics", {})
     raw_fields = raw_fields or {}
     normalizers = {
-        "rate_value": rate,
         "seniority_min_years": lambda v: number(v, 60, integer=True),
         "onsite_days_per_week": lambda v: number(v, 7, integer=True),
         "work_mode": mode,
         "start_date": date,
         "deadline": date,
     }
+    text_limits = {
+        "role_name": 255,
+        "candidate_location_pref": 255,
+        "language": 50,
+        "contract_length": 255,
+    }
+    tracked = [
+        *(
+            f"basics.{key}"
+            for key in ("rate_value", "rate_raw", *normalizers, *text_limits)
+        ),
+        "stack.must",
+        "stack.nice",
+        "search.disqualifiers",
+        "screening_questions",
+        *(
+            f"{section}.{key}"
+            for section in ("project", "client")
+            for key in (data.get(section) or {})
+        ),
+    ]
+    # Decided BEFORE anything is rewritten: a normaliser must not make its
+    # neighbour look edited.
+    dirty = {
+        path
+        for path in tracked
+        if previous is None
+        or path in raw_fields
+        or _value_at(data, path) != _value_at(previous, path)
+    }
+    if {"basics.rate_value", "basics.rate_raw"} & dirty:
+        _normalize_rate(basics, raw_fields, unresolved, advisory)
     for key, normalize in normalizers.items():
         path = f"basics.{key}"
+        if path not in dirty:
+            continue
         value = raw_fields.get(path, basics.get(key))
-        if key == "rate_value" and basics.get("rate_raw") and path not in raw_fields:
-            # Never trust an AI-chosen number if the source was a range/unit mismatch.
-            value = basics["rate_raw"]
         if value in (None, ""):
             basics[key] = None
             continue
@@ -144,51 +291,65 @@ def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=No
         else:
             unresolved.pop(path, None)
         basics[key] = result
-        if key == "rate_value":
-            basics["rate_raw"] = str(value) if len(str(value)) <= 255 else None
-    for key in ("role_name", "candidate_location_pref", "language", "contract_length"):
+    for key, limit in text_limits.items():
+        path = f"basics.{key}"
+        if path not in dirty:
+            continue
         value = basics.get(key)
-        if value and not meaningful(value):
-            unresolved[f"basics.{key}"] = str(value)
+        if value and (not meaningful(value) or len(str(value)) > limit):
+            unresolved[path] = str(value)
             basics[key] = None
         elif value:
-            unresolved.pop(f"basics.{key}", None)
+            unresolved.pop(path, None)
     stack = data.setdefault("stack", {})
     for key in ("must", "nice"):
-        values, dropped = split_skills(stack.get(key))
-        stack[key] = values
         path = f"stack.{key}"
-        if dropped:
-            unresolved[path] = "\n".join(dropped)
+        if path not in dirty:
+            continue
+        restored = [
+            line
+            for line in str(unresolved.get(path) or "").splitlines()
+            if meaningful(line)
+        ]
+        values, placeholders, long_items, unstorable = split_skills(
+            stack.get(key), restored
+        )
+        stack[key] = values
+        set_aside = placeholders + unstorable
+        if set_aside:
+            unresolved[path] = "\n".join(set_aside)
         elif values:
             unresolved.pop(path, None)
+        if long_items:
+            advisory[path] = "\n".join(long_items)
+        else:
+            advisory.pop(path, None)
     search = data.setdefault("search", {})
-    if isinstance(search.get("disqualifiers"), str):
+    if "search.disqualifiers" in dirty and isinstance(search.get("disqualifiers"), str):
         search["disqualifiers"] = [
             x.strip() for x in search["disqualifiers"].splitlines() if meaningful(x)
         ]
-    questions = []
-    for q in data.get("screening_questions") or []:
-        if isinstance(q, dict) and meaningful(q.get("question")):
-            questions.append({**q, "id": str(q.get("id") or f"q{len(questions) + 1}")})
-    data["screening_questions"] = questions
+    if "screening_questions" in dirty:
+        questions = []
+        for q in data.get("screening_questions") or []:
+            if isinstance(q, dict) and meaningful(q.get("question")):
+                questions.append(
+                    {**q, "id": str(q.get("id") or f"q{len(questions) + 1}")}
+                )
+        data["screening_questions"] = questions
     for section in ("project", "client"):
         for key, value in list(data.setdefault(section, {}).items()):
-            if isinstance(value, str) and not meaningful(value):
+            if (
+                f"{section}.{key}" in dirty
+                and isinstance(value, str)
+                and not meaningful(value)
+            ):
                 data[section][key] = ""
-    for key, limit in {
-        "role_name": 255,
-        "candidate_location_pref": 255,
-        "language": 50,
-        "contract_length": 255,
-    }.items():
-        if basics.get(key) and len(str(basics[key])) > limit:
-            unresolved[f"basics.{key}"] = str(basics[key])
-            basics[key] = None
     data["intake"] = {
         "policy_version": POLICY_VERSION,
         "template_version": template_version or old_meta.get("template_version"),
         "unresolved": unresolved,
+        "advisory": advisory,
         "document_context": old_meta.get("document_context", {}),
         "applied_by": actor_id,
         "applied_at": datetime.now(timezone.utc).isoformat(),
@@ -249,6 +410,11 @@ def validation(profile, job=None, *, enforce=False):
             source,
             warning=path == "stack.nice",
         )
+    for path, source in (meta.get("advisory") or {}).items():
+        code, message = ADVISORY_ISSUES.get(
+            path, ("advisory_value", "Sprawdź ten wpis.")
+        )
+        add(code, path, message, source=source, warning=True)
     if not meaningful(basics.get("role_name") or getattr(job, "title", None)):
         add("missing_role", "basics.role_name", "Uzupełnij nazwę roli.")
     if not any(meaningful(cp["project"].get(k)) for k in ("about", "responsibilities")):
@@ -499,16 +665,13 @@ async def preview_document(data, filename, *, db=None):
     text = await run_in_threadpool(extract_document_text, data, filename)
     if not text:
         raise ValueError("Nie odczytano tekstu dokumentu.")
-    if len(text) > MAX_TEXT:
-        raise ValueError(
-            f"Dokument przekracza limit {MAX_TEXT} znaków. Skróć treść; niczego nie zaimportowano."
-        )
     structured = (
         await run_in_threadpool(table_profile, data)
         if filename.lower().endswith(".docx")
         else None
     )
     if structured:
+        # The Word form is read from its tables — no model, no input limit.
         structured["profile"]["intake"] = {
             "document_context": structured.get("document_context", {})
         }
@@ -518,6 +681,13 @@ async def preview_document(data, filename, *, db=None):
             template_version=structured["template_version"],
         )
     else:
+        # Checked BEFORE the quota block: rejecting an over-long document must
+        # not cost an AI call from the monthly limit.
+        if len(text) > MAX_TEXT:
+            raise ValueError(
+                f"Dokument przekracza limit {MAX_TEXT} znaków odczytu przez AI. "
+                "Skróć treść albo użyj wzoru Word v4; niczego nie zaimportowano."
+            )
         if db is None:
             parsed = await parse_champion_document(text)
         else:
@@ -571,26 +741,33 @@ def user_edit(old, patch, actor_id, *, imported=False):
         merged["_parser"] = PARSER_VERSION
         merged["intake"] = {
             "unresolved": (patch.get("intake") or {}).get("unresolved", {}),
+            "advisory": (patch.get("intake") or {}).get("advisory", {}),
             "template_version": (patch.get("intake") or {}).get("template_version"),
             "document_context": (patch.get("intake") or {}).get("document_context", {}),
         }
     else:
-        unresolved = dict((normalized.get("intake") or {}).get("unresolved", {}))
+        meta = normalized.get("intake") or {}
+        unresolved = dict(meta.get("unresolved") or {})
+        advisory = dict(meta.get("advisory") or {})
         for section, fields in patch.items():
             if isinstance(fields, dict):
                 for key, value in fields.items():
+                    path = f"{section}.{key}"
                     if value != (normalized.get(section) or {}).get(key):
-                        unresolved.pop(f"{section}.{key}", None)
-        merged["intake"] = {
-            **(normalized.get("intake") or {}),
-            "unresolved": unresolved,
-        }
+                        advisory.pop(path, None)
+                        # Requirements an earlier normaliser set aside are not
+                        # a stale value of this field: nobody saw them in the
+                        # editor, so nobody can have removed them. They stay
+                        # and rejoin the list in `prepare_profile`.
+                        if path not in ("stack.must", "stack.nice"):
+                            unresolved.pop(path, None)
+        merged["intake"] = {**meta, "unresolved": unresolved, "advisory": advisory}
     if (
         "rate_value" in patch.get("basics", {})
         and patch["basics"]["rate_value"] != normalized["basics"]["rate_value"]
     ):
         merged["basics"]["rate_raw"] = None
-    return prepare_profile(merged, actor_id=actor_id)
+    return prepare_profile(merged, actor_id=actor_id, previous=normalized)
 
 
 def sync_selected_rubrics(job, profile, fields):
