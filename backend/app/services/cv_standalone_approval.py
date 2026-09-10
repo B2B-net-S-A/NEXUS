@@ -25,7 +25,12 @@ async def approve_unchanged_generation(db, generated, user_id):
     public = build_public_payload(generated.render_payload)
     html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
     metadata = capture_editor_origin(html, generated.render_payload)
-    if not metadata["generation_review_available"]:
+    from app.services.cv_generator_b2b.source_facts import source_evidence_enforced
+
+    # With source-evidence enforcement off (the default), approving an
+    # unchanged generation does not require an AI review — the pre-#1444
+    # flow had no approval gate at all. Re-enabled together with the flag.
+    if not metadata["generation_review_available"] and source_evidence_enforced():
         raise HTTPException(
             409,
             "Brak potwierdzonej kontroli treści tej generacji. Wygeneruj CV ponownie.",
