@@ -268,9 +268,13 @@ async def schedule_approved_map(db, version, user_id):
         job = await db.get(Job, doc.job_id)
         if job is not None:
             requirements = build_requirements(job)
-    if not requirements:
-        return
     try:
+        if not requirements and getattr(doc, "mode", None) == "upload":
+            from app.services.cv_review_sources import load_upload_requirements
+
+            requirements = await load_upload_requirements(db, doc.id)
+        if not requirements:
+            return
         await enqueue_version_map(db, version, requirements, user_id)
     except ValueError:
         # Approved CV stays available; record why optional mapping cannot run.

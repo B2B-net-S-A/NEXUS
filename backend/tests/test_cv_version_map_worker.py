@@ -102,3 +102,25 @@ async def test_approval_captures_requirements_without_copying_old_evidence(
     else:
         enqueue.assert_not_awaited()
     db.commit.assert_not_awaited()
+
+
+async def test_empty_upload_map_recovers_original_requirements(monkeypatch):
+    from app.services import cv_review_sources
+    from app.services.cv_generator_b2b import document_policy
+
+    doc = SimpleNamespace(id=11, mode="upload", job_id=None, requirement_map=None)
+    db = AsyncMock()
+    db.get.return_value = doc
+    version = SimpleNamespace(generated_document_id=11)
+    requirements = [{"name": "AWS", "kind": "must"}]
+    recover = AsyncMock(return_value=requirements)
+    enqueue = AsyncMock()
+    monkeypatch.setattr(
+        document_policy, "interactive_client_enabled", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(cv_review_sources, "load_upload_requirements", recover)
+    monkeypatch.setattr(worker, "enqueue_version_map", enqueue)
+    await worker.schedule_approved_map(db, version, 3)
+    recover.assert_awaited_once_with(db, 11)
+    enqueue.assert_awaited_once_with(db, version, requirements, 3)
+    db.commit.assert_not_awaited()

@@ -53,3 +53,41 @@ async def test_missing_or_modified_snapshot_never_falls_back_to_live_sources(
     db.get.assert_not_awaited()
     if missing:
         download.assert_not_called()
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+async def test_requirements_recovered_from_frozen_upload_after_map_failure(
+    monkeypatch, corrupt
+):
+    raw, digest = serialize_job_inputs(
+        "upload",
+        {
+            "payload": UploadGenerationInput(
+                cv_bytes=b"original",
+                cv_filename="original.docx",
+                must_requirements="AWS; Python",
+                nice_requirements="SQL",
+            )
+        },
+    )
+    db = AsyncMock()
+    db.scalar.return_value = SimpleNamespace(
+        kind="upload", input_storage_key="snapshot", input_sha256=digest
+    )
+    monkeypatch.setattr(
+        service.object_storage,
+        "download_cv",
+        Mock(return_value=b"tampered" if corrupt else raw),
+    )
+    if corrupt:
+        with pytest.raises(service.ReviewSourceUnavailable):
+            await service.load_upload_requirements(db, 12)
+    else:
+        result = await service.load_upload_requirements(db, 12)
+        assert result == [
+            {"name": "AWS", "kind": "must"},
+            {"name": "Python", "kind": "must"},
+            {"name": "SQL", "kind": "nice"},
+        ]
+        assert "second_generated_id" in str(db.scalar.call_args.args[0])
+    db.get.assert_not_awaited()

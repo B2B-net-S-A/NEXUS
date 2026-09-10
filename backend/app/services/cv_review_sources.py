@@ -31,6 +31,35 @@ class ReviewSource:
     snapshot_sha256: str
 
 
+async def load_upload_requirements(db, generated_id: int):
+    """Recover requirements from the original upload, including the second language."""
+    from app.services.cv_generator_b2b.upload_requirements import upload_requirements
+
+    job = await db.scalar(
+        select(CvGenerationJob).where(
+            (CvGenerationJob.generated_id == generated_id)
+            | (CvGenerationJob.second_generated_id == generated_id)
+        )
+    )
+    if job is None:
+        return []
+    try:
+        raw = await run_in_threadpool(object_storage.download_cv, job.input_storage_key)
+        kind, inputs = deserialize_job_inputs(raw, job.input_sha256)
+        payload = inputs.get("payload")
+        if (
+            kind != "upload"
+            or job.kind != kind
+            or not isinstance(payload, UploadGenerationInput)
+        ):
+            raise ValueError("Invalid upload snapshot")
+        return await run_in_threadpool(upload_requirements, payload)
+    except Exception as exc:
+        raise ReviewSourceUnavailable(
+            "Nie można odczytać wymagań zapisanej generacji."
+        ) from exc
+
+
 async def load_review_source(db, generated_id: int) -> ReviewSource:
     """Caller must first authorize the concrete generated document resource.
 
