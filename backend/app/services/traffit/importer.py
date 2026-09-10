@@ -41,6 +41,7 @@ from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
     maybe_ensure_contact_opportunity,
 )
+from app.services.inactive_client_cleanup_run import purged_external_ids
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     select_all_files_with_priority,
@@ -1267,6 +1268,10 @@ class TraffitImporter:
     async def import_clients(self) -> PhaseProgress:
         progress = PhaseProgress(phase="clients", started_at=datetime.now(timezone.utc))
         progress.total_source = await self._probe_total("/clients/", "Clients")
+        # Nagrobki jednorazowego czyszczenia nieaktywnych klientów (0303). Faza
+        # robi PEŁNY skan co noc i upsertuje po ``external_id`` — bez tego
+        # trwale usunięty klient wracałby do Nexusa przy najbliższym syncu.
+        tombstoned = await purged_external_ids(self.db, "traffit")
 
         async for raw in self.traffit.get_paginated(
             "/clients/", page_size=self.batch_size
@@ -1276,6 +1281,9 @@ class TraffitImporter:
                 payload = traffit_client_to_nexus(raw)
             except Exception as e:  # noqa: BLE001
                 progress.add_error(f"map client id={raw.get('id')}: {e!r}")
+                continue
+            if payload["external_id"] in tombstoned:
+                progress.skipped += 1
                 continue
             if self.dry_run:
                 progress.inserted += 1  # treat as would-insert

@@ -115,6 +115,7 @@ from app.models.client_cv_rule_publication import ClientCvRulePublication
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
+from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
@@ -403,6 +404,8 @@ __all__ = [
     "ClientCvRulePreview",
     "ClientPlaybook",
     "ClientPlaybookEvent",
+    "ClientCleanupRun",
+    "PurgedClient",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
     "CompassWorkdaysSyncState",

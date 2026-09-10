@@ -34,6 +34,7 @@ from app.api import (
     jobs,
     clients,
     client_directory,
+    client_inactive_cleanup,
     clients_team,
     pipeline,
     notes,
@@ -894,6 +895,13 @@ app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # `/{client_id}` route.
 app.include_router(
     client_directory.router,
+    prefix="/api/clients",
+    tags=["client-directory"],
+)
+# Jednorazowe czyszczenie zakładki „Nieaktywni klienci" — też pod
+# `/directory/...`, więc też przed catch-all `/{client_id}`.
+app.include_router(
+    client_inactive_cleanup.router,
     prefix="/api/clients",
     tags=["client-directory"],
 )
@@ -2333,6 +2341,7 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
@@ -2451,6 +2460,10 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0303: raport jednorazowego czyszczenia „Nieaktywnych klientów"
+        # i nagrobki czytane co noc przez fazę `clients` syncu Traffita.
+        ("client_cleanup_runs", ClientCleanupRun),
+        ("purged_clients", PurgedClient),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

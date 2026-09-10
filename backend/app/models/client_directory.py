@@ -414,6 +414,12 @@ class ClientImportRow(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Jednorazowe czyszczenie nieaktywnych klientów (0303) usuwa klienta, a FK
+    # powyżej zerują wtedy ``matched_client_id``/``portfolio_scope_id``. Znacznik
+    # mówi inwariantowi zdrowia portfela, że brak żywego zakresu jest tu decyzją,
+    # a nie dryfem — bez niego ``/api/health/deep`` odpowiadałby 503.
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    purged_client_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     import_run = relationship("ClientImportRun", back_populates="rows")
     matched_client = relationship("Client", back_populates="import_rows")

@@ -443,6 +443,96 @@ export const clientsDirectoryApi = {
     ),
 };
 
+// ── Jednorazowe czyszczenie zakładki „Nieaktywni klienci" ────────────────────
+
+export interface InactiveCleanupSourceHit {
+  code: string;
+  label: string;
+  count: number;
+}
+
+/** Powiązanie, które wstrzymało usunięcie klienta (lista B). */
+export interface InactiveCleanupReason {
+  code: string;
+  label: string;
+  count: number;
+  effect?: string | null;
+  table?: string | null;
+  column?: string | null;
+  details?: string[];
+}
+
+export interface InactiveCleanupClient {
+  client_id: number;
+  name: string;
+  legal_name?: string | null;
+  nip?: string | null;
+  status?: string | null;
+  external_source?: string | null;
+  external_id?: string | null;
+  sources: InactiveCleanupSourceHit[];
+  reasons: InactiveCleanupReason[];
+}
+
+export interface InactiveCleanupPreview {
+  evaluated_at: string;
+  candidates_count: number;
+  to_delete: InactiveCleanupClient[];
+  held: InactiveCleanupClient[];
+  kept: InactiveCleanupClient[];
+  kept_by_source: Record<string, number>;
+  source_labels: Record<string, string>;
+}
+
+export interface InactiveCleanupDeletedClient {
+  client_id: number;
+  name: string;
+  legal_name?: string | null;
+  nip?: string | null;
+  external_source?: string | null;
+  external_id?: string | null;
+  purged_at?: string | null;
+}
+
+export interface InactiveCleanupReport {
+  run_id: number;
+  executed_at: string | null;
+  executed_by_name: string | null;
+  candidates_count: number;
+  kept_count: number;
+  deleted_count: number;
+  held_count: number;
+  deleted: InactiveCleanupDeletedClient[];
+  held: InactiveCleanupClient[];
+  summary: Record<string, unknown>;
+}
+
+export interface InactiveCleanupStatus {
+  report: InactiveCleanupReport | null;
+  source_labels: Record<string, string>;
+}
+
+export const inactiveClientsCleanupApi = {
+  status: () =>
+    api.get<InactiveCleanupStatus>("/api/clients/directory/inactive-cleanup"),
+  // Ocena przechodzi po każdym kluczu obcym do klienta — wolniejsza niż
+  // zwykły odczyt, więc sufit jak dla ciężkich endpointów. Przy wykonaniu to
+  // ważniejsze: timeout przeglądarki przy trwającym po stronie serwera
+  // commicie pokazałby „nie udało się" dla operacji, która się udała.
+  preview: () =>
+    api.get<InactiveCleanupPreview>(
+      "/api/clients/directory/inactive-cleanup/preview",
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    ),
+  /** Serwer usuwa wyłącznie przecięcie tej listy z klientami, którzy nadal się kwalifikują. */
+  execute: (confirmedClientIds: number[]) =>
+    api.post<InactiveCleanupReport>(
+      "/api/clients/directory/inactive-cleanup/execute",
+      { confirmed_client_ids: confirmedClientIds },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    ),
+};
+
 // ── Client team / request ownership ───────────────────────────────────────
 
 export interface ClientTeamTacAssignment {

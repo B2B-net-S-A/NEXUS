@@ -168,6 +168,7 @@ async def test_import_health_reports_exact_hash_and_count_consistency() -> None:
         unique_clients=4,
         portfolio_scopes=5,
         framework_contracts=2,
+        purged_rows=0,
         active_rows=1,
         relationship_rows=1,
         inactive_rows=1,
@@ -202,6 +203,7 @@ async def test_import_health_reports_exact_hash_and_count_consistency() -> None:
             "framework_contracts": 2,
             "live_portfolio_scopes": 5,
             "live_framework_contracts": 2,
+            "purged_rows": 0,
             "category_rows": {
                 "active": 1,
                 "relationship": 1,
@@ -229,6 +231,7 @@ async def test_import_health_rejects_missing_live_msa() -> None:
         unique_clients=1,
         portfolio_scopes=1,
         framework_contracts=1,
+        purged_rows=0,
         active_rows=1,
         relationship_rows=0,
         inactive_rows=0,
@@ -248,6 +251,97 @@ async def test_import_health_rejects_missing_live_msa() -> None:
 
     assert health["status"] == "inconsistent"
     assert health["counts"]["live_framework_contracts"] == 0
+
+
+def _inactive_manifest_health_db(
+    *, manifest: dict, portfolio_scopes: int, live_scopes: int, purged_rows: int
+) -> SimpleNamespace:
+    run = SimpleNamespace(
+        id=43,
+        applied_at=datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc),
+        summary={"normalized_manifest_sha256": _normalized_manifest_sha256(manifest)},
+    )
+    count_row = SimpleNamespace(
+        audit_rows=3,
+        imported_manifest_rows=3,
+        nexus_only_rows=0,
+        unique_clients=3,
+        portfolio_scopes=portfolio_scopes,
+        framework_contracts=0,
+        purged_rows=purged_rows,
+        active_rows=0,
+        relationship_rows=0,
+        inactive_rows=3,
+    )
+    return SimpleNamespace(
+        scalar=AsyncMock(return_value=run),
+        execute=AsyncMock(
+            side_effect=[
+                SimpleNamespace(one=lambda: count_row),
+                SimpleNamespace(scalar_one=lambda: live_scopes),
+                SimpleNamespace(scalar_one=lambda: 0),
+            ],
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_import_health_accepts_rows_purged_by_inactive_client_cleanup() -> None:
+    """Klient usunięty przez jednorazowe czyszczenie (0303) traci zakres z
+    definicji — FK zerują powiązanie. Znacznik ``purged_at`` na wierszu
+    audytu mówi inwariantowi, że to decyzja, a nie dryf; bez tego każde
+    usunięcie klienta z manifestu dawałoby ``/api/health/deep`` 503."""
+    manifest = {
+        "source": {"sha256": "e" * 64},
+        "rows": [{"category": "inactive"} for _ in range(3)],
+    }
+    db = _inactive_manifest_health_db(
+        manifest=manifest, portfolio_scopes=2, live_scopes=2, purged_rows=1
+    )
+
+    health = await get_client_portfolio_import_health(db, manifest=manifest)
+
+    assert health["status"] == "applied"
+    assert health["counts"]["purged_rows"] == 1
+
+
+@pytest.mark.asyncio
+async def test_import_health_still_flags_a_missing_scope_that_was_not_purged() -> None:
+    """Znacznik zwalnia TYLKO oznaczone wiersze — każdy inny brak zakresu
+    (archiwizacja, ręczne DELETE) nadal jest dryfem."""
+    manifest = {
+        "source": {"sha256": "f" * 64},
+        "rows": [{"category": "inactive"} for _ in range(3)],
+    }
+    db = _inactive_manifest_health_db(
+        manifest=manifest, portfolio_scopes=2, live_scopes=1, purged_rows=1
+    )
+
+    health = await get_client_portfolio_import_health(db, manifest=manifest)
+
+    assert health["status"] == "inconsistent"
+
+
+@pytest.mark.asyncio
+async def test_import_health_survives_a_missing_purged_at_column() -> None:
+    """Lustro DDL w entrypoint.sh może przegrać wyścig o blokadę i pominąć
+    kolumnę z 0303, a zdrowie liczy się w `--apply-once` pod `set -e`.
+    Brak kolumny = zero oznaczonych wierszy, nie wywrócony start."""
+    manifest = {
+        "source": {"sha256": "c" * 64},
+        "rows": [{"category": "inactive"} for _ in range(3)],
+    }
+    db = _inactive_manifest_health_db(
+        manifest=manifest, portfolio_scopes=3, live_scopes=3, purged_rows=0
+    )
+    run = await db.scalar()
+    db.scalar = AsyncMock(side_effect=[run, False])
+
+    health = await get_client_portfolio_import_health(db, manifest=manifest)
+
+    assert health["status"] == "applied"
+    statement = db.execute.await_args_list[0].args[0]
+    assert "purged_at" not in str(statement.compile(dialect=postgresql.dialect()))
 
 
 def test_entrypoint_runs_apply_once_before_api_without_fail_open() -> None:

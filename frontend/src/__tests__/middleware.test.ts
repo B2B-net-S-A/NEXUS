@@ -182,6 +182,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/contracts-consolidation",
     "/preview/procedure-help",
     "/preview/client-playbook",
+    "/preview/inactive-clients-cleanup",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
