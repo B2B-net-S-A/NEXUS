@@ -62,17 +62,24 @@ def fetch_issues(token: str, project: str, query: str, sort: str) -> list[dict]:
     return json.loads(body)
 
 
-def format_issue_line(issue: dict) -> str:
-    """One-line Slack mrkdwn rendering of a Sentry issue."""
-    title = issue.get("title", "<no title>")[:120]
+def format_issue_line(issue: dict, *, redact: bool = False) -> str:
+    """One-line Slack mrkdwn rendering of a Sentry issue.
+
+    ``redact`` drops the title: it is a raw exception message and can carry
+    candidate data, and the repository is public, so anything printed to the
+    Actions log is readable by anyone. The short id is enough to find it.
+    """
     count = issue.get("count", "?")
     users = issue.get("userCount", "?")
-    permalink = issue.get("permalink", "")
     short_id = issue.get("shortId", "")
+    if redact:
+        return f"• {short_id} (events: {count}, users: {users})"
+    title = issue.get("title", "<no title>")[:120]
+    permalink = issue.get("permalink", "")
     return f"• <{permalink}|{short_id}> — {title} (events: {count}, users: {users})"
 
 
-def project_section(token: str, project: str) -> str:
+def project_section(token: str, project: str, *, redact: bool = False) -> str:
     """Build the Slack block for one Sentry project."""
     try:
         unresolved = fetch_issues(
@@ -89,21 +96,21 @@ def project_section(token: str, project: str) -> str:
     lines = [f"*{project}*"]
     if unresolved:
         lines.append(f"_Top {len(unresolved)} unresolved (24h, by freq)_")
-        lines.extend(format_issue_line(i) for i in unresolved)
+        lines.extend(format_issue_line(i, redact=redact) for i in unresolved)
     else:
         lines.append("_No unresolved issues in last 24h_ ✅")
 
     if new_issues:
         lines.append(f"_New issues last 24h_ ({len(new_issues)})")
-        lines.extend(format_issue_line(i) for i in new_issues)
+        lines.extend(format_issue_line(i, redact=redact) for i in new_issues)
 
     return "\n".join(lines)
 
 
-def build_message(token: str) -> str:
+def build_message(token: str, *, redact: bool = False) -> str:
     """Assemble the full Slack message body."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    sections = [project_section(token, p) for p in SENTRY_PROJECTS]
+    sections = [project_section(token, p, redact=redact) for p in SENTRY_PROJECTS]
     header = f":mag: *NEXUS Sentry daily digest* — {today}"
     footer = (
         "_Runbook: docs/sentry-monitoring.md · "
@@ -135,15 +142,18 @@ def main() -> int:
         print("ERROR: SENTRY_AUTH_TOKEN is not set", file=sys.stderr)
         return 1
 
+    # The Actions log of a public repository is public: the full digest (issue
+    # titles are raw exception messages) goes only to Slack; the log gets the
+    # redacted variant with counts and short ids.
+    deliver = bool(webhook) and not dry_run
     try:
-        message = build_message(token)
+        message = build_message(token, redact=not deliver)
     except Exception as exc:  # surface to GH Actions
         print(f"ERROR: failed to build digest: {exc}", file=sys.stderr)
         return 1
 
-    print(message)
-
-    if dry_run or not webhook:
+    if not deliver:
+        print(message)
         print("(dry-run / no webhook — skipping Slack POST)", file=sys.stderr)
         return 0
 
@@ -153,6 +163,7 @@ def main() -> int:
         print(f"ERROR: Slack delivery failed: {exc}", file=sys.stderr)
         return 2
 
+    print(f"Digest delivered to Slack ({len(SENTRY_PROJECTS)} projects).")
     return 0
 
 
