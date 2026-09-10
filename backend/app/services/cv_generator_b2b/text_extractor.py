@@ -41,7 +41,11 @@ def _extract_pdf_pdftotext(data: bytes) -> str | None:
                 check=True,
             )
             return result.stdout.decode("utf-8", errors="replace")
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as err:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as err:
             logger.warning("[cv_b2b] pdftotext failed (%s); falling back", err)
             return None
 
