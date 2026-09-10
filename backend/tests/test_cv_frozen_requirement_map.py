@@ -108,3 +108,25 @@ def test_long_quote_is_rejected_whole_without_losing_qualification():
     assert result[0]["evidence"] == []
     assert result[0]["status"] == "no_data"
     assert result[0]["note"] is None
+
+
+def test_cached_map_rechecks_evidence_without_changing_history():
+    cached = {
+        "items": [
+            {
+                "requirement": "AWS",
+                "kind": "must",
+                "status": "met",
+                "note": "Spełnia wymaganie",
+                "evidence": [{"quote": "Removed claim"}],
+            }
+        ]
+    }
+    original = copy.deepcopy(cached)
+    result = mapping.validated_cached_items(
+        {"why_points": ["Approved current text"]}, cached
+    )
+    assert result[0]["status"] == "no_data"
+    assert result[0]["evidence"] == []
+    assert result[0]["note"] is None
+    assert cached == original

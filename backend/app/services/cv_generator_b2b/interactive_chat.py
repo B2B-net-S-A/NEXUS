@@ -244,7 +244,11 @@ async def _answer_with_model(
         requirement_items = []
     else:
         public_payload = build_public_payload(doc_row.render_payload)
-        requirement_items = list((doc_row.requirement_map or {}).get("items") or [])
+        from app.services.cv_generator_b2b.requirement_map import validated_cached_items
+
+        requirement_items = validated_cached_items(
+            public_payload, doc_row.requirement_map
+        )
     system_prompt = _SYSTEM_PROMPT.format(
         profile_json=json.dumps(public_payload, ensure_ascii=False),
         requirement_map_json=json.dumps(requirement_items, ensure_ascii=False),

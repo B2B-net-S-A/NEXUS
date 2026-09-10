@@ -108,6 +108,7 @@ def _input_hash(
     blob = json.dumps(
         {
             "prompt_version": CV_REQUIREMENT_MAP.version,
+            "evidence_validation_version": 2,
             "model": DEFAULT_MODEL,
             "cv": public_payload,
             "requirements": requirements,
@@ -213,6 +214,31 @@ def _sanitize_items(
             }
         )
     return sanitized
+
+
+def validated_cached_items(public_payload: dict, cached: dict | None) -> list[dict]:
+    """Recheck stored evidence at read time, without rewriting historical rows."""
+    if not isinstance(cached, dict) or not isinstance(cached.get("items"), list):
+        return []
+    requirements = []
+    seen = set()
+    for item in cached["items"]:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("requirement")
+        kind = item.get("kind")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not isinstance(kind, str)
+            or kind not in {"must", "nice"}
+        ):
+            continue
+        key = _normalize_for_match(name)
+        if key not in seen:
+            seen.add(key)
+            requirements.append({"name": name, "kind": kind})
+    return _sanitize_items(cached, requirements, public_payload)
 
 
 _REQ_SPLIT_RE = re.compile(r"[,;\n\r]+")

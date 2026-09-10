@@ -398,6 +398,8 @@ async def get_public_generated_cv(
     bez PII spoza treści CV; przy blind — zamaskowane nazwisko i firmy.
     Walidacja: 404 nieznany/odwołany, 410 wygasły / limit wyświetleń.
     """
+    from app.services.cv_generator_b2b.requirement_map import validated_cached_items
+
     row = await _load_generated_share(token, db)
 
     # Limit wyświetleń — atomowy UPDATE (ten sam wzorzec co /cv/{token}).
@@ -474,7 +476,9 @@ async def get_public_generated_cv(
         "cv": payload,
         "cv_html": approved.content_html if approved is not None else None,
         "document_version_id": version_id,
-        "requirements": ((doc.requirement_map or {}).get("items") if tiles else None),
+        "requirements": validated_cached_items(payload, doc.requirement_map)
+        if tiles
+        else None,
         "chat_enabled": chat,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }

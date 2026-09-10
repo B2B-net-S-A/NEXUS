@@ -691,3 +691,5 @@ Publiczny chat zatwierdzonej wersji otrzymuje wyłącznie uporządkowany tekst j
 ### Dowody mapy wymagań
 
 Generowanie mapy wydzielono od zapisu dokumentu, aby można było użyć zamrożonego wejścia. Cytat przypisany do stanowiska musi występować w jego treści; inaczej wskaźnik stanowiska jest usuwany. Zbyt długie cytaty nie są obcinane, lecz odrzucane w całości. Brak ocalałych dowodów daje `no_data` i usuwa notatkę modelu, zamiast sugerować częściowe spełnienie wymagania. Siedem nowych testów oraz dwa istniejące testy walidatora przeszły lokalnie. Nie jest to dowód semantycznej trafności zachowanych cytatów ani zakończenie integracji mapy z zatwierdzonym CV.
+
+Zapisane mapy są ponownie walidowane przy odczycie publicznym i przygotowaniu kontekstu chatu, bez modyfikacji historycznych rekordów. Cache nowych generacji uwzględnia wersję walidatora dowodów. 29 testów mapy, zatwierdzonych wersji i chatu przeszło lokalnie. Historyczny cytat obcięty przed tą zmianą nie odzyskuje utraconej końcówki; zgodność semantyczna nadal wymaga osobnej oceny.
