@@ -106,9 +106,11 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   uptime-probe. Sonda w `docker-compose.yml` (jedyny plik czytany przez Coolify)
   i w overlayu prod musi być ta sama.
 - **Naprawy schematu przy starcie mają `lock_timeout` 10 s** (`startup_locks.py`,
-  bootstrapy alokacji i CV, blok polityki podpisów). Nocny `pg_dump` trzyma locki,
-  a DDL czekający bez limitu wieszał boot. Timeout zatrzymuje start tylko wtedy,
-  gdy schemat NAPRAWDĘ jest niekompletny; blok podpisów jest miękki.
+  moduły `allocation_schema_bootstrap`, `cv_schema_bootstrap`,
+  `signature_policy_bootstrap`). Nocny `pg_dump` trzyma locki, a DDL czekający bez
+  limitu wieszał boot. Timeout zatrzymuje start tylko wtedy, gdy schemat NAPRAWDĘ
+  jest niekompletny. Polityka podpisów jest miękka WYŁĄCZNIE przy timeoucie zamka
+  (SQLSTATE 55P03); każdy inny błąd zatrzymuje start jak dawniej.
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
 - **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
 
@@ -513,10 +515,13 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   idzie z `render_payload`). Wyłącznik `CV_JOB_INPUT_RETENTION_ENABLED`, okres
   `CV_JOB_INPUT_RETENTION_DAYS`. Do 11.09 wgrane CV i notatki z nieudanych
   generacji leżały bez końca.
-- **Limit 14 000 znaków dotyczy WYŁĄCZNIE ścieżki, w której dokument czyta AI**
-  (parser Championa, sprawdzany przed naliczeniem kwoty AI). Odczyt tabel
-  formularza Word v4 i budowanie CV nie są już przycinane, a preflight uploadu
-  podaje prawdziwy powód odmowy zamiast „nie można odczytać pliku DOCX”.
+- **Limit 14 000 znaków dotyczy WYŁĄCZNIE miejsc, w których tekst czyta AI:**
+  parser Championa (sprawdzany przed naliczeniem kwoty AI) i sekcja Championa
+  w płatnym prompcie generatora CV (`cap_champion_prompt_section`, obie ścieżki —
+  legacy i v10 — cięcie na granicy linii/słowa z ostrzeżeniem „Profil Championa
+  przycięty…”). Odczyt tabel formularza Word v4 i zapisany profil nie są
+  przycinane, a preflight uploadu podaje prawdziwy powód odmowy zamiast „nie
+  można odczytać pliku DOCX”.
 - **`CV_B2B_MAX_RETRIES` domyślnie 3** — łączny budżet 300 s dalej zatrzymuje
   nowe próby i backoffy po terminie. Jawna wartość w Coolify wygrywa.
 
@@ -752,13 +757,28 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   użytkownik nie ruszył, zostaje takie, jakie było. Do 11.09 każdy zapis
   (niezależnie od flagi bramki) zerował stawkę podaną zakresem i wycinał z
   `jobs.must_skills` pozycje MUST dłuższe niż 12 słów/120 znaków. Teraz:
-  zakres w `rate_raw` nie kasuje poprawnej `rate_value` — tekst trafia do
-  `intake.advisory` (wyłącznie ostrzeżenie, nic nie blokuje); pozycje stacku
-  nigdy nie znikają z powodu długości (tylko flaga), limit pozycji 500 znaków,
-  dłuższa zostaje w `unresolved`. `requirement_contract.contract_names` przycina
-  nazwę do 100 znaków — bez tego must-have dłuższy niż 100 znaków wywalał
-  walidację KAŻDEGO wyszukiwania tej rekrutacji. `jobs.py` porównuje intake po
-  normalizacji, więc zapis bez zmian nie robi zapisu ani powiadomienia.
+  pozycje stacku nigdy nie znikają z powodu długości (tylko flaga), limit
+  pozycji 500 znaków, dłuższa zostaje w `unresolved`.
+  `requirement_contract.contract_names` przycina nazwę do 100 znaków — bez tego
+  must-have dłuższy niż 100 znaków wywalał walidację KAŻDEGO wyszukiwania tej
+  rekrutacji. `jobs.py` porównuje intake po normalizacji, więc zapis bez zmian
+  nie robi zapisu ani powiadomienia.
+- **Liczba stawki z parsera zostaje TYLKO, gdy dokument mówi PLN za godzinę**
+  (`pln_hourly_bounds` w `champion_intake.py`): jedna wartość, zakres albo
+  „do X”, opcjonalnie netto/+VAT — i liczba mieści się w tym zakresie. Wtedy
+  tekst trafia do `intake.advisory` (ostrzeżenie, nic nie blokuje). Inna waluta,
+  stawka za dzień/MD/miesiąc, brutto, brak jednostki → `unresolved`
+  + `missing_budget`, liczba odrzucona, `jobs.rate_budget_hourly` puste.
+  Pierwsza wersja poprawki (przegląd adwersarialny 11.09) zostawiała liczbę
+  przy każdej jednostce: „45 EUR/h” lądowało w budżecie jako 45 zł/h,
+  a „Zastosuj import” kasowało ostrzeżenie. Import (`user_edit`
+  z `imported=True`) i okno importu (`ChampionIntake.tsx`) zachowują tekst
+  stawki z dokumentu; tylko EDYTOWANA stawka go gubi.
+- **Walidacja sprawdza profil tak, jak jest zapisany.** Wymagania odłożone do
+  `intake.unresolved` wracają do stacku wyłącznie przy zapisie, który edytuje
+  ten stack — `validation()` ich nie wskrzesza (wskrzeszanie dawało fałszywy
+  konflikt z kolumnami rekrutacji, który przy włączonej bramce blokował search).
+  Konflikt kolumn NICE to ostrzeżenie, nie błąd.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1039,14 +1059,16 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 - **Faza `workflows` (szablony pipeline'ów) — zapis wsadowy pod SET-WIDE unique.** `pipeline_stage_defs` ma dwa ograniczenia obejmujące CAŁY szablon (`uq_stage_order_in_template (template_id, "order")` i `uq_stage_name_in_template (template_id, name)`), a wiersze pisane są **po jednym**, kluczem `(external_source, external_id)`. Przepisanie zbioru wiersz po wierszu pod ograniczeniem zbiorowym działa tylko wtedy, gdy żaden stan POŚREDNI nie koliduje — a zamiana kolejności w Traffit gwarantuje kolizję (stan B bierze pozycję 3, którą wciąż trzyma jeszcze nieprzepisany stan A). Cyklicznej zamiany nie da się rozwiązać kolejnością zapisów. Żadne z ograniczeń **nie jest DEFERRABLE** (entrypoint.sh obchodzi tę samą krawędź trikiem z przesunięciem), więc `_rewrite_template_stage_defs` najpierw **parkuje** wszystkie wiersze szablonu na `("order" = -id, name = '~<id>')` — unikalne per wiersz, bo `id` to PK, a ujemne pozycje nigdy nie spotkają docelowego układu (wszystkie ≥ 0) — i dopiero potem kładzie właściwy układ, już w dowolnej kolejności. **Stany, których Traffit przestał wysyłać, NIE są kasowane** (`candidate_stages.stage_def_id` na nie wskazuje — dlatego importer dawno porzucił DELETE+INSERT); dostają pozycje **za** żywymi, z zachowaniem względnej kolejności i nazw, a jeśli żywy stan zabrał nazwę wycofanego — ustępuje wycofany (żywy jest bieżącą prawdą). Każdy workflow siedzi w **SAVEPOINCIE**: stary handler wołał `db.rollback()`, czyli rollback SESJI, a faza commituje raz na końcu — jeden zepsuty workflow kasował wszystkie zapisane wcześniej w tym biegu. Na prodzie `processed: 2, updated: 2, errors: 1` nie znaczyło „1 z 2 padł", tylko „0 z 2 zapisanych", 23 biegi z rzędu.
 - **Nagrobki (`candidates.external_deleted_at`, migracja `0221`).** 404/410 z Traffita było wcześniej wyłącznie **liczone** (`gone_upstream`), a licznik żyje tyle co statystyki biegu — więc informacja „tej osoby już u źródła nie ma" nie docierała nigdzie: rekruter widział zwykły profil, `reconcile` pokazywał rozjazd bez wyjaśnienia, a każdy kolejny sweep pytał o tego samego nieistniejącego kandydata. Trzy rzeczy, których ten mechanizm **celowo nie robi**: (1) **nie kasuje wiersza** — profil w Nexusie ma własną wartość niezależną od Traffita (notatki, etapy, ślady RODO), więc usunięcie u źródła nie jest zgodą na usunięcie NASZYCH danych; (2) **nie stawia nagrobka za brakujący PLIK** — 404 na `/employees/{id}/files` to odpowiedź o osobie, 404 na pobraniu pliku tylko o pliku, a pomylenie tych poziomów oznaczałoby oznaczanie profili jako usunięte z powodu jednego nieudanego załącznika; (3) **nie utrwala pomyłki** — upsert kandydata czyści znacznik, więc powrót w żywym feedzie `/employees/` kasuje nagrobek (bez tego pojedyncze 404 przy chwilowej awarii Traffita zostawiałoby trwałe kłamstwo). Warunek `external_deleted_at IS NULL` w UPDATE sprawia, że znacznik zapamiętuje **pierwszą** obserwację zniknięcia — inaczej data mówiłaby „kiedy ostatnio sprawdzaliśmy", a licznik `tombstoned` rósłby w nieskończoność zamiast odpowiadać, czy zniknęło coś **nowego**.
 - **Health:** `/api/health.checks.traffit` = `unconfigured` (off) / `misconfigured` (brak secretów) / `degraded` (włączony, brak świeżego runu / errors) / `healthy` (ostatni `__daily__` < 36h, status ok). **To sonda ŚWIEŻOŚCI, nie kompletności** — `healthy` nie znaczy, że dane się zgadzają z Traffitem (tak właśnie luka w plikach/CV żyła miesiącami przy zielonym healthu).
-- **Fazy wzbogacania są DORADCZE (od 11.09.2026):** `candidates_enrich_names`,
-  `candidates_cv_fields` i `cortex` nie wstrzymują już watermarku `__daily__`.
-  Ich błędy zostają widoczne na własnych wierszach faz i w próbkach
-  `/sync/status` (z klasą wyjątku, np. „backfill failed (ValueError)”). Powód:
-  od 08.09 jeden trwale nieparsowalny kandydat zamroził `__daily__` i health
-  pokazywał `degraded` przez dni, choć import działał. Koszt: chwilowa porażka
-  wzbogacenia w delcie nie jest ponawiana przez przytrzymanie watermarku — czeka
-  na pełny przebieg albo backfill. Fazy importu rdzenia nadal wstrzymują watermark.
+- **Błędy WIERSZY faz wzbogacania są doradcze (od 11.09.2026):**
+  `candidates_enrich_names`, `candidates_cv_fields` i `cortex` — błąd pojedynczego
+  kandydata (`add_error`) nie wstrzymuje już watermarku `__daily__`, ale zostaje
+  widoczny na wierszu fazy i w próbkach `/sync/status` (z klasą wyjątku, np.
+  „backfill failed (ValueError)”). Powód: od 08.09 jeden trwale nieparsowalny
+  kandydat zamroził `__daily__` i health pokazywał `degraded` przez dni, choć
+  import działał. **Wywrotka CAŁEJ fazy (np. padnięty commit) nadal wstrzymuje
+  watermark** — `candidates_cv_fields` nie jest objęta pełnym przebiegiem, więc
+  bez przytrzymania kandydaci z tego biegu nigdy nie dostaliby pól z CV.
+  Fazy importu rdzenia wstrzymują watermark jak dotąd.
 - **DB:** `traffit_sync_state` (PK `phase` + markery `__daily__`/`__full__`) — migracja `0136_traffit_sync_state` (na bazie `0135`).
 
 ## Self-service registration (email/password — alternatywa dla Microsoft SSO)
