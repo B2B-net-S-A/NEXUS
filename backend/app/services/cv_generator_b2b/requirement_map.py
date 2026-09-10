@@ -329,6 +329,27 @@ async def _generate_requirement_map(
     którym łatwo przeoczyć zgubioną gałąź — a tutaj każda z nich kończy się
     `return` i decyduje o tym, czy kafelki w ogóle powstaną.
     """
+    result = await generate_map_result(public_payload, requirements)
+    if result is None:
+        return
+    row.requirement_map = {"items": result["items"]}
+    row.requirement_map_input_hash = digest
+    row.requirement_map_model = result["model"]
+    row.requirement_map_generated_at = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info(
+        "[cv_req_map] generated=%s items=%d", generated_id, len(result["items"])
+    )
+
+
+async def generate_map_result(
+    public_payload: dict, requirements: list[dict[str, str]]
+) -> dict | None:
+    """Map the supplied frozen input without loading or mutating document rows.
+
+    Caller owns AI quota admission and persists the result against its exact
+    source version. This function must not be invoked from public GET routes.
+    """
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         logger.warning("[cv_req_map] no API key configured — skipping")
@@ -364,14 +385,9 @@ async def _generate_requirement_map(
         raise ValueError("LLM returned non-object JSON")
 
     items = _sanitize_items(parsed, requirements, public_payload)
-    row.requirement_map = {"items": items}
-    row.requirement_map_input_hash = digest
-    row.requirement_map_model = DEFAULT_MODEL
-    row.requirement_map_generated_at = datetime.now(timezone.utc)
-    await db.commit()
-    logger.info(
-        "[cv_req_map] generated=%s items=%d latency_ms=%d",
-        generated_id,
-        len(items),
-        int((time.time() - started) * 1000),
-    )
+    return {
+        "items": items,
+        "model": DEFAULT_MODEL,
+        "input_hash": _input_hash(public_payload, requirements),
+        "latency_ms": int((time.time() - started) * 1000),
+    }
