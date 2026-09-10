@@ -4,6 +4,36 @@ import pytest
 from scripts.prepare_cv_document_corpus import load_cases, prepare
 
 
+def test_scanned_corpus_keeps_all_cases_and_records_font_identity(
+    tmp_path, monkeypatch
+):
+    import hashlib
+    import pdfplumber
+    from PIL import ImageFont
+
+    font = ImageFont.load_default(size=24)
+    monkeypatch.setattr(ImageFont, "truetype", lambda *args, **kwargs: font)
+    font_path = tmp_path / "synthetic-font.ttf"
+    font_path.write_bytes(b"test font identity")
+    output = tmp_path / "scans"
+    manifest = prepare(output, scan_font=font_path)
+    assert len(manifest["cases"]) == 40
+    assert manifest["corpus_sha256"] != load_cases()[1]
+    assert (
+        manifest["scan"]["font_sha256"]
+        == hashlib.sha256(font_path.read_bytes()).hexdigest()
+    )
+    for case in manifest["cases"]:
+        assert case["input_format"] == "scanned_pdf"
+        assert case["input_file"].endswith(".pdf")
+        with pdfplumber.open(output / case["input_file"]) as pdf:
+            assert pdf.pages
+            assert all(page.images and not page.extract_text() for page in pdf.pages)
+    assert prepare(output, scan_font=font_path) == manifest
+    with pytest.raises(ValueError, match="Existing corpus differs"):
+        prepare(output)
+
+
 def test_repreparing_preserves_inputs_and_rejects_tampered_evidence(
     tmp_path, monkeypatch
 ):

@@ -159,6 +159,7 @@ async def run(
     limit: int,
     models: str,
     offset: int = 0,
+    scan_font: Path | None = None,
 ):
     if (
         not 1 <= limit <= 40
@@ -181,7 +182,11 @@ async def run(
             raise ValueError(
                 "Output belongs to another evaluation; use a new directory"
             )
-    manifest = prepare(output / "inputs")
+    manifest = (
+        prepare(output / "inputs", scan_font=scan_font)
+        if scan_font
+        else prepare(output / "inputs")
+    )
     requested = list(
         dict.fromkeys([_model(), *(_fallback_models() if models == "all" else [])])
     )
@@ -190,6 +195,7 @@ async def run(
         "runtime_sha": expected_sha,
         "run_identity": identity,
         "corpus_sha256": manifest["corpus_sha256"],
+        "scan": manifest.get("scan"),
         "requested_models": requested,
         "case_offset": offset,
         "case_limit": limit,
@@ -339,6 +345,7 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, choices=range(1, 41), default=2)
     parser.add_argument("--offset", type=int, choices=range(40), default=0)
     parser.add_argument("--models", choices=["primary", "all"], default="primary")
+    parser.add_argument("--scan-font", type=Path)
     args = parser.parse_args()
     raise SystemExit(
         asyncio.run(
@@ -349,6 +356,7 @@ if __name__ == "__main__":
                 limit=args.limit,
                 models=args.models,
                 offset=args.offset,
+                scan_font=args.scan_font,
             )
         )
     )

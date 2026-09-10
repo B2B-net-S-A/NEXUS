@@ -61,3 +61,18 @@ Host-native validation: 22 runner tests passed, including complete batch return
 codes with and without an invented career-duration claim in a real DOCX file.
 No live provider evaluation was performed for this change. Read-only staging
 status run 34417172000 still reported `exited:unhealthy` on another task's branch.
+# Scanned source variants
+
+Both preparation and full evaluation accept `--scan-font /absolute/path/to/font.ttf`.
+This renders every original source history to an image-only PDF, then runs the
+ordinary OCR and generation path during evaluation. Use a font covering Polish
+characters, such as DejaVu Sans. Each paragraph is wrapped to the page width and
+continues onto subsequent pages; an overwide word is rejected instead of clipped.
+
+Use a separate output directory and run identity for the scan measurement. The
+manifest records the font hash, renderer version and resolution, and derives a
+different corpus hash from the DOCX measurement. All 40 language variants retain
+their source paragraphs and acceptance criteria. Preparing these files does not
+run OCR or a model and does not establish quality acceptance. Model measurement,
+visual inspection of rendered inputs and outputs, and human acceptance remain
+required. Existing output and input evidence is not overwritten on reuse.

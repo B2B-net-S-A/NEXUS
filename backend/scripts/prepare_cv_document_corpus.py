@@ -42,8 +42,62 @@ def load_cases():
     return cases, hashlib.sha256(raw).hexdigest()
 
 
-def prepare(output: Path):
+def write_scanned_pdf(paragraphs, path, font):
+    """Rasterize every source paragraph; never clip text at page boundaries."""
+    from PIL import Image, ImageDraw
+
+    pages = []
+    page = None
+    y = 0
+    try:
+        for paragraph in paragraphs:
+            lines, line = [], ""
+            for word in paragraph.split():
+                if font.getlength(word) > 1080:
+                    raise ValueError("Source word exceeds scan page width")
+                proposed = f"{line} {word}".strip()
+                if font.getlength(proposed) > 1080:
+                    lines.append(line)
+                    line = word
+                else:
+                    line = proposed
+            if line:
+                lines.append(line)
+            for line in lines:
+                if page is None or y + 36 > 1674:
+                    page = Image.new("RGB", (1240, 1754), "white")
+                    pages.append(page)
+                    y = 80
+                ImageDraw.Draw(page).text((80, y), line, font=font, fill="black")
+                y += 36
+            y += 18
+        if not pages:
+            raise ValueError("Empty scan source")
+        pages[0].save(
+            path, "PDF", resolution=150, save_all=True, append_images=pages[1:]
+        )
+    finally:
+        for page in pages:
+            page.close()
+
+
+def prepare(output: Path, *, scan_font: Path | None = None):
     cases, digest = load_cases()
+    font = None
+    scan_metadata = None
+    if scan_font is not None:
+        from PIL import ImageFont
+
+        font = ImageFont.truetype(str(scan_font), size=24)
+        scan_metadata = {
+            "renderer": "synthetic_scan_v1",
+            "font_sha256": hashlib.sha256(scan_font.read_bytes()).hexdigest(),
+            "dpi": 150,
+        }
+        digest = hashlib.sha256(
+            (digest + json.dumps(scan_metadata, sort_keys=True)).encode()
+        ).hexdigest()
+    extension = "pdf" if font is not None else "docx"
     output.mkdir(parents=True, exist_ok=True)
     existing = output / "manifest.json"
     if existing.exists():
@@ -53,7 +107,7 @@ def prepare(output: Path):
         ) != len(cases):
             raise ValueError("Existing corpus differs; use a new output directory")
         for original, saved in zip(cases, manifest["cases"], strict=True):
-            filename = f"{original['id']}.docx"
+            filename = f"{original['id']}.{extension}"
             if (
                 any(saved.get(key) != value for key, value in original.items())
                 or saved.get("input_file") != filename
@@ -68,7 +122,10 @@ def prepare(output: Path):
     if any(output.iterdir()):
         raise ValueError("Incomplete corpus directory; use a new output directory")
     manifest = {"corpus_sha256": digest, "evaluated": False, "cases": []}
+    if scan_metadata:
+        manifest["scan"] = scan_metadata
     for case in cases:
+        path = output / f"{case['id']}.{extension}"
         document = Document()
         paragraphs = case["cv_paragraphs"]
         document.add_heading(paragraphs[0], 0)
@@ -79,11 +136,16 @@ def prepare(output: Path):
         else:
             for paragraph in paragraphs[1:]:
                 document.add_paragraph(paragraph)
-        path = output / f"{case['id']}.docx"
-        document.save(path)
+        if font is not None:
+            write_scanned_pdf(paragraphs, path, font)
+        else:
+            document.save(path)
         manifest["cases"].append(
             {
                 **case,
+                "input_format": "scanned_pdf"
+                if font is not None
+                else case["source_format"],
                 "input_file": path.name,
                 "input_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "outcome": "not_run",
@@ -99,8 +161,11 @@ def prepare(output: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--scan-font", type=Path, help="Render scan inputs using this font file"
+    )
     args = parser.parse_args()
-    manifest = prepare(args.output)
+    manifest = prepare(args.output, scan_font=args.scan_font)
     print(
         json.dumps(
             {
