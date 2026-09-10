@@ -561,8 +561,15 @@ markers. The dedicated step fails if tools are absent; ordinary local collection
 may skip it. Local execution was skipped because Tesseract is unavailable, so no
 native OCR success is claimed yet. Changes are not covered by CI for 027c4ab8.
 
-This test does not cover skewed/low-resolution scans, mixed text/image PDFs,
-handwriting or full generator primary/fallback acceptance. In particular, the
-existing native-text threshold selects OCR at the document level; mixed PDFs
-still need separate coverage and remediation where a text layer masks scanned
-pages. Full semantic and Delivery Lead acceptance remain open.
+Follow-up 56c521c6 selects OCR for image-bearing pages with little native text,
+keeping searchable pages unchanged and preserving page order. It rejects an
+unreadable scanned page rather than accepting a partial source. Controlled OCR
+and pipeline checks: 131 passed. Commits 63b6700a and 44b4c42d add a real mixed PDF
+fixture; actual page-structure detection passed locally, while both native OCR
+tests were skipped locally because Tesseract is absent. Hosted execution remains
+required. The fixture uses Pillow's bundled font, avoiding local font assumptions.
+
+These checks do not cover skewed/low-resolution scans, handwriting, mixed content
+within a page with a substantial but incomplete text layer, or full generator
+primary/fallback acceptance. Full semantic and Delivery Lead acceptance remain
+open. No real model quality or production OCR success is claimed here.
