@@ -1,4 +1,12 @@
-"""Generator resource scope is enforced before disclosure and side effects."""
+"""Generator access (decyzja Artura z 10.09.2026: „wszyscy mogą”).
+
+* Generować CV może każdy z rolą zapisu kandydata — bez członkostwa w zespole
+  rekrutacji (#1448 to wymuszał; cofnięte). Poprawność zostaje: etap musi
+  należeć do kandydata (404).
+* Autor zawsze ma dostęp do własnego dokumentu.
+* Cudzy dokument związany z rekrutacją: odczyt i działania tylko w zakresie
+  odczytu tej rekrutacji — obcy dostaje 403 przed renderem i przed zapisem.
+"""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -6,6 +14,8 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException, Request
 from app.api import cv_generator_b2b as api, recruitment_access
 from app.models.user import User, UserRole
+
+OTHER_AUTHOR = 99
 
 
 @pytest.fixture(autouse=True)
@@ -34,9 +44,13 @@ def user(role=UserRole.recruiter):
         "list_generated_cv_share_tokens",
     ],
 )
-async def test_outsider_rejected_before_render_or_mutation(monkeypatch, endpoint):
+async def test_outsider_rejected_on_someone_elses_document(monkeypatch, endpoint):
     row = SimpleNamespace(
-        id=12, job_id=45, status="ready", render_payload={"name": "Private"}
+        id=12,
+        job_id=45,
+        created_by=OTHER_AUTHOR,
+        status="ready",
+        render_payload={"name": "Private"},
     )
     db = SimpleNamespace(
         get=AsyncMock(return_value=row), execute=AsyncMock(), commit=AsyncMock()
@@ -53,7 +67,7 @@ async def test_outsider_rejected_before_render_or_mutation(monkeypatch, endpoint
 @pytest.mark.asyncio
 async def test_revoke_checks_scope_even_when_already_revoked(monkeypatch):
     token = SimpleNamespace(generated_document_id=12, revoked=True)
-    doc = SimpleNamespace(id=12, job_id=45)
+    doc = SimpleNamespace(id=12, job_id=45, created_by=OTHER_AUTHOR)
     db = SimpleNamespace(
         scalar=AsyncMock(return_value=token), get=AsyncMock(return_value=doc)
     )
@@ -66,31 +80,92 @@ async def test_revoke_checks_scope_even_when_already_revoked(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generation_scope_precedes_rules_sources_and_quota(monkeypatch):
+async def test_author_keeps_own_document_outside_the_recruitment_team(monkeypatch):
+    """Autor spoza zespołu rekrutacji pobiera, udostępnia i zatwierdza SWOJE CV.
+
+    Bez tego „wszyscy mogą generować” kończyłoby się dokumentem, którego autor
+    nie może otworzyć — generacja kosztuje, a wynik byłby niedostępny.
+    """
+    row = SimpleNamespace(id=12, job_id=45, created_by=71)
+    membership = AsyncMock(return_value=False)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
+    rows = SimpleNamespace(scalars=lambda: SimpleNamespace(all=list))
+    db = SimpleNamespace(
+        get=AsyncMock(return_value=row), execute=AsyncMock(return_value=rows)
+    )
+    assert await api._load_generated_document(db, 12, user()) is row
+    # Endpoint path, not only the helper: the author lists the document's links.
+    assert (
+        await api.list_generated_cv_share_tokens(
+            generated_id=12, current_user=user(), db=db
+        )
+        == []
+    )
+    membership.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_team_member_acts_on_colleagues_document(monkeypatch):
+    row = SimpleNamespace(id=12, job_id=45, created_by=OTHER_AUTHOR)
+    membership = AsyncMock(return_value=True)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
+    db = SimpleNamespace(get=AsyncMock(return_value=row))
+    assert await api._load_generated_document(db, 12, user()) is row
+    membership.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generation_does_not_consult_recruitment_membership(monkeypatch):
+    """A non-member reaches client rules (the next step) — membership is never
+    asked. Before 10.09.2026 this was a 403 before rules, sources and quota."""
+
+    class ReachedClientRules(Exception):
+        pass
+
+    stage = SimpleNamespace(id=3, candidate_id=2, job_id=45)
+    db = SimpleNamespace(
+        get=AsyncMock(side_effect=[SimpleNamespace(id=2), stage]),
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: 5)),
+    )
+    membership = AsyncMock(return_value=False)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
+    rules = AsyncMock(side_effect=ReachedClientRules)
+    monkeypatch.setattr(api, "resolve_client_rule", rules)
+    with pytest.raises(ReachedClientRules):
+        await api.generate.__wrapped__(
+            Request({"type": "http", "headers": []}),
+            api.GenerateRequest(candidate_id=2, stage_id=3, cv_document_id=9),
+            user(),
+            BackgroundTasks(),
+            db,
+        )
+    membership.assert_not_awaited()
+    rules.assert_awaited_once_with(db, 5)
+
+
+@pytest.mark.asyncio
+async def test_generation_rejects_stage_of_another_candidate(monkeypatch):
+    """Correctness kept from #1448: the stage must belong to the candidate."""
     db = SimpleNamespace(
         get=AsyncMock(
             side_effect=[
                 SimpleNamespace(id=2),
-                SimpleNamespace(candidate_id=2, job_id=45),
-                SimpleNamespace(id=45),
+                SimpleNamespace(id=3, candidate_id=77, job_id=45),
             ]
         )
-    )
-    monkeypatch.setattr(
-        recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
     )
     quota, rules = AsyncMock(), AsyncMock()
     monkeypatch.setattr(api, "_charge_cv_generation_quota", quota)
     monkeypatch.setattr(api, "resolve_client_rule", rules)
     with pytest.raises(HTTPException) as exc:
         await api.generate.__wrapped__(
-            Request({"type": "http"}),
+            Request({"type": "http", "headers": []}),
             api.GenerateRequest(candidate_id=2, stage_id=3, cv_document_id=9),
             user(),
             BackgroundTasks(),
             db,
         )
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 404
     quota.assert_not_awaited()
     rules.assert_not_awaited()
 
@@ -106,23 +181,12 @@ async def test_generation_scope_precedes_rules_sources_and_quota(monkeypatch):
     ],
 )
 async def test_existing_org_read_scope_preserved(monkeypatch, role):
-    row = SimpleNamespace(job_id=45)
+    row = SimpleNamespace(job_id=45, created_by=OTHER_AUTHOR)
     db = SimpleNamespace(get=AsyncMock(return_value=row))
     membership = AsyncMock(return_value=False)
     monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
     assert await api._load_generated_document(db, 12, user(role)) is row
     membership.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_finance_read_bypass_does_not_grant_job_write(monkeypatch):
-    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(job_id=45)))
-    monkeypatch.setattr(
-        recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
-    )
-    with pytest.raises(HTTPException) as exc:
-        await api._load_generated_document(db, 12, user(UserRole.finance), write=True)
-    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -154,17 +218,20 @@ async def test_pending_document_scoped_before_worker_finishes():
         job_id=45,
     )
     assert rows[0].job_id == 45
+    assert rows[0].created_by == 71
     assert rows[0].status == "processing"
 
 
 @pytest.mark.asyncio
-async def test_consent_binding_checks_scope_before_upload(monkeypatch):
+async def test_consent_upload_does_not_require_membership(monkeypatch):
+    """The consent screenshot is a generation step, so it follows the same rule:
+    a non-member gets past the stage checks to the file itself."""
     stage = SimpleNamespace(candidate_id=2, job_id=45)
-    db = SimpleNamespace(get=AsyncMock(return_value=stage))
-    upload = SimpleNamespace(read=AsyncMock())
-    monkeypatch.setattr(
-        recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
-    )
+    job = SimpleNamespace(id=45, client_id=None)
+    db = SimpleNamespace(get=AsyncMock(side_effect=[stage, job]))
+    upload = SimpleNamespace(read=AsyncMock(return_value=b""))
+    membership = AsyncMock(return_value=False)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
     with pytest.raises(HTTPException) as exc:
         await api.upload_consent_screenshot.__wrapped__(
             Request({"type": "http"}),
@@ -176,5 +243,28 @@ async def test_consent_binding_checks_scope_before_upload(monkeypatch):
             cv_sha256=None,
             db=db,
         )
-    assert exc.value.status_code == 403
+    # Empty file = the handler reached the upload; no scope 403 in between.
+    assert exc.value.status_code == 422
+    upload.read.assert_awaited_once()
+    membership.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consent_upload_rejects_stage_of_another_candidate():
+    db = SimpleNamespace(
+        get=AsyncMock(return_value=SimpleNamespace(candidate_id=77, job_id=45))
+    )
+    upload = SimpleNamespace(read=AsyncMock())
+    with pytest.raises(HTTPException) as exc:
+        await api.upload_consent_screenshot.__wrapped__(
+            Request({"type": "http"}),
+            user(),
+            upload,
+            candidate_id=2,
+            stage_id=3,
+            client_id=None,
+            cv_sha256=None,
+            db=db,
+        )
+    assert exc.value.status_code == 404
     upload.read.assert_not_awaited()

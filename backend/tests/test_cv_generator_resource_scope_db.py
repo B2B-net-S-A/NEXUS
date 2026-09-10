@@ -1,4 +1,5 @@
-"""Hosted PostgreSQL coverage: filtering must happen before LIMIT/readiness reads."""
+"""Hosted PostgreSQL coverage: history filtering must happen before LIMIT; the
+readiness picker lists every recruitment of the candidate (decision 10.09.2026)."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ from app.models.user import User, UserRole
 
 
 @pytest.mark.asyncio
-async def test_history_and_readiness_share_pipeline_scope():
+async def test_history_is_scoped_before_limit_and_readiness_lists_all():
     uid = uuid.uuid4().hex
     async with AsyncSessionLocal() as db:
         # Roll back all fixtures, including synthetic users, after assertions.
@@ -74,8 +75,11 @@ async def test_history_and_readiness_share_pipeline_scope():
         assert [row.id for row in own_list] == [own_doc.id]
         finance_list = await api.list_generated_cvs(finance, db, limit=2)
         assert [row.id for row in finance_list] == [other_doc.id, own_doc.id]
+        # Decyzja 10.09.2026 („wszyscy mogą”): picker gotowości NIE jest
+        # zawężany do zespołu — rekrutacja nieobecna tutaj byłaby rekrutacją,
+        # pod którą nie da się wygenerować CV z interfejsu.
         readiness = await api.list_candidate_recruitments(candidate.id, owner, db)
-        assert [row.job_id for row in readiness] == [own_job.id]
+        assert {row.job_id for row in readiness} == {own_job.id, other_job.id}
         finance_readiness = await api.list_candidate_recruitments(
             candidate.id, finance, db
         )
@@ -131,4 +135,67 @@ async def test_history_and_readiness_share_pipeline_scope():
             )
             == []
         )
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_author_outside_the_team_keeps_own_cv_on_real_scope():
+    """Generować może każdy (10.09.2026) — autor spoza zespołu rekrutacji widzi
+    swoje CV na liście (także z filtrem rekrutacji, zamiast 403) i otwiera je,
+    ale cudzych CV tej rekrutacji dalej nie widzi."""
+    uid = uuid.uuid4().hex
+    async with AsyncSessionLocal() as db:
+        owner = User(
+            email=f"cv-a-owner-{uid}@example.test",
+            name="Owner",
+            role=UserRole.recruiter,
+        )
+        author = User(
+            email=f"cv-a-author-{uid}@example.test",
+            name="Author",
+            role=UserRole.recruiter,
+        )
+        client = Client(name=f"CV author scope {uid}")
+        candidate = Candidate(name="Synthetic", lastname="Author")
+        db.add_all([owner, author, client, candidate])
+        await db.flush()
+        job = Job(title="Owner recruitment", client_id=client.id, recruiter_id=owner.id)
+        db.add(job)
+        await db.flush()
+        teams_doc = CvGeneratedDocument(
+            candidate_id=candidate.id,
+            job_id=job.id,
+            candidate_name="Team",
+            filename="team.docx",
+            status="ready",
+            created_by=owner.id,
+        )
+        authors_doc = CvGeneratedDocument(
+            candidate_id=candidate.id,
+            job_id=job.id,
+            candidate_name="Author",
+            filename="author.docx",
+            status="ready",
+            created_by=author.id,
+        )
+        db.add_all([teams_doc, authors_doc])
+        await db.flush()
+
+        listed = await api.list_generated_cvs(
+            author, db, limit=10, candidate_id=candidate.id, job_id=job.id
+        )
+        assert [row.id for row in listed] == [authors_doc.id]
+        assert listed[0].can_delete is True
+        assert (
+            await api._load_generated_document(db, authors_doc.id, author)
+            is authors_doc
+        )
+        with pytest.raises(HTTPException) as exc:
+            await api._load_generated_document(db, teams_doc.id, author)
+        assert exc.value.status_code == 403
+        # The team keeps seeing every CV of its recruitment, the outsider's too.
+        team_view = await api.list_generated_cvs(
+            owner, db, limit=10, candidate_id=candidate.id, job_id=job.id
+        )
+        assert {row.id for row in team_view} == {teams_doc.id, authors_doc.id}
         await db.rollback()
