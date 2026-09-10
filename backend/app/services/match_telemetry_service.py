@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -395,16 +395,18 @@ async def latest_impression_runs(
     ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
     if not telemetry_enabled() or not ids or user_id is None:
         return {}
+    # `= ANY(:ids)`, not an expanding `IN :ids`: the statement stays one plain,
+    # preparable text (tests/test_raw_sql_prepares.py plans every literal).
     stmt = text(
         """
         SELECT DISTINCT ON (candidate_id) candidate_id, run_id
         FROM match_impressions
         WHERE job_id = :job_id
           AND user_ref = :user_ref
-          AND candidate_id IN :ids
+          AND candidate_id = ANY(:ids)
         ORDER BY candidate_id, created_at DESC, id DESC
         """
-    ).bindparams(bindparam("ids", expanding=True))
+    )
     try:
         async with AsyncSessionLocal() as s:
             rows = await s.execute(
