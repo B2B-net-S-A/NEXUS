@@ -991,13 +991,23 @@ dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential
   (offboarding trwa po ostatnim dniu pracy), **pusty roster = awaria, nie masowe
   odejście**. Nie rusza rankingów wypłacających nagrody (`competitions.py:194`
   zostaje). Domyślnie WYŁĄCZONA (`COMPASS_LIFECYCLE_ENABLED=false`).
-  **Deaktywuje tylko przy ZMIANIE statusu na `exited`** (od 11.09.2026): ostatnio
-  widziany status żyje w `app_settings['compass_lifecycle_state']`. Do 11.09 każdy
-  sync deaktywował wszystkich `exited`, więc konto przywrócone ręcznie przez admina
-  (np. osoba wraca na zlecenie) znikało przy najbliższym przebiegu. Pierwszy bieg
-  bez zapisanego stanu szanuje ręczne przywrócenie (ostatnie Activity
-  `active_changed` z `to=True`); każda deaktywacja zostawia Activity
-  `compass_lifecycle_deactivated`, a zachowane konta raportuje `skipped_reenabled`.
+  **Ręczne przywrócenie konta przez admina wygrywa — ale tylko w bieżącym
+  epizodzie odejścia** (od 11.09.2026). Aktywne konto osoby `exited` jest
+  deaktywowane, CHYBA ŻE ostatnia jawna decyzja admina to przywrócenie
+  (Activity `active_changed` z `to=True`, `PUT /api/admin/users/{id}`) nowsze
+  niż początek bieżącego epizodu. Początek epizodu = chwila, w której pętla
+  zobaczyła zmianę statusu na `exited` (per osoba w
+  `app_settings['compass_lifecycle_state']`, wersja 2); przy pierwszej
+  obserwacji — ostatnie Activity `compass_lifecycle_deactivated`, a bez niego
+  `now()`. Włączenie konta bez takiego Activity (logowanie SSO z grupą AAD,
+  resync AAD) NIE liczy się — następny bieg wyłącza je znowu; stare,
+  niezwiązane przywrócenie sprzed odejścia też nie. Do 11.09 każdy sync
+  wyłączał wszystkich `exited`, więc przywrócenie przez admina znikało po ≤6 h;
+  pierwsza wersja poprawki („tylko przy zmianie statusu”) zostawiała dostęp na
+  zawsze po takim przywróceniu (przegląd adwersarialny 11.09). Stara pętla nie
+  zostawiała śladu, więc konto przywrócone PRZED wdrożeniem zostanie wyłączone
+  raz. Zapis stanu to upsert (dwa kontenery przy deployu); logi niosą liczby
+  i ID, bez e-maili.
 - **`GET /api/insights/reconciliation/placements`** (`app/api/insights_reconciliation.py`)
   — read-only raport uzgadniający placementy w OBU rodzinach atrybucji (FULL OUTER,
   LEFT JOIN na sieroty). Tłumaczy rozjazd 213/228/317/332, **nie usuwa go**; NIE
@@ -1291,10 +1301,17 @@ innego niż serwer albo nadpisywał cudzą pracę.
   także odrzucenie; weto HM blokuje tylko „CV Wysłane” i „Interview Klient”.
   Były cztery kopie tej reguły (w tym `InterviewDecisionDock`) i żadna nie
   zgadzała się z serwerem. Nie dokładaj kopii — przeciąganie, przyciski i doki
-  wołają tę jedną funkcję.
+  wołają tę jedną funkcję. **Główny przycisk „dalej” w doku
+  (`primaryForwardMove`) zatrzymuje się na pierwszym etapie objętym wetem** i
+  pokazuje go wyłączonego z powodem — wcześniej przeskakiwał „CV Wysłane” na
+  następny etap (w „Default B2B” to „Preparation Meeting”, spotkanie u klienta,
+  którego serwerowe weto — kluczowane legacy enumem — nie zna).
 - **Przekazanie CV klientowi: ruch → link → stawka.** Odmowa ruchu nie tworzy
   linku. Link celuje w etap SPRZED ruchu (tam leży brandowane CV); gdy link padnie
-  po udanym ruchu, workbench pokazuje „Utwórz link ponownie”.
+  po udanym ruchu, workbench pokazuje „Utwórz link ponownie”. Brak odpowiedzi
+  albo 5xx przy ruchu to „nie wiadomo, czy ruch się zapisał — odśwież kartę”,
+  nie „nic nie zostało zmienione” (`isDefiniteRefusal` — tylko 4xx jest pewną
+  odmową); ponowienie mogłoby dodać drugi wpis „CV Wysłane”.
 - **Link jednorazowy tylko przez `OneTimeLinkField` + wynik `lib/clipboard.ts`** —
   URL zostaje na ekranie, a toast „skopiowano” pojawia się tylko po udanym
   kopiowaniu (link Championa, interview z klientem). Link przeżywa przemontowanie
@@ -1308,22 +1325,36 @@ innego niż serwer albo nadpisywał cudzą pracę.
   (`normalizeRateToMonthly`); waluta inna niż PLN albo nieznana jednostka =
   „nie do porównania”, nie fałszywe „powyżej widełek”.
 - **Werdykt HM** (`api/hiring_manager_feedback.py`): odczyt za
-  `ensure_job_read_access` (także Finanse); cudzy werdykt nadpisuje tylko autor,
-  DL albo admin (inaczej 403 z nazwiskiem autora). Odpowiedź niesie `author_id`,
-  `author_name`, `can_edit`. Capability `hm_feedback.record` (RecruiterPlus bez
-  HoR) — HoR ma tu sam odczyt.
-- **Shortlista nie nadpisuje zmiany kolegi:** `ServerSyncedInput`
-  (`JobShortlist.tsx`) idzie za serwerem, dopóki pole nie jest edytowane, nie
-  zapisuje przy niezmienionym blur, a zapis niesie wersję z początku edycji —
-  równoległa zmiana daje 409 zamiast cichego nadpisania.
+  `ensure_job_read_access` (także Finanse); cudzy werdykt nadpisuje autor,
+  KAŻDY Delivery Lead (DL omija członkostwo w zespole) albo admin — inaczej 403
+  z nazwiskiem autora. GET zwraca `{can_record, items}`: `can_record` liczy
+  DOKŁADNIE te same warunki co POST (impersonacja, zapis sekcji pipeline, role
+  RecruiterPlus, członkostwo z obejściem DL), a formularz renderuje się tylko przy
+  `can_record === true` — Finanse spoza zespołu widzą werdykt tylko do odczytu
+  zamiast przycisku kończącego się 403. Wiersze niosą `author_id`,
+  `author_name`, `can_edit`. HoR ma tu sam odczyt.
+- **Shortlista nie nadpisuje zmiany kolegi i nie gubi wpisanego tekstu:**
+  `ServerSyncedInput` (`JobShortlist.tsx`) — wersja bazowa idzie za serwerem do
+  pierwszej zmiany użytkownika, potem zamarza; brak zapisu przy niezmienionym
+  blur. 409: tekst zostaje w polu; jeśli kolega zmienił INNE pole, zapis ponawia
+  się raz na nowej wersji, a jeśli to samo — toast o konflikcie i przyjęcie nowej
+  wersji, więc następny zapis nadpisuje świadomie. Backend blokuje wiersz
+  (`with_for_update()`) przed porównaniem wersji — dwa równoczesne zapisy nie
+  przejdą oba.
 - **ATLAS — firmy z historii kandydata** (`api/integrations_companies.py`
-  + `_past_company_predicate` w `api/candidates.py`): `via_us` liczy się tylko
-  z kontraktów `active`/`ending`/`ended`; aktywny konflikt = firma obecna,
-  nieaktywny = przeszła. Każde zapytanie ma sufit 2000 wierszy (`truncated`)
-  i lokalny timeout 8 s (→ 503 `lookup_timeout`). Surowy alias idzie do
-  `LIKE` tylko, gdy jego forma kanoniczna ma co najmniej 3 znaki (koniec z „IT”
-  → `LIKE '%it%'`). Filtr listy `_worked_at_client_predicate` nadal liczy szkice
-  i unieważnione kontrakty — znany dług.
+  + `_past_company_predicate` w `api/candidates.py`): `via_us` =
+  `placed_contract_clause()` — kontrakty `active`/`ending`/`ended` oraz
+  `draft`/`ready_for_signature` z aktywnym zamówieniem u tego klienta albo
+  z bieżącym etapem „hired” u niego (zatrudnienie i obsada linii MD zakładają
+  kontrakt jako szkic, więc bez tego pracujący konsultant znikał z odpowiedzi).
+  Aktywny konflikt = firma obecna, nieaktywny = przeszła. Data końca
+  „present/current/obecnie/teraz” (`services/experience_end.py`) i pusta = praca
+  OBECNA we wszystkich predykatach (lista kandydatów i ATLAS). Każde zapytanie ma
+  sufit 2000 WIERSZY (`truncated`) i lokalny timeout 8 s (→ 503
+  `lookup_timeout`). Surowy alias idzie do `LIKE` tylko, gdy jego forma
+  kanoniczna ma co najmniej 3 znaki (koniec z „IT” → `LIKE '%it%'`). Filtr listy
+  `_worked_at_client_predicate` nadal liczy szkice i unieważnione kontrakty —
+  znany dług.
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
