@@ -93,6 +93,16 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     setBusy(true); setError("");
     try {
       const final = withValues(existing ?? source.champion_profile, Object.fromEntries(fields.map(([path]) => [path, selected[path] ? values[path] : old[path] ?? ""])));
+      // `withValues` drops `rate_raw`, so an EDITED rate cannot revive an old
+      // ambiguous fragment. A rate kept exactly as one side of the comparison
+      // showed it keeps that side's source text: the server needs "120–140 zł/h"
+      // to keep an in-range number AND to warn that the budget was a range.
+      const ratePath = "basics.rate_value";
+      if (selected[ratePath] && values[ratePath] === readValues(source.champion_profile)[ratePath]) {
+        final.basics.rate_raw = source.champion_profile.basics.rate_raw ?? null;
+      } else if (!selected[ratePath] && existing) {
+        final.basics.rate_raw = existing.basics.rate_raw ?? null;
+      }
       final.intake = { ...final.intake, policy_version: 1, unresolved: {}, template_version: source.champion_profile.intake?.template_version, document_context: source.champion_profile.intake?.document_context };
       final.screening_questions = useQuestions ? questions : existing?.screening_questions ?? [];
       const { data: checked } = await api.post<ChampionPreview>("/api/champion/validate", { profile: final });

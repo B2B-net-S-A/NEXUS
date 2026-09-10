@@ -40,6 +40,40 @@ describe("Champion import review", () => {
     expect(post.mock.calls[0][1].profile.intake.unresolved).toEqual({});
   });
 
+  it("keeps the document's rate text when the imported rate is applied unchanged", async () => {
+    const incoming = profile(130);
+    incoming.basics.rate_raw = "120–140 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} onApply={onApply} onClose={() => {}} />);
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("130");
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBe("120–140 zł/h");
+  });
+
+  it("drops the source text once the rate is edited", async () => {
+    const incoming = profile(130);
+    incoming.basics.rate_raw = "120–140 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} onApply={onApply} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Maksymalna stawka PLN/h"), { target: { value: "140" } });
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("140");
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBeNull();
+  });
+
+  it("keeps the current rate text when the current rate is kept", async () => {
+    const current = profile(100);
+    current.basics.rate_raw = "do 100 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: profile(150) }} current={current} jobId={7} fingerprint={"a".repeat(64)} onApply={onApply} onClose={() => {}} />);
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("100");
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBe("do 100 zł/h");
+  });
+
   it("keeps accepted skills alongside fragments that still need review", async () => {
     const incoming = profile(150);
     incoming.stack.must = [{ name: "Python" }];
