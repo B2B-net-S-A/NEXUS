@@ -6,7 +6,7 @@ from contextlib import suppress
 import logging
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from starlette.concurrency import run_in_threadpool
 
 from app.core.database import AsyncSessionLocal
@@ -14,6 +14,8 @@ from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generation_job import CvGenerationJob
 from app.services import object_storage
+from app.services.cv_source_cleanup import reserve_source_key
+from app.models.cv_source_cleanup import CvSourceCleanup
 from app.services.ai_quota import QuotaState
 from app.services.cv_generator_b2b.job_leases import (
     claim_job,
@@ -47,8 +49,13 @@ async def persist_job(
         raise ValueError("CV job must reference exactly its result type")
     raw, digest = serialize_job_inputs(kind, inputs)
     try:
-        key = await run_in_threadpool(
-            object_storage.upload_cv, raw, "cv-job-input.json", "application/json"
+        key = await reserve_source_key(db)
+        await run_in_threadpool(
+            object_storage.upload_cv,
+            raw,
+            "cv-job-input.json",
+            "application/json",
+            storage_key=key,
         )
     except Exception as exc:
         raise HTTPException(
@@ -87,6 +94,9 @@ async def persist_job(
     db.add(job)
     try:
         await db.flush()
+        await db.execute(
+            delete(CvSourceCleanup).where(CvSourceCleanup.storage_key == key)
+        )
     except Exception:
         # A failed flush cannot have committed this newly uploaded object.
         # Preserve the database error even if best-effort storage cleanup fails.

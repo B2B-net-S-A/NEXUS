@@ -10,6 +10,14 @@ from app.services.cv_generator_b2b import durable_jobs as jobs
 from app.services.cv_generator_b2b.job_snapshot import serialize_job_inputs
 
 
+@pytest.fixture(autouse=True)
+def reserved_source_key(monkeypatch):
+    # Reservation persistence has dedicated DB tests; isolate admission here.
+    monkeypatch.setattr(
+        jobs, "reserve_source_key", AsyncMock(return_value="reserved-key")
+    )
+
+
 @pytest.mark.parametrize("case", ["valid", "corrupt", "already_claimed"])
 @pytest.mark.parametrize("kind", ["upload", "preview"])
 @pytest.mark.parametrize("stored_quota", [False, True])
@@ -144,7 +152,7 @@ async def test_input_is_saved_before_admission_and_quota_is_persisted(
 
     events = []
 
-    def upload(*args):
+    def upload(*args, **kwargs):
         events.append("upload")
         if storage_failure:
             raise OSError("storage unavailable")
@@ -199,7 +207,7 @@ async def test_rejected_admission_removes_only_new_snapshot(monkeypatch):
             charge=charge,
         )
     charge.assert_awaited_once()
-    delete.assert_called_once_with("test-only-new-snapshot")
+    delete.assert_called_once_with("reserved-key")
     db.add.assert_not_called()
 
 
@@ -299,5 +307,5 @@ async def test_failed_job_insert_removes_unreferenced_input(monkeypatch, cleanup
     db.flush.side_effect = RuntimeError("job insert failed")
     with pytest.raises(RuntimeError, match="job insert failed"):
         await jobs.persist_job(db, kind="upload", user_id=7, inputs={}, generated_id=11)
-    cleanup.assert_called_once_with("fresh-key")
+    cleanup.assert_called_once_with("reserved-key")
     db.commit.assert_not_awaited()

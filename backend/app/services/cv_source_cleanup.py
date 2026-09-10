@@ -15,6 +15,28 @@ from app.services import object_storage
 logger = logging.getLogger(__name__)
 
 
+async def reserve_source_key(db) -> str:
+    """Commit recovery intent before upload; caller locks it until job commit."""
+    key = object_storage.new_cv_storage_key("cv-job-input.json")
+    async with AsyncSessionLocal() as reservation_db:
+        await reservation_db.execute(
+            insert(CvSourceCleanup).values(
+                storage_key=key,
+                attempts=0,
+                next_attempt_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            )
+        )
+        await reservation_db.commit()
+    intent = await db.scalar(
+        select(CvSourceCleanup)
+        .where(CvSourceCleanup.storage_key == key)
+        .with_for_update()
+    )
+    if intent is None:
+        raise RuntimeError("Source reservation expired before upload")
+    return key
+
+
 async def schedule_source_cleanup(db, storage_key: str):
     """Caller commits this intent with the deletion. Never touch storage here."""
     if storage_key:
