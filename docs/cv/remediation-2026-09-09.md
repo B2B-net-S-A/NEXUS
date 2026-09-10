@@ -40,11 +40,17 @@ provide the relevant notes and generate a new version, then review and approve
 that result. It is a new generation with normal quota admission, not a backfill
 claiming that today's candidate profile was the historical source.
 
-The approval API already returns an actionable regeneration message for missing
-archived DOCX or verified content. The source loader likewise instructs the user
-to select sources and regenerate when no snapshot exists. A dedicated guided
-recovery action and production verification of this legacy path remain open;
-this paragraph records the current supported path, not completion of CV-02/10.
+The approval API returns a typed `cv_source_regeneration_required` response
+when a generation has no frozen source job. The shared editor keeps this error
+visible, lists the source-selection and regeneration steps, and provides a
+save-and-close action. Draft edits are saved before closing; they are not
+silently copied into a new generation. The message explains the normal AI quota
+for a new generation. Missing-source rejection itself does not consume quota.
+Storage outages or invalid snapshots do not receive this legacy recovery code.
+Local evidence for `fd77401e`: 20 source/review backend tests, five editor tests
+(including preservation of edits in both standalone and pipeline recovery), and
+TypeScript passed. Direct navigation with preselected recruitment/client and
+production verification remain open; this is not completion of CV-02/10.
 
 PR #1444 remains the single delivery PR. CI 34412484203 passed all four backend
 shards and frontend build for `5b9c1d15`. Its separate formatting gate failed;
