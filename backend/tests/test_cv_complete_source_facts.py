@@ -113,7 +113,8 @@ def test_unbound_or_mutated_facts_stop_before_editing(mutation):
 def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
     calls = []
 
-    def extract(content, request_id, system):
+    def extract(content, request_id, system, response_schema):
+        assert response_schema is facts.EXTRACTION_RESPONSE_SCHEMA
         calls.append(("extract", json.loads(content), system))
         return json.dumps(response())
 

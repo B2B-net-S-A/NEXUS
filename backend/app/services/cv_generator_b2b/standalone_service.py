@@ -1452,7 +1452,7 @@ def prepare_source_facts(
         )
         raise StandaloneGenerationError(
             code="source_extraction_failed",
-            message="Nie udało się potwierdzić pełnych danych źródłowych. Sprawdź czytelność CV i ponów generację.",
+            message="Tekst CV został odczytany, ale AI nie zwróciło poprawnego zestawu faktów z potwierdzeniem w źródle. Spróbuj ponownie. Jeżeli błąd się powtarza, zgłoś go administratorowi.",
         ) from err
     except CVGeneratorAIError as err:
         raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
