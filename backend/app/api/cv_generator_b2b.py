@@ -25,6 +25,7 @@ request time. Real (non-stringized) annotations sidestep it. Same reason as
 import hashlib
 import json
 import logging
+import re
 from contextlib import nullcontext
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -525,16 +526,28 @@ async def _run_declared(fn, *args, quota_state=None, quota_user_id=None, **kwarg
         await fn(*args, **kwargs)
 
 
-async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
+async def _finalize_failure(
+    db: AsyncSession,
+    generated_id: int,
+    message: str,
+    *,
+    diagnostic_code: str | None = None,
+) -> None:
     """Mark a „processing" row „failed" with the reason. No-op if it's gone."""
     from app.services.cv_generator_b2b.job_leases import lock_owned_job
 
-    await lock_owned_job(db)
+    job = await lock_owned_job(db)
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return
     row.status = "failed"
     row.error_message = message[:1000]
+    if (
+        job is not None
+        and diagnostic_code
+        and re.fullmatch(r"[a-z_]{1,64}", diagnostic_code)
+    ):
+        job.error_code = diagnostic_code
 
 
 def _reject_missing_inputs(problems: list[str]) -> None:
@@ -625,7 +638,9 @@ async def _run_generate_new_job(
                 prepared_source_facts=source_facts,
             )
         except StandaloneGenerationError as err:
-            await _finalize_failure(db, generated_id, err.message)
+            await _finalize_failure(
+                db, generated_id, err.message, diagnostic_code=err.diagnostic_code
+            )
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
@@ -728,7 +743,9 @@ async def _run_generate_new_job(
                         prepared_source_facts=source_facts,
                     )
             except StandaloneGenerationError as err:
-                await _finalize_failure(db, second_id, err.message)
+                await _finalize_failure(
+                    db, second_id, err.message, diagnostic_code=err.diagnostic_code
+                )
                 await db.commit()
                 return
             except Exception as err:  # noqa: BLE001
@@ -814,7 +831,9 @@ async def _run_generate_upload_job(
                 generate_cv_from_uploads, payload, prepared_source_facts=source_facts
             )
         except StandaloneGenerationError as err:
-            await _finalize_failure(db, generated_id, err.message)
+            await _finalize_failure(
+                db, generated_id, err.message, diagnostic_code=err.diagnostic_code
+            )
             await db.commit()
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
@@ -914,7 +933,9 @@ async def _run_generate_upload_job(
                         prepared_source_facts=source_facts,
                     )
             except StandaloneGenerationError as err:
-                await _finalize_failure(db, second_id, err.message)
+                await _finalize_failure(
+                    db, second_id, err.message, diagnostic_code=err.diagnostic_code
+                )
                 await db.commit()
                 return
             except Exception as err:  # noqa: BLE001

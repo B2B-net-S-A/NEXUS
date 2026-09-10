@@ -2,15 +2,11 @@
 
 import importlib.util
 import ast
-import base64
 import json
 import os
 from pathlib import Path
 import re
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
 spec = importlib.util.spec_from_file_location(
     "cv_ops", Path(__file__).with_name("cv-quality-ops.py")
@@ -68,46 +64,9 @@ def project(logs):
     return {"events": events[-250:], "matching_events": len(events)}
 
 
-def backend_events(api, app):
-    """Use the existing log sink; never return credentials or raw log lines."""
-    rows = api.request("GET", f"/api/v1/applications/{app}/envs")
-    if not isinstance(rows, list):
-        raise ops.OpsError("invalid_environment_response")
-    wanted = {"GRAFANA_LOKI_URL", "GRAFANA_LOKI_USER", "GRAFANA_LOKI_TOKEN"}
-    settings = {row.get("key"): row.get("value") for row in rows if row.get("key") in wanted}
-    if not all(isinstance(settings.get(key), str) and settings[key] for key in wanted):
-        raise ops.OpsError("log_sink_unconfigured")
-    base = settings["GRAFANA_LOKI_URL"].rstrip("/")
-    if not re.fullmatch(r"https://[a-zA-Z0-9.-]+\.grafana\.net", base):
-        raise ops.OpsError("unexpected_log_sink")
-    query = urllib.parse.urlencode({
-        "query": '{app="nexus",service="backend"} |~ "source extraction rejected|final factual review rejected"',
-        "since": "6h", "limit": 250, "direction": "backward",
-    })
-    credential = base64.b64encode((settings["GRAFANA_LOKI_USER"] + ":" + settings["GRAFANA_LOKI_TOKEN"]).encode()).decode()
-    request = urllib.request.Request(base + "/loki/api/v1/query_range?" + query, headers={"Authorization": "Basic " + credential})
-    try:
-        with urllib.request.build_opener(ops.NoRedirect).open(request, timeout=30) as response:
-            raw = response.read(2_000_001)
-        if len(raw) > 2_000_000:
-            raise ops.OpsError("log_sink_response_too_large")
-        result = json.loads(raw)
-        lines = [value[1] for stream in result["data"]["result"] for value in stream["values"]]
-    except urllib.error.HTTPError as error:
-        raise ops.OpsError("log_sink_http_" + str(error.code)) from None
-    except (OSError, ValueError, KeyError, TypeError):
-        raise ops.OpsError("log_sink_unavailable") from None
-    return project("\n".join(lines))
-
-
 def main():
     api = ops.Api(os.environ)
     app = ops.checked(os.environ["APP_UUID"], r"[A-Za-z0-9-]{1,80}")
-    try:
-        print(json.dumps({"backend": backend_events(api, app)}, indent=2))
-    except ops.OpsError as error:
-        print(json.dumps({"backend": str(error)}))
-    return
     response = api.request("GET", f"/api/v1/applications/{app}/logs?lines=10000")
     if not isinstance(response, dict) or not isinstance(response.get("logs"), str):
         raise ops.OpsError("invalid_log_response")
@@ -115,11 +74,12 @@ def main():
     # The task command column is limited to 255 characters. Both fixed probes
     # only SELECT bounded metadata; no source content or arbitrary SQL input.
     queries = {
-        "jobs": "select id,generated_id,status,created_at::text from cv_generation_jobs order by id desc limit 6",
+        "jobs": "select id,generated_id,status,error_code from cv_generation_jobs order by id desc limit 6",
         "calls": "select model,latency_ms,input_tokens,output_tokens from ai_provider_calls order by created_at desc limit 6",
     }
     identity = ops.checked(os.environ["GITHUB_RUN_ID"], r"[1-9][0-9]{0,19}")
     owned_ids = {}
+    registered = {}
     try:
         for label, query in queries.items():
             name = "nexus-cv-state-" + identity + "-" + label
@@ -127,6 +87,11 @@ def main():
             command = "python -c '" + code + "'"
             if len(command) > 255:
                 raise ops.OpsError("probe_command_too_long")
+            if any(task.get("name") == name for task in api.inventory()):
+                raise ops.OpsError("probe_already_exists")
+            # Register before POST: an uncertain response can still mean that
+            # creation succeeded. Resolve this exact ownership in finally.
+            registered[name] = command
             api.request("POST", api.tasks, {"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True})
             owned = [t for t in api.inventory() if t.get("name") == name and t.get("command") == command]
             if len(owned) != 1:
@@ -156,8 +121,24 @@ def main():
             time.sleep(10)
         raise ops.OpsError("probe_timeout")
     finally:
-        for task_id in owned_ids.values():
-            api.request("DELETE", f"{api.tasks}/{task_id}")
+        cleanup_ids = set(owned_ids.values())
+        try:
+            if registered:
+                cleanup_ids.update(
+                    ops.checked(task["uuid"], r"[A-Za-z0-9-]{1,80}")
+                    for task in api.inventory()
+                    if task.get("name") in registered
+                    and task.get("command") == registered[task["name"]]
+                )
+        finally:
+            failures = []
+            for task_id in cleanup_ids:
+                try:
+                    api.request("DELETE", f"{api.tasks}/{task_id}")
+                except ops.OpsError as error:
+                    failures.append(str(error))
+            if failures:
+                raise ops.OpsError("probe_cleanup_failed")
 
 
 if __name__ == "__main__":

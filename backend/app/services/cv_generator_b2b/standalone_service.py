@@ -170,10 +170,13 @@ class StandaloneGenerationError(RuntimeError):
         - 'invalid_input'         → 400
     """
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self, code: str, message: str, *, diagnostic_code: str | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+        self.diagnostic_code = diagnostic_code
 
 
 @dataclass(frozen=True)
@@ -1451,6 +1454,7 @@ def prepare_source_facts(
         )
         raise StandaloneGenerationError(
             code="source_extraction_failed",
+            diagnostic_code="source_" + err.reason,
             message="Tekst CV został odczytany, ale AI nie zwróciło poprawnego zestawu faktów z potwierdzeniem w źródle. Spróbuj ponownie. Jeżeli błąd się powtarza, zgłoś go administratorowi.",
         ) from err
     except CVGeneratorAIError as err:
@@ -1731,6 +1735,7 @@ def _run_generation_pipeline(
         )
         raise StandaloneGenerationError(
             code="source_verification_failed",
+            diagnostic_code="verify_" + err.reason,
             message=(
                 "Nie utworzono CV: końcowa kontrola nie potwierdziła wszystkich "
                 "twierdzeń w materiałach źródłowych. Sprawdź CV i notatki, a następnie "

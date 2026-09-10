@@ -38,6 +38,16 @@ class _FakeErr(Exception):
         self.status_code = status_code
 
 
+def test_expired_repair_budget_never_calls_the_provider(monkeypatch):
+    from unittest.mock import Mock
+
+    call = Mock()
+    monkeypatch.setattr(provider, "call_claude_text", call)
+    with pytest.raises(provider.CVGeneratorTimeoutError):
+        analyze_with_ai("data", "expired", total_timeout=0)
+    call.assert_not_called()
+
+
 class _FakeMessage:
     def __init__(self, text: str = "{}", stop_reason: str = "end_turn") -> None:
         self.content = [type("Block", (), {"text": text})()]

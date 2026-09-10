@@ -140,6 +140,10 @@ def _api_key() -> str | None:
         return None
 
 
+def total_timeout_seconds() -> float:
+    return env_number("CV_B2B_TOTAL_TIMEOUT", _DEFAULT_TOTAL_TIMEOUT, float)
+
+
 def analyze_with_ai(
     content: str,
     request_id: str,
@@ -147,6 +151,7 @@ def analyze_with_ai(
     *,
     model_override: str | None = None,
     response_schema: dict[str, Any] | None = None,
+    total_timeout: float | None = None,
 ) -> str:
     """Zawołaj model i zwróć tekst odpowiedzi. Sygnatura bez zmian.
 
@@ -165,6 +170,11 @@ def analyze_with_ai(
         CVGeneratorOverloadedError: każdy model w łańcuchu przeciążony.
         CVGeneratorAIError: brak klucza albo błąd 4xx (żądanie/konfiguracja).
     """
+    budget = total_timeout_seconds()
+    if total_timeout is not None:
+        budget = min(budget, total_timeout)
+    if budget <= 0:
+        raise CVGeneratorTimeoutError("Przekroczono czas przygotowania danych CV.")
     api_key = _api_key()
     if not api_key:
         raise CVGeneratorAIError("ANTHROPIC_API_KEY env var is not set")
@@ -208,9 +218,7 @@ def analyze_with_ai(
             ),
             max_retries=env_number("CV_B2B_MAX_RETRIES", _DEFAULT_MAX_RETRIES, int),
             stream_response=True,
-            total_timeout=env_number(
-                "CV_B2B_TOTAL_TIMEOUT", _DEFAULT_TOTAL_TIMEOUT, float
-            ),
+            total_timeout=budget,
             thinking=_thinking_param(),
             # Ucięcie MA tu rzucać: `standalone_service` mapuje je na własny
             # kod błędu, a cicha, ucięta odpowiedź trafiłaby dalej jako
