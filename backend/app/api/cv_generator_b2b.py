@@ -792,6 +792,7 @@ def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]
 
     return upload_requirements(payload)
 
+
 async def _run_generate_upload_job(
     generated_id: int,
     *,
