@@ -142,6 +142,8 @@ async def _fresh_top_matches(
             bm25_query=build_job_bm25_query(job),
             # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
             must_groups=build_job_must_groups(job),
+            # Top N wybiera kanoniczny fit — reranker byłby czystym kosztem.
+            use_rerank=False,
         )
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)

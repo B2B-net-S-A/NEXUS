@@ -373,6 +373,8 @@ async def _recommend_candidates_core(
         # 0278: rodziny must-have dla strategii SQL-first — no-op, dopóki
         # `STRUCTURED_POOL_ENABLED` jest wyłączona.
         must_groups=build_job_must_groups(job),
+        # Wynik sortuje kanoniczny fit — kolejność rerankera byłaby wyrzucona.
+        use_rerank=False,
     )
     candidate_ids = list(dict.fromkeys(h["candidate_id"] for h in hits))
 

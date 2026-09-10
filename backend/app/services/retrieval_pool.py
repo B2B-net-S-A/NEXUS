@@ -232,6 +232,7 @@ async def retrieve_candidate_pool(
     query_variants: list[str] | None = None,
     bm25_query: str | None = None,
     must_groups: list[list[str]] | None = None,
+    use_rerank: bool | None = None,
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
@@ -276,6 +277,14 @@ async def retrieve_candidate_pool(
     WYŁĄCZNIE przez strategię SQL-first (`STRUCTURED_POOL_ENABLED`); pozostałe
     dwie ścieżki (hybryda, wektor/multi-query) go ignorują, bo dokładne must
     wnosi już ich własna noga BM25 (`bm25_query`) / warstwa punktowa scoringu.
+
+    `use_rerank` (tylko ścieżka hybrydowa): `None` = `RERANKER_ENABLED`, czyli
+    zachowanie sprzed parametru. Konsumenci kanonicznego scoringu
+    (rekomendacje, `/ai-matches`, propozycje, digest) podają `False`: reranker
+    zmienia wyłącznie KOLEJNOŚĆ puli (`score` to i tak kosinus, patrz docstring
+    modułu), a oni sortują wynik od nowa po `fit_score` z `candidate_id` jako
+    rozstrzygnięciem. Reranking był tam czystym kosztem — wywołanie Voyage'a
+    i pełny SELECT kandydatów puli — bez wpływu na odpowiedź.
     """
 
     # Pierwsza instrukcja strategii = sprawdzenie flagi — PRZED jakimkolwiek
@@ -316,7 +325,7 @@ async def retrieve_candidate_pool(
             query_text,
             pool=top_k,
             final_top_k=top_k,
-            use_rerank=None,
+            use_rerank=use_rerank,
             bm25_query=bm25_query or "",
         )
     except Exception:
