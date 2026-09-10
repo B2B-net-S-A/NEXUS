@@ -91,6 +91,35 @@ function confirmOutsideAssignment() {
   fireEvent.click(screen.getByLabelText(/Generuję CV poza zleceniem/));
 }
 
+it("recovers uploaded history without reusing the current source or losing its client", async () => {
+  setSourcingAccess("write");
+  getMock.mockImplementation(async (url) => ({data: url === "/api/cv-generator/generated" ? [{
+    id: 902, candidate_id: null, job_id: null, candidate_name: "Uploaded Person",
+    client_id: 51, client_name: "Original Client", position: "Source role",
+    language: "en", blind: false, mode: "upload", status: "ready", filename: "cv.docx",
+    can_download: true, can_delete: false,
+  }] : []}));
+  const assign = vi.fn();
+  vi.stubGlobal("location", {...window.location, assign});
+  try {
+    renderPage();
+    await openUploadMode();
+    drop(cvInput(), new File(["unrelated"], "unrelated.pdf"));
+    confirmOutsideAssignment();
+    expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeEnabled();
+    fireEvent.click(await screen.findByTitle("Edytuj i zatwierdź CV"));
+    fireEvent.click(screen.getByText("Recover saved draft"));
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Stanowisko")).toHaveValue("Source role");
+    expect(screen.getByText("Original Client")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeDisabled();
+    expect(screen.queryByText("unrelated.pdf")).not.toBeInTheDocument();
+  } finally {
+    vi.unstubAllGlobals();
+    getMock.mockImplementation(async () => ({data: []}));
+  }
+});
+
 it.each([88, null])("recovers the history document context after closing its editor (job %s)", async (jobId) => {
   setSourcingAccess("write");
   getMock.mockImplementation(async (url) => ({data: url === "/api/cv-generator/generated" ? [{

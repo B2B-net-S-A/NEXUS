@@ -213,6 +213,7 @@ export function CVGeneratorStandaloneV2({
   // z bazy kandydata nie idzie do modelu tą ścieżką.
   const [uploadCandidate, setUploadCandidate] = useState<CandidateOption | null>(null);
   const [uploadStageId, setUploadStageId] = useState("");
+  const [recoveryContext, setRecoveryContext] = useState<{candidateId: number; jobId: number} | null>(null);
   const uploadBindingCandidateId = embedded ? prefillCandidateId : uploadCandidate?.id;
   const [uploadCandidateOpen, setUploadCandidateOpen] = useState(false);
   const [uploadCandidateQuery, setUploadCandidateQuery] = useState("");
@@ -373,6 +374,12 @@ export function CVGeneratorStandaloneV2({
     embedded ? r.job_id === prefillJobId : String(r.stage_id) === uploadStageId,
   );
   useEffect(() => { setUploadStageId(""); }, [uploadBindingCandidateId]);
+  useEffect(() => {
+    if (!recoveryContext || recoveryContext.candidateId !== uploadBindingCandidateId || !uploadRecruitmentsQuery.data) return;
+    const match = uploadRecruitmentsQuery.data.find(r => r.job_id === recoveryContext.jobId);
+    setUploadStageId(match ? String(match.stage_id) : "");
+    setRecoveryContext(null);
+  }, [recoveryContext, uploadBindingCandidateId, uploadRecruitmentsQuery.data]);
 
   const uploadClientOptions = useMemo<ClientRef[]>(() => {
     const seen = new Map<number, ClientRef>();
@@ -387,7 +394,7 @@ export function CVGeneratorStandaloneV2({
     // Dokładnie jeden klient w procesach kandydata = wybieramy go sami. Przy
     // kilku decyduje rekruter (przyciski niżej); przy zerze nie zgadujemy.
     if (mode === "old" && uploadCandidate && uploadClientOptions.length === 1) {
-      setUploadClient(uploadClientOptions[0]);
+      setUploadClient(current => current ?? uploadClientOptions[0]);
     }
   }, [mode, uploadCandidate, uploadClientOptions]);
   useEffect(() => {
@@ -1140,11 +1147,36 @@ export function CVGeneratorStandaloneV2({
         onRegenerate={() => {
           // History may belong to a different candidate than the current form.
           // Re-enter through the authorized prefill flow after saving the draft.
-          if (!embedded && editItem.candidate_id != null) {
+          if (!embedded && editItem.mode !== "upload" && editItem.candidate_id != null) {
             const context = new URLSearchParams({candidate_id: String(editItem.candidate_id)});
             if (editItem.job_id != null) context.set("job_id", String(editItem.job_id));
             window.location.assign(`/cv-generator?${context}`);
             return;
+          }
+          if (!embedded) {
+            setMode("old");
+            setCvFile(null);
+            setChampionFile(null);
+            setChampionError(null);
+            setConsentKey(null);
+            setScreeningNotes("");
+            setMustRequirements("");
+            setNiceRequirements("");
+            setProjectRef("");
+            setPosition(editItem.position ?? "");
+            setLanguage(editItem.language === "en" ? "en" : "pl");
+            setBlindCv(editItem.blind);
+            setUploadStageId("");
+            setUploadCandidate(editItem.candidate_id == null ? null : {
+              id: editItem.candidate_id, full_name: editItem.candidate_name,
+              name: editItem.candidate_name, lastname: "",
+            });
+            setUploadClient(editItem.client_id == null ? null : {
+              id: editItem.client_id, name: editItem.client_name ?? `#${editItem.client_id}`,
+            });
+            setOutsideAssignment(false);
+            setRecoveryContext(editItem.candidate_id != null && editItem.job_id != null
+              ? {candidateId: editItem.candidate_id, jobId: editItem.job_id} : null);
           }
           requestAnimationFrame(() => {
             generatorFormRef.current?.focus({preventScroll: true});
