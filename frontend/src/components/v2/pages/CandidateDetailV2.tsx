@@ -3751,6 +3751,7 @@ function RekrutacjaCard({
  <CVBrandedEditModal
  open
  onOpenChange={setOpenBranded}
+ onRegenerate={() => window.location.assign(`/cv-generator?candidate_id=${candidateId}&job_id=${jobId}`)}
  stageId={stageId}
  jobTitle={job.job_title}
  candidateName={candidateName}
