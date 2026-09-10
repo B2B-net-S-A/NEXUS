@@ -51,6 +51,9 @@ class GateInput:
     excluded_client_ids: frozenset[int] = frozenset()
     #: Serwer potwierdził jeden aktywny rekord w jawnej puli polityki PFRON.
     trusted_policy_identity: Optional[str] = None
+    #: Polityka klienta deklaruje zamówienia BEZTERMINOWE (BIK) — brak daty
+    #: końca jest wtedy poprawnym odczytem, nie niepełnym okresem.
+    open_ended_period: bool = False
 
 
 @dataclass
@@ -211,7 +214,9 @@ def evaluate(inp: GateInput) -> GateVerdict:
                     row_prop.reasons or ["Nie ustalono jednoznacznego miejsca zapisu"]
                 )
             )
-        if not row_prop.start_date or not row_prop.end_date:
+        if not row_prop.start_date or (
+            not row_prop.end_date and not inp.open_ended_period
+        ):
             reasons.append(
                 f"„{row_prop.row_name}”: okres niepełny w dokumencie (od {row_prop.start_date or '—'} do {row_prop.end_date or '—'})"
             )

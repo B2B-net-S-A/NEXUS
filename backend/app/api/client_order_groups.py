@@ -163,6 +163,10 @@ from app.services.multi_consultant_orders import (
     swap_md_total,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_md_exhaustion import (
+    closed_by_md_exhaustion,
+    reconcile_md_exhausted_groups,
+)
 from app.services.order_write_errors import commit_order_write
 from app.services.order_types import (
     assert_order_type_allowed,
@@ -1468,7 +1472,11 @@ async def list_order_groups(
     # idempotentną bramą: zamówienie zaczynające się dziś ma stać się bieżące
     # przy pierwszym wejściu użytkownika, nawet jeśli pętla dobowa jeszcze nie
     # zdążyła wykonać iteracji.
-    if await materialize_scheduled_order_groups(db, client_id=client_id):
+    changed = await materialize_scheduled_order_groups(db, client_id=client_id)
+    # BIK: zamówienie, którego wszystkie osoby wyczerpały limit MD, pokazujemy
+    # jako zakończone od razu, nie dopiero po nocnym skanerze.
+    changed += await reconcile_md_exhausted_groups(db, client_id=client_id)
+    if changed:
         await db.commit()
 
     groups_query = select(ClientOrderGroup).where(
@@ -2895,6 +2903,18 @@ async def reopen_order_group(
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
 
     assert_group_is_reopenable(group.status)
+    if closed_by_md_exhaustion(group):
+        # Przywrócenie bez nowego MD zostawiłoby zamówienie bez ani jednej
+        # osoby z limitem, a najbliższe przeliczenie zakończyłoby je z powrotem.
+        raise HTTPException(
+            409,
+            detail=(
+                "Zamówienie zakończyło się samo, bo wszyscy konsultanci "
+                "wyczerpali limit MD. Zwiększ budżet MD konsultanta albo "
+                "skoryguj zużycie — zamówienie wróci wtedy do aktywnych samo. "
+                "Nowy limit MD zakłada przedłużenie zamówienia."
+            ),
+        )
 
     previous_closure = group.closure_date
     group.status = GROUP_STATUS_ACTIVE

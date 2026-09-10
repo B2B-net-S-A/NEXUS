@@ -92,6 +92,7 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/order_policies/_shared.py",
     "backend/app/services/order_policies/alior.py",
     "backend/app/services/order_policies/bank_pocztowy.py",
+    "backend/app/services/order_policies/bik.py",
     "backend/app/services/order_policies/cardif.py",
     "backend/app/services/order_policies/credit_agricole.py",
     "backend/app/services/order_policies/kir.py",
@@ -135,6 +136,8 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # ── Cykl życia zamówienia ───────────────────────────────────────────
     "backend/app/services/order_group_lifecycle.py",
     "backend/app/services/order_group_materializer.py",
+    # BIK: zamówienie kończy wyczerpanie limitów MD wszystkich osób.
+    "backend/app/services/order_md_exhaustion.py",
     "backend/app/services/order_rate_snapshots.py",
     "backend/app/services/contract_order_offboarding.py",
     "backend/app/models/client_order.py",
@@ -161,6 +164,7 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/order-mail/OrderMailQueue.tsx",
     "frontend/src/lib/api/orderMail.ts",
     "frontend/src/lib/order-extraction.ts",
+    "frontend/src/components/orders/ExtractedConsultants.tsx",
 )
 
 STAMP_PATH = _THIS_DIR / "orders_procedure_stamp.json"

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { findConflicts, numberToField } from "@/lib/order-extraction";
+import {
+  extractedEndDate,
+  findConflicts,
+  matchExtractedConsultant,
+  numberToField,
+  OPEN_ENDED_LABEL,
+} from "@/lib/order-extraction";
 
 describe("findConflicts", () => {
   it("puste pole NIE jest rozbieżnością — wypełnienie pustki nic nie kasuje", () => {
@@ -49,5 +55,51 @@ describe("numberToField", () => {
     expect(numberToField(undefined)).toBe("");
     expect(numberToField(0)).toBe("0");
     expect(numberToField(1200)).toBe("1200");
+  });
+});
+
+describe("extractedEndDate — „bezterminowo” z reguły klienta", () => {
+  it("data z dokumentu wygrywa", () => {
+    expect(extractedEndDate({ end_date: "2031-12-31T00:00:00", open_ended: true })).toEqual({
+      value: "2031-12-31",
+      display: "2031-12-31",
+    });
+  });
+
+  it("reguła „bezterminowo” czyści pole zamiast zostawiać starą datę", () => {
+    expect(extractedEndDate({ end_date: null, open_ended: true })).toEqual({
+      value: "",
+      display: OPEN_ENDED_LABEL,
+    });
+  });
+
+  it("brak daty bez reguły to brak informacji, nie „bezterminowo”", () => {
+    expect(extractedEndDate({ end_date: null })).toBeNull();
+    expect(extractedEndDate({ end_date: null, open_ended: false })).toBeNull();
+  });
+});
+
+describe("matchExtractedConsultant — pozycja tej samej osoby", () => {
+  const row = (consultant_name: string) => ({
+    consultant_name,
+    start_date: null,
+    end_date: null,
+    rate_client: 1000,
+    rate_unit: "day",
+    md_total: 10,
+  });
+
+  it("kolejność imienia i nazwiska oraz polskie znaki nie mają znaczenia", () => {
+    const rows = [row("Łęcki Piotr"), row("Anna Nowak")];
+    expect(matchExtractedConsultant("Piotr Łęcki", rows)).toBe(rows[0]);
+    expect(matchExtractedConsultant("piotr lecki", rows)).toBe(rows[0]);
+  });
+
+  it("brak osoby, pusta nazwa albo dwa trafienia → null (bez zgadywania)", () => {
+    expect(matchExtractedConsultant("Jan Kowalski", [row("Anna Nowak")])).toBeNull();
+    expect(matchExtractedConsultant("Jan Kowalski", [row("")])).toBeNull();
+    expect(
+      matchExtractedConsultant("Jan Kowalski", [row("Jan Kowalski"), row("Kowalski Jan")]),
+    ).toBeNull();
   });
 });

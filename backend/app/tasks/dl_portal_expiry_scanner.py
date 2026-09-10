@@ -5,6 +5,8 @@ Lifecycle:
 1. ``ClientFrameworkContract``: status=active, expiry_date<today → status=expired
 2. ``ClientOrder``: status=active, end_date<today → status=completed
    (POZA liniami MD — te kończy budżet, nie kalendarz; patrz ``_promote_statuses``)
+2a. ``ClientOrderGroup`` klientów z ``closes_on_md_exhaustion`` (BIK): wszystkie
+   osoby wyczerpały limit MD → completed (``order_md_exhaustion``)
 3. ``Contract``: ended/ending + aktywny Order obejmujący dziś → active
 4. Dispatch notyfikacji expiry:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
@@ -48,6 +50,7 @@ from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +253,9 @@ async def run_once() -> dict:
                 groups_promoted,
                 contracts_reconciled,
             ) = await _promote_statuses(db)
+            # BIK: zamówienie kończy wyczerpanie limitów MD wszystkich osób —
+            # siatka dla przejść, których nie wywołał import zużycia.
+            md_groups_synced = await reconcile_md_exhausted_groups(db)
             recipient_scope = await load_delivery_alert_recipient_scope(db)
             fc_alerts = await _scan_framework_contracts(db, recipient_scope)
             order_alerts = await _scan_orders(db, recipient_scope)
@@ -262,6 +268,7 @@ async def run_once() -> dict:
         "fc_expired": fc_expired,
         "orders_completed": order_completed,
         "order_groups_promoted": groups_promoted,
+        "md_exhaustion_groups_synced": md_groups_synced,
         "contracts_reconciled": contracts_reconciled,
         "fc_alerts_dispatched": fc_alerts,
         "order_alerts_dispatched": order_alerts,

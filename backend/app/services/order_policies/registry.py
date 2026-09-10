@@ -39,6 +39,7 @@ from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 from app.services.order_policies import (
     alior,
     bank_pocztowy,
+    bik,
     cardif,
     credit_agricole,
     kir,
@@ -99,6 +100,16 @@ class OrderClientPolicy:
     #: automatu porównuje z nim wiersze modelu; harness korpusu używa go jako
     #: źródła wierszy w trybie bez LLM. Brak = klient bez tabeli osób.
     extract_rows: Optional[RowsFn] = None
+    #: Zamówienie klienta jest z definicji BEZTERMINOWE (BIK): brak daty końca
+    #: jest poprawnym odczytem, a nie niepełnym okresem. Bramka automatu nie
+    #: odsyła go do kolejki, a formularze dostają jawne „bezterminowo".
+    open_ended_period: bool = False
+    #: Zamówienie MD klienta kończy się WYŁĄCZNIE wyczerpaniem limitów MD
+    #: wszystkich konsultantów (``order_md_exhaustion``), nie datą.
+    closes_on_md_exhaustion: bool = False
+    #: Ręczny odczyt oddaje całą tabelę osób (``consultant_rows``) — formularz
+    #: zamówienia wieloosobowego pokazuje ją i uzupełnia z niej linie.
+    exposes_consultant_rows: bool = False
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -193,6 +204,15 @@ def _cardif(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
     return cardif.apply_cardif_order_policy(result, ctx.document_text)
 
 
+def _bik(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return bik.apply_bik_order_policy(
+        result,
+        ctx.document_text,
+        target_consultant=ctx.target_consultant,
+        target_given_names=ctx.target_given_names,
+    )
+
+
 # ── Rejestr ──────────────────────────────────────────────────────────────────
 
 POLICIES: tuple[OrderClientPolicy, ...] = (
@@ -204,6 +224,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=10,
         rate_unit_default="hour",
         extract_rows=nordea.extract_rows,
+        exposes_consultant_rows=True,
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -313,6 +334,22 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="day",
         extract_rows=cardif.extract_rows,
     ),
+    # Kanoniczne ID 18 = BIK z ticketu korekty 29.08.2026 (to samo, które
+    # przypina ``order_types._PINNED_ALLOWED_ORDER_TYPES``). Env dopisuje
+    # kontrolowany duplikat w innym środowisku.
+    OrderClientPolicy(
+        key="bik",
+        display_name="BIK",
+        env_var=bik.CLIENT_IDS_ENV,
+        apply=_bik,
+        order=170,
+        canonical_client_ids=bik.CANONICAL_CLIENT_IDS,
+        rate_unit_default="day",
+        extract_rows=bik.extract_rows,
+        open_ended_period=True,
+        closes_on_md_exhaustion=True,
+        exposes_consultant_rows=True,
+    ),
 )
 
 _BY_KEY: dict[str, OrderClientPolicy] = {p.key: p for p in POLICIES}
@@ -407,10 +444,39 @@ def prepare_document_text(text: str, policies: list[OrderClientPolicy]) -> str:
 def apply_rate_kind(
     result: OrderExtraction, text: str, policies: list[OrderClientPolicy]
 ) -> OrderExtraction:
-    """Nordea ma jawną regułę netto; inni klienci nadal wymagają dowodu z PDF-a."""
+    """Nordea ma jawną regułę netto; inni klienci nadal wymagają dowodu z PDF-a.
+
+    BIK dowodzi netto nagłówkiem tabeli („Wart.netto" / „netto bez VAT") —
+    ogólne rozpoznanie szuka etykiety przy KWOCIE stawki, a w sklejonym tekście
+    z SAP-a („1.200,00", „wynosi1200,-zł/MD") jej nie widzi i oznaczało każdą
+    pozycję jako niepewną.
+    """
     if any(p.key == "nordea" for p in policies):
         return nordea.apply_rate_rules(result)
+    if any(p.key == "bik" for p in policies):
+        net = bik.apply_rate_rules(result, text)
+        if net is not None:
+            return net
     return parser.apply_document_rate_kind(result, text)
+
+
+def closes_on_md_exhaustion(client_id: Optional[int]) -> bool:
+    """Czy zamówienia MD klienta kończy wyczerpanie limitów, a nie data (BIK)."""
+    return any(p.closes_on_md_exhaustion for p in active_policies(client_id))
+
+
+def md_exhaustion_client_ids() -> frozenset[int]:
+    """Wszyscy klienci, których zamówienia MD kończy wyczerpanie limitów."""
+    ids: set[int] = set()
+    for policy in POLICIES:
+        if policy.closes_on_md_exhaustion:
+            ids |= policy.canonical_client_ids | client_ids_from_env(policy.env_var)
+    return frozenset(ids)
+
+
+def open_ended_period(policies: list[OrderClientPolicy]) -> bool:
+    """Czy brak daty końca jest u tego klienta poprawnym odczytem."""
+    return any(p.open_ended_period for p in policies)
 
 
 def prepare_parser_text(text: str, policies: list[OrderClientPolicy]) -> str:

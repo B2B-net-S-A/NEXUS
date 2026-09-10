@@ -113,6 +113,7 @@ from app.services.order_policies import (
     apply_policies,
     apply_rate_kind,
     is_client_in_policy,
+    open_ended_period,
     parse_plan,
     prepare_document_text,
     prepare_parser_text,
@@ -2034,6 +2035,7 @@ async def extract_order_pdf(
         ),
         policies,
     )
+    applied = [p for p in policies if p.display_name in applied_policies]
 
     extraction = apply_rate_kind(extraction, text, policies)
 
@@ -2099,10 +2101,12 @@ async def extract_order_pdf(
         # Nazwa reguły klientowej też nie jest kwotą; `None` znaczy „ten klient
         # nie ma jeszcze własnych reguł", a nie „odczyt się nie udał".
         client_policy=" + ".join(applied_policies) or None,
+        open_ended=open_ended_period(applied),
         source=extraction.source,
     )
-    # Only Nordea exposes the full table; other policies retain their API shape.
-    if "Nordea" in applied_policies:
+    # Only policies with a deterministic person table (Nordea, BIK) expose it;
+    # other policies retain their API shape.
+    if any(p.exposes_consultant_rows for p in applied):
         result.consultant_rows = [
             OrderExtractionConsultant(
                 consultant_name=row.consultant_name,
@@ -2110,6 +2114,9 @@ async def extract_order_pdf(
                 end_date=row.end_date,
                 rate_client=row.rate_client if show_finance else None,
                 rate_unit=row.rate_unit if show_finance else None,
+                md_total=row.md_total,
+                uncertain=row.uncertain,
+                uncertain_reason=row.uncertain_reason if show_finance else None,
             )
             for row in extraction.consultant_rows
         ]

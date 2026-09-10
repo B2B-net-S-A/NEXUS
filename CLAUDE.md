@@ -1727,7 +1727,7 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
-## Polityki odczytu PDF per klient — jeden wzorzec, siedem bramek
+## Polityki odczytu PDF per klient — jeden wzorzec, osiem bramek
 
 Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model
 wybiera interpretację, nie stosuje reguł), bramkowana CSV `client_id` z env,
@@ -1742,7 +1742,38 @@ fail-closed:
 | Erste Bank Polska | `ERSTE_GROSS_RATE_CLIENT_IDS` | brutto ÷ 1,23 → netto (half-up, 2 miejsca) |
 | Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
 | PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
+| BIK | `BIK_ORDER_CLIENT_IDS` (+ kanoniczne ID 18) | numer/data z „Numer/data zamówienia” (start = data, koniec = bezterminowo); każda „Poz.” = osoba z własnym limitem MD („Ilość zamów.”, SZT) i stawką PLN/MD („Cena jednostk.”); wartości netto tylko do kontroli |
 
+- **BIK: tekst z SAP-a jest SKLEJONY** — pdfplumber oddaje
+  „ProfilUR-JanKowalski”, „4500012345/20260903”, a etykieta „Numer/data”
+  stoi linię nad adresem, nie nad wartością. Nazwisko jest kotwiczone na linii
+  „Profil”, z myślnikiem albo bez (`_split_glued` rozcina granice mała→wielka
+  litera); istniejąca linia „Profil” jest WIĄŻĄCA — nieczytelna nie przełącza
+  na szukanie „dwóch wyrazów z wielkiej litery” gdzie indziej, bo opis pozycji
+  („Rozwój Strumienia Detalicznego”) wygląda dokładnie jak imię i nazwisko.
+  Niejednoznaczna osoba = puste `consultant_name` + powód z numerem pozycji →
+  bramka maila odsyła do kolejki, writer odmawia założenia osoby bez nazwiska.
+  „Termin dostawy” jest ignorowany (to po nim model zgadywał datę końca).
+  Netto dowodzi nagłówek „Wart.netto”, a iloczyn ilość × cena ≠ wartość netto
+  pozycji to powód do weryfikacji, nigdy korekta. Polityka ma trzy flagi
+  rejestru: `open_ended_period` (bramka maila nie żąda daty końca, front
+  dostaje `open_ended` i czyści pole „do”), `exposes_consultant_rows` (ręczny
+  odczyt oddaje tabelę osób z limitem MD) i `closes_on_md_exhaustion`
+  (patrz niżej). Kanoniczne ID 18 jest odpinane w testach autouse fixturą
+  `_detach_bik_canonical_client` — serial `clients.id` inaczej zamienia
+  osiemnastego klienta testowego w BIK.
+- **BIK: zamówienie kończy wyczerpanie limitów MD WSZYSTKICH osób**
+  (`services/order_md_exhaustion.py`). Linie MD kończyły się same już wcześniej,
+  ale grupa zostawała `active` bez ani jednej aktywnej osoby. Teraz
+  `recompute_remaining` (jedyny writer `md_remaining`, wołany przez import
+  zużycia z Finansów) woła `sync_md_group_exhaustion`: grupa per osoba przechodzi
+  na `completed` z `closure_reason` „Wszyscy konsultanci wyczerpali limit MD”
+  i bez autora, gdy każda nieanulowana linia ma limit i `md_remaining <= 0`.
+  Osoba bez limitu trzyma zamówienie otwarte. Świadomie `completed`, nie
+  `exhausted` (ticket: „Zakończone”; `exhausted` = pula WSPÓLNA z własnymi
+  alertami). Korekta przywracająca komuś MD wskrzesza grupę automatycznie —
+  tylko zakończoną automatycznie; ręczne „Przywróć” takiej grupy daje 409
+  z instrukcją. Siatka: dobowy skaner i `GET …/order-groups` (reconcile).
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
 - **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją

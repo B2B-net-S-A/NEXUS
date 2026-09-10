@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, FileSearch, Trash2 } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
+import {
+  ExtractedConsultants,
+  type ExtractedConsultantRows,
+} from "@/components/orders/ExtractedConsultants";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
   OrderGroupExtendInput,
@@ -12,10 +16,13 @@ import type {
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import {
+  extractedEndDate,
   extractionErrorMessage,
   findConflicts,
+  matchExtractedConsultant,
   numberToField,
   type ExtractionConflict,
+  type ExtractionFieldSpec,
 } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
@@ -99,6 +106,12 @@ export function ExtendOrderGroupModal({
   // nie niosą imienia ani nazwiska. Informacyjnie, do potwierdzenia
   // przez operatora; Nexus nie przechowuje identyfikatorów klienta.
   const [consultantRef, setConsultantRef] = useState<string | null>(null);
+  // Tabela osób z dokumentu (BIK): każda pozycja to osoba z własnym limitem
+  // MD i stawką — przenoszone linie dostają je po imieniu i nazwisku.
+  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>(
+    [],
+  );
+  const [extractedOpenEnded, setExtractedOpenEnded] = useState(false);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
 
@@ -129,6 +142,8 @@ export function ExtendOrderGroupModal({
     setCheckData(false);
     setCheckReasons([]);
     setConsultantRef(null);
+    setExtractedRows([]);
+    setExtractedOpenEnded(false);
     setConflicts([]);
     setPendingApply(null);
   }, [open, group]);
@@ -139,16 +154,52 @@ export function ExtendOrderGroupModal({
     setExtractError(null);
     try {
       const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
+      const extractedEnd = extractedEndDate(data);
+      // Pozycje osób z dokumentu (BIK) → przenoszone linie tych samych osób.
+      // Stawka tylko za 1 MD: linie zamówienia wieloosobowego są w PLN/MD.
+      // Gdy dokument niesie tabelę osób, decyduje WYŁĄCZNIE nazwisko — także
+      // przy jednej przenoszonej osobie nie dostaje ona limitu kogoś innego.
+      const documentHasPeople = (data.consultant_rows ?? []).length > 0;
+      const lineUpdates = documentHasPeople
+        ? lines.flatMap((line) => {
+            const row = matchExtractedConsultant(
+              line.consultantName,
+              data.consultant_rows ?? [],
+            );
+            if (!row) return [];
+            const md =
+              !costBased && !sharedMdBased && row.md_total != null
+                ? String(row.md_total)
+                : null;
+            const rate =
+              row.rate_client != null && row.rate_unit === "day"
+                ? String(row.rate_client)
+                : null;
+            return md == null && rate == null ? [] : [{ line, md, rate }];
+          })
+        : [];
       const apply = () => {
         if (data.title) setOrderNumber(data.title);
         if (data.start_date) setStartDate(data.start_date.slice(0, 10));
-        if (data.end_date) setEndDate(data.end_date.slice(0, 10));
+        if (extractedEnd) setEndDate(extractedEnd.value);
         if (costBased && data.total_value != null) {
           setBudgetAmount(String(data.total_value));
         }
-        if (sharedMdBased && data.md_total != null) {
+        if (lineUpdates.length > 0) {
+          setLines((prev) =>
+            prev.map((l) => {
+              const update = lineUpdates.find((u) => u.line.lineId === l.lineId);
+              if (!update) return l;
+              return {
+                ...l,
+                ...(update.md != null ? { mdTotal: update.md } : {}),
+                ...(update.rate != null ? { rateRevenue: update.rate } : {}),
+              };
+            }),
+          );
+        } else if (sharedMdBased && data.md_total != null) {
           setMdBudgetTotal(String(data.md_total));
-        } else if (!costBased && data.md_total != null) {
+        } else if (!costBased && !documentHasPeople && data.md_total != null) {
           // Liczba MD z dokumentu dotyczy CAŁEGO zamówienia; przy jednej
           // przenoszonej osobie jest jej budżetem, przy kilku operator dzieli
           // ją sam — dlatego wpisujemy ją tylko wtedy, gdy nie ma czego dzielić.
@@ -176,8 +227,22 @@ export function ExtendOrderGroupModal({
           key: "end_date",
           label: "Obowiązuje do",
           current: endDate,
-          incoming: data.end_date ? data.end_date.slice(0, 10) : null,
+          incoming: extractedEnd?.display ?? null,
         },
+        ...lineUpdates.flatMap(({ line, md, rate }): ExtractionFieldSpec[] => [
+          {
+            key: `line:${line.lineId}:md_total`,
+            label: `Limit MD — ${line.consultantName}`,
+            current: line.mdTotal,
+            incoming: md,
+          },
+          {
+            key: `line:${line.lineId}:rate_client`,
+            label: `Stawka przychodowa — ${line.consultantName}`,
+            current: line.rateRevenue,
+            incoming: rate,
+          },
+        ]),
         ...(costBased
           ? [
               {
@@ -200,6 +265,8 @@ export function ExtendOrderGroupModal({
           : []),
       ]);
       setConsultantRef(data.consultant_ref ?? null);
+      setExtractedRows(data.consultant_rows ?? []);
+      setExtractedOpenEnded(Boolean(data.open_ended));
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       if (found.length > 0) {
@@ -312,6 +379,11 @@ export function ExtendOrderGroupModal({
             <span className="font-semibold">{consultantRef}</span>
           </p>
         ) : null}
+
+        <ExtractedConsultants
+          rows={extractedRows}
+          openEnded={extractedOpenEnded}
+        />
 
         {checkData ? (
           <div
@@ -540,6 +612,7 @@ export function ExtendOrderGroupModal({
               setExtractError(null);
               setCheckData(false);
               setConsultantRef(null);
+              setExtractedRows([]);
               setCheckReasons([]);
             }}
             onError={setFileError}
@@ -571,6 +644,7 @@ export function ExtendOrderGroupModal({
                   setExtractError(null);
                   setCheckData(false);
                   setConsultantRef(null);
+                  setExtractedRows([]);
                   setCheckReasons([]);
                 }}
                 className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"

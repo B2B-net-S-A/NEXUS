@@ -1007,3 +1007,71 @@ async def test_nordea_all_paths_return_every_person_and_discard_totals(
     assert (
         Decimal(str(data["rate_client"])) if data["rate_client"] is not None else None
     ) == (Decimal("160") if targeted else None)
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+async def test_bik_extract_returns_positions_open_end_and_per_person_values(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, targeted
+):
+    """BIK: numer i data z „Numer/data", koniec bezterminowo, pozycje per osoba.
+
+    Ta sama polityka obsługuje „Nowe zamówienie"/„Uzupełnij" (bez osoby) i odczyt
+    z karty konsultanta (``candidate_id``) — w drugim przypadku stawka i limit
+    MD pochodzą z pozycji TEJ osoby, a nie z sumy zamówienia.
+    """
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+    from tests.test_bik_order_policy import SPACED
+
+    client_id = await _seed_client("Biuro Informacji Kredytowej S.A.")
+    monkeypatch.setenv("BIK_ORDER_CLIENT_IDS", str(client_id))
+    monkeypatch.setattr(co, "extract_text", lambda path, filename: SPACED)
+
+    async def _model_guess(text: str, **kwargs) -> OrderExtraction:
+        # Model bierze termin dostawy za koniec i sumę za budżet — reguła BIK
+        # ma to zdjąć w każdej ścieżce.
+        return OrderExtraction(
+            title="4500012345/20310903",
+            start_date="2031-09-03",
+            end_date="2031-11-01",
+            total_value=Decimal("91560.00"),
+            md_total=Decimal("77"),
+            uncertain=True,
+            uncertain_reasons=["Nie wiem, która data jest końcem"],
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _model_guess)
+    data_fields: dict[str, str] = {}
+    if targeted:
+        candidate_id = await _seed_candidate(
+            "Piotr", "Łęcki", contract_client_id=client_id
+        )
+        data_fields["candidate_id"] = str(candidate_id)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data=data_fields,
+        files={"file": ("bik.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["client_policy"] == "BIK"
+    assert data["title"] == "4500012345"
+    assert data["start_date"] == "2031-09-03"
+    assert data["end_date"] is None
+    assert data["open_ended"] is True
+    assert data["total_value"] is None
+    assert data["uncertain"] is False, data["uncertain_reasons"]
+    rows = data["consultant_rows"]
+    assert [(r["consultant_name"], Decimal(str(r["md_total"]))) for r in rows] == [
+        ("Krystian Sowiński", Decimal("35")),
+        ("Piotr Łęcki", Decimal("42")),
+    ]
+    if targeted:
+        assert Decimal(str(data["rate_client"])) == Decimal("1280")
+        assert data["rate_unit"] == "day"
+        assert Decimal(str(data["md_total"])) == Decimal("42")
+    else:
+        assert data["rate_client"] is None
+        assert data["md_total"] is None

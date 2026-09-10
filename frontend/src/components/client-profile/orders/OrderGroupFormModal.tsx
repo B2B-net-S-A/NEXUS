@@ -11,6 +11,10 @@ import {
 } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
+import {
+  ExtractedConsultants,
+  type ExtractedConsultantRows,
+} from "@/components/orders/ExtractedConsultants";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { OrderType } from "@/lib/api/dlPortal";
@@ -22,6 +26,7 @@ import type { OrderGroupInput, OrderGroupRead } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
+  extractedEndDate,
   extractionErrorMessage,
   findConflicts,
   numberToField,
@@ -97,6 +102,12 @@ export function OrderGroupFormModal({
   // nie niosą imienia ani nazwiska. Informacyjnie, do potwierdzenia
   // przez operatora; Nexus nie przechowuje identyfikatorów klienta.
   const [consultantRef, setConsultantRef] = useState<string | null>(null);
+  // Tabela osób z dokumentu (BIK) — informacyjnie: linie konsultantów
+  // dodajesz osobno, a ich odczyt wiąże limit MD i stawkę z pozycją osoby.
+  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>(
+    [],
+  );
+  const [extractedOpenEnded, setExtractedOpenEnded] = useState(false);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
 
@@ -119,6 +130,8 @@ export function OrderGroupFormModal({
     setCheckData(false);
     setCheckReasons([]);
     setConsultantRef(null);
+    setExtractedRows([]);
+    setExtractedOpenEnded(false);
     setConflicts([]);
     setPendingApply(null);
   }, [open, group]);
@@ -129,10 +142,11 @@ export function OrderGroupFormModal({
     setExtractError(null);
     try {
       const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
+      const extractedEnd = extractedEndDate(data);
       const apply = () => {
         if (data.title) setOrderNumber(data.title);
         if (data.start_date) setStartDate(data.start_date.slice(0, 10));
-        if (data.end_date) setEndDate(data.end_date.slice(0, 10));
+        if (extractedEnd) setEndDate(extractedEnd.value);
         if (isCostBased && data.total_value != null) {
           setBudgetAmount(String(data.total_value));
         }
@@ -157,7 +171,7 @@ export function OrderGroupFormModal({
           key: "end_date",
           label: "Obowiązuje do",
           current: endDate,
-          incoming: data.end_date ? data.end_date.slice(0, 10) : null,
+          incoming: extractedEnd?.display ?? null,
         },
         ...(isCostBased
           ? [
@@ -181,6 +195,8 @@ export function OrderGroupFormModal({
           : []),
       ]);
       setConsultantRef(data.consultant_ref ?? null);
+      setExtractedRows(data.consultant_rows ?? []);
+      setExtractedOpenEnded(Boolean(data.open_ended));
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       if (found.length > 0) {
@@ -379,6 +395,11 @@ export function OrderGroupFormModal({
             <span className="font-semibold">{consultantRef}</span>
           </p>
         ) : null}
+
+        <ExtractedConsultants
+          rows={extractedRows}
+          openEnded={extractedOpenEnded}
+        />
 
         {checkData ? (
           <div
@@ -650,6 +671,7 @@ export function OrderGroupFormModal({
               setCheckData(false);
               setCheckReasons([]);
               setConsultantRef(null);
+              setExtractedRows([]);
             }}
             onError={setFileError}
             error={fileError ?? extractError}
