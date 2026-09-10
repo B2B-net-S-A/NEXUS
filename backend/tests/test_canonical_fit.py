@@ -35,6 +35,41 @@ async def test_batch_and_pair_have_same_score_and_unknown_is_not_numeric(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_pool_scoring_hands_back_the_event_loop_without_changing_results(
+    monkeypatch,
+):
+    """Base-fit scoring never awaits real I/O: a 1000-wide pool must yield."""
+    import asyncio
+
+    candidates = [make_candidate(id=i, skills=["Python"]) for i in range(1, 71)]
+    context = build_request_context(make_job(), DEFAULT_PROFILE)
+    monkeypatch.setattr(fit, "request_vector", AsyncMock(return_value=[1, 0]))
+
+    async def measure(_vector, batch):
+        return {c.id: VectorMeasurement(0.5, "measured") for c in batch}
+
+    monkeypatch.setattr(fit, "measure_candidates", measure)
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)
+    before = ticks
+    results = await fit.score_candidates(None, context, candidates)
+    during = ticks - before
+    task.cancel()
+
+    assert during == 2  # after 32 and 64 candidates
+    assert [r.breakdown.candidate_id for r in results] == list(range(1, 71))
+    assert {r.measurement for r in results} == {"measured"}
+
+
+@pytest.mark.asyncio
 async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monkeypatch):
     monkeypatch.setattr(
         "app.services.requirement_verification.latest_verifications",

@@ -7,10 +7,14 @@ failed batch is not an empty match set and never produces a complete ranking.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import uuid
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Sequence
+
+# Every CPU loop over the population hands the event loop back this often.
+YIELD_EVERY = 32
 
 
 @dataclass(frozen=True)
@@ -169,7 +173,14 @@ async def snapshot_candidate_population(db) -> list[CandidateSnapshot]:
     rows = await db.execute(
         select(Candidate.id, Candidate.updated_at).order_by(Candidate.id)
     )
-    return [CandidateSnapshot(cid, str(version)) for cid, version in rows]
+    # ~60k rows: build the snapshot in slices so the web process that creates
+    # the run keeps serving requests (one comprehension held the loop ~50 ms).
+    population = []
+    for index, (cid, version) in enumerate(rows):
+        if index and index % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
+        population.append(CandidateSnapshot(cid, str(version)))
+    return population
 
 
 async def load_snapshot_batch(db, batch: Sequence[CandidateSnapshot]):
