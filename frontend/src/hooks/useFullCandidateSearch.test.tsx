@@ -15,7 +15,13 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); sessionStorage.clear(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Queued *Once values and defaults must not leak between tests.
+  vi.mocked(candidateSearchApi.start).mockReset();
+  vi.mocked(candidateSearchApi.page).mockReset();
+  localStorage.clear(); sessionStorage.clear();
+});
 
 test("starts only explicitly, prevents duplicate clicks and ignores a cleared request", async () => {
   let resolve!: (value: CandidateSearchStarted) => void;
@@ -111,6 +117,86 @@ test("two consumers in the same document share an explicitly started run", async
   await act(async () => { await a.result.current.start({ job_id: 42 }); });
   await waitFor(() => expect(b.result.current.runId).toBe("shared"));
   expect(a.result.current.runId).toBe("shared");
+  expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+});
+
+const runningPage = {
+  run_id: "stale", state: "running" as const, versions: {}, results: [],
+  counts: { population: 10, pending: 5, evaluated: 5, failed: 0, eligible: 5, excluded: 0, needs_verification: 0 },
+};
+
+test("a failed read stops polling; a stale (409) run is offered as a new run, not a retry", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const conflict = Object.assign(new Error("Request zmienił się"), { response: { status: 409 } });
+    vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "stale", state: "queued", population: 10, brief_status: "provided", versions: {} });
+    vi.mocked(candidateSearchApi.page).mockResolvedValueOnce(runningPage).mockRejectedValue(conflict);
+    const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+    await act(async () => { await result.current.start({ job_id: 42 }); });
+    await waitFor(() => expect(result.current.data?.state).toBe("running"));
+    expect(result.current.needsNewRun).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    await waitFor(() => expect(result.current.error).toBe(conflict));
+    const reads = vi.mocked(candidateSearchApi.page).mock.calls.length;
+    // TanStack keeps the last "running" data after an error; polling on it
+    // would repeat the 409 every 1.5 s forever.
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(vi.mocked(candidateSearchApi.page).mock.calls.length).toBe(reads);
+    expect(result.current.running).toBe(false);
+    expect(result.current.needsNewRun).toBe(true);
+    expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a transient read error during a running scan keeps polling and keeps the start locked", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const outage = Object.assign(new Error("Bad gateway"), { response: { status: 502 } });
+    vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "live", state: "queued", population: 10, brief_status: "provided", versions: {} });
+    vi.mocked(candidateSearchApi.page)
+      .mockResolvedValueOnce(runningPage)
+      .mockRejectedValueOnce(outage)
+      .mockResolvedValue({ ...runningPage, state: "complete" });
+    const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+    await act(async () => { await result.current.start({ job_id: 42 }); });
+    await waitFor(() => expect(result.current.data?.state).toBe("running"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    await waitFor(() => expect(result.current.error).toBe(outage));
+    // A deploy or a network blip is not the end of the scan: the start button
+    // stays locked (no duplicate 3-minute scan) and polling resumes by itself.
+    expect(result.current.running).toBe(true);
+    expect(result.current.needsNewRun).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    await waitFor(() => expect(result.current.data?.state).toBe("complete"));
+    expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a failed run is terminal: no polling, no spinner, replacement offered", async () => {
+  vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "broken", state: "queued", population: 10, brief_status: "provided", versions: {} });
+  vi.mocked(candidateSearchApi.page).mockResolvedValue({ ...runningPage, run_id: "broken", state: "failed", error_code: "stalled" });
+  const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+  await act(async () => { await result.current.start({ job_id: 42 }); });
+  await waitFor(() => expect(result.current.data?.state).toBe("failed"));
+  expect(result.current.running).toBe(false);
+  expect(result.current.needsNewRun).toBe(true);
+  expect(result.current.error).toBeNull();
+});
+
+test("a transient read error is retried by re-reading the same run", async () => {
+  const outage = Object.assign(new Error("Sieć niedostępna"), { response: { status: 503 } });
+  vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "same", state: "queued", population: 10, brief_status: "provided", versions: {} });
+  vi.mocked(candidateSearchApi.page).mockRejectedValueOnce(outage).mockResolvedValue({ ...runningPage, run_id: "same", state: "complete" });
+  const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+  await act(async () => { await result.current.start({ job_id: 42 }); });
+  await waitFor(() => expect(result.current.error).toBe(outage));
+  expect(result.current.needsNewRun).toBe(false);
+  await act(async () => { await result.current.refresh(); });
+  await waitFor(() => expect(result.current.data?.state).toBe("complete"));
   expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
 });
 

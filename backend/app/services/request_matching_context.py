@@ -93,7 +93,11 @@ class RequestMatchingContext:
 
 def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext:
     from app.services.embedding_service import _build_job_text
-    from app.services.requirement_contract import stored_contract, requirement_labels
+    from app.services.requirement_contract import (
+        MUST_GATE_POLICY_VERSION,
+        requirement_labels,
+        stored_contract,
+    )
 
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
     if isinstance(values["champion_profile"], dict):
@@ -121,6 +125,9 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
         "result_schema": "full-result-filters-v1",
         "fit_profile": "base-fit-v1",
         "evidence_gate": "reviewed-evidence-v3",
+        # Which candidates the must-have gate hides; a ranking built under an
+        # older policy must not be served as the current one.
+        "must_gate_policy": MUST_GATE_POLICY_VERSION,
     }
     fingerprint = hashlib.sha256(
         json.dumps(

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { candidateSearchApi, searchIsRunning, type StartCandidateSearch, type CandidateSearchFilters } from "@/lib/full-candidate-search-api";
+import { candidateSearchApi, searchErrorIsFinal, searchFailed, searchIsRunning, searchNeedsNewRun, type StartCandidateSearch, type CandidateSearchFilters } from "@/lib/full-candidate-search-api";
 
 /** Explicit start only: changing form fields must never launch a paid scan. */
 export function useFullCandidateSearch({ includeCandidateDetails = false, storageKey, shareAcrossTabs = false, filters = {} }: { includeCandidateDetails?: boolean; storageKey?: string; shareAcrossTabs?: boolean; filters?: CandidateSearchFilters } = {}) {
@@ -66,7 +66,16 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     queryFn: ({ signal }) => candidateSearchApi.page(runId!, {
       ...filters, offset, limit: 20, min_score: minScore, include_candidate_details: includeCandidateDetails,
     }, signal),
-    refetchInterval: query => searchIsRunning(query.state.data?.state) ? 1500 : false,
+    // After a failed read TanStack keeps the last data — still "running" — so
+    // polling on data alone would hit a 409/404 every 1.5 s forever. A FINAL
+    // error (409/404/403) stops polling; an explicit retry or a new run resumes
+    // it. A transient one (network, 5xx, a deploy) keeps polling, slower: the
+    // scan is still running on the server.
+    refetchInterval: query => {
+      if (!searchIsRunning(query.state.data?.state)) return false;
+      if (query.state.status !== "error") return 1500;
+      return searchErrorIsFinal(query.state.error) ? false : 5000;
+    },
     retry: false,
     // Revalidate snapshot freshness when returning from a candidate profile.
     staleTime: 0,
@@ -116,9 +125,18 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     minScore, data: page.data,
     error: startError ?? page.error,
     starting,
-    running: starting || (runId !== null && page.isPending) || searchIsRunning(page.data?.state),
+    // A transient read error does not end a running scan: keep „running” so the
+    // start button stays locked and nobody launches a duplicate 3-minute scan.
+    running: starting || (runId !== null && page.isPending) || ((!page.isError || !searchErrorIsFinal(page.error)) && searchIsRunning(page.data?.state)),
     loading: starting || (runId !== null && page.isPending),
     fetching: page.isFetching,
+    /** Re-read the current run; never starts a new scan. */
     refresh: page.refetch,
+    /**
+     * The stored run can only be replaced, not re-read: it failed, expired, or
+     * no longer matches the request. Offer „Uruchom ponownie” (a new run)
+     * instead of a retry that would get the same answer again.
+     */
+    needsNewRun: runId !== null && (searchNeedsNewRun(page.error) || (!page.isError && searchFailed(page.data?.state))),
   };
 }

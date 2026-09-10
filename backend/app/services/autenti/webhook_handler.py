@@ -326,7 +326,7 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
                 ntype=NotificationType.framework_contract_signed,
                 related_entity_type="client_framework_contract",
                 related_entity_id=fc.id,
-                link=f"/clients/{client_id}?tab=framework-contracts",
+                link=f"/clients/{client_id}?tab=umowy-ramowe",
             )
     elif sig.client_contract_amendment_id is not None:
         from app.models.client_contract_amendment import (  # noqa: PLC0415
@@ -370,7 +370,7 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
                 ntype=NotificationType.signature_signed,
                 related_entity_type="client_contract_amendment",
                 related_entity_id=a.id,
-                link=f"/clients/{client_id}?tab=framework-contracts",
+                link=f"/clients/{client_id}?tab=umowy-ramowe",
             )
 
 
@@ -399,7 +399,7 @@ async def _on_rejected(db: AsyncSession, sig: DocumentSignature) -> None:
                 fc.status = FrameworkContractStatus.draft
             entity_type = "client"
             entity_id = fc.client_id
-            link = f"/clients/{fc.client_id}?tab=framework-contracts"
+            link = f"/clients/{fc.client_id}?tab=umowy-ramowe"
             title = "Klient odrzucił umowę ramową"
             msg_target = f"umowy ramowej '{fc.name}'"
     elif sig.client_contract_amendment_id is not None:
@@ -424,7 +424,7 @@ async def _on_rejected(db: AsyncSession, sig: DocumentSignature) -> None:
             client_id = fc.client_id if fc else 0
             entity_type = "client"
             entity_id = client_id
-            link = f"/clients/{client_id}?tab=framework-contracts"
+            link = f"/clients/{client_id}?tab=umowy-ramowe"
             title = "Klient odrzucił aneks"
             msg_target = f"aneksu '{a.name}'"
 

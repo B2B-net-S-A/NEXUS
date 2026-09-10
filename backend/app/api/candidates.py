@@ -4667,10 +4667,21 @@ async def delete_candidate(
         )
     ).rowcount
 
+    # Wiersze pełnego przeglądu bazy (`candidate_search_results`) nie mają FK
+    # na kandydata — celowo, żeby migawka przeżyła zmianę w trakcie przeglądu —
+    # więc kaskada ich nie zabierze, a niosą dowody dopasowania tej osoby.
+    # Aktywny przegląd nie może po prostu stracić wiersza (`finish_run` wymaga
+    # rozliczenia całej migawki), więc najpierw jest oznaczany jako `failed`
+    # i jego autor uruchamia go ponownie.
+    from app.services.candidate_search_store import erase_candidate
+
+    search_erasure = await erase_candidate(db, candidate_id)
+
     # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
     # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.
     # `share_tokens_revoked` jest tu, bo inaczej odwołanie publicznych linków
-    # nie zostawiałoby żadnego śladu w dowodzie wykonania żądania z art. 17.
+    # nie zostawiałoby żadnego śladu w dowodzie wykonania żądania z art. 17 —
+    # z tego samego powodu liczby wierszy przeglądu bazy.
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.HARD_DELETED,
@@ -4682,6 +4693,7 @@ async def delete_candidate(
             "storage_objects": len(storage_keys),
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
+            **search_erasure,
         },
     )
 

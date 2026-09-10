@@ -390,11 +390,14 @@ async def test_warn_over_budget_still_surfaces_with_reason(
 # ── rubryka must-have (0278): ukrywanie na obu gałęziach ─────────────────────
 
 
-@pytest_asyncio.fixture
-async def gated_missing_must_fixture():
+@pytest_asyncio.fixture(params=["review", "exclude"])
+async def gated_missing_must_fixture(request):
     """Oferta z `must_skills=[python]`, kandydat WYŁĄCZNIE z `java` (ma sygnał,
     ale nie ma wymaganego must) — plus kandydat `warn` (NDA) BEZ żadnego
-    sygnału umiejętności, który mimo braku must-have musi zostać widoczny."""
+    sygnału umiejętności, który mimo braku must-have musi zostać widoczny.
+
+    Obie polityki: ZNANA luka technologii ukrywa także przy domyślnym
+    „review” (decyzja 10.09), więc wynik jest ten sam."""
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"AIMatch MissingMust Client {unique}")
@@ -407,7 +410,7 @@ async def gated_missing_must_fixture():
             matching_requirements={
                 "version": 1,
                 "reviewed": True,
-                "missing_evidence_policy": "exclude",
+                "missing_evidence_policy": request.param,
                 "all_of": [
                     {
                         "any_of": ["python"],

@@ -20,6 +20,7 @@ import api, {
   matchingApi,
   phase3Api,
   recommendationsApi,
+  extractErrorMsg,
   hiddenTotal as computeHiddenTotal,
   HIDDEN_LABELS_PL,
   type HiddenReason,
@@ -649,7 +650,18 @@ function AIMatchingSection({
   const searchSummary = useMemo(() => summarizeFullSearch(fullSearch.data, Boolean(fullSearch.error)), [fullSearch.data, fullSearch.error]);
   const isLoading = fullSearch.running;
   const isError = Boolean(fullSearch.error);
-  const refetch = () => fullSearch.start({ job_id: jobId });
+  // Explicit start: a new, minutes-long scan of the whole base.
+  const startNewSearch = () => fullSearch.start({ job_id: jobId });
+  // „Spróbuj ponownie” re-reads the current run; only a run that cannot be
+  // re-read (failed, expired, request changed) is replaced by a new one.
+  const retrySearch = () => {
+    if (fullSearch.runId && !fullSearch.needsNewRun) void fullSearch.refresh();
+    else void startNewSearch();
+  };
+  // Admin AI tools refresh derived data; they must not launch a scan.
+  const rereadSearch = () => {
+    if (fullSearch.runId) void fullSearch.refresh();
+  };
   useEffect(() => { fullSearch.setMinScore(minScorePct ?? 0); }, [minScorePct, fullSearch.setMinScore]);
   useEffect(() => {
     queryClient.setQueryData(["full-search-summary", actorId, jobId], searchSummary);
@@ -1162,7 +1174,7 @@ function AIMatchingSection({
                 />
               </div>
               <button
-                onClick={() => refetch()}
+                onClick={() => void startNewSearch()}
                 disabled={fullSearch.running}
                 className="whitespace-nowrap text-xs text-primary hover:underline disabled:opacity-50"
               >
@@ -1171,7 +1183,7 @@ function AIMatchingSection({
             </div>
           </div>
 
-          {!isError && fullSearch.data && <FullCandidateSearchStatus data={fullSearch.data} offset={fullSearch.offset} onPage={fullSearch.setOffset} fetching={fullSearch.fetching} />}
+          {!isError && fullSearch.data && <FullCandidateSearchStatus data={fullSearch.data} offset={fullSearch.offset} onPage={fullSearch.setOffset} fetching={fullSearch.fetching} onRestart={() => void startNewSearch()} restarting={fullSearch.running} />}
 
           {degraded && (
             <div
@@ -1239,12 +1251,15 @@ function AIMatchingSection({
           ) : isError ? (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
               <AlertCircle className="h-10 w-10 text-red-400" />
-              <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
+              <p className="text-sm">
+                {/* 409/404: the server says why this run cannot be shown. */}
+                {fullSearch.needsNewRun ? extractErrorMsg(fullSearch.error) : "Błąd podczas wyszukiwania kandydatów"}
+              </p>
               <button
-                onClick={() => refetch()}
+                onClick={retrySearch}
                 className="mt-1 text-sm text-primary hover:underline"
               >
-                Spróbuj ponownie
+                {fullSearch.needsNewRun ? "Uruchom ponownie" : "Spróbuj ponownie"}
               </button>
             </div>
           ) : matches.length === 0 ? (
@@ -1253,7 +1268,9 @@ function AIMatchingSection({
               <p className="text-sm">
                 {locationActive
                   ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
-                  : !fullSearch.runId ? "Uruchom wyszukiwanie w całej bazie" : "Brak dostępnych wyników na tej stronie"}
+                  : !fullSearch.runId ? "Uruchom wyszukiwanie w całej bazie"
+                  : fullSearch.data?.state === "failed" ? "Przegląd przerwany — uruchom go ponownie"
+                  : "Brak dostępnych wyników na tej stronie"}
               </p>
               <p className="text-xs text-muted-foreground">
                 {locationActive
@@ -1477,7 +1494,7 @@ function AIMatchingSection({
               <div className="pt-2">
                 <JobAIActions
                   jobId={jobId}
-                  onDone={() => refetch()}
+                  onDone={rereadSearch}
                   readOnly={readOnly}
                 />
               </div>

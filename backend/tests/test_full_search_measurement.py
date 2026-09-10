@@ -68,6 +68,43 @@ async def test_exact_retrieval_distinguishes_fresh_stale_and_missing(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_long_batch_hands_back_the_event_loop_without_changing_results(
+    monkeypatch,
+):
+    """Per-candidate hashing/cosine is CPU; a full scan must not starve HTTP."""
+    content = "Python"
+    monkeypatch.setattr(measure.embeddings, "_build_candidate_text", lambda _: content)
+    monkeypatch.setattr(measure.embeddings, "_voyage_model", lambda: "model")
+    digest = hashlib.sha256(content.encode()).hexdigest()
+
+    async def retrieve(_):
+        return [
+            SimpleNamespace(
+                id=i,
+                vector=[1, 0],
+                payload={"content_hash": digest, "embedding_model": "model"},
+            )
+            for i in range(1, 71)
+        ]
+
+    yields = []
+    real_cooperate = measure._cooperate
+
+    async def counting_cooperate():
+        yields.append(True)
+        await real_cooperate()
+
+    monkeypatch.setattr(measure.embeddings, "_run_qdrant", retrieve)
+    monkeypatch.setattr(measure, "_cooperate", counting_cooperate)
+    candidates = [SimpleNamespace(id=i) for i in range(1, 71)]
+    results = await measure.measure_candidates([1, 0], candidates)
+    assert len(yields) == 2  # after 32 and 64 candidates
+    assert len(results) == 70
+    assert {r.status for r in results.values()} == {"measured"}
+    assert {r.score for r in results.values()} == {1}
+
+
+@pytest.mark.asyncio
 async def test_provider_outage_is_unknown_not_zero(monkeypatch):
     async def fail(_):
         raise RuntimeError("down")

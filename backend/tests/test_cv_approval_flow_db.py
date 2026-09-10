@@ -165,3 +165,94 @@ async def test_durable_review_reuses_exact_result_and_does_not_lock_editor(
             )
             await db.execute(delete(User).where(User.id == user_id))
             await db.commit()
+
+
+async def test_legacy_generation_without_docx_is_approved_and_frozen(monkeypatch):
+    """Rows generated before #1444 have NULL docx_content/docx_sha256 (0292 had
+    no backfill). Approval renders the file from render_payload once, freezes
+    it on the row under the approval lock and every later read uses it."""
+    from app.api import cv_generator_b2b as api
+    from app.models.activity import Activity
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
+    payload = {
+        "name": "Synthetic Legacy",
+        "first_name": "Synthetic",
+        "position": "Backend Engineer",
+        "language": "pl",
+        "blind_cv": False,
+        "why_points": ["Utrzymanie API"],
+        "education": [],
+        "skills": [{"label": "Backend", "content": "Python"}],
+        "certifications": [],
+        "languages": ["Polski"],
+        "experience": [
+            {
+                "dates": "01.2020 – 12.2024",
+                "company": "Synthetic Co",
+                "position": "Backend Engineer",
+                "responsibilities": ["Utrzymanie API"],
+                "technologies": ["Python"],
+            }
+        ],
+    }
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"legacy-approval-{uuid4()}@example.test", name="Synthetic legacy"
+        )
+        db.add(user)
+        await db.flush()
+        document = CvGeneratedDocument(
+            candidate_name="Synthetic Legacy",
+            filename="legacy.docx",
+            mode="upload",
+            status="ready",
+            render_payload=payload,
+            created_by=user.id,
+        )
+        db.add(document)
+        await db.flush()
+        user_id, document_id = user.id, document.id
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            stored = await db.get(CvGeneratedDocument, document_id)
+            assert (stored.docx_content, stored.docx_sha256) == (None, None)
+            approved = await api.approve_generated_cv(
+                document_id, await db.get(User, user_id), db
+            )
+        async with AsyncSessionLocal() as db:
+            document = await db.get(CvGeneratedDocument, document_id)
+            assert document.docx_content[:2] == b"PK"
+            assert (
+                document.docx_sha256
+                == hashlib.sha256(document.docx_content).hexdigest()
+            )
+            version = await approved_version_for_generation(
+                db, document, approved["document_version_id"]
+            )
+            assert version.docx_sha256 == document.docx_sha256
+            assert version.render_metadata["docx_rendered_at_approval"] is True
+            user = await db.get(User, user_id)
+            response = await api.download_generated_cv(document_id, user, db)
+            assert response.body == document.docx_content
+            # A retry reuses the approval and leaves the frozen file untouched.
+            again = await api.approve_generated_cv(document_id, user, db)
+            assert again == approved
+        async with AsyncSessionLocal() as db:
+            document = await db.get(CvGeneratedDocument, document_id)
+            assert document.docx_sha256 == version.docx_sha256
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(Activity).where(
+                    Activity.entity_type == "cv_generated_document",
+                    Activity.entity_id == document_id,
+                )
+            )
+            await db.execute(
+                delete(CvGeneratedDocument).where(CvGeneratedDocument.id == document_id)
+            )
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()

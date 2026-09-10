@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
+
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate_search_run import CandidateSearchRun
@@ -13,12 +17,40 @@ from app.services.full_search_measurement import measure_candidates, request_vec
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
 
+logger = logging.getLogger(__name__)
 
 # Leave time to roll back and persist an explicit incomplete result before
 # the 300s query lease / 120s batch lease expires. These are execution bounds,
 # not a promise of provider latency or a complete ranking after a timeout.
 QUERY_TIMEOUT_SECONDS = 240
 BATCH_TIMEOUT_SECONDS = 90
+# A claim is an attempt even when the worker dies before its first checkpoint.
+# A REPORTED failure is terminal from the third claim on. A claim that never
+# reported back means the process died mid-run — at NEXUS that is usually a
+# deploy (Coolify restarts the container on every push to main, often several
+# times an hour), not a broken run — so unreported claims get a wider budget.
+MAX_FAILED_ATTEMPTS = 3
+MAX_CLAIMS = 8
+# Hand the event loop back while a batch is scored in-process, so HTTP
+# requests served by the same process are not starved by one long scan.
+YIELD_EVERY = 32
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Infrastructure hiccups heal on their own; retry them at lease expiry."""
+    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
+        return True
+    return isinstance(
+        exc,
+        (
+            OperationalError,
+            InterfaceError,
+            PoolTimeoutError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ),
+    )
 
 
 async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
@@ -57,7 +89,9 @@ async def evaluate_batch(db, request: RequestMatchingContext, batch, vector):
         )
     versions = {item.candidate_id: item.version for item in batch}
     results = []
-    for cid, candidate in candidates.items():
+    for index, (cid, candidate) in enumerate(candidates.items()):
+        if index and index % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
         if cid not in visible:
             results.append(
                 CandidateEvaluation(
@@ -108,15 +142,55 @@ async def execute_run(run_id: str):
 
     A scheduler/API trigger can safely call this again after lease expiry.
     It cannot race an active worker, or overwrite a replacement worker's rows.
+    Every claim is counted durably; a run that keeps failing becomes ``failed``
+    instead of being re-claimed forever.
     """
     async with AsyncSessionLocal() as db:
         token = await store.claim_run(db, run_id, lease_seconds=300)
         await db.commit()
         if token is None:
             return
+    try:
+        await _execute_claimed(run_id, token)
+    except store.SearchLeaseLost:
+        # Failed by erasure/reaper or replaced after lease expiry: the current
+        # owner (or nobody) decides the outcome, never this stale worker.
+        return
+    except Exception as exc:
+        if _is_transient(exc):
+            raise  # the lease expires and a later claim resumes the run
+        await _record_failure(run_id, token, exc)
+
+
+async def _record_failure(run_id: str, token: str, exc: BaseException) -> None:
+    code = type(exc).__name__
+    async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
+        claims = store.claim_count(run.metrics if run is not None else None)
+        if claims >= MAX_FAILED_ATTEMPTS:
+            if await store.fail_run(db, run_id, code, token=token):
+                logger.warning(
+                    "Candidate search %s failed after %s attempts: %s",
+                    run_id,
+                    claims,
+                    code,
+                )
+        else:
+            # Retry soon with a fresh claim; the counter bounds the retries.
+            await store.release_run(db, run_id, token)
+        await db.commit()
+
+
+async def _execute_claimed(run_id: str, token: str):
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        if store.claim_count(run.metrics) > MAX_CLAIMS:
+            # Earlier attempts died without reporting (e.g. process crash).
+            await store.fail_run(db, run_id, "attempts_exhausted", token=token)
+            await db.commit()
+            return
         request = RequestMatchingContext(**run.request_context)
-        telemetry = SearchTelemetry(run.metrics)
+        telemetry = SearchTelemetry(store.telemetry_metrics(run.metrics) or None)
         telemetry.begin_attempt()
         await store.save_metrics(db, run_id, token, telemetry.snapshot())
         await db.commit()

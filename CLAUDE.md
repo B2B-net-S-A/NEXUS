@@ -214,6 +214,14 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
   jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
   pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
+- **TCM działa w całej organizacji (decyzja Artura, 10.09.2026).** #1430 dał
+  roli TCM `confirm-fully-signed`, a #1421 zmianę statusu kontraktu
+  (`PATCH /contracts/{id}/status`) — obie akcje bez zakresu klienta, bo nie ma
+  modelu przypisania TCM do klienta. To jest stan docelowy, nie przeoczenie:
+  ścisły client-scope z punktu wyżej dotyczy DL/TAC. Jedyna granica TCM to
+  sekcja Delivery: wyjątek TCM w `section_access.py` wymaga co najmniej
+  odczytu Delivery, więc odebranie sekcji w panelu naprawdę odbiera akcję
+  (do 10.09 wyjątek wracał, zanim porównał `granted`).
 - **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
   „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
   kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia
@@ -464,6 +472,26 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
 - **Testy:** `conftest` przypina `v10` + ścisłe dowody dla dotychczasowych
   testów; domyślne zachowanie produkcyjne pilnuje
   `tests/test_cv_generator_legacy_v7.py`.
+- **Generować CV może każdy (decyzja Artura, 10.09.2026).** #1448 dołożył
+  wymóg członkostwa w zespole rekrutacji do `/generate`, `/generate-upload`
+  i zrzutu zgody — cofnięty. Zostaje bramka roli (`CandidateWriteAccess`)
+  i poprawność „etap musi należeć do kandydata” (404). Picker rekrutacji
+  w generatorze (`/candidates/{id}/recruitments`) nie jest zawężany — to on
+  decyduje, pod którą rekrutacją da się wygenerować CV.
+  Istniejące CV (`_load_generated_document`): **autor zawsze**; cudzy dokument
+  związany z rekrutacją wymaga odczytu tej rekrutacji (`ensure_job_read_access`
+  — obejmuje Finanse, więc Finanse może też zatwierdzić/udostępnić cudze CV,
+  jak przed 09.09); usunięcie nadal autor albo admin. Lista `/generated` to
+  zakres odczytu **lub** własne CV. Podpięcie CV do etapu w pipeline
+  (`candidate_stage_cv.py`) nadal wymaga członkostwa — to reguła sprzed #1448.
+- **CV sprzed #1444 da się zatwierdzić.** Wiersze bez `docx_content` i
+  `docx_sha256` (każde CV sprzed 10.09, 09:04) dostają DOCX renderowany raz
+  z `render_payload` przy zatwierdzeniu, zapisany na wierszu
+  (`docx_rendered_at_approval`). Stan częściowy (plik bez skrótu, skrót bez
+  pliku, rozjazd) to nadal 409 integralności.
+- **Zadania z kolejki przeżywają deploy.** `job_snapshot.py` przyjmuje snapshot
+  bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
+  z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
 
 ## Reguły CV per klient — pełna recepta Delivery Leada
 
@@ -685,6 +713,17 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   `scripts/champion_template_clients.json` został usunięty po jednorazowej
   konwersji skryptem `scripts/build_client_playbook_seed.py`, który sprawdza
   KOMPLETNOŚĆ: każda linia 14 wzorów musi trafić do karty (inaczej pada).
+- **Walidacja szkicu v4 (#1477) jest doradcza: `CHAMPION_INTAKE_GATE_ENABLED`
+  (domyślnie OFF, #1481).** Włączona blokuje search, handoff i generację CV
+  (`enforce_operation` → 422 „Profil Championa wymaga poprawy przed
+  użyciem”) dla profili ostemplowanych `policy_version=1` — a stempel dostaje
+  każdy profil przy zapisie zmieniającym treść, klonowaniu oferty, imporcie
+  z Traffita i akceptacji draftu AI. 10.09 zablokowało to pracę zespołu, stąd
+  domyślne OFF. **Uwaga:** `prepare_profile` normalizuje profil przy każdym
+  takim zapisie NIEZALEŻNIE od flagi — stawka podana zakresem staje się pusta,
+  a pozycje MUST dłuższe niż 12 słów lub 120 znaków lądują w
+  `intake.unresolved` i znikają z `jobs.must_skills`. Do poprawienia (normalizacja
+  tylko edytowanych pól); nie włączaj bramki, zanim to wejdzie.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1070,6 +1109,53 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   wspomina ten import, żeby przed nim ostrzec, więc szukanie stringu wywalało
   się na własnym ostrzeżeniu.
 
+### Pełny przegląd bazy (#1428): retencja, cykl życia, bramka must-have (10.09.2026)
+
+Od #1428 Radar i „cała baza” w rekrutacji oceniają CAŁĄ populację (~60 tys.)
+w trwałym przeglądzie (`candidate_search_runs` + wiersz na kandydata
+w `candidate_search_results`, ~100–130 MB na przegląd). Worker działa w procesie
+web — jeden przegląd naraz, ~3 min.
+
+- **Retencja (decyzja 10.09):** pętla `candidate_search_retention` kasuje
+  zakończone przeglądy (`complete`/`partial`/`failed`) starsze niż
+  `CANDIDATE_SEARCH_RETENTION_DAYS` (7), ale najnowszy przegląd z wynikami
+  zostaje dłużej — na (autor, OTWARTA rekrutacja), a bez rekrutacji jeden na
+  autora — najwyżej `CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS` (90).
+  **Nie chroń per odcisk requestu ani bez limitu czasu:** każda nowa treść
+  requestu i każdy bump wersji polityki dawałyby nową, wiecznie chronioną
+  partycję, a tabela rosłaby z liczbą par zamiast z czasem (przegląd
+  adwersarialny 10.09). Kill-switch `CANDIDATE_SEARCH_RETENTION_ENABLED`
+  (pętla kończy się przed `while True`). Indeksy z migracji 0305 (`completed_at`
+  przeglądu, `candidate_id` wyników) mają lustro w `_INDEX_STATEMENTS`.
+  Rozmiar tabeli widać w `GET /api/admin/index-coverage` (blok `candidate_search`).
+- **Stan `failed`:** przejęcie przeglądu zwiększa `metrics.claims` w tym samym
+  UPDATE; zgłoszona porażka od trzeciego przejęcia (`MAX_FAILED_ATTEMPTS`)
+  kończy przegląd jako `failed`, a przejęcia bez raportu — proces zabity
+  w trakcie, u nas zwykle deploy — mają szerszy budżet (`MAX_CLAIMS` = 8).
+  Reaper kończy przejęte przeglądy bez postępu od 30 min. Do 10.09 przegląd,
+  który padł, był podejmowany na nowo w nieskończoność i trwale zajmował jeden
+  z dwóch slotów autora. `failed` nie liczy się do limitu; front pokazuje
+  „Uruchom ponownie”. Odpytywanie staje tylko po błędzie OSTATECZNYM
+  (409/404/403 — `searchErrorIsFinal`); chwilowa awaria (sieć, 5xx, deploy)
+  odpytuje dalej co 5 s i trzyma blokadę przycisku startu, żeby nikt nie
+  odpalił drugiego trzyminutowego skanu. „Spróbuj ponownie” czyta przegląd,
+  a nie odpala nowego skanu.
+- **RODO:** twarde usunięcie kandydata kasuje jego wiersze wyników, a aktywne
+  przeglądy z tą osobą kończy jako `failed` (`candidate_erased`) —
+  `finish_run` wymaga rozliczenia całej migawki.
+- **Bramka must-have (decyzja 10.09): `requirement_contract.search_dealbreaker_inputs`
+  to JEDNO miejsce polityki dla wszystkich powierzchni.** Polityka `review`
+  (domyślna) ukrywa kandydata, którego ZNANE umiejętności nie obejmują
+  must-have rozpoznanego jako technologia; kandydat bez danych przechodzi;
+  proza nigdy nie bramkuje. `exclude` dokłada ukrywanie braku dowodu. Po #1428
+  do 10.09 `review` zdejmowało bramkę w całości (nikt nie był ukrywany).
+  `MUST_GATE_POLICY_VERSION` jest częścią odcisku requestu — zmiana znaczenia
+  polityki = bump, inaczej stare rankingi udają aktualne. Kill-switch
+  `RUBRIC_DEALBREAKERS_ENABLED` działa raz, w `apply_dealbreakers`.
+- **„Przekaż do searchu” liczy must-have podane prozą jako podane**
+  (`must_skills or must_skills_ignored` w `job_readiness.py`). Do 10.09 rekrutacja
+  z samą prozą dostawała 422, choć dok gotowości pokazywał ✓.
+
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
 Druga klasa poświadczeń obok JWT użytkownika — dla automatyzacji (cron, CI, skrypty
@@ -1201,6 +1287,42 @@ nie ma żadnej reguły do utrzymania.
   robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
   a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
   i przesuwał okno wstecz).
+- **`ORDER_MAIL_AUTOAPPLY_ENABLED` jest żywym wyłącznikiem (od 10.09.2026).**
+  #1472 zrobił z niej flagę „legacy” — bramka jej nie czytała, a status zwracał
+  na sztywno `true`. Teraz działa w jednym miejscu,
+  `hold_when_autoapply_disabled` (`order_mail_ingest.py`), przy TRZECH zapisach
+  bez człowieka: odczyt maila, „Przelicz plan” i jednorazowe czyszczenie
+  kolejki. Wyłączona flaga zostawia werdykt „auto” w kolejce z powodem
+  „Automatyczny zapis jest wyłączony…”. `evaluate()` jej NIE czyta (zostaje
+  czyste), a ręczne „Zastosuj” ją ignoruje.
+- **Powrót po przerwie = NOWE zamówienie (decyzja Artura, 10.09.2026).** Do
+  10.09 automat „reaktywował” zakończone zamówienie: przepisywał w nim tytuł,
+  okres, stawkę, koszt i PDF — tak w nocy 9/10.09 nadpisał PFRON 507–509.
+  Teraz powrót idzie tą samą ścieżką co nowe zamówienie, a zakończone jest
+  tylko czytane (`FOR SHARE`, ponowne sprawdzenie warunków planera). Link do
+  poprzedniego żyje w Activity `order_mail_renewal` (`renewal_of_order_id`,
+  `gap_days`, `previous_end_date`) — NIE w `notes` (tam jest znacznik
+  idempotencji porównywany dosłownie) i NIE w `predecessor_order_id` (to
+  zamiana kontraktora na linii grupy MD). Linie grup MD nigdy nie są
+  „poprzednim zamówieniem”. Nowe zamówienie dziedziczy z poprzedniego pola,
+  których PDF nie niesie: `project_part` (bez niej e-Zdrowie nie przejdzie
+  walidacji), `framework_contract_id`, `job_id`, `billing_hours_per_month`,
+  `description` — reaktywacja w miejscu zostawiała je w wierszu.
+- **Mail nie wskrzesza wypowiedzianej umowy — ale tylko poza jej okresem.**
+  `termination_allows` (w `order_mail_signature.py`, przed sprawdzeniem
+  podpisu, także w `complete_signed_mail_drafts`): przy umowie z
+  `terminated_at`/`termination_reason` zamówienie z maila aktywuje się tylko
+  wtedy, gdy CAŁY jego okres mieści się przed bieżącą `end_date` umowy;
+  wychodzące poza nią zostaje szkicem. `terminated_at` NIE jest czyszczone przy
+  aneksie ani przywróceniu (`reopen_contract`), więc reguła czyta bieżącą datę
+  końca: aneks przesuwa okres, a umowa przywrócona bezterminowo (`end_date`
+  pusta) wraca do zwykłych zasad. Bez tego jedno wypowiedzenie blokowałoby
+  automat dla tej osoby na zawsze (przegląd adwersarialny 10.09).
+- **Jedyny imiennik w bazie wymaga człowieka.** Nowa osoba z maila jest
+  szukana po nazwisku ze zwiniętymi polskimi znakami po obu stronach. Jeden
+  imiennik bez umowy u tego klienta zostaje dopięty tylko przy ręcznym
+  „Zastosuj”; automat odsyła dokument do kolejki (samo nazwisko to za mało,
+  żeby dać komuś cudze zamówienie).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
@@ -1520,6 +1642,13 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 - **Zakończenie jest LUSTREM syncu terminacji kontraktu** ([contracts.py:2918](backend/app/api/contracts.py)):
   data zapisuje się zawsze, ale `completed` dostają tylko linie, których dzień już
   nadszedł. Bez tego zakończenie zaplanowane w przód wyłączałoby kogoś, kto dziś pracuje.
+  **Import MD/kosztowy rozlicza taką grupę do daty zakończenia** (od 10.09.2026):
+  grupa ma `completed` od razu, a jej linie są aktywne, więc
+  `active_md_lines`/`active_cost_lines`/`active_shared_md_lines` przyjmują grupę
+  `completed` z `closure_date ≥` pierwszy dzień importowanego miesiąca
+  (`group_settles_in_month`). Ta sama reguła MUSI być w walidacji po blokadach
+  (`md_consumption._ordinary_locked_target_is_valid`) — bez niej cała partia
+  kosztowa lub wspólnej puli dostaje 409.
 - **Usunięcie nie kasuje linii z historią** — zdejmuje ją z grupy (`order_group_id=NULL`).
   Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
   reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
@@ -1631,6 +1760,10 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   przetestować bez montowania całego ciężkiego profilu — efekt zależy od WARTOŚCI
   parametru, nie od tożsamości `searchParams`, więc ręczne kliknięcie w inną zakładkę
   nie jest cofane przy najbliższym renderze.
+  **Klucze `?tab=` w backendzie muszą pochodzić z `client-tab.ts`** — pilnuje tego
+  `tests/test_client_tab_links.py`. Do 10.09 alert nowego szkicu z maila linkował
+  do `?tab=orders`, a alerty umów ramowych do `?tab=framework-contracts`; oba
+  klucze nie istnieją, więc odbiorca lądował na Profilu.
 - **Aktywacja na prodzie: `COST_ORDER_CLIENT_IDS=15` (Polkomtel) USTAWIONE 2026-08-18.**
   Nie panelem i nie po SSH (klucze martwe, hasła do panelu nie znamy) — workflow
   **„Coolify set env"** (`.github/workflows/coolify-set-env.yml`, `workflow_dispatch`);

@@ -652,6 +652,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
+    from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -689,6 +690,11 @@ async def lifespan(app: FastAPI):
         "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
         "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
         "candidate_search": asyncio.create_task(candidate_search_loop()),
+        # 7 dni, ale najnowszy przegląd z wynikami na (autor, rekrutacja/
+        # request) zostaje (decyzja 10.09). Kill-switch sprawdzany PRZED pętlą.
+        "candidate_search_retention": asyncio.create_task(
+            candidate_search_retention_loop()
+        ),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),

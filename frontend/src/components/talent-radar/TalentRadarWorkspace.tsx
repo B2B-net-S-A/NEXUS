@@ -547,6 +547,11 @@ function AdHocTalentRadarWorkspace() {
         fetching={fullSearch.fetching}
         error={fullSearch.error}
         onRetry={() => { if (fullSearch.runId) void fullSearch.refresh(); else void startSearch(); }}
+        // A stale (409), expired (404) or failed run cannot be re-read into a
+        // current ranking — offer a new run with the current, checked form
+        // (otherwise the main button above is the way to check and start).
+        needsNewRun={fullSearch.needsNewRun}
+        onRestart={blocked === null && previewCurrent ? () => void startSearch() : undefined}
         canOpenProfile={canOpenProfile}
       />
     </div>

@@ -216,6 +216,123 @@ async def test_hard_delete_emits_an_audit_row_that_survives_the_delete(
     assert "@" not in str(row.details)
 
 
+async def test_hard_delete_erases_full_search_rows_and_fails_active_scans(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """RODO: wiersze pełnego przeglądu bazy nie mają FK na kandydata.
+
+    Niosą dowody dopasowania osoby, więc bez jawnego kasowania przeżywałyby
+    usunięcie profilu. Aktywny przegląd nie może stracić wiersza po cichu
+    (`finish_run` wymaga rozliczenia całej migawki), więc kończy się `failed`.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.candidate_search_run import (
+        CandidateSearchResult,
+        CandidateSearchRun,
+    )
+    from app.models.client import Client
+    from app.models.user import User, UserRole
+
+    candidate_id = await _seed_candidate()
+    bystander_id = await _seed_candidate()
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        author = User(
+            name="Search author",
+            email=f"search-author-{unique}@example.com",
+            password_hash="unused",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        client = Client(name=f"SearchErasure-{unique}")
+        db.add_all([author, client])
+        await db.flush()
+        runs = {
+            state: CandidateSearchRun(
+                id=str(uuid.uuid4()),
+                created_by=author.id,
+                client_id=client.id,
+                state=state,
+                request_fingerprint="e" * 64,
+                request_context={},
+                version_trace={},
+                population_size=2,
+                metrics={},
+            )
+            for state in ("complete", "running")
+        }
+        db.add_all(runs.values())
+        await db.flush()
+        for run in runs.values():
+            for cid in (candidate_id, bystander_id):
+                db.add(
+                    CandidateSearchResult(
+                        run_id=run.id,
+                        candidate_id=cid,
+                        candidate_version="v1",
+                        state="evaluated",
+                        evidence={"requirements": [{"any_of": ["python"]}]},
+                    )
+                )
+        await db.commit()
+        run_ids = {state: run.id for state, run in runs.items()}
+        author_id, client_id = author.id, client.id
+
+    try:
+        r = await app_client.delete(
+            f"/api/candidates/{candidate_id}", headers=app_auth_headers
+        )
+        assert r.status_code == 204, r.text
+
+        async with AsyncSessionLocal() as db:
+            left = (
+                await db.execute(
+                    select(
+                        CandidateSearchResult.run_id,
+                        CandidateSearchResult.candidate_id,
+                    ).where(CandidateSearchResult.run_id.in_(run_ids.values()))
+                )
+            ).all()
+            finished = await db.get(CandidateSearchRun, run_ids["complete"])
+            active = await db.get(CandidateSearchRun, run_ids["running"])
+            audit = await db.scalar(
+                select(Activity)
+                .where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == candidate_id,
+                    Activity.action == "candidate_hard_deleted",
+                )
+                .order_by(Activity.id.desc())
+                .limit(1)
+            )
+        assert {cid for _, cid in left} == {bystander_id}, "usunięta osoba zostaje"
+        assert len(left) == 2, "wiersze innych kandydatów nie mogą zniknąć"
+        assert finished.state == "complete"
+        assert active.state == "failed" and active.error_code == "candidate_erased"
+        assert audit.details["search_rows_deleted"] == 2
+        assert audit.details["search_runs_failed"] == 1
+    finally:
+        from sqlalchemy import delete
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateSearchRun).where(
+                    CandidateSearchRun.id.in_(list(run_ids.values()))
+                )
+            )
+            await db.execute(
+                text("DELETE FROM candidates WHERE id = :id"), {"id": bystander_id}
+            )
+            await db.execute(
+                text("DELETE FROM clients WHERE id = :id"), {"id": client_id}
+            )
+            await db.execute(
+                text("DELETE FROM users WHERE id = :id"), {"id": author_id}
+            )
+            await db.commit()
+
+
 async def test_hard_delete_of_missing_candidate_is_404_not_204(
     app_client: AsyncClient, app_auth_headers: dict
 ):

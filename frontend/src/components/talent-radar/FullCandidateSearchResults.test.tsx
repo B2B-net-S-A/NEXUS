@@ -34,6 +34,31 @@ test("failed page read does not present old results as current", () => {
   expect(onRetry).toHaveBeenCalledOnce();
 });
 
+test("a run that can only be replaced offers a new run instead of a retry loop", () => {
+  const onRetry = vi.fn();
+  const onRestart = vi.fn();
+  const conflict = Object.assign(new Error("Request lub profil punktacji zmienił się."), { response: { status: 409 } });
+  const view = render(<FullCandidateSearchResults data={data} error={conflict} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={onRetry} onRestart={onRestart} needsNewRun canOpenProfile />);
+  expect(screen.queryByRole("button", { name: "Spróbuj ponownie" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Uruchom ponownie" }));
+  expect(onRestart).toHaveBeenCalledOnce();
+  expect(onRetry).not.toHaveBeenCalled();
+  // Without a startable form the page's own start button is the way forward.
+  view.rerender(<FullCandidateSearchResults data={data} error={conflict} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={onRetry} needsNewRun canOpenProfile />);
+  expect(screen.queryByRole("button", { name: "Uruchom ponownie" })).not.toBeInTheDocument();
+  expect(screen.getByText(/uruchom wyszukiwanie ponownie/)).toBeVisible();
+});
+
+test("a failed run shows the interruption and no result cards", () => {
+  const onRestart = vi.fn();
+  render(<FullCandidateSearchResults data={{ ...data, state: "failed", error_code: "stalled" }} error={null} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={vi.fn()} onRestart={onRestart} needsNewRun canOpenProfile />);
+  expect(screen.getByRole("status")).toHaveTextContent("Przegląd przerwany");
+  expect(screen.queryByText("Anna Testowa")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Na tej stronie nie ma dostępnych wyników/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Uruchom ponownie" }));
+  expect(onRestart).toHaveBeenCalledOnce();
+});
+
 test("profile skill signal does not claim verified proficiency or date", () => {
   const signal = structuredClone(data);
   signal.results[0].requirements[0] = {

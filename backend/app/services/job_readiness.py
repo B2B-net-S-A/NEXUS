@@ -90,7 +90,11 @@ def job_rubric_blockers(job: Job) -> list[str]:
     inputs = dealbreaker_inputs_for_job(job)
     policy = resolve_effective_remote_policy(job)
 
-    if not inputs.must_skills:
+    # Must-have PODANE prozą (`must_skills_ignored`) też są podane: nie
+    # bramkują rankingu, ale Delivery Lead wypełnił rubrykę — handoff nie może
+    # odsyłać go po „technologię”, którą już wpisał zdaniem (patrz
+    # `gate_eligible_must_skills`).
+    if not (inputs.must_skills or inputs.must_skills_ignored):
         blockers.append(
             "Dodaj co najmniej jedną technologię must-have (pole oferty lub "
             "sekcja „Stack technologiczny” w Profilu Championa)."

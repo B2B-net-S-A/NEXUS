@@ -884,6 +884,99 @@ async def test_row_without_invoice_amount_is_not_flagged(
     assert detail["rows_cost_unmatched"] == 0
 
 
+def _month_after(day) -> str:
+    """Miesiąc, który zaczyna się PO ``day`` (miesiąc ma najwyżej 31 dni)."""
+    return (day + timedelta(days=32)).strftime("%Y-%m")
+
+
+async def test_md_import_reaches_an_order_closed_with_a_future_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zakończenie z datą w przyszłości nie wyłącza rozliczenia bieżącego miesiąca.
+
+    ``close_order_group`` stawia grupie ``completed`` OD RAZU, a linia pracuje
+    do daty zakończenia. Do 09.2026 import za miesiąc, w którym konsultant
+    jeszcze pracował, kończył jako „Brak aktywnego zamówienia" — dni nie
+    schodziły z budżetu. Okres linii nadal wyznacza granicę: miesiąc po dacie
+    zakończenia niczego nie dopasowuje.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    closure = _TODAY + timedelta(days=30)
+    closed = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/close",
+        json={"closure_date": closure.isoformat()},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "completed"
+    finance = await _finance_headers(app_client)
+
+    detail = await _import_sheet(app_client, finance, _sheet([(names[0], 10, "", 0)]))
+    row = detail["rows"][0]
+    assert row["status"] == "applied", row
+    assert row["matched_order_id"] == group["lines"][0]["id"]
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "completed"
+    assert body["lines"][0]["md_remaining"] == pytest.approx(40.0)
+
+    after = await _import_sheet(
+        app_client,
+        finance,
+        _sheet([(names[0], 5, "", 0)]),
+        period=_month_after(closure),
+    )
+    assert after["rows"][0]["status"] != "applied", after["rows"][0]
+
+
+async def test_invoice_import_reaches_a_cost_order_closed_with_a_future_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Lustro dla zamówienia kosztowego — także blokada celu po locku.
+
+    Kandydat z ``active_cost_lines`` jest sprawdzany ponownie po blokadach
+    (``_ordinary_locked_target_is_valid``). Bez tej samej reguły stanu grupy
+    import wybrałby zamówienie, a potem odrzucił całą partię 409.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        order_number="4500719691",
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    closure = _TODAY + timedelta(days=30)
+    closed = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/close",
+        json={"closure_date": closure.isoformat()},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    finance = await _finance_headers(app_client)
+
+    detail = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 10, "SAP 4500719691", 20000)])
+    )
+    assert detail["rows"][0]["cost_status"] == "applied", detail["rows"][0]
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "completed", "import nie może cofnąć zakończenia"
+    assert body["budget_remaining"] == pytest.approx(30000.0)
+
+
 async def test_impossible_closure_date_is_refused_not_a_500(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

@@ -3,18 +3,23 @@
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { extractErrorMsg } from "@/lib/api";
-import { searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
+import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
 
-export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, canOpenProfile, jobId, canVerify = false, onVerified }: {
+export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, onRestart, needsNewRun = false, canOpenProfile, jobId, canVerify = false, onVerified }: {
   data?: CandidateSearchPage;
   error: unknown;
   loading: boolean;
   fetching: boolean;
   offset: number;
   onPage: (offset: number) => void;
+  /** Re-read the current run (or start one when there is none yet). */
   onRetry: () => void;
+  /** Start a NEW run; omitted while the form cannot start one. */
+  onRestart?: () => void;
+  /** The stored run can only be replaced — re-reading repeats the answer. */
+  needsNewRun?: boolean;
   canOpenProfile: boolean;
   jobId?: number;
   canVerify?: boolean;
@@ -22,13 +27,17 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
 }) {
   if (error) return <div role="alert" className="rounded-lg border p-4">
     <p>Nie udało się odczytać wyszukiwania: {extractErrorMsg(error)}</p>
-    <Button onClick={onRetry}>Spróbuj ponownie</Button>
+    {!needsNewRun
+      ? <Button onClick={onRetry}>Spróbuj ponownie</Button>
+      : onRestart
+        ? <Button onClick={onRestart}>Uruchom ponownie</Button>
+        : <p className="text-sm text-muted-foreground">Uzupełnij formularz powyżej i uruchom wyszukiwanie ponownie.</p>}
   </div>;
   if (loading) return <p role="status">Wczytuję przegląd całej bazy…</p>;
   if (!data) return <p className="text-sm text-muted-foreground">Sprawdź wymagania i uruchom wyszukiwanie w całej bazie.</p>;
   return <div className="space-y-4">
-    <FullCandidateSearchStatus data={data} offset={offset} onPage={onPage} fetching={fetching} />
-    {!searchIsRunning(data.state) && <>
+    <FullCandidateSearchStatus data={data} offset={offset} onPage={onPage} fetching={fetching} onRestart={onRestart} restarting={loading} />
+    {!searchIsRunning(data.state) && !searchFailed(data.state) && <>
       {data.results.length === 0 && <p>Na tej stronie nie ma dostępnych wyników. {data.ranking_complete ? "Zmień wymagania lub próg dopasowania." : "Przegląd wymaga uzupełnienia lub ponownego uruchomienia."}</p>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {data.results.map(row => <article key={row.candidate.id} className="space-y-3 rounded-lg border bg-card p-5">

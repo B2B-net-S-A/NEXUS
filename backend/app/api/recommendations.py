@@ -224,8 +224,10 @@ async def recommend_candidates_for_job(
     exclude_missing_must: Optional[bool] = Query(
         None,
         description=(
-            "Pominięte: stosuj zapisaną politykę brakujących dowodów, domyślnie "
-            "do weryfikacji. Jawne true/false nadpisuje ją dla tego zapytania."
+            "Pominięte: zapisana polityka wymagań — domyślnie ukrywa kandydatów, "
+            "których znane umiejętności nie obejmują technologii must-have "
+            "(brak danych przechodzi do weryfikacji). true: ukryj też brak "
+            "dowodu; false: bez bramki must-have dla tego zapytania."
         ),
     ),
     exclude_office_days_exceeded: bool = Query(

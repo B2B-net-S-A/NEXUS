@@ -41,7 +41,10 @@ class CandidateSearchRun(Base, TimestampMixin):
     population_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     lease_token: Mapped[str | None] = mapped_column(String(36))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Set for every finished state (complete/partial/failed); drives retention.
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
     error_code: Mapped[str | None] = mapped_column(String(100))
     metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
@@ -63,7 +66,9 @@ class CandidateSearchResult(Base):
     )
     # Preserve the snapshot identity if a profile is deleted during the run.
     # Hydration/access checks use the current candidate table before display.
-    candidate_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # A candidate hard delete removes these rows explicitly (no FK cascade);
+    # the index serves that lookup, which the (run_id, ...) key cannot.
+    candidate_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     candidate_version: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     eligible: Mapped[bool | None] = mapped_column(Boolean)

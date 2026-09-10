@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import time
@@ -16,9 +17,15 @@ from app.services import embedding_service as embeddings
 _QUERY_CACHE_LIMIT = 128
 _QUERY_CACHE_TTL = 300
 _QUERY_VECTOR_VERSION = "chunk-8000-mean-v1"
+_YIELD_EVERY = 32
 _query_cache: OrderedDict[tuple[str, str, str], tuple[float, tuple[float, ...]]] = (
     OrderedDict()
 )
+
+
+async def _cooperate() -> None:
+    """Yield to the event loop between CPU-bound slices of a batch."""
+    await asyncio.sleep(0)
 
 
 @dataclass(frozen=True)
@@ -128,7 +135,12 @@ async def measure_candidates(query_vector, candidates) -> dict[int, VectorMeasur
         return {cid: VectorMeasurement(None, "unavailable") for cid in ids}
     by_id = {int(point.id): point for point in points}
     results = {}
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates):
+        # Text build + sha256 + cosine per candidate is pure CPU; hand the
+        # event loop back regularly so HTTP requests in this process are not
+        # starved by a full-population scan. Results are unaffected.
+        if index and index % _YIELD_EVERY == 0:
+            await _cooperate()
         point = by_id.get(candidate.id)
         if point is None:
             results[candidate.id] = VectorMeasurement(None, "missing_index")
