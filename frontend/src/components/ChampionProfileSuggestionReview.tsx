@@ -26,6 +26,7 @@ import {
   CHAMPION_SECTIONS as CHAMPION_SECTION_META,
   type ChampionSectionId,
 } from "@/lib/champion-section-state";
+import { invalidateChampionDependents } from "@/lib/champion-cache";
 import { cn } from "@/lib/utils";
 
 // Sześć etykiet z JEDNEGO źródła (`CHAMPION_SECTIONS` z `champion-section-state`,
@@ -89,7 +90,9 @@ export function ChampionProfileSuggestionReview({
       return res.data;
     },
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+      // Zastosowana propozycja to zapis profilu — ta sama lista zależności co
+      // przy „Zapisz" (profil, zlecenie, werdykt gotowości).
+      invalidateChampionDependents(qc, jobId);
       qc.invalidateQueries({ queryKey: ["champion-suggestions", jobId] });
       onApplied?.(result);
       onClose();
