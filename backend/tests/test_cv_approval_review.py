@@ -9,6 +9,60 @@ from app.services import cv_approval_review as review
 from app.services.cv_generator_b2b.factual_verification import FactualVerificationError
 
 
+async def test_prepared_review_survives_draft_changes_without_reading_them(monkeypatch):
+    from dataclasses import FrozenInstanceError, asdict
+    import json
+
+    source = SimpleNamespace(
+        cv_bytes=b"source",
+        cv_filename="cv.docx",
+        screening_notes="original notes",
+        identity="Original person",
+        snapshot_sha256="original-hash",
+    )
+    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    monkeypatch.setattr(
+        review, "extract_text_from_file", Mock(return_value="original text")
+    )
+    quota_calls = []
+
+    @asynccontextmanager
+    async def quota(*args, **kwargs):
+        quota_calls.append(kwargs["user_id"])
+        yield
+
+    monkeypatch.setattr(review, "ai_feature", quota)
+    verify = Mock(return_value={"version": 2, "prompt_sha256": "prompt"})
+    monkeypatch.setattr(review, "verify_editor_content", verify)
+    draft = SimpleNamespace(
+        id=5, edit_revision=7, generated_document_id=11, branded_render_metadata={}
+    )
+    prepared = await review.prepare_approval_review(
+        AsyncMock(), draft, "<p>Original claim</p>"
+    )
+    assert not quota_calls
+    verify.assert_not_called()
+    with pytest.raises(FrozenInstanceError):
+        prepared.content_html = "changed"
+    # Durable transport must not require a live ORM object or source file.
+    restored = review.PreparedApprovalReview(**json.loads(json.dumps(asdict(prepared))))
+    draft.generated_document_id = 99
+    draft.edit_revision = 100
+    source.screening_notes = "changed notes"
+    source.snapshot_sha256 = "changed-hash"
+    result = await review.execute_approval_review(AsyncMock(), restored, 17)
+    assert quota_calls == [17]
+    verify.assert_called_once_with(
+        "<p>Original claim</p>",
+        cv_text="original text",
+        screening_notes="original notes",
+        identity="Original person",
+        request_id="cv-approval:5:7",
+    )
+    assert result["generated_document_id"] == 11
+    assert result["source_snapshot_sha256"] == "original-hash"
+
+
 @pytest.mark.parametrize("unsupported", [False, True])
 async def test_edited_content_is_reviewed_against_frozen_source(
     monkeypatch, unsupported
@@ -193,7 +247,11 @@ async def test_only_exact_current_source_review_can_be_reused(monkeypatch, chang
         "load_review_source",
         AsyncMock(
             return_value=SimpleNamespace(
-                snapshot_sha256="snapshot", cv_bytes=b"source", cv_filename="cv.txt"
+                snapshot_sha256="snapshot",
+                cv_bytes=b"source",
+                cv_filename="cv.txt",
+                screening_notes="",
+                identity="",
             )
         ),
     )
