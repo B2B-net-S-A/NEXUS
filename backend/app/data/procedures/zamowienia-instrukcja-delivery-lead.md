@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-09
+> **Zgodność z systemem sprawdzona:** 2026-09-10
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -441,7 +441,10 @@ możliwych osób lub kontraktów nadal wymaga decyzji.
 
 **„Automat: pewne” zawsze uruchamia zapis bez przycisku „Zastosuj”.** Wynik jest
 w zakładce **„Zapisane automatycznie”**. Dotyczy to również pierwszego zamówienia
-na nową osobę. Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
+na nową osobę. W zamówieniu okresowym brak niewykorzystywanej wartości całkowitej nie blokuje
+zapisu z powodu technicznej niejasności nazwy tego pola. Rzeczywiste sprzeczności
+stawek oraz budżety zamówień kosztowych i MD nadal wymagają kontroli.
+Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
 zapis dokumentu i pozostawia konkretny powód weryfikacji.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym

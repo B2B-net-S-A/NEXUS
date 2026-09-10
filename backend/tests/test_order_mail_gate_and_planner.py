@@ -466,3 +466,26 @@ class TestGate:
     def test_shadow_mode_still_reports_auto_verdict(self):
         v = evaluate(_gate_input(autoapply_enabled=False))
         assert v.verdict == VERDICT_AUTO
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Total, excl. VAT 211 120,00 PLN podano jako suma zamówienia, ale nie jest jednoznacznie oznaczone jako total_value pola dokumentu (brak jasnego nagłówka 'Total value of order')",
+        "Total_value pole 'Total, excl. VAT 72 960,00 PLN' istnieje w dokumencie, ale nie jest przypisane jednoznacznie jako 'total_value' pola zamówienia",
+    ],
+)
+def test_unused_total_mapping_does_not_block_complete_periodic_order(reason):
+    inp = _gate_input()
+    inp.extraction.uncertain = True
+    inp.extraction.uncertain_reasons = [reason]
+    inp.extraction.total_value = None
+    assert evaluate(inp).is_auto
+    inp.proposal.rows[0].order_type = "cost"
+    assert not evaluate(inp).is_auto
+    inp.proposal.rows[0].order_type = "periodic"
+    inp.extraction.total_value = Decimal("100")
+    assert not evaluate(inp).is_auto
+    inp.extraction.total_value = None
+    inp.extraction.uncertain_reasons = [reason + "; sprzeczne stawki"]
+    assert not evaluate(inp).is_auto
