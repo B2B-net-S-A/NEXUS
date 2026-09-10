@@ -1137,10 +1137,20 @@ export function CVGeneratorStandaloneV2({
       </Card>
 
       {canWriteSourcing && editItem && <CVBrandedEditModal open generatedId={editItem.id}
-        onRegenerate={() => requestAnimationFrame(() => {
-          generatorFormRef.current?.focus({preventScroll: true});
-          generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
-        })}
+        onRegenerate={() => {
+          // History may belong to a different candidate than the current form.
+          // Re-enter through the authorized prefill flow after saving the draft.
+          if (!embedded && editItem.candidate_id != null) {
+            const context = new URLSearchParams({candidate_id: String(editItem.candidate_id)});
+            if (editItem.job_id != null) context.set("job_id", String(editItem.job_id));
+            window.location.assign(`/cv-generator?${context}`);
+            return;
+          }
+          requestAnimationFrame(() => {
+            generatorFormRef.current?.focus({preventScroll: true});
+            generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+          });
+        }}
         candidateName={editItem.candidate_name} onOpenChange={open => { if (!open) setEditItem(null); }} />}
       <GeneratedCvPreviewModal
         item={previewItem}

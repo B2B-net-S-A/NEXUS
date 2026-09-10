@@ -6,6 +6,12 @@ import { ToastProvider } from "@/components/Toast";
 import { CVGeneratorStandaloneV2 } from "../CVGeneratorStandaloneV2";
 import { useAuthStore } from "@/store/auth";
 
+vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
+  CVBrandedEditModal: ({onRegenerate, onOpenChange}: {
+    onRegenerate: () => void; onOpenChange: (open: boolean) => void;
+  }) => <button onClick={() => { onOpenChange(false); onRegenerate(); }}>Recover saved draft</button>,
+}));
+
 // The page GETs the generated-CV list on mount and POSTs the multipart upload.
 const getMock = vi.fn((..._args: unknown[]): Promise<{data: unknown}> => Promise.resolve({ data: [] }));
 const postMock = vi.fn((..._args: unknown[]) =>
@@ -84,6 +90,26 @@ function drop(input: HTMLInputElement, file: File) {
 function confirmOutsideAssignment() {
   fireEvent.click(screen.getByLabelText(/Generuję CV poza zleceniem/));
 }
+
+it.each([88, null])("recovers the history document context after closing its editor (job %s)", async (jobId) => {
+  setSourcingAccess("write");
+  getMock.mockImplementation(async (url) => ({data: url === "/api/cv-generator/generated" ? [{
+    id: 901, candidate_id: 77, job_id: jobId, candidate_name: "History Person",
+    language: "pl", mode: "new", status: "ready", filename: "cv.docx",
+    can_download: true, can_delete: false,
+  }] : []}));
+  const assign = vi.fn();
+  vi.stubGlobal("location", {...window.location, assign});
+  try {
+    renderPage({prefillCandidateId: 999, prefillJobId: 1000});
+    fireEvent.click(await screen.findByTitle("Edytuj i zatwierdź CV"));
+    fireEvent.click(screen.getByText("Recover saved draft"));
+    expect(assign).toHaveBeenCalledWith(`/cv-generator?candidate_id=77${jobId == null ? "" : "&job_id=88"}`);
+  } finally {
+    vi.unstubAllGlobals();
+    getMock.mockImplementation(async () => ({data: []}));
+  }
+});
 
 describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
   beforeEach(() => {
