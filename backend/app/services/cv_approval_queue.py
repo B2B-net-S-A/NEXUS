@@ -5,6 +5,9 @@ import json
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError
+from app.models.candidate import Candidate
+from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_approval_job import CvApprovalJob
 from app.models.cv_generated_draft import CvGeneratedDraft
 from app.services.cv_document_versions import check_revision
@@ -75,6 +78,30 @@ async def enqueue_review(db, draft, payload, user_id):
         if existing.request_sha256 != fingerprint:
             raise HTTPException(409, "Identyfikator kontroli dotyczy innej treści CV.")
         return state(existing, draft)
+    # Erasure holds the candidate before checking/removing source jobs. Do not
+    # enqueue a new private snapshot after that check or wait in reverse order
+    # while the editor holds its document lock.
+    try:
+        await db.execute(
+            select(Candidate.id)
+            .where(
+                (
+                    Candidate.id
+                    == select(CvGeneratedDocument.candidate_id)
+                    .where(CvGeneratedDocument.id == draft.generated_document_id)
+                    .scalar_subquery()
+                )
+                | (Candidate.id == getattr(draft, "candidate_id", None))
+            )
+            .with_for_update(nowait=True)
+        )
+    except DBAPIError as exc:
+        code = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if code != "55P03":
+            raise
+        raise HTTPException(
+            409, "Dane kandydata są aktualizowane. Ponów kontrolę za chwilę."
+        ) from exc
     prepared = await prepare_approval_review(db, draft, content)
     if isinstance(prepared, dict):
         return {"review_id": None, "status": "verified", "error_code": None}

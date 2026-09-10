@@ -84,3 +84,54 @@ async def test_locked_source_job_rejects_erasure_then_allows_retry():
             )
             await cleanup.execute(delete(Candidate).where(Candidate.id == candidate_id))
             await cleanup.commit()
+
+
+async def test_active_review_blocks_erasure_and_terminal_review_source_is_removed():
+    from tests.test_cv_approval_leases import review_jobs
+    from app.models.cv_approval_job import CvApprovalJob
+    from app.services.cv_approval_leases import cancel_review
+    from sqlalchemy import update
+
+    async with review_jobs() as (review_id,):
+        async with AsyncSessionLocal() as db:
+            candidate = Candidate(
+                name="Synthetic",
+                lastname="Review erasure",
+                email=f"{uuid4()}@example.test",
+            )
+            db.add(candidate)
+            await db.flush()
+            candidate_id = candidate.id
+            review = await db.get(CvApprovalJob, review_id)
+            await db.execute(
+                update(CvGeneratedDocument)
+                .where(CvGeneratedDocument.id == review.generated_document_id)
+                .values(candidate_id=candidate_id)
+            )
+            await db.commit()
+        try:
+            async with AsyncSessionLocal() as db:
+                await db.scalar(
+                    select(Candidate)
+                    .where(Candidate.id == candidate_id)
+                    .with_for_update()
+                )
+                with pytest.raises(HTTPException) as error:
+                    await detach_candidate_job_sources(db, candidate_id)
+                assert error.value.status_code == 409
+                await db.rollback()
+                assert await cancel_review(db, review_id)
+                await db.commit()
+                await db.scalar(
+                    select(Candidate)
+                    .where(Candidate.id == candidate_id)
+                    .with_for_update()
+                )
+                assert await detach_candidate_job_sources(db, candidate_id) == []
+                await db.flush()
+                assert await db.get(CvApprovalJob, review_id) is None
+                await db.commit()
+        finally:
+            async with AsyncSessionLocal() as db:
+                await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
+                await db.commit()

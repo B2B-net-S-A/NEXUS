@@ -111,3 +111,37 @@ async def test_review_endpoints_require_resource_write_access(
     enqueue.assert_not_awaited()
     status.assert_not_awaited()
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("code", ["55P03", "08006"])
+async def test_candidate_lock_failure_cannot_create_review_snapshot(monkeypatch, code):
+    from sqlalchemy.exc import DBAPIError
+
+    class DatabaseFailure(RuntimeError):
+        sqlstate = code
+
+    failure = DBAPIError("SELECT", {}, DatabaseFailure("test"), False)
+    db = AsyncMock()
+    db.scalar.return_value = None
+    db.execute.side_effect = [None, failure]
+    db.add = Mock()
+    prepare = AsyncMock()
+    monkeypatch.setattr(queue, "prepare_approval_review", prepare)
+    draft = SimpleNamespace(
+        id=12,
+        edit_revision=3,
+        branded_status="draft",
+        generated_document_id=11,
+        candidate_id=5,
+    )
+    payload = CVBrandedReview(
+        expected_revision=3, content_html="<p>Claim</p>", request_key=uuid4()
+    )
+    with pytest.raises(HTTPException if code == "55P03" else DBAPIError) as error:
+        await queue.enqueue_review(db, draft, payload, 7)
+    if code == "55P03":
+        assert error.value.status_code == 409
+    else:
+        assert error.value is failure
+    prepare.assert_not_awaited()
+    db.add.assert_not_called()

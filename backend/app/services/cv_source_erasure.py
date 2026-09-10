@@ -7,6 +7,8 @@ from sqlalchemy.exc import DBAPIError
 from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generation_job import CvGenerationJob
+from app.models.cv_approval_job import CvApprovalJob
+from app.models.candidate_stage_cv import CandidateStageCV
 
 
 async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
@@ -39,6 +41,25 @@ async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
                 )
             ).all()
         )
+        reviews = list(
+            (
+                await db.scalars(
+                    select(CvApprovalJob)
+                    .where(
+                        or_(
+                            CvApprovalJob.generated_document_id.in_(documents),
+                            CvApprovalJob.candidate_stage_cv_id.in_(
+                                select(CandidateStageCV.id).where(
+                                    CandidateStageCV.candidate_id == candidate_id
+                                )
+                            ),
+                        )
+                    )
+                    .order_by(CvApprovalJob.id)
+                    .with_for_update(nowait=True)
+                )
+            ).all()
+        )
     except DBAPIError as exc:
         # The worker can hold the job before inserting a candidate-linked result.
         # Do not wait while holding the candidate lock in the opposite order.
@@ -48,12 +69,12 @@ async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
         raise HTTPException(
             409, "Generator aktualizuje CV kandydata. Ponów usunięcie za chwilę."
         ) from exc
-    if any(job.status in {"queued", "running"} for job in jobs):
+    if any(job.status in {"queued", "running"} for job in [*jobs, *reviews]):
         raise HTTPException(
             409,
-            "Generacja CV kandydata nadal trwa. Ponów usunięcie po jej zakończeniu.",
+            "Generacja lub kontrola CV kandydata nadal trwa. Ponów usunięcie po jej zakończeniu.",
         )
     keys = sorted({job.input_storage_key for job in jobs if job.input_storage_key})
-    for job in jobs:
+    for job in [*jobs, *reviews]:
         await db.delete(job)
     return keys
