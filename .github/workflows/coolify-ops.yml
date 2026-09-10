@@ -19,6 +19,8 @@ name: Coolify Ops
 #                                    (read-only; trzy bramki + werdykt).
 #   5. action=eval-ab              → JEDNORAZOWY pomiar A/B matchingu na prodzie
 #                                    (patrz job `eval` niżej — tam kryterium odczytu).
+#      action=eval-ab-scorer       → ten sam kanał, ale ramiona różnią się SCOREREM
+#                                    (legacy vs canonical) na tej samej puli.
 #   6. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
 #   7. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
 #                                    nie doszło do skutku (zawór bezpieczeństwa).
@@ -42,7 +44,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs]
+        options: [staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -729,6 +731,23 @@ jobs:
   #   nie wiemy, czy Coolify opakowuje ją w `sh -c '…'` czy w cudzysłów, a
   #   podstawienie po złej stronie tego opakowania wykonałoby się na hoście, nie
   #   w kontenerze.
+  #
+  # ══ action=eval-ab-scorer — A/B SCORERA (09.2026, po #1428) ══
+  #
+  # Ramiona różnią się WYŁĄCZNIE rankingiem tej samej puli: OFF = `--scorer
+  # legacy` (kompozyt, którym mierzono wszystkie dotychczasowe baseline'y),
+  # ON = `--scorer canonical` (base fit, który od #1428 widzą ekrany C2).
+  # Pula w OBU ramionach: wektorowa, bez hybrydy i rerankera — ta sama co w
+  # ramieniu OFF zwykłego eval-ab, więc:
+  # 1. Ramię OFF jest kontrolą przyrządu jak wyżej (musi odtworzyć baseline
+  #    z 18.08 dla zbioru A / puli 2000). Jeśli nie — delty nie wolno czytać.
+  # 2. Sekcje BM25 są w obu ramionach PUSTE z założenia (hybryda wyłączona) —
+  #    kryterium z punktu 2 wyżej dotyczy tylko eval-ab.
+  # 3. W ramieniu ON niezmierzeni (nieaktualny/brakujący wektor) lądują na
+  #    końcu listy — dokładnie jak na ekranie. Część delty to więc pokrycie
+  #    indeksu, nie jakość wag; kolumna „GT indexed" w raporcie to rozdziela.
+  # 4. Zweryfikowane wymagania (requirement_verifications) są w ramieniu ON
+  #    maskowane — ta sama klasa przecieku etykiety co champion_fit.
   # ── client-lookup ────────────────────────────────────────────────────────
   #
   # Po co: kilka polityk domenowych jest bramkowanych LISTĄ `client_id` w env
@@ -1135,7 +1154,7 @@ jobs:
 
   eval:
     name: Matching eval A/B (prod)
-    if: ${{ inputs.action == 'eval-ab' || inputs.action == 'eval-read' || inputs.action == 'eval-stop' }}
+    if: ${{ inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-read' || inputs.action == 'eval-stop' }}
     runs-on: ubuntu-latest
     # Budżet wyprowadzony z jedynego znanego punktu odniesienia: cotygodniowy
     # strażnik (app/tasks/weekly_eval.py) daje 3600 s JEDNEMU biegowi na tych
@@ -1164,15 +1183,16 @@ jobs:
       # z pierwszą przy najbliższej zmianie, a porównywalność między pomiarami
       # opiera się właśnie na tym, że ten zbiór NIE dryfuje.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: inputs.action == 'eval-ab'
+        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer'
 
       - name: Odpal jednorazowy A/B
         id: ab
-        if: inputs.action == 'eval-ab'
+        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer'
         env:
           EVAL_SET: ${{ inputs.eval_set }}
           EVAL_JOBS: ${{ inputs.eval_jobs }}
           EVAL_POOL: ${{ inputs.eval_pool }}
+          EVAL_MODE: ${{ inputs.action }}
         run: |
           set -euo pipefail
           base="${CO_URL%/}"
@@ -1204,11 +1224,23 @@ jobs:
           # ── komenda (ZAHARDKODOWANA; operator wnosi tylko liczby wyżej) ─────
           LOCK="/tmp/nexus-eval-${GITHUB_RUN_ID}"
           ARGS="--job-ids ${IDS} --jobs ${EVAL_JOBS} --min-gt 3 --pool ${EVAL_POOL}"
+          # Ramiona. eval-ab: pula wektorowa vs hybrydowa, ten sam scorer.
+          # eval-ab-scorer: ta sama pula (wektorowa), scorer legacy vs canonical
+          # — kryterium odczytu w komentarzu nad jobem `eval`.
+          OFF_ENV="HYBRID_POOL_ENABLED=false RERANKER_ENABLED=false"
+          ON_ENV="HYBRID_POOL_ENABLED=true RERANKER_ENABLED=false"
+          OFF_ARGS="${ARGS}"
+          ON_ARGS="${ARGS}"
+          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then
+            ON_ENV="${OFF_ENV}"
+            OFF_ARGS="${ARGS} --scorer legacy"
+            ON_ARGS="${ARGS} --scorer canonical"
+          fi
           # Ogon obu logów leci ZAWSZE, nie tylko przy błędzie: gdy harness się
           # wywróci, raportu nie ma i `head` wypisuje pustkę, więc sekcja OFF/ON
           # wyglądałaby jak „zero wyników" zamiast jak awaria. Trzy linie ogona
           # dają traceback (albo ostatni log postępu) i rozstrzygają tę różnicę.
-          CMD="cd /app && mkdir ${LOCK} && { HYBRID_POOL_ENABLED=false RERANKER_ENABLED=false python -m scripts.eval_matching ${ARGS} --output ${LOCK}/off.md > ${LOCK}/off.log 2>&1 ; HYBRID_POOL_ENABLED=true RERANKER_ENABLED=false python -m scripts.eval_matching ${ARGS} --output ${LOCK}/on.md > ${LOCK}/on.log 2>&1 ; echo ===NEXUS-EVAL-OFF=== ; head -n 32 ${LOCK}/off.md ; echo ===NEXUS-EVAL-BM25-OFF=== ; grep -c bm25= ${LOCK}/off.log ; grep -m 3 bm25= ${LOCK}/off.log ; echo ===NEXUS-EVAL-TAIL-OFF=== ; tail -n 12 ${LOCK}/off.log ; echo ===NEXUS-EVAL-ON=== ; head -n 32 ${LOCK}/on.md ; echo ===NEXUS-EVAL-BM25-ON=== ; grep -c bm25= ${LOCK}/on.log ; grep -m 3 bm25= ${LOCK}/on.log ; echo ===NEXUS-EVAL-TAIL-ON=== ; tail -n 12 ${LOCK}/on.log ; echo ${SENTINEL} ; }"
+          CMD="cd /app && mkdir ${LOCK} && { ${OFF_ENV} python -m scripts.eval_matching ${OFF_ARGS} --output ${LOCK}/off.md > ${LOCK}/off.log 2>&1 ; ${ON_ENV} python -m scripts.eval_matching ${ON_ARGS} --output ${LOCK}/on.md > ${LOCK}/on.log 2>&1 ; echo ===NEXUS-EVAL-OFF=== ; head -n 32 ${LOCK}/off.md ; echo ===NEXUS-EVAL-BM25-OFF=== ; grep -c bm25= ${LOCK}/off.log ; grep -m 3 bm25= ${LOCK}/off.log ; echo ===NEXUS-EVAL-TAIL-OFF=== ; tail -n 12 ${LOCK}/off.log ; echo ===NEXUS-EVAL-ON=== ; head -n 32 ${LOCK}/on.md ; echo ===NEXUS-EVAL-BM25-ON=== ; grep -c bm25= ${LOCK}/on.log ; grep -m 3 bm25= ${LOCK}/on.log ; echo ===NEXUS-EVAL-TAIL-ON=== ; tail -n 12 ${LOCK}/on.log ; echo ${SENTINEL} ; }"
           # Guard, nie kosmetyka: apostrof/`$`/backtick zachowują się różnie w
           # zależności od tego, jak Coolify opakuje komendę — a tego nie wiemy.
           case "$CMD" in
@@ -1272,13 +1304,17 @@ jobs:
           echo ""
           echo "$msg"
           echo ""
-          echo "::notice::Zanim przeczytasz deltę: OFF musi odtworzyć baseline (P@5 0.248 / R@20n 0.199), sekcja BM25-ON musi mieć bm25=<n> z n>0, a raport 'Voyage API key configured: yes'."
+          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then
+            echo "::notice::A/B scorera: OFF=legacy (kontrola — musi odtworzyć baseline P@5 0.248 / R@20n 0.199 na zbiorze A, pula 2000), ON=canonical na tej samej puli. Nagłówki raportów muszą mówić 'Scorer: legacy' i 'Scorer: canonical', a 'Voyage API key configured: yes'."
+          else
+            echo "::notice::Zanim przeczytasz deltę: OFF musi odtworzyć baseline (P@5 0.248 / R@20n 0.199), sekcja BM25-ON musi mieć bm25=<n> z n>0, a raport 'Voyage API key configured: yes'."
+          fi
 
       # Sprzątanie MUSI iść przy każdym wyniku poprzedniego kroku, łącznie
       # z anulowaniem workflow: zostawiony cron odpalałby się co minutę na
       # produkcji (blokada `mkdir` powstrzyma drugi eval, ale nie sam cron).
       - name: Skasuj zadanie jednorazowe
-        if: ${{ always() && inputs.action == 'eval-ab' }}
+        if: ${{ always() && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer') }}
         env:
           AB_OUTCOME: ${{ steps.ab.outcome }}
         run: |

@@ -321,3 +321,233 @@ def test_structured_pool_arg_off_leaves_settings_at_their_defaults(monkeypatch):
 
     assert settings.STRUCTURED_POOL_ENABLED is False
     assert settings.STRUCTURED_POOL_LIMIT == 2000
+
+
+# ── --scorer: legacy composite vs canonical base fit on the SAME pool ───────
+
+
+def test_scorer_defaults_to_legacy_so_old_baselines_stay_comparable():
+    assert _parse_args([]).scorer == "legacy"
+    assert _parse_args(["--scorer", "canonical"]).scorer == "canonical"
+
+
+@pytest.mark.parametrize(
+    "flags,needle",
+    [
+        (["--include-champion"], "--include-champion"),
+        (["--with-historical-boost"], "--with-historical-boost"),
+        (["--weights", "0,0,0,0,0,100"], "--weights"),
+    ],
+)
+def test_canonical_rejects_flags_that_describe_a_ranking_nobody_sees(
+    flags, needle, capsys
+):
+    """Base fit zeroes champion_fit and never folds the historical boost, so a
+    run "canonical + champion" would publish metrics under a label that no
+    screen implements. Rejected loudly, never silently ignored."""
+    with pytest.raises(SystemExit) as exc:
+        _parse_args(["--scorer", "canonical", *flags])
+    assert exc.value.code == 2
+    assert needle in capsys.readouterr().err
+
+
+def test_legacy_keeps_accepting_its_own_knobs():
+    args = _parse_args(["--include-champion", "--with-historical-boost"])
+    assert args.scorer == "legacy"
+    assert args.include_champion and args.with_historical_boost
+
+
+def test_reviewed_evidence_opt_in_exists_only_for_canonical(capsys):
+    assert _parse_args(["--scorer", "canonical"]).include_reviewed_evidence is False
+    args = _parse_args(["--scorer", "canonical", "--include-reviewed-evidence"])
+    assert args.include_reviewed_evidence is True
+    with pytest.raises(SystemExit):
+        _parse_args(["--include-reviewed-evidence"])
+    assert "--include-reviewed-evidence" in capsys.readouterr().err
+
+
+def _pool_stubs(monkeypatch, hits, candidates):
+    """Stub retrieval so both scorers see exactly the same pool."""
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    from scripts import eval_matching
+
+    monkeypatch.setattr(eval_matching, "_build_job_text", lambda job: "legacy text")
+    monkeypatch.setattr(eval_matching, "build_job_query_variants", lambda *a: None)
+    monkeypatch.setattr(eval_matching, "build_job_bm25_query", lambda job: None)
+    monkeypatch.setattr(eval_matching, "build_job_must_groups", lambda job: None)
+    pool = AsyncMock(return_value=hits)
+    monkeypatch.setattr(eval_matching, "retrieve_candidate_pool", pool)
+    monkeypatch.setattr(
+        eval_matching, "fetch_historical_boost_map", AsyncMock(return_value={})
+    )
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: list(candidates))
+            )
+        )
+    )
+    return db, pool
+
+
+@pytest.mark.asyncio
+async def test_canonical_ranks_the_same_pool_like_the_c2_screens(monkeypatch):
+    """Canonical ranks with ``score_candidates`` — a stale vector is "not
+    measured" and ranks LAST even when its retrieval score was the best one,
+    because retrieval scores only select candidates. The legacy ranker must not
+    be touched on this path."""
+    from unittest.mock import AsyncMock
+
+    from app.services import canonical_fit
+    from app.services.full_search_measurement import VectorMeasurement
+    from scripts import eval_matching
+    from tests.test_scoring_service import make_candidate, make_job
+
+    verifications = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        "app.services.requirement_verification.latest_verifications", verifications
+    )
+    candidates = [make_candidate(id=i, skills=["Python"]) for i in (1, 2, 3)]
+    hits = [
+        {"candidate_id": 3, "score": 0.99},  # best retrieval, but stale vector
+        {"candidate_id": 1, "score": 0.20},
+        {"candidate_id": 2, "score": 0.10},
+    ]
+    db, pool = _pool_stubs(monkeypatch, hits, candidates)
+    vector = AsyncMock(return_value=[1.0, 0.0])
+    monkeypatch.setattr(canonical_fit, "request_vector", vector)
+    monkeypatch.setattr(
+        canonical_fit,
+        "measure_candidates",
+        AsyncMock(
+            return_value={
+                1: VectorMeasurement(0.30, "measured"),
+                2: VectorMeasurement(0.90, "measured"),
+                3: VectorMeasurement(None, "stale"),
+            }
+        ),
+    )
+    legacy = AsyncMock(side_effect=AssertionError("legacy ranker must not run"))
+    monkeypatch.setattr(eval_matching, "rank_candidates_for_job", legacy)
+
+    job = make_job(id=77, must_skills=["Python"], description="Pełny opis " * 400)
+    ranked, pool_size, _ = await eval_matching._score_job_candidates(
+        job, db, profile=DEFAULT_PROFILE, pool_cap=50, scorer="canonical"
+    )
+
+    assert ranked == [2, 1, 3]
+    assert pool_size == 3
+    legacy.assert_not_called()
+    # Same pool as the legacy arm: retrieval is built from the legacy text.
+    assert pool.await_args.args[1] == "legacy text"
+    # …but the fit is measured against the FULL request document, as in C2.
+    assert "Pełny opis" in vector.await_args.args[0]
+    # Reviewed evidence exists mostly for ground-truth positives: masked.
+    verifications.assert_not_awaited()
+
+    await eval_matching._score_job_candidates(
+        job,
+        db,
+        profile=DEFAULT_PROFILE,
+        pool_cap=50,
+        scorer="canonical",
+        include_reviewed_evidence=True,
+    )
+    verifications.assert_awaited_once()
+    assert verifications.await_args.args[1] == 77
+
+
+@pytest.mark.asyncio
+async def test_legacy_scorer_path_is_unchanged(monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    from scripts import eval_matching
+    from tests.test_scoring_service import make_candidate, make_job
+
+    candidates = [make_candidate(id=i) for i in (1, 2)]
+    hits = [{"candidate_id": 1, "score": 0.4}, {"candidate_id": 2, "score": 0.8}]
+    db, _ = _pool_stubs(monkeypatch, hits, candidates)
+    canonical = AsyncMock(side_effect=AssertionError("canonical must not run"))
+    monkeypatch.setattr(eval_matching, "score_candidates", canonical)
+    ranker = AsyncMock(
+        return_value=[SimpleNamespace(candidate_id=2), SimpleNamespace(candidate_id=1)]
+    )
+    monkeypatch.setattr(eval_matching, "rank_candidates_for_job", ranker)
+
+    ranked, _, _ = await eval_matching._score_job_candidates(
+        make_job(id=5), db, profile=DEFAULT_PROFILE, pool_cap=50
+    )
+
+    assert ranked == [2, 1]
+    canonical.assert_not_called()
+    assert ranker.await_args.kwargs["similarity_map"] == {1: 0.4, 2: 0.8}
+
+
+@pytest.mark.asyncio
+async def test_canonical_refuses_the_historical_boost_even_programmatically():
+    from scripts import eval_matching
+
+    with pytest.raises(ValueError, match="legacy-only"):
+        await eval_matching._score_job_candidates(
+            object(), object(), with_historical_boost=True, scorer="canonical"
+        )
+
+
+def test_json_manifest_records_the_scorer():
+    from datetime import datetime, timezone
+
+    from scripts.eval_matching import _build_json_payload
+
+    now = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    legacy = _build_json_payload(
+        generated_at=now,
+        args=_parse_args([]),
+        num_jobs=1,
+        profile_results=[ProfileEval(profile=DEFAULT_PROFILE)],
+    )
+    assert legacy["manifest"]["scorer"] == "legacy"
+    assert "fit_versions" not in legacy["manifest"]
+    assert "effective_weights" not in legacy["profiles"][0]
+
+    canonical = _build_json_payload(
+        generated_at=now,
+        args=_parse_args(["--scorer", "canonical"]),
+        num_jobs=1,
+        profile_results=[ProfileEval(profile=DEFAULT_PROFILE)],
+        fit_versions={"fit_profile": "base-fit-v1"},
+    )
+    assert canonical["manifest"]["scorer"] == "canonical"
+    assert canonical["manifest"]["fit_versions"] == {"fit_profile": "base-fit-v1"}
+    assert canonical["manifest"]["reviewed_evidence"] == "masked"
+    assert "reviewed_evidence" not in legacy["manifest"]
+    effective = canonical["profiles"][0]["effective_weights"]
+    assert "champion_fit" not in effective
+    assert sum(effective.values()) == pytest.approx(100.0)
+    # Ratios are preserved: semantic stays 6x skills (60/10 in the default).
+    assert effective["semantic"] == pytest.approx(6 * effective["skills"])
+
+
+def test_markdown_header_names_the_scorer():
+    from datetime import datetime, timezone
+
+    from scripts.eval_matching import DataQuality, _render_markdown
+
+    quality = DataQuality(1, 0, 0, 1, 1, 0, 0)
+    ev = ProfileEval(profile=DEFAULT_PROFILE)
+    ev.per_job = [_job_eval(1, gt_size=3, indexed=3)]
+    for scorer in ("legacy", "canonical"):
+        md = _render_markdown(
+            [ev],
+            datetime(2026, 9, 10, tzinfo=timezone.utc),
+            data_quality=quality,
+            voyage_configured=True,
+            pool_strategy="vector (semantic only)",
+            scorer=scorer,
+        )
+        # Within the first 32 lines — the ops A/B job prints `head -n 32`.
+        head = "\n".join(md.splitlines()[:32])
+        assert f"Scorer: **{scorer}" in head
+        assert "| `default_60_10_15_5_0_10` |" in head
