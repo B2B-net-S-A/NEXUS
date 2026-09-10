@@ -1116,6 +1116,13 @@ async def create_job(
         payload["salary_min"] = None
         payload["salary_max"] = None
 
+    if payload.get("champion_profile"):
+        from app.services.champion_intake import user_edit
+
+        payload["champion_profile"] = user_edit(
+            {}, payload["champion_profile"], current_user.id, imported=True
+        )
+
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
     # hit `resolve_default_owners`. Override always wins, but only when it
     # points to a real active user with an allowed role.
@@ -1525,6 +1532,12 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    if "champion_profile" in updates:
+        from app.services.champion_intake import user_edit
+
+        updates["champion_profile"] = user_edit(
+            job.champion_profile, updates["champion_profile"] or {}, current_user.id
+        )
     from app.services.requirement_contract import invalidate_changed_requirements
 
     invalidate_changed_requirements(job, updates)
@@ -1846,7 +1859,10 @@ async def get_champion_profile(
     )
     await db.commit()
 
+    from app.services.champion_intake import response_context
+
     return {
+        **response_context(job),
         "job_id": job.id,
         "job_title": job.title,
         "champion_profile": _champion_response(job.champion_profile),
@@ -1879,6 +1895,49 @@ async def update_champion_profile(
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ) -> dict:
+    return await _save_champion_profile(job_id, current_user, db, payload)
+
+
+@router.post("/{job_id}/champion-profile/apply-import")
+async def apply_champion_import(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.champion_intake import RUBRICS
+
+    expected = payload.get("expected_fingerprint")
+    fields = payload.get("sync_fields", [])
+    if (
+        not isinstance(expected, str)
+        or len(expected) != 64
+        or not isinstance(payload.get("profile"), dict)
+    ):
+        raise HTTPException(422, "Wymagany jest profil i odcisk aktualnego podglądu.")
+    if not isinstance(fields, list) or any(field not in RUBRICS for field in fields):
+        raise HTTPException(422, "Nieznane pole uzgodnienia rekrutacji.")
+    return await _save_champion_profile(
+        job_id,
+        current_user,
+        db,
+        payload["profile"],
+        imported=True,
+        expected_fingerprint=expected,
+        sync_fields=fields,
+    )
+
+
+async def _save_champion_profile(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+    *,
+    imported: bool = False,
+    expected_fingerprint: str | None = None,
+    sync_fields: list[str] | None = None,
+) -> dict:
     """Upsert Champion Profile (Delivery Lead / admin only).
 
     On a content change, notifies everyone assigned to the job
@@ -1891,53 +1950,35 @@ async def update_champion_profile(
     from app.services.champion_job_sync import fill_job_columns_from_champion
     from app.services.job_matching_refresh import refresh_job_matching
 
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    old_profile = dict(job.champion_profile) if job.champion_profile else {}
-
-    # Merge NA STARYM PROFILU, nie na samym payloadzie.
-    #
-    # Do 09.2026 walidacja szła wprost z payloadu, a `ChampionProfile` nie
-    # deklarowało kluczy, które zapisuje parser dokumentu (`rate_value`,
-    # `seniority_min_years`, `disqualifiers`, `client_standards`, `sectors`,
-    # `role_name`, `work_mode`, `start_date`, `contract_length`, `rate_raw`).
-    # Przy domyślnym `extra="ignore"` Pydantic je po cichu wyrzucał, więc
-    # PIERWSZY zapis z edytora kasował 12 z 16 pól sparsowanego profilu —
-    # w tym twardy sufit stawki i próg seniority, oba z realnym wpływem na
-    # ranking. Nowy schemat zna wszystkie te pola, ale edytor nadal nie wysyła
-    # każdego z nich, więc payload nakładamy NA zapisany profil.
-    #
-    # Stary profil najpierw MIGRUJEMY, potem nakładamy payload. Kolejność jest
-    # nieprzypadkowa: gdyby scalać wprost, w bazie zostałyby obok siebie klucze
-    # obu kształtów, a migracja uzupełnia puste pole nowej sekcji wartością ze
-    # starego klucza — więc wyczyszczenie pola w edytorze nigdy by się nie
-    # zapisało (kasujesz `search.keywords`, migracja wpisuje je z powrotem
-    # z `sourcing.keywords`). Po normalizacji stare klucze już nie istnieją.
-    normalized_old = (
-        ChampionProfile.model_validate(old_profile).model_dump() if old_profile else {}
+    from app.services.champion_intake import (
+        fingerprint,
+        response_context,
+        user_edit,
+        sync_selected_rubrics,
     )
-    merged = dict(normalized_old)
-    for key, value in (payload or {}).items():
-        # Scalanie o jeden poziom w głąb: edytor wysyła komplet sekcji, ale
-        # klient API może przysłać samo `{"basics": {"language": "EN"}}`.
-        # Podmiana całej sekcji zgubiłaby wtedy stawkę i próg seniority —
-        # dokładnie te pola, których utratę ten handler ma powstrzymać.
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
-    profile = ChampionProfile.model_validate(merged)
-    new_profile = profile.model_dump()
 
-    # Verification, briefing and recommended searches are server-stamped via
-    # dedicated endpoints — a regular profile save must never overwrite
-    # (or forge) them.
-    for protected in ("verification", "briefing", "recommended_searches"):
-        if old_profile.get(protected) is not None:
-            new_profile[protected] = old_profile[protected]
+    if expected_fingerprint is not None and fingerprint(job) != expected_fingerprint:
+        logger.info("champion_import_conflict job_id=%s", job.id)
+        raise HTTPException(
+            409,
+            {
+                "message": "Rekrutacja zmieniła się. Sprawdź aktualne różnice.",
+                "champion_profile": _champion_response(job.champion_profile),
+                **response_context(job),
+            },
+        )
+    old_profile = dict(job.champion_profile or {})
+    normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
+    new_profile = user_edit(
+        old_profile, payload or {}, current_user.id, imported=imported
+    )
+    profile = ChampionProfile.model_validate(new_profile)
+    sync_selected_rubrics(job, new_profile, sync_fields or [])
 
     # Sekcja 3 „Stack technologiczny" jest jedynym miejscem w profilu, które ma
     # odpowiednik w KOLUMNACH oferty. Kolumny wygrywają wszędzie indziej
@@ -1970,7 +2011,7 @@ async def update_champion_profile(
     # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
-    if not fields_changed:
+    if not fields_changed and not imported and old_profile:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
         # niezależnie od `champion_profile`. `get_db` commituje sesję na
@@ -1978,12 +2019,13 @@ async def update_champion_profile(
         # przepadły), ale re-embed + inwalidacja cache'u wyników NIE
         # odpaliłyby się same — bez tego wypełnienie pustych kolumn nigdy
         # nie dotarłoby do rankingu recruitera.
-        if columns_filled or "stack" in (payload or {}):
+        if columns_filled or sync_fields or "stack" in (payload or {}):
             await db.commit()
             await refresh_job_matching(job.id, db)
         return {
             "job_id": job.id,
             "champion_profile": _champion_response(job.champion_profile),
+            **response_context(job),
         }
 
     apply_requirement_source_update(job, "champion_profile", new_profile)
@@ -2069,6 +2111,7 @@ async def update_champion_profile(
     return {
         "job_id": job.id,
         "champion_profile": _champion_response(job.champion_profile),
+        **response_context(job),
     }
 
 
@@ -2153,6 +2196,9 @@ async def handoff_job_to_search(
             detail="Rekrutacja jest zamknięta — nie można jej przekazać do searchu.",
         )
 
+    from app.services.champion_intake import enforce_operation
+
+    enforce_operation(job, "handoff")
     blockers = _compute_job_readiness(job)
     if blockers:
         raise HTTPException(

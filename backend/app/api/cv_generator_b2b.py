@@ -1426,6 +1426,10 @@ async def generate(
         )
     ):
         job = await db.get(Job, stage.job_id)
+        if job and effective_mode == "tailored":
+            from app.services.champion_intake import enforce_operation
+
+            enforce_operation(job, "cv")
         notes_chars = await screening_notes_char_count(
             db, candidate_id=payload.candidate_id, stage_id=payload.stage_id
         )
@@ -1568,6 +1572,7 @@ async def generate_from_upload(
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
     content_mode: Literal["basic", "polished", "tailored"] = Form(DEFAULT_CONTENT_MODE),
+    champion_profile_json: str = Form("", max_length=60_000),
     screening_notes: str = Form(""),
     # Ręczne wymagania na kafelki interaktywnego CV (przecinki/nowe linie).
     # Upload nie ma joba, więc bez nich (i bez pliku championa) publiczny link
@@ -1645,6 +1650,7 @@ async def generate_from_upload(
             if champion_bytes is not None
             else None,
             "champion_filename": champion_filename,
+            "champion_profile_json": champion_profile_json,
             "client_id": client_id,
             "candidate_id": candidate_id,
             "stage_id": stage_id,
@@ -1716,6 +1722,32 @@ async def generate_from_upload(
         ),
     )
 
+    imported_profile = None
+    if champion_profile_json or (champion_bytes and effective_mode == "tailored"):
+        from app.services.champion_intake import prepare_profile, enforce_operation
+        from types import SimpleNamespace
+
+        if champion_profile_json:
+            try:
+                imported_profile = prepare_profile(
+                    json.loads(champion_profile_json), actor_id=current_user.id
+                )
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(
+                    422, "Nieprawidłowy podgląd profilu Championa."
+                ) from exc
+        else:
+            from app.api.champion_intake import read_preview
+
+            await champion_file.seek(0)
+            imported_profile = (await read_preview(champion_file, db))[
+                "champion_profile"
+            ]
+        if effective_mode == "tailored":
+            enforce_operation(
+                SimpleNamespace(champion_profile=imported_profile), "cv", force=True
+            )
+
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
         cv_filename=cv_file.filename or "cv.pdf",
@@ -1724,6 +1756,7 @@ async def generate_from_upload(
         screening_notes=screening_notes or "",
         champion_bytes=champion_bytes,
         champion_filename=champion_filename,
+        champion_profile=imported_profile,
         content_mode=effective_mode,
         must_requirements=must_requirements or "",
         nice_requirements=nice_requirements or "",

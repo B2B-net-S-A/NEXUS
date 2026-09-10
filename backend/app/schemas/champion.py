@@ -417,6 +417,14 @@ class RecommendedSearchDecision(BaseModel):
 # ── Full profile ─────────────────────────────────────────────────────────────
 
 
+class ChampionIntake(BaseModel):
+    policy_version: Literal[1] = 1
+    template_version: Optional[str] = None
+    unresolved: dict[str, str] = Field(default_factory=dict)
+    applied_by: Optional[int] = None
+    applied_at: Optional[str] = None
+
+
 class ChampionProfile(BaseModel):
     """The seven-section Champion Profile.
 
@@ -444,6 +452,7 @@ class ChampionProfile(BaseModel):
     screening_questions: List[ScreeningQuestion] = Field(default_factory=list)
     client: ChampionClient = ChampionClient()
     documents: List[ChampionDocument] = Field(default_factory=list)
+    intake: Optional[ChampionIntake] = None
 
     # ── machinery, not fields ──
     verification: ChampionVerification = ChampionVerification()

@@ -32,7 +32,6 @@ from app.services.champion_profile_ingest import (
     extract_document_text,
     ingest_parsed_profile,
     oversize_precheck,
-    parse_champion_document,
     validate_upload,
 )
 
@@ -134,7 +133,11 @@ async def champion_ingest(
 
     try:
         async with ai_feature(db, AIFeatureKey.champion_profile_parse):
-            parsed = await parse_champion_document(text)
+            from app.services.champion_intake import preview_document
+
+            parsed = (await preview_document(content, file.filename or ""))[
+                "champion_profile"
+            ]
     except AIQuotaExceeded as exc:
         return _json({"detail": str(exc)}, status_code=503)
     except ValueError as exc:

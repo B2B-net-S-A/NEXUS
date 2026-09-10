@@ -108,6 +108,9 @@ async def start_search(
             raise HTTPException(422, "Podaj request lub profil Championa")
     if not await db.get(Client, job.client_id):
         raise HTTPException(404, "Klient nie istnieje")
+    from app.services.champion_intake import enforce_operation
+
+    enforce_operation(job, "search", force=payload.radar is not None)
     profile = await resolve_active_profile(db, user_id=user.id, client_id=job.client_id)
     context = build_request_context(job, profile)
     # Serialize each actor's starts: two concurrent requests cannot bypass the
