@@ -74,3 +74,64 @@ async def test_pinned_link_requires_approved_context_before_quota():
             doc_row=object(),
             question="Doświadczenie?",
         )
+
+
+@pytest.mark.parametrize("case", ["approved", "corrupt", "image", "disabled", "legacy"])
+async def test_public_question_uses_exact_approval_before_calling_chat(
+    monkeypatch, case
+):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException, Request, Response
+    from app.api import public_share as api
+    from app.services import cv_generated_approval as approval
+    from app.services.cv_generator_b2b import interactive_chat as chat
+
+    doc = SimpleNamespace(
+        status="ready", mode="upload", render_payload={"name": "Old content"}
+    )
+    row = SimpleNamespace(
+        document_version_id=None if case == "legacy" else 71, generated_document=doc
+    )
+    monkeypatch.setattr(api, "_load_generated_share", AsyncMock(return_value=row))
+    monkeypatch.setattr(
+        api, "_interactive_flags", AsyncMock(return_value=(True, case != "disabled"))
+    )
+    resolver = AsyncMock(
+        return_value=SimpleNamespace(
+            language="pl",
+            content_html='<img src="x">' if case == "image" else "<p>Approved only</p>",
+        )
+    )
+    if case == "corrupt":
+        resolver.side_effect = HTTPException(409, "integrity failure")
+    monkeypatch.setattr(approval, "approved_version_for_generation", resolver)
+    answer = AsyncMock(return_value="Odpowiedź")
+    monkeypatch.setattr(chat, "answer_question", answer)
+    db = object()
+    request = Request({"type": "http", "method": "POST", "path": "/"})
+
+    async def invoke():
+        return await api.post_public_generated_cv_chat.__wrapped__(
+            "synthetic",
+            request,
+            api.PublicCvChatRequest(question="Doświadczenie?"),
+            Response(),
+            db,
+        )
+
+    if case in {"corrupt", "image", "disabled"}:
+        with pytest.raises(HTTPException) as caught:
+            await invoke()
+        assert caught.value.status_code == (404 if case == "disabled" else 409)
+        answer.assert_not_awaited()
+    else:
+        await invoke()
+        assert answer.call_args.kwargs["approved_context"] == (
+            None
+            if case == "legacy"
+            else {"language": "pl", "approved_content": ["Approved only"]}
+        )
+    if case == "legacy":
+        resolver.assert_not_awaited()
+    else:
+        resolver.assert_awaited_once_with(db, doc, 71)
