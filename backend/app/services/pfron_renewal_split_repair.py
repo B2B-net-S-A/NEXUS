@@ -17,27 +17,35 @@ trzyma tytuł, okres, stawkę przychodową i ścieżkę PDF sprzed nadpisania,
 
 Dla każdego zamówienia przypiętego PEŁNĄ tożsamością biznesową (klient,
 kontrakt, zamówienie, stan bieżący, Activity z dokumentem i datą 31.08, wpis
-z maila, brak drugiego zamówienia na nowy okres, spójna jednostka stawki) —
-inaczej pomijamy i zapisujemy powód, nigdy nie zgadujemy:
+z maila z planem „reactivate” na 01.09, brak drugiego zamówienia na nowy ani
+na przywracany okres, sprawdzalna jednostka stawki) — inaczej pomijamy
+i zapisujemy powód, nigdy nie zgadujemy:
 
 a. nowy wiersz ``client_orders`` przejmuje BIEŻĄCY stan (kopia wszystkich
    kolumn z katalogu, więc kolumna dopisana w przyszłości też przejdzie);
    wyjątki mają dowód: ``created_at``/``created_by`` z Activity (zamówienie na
    nowy okres powstało w T0, z ręki automatu), ``notes`` = znacznik
    idempotencji writera, ``total_value`` z planu dokumentu (writer nie ruszał
-   tej kolumny, więc bieżąca wartość opisuje POPRZEDNIE zamówienie),
-   ``filled_at`` = pierwsza aktywacja nowego okresu;
+   tej kolumny, więc bieżąca wartość opisuje POPRZEDNIE zamówienie — nigdy
+   nie trafia do nowego wiersza), ``filled_at`` = pierwsza aktywacja nowego
+   okresu;
 b. oryginał wraca do stanu ``before``: zakończony, stary tytuł/okres/stawka/
-   PDF, notatki bez dopisku, koszt przeliczony z harmonogramu umowy na dzień
-   startu starego okresu (w jednostce zamówienia);
-c. dokument z maila i jego ``apply_result`` wskazują nowy wiersz;
+   PDF, notatki bez dopisku, koszt z harmonogramu umowy na OSTATNI dzień
+   starego okresu (``cost_reference_day`` zamówienia zakończonego — ten sam
+   dzień czyta raport zgodności zamówienie ↔ kontrakt), przeliczony jak
+   ``convert_rate_between``;
+c. przypięty dokument z maila i jego ``apply_result`` wskazują nowy wiersz
+   (inne dokumenty wskazujące zamówienie po T0 tylko w paragonie — mogły
+   dotyczyć starego okresu);
 d. wiersze potomne powstałe w T0 lub później idą za nowym okresem; starsze
    zostają przy oryginale. Tabele z miesiącem rozliczenia rozstrzyga miesiąc.
 
-Kontrakty 397–399 zostają nietknięte (harmonogram przychodu dopełni najbliższa
-synchronizacja kontrakt ↔ zamówienia). Blok jest jednorazowy (marker + advisory
-lock) i atomowy; jedno źródło SQL-a dla migracji 0306 i dla bloku w
-``entrypoint.sh`` (alembic na produkcji bywa osierocony).
+Kontrakty 397–399 zostają nietknięte. Krok harmonogramu przychodu dla
+przywróconego okresu dopisze synchronizacja kontrakt ↔ zamówienia przy
+najbliższym zapisie zamówienia tej osoby (surowy SQL jej nie wyzwala) —
+paragon ma to jako ``contract_revenue_resync``. Blok jest jednorazowy (marker +
+advisory lock) i atomowy; jedno źródło SQL-a dla migracji 0306 i dla bloku
+w ``entrypoint.sh`` (alembic na produkcji bywa osierocony).
 
 Uwaga dla edytujących SQL: ``text()`` SQLAlchemy traktuje ``:słowo`` jako
 parametr — w treści bloku nie ma godzin („22.07”, nie z dwukropkiem) ani
@@ -123,6 +131,7 @@ DECLARE
     v_before JSONB;
     v_text TEXT;
     v_before_title TEXT;
+    v_before_title_raw TEXT;
     v_before_start DATE;
     v_before_rate NUMERIC;
     v_before_file TEXT;
@@ -140,10 +149,14 @@ DECLARE
     v_new_filled TIMESTAMPTZ;
     v_restored_filled TIMESTAMPTZ;
     v_file_mode TEXT;
+    v_file_changed BOOLEAN;
+    v_new_row_drops_file BOOLEAN;
+    v_order_hours INTEGER;
     v_new_id INTEGER;
     v_moved JSONB;
     v_kept JSONB;
     v_shared_file JSONB;
+    v_other_documents JSONB;
 BEGIN
     -- Rolling deploy potrafi uruchomić blok dwa razy równolegle.
     PERFORM pg_advisory_xact_lock(hashtext(v_marker));
@@ -271,7 +284,9 @@ BEGIN
 
         -- ── Stan sprzed nadpisania musi dać się odczytać bez zgadywania ──────
         IF v_reason IS NULL THEN
-            v_before_title := nullif(btrim(v_before ->> 'title'), '');
+            -- Pusty tytuł odrzucamy po przycięciu, ale przywracamy dosłownie.
+            v_before_title_raw := v_before ->> 'title';
+            v_before_title := nullif(btrim(v_before_title_raw), '');
             v_text := v_before ->> 'start_date';
             IF v_before_title IS NULL THEN
                 v_reason := 'before_title_missing';
@@ -322,6 +337,31 @@ BEGIN
                     WHERE r.value ->> 'order_id' = v_order.id::text
                ) THEN
                 v_reason := 'document_not_applied_to_order';
+            ELSIF jsonb_typeof(v_document.proposal -> 'rows') IS DISTINCT FROM 'array' THEN
+                v_reason := 'document_plan_mismatch';
+            ELSE
+                -- Wiersz planu, który zapisał TO zamówienie: musi być powrotem
+                -- po przerwie z tego zamówienia na nowy okres. Z niego też
+                -- bierze się wartość całkowita nowego okresu.
+                v_row_index := (
+                    SELECT r.value ->> 'row_index'
+                      FROM jsonb_array_elements(v_applied_rows) AS r(value)
+                     WHERE r.value ->> 'order_id' = v_order.id::text
+                     LIMIT 1
+                );
+                v_plan_row := (
+                    SELECT p.value
+                      FROM jsonb_array_elements(v_document.proposal -> 'rows') AS p(value)
+                     WHERE p.value ->> 'row_index' IS NOT DISTINCT FROM v_row_index
+                     LIMIT 1
+                );
+                IF v_plan_row IS NULL
+                   OR v_plan_row ->> 'action' IS DISTINCT FROM 'reactivate'
+                   OR v_plan_row ->> 'target_order_id' IS DISTINCT FROM v_order.id::text
+                   OR v_plan_row ->> 'start_date'
+                       IS DISTINCT FROM to_char(v_new_start, 'YYYY-MM-DD') THEN
+                    v_reason := 'document_plan_mismatch';
+                END IF;
             END IF;
         END IF;
 
@@ -347,14 +387,44 @@ BEGIN
             v_reason := 'another_order_covers_new_period';
         END IF;
 
+        -- ── …ani na okres, który przywracamy (ktoś go odtworzył ręcznie) ──────
+        -- Zamówienie założone PO nadpisaniu na stary okres = przywrócenie
+        -- oryginału policzyłoby ten okres dwa razy. Starsze zamówienia są
+        -- historią, która istniała obok oryginału — nie przeszkadzają.
+        IF v_reason IS NULL
+           AND EXISTS (
+               SELECT 1
+                 FROM client_orders AS o4
+                WHERE o4.contract_id = v_order.contract_id
+                  AND o4.id <> v_order.id
+                  AND o4.status::text <> 'cancelled'
+                  AND o4.created_at >= v_activity.created_at
+                  AND (o4.start_date IS NULL OR o4.start_date <= v_previous_end)
+                  AND (
+                      o4.end_date IS NULL
+                      OR v_before_start IS NULL
+                      OR o4.end_date >= v_before_start
+                  )
+           ) THEN
+            v_reason := 'another_order_covers_previous_period';
+        END IF;
+
         -- ── Jednostka stawki: ``before`` jej nie niesie ────────────────────────
         -- Writer przestawiał ``rate_unit`` na jednostkę z PDF-a. Stawka
         -- przywrócona pod cudzą jednostką to cichy błąd 8×/22×/160×, więc
         -- rząd wielkości obu stawek musi się zgadzać; inaczej człowiek.
+        -- Bez bieżącej stawki nie ma czym tego sprawdzić — też człowiek.
         IF v_reason IS NULL
            AND v_before_rate IS NOT NULL
-           AND v_order.rate_client IS NOT NULL
-           AND v_order.rate_client > 0
+           AND (v_order.rate_client IS NULL OR v_order.rate_client <= 0) THEN
+            v_reason := 'rate_unit_unverifiable';
+            v_reason_detail := jsonb_build_object(
+                'before_rate_client', v_before_rate,
+                'current_rate_client', v_order.rate_client,
+                'current_rate_unit', v_order.rate_unit::text
+            );
+        ELSIF v_reason IS NULL
+           AND v_before_rate IS NOT NULL
            AND (
                v_before_rate / v_order.rate_client < 0.5
                OR v_before_rate / v_order.rate_client > 2
@@ -418,7 +488,8 @@ BEGIN
 
         -- ── Wyliczenia przed zapisem ───────────────────────────────────────────
         -- Notatki: writer dopisał dokładnie ``details.message`` po znaku nowej
-        -- linii (albo w miejsce pustych notatek).
+        -- linii (albo w miejsce pustych notatek — pusty napis i NULL są wtedy
+        -- nie do odróżnienia, wraca NULL).
         v_message := nullif(v_activity.details ->> 'message', '');
         v_notes_restorable := false;
         v_restored_notes := v_order.notes;
@@ -434,99 +505,77 @@ BEGIN
             );
         END IF;
 
-        -- Koszt oryginału: harmonogram umowy na dzień startu starego okresu
-        -- (resolver z ``Contract._resolve_scheduled_rate``), w jednostce
-        -- zamówienia (``convert_order_rate``: 1 MD = 8 h, 1 mc = 22 MD,
-        -- h ↔ mc po godzinach umowy — tak liczył writer).
-        v_restored_cost := v_order.rate_candidate;
-        IF v_before_start IS NULL THEN
-            v_cost_source := 'kept_current_no_previous_start';
-        ELSE
-            v_schedule_rate := NULL;
-            IF EXISTS (
-                SELECT 1 FROM contract_candidate_rates
-                 WHERE contract_id = v_order.contract_id
-            ) THEN
+        -- Koszt oryginału: harmonogram umowy na OSTATNI dzień starego okresu —
+        -- ``cost_reference_day`` zamówienia zakończonego, ten sam dzień czyta
+        -- raport zgodności (resolver ``Contract._resolve_scheduled_rate``).
+        -- Jednostka jak ``convert_rate_between``: 1 MD = 8 h, 1 mc = 22 MD,
+        -- h ↔ mc po godzinach strony miesięcznej. Bieżący koszt nigdy nie
+        -- wraca do oryginału: to koszt NOWEGO okresu.
+        v_schedule_rate := NULL;
+        IF EXISTS (
+            SELECT 1 FROM contract_candidate_rates
+             WHERE contract_id = v_order.contract_id
+        ) THEN
+            SELECT r.rate INTO v_schedule_rate
+              FROM contract_candidate_rates AS r
+             WHERE r.contract_id = v_order.contract_id
+               AND r.effective_from <= v_previous_end
+             ORDER BY r.effective_from DESC, r.id DESC
+             LIMIT 1;
+            IF v_schedule_rate IS NULL THEN
                 SELECT r.rate INTO v_schedule_rate
                   FROM contract_candidate_rates AS r
                  WHERE r.contract_id = v_order.contract_id
-                   AND r.effective_from <= v_before_start
-                 ORDER BY r.effective_from DESC, r.id DESC
+                 ORDER BY r.effective_from ASC, r.id DESC
                  LIMIT 1;
-                IF v_schedule_rate IS NULL THEN
-                    SELECT r.rate INTO v_schedule_rate
-                      FROM contract_candidate_rates AS r
-                     WHERE r.contract_id = v_order.contract_id
-                     ORDER BY r.effective_from ASC, r.id DESC
-                     LIMIT 1;
-                END IF;
-                v_cost_source := 'contract_schedule_at_previous_start';
-            ELSE
-                SELECT c.rate_candidate INTO v_schedule_rate
-                  FROM contracts AS c
-                 WHERE c.id = v_order.contract_id;
-                v_cost_source := 'contract_column';
             END IF;
-            IF v_schedule_rate IS NULL OR v_contract_unit IS NULL THEN
-                v_cost_source := 'kept_current_contract_has_no_cost';
-            ELSE
-                v_contract_hours := coalesce(nullif(v_contract_hours, 0), 160);
-                v_restored_cost := round(
-                    CASE
-                        WHEN v_contract_unit = v_order.rate_unit::text THEN v_schedule_rate
-                        WHEN v_contract_unit = 'hourly' AND v_order.rate_unit::text = 'daily'
-                            THEN v_schedule_rate * 8
-                        WHEN v_contract_unit = 'daily' AND v_order.rate_unit::text = 'hourly'
-                            THEN v_schedule_rate / 8
-                        WHEN v_contract_unit = 'daily' AND v_order.rate_unit::text = 'monthly'
-                            THEN v_schedule_rate * 22
-                        WHEN v_contract_unit = 'monthly' AND v_order.rate_unit::text = 'daily'
-                            THEN v_schedule_rate / 22
-                        WHEN v_contract_unit = 'hourly' AND v_order.rate_unit::text = 'monthly'
-                            THEN v_schedule_rate * v_contract_hours
-                        WHEN v_contract_unit = 'monthly' AND v_order.rate_unit::text = 'hourly'
-                            THEN v_schedule_rate / v_contract_hours
-                    END,
-                    3
-                );
-                IF v_restored_cost IS NULL THEN
-                    v_restored_cost := v_order.rate_candidate;
-                    v_cost_source := 'kept_current_unit_not_convertible';
-                END IF;
-            END IF;
+            v_cost_source := 'contract_schedule_on_previous_last_day';
+        ELSE
+            SELECT c.rate_candidate INTO v_schedule_rate
+              FROM contracts AS c
+             WHERE c.id = v_order.contract_id;
+            v_cost_source := 'contract_column';
+        END IF;
+        v_contract_hours := coalesce(nullif(v_contract_hours, 0), 160);
+        v_order_hours := coalesce(nullif(v_order.billing_hours_per_month, 0), 160);
+        v_restored_cost := round(
+            CASE
+                WHEN v_schedule_rate IS NULL OR v_contract_unit IS NULL THEN NULL
+                WHEN v_contract_unit = v_order.rate_unit::text THEN v_schedule_rate
+                WHEN v_contract_unit = 'hourly' AND v_order.rate_unit::text = 'daily'
+                    THEN v_schedule_rate * 8
+                WHEN v_contract_unit = 'daily' AND v_order.rate_unit::text = 'hourly'
+                    THEN v_schedule_rate / 8
+                WHEN v_contract_unit = 'daily' AND v_order.rate_unit::text = 'monthly'
+                    THEN v_schedule_rate * 22
+                WHEN v_contract_unit = 'monthly' AND v_order.rate_unit::text = 'daily'
+                    THEN v_schedule_rate / 22
+                WHEN v_contract_unit = 'hourly' AND v_order.rate_unit::text = 'monthly'
+                    THEN v_schedule_rate * v_order_hours
+                WHEN v_contract_unit = 'monthly' AND v_order.rate_unit::text = 'hourly'
+                    THEN v_schedule_rate / v_contract_hours
+            END,
+            3
+        );
+        IF v_restored_cost IS NULL THEN
+            v_cost_source := 'contract_has_no_cost_left_empty';
         END IF;
 
         -- Wartość całkowita: writer jej nie ruszał, więc bieżąca kolumna należy
-        -- do POPRZEDNIEGO zamówienia. Nowy okres dostaje wartość z planu
-        -- dokumentu (jak nowe zamówienie w poprawionym writerze).
-        v_row_index := (
-            SELECT r.value ->> 'row_index'
-              FROM jsonb_array_elements(v_applied_rows) AS r(value)
-             WHERE r.value ->> 'order_id' = v_order.id::text
-             LIMIT 1
-        );
-        v_plan_row := NULL;
-        IF jsonb_typeof(v_document.proposal -> 'rows') = 'array' THEN
-            v_plan_row := (
-                SELECT p.value
-                  FROM jsonb_array_elements(v_document.proposal -> 'rows') AS p(value)
-                 WHERE p.value ->> 'row_index' IS NOT DISTINCT FROM v_row_index
-                 LIMIT 1
-            );
-        END IF;
-        v_new_total := v_order.total_value;
-        v_total_source := 'kept_current_no_plan_row';
-        IF v_plan_row IS NOT NULL AND v_plan_row ? 'total_value' THEN
-            v_text := v_plan_row ->> 'total_value';
-            IF v_text IS NULL OR v_text IN ('', 'None') THEN
-                v_new_total := NULL;
-                v_total_source := 'plan_without_total_value';
-            ELSIF v_text ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
-                v_new_total := v_text::numeric;
-                v_total_source := 'plan';
-            ELSE
-                v_total_source := 'kept_current_plan_unparseable';
-            END IF;
+        -- do POPRZEDNIEGO zamówienia i zostaje przy nim. Nowy okres dostaje
+        -- wartość z przypiętego wiersza planu (jak nowe zamówienie
+        -- w poprawionym writerze) — w razie wątpliwości pustą, nigdy starą:
+        -- stara zdublowałaby przychód w sumach ``total_value``.
+        v_text := v_plan_row ->> 'total_value';
+        IF v_text IS NULL OR v_text IN ('', 'None') THEN
+            v_new_total := NULL;
+            v_total_source := 'plan_without_total_value';
+        ELSIF v_text ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+            v_new_total := v_text::numeric;
+            v_total_source := 'plan';
+        ELSE
+            v_new_total := NULL;
+            v_total_source := 'plan_unparseable_left_empty';
         END IF;
 
         -- Pierwsza aktywacja: ``_activate_complete_draft`` stempluje ją tylko
@@ -546,20 +595,58 @@ BEGIN
 
         -- PDF: ścieżka sprzed nadpisania wraca do oryginału (writer nie kasował
         -- zastąpionego pliku). Metadane poza ścieżką nie są w ``before`` —
-        -- nazwa z nazwy pliku na dysku, reszta pusta.
+        -- nazwa z nazwy pliku na dysku, reszta pusta. Wgranie albo usunięcie
+        -- PDF-u w aplikacji po T0 mogło skasować właśnie ten plik z dysku
+        -- (zastąpiony blob jest zwalniany po zapisie), więc wtedy nie
+        -- podpinamy ścieżki — zostaje w paragonie do sprawdzenia.
+        v_file_changed := EXISTS (
+            SELECT 1
+              FROM activities
+             WHERE entity_type = 'client'
+               AND entity_id = v_order.client_id
+               AND action IN ('order_file_uploaded', 'order_file_deleted')
+               AND details ->> 'order_id' = v_order.id::text
+               AND created_at >= v_activity.created_at
+        );
         IF v_before_file IS NULL THEN
             v_file_mode := 'previous_order_had_no_file';
+        ELSIF v_file_changed THEN
+            v_file_mode := 'previous_file_uncertain_after_file_change';
         ELSIF v_before_file IS NOT DISTINCT FROM v_order.file_path THEN
             v_file_mode := 'writer_did_not_replace_file';
         ELSE
             v_file_mode := 'previous_file_restored';
         END IF;
+        -- Ten sam plik w obu wierszach = skasowanie go w jednym osierociłoby
+        -- drugi. Plik sprzed nadpisania należy do oryginału.
+        v_new_row_drops_file := v_before_file IS NOT NULL
+            AND v_order.file_path IS NOT DISTINCT FROM v_before_file;
         SELECT coalesce(jsonb_agg(o3.id ORDER BY o3.id), '[]'::jsonb)
           INTO v_shared_file
           FROM client_orders AS o3
          WHERE v_before_file IS NOT NULL
            AND o3.file_path = v_before_file
            AND o3.id <> v_order.id;
+        -- Inne dokumenty z maila wskazujące to zamówienie po T0 mogły dotyczyć
+        -- STAREGO okresu (ten sam bieg czyszczenia) — nie przepinamy ich,
+        -- tylko wypisujemy do przeglądu.
+        SELECT coalesce(jsonb_agg(d2.id ORDER BY d2.id), '[]'::jsonb)
+          INTO v_other_documents
+          FROM order_mail_documents AS d2
+         WHERE d2.id <> v_target.document_id
+           AND coalesce(d2.applied_at, d2.created_at) >= v_activity.created_at
+           AND (
+               d2.applied_order_id = v_order.id
+               OR (
+                   jsonb_typeof(d2.proposal -> 'apply_result' -> 'rows') = 'array'
+                   AND EXISTS (
+                       SELECT 1
+                         FROM jsonb_array_elements(d2.proposal -> 'apply_result' -> 'rows')
+                              AS e3(value)
+                        WHERE e3.value ->> 'order_id' = v_order.id::text
+                   )
+               )
+           );
 
         -- ── a. Nowy wiersz = bieżący stan zamówienia ───────────────────────────
         EXECUTE format(
@@ -583,18 +670,18 @@ BEGIN
                filled_at = v_new_filled,
                -- PDF nowego okresu nie został dołączony: nie dzielimy pliku
                -- oryginału (skasowanie go w jednym wierszu osierociłoby drugi).
-               filename = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE filename END,
-               file_path = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE file_path END,
-               content_type = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE content_type END,
-               size_bytes = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE size_bytes END,
-               file_uploaded_by = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE file_uploaded_by END,
-               file_uploaded_at = CASE WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL ELSE file_uploaded_at END
+               filename = CASE WHEN v_new_row_drops_file THEN NULL ELSE filename END,
+               file_path = CASE WHEN v_new_row_drops_file THEN NULL ELSE file_path END,
+               content_type = CASE WHEN v_new_row_drops_file THEN NULL ELSE content_type END,
+               size_bytes = CASE WHEN v_new_row_drops_file THEN NULL ELSE size_bytes END,
+               file_uploaded_by = CASE WHEN v_new_row_drops_file THEN NULL ELSE file_uploaded_by END,
+               file_uploaded_at = CASE WHEN v_new_row_drops_file THEN NULL ELSE file_uploaded_at END
          WHERE id = v_new_id;
 
         -- ── b. Oryginał wraca do stanu sprzed nadpisania ───────────────────────
         UPDATE client_orders
            SET status = 'completed',
-               title = v_before_title,
+               title = v_before_title_raw,
                start_date = v_before_start,
                end_date = v_previous_end,
                rate_client = v_before_rate,
@@ -602,24 +689,22 @@ BEGIN
                notes = v_restored_notes,
                filled_at = v_restored_filled,
                filename = CASE v_file_mode
-                   WHEN 'previous_order_had_no_file' THEN NULL
                    WHEN 'previous_file_restored' THEN regexp_replace(
                        substring(v_before_file from '([^/]+)$'),
                        '^[0-9a-f]{8}-',
                        ''
                    )
-                   ELSE filename
+                   WHEN 'writer_did_not_replace_file' THEN filename
                END,
                file_path = CASE v_file_mode
+                   WHEN 'previous_file_restored' THEN v_before_file
                    WHEN 'writer_did_not_replace_file' THEN file_path
-                   ELSE v_before_file
                END,
                content_type = CASE v_file_mode
-                   WHEN 'previous_order_had_no_file' THEN NULL
                    WHEN 'previous_file_restored' THEN CASE
                        WHEN v_before_file ILIKE '%.pdf' THEN 'application/pdf'
                    END
-                   ELSE content_type
+                   WHEN 'writer_did_not_replace_file' THEN content_type
                END,
                size_bytes = CASE
                    WHEN v_file_mode = 'writer_did_not_replace_file' THEN size_bytes
@@ -633,7 +718,7 @@ BEGIN
                updated_at = now()
          WHERE id = v_order.id;
 
-        -- ── c. Dokument z maila wskazuje nowy wiersz ───────────────────────────
+        -- ── c. Przypięty dokument z maila wskazuje nowy wiersz ─────────────────
         v_moved := '{}'::jsonb;
         UPDATE order_mail_documents AS d
            SET applied_order_id = CASE
@@ -663,21 +748,7 @@ BEGIN
                    )
                    ELSE d.proposal
                END
-         WHERE (
-                   d.id = v_target.document_id
-                   OR coalesce(d.applied_at, d.created_at) >= v_activity.created_at
-               )
-           AND (
-                   d.applied_order_id = v_order.id
-                   OR (
-                       jsonb_typeof(d.proposal -> 'apply_result' -> 'rows') = 'array'
-                       AND EXISTS (
-                           SELECT 1
-                             FROM jsonb_array_elements(d.proposal -> 'apply_result' -> 'rows') AS e2(value)
-                            WHERE e2.value ->> 'order_id' = v_order.id::text
-                       )
-                   )
-               );
+         WHERE d.id = v_target.document_id;
         GET DIAGNOSTICS v_count = ROW_COUNT;
         v_moved := v_moved || jsonb_build_object('order_mail_documents', v_count);
 
@@ -873,14 +944,14 @@ BEGIN
                 'split_to_order_id', v_new_id,
                 'restored', jsonb_build_object(
                     'status', 'completed',
-                    'title', v_before_title,
+                    'title', v_before_title_raw,
                     'start_date', v_before_start,
                     'end_date', v_previous_end,
                     'rate_client', v_before_rate,
                     'rate_candidate', v_restored_cost,
-                    'file_path', CASE
-                        WHEN v_file_mode = 'writer_did_not_replace_file' THEN v_order.file_path
-                        ELSE v_before_file
+                    'file_path', CASE v_file_mode
+                        WHEN 'previous_file_restored' THEN v_before_file
+                        WHEN 'writer_did_not_replace_file' THEN v_order.file_path
                     END
                 ),
                 'message',
@@ -921,7 +992,7 @@ BEGIN
                 'incident_at', v_activity.created_at,
                 'reverted_activity_id', v_activity.id,
                 'restored_order', jsonb_build_object(
-                    'title', v_before_title,
+                    'title', v_before_title_raw,
                     'start_date', v_before_start,
                     'end_date', v_previous_end,
                     'rate_client', v_before_rate,
@@ -932,10 +1003,11 @@ BEGIN
                     'notes_restored', v_notes_restorable,
                     'filled_at', v_restored_filled,
                     'file_mode', v_file_mode,
-                    'file_path', CASE
-                        WHEN v_file_mode = 'writer_did_not_replace_file' THEN v_order.file_path
-                        ELSE v_before_file
+                    'file_path', CASE v_file_mode
+                        WHEN 'previous_file_restored' THEN v_before_file
+                        WHEN 'writer_did_not_replace_file' THEN v_order.file_path
                     END,
+                    'file_path_before_overwrite', v_before_file,
                     'file_path_also_on_orders', v_shared_file
                 ),
                 'new_order', jsonb_build_object(
@@ -950,12 +1022,16 @@ BEGIN
                     'total_value_left_on_previous', v_order.total_value,
                     'filled_at', v_new_filled,
                     'file_path', CASE
-                        WHEN v_file_mode = 'writer_did_not_replace_file' THEN NULL
+                        WHEN v_new_row_drops_file THEN NULL
                         ELSE v_order.file_path
                     END
                 ),
                 'moved_to_new_order', v_moved,
-                'kept_on_previous_order_after_incident', v_kept
+                'kept_on_previous_order_after_incident', v_kept,
+                'documents_left_for_review', v_other_documents,
+                -- Krok przychodu dla przywróconego okresu dopisze synchronizacja
+                -- kontrakt ↔ zamówienia przy najbliższym zapisie zamówienia.
+                'contract_revenue_resync', 'pending_next_order_write'
             )
         );
     END LOOP;
