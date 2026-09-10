@@ -111,3 +111,19 @@ def test_native_ocr_preserves_both_pages_of_mixed_pdf():
     assert "NativeCompany exact searchable source employment record" in result
     assert "ScanCompany" in result
     assert result.index("NativeCompany") < result.index("ScanCompany")
+
+
+def test_real_mixed_pdf_detects_scanned_page_before_native_only_extraction(monkeypatch):
+    from unittest.mock import Mock
+    from app.services.cv_generator_b2b import text_extractor
+
+    ocr = Mock(return_value="NativeCompany\nScanCompany")
+    monkeypatch.setattr(text_extractor, "_extract_pdf_ocr", ocr)
+    raw = _mixed_pdf_fixture()
+    result = extract_text_from_file(raw, "mixed.pdf")
+    assert result == "NativeCompany\nScanCompany"
+    ocr.assert_called_once()
+    assert ocr.call_args.args == (raw,)
+    native = ocr.call_args.kwargs["native_pages"]
+    assert set(native) == {1}
+    assert "NativeCompany exact searchable source employment record" in native[1]
