@@ -80,6 +80,94 @@ def test_numbered_evidence_covers_all_facts_and_still_rejects_invented_tool():
     assert error.value.paths == ["/experience/0/technologies/1"]
 
 
+def test_response_wrapper_paths_resolve_to_the_same_document_fields():
+    payload = line_response()
+    for citation in payload["evidence"]:
+        citation["path"] = "/document" + citation["path"]
+    result = facts.validate_extraction(
+        json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+    )
+    assert result["document"] == payload["document"]
+    assert all(result["field_evidence"].values())
+    assert [item["path"] for item in result["evidence"]] == [
+        item["path"] for item in line_response()["evidence"]
+    ]
+
+
+def test_surplus_empty_field_and_structural_label_citations_make_no_claims():
+    payload = line_response()
+    payload["document"]["skills"] = [{"label": "Technical", "content": ""}]
+    for path in (
+        "/position",
+        "/certifications",
+        "/experience/0/industry",
+        "/document/skills/0/label",
+        "/skills/0/content",
+    ):
+        # There is no text to cite for an empty field, including empty notes.
+        payload["evidence"].append(
+            {"path": path, "source": "screening_notes", "start_line": 1, "end_line": 1}
+        )
+    result = facts.validate_extraction(
+        json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+    )
+    assert result["document"] == payload["document"]
+    assert all(result["field_evidence"].values())
+    assert len(result["evidence"]) == len(line_response()["evidence"])
+    # Surplus citations never support a real populated claim.
+    payload["document"]["skills"][0]["content"] = "Invented skill"
+    with pytest.raises(facts.SourceFactsError):
+        facts.validate_extraction(
+            json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+        )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        "/",
+        "/document",
+        "/documentary/name",
+        "/experience/99",
+        "/skills/0",
+        "/unknown",
+    ],
+)
+def test_unknown_or_root_citations_still_fail_with_repair_path(path):
+    payload = line_response()
+    payload["evidence"].append(
+        {"path": path, "source": "cv", "start_line": 1, "end_line": 1}
+    )
+    with pytest.raises(facts.SourceFactsError) as error:
+        facts.validate_extraction(
+            json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+        )
+    assert error.value.reason == "invalid_evidence_path"
+    assert error.value.paths == [path]
+
+
+def test_invalid_pointer_gets_one_repair_without_losing_any_source_history(monkeypatch):
+    bad = line_response()
+    bad["evidence"][2]["path"] = "/experience/99"
+    calls = []
+
+    def model(content, *args, **kwargs):
+        calls.append(json.loads(content))
+        return json.dumps(bad if len(calls) == 1 else line_response())
+
+    monkeypatch.setattr(facts, "analyze_with_ai", model)
+    result = facts.extract_source_facts(
+        cv_text=SOURCE, screening_notes="", request_id="pointer-repair"
+    )
+    assert result["document"] == line_response()["document"]
+    assert result["extraction_attempts"] == 2
+    assert calls[1]["validation"] == {
+        "reason": "invalid_evidence_path",
+        "paths": ["/experience/99"],
+    }
+
+
 def test_pdf_date_column_and_split_words_do_not_require_retyped_role_quotes():
     role = "16.01.2015- Firma B. Analityk. Admin-\n31.03.2015 istration of Active Direc-\ntory only in training.\n"
     original = SOURCE.replace(SOURCE.splitlines(keepends=True)[1], role)
