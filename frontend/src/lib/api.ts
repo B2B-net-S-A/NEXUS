@@ -1452,6 +1452,14 @@ export interface HiringManagerFeedback {
   veto_recorded: boolean;
   /** Czego brakuje, żeby weto stanęło — po polsku, gotowe do wyświetlenia. */
   veto_blockers: string[];
+  /** Kto zapisał werdykt. */
+  author_id?: number | null;
+  author_name?: string | null;
+  /**
+   * Czy WOŁAJĄCY może nadpisać ten werdykt (autor / Delivery Lead / admin —
+   * reguła `PATCH /api/interview-feedback`). Liczone po stronie serwera.
+   */
+  can_edit?: boolean;
 }
 
 export const hiringManagerFeedbackApi = {

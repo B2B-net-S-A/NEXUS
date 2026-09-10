@@ -17,6 +17,7 @@ import {
   isInterviewStage,
 } from "@/lib/job-flow-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
+import { formatDate } from "@/lib/utils";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
 export const SCREENING_STAGE = "screening";
@@ -230,33 +231,69 @@ export function countContractSent(columns: KanbanColumn[]): number {
 export interface MoveGateInput {
   item: KanbanItem;
   readOnly: boolean;
-  /** Etap docelowy jest terminalny (`rejected`/`withdrawn`)? */
+  /**
+   * Etap docelowy WYPISUJE kandydata z procesu (`rejected`/`withdrawn`)?
+   * „Zatrudniony" też jest terminalem, ale nie wypisaniem — backend puszcza go
+   * przez bramkę dopuszczalności, więc tu podaje się dla niego `false`.
+   */
   terminal?: boolean;
+  /**
+   * Legacy-enum etapu docelowego (`KanbanColumn.stage`). Wymagany, bo weto
+   * hiring managera dotyczy WYŁĄCZNIE etapów, które stawiają kandydata przed
+   * klientem — bez celu ruchu bramka nie wie, czy weto w ogóle obowiązuje.
+   * Własny etap bez legacy-enuma raportuje `new` i weta nie dotyczy.
+   */
+  targetStage: string | null;
 }
+
+/**
+ * Etapy, na które weto hiring managera blokuje ruch — lustro
+ * `VETO_ENFORCED_STAGES` z `backend/app/services/hiring_manager_verdicts.py`.
+ * `hired` jest poza zbiorem celowo (manager właśnie przyjął kandydata), a etapy
+ * wewnętrzne — bo każdy pipeline sprzed tej funkcji stanąłby na 409.
+ */
+export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
+  "cv_sent",
+  "client_interview",
+]);
+
+/** Powód blokady karty czekającej na akceptację stawki (409 w `/move`). */
+export const PENDING_VERIFICATION_MOVE_BLOCK =
+  "Stawka tego kandydata czeka na akceptację (Pending) — najpierw zaakceptuj " +
+  "albo odrzuć weryfikację. Do tego czasu serwer odmawia każdego ruchu, także " +
+  "odrzucenia.";
 
 /**
  * Powód, dla którego ruchu NIE wolno wykonać — albo `null`, gdy wolno.
  *
- * Lustro bramki z `KanbanBoardV2` (i `assert_candidate_move_eligible` po
- * stronie serwera), świadomie z tymi samymi trzema regułami:
+ * Lustro `POST /api/pipeline/move` (kolejność reguł jak w handlerze):
  *  1. brak prawa zapisu blokuje wszystko,
- *  2. ruchy TERMINALNE przechodzą zawsze — weto HM nie może uwięzić kandydata
- *     w procesie, z którego trzeba go wypisać,
- *  3. weto hiring managera blokuje każdy ruch nie-terminalny.
+ *  2. karta czekająca na akceptację stawki (`verification_status = "pending"`)
+ *     blokuje KAŻDY ruch, terminalny też — serwer odpowiada 409, zanim
+ *     sprawdzi cokolwiek innego,
+ *  3. ruchy wypisujące (`rejected`/`withdrawn`) omijają bramkę
+ *     dopuszczalności — weto HM nie może uwięzić kandydata w procesie,
+ *  4. weto hiring managera blokuje WYŁĄCZNIE „CV Wysłane" i „Interview Klient"
+ *     (`HM_VETO_ENFORCED_STAGES`) — „Zweryfikowany" czy „Zatrudniony" przechodzą.
  *
- * `verification_status = "pending"` NIE jest tu bramką ruchu (backend go tak
- * nie traktuje) — jest ostrzeżeniem pokazywanym osobno.
+ * Pozostałe powody (czarna lista, NDA, konkurent, uprawnienia roli) nie są na
+ * karcie — te kończą się 409/403 z polskim powodem w toaście.
  */
 export function moveBlockedReason({
   item,
   readOnly,
   terminal = false,
+  targetStage,
 }: MoveGateInput): string | null {
   if (readOnly) return "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
+  if (item.verification_status === "pending") return PENDING_VERIFICATION_MOVE_BLOCK;
   if (terminal) return null;
-  if (item.hm_veto) {
+  if (item.hm_veto && targetStage != null && HM_VETO_ENFORCED_STAGES.has(targetStage)) {
+    const when = item.hm_veto.rejected_at
+      ? ` (${formatDate(item.hm_veto.rejected_at)})`
+      : "";
     return (
-      `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie — ` +
+      `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie${when} — ` +
       `${item.hm_veto.rejection_reason_name}.`
     );
   }
