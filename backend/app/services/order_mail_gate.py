@@ -91,7 +91,11 @@ def _row_evidence_reasons(
         used.add(index)
         source = evidence[index]
         if source.uncertain or source.rate_client is None or source.rate_unit is None:
-            reasons.append(f"„{row.consultant_name}”: niepewny odczyt stawki z pól PDF")
+            # Wiersz bywa niepewny przez nazwisko albo okres, nie tylko stawkę —
+            # konkretny powód niesie odczyt („Odczyt niepewny: …").
+            reasons.append(
+                f"„{row.consultant_name}”: niepewny odczyt wiersza osoby z pól PDF"
+            )
         if (row.rate_client, row.rate_unit) != (source.rate_client, source.rate_unit):
             reasons.append(
                 f"„{row.consultant_name}”: stawka lub jednostka z modelu nie zgadza się z polem PDF tej osoby"
@@ -219,6 +223,13 @@ def evaluate(inp: GateInput) -> GateVerdict:
         ):
             reasons.append(
                 f"„{row_prop.row_name}”: okres niepełny w dokumencie (od {row_prop.start_date or '—'} do {row_prop.end_date or '—'})"
+            )
+        elif row_prop.end_date and row_prop.start_date > row_prop.end_date:
+            # Daty ISO porównują się jak tekst; odwrócony okres nigdy nie jest
+            # poprawny, a tabela zamówień go nie odrzuci. Bez daty końca
+            # (zamówienie bezterminowe, BIK) nie ma czego odwrócić.
+            reasons.append(
+                f"„{row_prop.row_name}”: okres odwrócony w dokumencie ({row_prop.start_date} – {row_prop.end_date})"
             )
 
     return GateVerdict(
