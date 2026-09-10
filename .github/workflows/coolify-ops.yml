@@ -42,8 +42,12 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs]
+        options: [staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, cv-generation-probe]
         default: list
+      cv_probe_scope:
+        description: "One failed upload job and its source CV SHA256, formatted job_id:sha256; no publishing"
+        required: false
+        default: ""
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
         required: false
@@ -206,7 +210,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ inputs.action != 'cv-generation-logs' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    if: ${{ !startsWith(inputs.action, 'cv-generation-') && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1442,3 +1446,22 @@ jobs:
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: python3 .github/scripts/cv-generation-logs.py
+
+  cv-generation-probe:
+    name: Probe one selected failed CV upload without publishing
+    if: inputs.action == 'cv-generation-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    concurrency:
+      group: cv-generation-probe
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the selected source module in a disposable process
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PROBE_SCOPE: ${{ inputs.cv_probe_scope }}
+        run: python3 .github/scripts/cv-generation-probe.py

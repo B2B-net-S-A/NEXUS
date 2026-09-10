@@ -80,6 +80,56 @@ def test_numbered_evidence_covers_all_facts_and_still_rejects_invented_tool():
     assert error.value.paths == ["/experience/0/technologies/1"]
 
 
+def test_responsibilities_are_original_lines_not_model_retyped_prose():
+    payload = line_response()
+    original = SOURCE.replace(
+        "Przygotowywał zapytania SQL.",
+        "Wspierał deveopment tylko\nw środowisku szkoleniowym, nie produkcyjnym.",
+    )
+    payload["document"]["experience"][0]["responsibilities"] = [
+        {"source": "cv", "start_line": 2, "end_line": 3}
+    ]
+    payload["document"]["experience"][0]["technologies"] = []
+    payload["evidence"][2]["end_line"] = 3
+    for item in payload["evidence"][3:]:
+        item["start_line"] += 1
+        item["end_line"] += 1
+    result = facts.validate_extraction(
+        json.dumps(payload), {"cv": original, "screening_notes": ""}
+    )
+    path = "/experience/0/responsibilities/0"
+    text = result["document"]["experience"][0]["responsibilities"][0]
+    assert text == "".join(original.splitlines(keepends=True)[1:3])
+    assert "deveopment" in text and "nie produkcyjnym" in text
+    assert result["field_evidence"][path]
+    assert result["evidence"][-1]["path"] == path
+
+
+@pytest.mark.parametrize(
+    "source,start,end", [("cv", 1, 9999), ("screening_notes", 1, 1), ("cv", 3, 2)]
+)
+def test_invalid_responsibility_ranges_still_stop_generation(source, start, end):
+    payload = line_response()
+    payload["document"]["experience"][0]["responsibilities"] = [
+        {"source": source, "start_line": start, "end_line": end}
+    ]
+    with pytest.raises(facts.SourceFactsError) as error:
+        facts.validate_extraction(
+            json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+        )
+    assert error.value.reason == "invalid_evidence"
+    assert error.value.paths == ["/experience/0/responsibilities/0"]
+
+
+def test_live_responsibility_schema_only_accepts_source_ranges():
+    items = facts.EXTRACTION_RESPONSE_SCHEMA["$defs"]["Role"]["properties"][
+        "responsibilities"
+    ]["items"]
+    assert items == {"$ref": "#/$defs/SourceStatement"}
+    fields = facts.EXTRACTION_RESPONSE_SCHEMA["$defs"]["SourceStatement"]["properties"]
+    assert set(fields) == {"source", "start_line", "end_line"}
+
+
 def test_response_wrapper_paths_resolve_to_the_same_document_fields():
     payload = line_response()
     for citation in payload["evidence"]:
