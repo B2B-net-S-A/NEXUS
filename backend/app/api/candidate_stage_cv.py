@@ -1151,7 +1151,7 @@ async def get_stage_cv_review(
 ):
     from app.services.cv_approval_queue import review_state
 
-    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    draft = await _load_csv_for_stage(db, stage_id, current_user)
     result = await review_state(db, draft, review_id, current_user.id)
     await db.commit()
     return result
