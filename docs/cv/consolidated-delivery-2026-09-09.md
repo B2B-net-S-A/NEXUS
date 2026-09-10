@@ -623,3 +623,40 @@ Those measurements, async edited-content review, complete rule feedback and
 production delivery remain open. The latest read-only staging diagnostic
 `34424911634` still reported `exited:unhealthy` on another task's branch; no
 staging deployment or configuration change was made.
+
+
+## Durable edited-content review integration — 2026-09-10
+
+Implemented through `2ea6da63` in the same PR #1444:
+
+- Migration 0300 stores review attempts with one editor owner, source input digest,
+  request identity, expected draft revision, status and expiring worker ownership.
+- Both editor APIs enqueue and expose status/cancellation. The frontend persists
+  current edits before review, keeps the attempt identity across uncertain network
+  responses, and polls before finalizing. Known terminal failures never auto-retry.
+- The worker verifies captured input after closing its draft-read transaction.
+  Restart recovery resumes queued work only; expired running attempts are
+  interrupted because their provider call may already have been billed.
+- Finalize accepts only an unchanged generation or an exact completed review bound
+  to the source snapshot, HTML, revision and verification protocol. It no longer
+  invokes the provider while the editor resource is locked.
+- Terminal review jobs clear their temporary input bytes. Candidate source erasure
+  also removes review records and prevents a concurrent enqueue from recreating
+  private input after its source check.
+
+Local evidence: 18 frontend regressions for persistence/review/recovery; 28 backend
+review/editor checks; 25 source-erasure/queue checks; TypeScript and focused Ruff
+checks passed. These are separate runs, not a claimed single whole-suite result.
+Full CI `34430518863` for `2ea6da63` completed successfully: frontend, all four
+backend shards, migration steps, native OCR and the backend aggregate are green.
+CI Gate `34430518925` also passed. Hosted PostgreSQL evidence explicitly includes
+review ownership/concurrency/cancellation, repeatable schema bootstrap, and the
+active-review candidate-erasure guard followed by terminal source removal.
+The new PostgreSQL orchestration test (`ff958b45`) has only been collected locally
+and awaits hosted execution. The inactive-account worker fix (`ddfea147`) has six
+passing local worker tests and likewise awaits hosted execution.
+
+This does not establish real-model quality, production restart/network behavior,
+full retention/orphan cleanup, or production UI acceptance. In particular, the
+cancel API exists but a dedicated cancellation control is not yet in the editor.
+No production migration or deployment has occurred.
