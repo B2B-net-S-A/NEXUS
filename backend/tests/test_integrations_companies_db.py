@@ -4,15 +4,19 @@
 rozstrzygnięcie current/past w Pythonie). Tu sprawdzamy to, czego one nie
 widzą, bo żyje w SQL-u:
 
-- ``via_us`` liczy WYŁĄCZNIE kontrakty, które faktycznie trwały
-  (``active``/``ending``/``ended``) — szkic i unieważniony nie są „umieściliśmy
-  tam ludzi", a flaga ``current_employment`` mówi „pracuje tam", nie
-  „przez nas" (aktywna → ``current``, zdjęta → ``past``);
+- ``via_us`` liczy kontrakty, które faktycznie trwały
+  (``active``/``ending``/``ended``) oraz szkic / umowę do podpisu z realną
+  obsadą (aktywne zamówienie albo bieżący etap „Zatrudniony") — goły szkic
+  i unieważniony nie są „umieściliśmy tam ludzi", a flaga
+  ``current_employment`` mówi „pracuje tam", nie „przez nas" (aktywna →
+  ``current``, zdjęta → ``past``);
 - ``_past_company_predicate`` nie gubi osób, których NAJNOWSZA, zakończona
-  praca leży na pozycji 0 (stare ``idx > 1``);
+  praca leży na pozycji 0 (stare ``idx > 1``), a „present"/„obecnie" w ``end``
+  to praca obecna;
 - surowy alias, którego forma kanoniczna jest za krótka, nie trafia do
   ``LIKE`` (dawniej „IT" szło jako ``LIKE '%it%'``);
-- zapytanie ma sufit wierszy i limit czasu (503 zamiast wiszącego workera).
+- zapytanie ma sufit wierszy (liczony w WIERSZACH, nie osobach) i limit czasu
+  (503 zamiast wiszącego workera).
 
 Nazwa firmy niesie losowy tag — baza testowa jest wspólna dla przebiegu,
 więc tylko unikalna nazwa izoluje wynik od kandydatów z innych plików.
@@ -21,7 +25,7 @@ więc tylko unikalna nazwa izoluje wynik od kandydatów z innych plików.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -280,3 +284,249 @@ async def test_statement_timeout_becomes_a_503_not_a_hung_worker(
         URL, json={"names": [world["company"]]}, headers=_headers()
     )
     assert ok.status_code == 200, ok.text
+
+
+# ── Szkic z realną obsadą to placement; `truncated` liczy WIERSZE (09.2026) ──
+
+
+async def _hired_stage(
+    db, *, candidate_id: int, client_id: int, reverted: bool
+) -> None:
+    """Etap „Zatrudniony" w rekrutacji klienta; `reverted` = późniejszy ruch.
+
+    Rok spoza zakresu fixture'ów Insights — baza testowa jest wspólna, a etap
+    `hired` to placement w widokach analitycznych.
+    """
+    from app.models.job import Job, JobStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    job = Job(
+        title=f"Atlas hired {uuid.uuid4().hex[:6]}",
+        status=JobStatus.published,
+        client_id=client_id,
+    )
+    db.add(job)
+    await db.flush()
+    db.add(
+        CandidateStage(
+            candidate_id=candidate_id,
+            job_id=job.id,
+            stage=PipelineStage.hired,
+            moved_at=datetime(2046, 5, 4, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    if reverted:
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job.id,
+                stage=PipelineStage.rejected,
+                moved_at=datetime(2046, 5, 5, 9, 0, tzinfo=timezone.utc),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_draft_contract_counts_when_it_carries_a_live_order_or_a_hire(
+    app_client,
+) -> None:
+    """Zatrudnienie zakłada SZKIC kontraktu — Delivery domyka go później.
+
+    Do 09.2026 `via_us` pomijał każdy szkic, więc osoba pracująca u klienta na
+    niedomkniętej w NEXUSIE umowie znikała z referencji. Szkic liczy się, gdy
+    niesie realną obsadę (aktywne zamówienie albo bieżący etap „Zatrudniony"
+    w rekrutacji tego klienta) — goły szkic dalej nie.
+    """
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    tag = uuid.uuid4().hex[:8]
+    company = f"Kormoran Uslugi {tag}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company)
+        db.add(client)
+        await db.flush()
+
+        with_order = await _candidate(db, f"SzkicZamowienie{tag}")
+        signing_with_order = await _candidate(db, f"DoPodpisu{tag}")
+        with_hire = await _candidate(db, f"SzkicZatrudniony{tag}")
+        reverted_hire = await _candidate(db, f"CofnietyEtap{tag}")
+        bare = await _candidate(db, f"GolySzkic{tag}")
+        cancelled_order = await _candidate(db, f"AnulowaneZam{tag}")
+
+        contracts = {
+            with_order.id: _contract(with_order.id, client.id, ContractStatus.draft),
+            signing_with_order.id: _contract(
+                signing_with_order.id, client.id, ContractStatus.ready_for_signature
+            ),
+            with_hire.id: _contract(with_hire.id, client.id, ContractStatus.draft),
+            reverted_hire.id: _contract(
+                reverted_hire.id, client.id, ContractStatus.draft
+            ),
+            bare.id: _contract(bare.id, client.id, ContractStatus.draft),
+            cancelled_order.id: _contract(
+                cancelled_order.id, client.id, ContractStatus.draft
+            ),
+        }
+        db.add_all(contracts.values())
+        await db.flush()
+        for candidate_id, status in (
+            (with_order.id, ClientOrderStatus.active),
+            (signing_with_order.id, ClientOrderStatus.active),
+            (cancelled_order.id, ClientOrderStatus.cancelled),
+        ):
+            db.add(
+                ClientOrder(
+                    client_id=client.id,
+                    contract_id=contracts[candidate_id].id,
+                    title=f"Zamowienie {tag}",
+                    status=status,
+                    start_date=date(2026, 1, 1),
+                )
+            )
+        await _hired_stage(
+            db, candidate_id=with_hire.id, client_id=client.id, reverted=False
+        )
+        await _hired_stage(
+            db, candidate_id=reverted_hire.id, client_id=client.id, reverted=True
+        )
+        await db.commit()
+        ids = {
+            "with_order": with_order.id,
+            "signing_with_order": signing_with_order.id,
+            "with_hire": with_hire.id,
+            "reverted_hire": reverted_hire.id,
+            "bare": bare.id,
+            "cancelled_order": cancelled_order.id,
+        }
+
+    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
+    assert resp.status_code == 200, resp.text
+    got = _by_id(resp.json())
+
+    assert got.get(ids["with_order"]) == "via_us"
+    assert got.get(ids["signing_with_order"]) == "via_us"
+    assert got.get(ids["with_hire"]) == "via_us"
+    # Cofnięte zatrudnienie, anulowane zamówienie i goły szkic nie są obsadą.
+    assert ids["reverted_hire"] not in got
+    assert ids["cancelled_order"] not in got
+    assert ids["bare"] not in got
+    assert resp.json()["counts"]["via_us"] == 3
+
+
+@pytest.mark.asyncio
+async def test_truncated_counts_conflict_rows_not_people(
+    app_client, monkeypatch
+) -> None:
+    """Sufit prefiltra dotyczy WIERSZY — kilka zdjętych flag jednej osoby to kilka wierszy.
+
+    Liczenie osób (unikalnych `candidate_id`) ukrywało ucięcie: sufit+1 wierszy
+    dla mniej niż sufitu osób wracało jako odpowiedź kompletna.
+    """
+    tag = uuid.uuid4().hex[:8]
+    company = f"Czapla Konsulting {tag}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company)
+        db.add(client)
+        await db.flush()
+        person = await _candidate(db, f"WieleFlag{tag}")
+        db.add_all(
+            [
+                CandidateConflict(
+                    candidate_id=person.id,
+                    client_id=client.id,
+                    type=ConflictType.current_employment,
+                    active=False,
+                )
+                for _ in range(3)
+            ]
+        )
+        await db.commit()
+        person_id = person.id
+
+    monkeypatch.setattr(integrations_companies, "_PREFILTER_ROW_CAP", 2)
+    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert _by_id(body) == {person_id: "past"}
+    assert body["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_present_like_end_words_are_current_employment(app_client) -> None:
+    """„present"/„obecnie"/„teraz" w `end` to praca OBECNA — w ATLAS i w filtrze listy."""
+    from app.api.candidates import _current_company_predicate, _past_company_predicate
+
+    tag = uuid.uuid4().hex[:8]
+    company = f"Sikorka Dane {tag}"
+    async with AsyncSessionLocal() as db:
+        present_first = await _candidate(
+            db,
+            f"Obecnie{tag}",
+            experience=[
+                {"company": company, "role": "Lead", "start": "2023", "end": "Present"}
+            ],
+        )
+        # Na dalszej pozycji — tam, gdzie historyczna reguła pozycji bez daty
+        # liczy wpis jako przeszły; słowny znacznik tę regułę wyłącza.
+        present_later = await _candidate(
+            db,
+            f"Teraz{tag}",
+            experience=[
+                {
+                    "company": "Inna Firma",
+                    "role": "Dev",
+                    "start": "2015",
+                    "end": "2019",
+                },
+                {
+                    "company": "Druga Firma",
+                    "role": "Dev",
+                    "start": "2019",
+                    "end": "2021",
+                },
+                {
+                    "company": company,
+                    "role": "Architekt",
+                    "start": "2021",
+                    "end": " teraz ",
+                },
+            ],
+        )
+        finished = await _candidate(
+            db,
+            f"Byly{tag}",
+            experience=[
+                {"company": company, "role": "Analityk", "start": "2018", "end": "2020"}
+            ],
+        )
+        await db.commit()
+        ids = (present_first.id, present_later.id, finished.id)
+
+    resp = await app_client.post(URL, json={"names": [company]}, headers=_headers())
+    assert resp.status_code == 200, resp.text
+    got = _by_id(resp.json())
+    assert got[ids[0]] == "current"
+    assert got[ids[1]] == "current"
+    assert got[ids[2]] == "past"
+
+    async with AsyncSessionLocal() as db:
+        past_ids = set(
+            (
+                await db.execute(
+                    select(Candidate.id).where(_past_company_predicate([tag]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        current_ids = set(
+            (
+                await db.execute(
+                    select(Candidate.id).where(_current_company_predicate([tag]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert past_ids & set(ids) == {ids[2]}
+    assert current_ids & set(ids) == {ids[0], ids[1]}

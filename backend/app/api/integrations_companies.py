@@ -8,12 +8,17 @@ here is guarded by ``require_scope``, never by a user JWT.
 Three relationship buckets, strongest first:
 
 - ``via_us``  — placed there through us: a ``Contract`` with that client that
-  actually ran (``active``/``ending``/``ended``). ``draft``,
-  ``ready_for_signature`` and ``void`` are NOT placements — a draft never
-  started and a voided contract was annulled — and reporting them as "we
-  placed people there" is a reference we cannot back up.
+  ran (``active``/``ending``/``ended``), or a ``draft`` /
+  ``ready_for_signature`` one that carries a real engagement — an active
+  order or the candidate's current ``hired`` stage in that client's
+  recruitment (``contract_service.placed_contract_clause``, the contractor
+  registry's liveness definition). Hiring creates a draft contract that
+  Delivery completes later, so dropping every draft dropped real placements;
+  a bare draft and a ``void`` contract still do not count — "we placed people
+  there" must be a reference we can back up.
 - ``current`` — works there now (``linkedin_current_company``, an
-  ``experience[*]`` entry with ``end IS NULL``, or an ACTIVE
+  ``experience[*]`` entry whose ``end`` marks a current job — empty or
+  "present"/"obecnie"-like, ``experience_end`` — or an ACTIVE
   ``current_employment`` conflict flag — that flag says "employed there now",
   not "placed by us").
 - ``past``    — worked there before (any other ``experience[*]`` entry, or a
@@ -75,8 +80,10 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
+from app.services.contract_service import placed_contract_clause
+from app.services.experience_end import is_current_end
 
 router = APIRouter()
 
@@ -84,14 +91,6 @@ router = APIRouter()
 # match far too much even under exact comparison once a CRM name normalises
 # down to them, and the SQL prefilter would scan the whole candidate table.
 _MIN_NAME_LEN = 3
-
-# Contract states that mean "we actually placed this person there". `draft`
-# and `ready_for_signature` never started; `void` was annulled.
-_PLACED_CONTRACT_STATUSES = (
-    ContractStatus.active,
-    ContractStatus.ending,
-    ContractStatus.ended,
-)
 
 # Row cap per query. The substring prefilter is deliberately loose (the exact
 # decision happens in Python), so without a cap a short canonical name loads
@@ -319,8 +318,10 @@ def _match_experience(
             continue
         if normalize_company_name(company) not in canonical_names:
             continue
-        # `end IS NULL` is the canonical current-job marker (see candidates.py).
-        if entry.get("end") in (None, ""):
+        # `end IS NULL` is the canonical current-job marker (see candidates.py);
+        # an empty `end` and "present"/"obecnie"-like words mean the same
+        # (`experience_end` — one rule with the candidate filters).
+        if is_current_end(entry.get("end")):
             return "current", entry
         if fallback is None:
             fallback = entry
@@ -515,7 +516,7 @@ async def _lookup_company_people(
                             and_(
                                 Contract.candidate_id == Candidate.id,
                                 Contract.client_id == client.id,
-                                Contract.status.in_(_PLACED_CONTRACT_STATUSES),
+                                placed_contract_clause(),
                             )
                         )
                         .exists()
@@ -525,13 +526,14 @@ async def _lookup_company_people(
                 )
             ).scalars()
         )
+        # One row per candidate here (EXISTS, not a join), so rows == people.
         if len(via_us) > _PREFILTER_ROW_CAP:
             via_us, capped = via_us[:_PREFILTER_ROW_CAP], True
 
         # A `current_employment` flag says "employed there", not "placed by
         # us" — it belongs to `current` (active) or `past` (lifted), never to
         # the reference bucket.
-        for candidate_id, active in (
+        conflict_rows = (
             await db.execute(
                 select(CandidateConflict.candidate_id, CandidateConflict.active)
                 .where(
@@ -541,12 +543,16 @@ async def _lookup_company_people(
                 .order_by(CandidateConflict.candidate_id)
                 .limit(_PREFILTER_ROW_CAP + 1)
             )
-        ).all():
+        ).all()
+        # The cap is on ROWS: a person with several lifted flags has several
+        # rows. Counting distinct people (the dict below) hid a cut — cap+1
+        # rows for fewer than cap people came back as a complete answer.
+        if len(conflict_rows) > _PREFILTER_ROW_CAP:
+            conflict_rows, capped = conflict_rows[:_PREFILTER_ROW_CAP], True
+        for candidate_id, active in conflict_rows:
             conflict_active[candidate_id] = conflict_active.get(
                 candidate_id, False
             ) or bool(active)
-        if len(conflict_active) > _PREFILTER_ROW_CAP:
-            capped = True
     via_us_ids = {c.id for c in via_us}
 
     # ── current / past: SQL prefilter (substring) then exact canonical match ─

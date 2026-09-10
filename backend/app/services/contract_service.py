@@ -9,9 +9,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import and_, inspect, or_
+from sqlalchemy import and_, inspect, or_, select
 
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.services.pipeline_latest import current_hired_stage_exists
 
 
 # Minimum set of fields that must be populated before a draft contract
@@ -163,3 +165,67 @@ def live_not_ending_clause(today: Optional[date] = None):
             Contract.end_date > cutoff,
         ),
     )
+
+
+# --- Kontraktor i placement — jedna definicja „żywej" umowy -------------------
+#
+# Rejestr kontraktorów (`/api/contractors`) i eksport dla COMPASSA
+# (`/api/integrations/compass/contractors`) liczą jako kontraktora umowę żywą
+# ORAZ umowę „w drodze" (szkic, umowa do podpisu): zatrudnienie zakłada szkic
+# kontraktu razem ze szkicem zamówienia, a Delivery uzupełnia go później —
+# osoba już pracuje, tylko umowa nie jest domknięta w NEXUSIE.
+PENDING_CONTRACT_STATUSES: tuple[ContractStatus, ...] = (
+    ContractStatus.draft,
+    ContractStatus.ready_for_signature,
+)
+CONTRACTOR_STATUSES: tuple[ContractStatus, ...] = (
+    *PENDING_CONTRACT_STATUSES,
+    *_LIVE_STATUSES,
+)
+# Umowa, która faktycznie trwała — także ta już zakończona (historia placementu).
+_PLACED_STATUSES: tuple[ContractStatus, ...] = (*_LIVE_STATUSES, ContractStatus.ended)
+
+
+def pending_contract_engaged_clause():
+    """SQL: szkic / umowa do podpisu, za którą stoi REALNA obsada.
+
+    Rejestr kontraktorów wpuszcza każdy szkic, bo jego adresatem jest Delivery,
+    które szkice uzupełnia. Tam, gdzie umowa ma świadczyć o tym, że osoba
+    pracowała u klienta (np. referencja „umieściliśmy tam ludzi" dla ATLAS),
+    goły szkic nie wystarczy — liczy się, gdy niesie:
+
+    - AKTYWNE zamówienie tego klienta (lustro pigułki „Aktywni" rejestru
+      zamówień: szkic z aktywnym zamówieniem to pracujący kontraktor), albo
+    - bieżący etap ``hired`` kandydata w rekrutacji tego klienta (szkic
+      założony hookiem zatrudnienia — ``/pipeline/move`` na „Zatrudniony").
+    """
+    live_order_exists = (
+        select(1)
+        .where(
+            and_(
+                ClientOrder.contract_id == Contract.id,
+                ClientOrder.client_id == Contract.client_id,
+                ClientOrder.status == ClientOrderStatus.active,
+            )
+        )
+        .exists()
+    )
+    return and_(
+        Contract.status.in_(PENDING_CONTRACT_STATUSES),
+        or_(
+            live_order_exists,
+            current_hired_stage_exists(
+                Contract.candidate_id, client_id=Contract.client_id
+            ),
+        ),
+    )
+
+
+def placed_contract_clause():
+    """SQL: umowa świadcząca o placemencie u klienta — trwająca lub zakończona.
+
+    ``active``/``ending``/``ended`` zawsze; ``draft``/``ready_for_signature``
+    tylko z realną obsadą (:func:`pending_contract_engaged_clause`); ``void``
+    nigdy — unieważniona umowa nie jest referencją.
+    """
+    return or_(Contract.status.in_(_PLACED_STATUSES), pending_contract_engaged_clause())

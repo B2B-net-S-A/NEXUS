@@ -40,6 +40,8 @@ from app.schemas.contract import (
     ContractorStats,
 )
 from app.services.contract_service import (
+    CONTRACTOR_STATUSES,
+    PENDING_CONTRACT_STATUSES,
     ending_soon_clause,
     is_ending_soon,
     live_not_ending_clause,
@@ -84,17 +86,12 @@ async def _apply_contractor_scope(query, current_user, db):  # type: ignore[no-u
     )
 
 
-_PENDING_STATUSES = (
-    ContractStatus.draft,
-    ContractStatus.ready_for_signature,
-)
+# Jedna definicja z `contract_service` — dzielona z eksportem dla COMPASSA
+# i z kubełkiem `via_us` ATLAS-a (tam szkic dodatkowo musi nieść obsadę).
+_PENDING_STATUSES = PENDING_CONTRACT_STATUSES
 
 
-_LIST_STATUSES = (
-    *_PENDING_STATUSES,
-    ContractStatus.active,
-    ContractStatus.ending,
-)
+_LIST_STATUSES = CONTRACTOR_STATUSES
 
 
 # Defense in depth underneath the section dependency. Only these Delivery

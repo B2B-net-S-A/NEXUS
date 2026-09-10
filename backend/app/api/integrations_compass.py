@@ -55,8 +55,9 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrderStatus
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract
 from app.services.client_identity import client_display_name
+from app.services.contract_service import CONTRACTOR_STATUSES
 from app.services.order_excel_export import is_current_order_period
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,15 +65,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Te same kubełki co w rejestrze kontraktorów: umowy żywe i te w drodze.
-# `ended`/`void` świadomie poza eksportem BIEŻĄCEGO stanu — historia zejść
-# jedzie osobnym polem (`end_date`), a nie osobnym wierszem.
-_EXPORT_STATUSES = (
-    ContractStatus.draft,
-    ContractStatus.ready_for_signature,
-    ContractStatus.active,
-    ContractStatus.ending,
-)
+# Te same kubełki co w rejestrze kontraktorów (jedna definicja
+# w `contract_service`): umowy żywe i te w drodze. `ended`/`void` świadomie
+# poza eksportem BIEŻĄCEGO stanu — historia zejść jedzie osobnym polem
+# (`end_date`), a nie osobnym wierszem.
+_EXPORT_STATUSES = CONTRACTOR_STATUSES
 
 _MAX_PAGE_SIZE = 500
 

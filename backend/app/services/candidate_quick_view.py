@@ -13,6 +13,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from app.models.candidate import Candidate
+from app.services.experience_end import is_current_end
 from app.services.note_mention_render import render_traffit_mentions
 from app.services.text_cleaning import clean_rich_text
 
@@ -171,18 +172,7 @@ def _experience_rows(candidate: Candidate) -> list[dict[str, Any]]:
 
 
 def _is_current_experience(row: dict[str, Any]) -> bool:
-    end = row.get("end") or row.get("end_date") or row.get("to")
-    if end is None:
-        return True
-    if isinstance(end, str):
-        return end.strip().casefold() in {
-            "",
-            "present",
-            "current",
-            "obecnie",
-            "teraz",
-        }
-    return False
+    return is_current_end(row.get("end") or row.get("end_date") or row.get("to"))
 
 
 def resolve_current_position(candidate: Candidate) -> dict[str, Optional[str]]:

@@ -124,7 +124,9 @@ from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
     load_manager_rejections,
 )
+from app.services.experience_end import sql_current_end_literals
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
+from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -436,8 +438,9 @@ def _at_client_predicate():
 
     `candidate_stages` is append-only history, so "currently hired" means a
     `hired` row with no later move for the same job (mirrored in
-    `_derive_employment`). Drives the inverse `employment=available` filter too,
-    via `not_(_at_client_predicate())`.
+    `_derive_employment`; the SQL rule lives in
+    `pipeline_latest.current_hired_stage_exists`). Drives the inverse
+    `employment=available` filter too, via `not_(_at_client_predicate())`.
     """
     contract_exists = (
         select(1)
@@ -460,36 +463,24 @@ def _at_client_predicate():
         )
         .exists()
     )
-    later_stage = aliased(CandidateStage)
-    hired_latest_exists = (
-        select(1)
-        .where(
-            and_(
-                CandidateStage.candidate_id == Candidate.id,
-                CandidateStage.stage == PipelineStage.hired,
-                # No later move exists for the same job → `hired` is current.
-                ~(
-                    select(1)
-                    .where(
-                        and_(
-                            later_stage.candidate_id == CandidateStage.candidate_id,
-                            later_stage.job_id == CandidateStage.job_id,
-                            or_(
-                                later_stage.moved_at > CandidateStage.moved_at,
-                                and_(
-                                    later_stage.moved_at == CandidateStage.moved_at,
-                                    later_stage.id > CandidateStage.id,
-                                ),
-                            ),
-                        )
-                    )
-                    .exists()
-                ),
-            )
-        )
-        .exists()
-    )
+    hired_latest_exists = current_hired_stage_exists(Candidate.id)
     return or_(contract_exists, conflict_exists, hired_latest_exists)
+
+
+# `end` wpisu doświadczenia po przycięciu i bez wielkości liter — porównywane
+# ze znacznikami „pracy obecnej" z `experience_end` (tymi samymi, których
+# używają szybki podgląd kandydata i ATLAS). Pusty `end` i słowa „present",
+# „current", „obecnie", „teraz" to praca OBECNA, nie przeszła.
+_EXPERIENCE_END_SQL = "lower(btrim(coalesce(elem->>'end', '')))"
+_CURRENT_EXPERIENCE_SQL = (
+    f"{_EXPERIENCE_END_SQL} IN ({sql_current_end_literals(include_empty=True)})"
+)
+# Przeszła = ani słowny znacznik obecnej pracy, ani (na pierwszej pozycji)
+# pusty `end` — dalsze pozycje bez daty zostają przeszłe, jak dotąd.
+_PAST_EXPERIENCE_SQL = (
+    f"{_EXPERIENCE_END_SQL} NOT IN ({sql_current_end_literals(include_empty=False)}) "
+    f"AND (idx > 1 OR {_EXPERIENCE_END_SQL} <> '')"
+)
 
 
 def _current_company_predicate(values: list[str]):
@@ -497,16 +488,18 @@ def _current_company_predicate(values: list[str]):
 
     Resolves against (OR-combined):
       1. `linkedin_current_company` (Proxycurl-synced, freshest signal)
-      2. ANY `experience[*]` entry where `end IS NULL` AND `company` ILIKE pat
-         — the data convention (set by `backfill_candidate_experience`):
-         `end IS NULL` is the canonical "current job" marker.
+      2. ANY `experience[*]` entry whose `end` marks a current job AND
+         `company` ILIKE pat — the data convention (set by
+         `backfill_candidate_experience`): `end IS NULL` is the canonical
+         "current job" marker; an empty `end` and the words "present" /
+         "current" / "obecnie" / "teraz" (`experience_end`) mean the same.
 
     Why not `experience[0].company`? The backfill places an empty placeholder
     slot at index 0 when it cannot disambiguate the current job from a
     multi-line aggregated `company` string in the CV. Real current employers
     routinely land at idx 2+ with `end=null`. Position-0 lookup would silently
     skip them — e.g. `?cur_co=Nordea` returned 1 result instead of ~406.
-    Using the `end IS NULL` marker catches them all, irrespective of position.
+    Using the `end` marker catches them all, irrespective of position.
     """
     clauses = []
     for i, v in enumerate(values):
@@ -520,7 +513,7 @@ def _current_company_predicate(values: list[str]):
             "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
             "THEN candidates.experience ELSE '[]'::jsonb END"
             ") AS e(elem) "
-            "WHERE elem->>'end' IS NULL "
+            f"WHERE {_CURRENT_EXPERIENCE_SQL} "
             f"AND lower(coalesce(elem->>'company', '')) LIKE :cur_co_{i}"
             ")"
         ).bindparams(**{f"cur_co_{i}": pat})
@@ -540,9 +533,10 @@ def _current_title_predicate(values: list[str]):
 
     Same shape as `_current_company_predicate`:
       1. `linkedin_current_title` (Proxycurl-synced, freshest signal)
-      2. ANY `experience[*]` entry where `end IS NULL` AND `role` ILIKE pat.
+      2. ANY `experience[*]` entry whose `end` marks a current job (NULL,
+         empty or a "present"/"obecnie" word) AND `role` ILIKE pat.
 
-    Uses the `end IS NULL` marker rather than `experience[0].role` for the
+    Uses the `end` marker rather than `experience[0].role` for the
     same reason — backfill placeholder slots at index 0 silently skip real
     current titles that sit at idx 2+ with end=null.
     """
@@ -558,7 +552,7 @@ def _current_title_predicate(values: list[str]):
             "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
             "THEN candidates.experience ELSE '[]'::jsonb END"
             ") AS e(elem) "
-            "WHERE elem->>'end' IS NULL "
+            f"WHERE {_CURRENT_EXPERIENCE_SQL} "
             f"AND lower(coalesce(elem->>'role', '')) LIKE :cur_title_{i}"
             ")"
         ).bindparams(**{f"cur_title_{i}": pat})
@@ -582,8 +576,12 @@ def _past_company_predicate(values: list[str]):
     — including position 0. The older rule was ``idx > 1`` alone ("index 0 is
     the current job"), which silently dropped everyone whose MOST RECENT job
     had already ended and sat at index 0: exactly the people a "worked at X
-    before" lookup is for. Entries at index 1+ still match regardless of
-    ``end``, so no row the old predicate returned disappears.
+    before" lookup is for. Entries at index 1+ still match without an ``end``.
+
+    An ``end`` that SAYS the job continues ("present", "current", "obecnie",
+    "teraz" — ``experience_end``) is a current job at ANY position: a
+    recruiter asking "worked at X before" must not get people who work there
+    today (that is what ``_current_company_predicate`` returns).
 
     OR-combined across values. Guards against non-array ``experience`` values
     (legacy rows may hold scalar/object JSONB) — ``jsonb_array_elements``
@@ -602,7 +600,7 @@ def _past_company_predicate(values: list[str]):
                 "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
                 "THEN candidates.experience ELSE '[]'::jsonb END"
                 ") WITH ORDINALITY AS e(elem, idx) "
-                "WHERE (idx > 1 OR coalesce(elem->>'end', '') <> '') "
+                f"WHERE ({_PAST_EXPERIENCE_SQL}) "
                 f"AND lower(coalesce(elem->>'company', '')) LIKE :past_co_{i}"
                 ")"
             ).bindparams(**{f"past_co_{i}": pat})

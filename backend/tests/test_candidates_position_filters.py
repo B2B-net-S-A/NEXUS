@@ -305,6 +305,61 @@ async def test_filter_past_company_excludes_current(
         await _cleanup(candidate_ids=[current_only])
 
 
+@pytest.mark.asyncio
+async def test_present_like_end_words_are_current_not_past(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`end` = „Present"/„obecnie"/„teraz" to praca OBECNA na KAŻDEJ pozycji.
+
+    Do 09.2026 filtr „Poprzednia firma" czytał każdy niepusty `end` jako datę
+    zakończenia, więc osoba pracująca dziś w firmie X trafiała do „byłych
+    pracowników X", a „Obecna firma" jej nie widziała. Ta sama lista słów co
+    w szybkim podglądzie kandydata i w ATLAS (`experience_end`).
+    """
+    tag = uuid.uuid4().hex[:8]
+    company = f"Jaskolka Soft {tag}"
+    present_first = await _seed_candidate_with_experience(
+        [{"company": company, "role": "Lead", "start": "2023-01", "end": "Present"}]
+    )
+    present_later = await _seed_candidate_with_experience(
+        [
+            {"company": "Globex Ltd", "role": "Dev", "start": "2015", "end": "2019"},
+            {"company": "Initech", "role": "Dev", "start": "2019", "end": "2021"},
+            {
+                "company": company,
+                "role": "Architekt",
+                "start": "2021",
+                "end": " Obecnie ",
+            },
+        ]
+    )
+    finished = await _seed_candidate_with_experience(
+        [{"company": company, "role": "Analityk", "start": "2018", "end": "2020"}]
+    )
+    try:
+        past = await app_client.get(
+            f"/api/candidates?past_company={tag}&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert past.status_code == 200, past.text
+        past_ids = {item["id"] for item in past.json()["items"]}
+        assert finished in past_ids
+        assert present_first not in past_ids
+        assert present_later not in past_ids
+
+        current = await app_client.get(
+            f"/api/candidates?current_company={tag}&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert current.status_code == 200, current.text
+        current_ids = {item["id"] for item in current.json()["items"]}
+        assert present_first in current_ids
+        assert present_later in current_ids
+        assert finished not in current_ids
+    finally:
+        await _cleanup(candidate_ids=[present_first, present_later, finished])
+
+
 # ── current_title ───────────────────────────────────────────────────────────
 
 
