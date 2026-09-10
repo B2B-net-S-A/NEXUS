@@ -33,6 +33,8 @@ def gate_enabled() -> bool:
         "yes",
         "on",
     )
+
+
 SECTION_KEYS = (
     "basics",
     "search",
