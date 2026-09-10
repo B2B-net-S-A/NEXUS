@@ -276,70 +276,230 @@ async def test_full_search_page_stamps_the_run_and_its_surface(monkeypatch):
         await _cleanup_job(job_id, [saved, radar])
 
 
+async def _run_world() -> dict:
+    """Two users, two jobs of one client, and durable search runs between them
+    (`candidate_search_runs` is what a declared run id must resolve to)."""
+    from app.models.candidate_search_run import CandidateSearchRun
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.models.user import User, UserRole
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Telemetry runs {tag}")
+        me = User(email=f"tel-me-{tag}@example.com", name="Me", role=UserRole.recruiter)
+        other = User(
+            email=f"tel-other-{tag}@example.com", name="Other", role=UserRole.recruiter
+        )
+        db.add_all([client, me, other])
+        await db.flush()
+        job = Job(title=f"Telemetry job {tag}", client_id=client.id)
+        other_job = Job(title=f"Telemetry other job {tag}", client_id=client.id)
+        db.add_all([job, other_job])
+        await db.flush()
+
+        def run(owner, for_job) -> CandidateSearchRun:
+            return CandidateSearchRun(
+                id=str(uuid.uuid4()),
+                created_by=owner.id,
+                client_id=client.id,
+                job_id=for_job.id,
+                state="complete",
+                request_fingerprint="f" * 64,
+                request_context={},
+                version_trace={},
+                population_size=0,
+                metrics={},
+            )
+
+        mine, foreign, elsewhere = run(me, job), run(other, job), run(me, other_job)
+        db.add_all([mine, foreign, elsewhere])
+        await db.commit()
+        return {
+            "user_id": me.id,
+            "other_user_id": other.id,
+            "job_id": job.id,
+            "other_job_id": other_job.id,
+            "mine": mine.id,
+            "foreign": foreign.id,
+            "elsewhere": elsewhere.id,
+        }
+
+
+async def _shown(run_id: str, *, job_id: int, user_id: int, candidates: list[int]):
+    await tel.record_full_search_page(
+        None,
+        run_id=run_id,
+        job_id=job_id,
+        client_id=1,
+        user_id=user_id,
+        version_trace=None,
+        entries=[ImpressionEntry(candidate_id=c, rank=i) for i, c in enumerate(candidates)],
+        degraded=False,
+    )
+
+
+async def _outcomes(job_id: int) -> list:
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.execute(
+                text(
+                    "SELECT candidate_id, run_id, event_type, event_id, reason_code"
+                    " FROM match_outcomes WHERE job_id = :j ORDER BY candidate_id"
+                ),
+                {"j": job_id},
+            )
+        ).all()
+
+
 @pytest.mark.asyncio
-async def test_pipeline_addition_joins_the_run_this_user_was_shown(monkeypatch):
-    """The outcome carries the run of the LAST impression this user saw for the
-    candidate in this job — so it joins its page, rank and fit. Another user's
-    impression is not this user's exposure. Without any impression the outcome
-    still lands, on the fallback correlation."""
+async def test_pipeline_addition_joins_only_the_declared_run_that_showed_it(
+    monkeypatch,
+):
+    """The outcome joins a ranking only through the run the caller declares,
+    and only for candidates that run showed THIS user for THIS job. Everything
+    else lands with `run_id = NULL` — no attribution is guessed."""
     monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
-    job_id = _job_id()
-    old, newest, other_user = _run_id(), _run_id(), _run_id()
-
-    async def shown(run_id: str, user_id: int, candidate_ids: list[int]) -> None:
-        await tel.record_full_search_page(
-            None,
-            run_id=run_id,
-            job_id=job_id,
-            client_id=1,
-            user_id=user_id,
-            version_trace=None,
-            entries=[
-                ImpressionEntry(candidate_id=c, rank=i)
-                for i, c in enumerate(candidate_ids)
-            ],
-            degraded=False,
-        )
-
+    w = await _run_world()
+    job_id = w["job_id"]
     try:
-        await shown(old, 7, [101, 102])
-        await shown(newest, 7, [101])
-        await shown(other_user, 8, [102])
-
-        runs = await tel.latest_impression_runs(
-            job_id=job_id, candidate_ids=[101, 102, 103], user_id=7
-        )
-        assert runs == {101: newest, 102: old}
+        await _shown(w["mine"], job_id=job_id, user_id=w["user_id"], candidates=[101])
 
         n = await tel.emit_pipeline_additions(
-            job_id=job_id, candidate_ids=[101, 103, 101], user_id=7
+            job_id=job_id,
+            candidate_ids=[101, 103, 101],
+            user_id=w["user_id"],
+            run_id=w["mine"],
+            source="full_search",
         )
-        assert n == 2
-        async with AsyncSessionLocal() as db:
-            rows = (
-                await db.execute(
-                    text(
-                        "SELECT candidate_id, run_id, event_type, event_id"
-                        " FROM match_outcomes WHERE job_id = :j ORDER BY candidate_id"
-                    ),
-                    {"j": job_id},
-                )
-            ).all()
-        assert [(r.candidate_id, r.run_id, r.event_type) for r in rows] == [
-            (101, newest, "add_to_pipeline"),
-            (103, None, "add_to_pipeline"),
-        ]
-        assert rows[1].event_id == f"add_to_pipeline:norun:{job_id}:103"
 
+        assert n == 2
+        rows = await _outcomes(job_id)
+        # 103 was never on that run's page: added, but not joined to it.
+        assert [(r.candidate_id, r.run_id, r.reason_code) for r in rows] == [
+            (101, w["mine"], "full_search"),
+            (103, None, "full_search"),
+        ]
+        assert rows[0].event_id == f"add_to_pipeline:{w['mine']}:{job_id}:101"
+        assert rows[1].event_id == f"add_to_pipeline:norun:{job_id}:103"
         # A retried request (double click, proxy retry) records nothing new.
         assert (
             await tel.emit_pipeline_additions(
-                job_id=job_id, candidate_ids=[101, 103], user_id=7
+                job_id=job_id,
+                candidate_ids=[101, 103],
+                user_id=w["user_id"],
+                run_id=w["mine"],
+                source="full_search",
             )
             == 0
         )
     finally:
-        await _cleanup_job(job_id, [old, newest, other_user])
+        await _cleanup_job(job_id, [w["mine"]])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    ["no_run_declared", "someone_elses_run", "run_for_another_job", "unknown_run"],
+)
+async def test_pipeline_addition_never_guesses_a_run(monkeypatch, case):
+    """Before 11.09 an add without a run (manual search, historical section,
+    quick-add) was credited to the latest impression this user saw for the job,
+    i.e. to an unrelated C2 ranking. Now: not verifiable → NULL."""
+    monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
+    w = await _run_world()
+    job_id = w["job_id"]
+    # The user WAS shown candidate 201 in their own run, and so was everyone
+    # else in theirs — exactly the history the old fallback picked from.
+    await _shown(w["mine"], job_id=job_id, user_id=w["user_id"], candidates=[201])
+    await _shown(
+        w["foreign"], job_id=job_id, user_id=w["other_user_id"], candidates=[201]
+    )
+    await _shown(
+        w["elsewhere"], job_id=w["other_job_id"], user_id=w["user_id"], candidates=[201]
+    )
+    declared = {
+        "no_run_declared": None,
+        "someone_elses_run": w["foreign"],
+        "run_for_another_job": w["elsewhere"],
+        "unknown_run": str(uuid.uuid4()),
+    }[case]
+    try:
+        n = await tel.emit_pipeline_additions(
+            job_id=job_id,
+            candidate_ids=[201],
+            user_id=w["user_id"],
+            run_id=declared,
+            source="manual_search" if declared is None else "full_search",
+        )
+
+        assert n == 1
+        (row,) = await _outcomes(job_id)
+        assert row.run_id is None
+        assert row.event_id == f"add_to_pipeline:norun:{job_id}:201"
+    finally:
+        await _cleanup_job(job_id, [w["mine"], w["foreign"], w["elsewhere"]])
+
+
+@pytest.mark.asyncio
+async def test_unknown_add_source_is_stored_as_null_not_free_text(monkeypatch):
+    monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
+    job_id = _job_id()
+    try:
+        await tel.emit_pipeline_additions(
+            job_id=job_id, candidate_ids=[301], user_id=7, source="jan.kowalski"
+        )
+        (row,) = await _outcomes(job_id)
+        assert row.reason_code is None
+    finally:
+        await _cleanup_job(job_id, [])
+
+
+@pytest.mark.asyncio
+async def test_a_results_page_is_one_insert(monkeypatch):
+    """Up to 100 served rows used to be up to 100 sequential INSERTs on the
+    request path. One statement now, still idempotent per (run, candidate),
+    and a candidate repeated in the entries keeps its first (best) rank."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
+    executed: list[str] = []
+    original = AsyncSession.execute
+
+    async def counting(self, statement, *args, **kwargs):
+        executed.append(str(statement))
+        return await original(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(AsyncSession, "execute", counting)
+    run_id = _run_id()
+    entries = [
+        ImpressionEntry(candidate_id=400 + i, rank=i, fit_score=90 - i)
+        for i in range(20)
+    ] + [ImpressionEntry(candidate_id=400, rank=99)]
+    try:
+        first = await tel.record_impressions(
+            None, run_id=run_id, surface="test", entries=entries, user_id=7
+        )
+        inserts = [s for s in executed if "INSERT INTO match_impressions" in s]
+        assert first == 20
+        assert len(inserts) == 1
+        again = await tel.record_impressions(
+            None, run_id=run_id, surface="test", entries=entries
+        )
+        assert again == 0
+        async with AsyncSessionLocal() as db:
+            rank, fit = (
+                await db.execute(
+                    text(
+                        "SELECT rank, fit_score FROM match_impressions"
+                        " WHERE run_id = :r AND candidate_id = 400"
+                    ),
+                    {"r": run_id},
+                )
+            ).one()
+        assert (rank, fit) == (0, 90.0)
+    finally:
+        await _cleanup(run_id)
 
 
 @pytest.mark.asyncio

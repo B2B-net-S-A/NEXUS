@@ -67,6 +67,9 @@ SkipReason = Literal[
     "rejected_by_hiring_manager",
 ]
 WarningReason = Literal["current_employment", "excluded_by_candidate"]
+# The screen an add came from — the four callers of this route. A closed
+# vocabulary on purpose: it lands in the analytics table (PII policy).
+BulkAddSource = Literal["full_search", "manual_search", "historical", "quick_add"]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
 _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
@@ -97,6 +100,14 @@ class BulkProposalsRequest(BaseModel):
     )
     note: Optional[str] = Field(default=None, max_length=2000)
     tags: list[str] = Field(default_factory=list, max_length=20)
+    # Match telemetry only. This route is shared by manual search, the
+    # historical section, quick-add and the job page's full search, so the
+    # server cannot tell which ranking (if any) an add followed from. Only the
+    # full-search screen knows its run and sends it; the outcome is attributed
+    # to that run only when the run is this user's, for this job, and showed
+    # the candidate (`emit_pipeline_additions`). Never guessed from history.
+    run_id: Optional[str] = Field(default=None, max_length=64)
+    source: Optional[BulkAddSource] = None
 
 
 class BulkSkippedRow(BaseModel):
@@ -445,15 +456,20 @@ async def bulk_add_proposals(
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one
     # `add_to_pipeline` outcome per candidate that actually entered the
-    # pipeline — never for skipped ones — correlated with the full-search run in
-    # which this user was shown the candidate (C2 adds through this route). AFTER
-    # the commit and in the telemetry service's own session: it cannot undo or
-    # fail the add (it never raises), and it writes at most one row per id.
+    # pipeline — never for skipped ones — attributed to the run the caller
+    # declared, and only if that run verifiably showed this user the candidate
+    # for this job; otherwise `run_id` stays NULL. AFTER the commit and in the
+    # telemetry service's own session: it cannot undo or fail the add (it never
+    # raises), and it writes at most one row per id.
     if added:
         from app.services.match_telemetry_service import emit_pipeline_additions
 
         await emit_pipeline_additions(
-            job_id=job_id, candidate_ids=added, user_id=current_user.id
+            job_id=job_id,
+            candidate_ids=added,
+            user_id=current_user.id,
+            run_id=body.run_id,
+            source=body.source,
         )
 
     return BulkProposalsResponse(

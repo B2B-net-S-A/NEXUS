@@ -150,82 +150,103 @@ async def record_impressions(
 ) -> int:
     """Append the shown ranking to ``match_impressions``.
 
-    Idempotent per (run_id, candidate_id) via ``ON CONFLICT DO NOTHING``.
+    ONE statement for the whole page (the entries travel as parallel arrays
+    through ``unnest``) instead of one INSERT per row on the request path.
+    Idempotent per (run_id, candidate_id) via ``ON CONFLICT DO NOTHING``; a
+    candidate repeated within ``entries`` keeps its first (best) rank.
     Returns the number of rows inserted (0 when the flag is off or on any
     error — never raises).
     """
     if not telemetry_enabled() or not entries:
         return 0
 
-    user_ref = pseudonymize(user_id)
-    client_ref = pseudonymize(client_id)
-    stmt = text(
-        """
-        INSERT INTO match_impressions (
-            run_id, surface, job_id, request_id, user_ref, client_ref,
-            candidate_id, rank, eligible, retrieval_sources, retrieval_score,
-            rerank_score, fit_score, fit_breakdown, ranker_version,
-            index_version, text_schema_version, taxonomy_version, degraded
-        ) VALUES (
-            :run_id, :surface, :job_id, :request_id, :user_ref, :client_ref,
-            :candidate_id, :rank, :eligible,
-            CAST(:retrieval_sources AS JSONB), :retrieval_score,
-            :rerank_score, :fit_score, CAST(:fit_breakdown AS JSONB),
-            :ranker_version, :index_version, :text_schema_version,
-            :taxonomy_version, :degraded
-        )
-        ON CONFLICT (run_id, candidate_id) DO NOTHING
-        """
-    )
+    rows: dict[int, ImpressionEntry] = {}
+    for entry in entries:
+        rows.setdefault(int(entry.candidate_id), entry)
+    shown = list(rows.values())
 
-    inserted = 0
+    def _json(value: Optional[dict]) -> Optional[str]:
+        return json.dumps(value) if value is not None else None
+
+    def _float(value) -> Optional[float]:
+        return float(value) if value is not None else None
+
     try:
         # Dedicated session (M3-TX-01): telemetry is fire-and-forget and must
         # NEVER commit or roll back the CALLER's request transaction. The passed
         # ``db`` (the request session owned by the recommendation flow) is
         # deliberately not used for the write — a telemetry failure has to stay
-        # isolated from the business operation, so the INSERTs run on their own
+        # isolated from the business operation, so the INSERT runs on its own
         # ``AsyncSessionLocal``.
         async with AsyncSessionLocal() as s:
-            for e in entries:
-                result = await s.execute(
-                    stmt,
-                    {
-                        "run_id": run_id,
-                        "surface": surface,
-                        "job_id": job_id,
-                        "request_id": request_id,
-                        "user_ref": user_ref,
-                        "client_ref": client_ref,
-                        "candidate_id": e.candidate_id,
-                        "rank": e.rank,
-                        "eligible": e.eligible,
-                        "retrieval_sources": (
-                            json.dumps(e.retrieval_sources)
-                            if e.retrieval_sources is not None
-                            else None
-                        ),
-                        "retrieval_score": e.retrieval_score,
-                        "rerank_score": e.rerank_score,
-                        "fit_score": e.fit_score,
-                        "fit_breakdown": (
-                            json.dumps(e.fit_breakdown)
-                            if e.fit_breakdown is not None
-                            else None
-                        ),
-                        "ranker_version": ranker_version,
-                        "index_version": index_version,
-                        "text_schema_version": text_schema_version,
-                        "taxonomy_version": taxonomy_version,
-                        "degraded": degraded,
-                    },
-                )
-                inserted += result.rowcount or 0
+            result = await s.execute(
+                _IMPRESSIONS_INSERT,
+                {
+                    "run_id": run_id,
+                    "surface": surface,
+                    "job_id": job_id,
+                    "request_id": request_id,
+                    "user_ref": pseudonymize(user_id),
+                    "client_ref": pseudonymize(client_id),
+                    "ranker_version": ranker_version,
+                    "index_version": index_version,
+                    "text_schema_version": text_schema_version,
+                    "taxonomy_version": taxonomy_version,
+                    "degraded": degraded,
+                    "candidate_ids": [int(e.candidate_id) for e in shown],
+                    "ranks": [int(e.rank) for e in shown],
+                    "eligibles": [bool(e.eligible) for e in shown],
+                    "retrieval_sources": [_json(e.retrieval_sources) for e in shown],
+                    "retrieval_scores": [_float(e.retrieval_score) for e in shown],
+                    "rerank_scores": [_float(e.rerank_score) for e in shown],
+                    "fit_scores": [_float(e.fit_score) for e in shown],
+                    "fit_breakdowns": [_json(e.fit_breakdown) for e in shown],
+                },
+            )
+            inserted = result.rowcount or 0
             await s.commit()
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks matching
         logger.warning("[telemetry] impression write failed: %s", exc)
         return 0
     return inserted
+
+
+# Every per-page scalar is CAST: in `INSERT ... SELECT` Postgres does not infer
+# a parameter's type from the target column (tests/test_raw_sql_prepares.py).
+_IMPRESSIONS_INSERT = text(
+    """
+    INSERT INTO match_impressions (
+        run_id, surface, job_id, request_id, user_ref, client_ref,
+        candidate_id, rank, eligible, retrieval_sources, retrieval_score,
+        rerank_score, fit_score, fit_breakdown, ranker_version,
+        index_version, text_schema_version, taxonomy_version, degraded
+    )
+    SELECT
+        CAST(:run_id AS VARCHAR), CAST(:surface AS VARCHAR),
+        CAST(:job_id AS INTEGER), CAST(:request_id AS INTEGER),
+        CAST(:user_ref AS VARCHAR), CAST(:client_ref AS VARCHAR),
+        e.candidate_id, e.rank, e.eligible,
+        CAST(e.retrieval_sources AS JSONB), e.retrieval_score,
+        e.rerank_score, e.fit_score, CAST(e.fit_breakdown AS JSONB),
+        CAST(:ranker_version AS VARCHAR), CAST(:index_version AS VARCHAR),
+        CAST(:text_schema_version AS VARCHAR),
+        CAST(:taxonomy_version AS VARCHAR), CAST(:degraded AS BOOLEAN)
+    FROM unnest(
+        CAST(:candidate_ids AS INTEGER[]),
+        CAST(:ranks AS INTEGER[]),
+        CAST(:eligibles AS BOOLEAN[]),
+        CAST(:retrieval_sources AS TEXT[]),
+        CAST(:retrieval_scores AS DOUBLE PRECISION[]),
+        CAST(:rerank_scores AS DOUBLE PRECISION[]),
+        CAST(:fit_scores AS DOUBLE PRECISION[]),
+        CAST(:fit_breakdowns AS TEXT[])
+    ) AS e(
+        candidate_id, rank, eligible, retrieval_sources, retrieval_score,
+        rerank_score, fit_score, fit_breakdown
+    )
+    ON CONFLICT (run_id, candidate_id) DO NOTHING
+    """
+)
 
 
 _OUTCOME_INSERT = text(
@@ -384,92 +405,105 @@ async def record_full_search_page(
     )
 
 
-async def latest_impression_runs(
-    *, job_id: int, candidate_ids: Sequence[int], user_id: Optional[int]
-) -> dict[int, str]:
-    """``{candidate_id: run_id}`` of the most recent impression THIS user was
-    shown for this job — the run an action on the candidate follows from.
+# Screens that add to a pipeline through the shared bulk route
+# (`POST /api/jobs/{id}/proposals/bulk`). Stored as the outcome's
+# `reason_code`: for `add_to_pipeline` there is no other reason to record, and
+# it is what separates an unattributed (NULL-run) add by surface. Anything
+# outside this closed vocabulary is stored as NULL, never as free text.
+PIPELINE_ADD_SOURCES = frozenset(
+    {"full_search", "manual_search", "historical", "quick_add"}
+)
 
-    Own session, never raises (an unknown run is ``{}``, not an error).
+# The run the caller declared, accepted only when it verifiably preceded the
+# add: a durable full-search run owned by this user, for this job, that served
+# this candidate (its impression). `= ANY(:ids)`, not an expanding `IN :ids`:
+# the statement stays one plain, preparable text
+# (tests/test_raw_sql_prepares.py plans every literal).
+_VERIFIED_RUN_CANDIDATES = text(
     """
-    ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
-    if not telemetry_enabled() or not ids or user_id is None:
-        return {}
-    # `= ANY(:ids)`, not an expanding `IN :ids`: the statement stays one plain,
-    # preparable text (tests/test_raw_sql_prepares.py plans every literal).
-    stmt = text(
-        """
-        SELECT DISTINCT ON (candidate_id) candidate_id, run_id
-        FROM match_impressions
-        WHERE job_id = :job_id
-          AND user_ref = :user_ref
-          AND candidate_id = ANY(:ids)
-        ORDER BY candidate_id, created_at DESC, id DESC
-        """
-    )
+    SELECT i.candidate_id
+    FROM match_impressions i
+    JOIN candidate_search_runs r ON r.id = i.run_id
+    WHERE i.run_id = :run_id
+      AND r.created_by = :user_id
+      AND r.job_id = :job_id
+      AND i.candidate_id = ANY(:ids)
+    """
+)
+
+
+async def _verified_run_candidates(
+    *,
+    run_id: Optional[str],
+    job_id: int,
+    user_id: Optional[int],
+    candidate_ids: Sequence[int],
+) -> set[int]:
+    """Candidates of ``candidate_ids`` that ``run_id`` showed THIS user for THIS
+    job. Own session, never raises: an unverifiable run is ``set()``."""
+    if not run_id or user_id is None or not candidate_ids:
+        return set()
     try:
         async with AsyncSessionLocal() as s:
             rows = await s.execute(
-                stmt,
-                {"job_id": job_id, "user_ref": pseudonymize(user_id), "ids": ids},
+                _VERIFIED_RUN_CANDIDATES,
+                {
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "job_id": job_id,
+                    "ids": list(candidate_ids),
+                },
             )
-            return {int(cid): str(run) for cid, run in rows.all()}
+            return {int(cid) for (cid,) in rows.all()}
     except Exception as exc:  # noqa: BLE001 — telemetry never breaks the action
-        logger.warning("[telemetry] impression run lookup failed: %s", exc)
-        return {}
-
-
-async def _latest_proposal_run(job_id: int) -> Optional[str]:
-    """The job's latest proposals run — ``emit_match_outcome``'s correlation,
-    looked up in an OWN session (a failed read must not poison the caller's)."""
-    from sqlalchemy import select
-
-    from app.models.proposal_snapshot import ProposalSnapshot
-
-    try:
-        async with AsyncSessionLocal() as s:
-            return await s.scalar(
-                select(ProposalSnapshot.run_id)
-                .where(ProposalSnapshot.job_id == job_id)
-                .order_by(ProposalSnapshot.created_at.desc())
-                .limit(1)
-            )
-    except Exception:  # noqa: BLE001
-        return None
+        logger.warning("[telemetry] run attribution lookup failed: %s", exc)
+        return set()
 
 
 async def emit_pipeline_additions(
-    *, job_id: int, candidate_ids: Sequence[int], user_id: Optional[int]
+    *,
+    job_id: int,
+    candidate_ids: Sequence[int],
+    user_id: Optional[int],
+    run_id: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> int:
     """``add_to_pipeline`` outcomes for candidates just added to a pipeline.
 
-    Each outcome is correlated with the full-search run in which this user was
-    last shown the candidate for this job (so it joins its impression: page,
-    rank, fit). A candidate added without having been shown there falls back to
-    the job's latest proposals run, exactly like ``emit_match_outcome``. Same
-    idempotency key shape as ``emit_match_outcome``. One session for the whole
-    batch, at most ``MAX_ROWS_PER_CALL`` rows. Never raises; returns the number
-    of NEW outcome rows.
+    An outcome joins a ranking only through the run the CALLER declares
+    (``run_id``, sent by the full-search screen), and only for candidates that
+    run verifiably showed this user for this job — so it joins its impression:
+    page, rank, fit. Everything else is stored with ``run_id = NULL``.
+
+    No attribution is guessed. The bulk route is shared by manual search, the
+    historical section, quick-add and the job page, so "the latest impression
+    this user saw" (or "the job's latest proposals run") credited adds made on
+    another screen to an unrelated ranking. ``source`` records which screen
+    the add came from (``reason_code``). Same idempotency key shape as
+    ``emit_match_outcome``. One session for the whole batch, at most
+    ``MAX_ROWS_PER_CALL`` rows. Never raises; returns the number of NEW rows.
     """
     ids = list(dict.fromkeys(int(cid) for cid in candidate_ids))[:MAX_ROWS_PER_CALL]
     if not telemetry_enabled() or not ids:
         return 0
     try:
-        runs = await latest_impression_runs(
-            job_id=job_id, candidate_ids=ids, user_id=user_id
+        shown = await _verified_run_candidates(
+            run_id=run_id, job_id=job_id, user_id=user_id, candidate_ids=ids
         )
-        fallback = await _latest_proposal_run(job_id) if len(runs) < len(ids) else None
+        reason_code = source if source in PIPELINE_ADD_SOURCES else None
         params = []
         for cid in ids:
-            run_id = runs.get(cid) or fallback
+            attributed = run_id if cid in shown else None
             params.append(
                 {
-                    "event_id": f"add_to_pipeline:{run_id or 'norun'}:{job_id}:{cid}",
-                    "run_id": run_id,
+                    "event_id": (
+                        f"add_to_pipeline:{attributed or 'norun'}:{job_id}:{cid}"
+                    ),
+                    "run_id": attributed,
                     "candidate_id": cid,
                     "job_id": job_id,
                     "event_type": "add_to_pipeline",
-                    "reason_code": None,
+                    "reason_code": reason_code,
                 }
             )
         inserted = 0
