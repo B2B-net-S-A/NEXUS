@@ -507,7 +507,9 @@ przedłużenie przy dotychczasowym kontrakcie. **Powrót po przerwie** (poprzedn
 zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
-odstęp w dniach. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+odstęp w dniach, a z poprzedniego zamówienia przejmuje to, czego PDF nie niesie:
+część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę godzin rozliczeniowych
+i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
 „poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
 lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
 PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
@@ -520,9 +522,13 @@ zostaje przy linii: osobnego zamówienia obok niej system sam nie założy.
 
 **Mail nie cofa wypowiedzenia umowy.** Jeżeli umowa tej osoby została
 wypowiedziana („Zakończ współpracę”, także z datą w przyszłości), zamówienie
-z maila zapisuje się jako **draft** i nie aktywuje się samo — ani przy odczycie
-maila, ani po podpisie umowy. Wypowiedziana umowa nie wraca przez to do
-aktywnych. O powrocie do współpracy decydujesz Ty.
+z maila, które **wychodzi poza datę końca umowy**, zapisuje się jako **draft**
+i nie aktywuje się samo — ani przy odczycie maila, ani po podpisie umowy.
+Wypowiedziana umowa nie wraca przez to do aktywnych; o powrocie do współpracy
+decydujesz Ty. Zamówienie mieszczące się w całości przed datą końca umowy (np.
+za ostatnie miesiące przed zakończeniem) aktywuje się normalnie. Jeśli po
+wypowiedzeniu przedłużysz umowę aneksem albo przywrócisz ją bezterminowo,
+kolejne zamówienia z maila w nowym okresie też aktywują się normalnie.
 
 **„Automat: pewne” uruchamia zapis bez przycisku „Zastosuj”, dopóki automat jest
 włączony.** Wynik jest w zakładce **„Zapisane automatycznie”**. Dotyczy to również

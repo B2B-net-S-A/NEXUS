@@ -114,6 +114,8 @@ async def _returning_consultant(db, *, start, end, **contract_fields):
         rate_candidate=Decimal("100"),
         rate_unit=RateUnit.hourly,
         order_type="periodic",
+        billing_hours_per_month=168,
+        description="Opis tej samej współpracy",
     )
     db.add(completed)
     await db.flush()
@@ -173,6 +175,11 @@ async def test_return_after_gap_creates_new_order_and_leaves_completed_untouched
         assert renewal.status == ClientOrderStatus.active
         assert renewal.notes == f"Zamówienie z maila (dokument #{doc.id})"
         assert renewal.predecessor_order_id is None
+        # Pola, których PDF nie niesie, dziedziczą się po poprzednim zamówieniu
+        # tej samej współpracy (przegląd 10.09: reaktywacja w miejscu je
+        # zachowywała, nowy wiersz nie może ich zgubić).
+        assert renewal.billing_hours_per_month == 168
+        assert renewal.description == "Opis tej samej współpracy"
         activity = await db.scalar(
             select(Activity).where(
                 Activity.entity_type == "client_order",

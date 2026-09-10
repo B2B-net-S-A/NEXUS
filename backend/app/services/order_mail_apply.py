@@ -237,7 +237,7 @@ async def _renewal_of_completed_order(
             "po nim — przelicz plan"
         )
     gap_days = (start - previous.end_date).days
-    return {
+    details = {
         "renewal_of_order_id": previous.id,
         "previous_end_date": previous.end_date.isoformat(),
         "gap_days": gap_days,
@@ -246,6 +246,19 @@ async def _renewal_of_completed_order(
             f"#{previous.id} — nowe zamówienie, poprzednie bez zmian"
         ),
     }
+    # Pola, których PDF nie niesie, a które opisują TĘ SAMĄ współpracę: dawna
+    # reaktywacja w miejscu zostawiała je w wierszu, więc nowe zamówienie musi
+    # je odziedziczyć. Bez `project_part` zamówienie e-Zdrowia nie przejdzie
+    # walidacji części umowy, a bez `billing_hours_per_month` stawka
+    # przeliczałaby się po domyślnych 160 h.
+    inherited = {
+        "project_part": previous.project_part,
+        "framework_contract_id": previous.framework_contract_id,
+        "job_id": previous.job_id,
+        "billing_hours_per_month": previous.billing_hours_per_month,
+        "description": previous.description,
+    }
+    return details, inherited
 
 
 async def apply_document(
@@ -436,10 +449,10 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 # Powrót po przerwie (ACTION_REACTIVATE) idzie tą samą ścieżką co
                 # nowe zamówienie: NOWY wiersz na nowy okres. Zakończone
                 # zamówienie jest tylko odczytywane — na nim rozliczono faktury.
-                renewal = (
+                renewal, inherited = (
                     await _renewal_of_completed_order(db, contract, rp, start)
                     if applied.action == ACTION_REACTIVATE
-                    else None
+                    else (None, {})
                 )
                 if applied.action != ACTION_FUTURE:
                     await assert_no_open_md_group_line(db, contract.id)
@@ -475,6 +488,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                     rate_candidate_currency=effective.get("rate_candidate_currency"),
                     created_by_user_id=actor_user_id,
                     notes=f"Zamówienie z maila (dokument #{doc.id})",
+                    **{k: v for k, v in inherited.items() if v is not None},
                 )
                 db.add(order)
                 await db.flush()
@@ -519,7 +533,12 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
             from app.services.order_mail_signature import can_activate_mail_order
 
             applied.activated = bool(
-                await can_activate_mail_order(db, contract)
+                await can_activate_mail_order(
+                    db,
+                    contract,
+                    order_start=order.start_date,
+                    order_end=order.end_date,
+                )
                 and _activate_complete_draft(order)
             )
             if is_new_person and order.status == ClientOrderStatus.draft:

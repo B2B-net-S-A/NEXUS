@@ -1242,11 +1242,14 @@ class Settings(BaseSettings):
     # Każdy przegląd zapisuje wiersz na KAŻDEGO kandydata w bazie (z dowodami
     # w JSONB), więc bez retencji tabela wyników rośnie o całą bazę na każde
     # kliknięcie. Decyzja 10.09: 7 dni od zakończenia, ale najnowszy przegląd
-    # z wynikami na (autor, rekrutacja/request) zostaje zawsze. Patrz
-    # app/tasks/candidate_search_retention.py. Pętla kończy się PRZED
-    # `while True`, gdy wyłączona; interwał ma w pętli podłogę 300 s.
+    # z wynikami na (autor, otwarta rekrutacja) — a ad hoc na autora — zostaje
+    # dłużej, najwyżej PROTECT_MAX_DAYS (bez tej granicy tabela rosłaby
+    # z liczbą par, nie z czasem). Patrz app/tasks/candidate_search_retention.py.
+    # Pętla kończy się PRZED `while True`, gdy wyłączona; interwał ma w pętli
+    # podłogę 300 s.
     CANDIDATE_SEARCH_RETENTION_ENABLED: bool = True
     CANDIDATE_SEARCH_RETENTION_DAYS: int = 7
+    CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS: int = 90
     CANDIDATE_SEARCH_RETENTION_CHECK_INTERVAL_SECONDS: int = 3600
 
     # ── Global candidate contact queue ──────────────────────────────────────

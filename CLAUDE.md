@@ -1119,18 +1119,27 @@ web — jeden przegląd naraz, ~3 min.
 - **Retencja (decyzja 10.09):** pętla `candidate_search_retention` kasuje
   zakończone przeglądy (`complete`/`partial`/`failed`) starsze niż
   `CANDIDATE_SEARCH_RETENTION_DAYS` (7), ale najnowszy przegląd z wynikami
-  zostaje zawsze — na (autor, rekrutacja), a bez rekrutacji na (autor,
-  `request_fingerprint`). Kill-switch `CANDIDATE_SEARCH_RETENTION_ENABLED`
+  zostaje dłużej — na (autor, OTWARTA rekrutacja), a bez rekrutacji jeden na
+  autora — najwyżej `CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS` (90).
+  **Nie chroń per odcisk requestu ani bez limitu czasu:** każda nowa treść
+  requestu i każdy bump wersji polityki dawałyby nową, wiecznie chronioną
+  partycję, a tabela rosłaby z liczbą par zamiast z czasem (przegląd
+  adwersarialny 10.09). Kill-switch `CANDIDATE_SEARCH_RETENTION_ENABLED`
   (pętla kończy się przed `while True`). Indeksy z migracji 0305 (`completed_at`
   przeglądu, `candidate_id` wyników) mają lustro w `_INDEX_STATEMENTS`.
   Rozmiar tabeli widać w `GET /api/admin/index-coverage` (blok `candidate_search`).
 - **Stan `failed`:** przejęcie przeglądu zwiększa `metrics.claims` w tym samym
-  UPDATE; trzecia porażka (albo czwarte przejęcie) kończy przegląd jako `failed`,
-  a reaper kończy przejęte przeglądy bez postępu od 30 min. Do 10.09 przegląd,
+  UPDATE; zgłoszona porażka od trzeciego przejęcia (`MAX_FAILED_ATTEMPTS`)
+  kończy przegląd jako `failed`, a przejęcia bez raportu — proces zabity
+  w trakcie, u nas zwykle deploy — mają szerszy budżet (`MAX_CLAIMS` = 8).
+  Reaper kończy przejęte przeglądy bez postępu od 30 min. Do 10.09 przegląd,
   który padł, był podejmowany na nowo w nieskończoność i trwale zajmował jeden
   z dwóch slotów autora. `failed` nie liczy się do limitu; front pokazuje
-  „Uruchom ponownie”, a odpytywanie staje po błędzie (także po 409 zmiany
-  wymagań) — „Spróbuj ponownie” czyta przegląd, a nie odpala nowego skanu.
+  „Uruchom ponownie”. Odpytywanie staje tylko po błędzie OSTATECZNYM
+  (409/404/403 — `searchErrorIsFinal`); chwilowa awaria (sieć, 5xx, deploy)
+  odpytuje dalej co 5 s i trzyma blokadę przycisku startu, żeby nikt nie
+  odpalił drugiego trzyminutowego skanu. „Spróbuj ponownie” czyta przegląd,
+  a nie odpala nowego skanu.
 - **RODO:** twarde usunięcie kandydata kasuje jego wiersze wyników, a aktywne
   przeglądy z tą osobą kończy jako `failed` (`candidate_erased`) —
   `finish_run` wymaga rozliczenia całej migawki.
@@ -1295,13 +1304,20 @@ nie ma żadnej reguły do utrzymania.
   `gap_days`, `previous_end_date`) — NIE w `notes` (tam jest znacznik
   idempotencji porównywany dosłownie) i NIE w `predecessor_order_id` (to
   zamiana kontraktora na linii grupy MD). Linie grup MD nigdy nie są
-  „poprzednim zamówieniem”.
-- **Mail nie wskrzesza wypowiedzianej umowy.** `can_activate_mail_order`
-  odmawia umowie z `terminated_at` albo `termination_reason` przed
-  sprawdzeniem podpisu (dotyczy też `complete_signed_mail_drafts`). Ścieżki
-  ludzkie (`reopen_contract` z aneksu/przedłużenia) zostają bez zmian, więc
-  umowa przedłużona ręcznie po wypowiedzeniu dostaje zamówienia z maila jako
-  szkice.
+  „poprzednim zamówieniem”. Nowe zamówienie dziedziczy z poprzedniego pola,
+  których PDF nie niesie: `project_part` (bez niej e-Zdrowie nie przejdzie
+  walidacji), `framework_contract_id`, `job_id`, `billing_hours_per_month`,
+  `description` — reaktywacja w miejscu zostawiała je w wierszu.
+- **Mail nie wskrzesza wypowiedzianej umowy — ale tylko poza jej okresem.**
+  `termination_allows` (w `order_mail_signature.py`, przed sprawdzeniem
+  podpisu, także w `complete_signed_mail_drafts`): przy umowie z
+  `terminated_at`/`termination_reason` zamówienie z maila aktywuje się tylko
+  wtedy, gdy CAŁY jego okres mieści się przed bieżącą `end_date` umowy;
+  wychodzące poza nią zostaje szkicem. `terminated_at` NIE jest czyszczone przy
+  aneksie ani przywróceniu (`reopen_contract`), więc reguła czyta bieżącą datę
+  końca: aneks przesuwa okres, a umowa przywrócona bezterminowo (`end_date`
+  pusta) wraca do zwykłych zasad. Bez tego jedno wypowiedzenie blokowałoby
+  automat dla tej osoby na zawsze (przegląd adwersarialny 10.09).
 - **Jedyny imiennik w bazie wymaga człowieka.** Nowa osoba z maila jest
   szukana po nazwisku ze zwiniętymi polskimi znakami po obu stronach. Jeden
   imiennik bez umowy u tego klienta zostaje dopięty tylko przy ręcznym

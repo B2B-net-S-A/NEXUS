@@ -406,16 +406,20 @@ async def test_286408_auto_verdict_honours_the_autoapply_kill_switch(
         (date(2026, 6, 30), "project_ended"),
     ],
 )
-async def test_terminated_contract_never_activates_a_mail_order(terminated_at, reason):
+async def test_terminated_contract_never_activates_a_mail_order_past_its_end(
+    terminated_at, reason
+):
     """Wypowiedzenie wygrywa z każdym statusem i z podpisem (A3, 10.09.2026).
 
-    Aktywne zamówienie z maila wskrzesiłoby wypowiedzianą umowę. Warunek musi
-    stać PRZED sprawdzeniem podpisu — ``complete_signed_mail_drafts`` (webhook
-    Autenti, potwierdzenie podpisu w generatorze B2B) woła tę samą funkcję.
+    Zamówienie wychodzące poza datę końca wypowiedzianej umowy wskrzesiłoby ją.
+    Warunek stoi PRZED sprawdzeniem podpisu — ``complete_signed_mail_drafts``
+    (webhook Autenti, potwierdzenie podpisu w generatorze B2B) stosuje tę samą
+    regułę do każdego szkicu.
     """
     from app.models.contract import ContractStatus
     from app.services.order_mail_signature import can_activate_mail_order
 
+    end = date(2026, 10, 31)
     db = SimpleNamespace(scalar=AsyncMock(return_value=1))  # podpis istnieje
     for status in (
         ContractStatus.active,
@@ -424,10 +428,64 @@ async def test_terminated_contract_never_activates_a_mail_order(terminated_at, r
         ContractStatus.draft,
     ):
         contract = SimpleNamespace(
-            id=1, status=status, terminated_at=terminated_at, termination_reason=reason
+            id=1,
+            status=status,
+            end_date=end,
+            terminated_at=terminated_at,
+            termination_reason=reason,
         )
-        assert await can_activate_mail_order(db, contract) is False, status
+        for order_start, order_end in (
+            (date(2026, 11, 1), date(2026, 12, 31)),  # w całości po końcu
+            (date(2026, 10, 1), date(2026, 12, 31)),  # wychodzi poza koniec
+            (date(2026, 10, 1), None),  # bezterminowe — wychodzi poza koniec
+            (None, None),  # brak okresu — nie zgadujemy
+        ):
+            assert (
+                await can_activate_mail_order(
+                    db, contract, order_start=order_start, order_end=order_end
+                )
+                is False
+            ), (status, order_start, order_end)
     db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_terminated_contract_activates_an_order_within_its_current_period():
+    """Wypowiedzenie obowiązuje do BIEŻĄCEJ daty końca umowy (przegląd 10.09).
+
+    PO za miesiące przed końcem albo okres po aneksie przedłużającym (który
+    przesuwa ``end_date``, ale nie czyści ``terminated_at``) ma się aktywować
+    jak u każdej umowy — inaczej jedno wypowiedzenie blokowałoby automat na
+    zawsze. Umowa przywrócona bezterminowo (``end_date`` pusta) wraca do
+    zwykłych reguł.
+    """
+    from app.models.contract import ContractStatus
+    from app.services.order_mail_signature import can_activate_mail_order
+
+    db = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    extended = SimpleNamespace(
+        id=1,
+        status=ContractStatus.active,
+        end_date=date(2027, 3, 31),  # aneks przedłużył wypowiedzianą umowę
+        terminated_at=date(2026, 6, 30),
+        termination_reason="project_ended",
+    )
+    assert await can_activate_mail_order(
+        db,
+        extended,
+        order_start=date(2026, 11, 1),
+        order_end=date(2027, 3, 31),
+    )
+    reopened = SimpleNamespace(
+        id=1,
+        status=ContractStatus.active,
+        end_date=None,  # przywrócona bezterminowo
+        terminated_at=date(2026, 6, 30),
+        termination_reason="project_ended",
+    )
+    assert await can_activate_mail_order(
+        db, reopened, order_start=date(2026, 11, 1), order_end=None
+    )
 
 
 @pytest.mark.asyncio

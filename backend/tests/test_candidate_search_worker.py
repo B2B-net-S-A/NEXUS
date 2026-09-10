@@ -155,12 +155,29 @@ async def test_non_transient_failure_is_retried_then_becomes_terminal(
 
 @pytest.mark.asyncio
 async def test_claim_beyond_budget_fails_before_any_provider_work(monkeypatch):
-    fail, release, vector = _wire_lifecycle(monkeypatch, claims=4, fail_with=None)
+    fail, release, vector = _wire_lifecycle(
+        monkeypatch, claims=worker.MAX_CLAIMS + 1, fail_with=None
+    )
     await worker.execute_run("run")
     fail.assert_awaited_once()
     assert fail.call_args.args[1:] == ("run", "attempts_exhausted")
     vector.assert_not_awaited()
     release.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unreported_claims_from_deploys_do_not_exhaust_a_healthy_run(
+    monkeypatch,
+):
+    """Coolify restartuje kontener przy każdym pushu na main — przejęcia bez
+    raportu (proces zabity w trakcie) nie mogą kończyć zdrowego przeglądu po
+    trzech deployach (przegląd adwersarialny 10.09)."""
+    fail, _release, vector = _wire_lifecycle(monkeypatch, claims=5, fail_with=None)
+    await worker.execute_run("run")
+    vector.assert_awaited()
+    assert all(
+        call.args[2:3] != ("attempts_exhausted",) for call in fail.await_args_list
+    )
 
 
 @pytest.mark.asyncio

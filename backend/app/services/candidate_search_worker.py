@@ -25,9 +25,12 @@ logger = logging.getLogger(__name__)
 QUERY_TIMEOUT_SECONDS = 240
 BATCH_TIMEOUT_SECONDS = 90
 # A claim is an attempt even when the worker dies before its first checkpoint.
-# The third failed attempt is terminal; a fourth claim means earlier attempts
-# died without reporting (process crash), which is terminal as well.
-MAX_CLAIMS = 3
+# A REPORTED failure is terminal from the third claim on. A claim that never
+# reported back means the process died mid-run — at NEXUS that is usually a
+# deploy (Coolify restarts the container on every push to main, often several
+# times an hour), not a broken run — so unreported claims get a wider budget.
+MAX_FAILED_ATTEMPTS = 3
+MAX_CLAIMS = 8
 # Hand the event loop back while a batch is scored in-process, so HTTP
 # requests served by the same process are not starved by one long scan.
 YIELD_EVERY = 32
@@ -164,7 +167,7 @@ async def _record_failure(run_id: str, token: str, exc: BaseException) -> None:
     async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
         claims = store.claim_count(run.metrics if run is not None else None)
-        if claims >= MAX_CLAIMS:
+        if claims >= MAX_FAILED_ATTEMPTS:
             if await store.fail_run(db, run_id, code, token=token):
                 logger.warning(
                     "Candidate search %s failed after %s attempts: %s",

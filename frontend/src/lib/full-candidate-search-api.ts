@@ -111,3 +111,13 @@ export function searchNeedsNewRun(error: unknown): boolean {
   const status = httpStatusFromError(error);
   return status === 409 || status === 404;
 }
+
+/**
+ * A read error that will not go away by itself: the run must be replaced
+ * (409/404) or the user lost access (403). Anything else — network blip, 5xx,
+ * 429, a deploy restarting the API — is transient: the scan keeps running on
+ * the server, so polling must continue instead of freezing on the last data.
+ */
+export function searchErrorIsFinal(error: unknown): boolean {
+  return searchNeedsNewRun(error) || httpStatusFromError(error) === 403;
+}

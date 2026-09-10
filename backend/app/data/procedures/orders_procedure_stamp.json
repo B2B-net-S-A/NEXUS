@@ -27,7 +27,7 @@
     "backend/app/services/order_group_extraction.py": "7d31d1c855b234bf525ff8c1d2177122db6f1bca9f74415657d4087704714c08",
     "backend/app/services/order_group_lifecycle.py": "773531f003c5b1d269cb3eede3aed81dc018b6ef4686e5e99982835d9fef0413",
     "backend/app/services/order_group_materializer.py": "9623cd9981fa511b7405e882fdc0aabee82baac56202efdd07231789b44dcbcf",
-    "backend/app/services/order_mail_apply.py": "7909b0621ee3e829013f7f950f378a1d943cc0a899e518d84c7064409a634b18",
+    "backend/app/services/order_mail_apply.py": "c52e9030b093129e5efd9b309acf59344d4eedaa966114dd8cd96d229ae55ed9",
     "backend/app/services/order_mail_gate.py": "6e0ccd0b0d925faa18b77083e403b478fbadcbece989a2db4b77314a96ce6987",
     "backend/app/services/order_mail_ingest.py": "47b23e4fbc8d758945c40c3e61d582962d55f67e2f5c7dd883e57ccd8bfd7377",
     "backend/app/services/order_mail_planner.py": "997a8ac47e08d8826ef1d1b59116456c86d41b6156bc1d8e6be507e5c1fc1368",

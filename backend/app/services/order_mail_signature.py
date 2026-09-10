@@ -23,17 +23,40 @@ def contract_was_terminated(contract) -> bool:
     return contract.terminated_at is not None or contract.termination_reason is not None
 
 
-async def can_activate_mail_order(db, contract):
-    """Czy zamówienie z maila wolno aktywować bez człowieka.
+def termination_allows(contract, *, order_start, order_end) -> bool:
+    """Czy wypowiedzenie umowy (jeśli jest) pozwala aktywować zamówienie na ten okres.
 
-    Wypowiedziana umowa (dowolny status, także przyszła data wypowiedzenia)
-    NIGDY: aktywne zamówienie wskrzesiłoby ją (``sync_contract_to_live_order``,
-    a potem dobowy skaner), czyli mail cofnąłby decyzję człowieka. Zamówienie
-    zostaje wtedy szkicem — powrót do współpracy przywraca człowiek. Warunek
-    stoi PRZED podpisem: podpisana umowa nie znosi wypowiedzenia.
+    Wypowiedzenie obowiązuje do BIEŻĄCEJ daty końca umowy. Zamówienie mieszczące
+    się w całości w tym okresie (np. PO za ostatnie miesiące przed końcem albo
+    okres po aneksie przedłużającym, który przesunął datę końca) wolno
+    aktywować. Zamówienie wychodzące poza tę datę wskrzesiłoby umowę
+    (``sync_contract_to_live_order``, potem dobowy skaner), czyli mail cofnąłby
+    decyzję człowieka — zostaje szkicem. Wypowiedziana umowa bez daty końca to
+    umowa przywrócona przez człowieka bezterminowo (``terminated_at`` nie jest
+    czyszczone przy przywróceniu) — wtedy wypowiedzenie już nie obowiązuje.
     """
-    if contract_was_terminated(contract):
+    if not contract_was_terminated(contract) or contract.end_date is None:
+        return True
+    return (
+        order_start is not None
+        and order_end is not None
+        and order_start <= contract.end_date
+        and order_end <= contract.end_date
+    )
+
+
+async def can_activate_mail_order(db, contract, *, order_start=None, order_end=None):
+    """Czy zamówienie z maila na dany okres wolno aktywować bez człowieka.
+
+    Najpierw wypowiedzenie (``termination_allows``) — stoi PRZED podpisem:
+    podpisana umowa nie znosi wypowiedzenia. Potem status albo podpis umowy.
+    """
+    if not termination_allows(contract, order_start=order_start, order_end=order_end):
         return False
+    return await _contract_ready_for_mail_orders(db, contract)
+
+
+async def _contract_ready_for_mail_orders(db, contract) -> bool:
     if contract.status in (
         ContractStatus.active,
         ContractStatus.ending,
@@ -72,7 +95,7 @@ async def complete_signed_mail_drafts(db, contract_id, *, actor_id=None):
         .options(*RATE_SCHEDULE_LOADS)
         .execution_options(populate_existing=True)
     )
-    if not contract or not await can_activate_mail_order(db, contract):
+    if not contract:
         return 0
     orders = (
         await db.scalars(
@@ -99,6 +122,13 @@ async def complete_signed_mail_drafts(db, contract_id, *, actor_id=None):
     ).all()
     changed = 0
     for order in orders:
+        # Ta sama bramka co przy odczycie maila, per okres zamówienia: podpis
+        # nie znosi wypowiedzenia, więc szkic na okres po dacie końca
+        # wypowiedzianej umowy zostaje szkicem (patrz `termination_allows`).
+        if not await can_activate_mail_order(
+            db, contract, order_start=order.start_date, order_end=order.end_date
+        ):
+            continue
         effective = effective_rate_fields(
             contract, order.start_date or business_today()
         )

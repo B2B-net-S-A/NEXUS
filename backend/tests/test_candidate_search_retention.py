@@ -4,9 +4,12 @@ Pilnuje trzech rzeczy, z których każda psuje się po cichu:
 
 1. Stary, ZAKOŃCZONY przegląd znika (razem z wynikami), inaczej tabela wyników
    rośnie o całą bazę kandydatów przy każdym kliknięciu.
-2. Najnowszy przegląd z wynikami na (autor, rekrutacja) — a bez rekrutacji na
-   (autor, request) — zostaje NIEZALEŻNIE od wieku: powrót do rekrutacji po
-   urlopie nie może skończyć się pustym ekranem.
+2. Najnowszy przegląd z wynikami na (autor, OTWARTA rekrutacja) — a bez
+   rekrutacji jeden na autora — zostaje dłużej niż 7 dni: powrót do rekrutacji
+   po urlopie nie może skończyć się pustym ekranem. Ochrona ma granice:
+   rekrutacja zamknięta nic nie chroni, a nic nie jest chronione dłużej niż
+   ``CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS`` (tabela rośnie z czasem,
+   nie z liczbą par autor × request).
 3. Aktywnych przeglądów retencja nie dotyka nigdy.
 """
 
@@ -70,7 +73,11 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
             db.add_all([user, other_user, client])
             await db.flush()
             job = Job(title="Retention job", client_id=client.id)
-            db.add(job)
+            closed_job = Job(
+                title="Retention closed job", client_id=client.id, status="closed"
+            )
+            cap_job = Job(title="Retention cap job", client_id=client.id)
+            db.add_all([job, closed_job, cap_job])
             await db.flush()
             j = {"job_id": job.id}
             runs = {
@@ -89,7 +96,28 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                 "other_author_only": _run(
                     other_user, client, state="complete", completed_at=OLD, **j
                 ),
-                # Ad-hoc Radar: identity is the request fingerprint.
+                # A closed recruitment protects nothing: its only run expires.
+                "closed_job_only": _run(
+                    user,
+                    client,
+                    state="complete",
+                    completed_at=OLD,
+                    job_id=closed_job.id,
+                ),
+                # Protection is capped: the only run of an open recruitment
+                # expires once it is older than PROTECT_MAX_DAYS.
+                "job_only_beyond_cap": _run(
+                    other_user,
+                    client,
+                    state="complete",
+                    completed_at=NOW
+                    - timedelta(
+                        days=settings.CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS + 5
+                    ),
+                    job_id=cap_job.id,
+                ),
+                # Ad-hoc Radar: ONE protected run per author, whatever the
+                # request fingerprint (a new request is not a new partition).
                 "radar_only_old": _run(
                     user,
                     client,
@@ -108,7 +136,7 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                     user,
                     client,
                     state="partial",
-                    completed_at=OLD,
+                    completed_at=OLD + timedelta(hours=1),
                     fingerprint="c" * 64,
                 ),
                 # A failure never protects itself, even as the newest run.
@@ -137,6 +165,9 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
             assert {
                 ids["job_old_complete"],
                 ids["job_old_failed"],
+                ids["closed_job_only"],
+                ids["job_only_beyond_cap"],
+                ids["radar_only_old"],
                 ids["radar_older"],
                 ids["radar_failed_only"],
                 ids["radar_legacy"],
@@ -145,7 +176,6 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                 not {
                     ids["job_recent"],
                     ids["other_author_only"],
-                    ids["radar_only_old"],
                     ids["radar_newest_old"],
                     ids["active_queued"],
                     ids["active_running"],
@@ -218,12 +248,14 @@ async def test_purge_deletes_results_in_batches_then_the_run_and_prune_honours_c
                 .where(CandidateSearchResult.run_id == expired.id)
             )
 
-        # The full cycle with the real selection: only `older` is expired now.
+        # The full cycle with the real selection. Ad hoc runs are protected ONE
+        # per author, so only `replacement` (the author's newest) survives —
+        # `newest` belonged to another request, which is no longer a partition.
         # Other suites may have committed their own old runs; the assertion is
         # about ours, the limit only bounds work.
         monkeypatch.setattr(retention, "RUNS_PER_CYCLE", 10_000)
         stats = await retention.prune_once(days=7, now=NOW)
-        assert stats["runs"] >= 1 and stats["results"] >= 7
+        assert stats["runs"] >= 2 and stats["results"] >= 7
         async with AsyncSessionLocal() as db:
             left = set(
                 await db.scalars(
@@ -232,7 +264,7 @@ async def test_purge_deletes_results_in_batches_then_the_run_and_prune_honours_c
                     )
                 )
             )
-        assert left == {newest.id, replacement.id}
+        assert left == {replacement.id}
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(

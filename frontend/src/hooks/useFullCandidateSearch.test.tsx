@@ -150,6 +150,32 @@ test("a failed read stops polling; a stale (409) run is offered as a new run, no
   }
 });
 
+test("a transient read error during a running scan keeps polling and keeps the start locked", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const outage = Object.assign(new Error("Bad gateway"), { response: { status: 502 } });
+    vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "live", state: "queued", population: 10, brief_status: "provided", versions: {} });
+    vi.mocked(candidateSearchApi.page)
+      .mockResolvedValueOnce(runningPage)
+      .mockRejectedValueOnce(outage)
+      .mockResolvedValue({ ...runningPage, state: "complete" });
+    const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+    await act(async () => { await result.current.start({ job_id: 42 }); });
+    await waitFor(() => expect(result.current.data?.state).toBe("running"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+    await waitFor(() => expect(result.current.error).toBe(outage));
+    // A deploy or a network blip is not the end of the scan: the start button
+    // stays locked (no duplicate 3-minute scan) and polling resumes by itself.
+    expect(result.current.running).toBe(true);
+    expect(result.current.needsNewRun).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    await waitFor(() => expect(result.current.data?.state).toBe("complete"));
+    expect(candidateSearchApi.start).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a failed run is terminal: no polling, no spinner, replacement offered", async () => {
   vi.mocked(candidateSearchApi.start).mockResolvedValue({ run_id: "broken", state: "queued", population: 10, brief_status: "provided", versions: {} });
   vi.mocked(candidateSearchApi.page).mockResolvedValue({ ...runningPage, run_id: "broken", state: "failed", error_code: "stalled" });
