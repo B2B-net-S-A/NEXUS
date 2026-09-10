@@ -491,10 +491,14 @@ def apply_presentation_policy(
     return notes
 
 
-_DATE_MONTH_YEAR = re.compile(r"(?<!\d)(\d{1,2})[./-](\d{4})(?!\d)")
+_DATE_MONTH_YEAR = re.compile(
+    r"(?<![\d./])(?<!\b\d-)(?<!\b\d{2}-)(0?[1-9]|1[0-2])[./-](\d{4})(?!\d)"
+)
 # Rok poprzedzony separatorem daty to koniec tokenu `MM.YYYY`, nie początek
 # `YYYY-MM` — bez tego „03.2019-05.2021" rozpadał się na „03.05/2019.2021".
-_DATE_YEAR_MONTH = re.compile(r"(?<![\d./])(\d{4})-(\d{1,2})(?!\d)")
+_DATE_YEAR_MONTH = re.compile(
+    r"(?<![\d./])(\d{4})-(0?[1-9]|1[0-2])(?![\d./]|-\d{1,2}(?!\d))"
+)
 
 
 def _render_date(year: str, month: str | None, fmt: str) -> str:

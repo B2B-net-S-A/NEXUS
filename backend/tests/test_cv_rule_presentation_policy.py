@@ -186,6 +186,14 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
         # Zakres z myślnikiem bez spacji: dwie daty, nie jedna zlepka.
         ("03.2019-05.2021", "MM/YYYY", "03/2019-05/2021"),
         ("03.2019-05.2021", "YYYY-MM", "2019-03-2021-05"),
+        ("13.2020", "YYYY-MM", "13.2020"),
+        ("00/2020", "YYYY", "00/2020"),
+        ("2020-13", "MM.YYYY", "2020-13"),
+        ("03.01.2020", "YYYY-MM", "03.01.2020"),
+        ("03/01/2020", "YYYY", "03/01/2020"),
+        ("03-01-2020", "YYYY", "03-01-2020"),
+        ("3-1-2020", "YYYY", "3-1-2020"),
+        ("2020-01-03", "MM.YYYY", "2020-01-03"),
     ],
 )
 def test_reformat_dates(text: str, fmt: str, expected: str) -> None:
