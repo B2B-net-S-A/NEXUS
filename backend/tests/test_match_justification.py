@@ -214,9 +214,55 @@ async def test_generate_prose_renders_prompt_and_sanitizes(monkeypatch):
     assert out["summary"] == "Silne dopasowanie."
     assert out["pros"] == ["6 lat DevOps", "AWS + Terraform"]
     assert out["watchouts"] == ["Potwierdzić K8s"]
-    # The real score + a concrete requirement made it into the rendered prompt.
-    assert "78/100" in captured["prompt"]
+    # The breakdown stays the model's input (which areas are strong or weak)
+    # next to a concrete requirement — and the prompt forbids quoting numbers.
+    assert "Spełnione MUST: aws, terraform" in captured["prompt"]
     assert "Senior DevOps Engineer" in captured["prompt"]
+    assert "NIE podawaj punktacji" in captured["system_prompt"]
+
+
+# ── prompt contract: the prose never states a number ────────────────────────
+
+
+def test_prose_template_carries_no_score_and_forbids_quoting_one():
+    """The ring shows the CANONICAL fit; this prose is generated from the
+    legacy breakdown. A number in the prose would contradict the ring, so the
+    template has no `{score}` and both prompts say not to cite points, scores
+    or percentages — while the breakdown stays available as input."""
+    template = mjs.MATCH_JUSTIFICATION
+    assert template.version == 2
+    assert "{score}" not in template.template
+    assert "{score_breakdown}" in template.template
+    assert "NIE cytuj z niego liczb" in template.template
+    for phrase in ("NIE podawaj punktacji", "„72/100”", "procentów dopasowania"):
+        assert phrase in template.system_prompt
+
+
+def test_prompt_inputs_are_exactly_the_template_placeholders():
+    import string
+
+    placeholders = {
+        name
+        for _, name, _, _ in string.Formatter().parse(mjs.MATCH_JUSTIFICATION.template)
+        if name
+    }
+    inputs = mjs._prompt_inputs(make_candidate(), make_job(), make_breakdown())
+    assert set(inputs) == placeholders
+
+
+def test_bumping_the_prompt_version_regenerates_cached_prose(monkeypatch):
+    """The version is part of the cache key: prose stored under v1 is not
+    served for v2 — it regenerates on the next view (lazily, not in bulk)."""
+    import dataclasses
+
+    c, j, bd = make_candidate(), make_job(), make_breakdown()
+    current = mjs._input_hash(c, j, bd)
+    monkeypatch.setattr(
+        mjs,
+        "MATCH_JUSTIFICATION",
+        dataclasses.replace(mjs.MATCH_JUSTIFICATION, version=1),
+    )
+    assert mjs._input_hash(c, j, bd) != current
 
 
 async def test_generate_prose_raises_on_unusable_output(monkeypatch):

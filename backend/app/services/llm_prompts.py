@@ -639,14 +639,18 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
 
 MATCH_JUSTIFICATION = PromptTemplate(
     name="match_justification",
-    version=1,
+    # v2 (09.2026): the tab's ring shows the CANONICAL fit, while this prose is
+    # generated from the legacy breakdown — so the prose must never state a
+    # number (it would contradict the ring). The version is part of the cache
+    # hash: stored v1 prose regenerates lazily on the next view.
+    version=2,
     expected_format="json",
     system_prompt=(
-        "Jesteś senior rekruterem IT w polskiej agencji staffing. Wyjaśniasz, "
-        "DLACZEGO dany kandydat otrzymał konkretny wynik dopasowania (0-100) do "
-        "oferty. Wynik liczbowy JUŻ policzył deterministyczny silnik — Twoim "
-        "zadaniem jest UZASADNIENIE tej punktacji zrozumiałym językiem, nie jej "
-        "zmiana.\n\n"
+        "Jesteś senior rekruterem IT w polskiej agencji staffing. Oceniasz "
+        "jakościowo, JAK dany kandydat pasuje do oferty i DLACZEGO — mocne "
+        "strony, luki i rzeczy do potwierdzenia. Liczbę dopasowania pokazuje "
+        "interfejs; Twoim zadaniem jest uzasadnienie zrozumiałym językiem, nie "
+        "liczba.\n\n"
         "NAJWAŻNIEJSZE REGUŁY:\n"
         "(1) Opieraj się WYŁĄCZNIE na dostarczonych danych (CV, wymagania, "
         "rozbicie punktacji). NIGDY nie wymyślaj doświadczenia, technologii, "
@@ -657,7 +661,12 @@ MATCH_JUSTIFICATION = PromptTemplate(
         "„AWS + Terraform”), a nie ogólniki.\n"
         "(4) Ton: rzeczowy, po polsku, bez marketingowego lania wody.\n"
         "(5) Odpowiedź MUSI być czystym JSON — bez prose przed/po, bez code "
-        "fences."
+        "fences.\n"
+        "(6) NIE podawaj punktacji: żadnej liczby punktów (np. „25/30”), wyniku "
+        "dopasowania (np. „72/100”) ani procentów dopasowania — ani łącznie, ani "
+        "dla pojedynczych obszarów. Liczbę dopasowania pokazuje interfejs i może "
+        "się ona różnić od rozbicia punktacji. Rozbicie traktuj wyłącznie jako "
+        "wskazówkę, które obszary są mocne, a które słabe, i opisz to słowami."
     ),
     template=(
         "OFERTA\n"
@@ -676,14 +685,17 @@ MATCH_JUSTIFICATION = PromptTemplate(
         "  ---\n"
         "  {candidate_cv}\n"
         "  ---\n\n"
-        "ROZBICIE PUNKTACJI (deterministyczny silnik — to jest źródło prawdy "
-        "o wyniku {score}/100):\n"
+        "ROZBICIE PUNKTACJI (deterministyczny silnik — materiał pomocniczy: "
+        "pokazuje, które obszary są mocne, a które słabe; NIE cytuj z niego "
+        "liczb):\n"
         "{score_breakdown}\n\n"
-        "Na tej podstawie zwróć JSON dokładnie w tej strukturze:\n"
+        "Na tej podstawie zwróć JSON dokładnie w tej strukturze (bez punktacji, "
+        "wyników liczbowych i procentów dopasowania — liczbę pokazuje "
+        "interfejs):\n"
         "{{\n"
         '  "summary": "2-4 zdania po polsku: ogólny werdykt — jak mocno kandydat '
-        "pasuje i dlaczego wynik jest taki a nie inny. Wspomnij zarówno mocne "
-        'strony jak i główne zastrzeżenia.",\n'
+        "pasuje do oferty i dlaczego. Wspomnij zarówno mocne strony jak i główne "
+        'zastrzeżenia.",\n'
         '  "pros": ["3-6 krótkich punktów: dlaczego może być dobrym wyborem — '
         'każdy poparty konkretem z CV/wymagań"],\n'
         '  "watchouts": ["1-5 punktów: luki, ryzyka i rzeczy do potwierdzenia na '

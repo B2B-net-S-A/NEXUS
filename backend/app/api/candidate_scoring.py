@@ -145,12 +145,13 @@ async def get_scoring_justification(
 ) -> MatchJustificationOut:
     """AI justification of the (candidate, job) match score. Cached per pair;
     regenerates on ``refresh`` or when the underlying inputs change."""
-    # FIRST: on a failure it rolls the session back, which must not expire the
-    # justification row we are about to serialize.
-    fit = await display_fit(candidate_id, job_id, db, user_id=current_user.id)
+    # Read once, up front: the generation path may roll this request's session
+    # back (concurrent first view), which expires every object loaded through
+    # it — `current_user` included.
+    user_id = current_user.id
     try:
         row = await get_or_generate(
-            candidate_id, job_id, db, user_id=current_user.id, force=refresh
+            candidate_id, job_id, db, user_id=user_id, force=refresh
         )
     except MatchJustificationNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -163,6 +164,9 @@ async def get_scoring_justification(
             detail=f"Nie udało się wygenerować uzasadnienia AI: {exc}",
         ) from exc
 
+    # Own session inside, never raises: a failed measurement is a ring without
+    # a number ("ocena niepełna"), not a failed tab.
+    fit = await display_fit(candidate_id, job_id, user_id=user_id)
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
     return _serialize(row, job_title, warnings, fit=fit)
 
@@ -171,7 +175,11 @@ async def get_scoring_justification(
     "/{candidate_id}/scoring/{job_id}/feedback",
     response_model=MatchJustificationOut,
 )
+# Each response measures canonical fit on demand (query embedding + exact
+# vector lookup), so the thumbs are metered like the other on-demand scoring.
+@limiter.limit("60/minute")
 async def rate_scoring_justification(
+    request: Request,
     candidate_id: int,
     job_id: int,
     payload: ScoringFeedbackIn,
@@ -179,9 +187,7 @@ async def rate_scoring_justification(
     db: AsyncSession = Depends(get_db),
 ) -> MatchJustificationOut:
     """Record "Oceń ten scoring" feedback on an existing justification."""
-    # The response replaces the tab's data, so it must carry the same number
-    # as the GET — and it is computed first for the same rollback reason.
-    fit = await display_fit(candidate_id, job_id, db, user_id=current_user.id)
+    user_id = current_user.id
     row = await get_cached(candidate_id, job_id, db)
     if row is None:
         raise HTTPException(
@@ -197,11 +203,14 @@ async def rate_scoring_justification(
     else:
         row.rating = payload.rating
         row.rating_comment = (payload.comment or "").strip() or None
-        row.rated_by = current_user.id
+        row.rated_by = user_id
         row.rated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(row)
 
+    # The response replaces the tab's data, so it carries the same number as
+    # the GET — measured in its own session, never failing the rating.
+    fit = await display_fit(candidate_id, job_id, user_id=user_id)
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
     return _serialize(row, job_title, warnings, fit=fit)
