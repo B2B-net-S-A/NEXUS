@@ -100,6 +100,7 @@ from app.api import admin_process_adoption
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
+from app.api import admin_index_cleanup
 from app.api import admin_match_score_repair
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
@@ -1010,6 +1011,11 @@ app.include_router(
     admin_index_coverage.router,
     prefix="/api/admin",
     tags=["admin-index-coverage"],
+)
+app.include_router(
+    admin_index_cleanup.router,
+    prefix="/api/admin",
+    tags=["admin-index-cleanup"],
 )
 app.include_router(
     admin_candidate_pii_orphans.router,
