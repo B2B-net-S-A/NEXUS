@@ -283,3 +283,21 @@ async def test_deleting_one_completed_language_preserves_other_source(
     assert "FOR UPDATE" in str(db.scalar.call_args.args[0])
     db.delete.assert_awaited_once_with(row)
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_failed_job_insert_removes_unreferenced_input(monkeypatch, cleanup_fails):
+    monkeypatch.setattr(
+        jobs.object_storage, "upload_cv", Mock(return_value="fresh-key")
+    )
+    cleanup = Mock(
+        side_effect=RuntimeError("storage unavailable") if cleanup_fails else None
+    )
+    monkeypatch.setattr(jobs.object_storage, "delete_cv", cleanup)
+    db = AsyncMock()
+    db.add = Mock()
+    db.flush.side_effect = RuntimeError("job insert failed")
+    with pytest.raises(RuntimeError, match="job insert failed"):
+        await jobs.persist_job(db, kind="upload", user_id=7, inputs={}, generated_id=11)
+    cleanup.assert_called_once_with("fresh-key")
+    db.commit.assert_not_awaited()

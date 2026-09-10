@@ -85,7 +85,16 @@ async def persist_job(
         quota_snapshot=quota_snapshot,
     )
     db.add(job)
-    await db.flush()
+    try:
+        await db.flush()
+    except Exception:
+        # A failed flush cannot have committed this newly uploaded object.
+        # Preserve the database error even if best-effort storage cleanup fails.
+        try:
+            await run_in_threadpool(object_storage.delete_cv, key)
+        except Exception:
+            logger.exception("Could not remove unpersisted CV input snapshot")
+        raise
     return job.id
 
 
