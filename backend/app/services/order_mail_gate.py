@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+import re
 from typing import Mapping, Optional
 
 from app.services.order_mail_planner import AUTO_ACTIONS, DocumentProposal
@@ -17,6 +18,7 @@ from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
     _names_exactly_equivalent,
+    _fold_policy_text,
 )
 
 VERDICT_AUTO = "auto"
@@ -94,6 +96,33 @@ def _row_evidence_reasons(
     return reasons
 
 
+def _unused_total_mapping_reason(reason: str, inp: GateInput) -> bool:
+    """Ignore only a schema-mapping concern about an absent, unused total.
+
+    Periodic orders use rate and dates; MD/cost budgets retain their concerns.
+    Never hide unreadable amounts, conflicting rates, people or dates.
+    """
+    if (
+        inp.extraction.total_value is not None
+        or not inp.proposal.rows
+        or any(row.order_type != "periodic" for row in inp.proposal.rows)
+    ):
+        return False
+    folded = _fold_policy_text(reason)
+    if re.search(
+        r"stawk|\brate\b|dat[ay]|okres|osob|nazwisk|nieczyteln|sprzeczn|rozne kwot",
+        folded,
+    ):
+        return False
+    return "total_value" in folded and any(
+        phrase in folded
+        for phrase in (
+            "nie jest jednoznacznie oznaczone",
+            "nie jest przypisane jednoznacznie",
+        )
+    )
+
+
 def evaluate(inp: GateInput) -> GateVerdict:
     reasons: list[str] = []
     ex = inp.extraction
@@ -139,8 +168,12 @@ def evaluate(inp: GateInput) -> GateVerdict:
         )
     reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
     if ex.uncertain:
-        details = [f"Odczyt niepewny: {r}" for r in ex.uncertain_reasons]
-        reasons.extend(details or ["Odczyt oznaczony jako niepewny"])
+        actionable = [
+            r for r in ex.uncertain_reasons if not _unused_total_mapping_reason(r, inp)
+        ]
+        reasons.extend(f"Odczyt niepewny: {r}" for r in actionable)
+        if not ex.uncertain_reasons:
+            reasons.append("Odczyt oznaczony jako niepewny")
 
     # 6) kompletność tekstu
     if inp.document_truncated:

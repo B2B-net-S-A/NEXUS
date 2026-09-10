@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-09",
+  "reviewed_at": "2026-09-10",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "4473008453a23179a5e2854fc39fd3f2bb8263b28840aa2c2f4dd79c439fd6b8",
@@ -25,7 +25,7 @@
     "backend/app/services/order_group_lifecycle.py": "773531f003c5b1d269cb3eede3aed81dc018b6ef4686e5e99982835d9fef0413",
     "backend/app/services/order_group_materializer.py": "9623cd9981fa511b7405e882fdc0aabee82baac56202efdd07231789b44dcbcf",
     "backend/app/services/order_mail_apply.py": "2a3ebec8eeb38173ef30beec033c301bd6e43ece7413c91a49a3306a8f5e4fa8",
-    "backend/app/services/order_mail_gate.py": "d6542e5d6bf07f79bb7e5499f1e310d9b957d0cf4832bda107884deb946c69f7",
+    "backend/app/services/order_mail_gate.py": "0123d4e8f6c9a11e5958eab248f6891bea127c17d93792cf5ca78400beabbd6e",
     "backend/app/services/order_mail_ingest.py": "773932d68ce4edbdf1234805e072af9d64256e94fb38393134489eb7b2955756",
     "backend/app/services/order_mail_planner.py": "2948dfe08043f51ddbf7f16ed881ecbaa96a07608f6a348ee3013ad4e7c381e2",
     "backend/app/services/order_mail_resolver.py": "f10d86a10ba1dfc59dc5e0fb872a2f7d9ec4fd3f06b095216aa37c2878fa4693",
