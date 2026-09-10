@@ -57,7 +57,7 @@ def _extract_pdf_pdfplumber(data: bytes) -> str:
     text_parts: list[str] = []
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text() or ""
+            page_text = page.extract_text(x_tolerance=1) or ""
             text_parts.append(page_text)
     return "\n".join(text_parts)
 
@@ -134,7 +134,7 @@ def _extract_mixed_pdf(data: bytes) -> str | None:
     try:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
             for number, page in enumerate(pdf.pages, 1):
-                text = page.extract_text() or ""
+                text = page.extract_text(x_tolerance=1) or ""
                 if page.images and len(text.strip()) < _OCR_FALLBACK_THRESHOLD_CHARS:
                     needs_ocr = True
                 else:

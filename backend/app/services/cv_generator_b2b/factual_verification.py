@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from anthropic import transform_schema
 
 from app.services.cv_generator_b2b.provider import analyze_with_ai
+from app.services.cv_generator_b2b.source_quotes import source_quote_span
 
 
 VERIFIER_VERSION = 2
@@ -191,23 +192,20 @@ def verify_final_cv(
             citations = []
             for evidence in item.evidence:
                 source = sources[evidence.source]
-                start = source.find(evidence.quote)
-                if (
-                    not evidence.quote.strip()
-                    or start < 0
-                    or (
-                        evidence.source == "identity"
-                        and item.path not in {"/name", "/first_name"}
-                    )
+                span = source_quote_span(source, evidence.quote)
+                if span is None or (
+                    evidence.source == "identity"
+                    and item.path not in {"/name", "/first_name"}
                 ):
                     invalid_evidence.append(item.path)
                     break
+                start, end = span
                 citations.append(
                     {
                         "source": evidence.source,
                         "start": start,
-                        "end": start + len(evidence.quote),
-                        "quote": evidence.quote,
+                        "end": end,
+                        "quote": source[start:end],
                     }
                 )
             reviews.append({"path": item.path, "evidence": citations})

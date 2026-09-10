@@ -12,8 +12,13 @@ import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from anthropic import transform_schema
 
 from app.services.cv_generator_b2b.provider import analyze_with_ai
+from app.services.cv_generator_b2b.source_quotes import (
+    source_quote_span,
+    same_source_value,
+)
 
 
 SOURCE_FACTS_VERSION = 1
@@ -104,6 +109,9 @@ class Extraction(StrictModel):
     evidence: list[Evidence] = Field(max_length=2000)
 
 
+EXTRACTION_RESPONSE_SCHEMA = transform_schema(Extraction.model_json_schema())
+
+
 class SourceFactsError(ValueError):
     def __init__(self, reason="invalid_extraction"):
         self.reason = reason
@@ -147,9 +155,10 @@ def validate_extraction(response: str, sources: dict[str, str]) -> dict:
     coverage = {path: [] for path in leaves}
     for citation in extracted.evidence:
         source = sources[citation.source]
-        start = source.find(citation.quote)
-        if start < 0 or not citation.quote.strip():
+        span = source_quote_span(source, citation.quote)
+        if span is None:
             raise SourceFactsError("invalid_evidence")
+        start, end = span
         matching = [
             path
             for path in leaves
@@ -163,13 +172,13 @@ def validate_extraction(response: str, sources: dict[str, str]) -> dict:
                 "path": citation.path,
                 "source": citation.source,
                 "start": start,
-                "end": start + len(citation.quote),
+                "end": end,
             }
         )
         for path in matching:
             # Values are raw source extracts. Wording changes belong to the
             # later editorial phase, after the full history has been captured.
-            if leaves[path] in citation.quote:
+            if same_source_value(leaves[path], source[start:end]):
                 coverage[path].append(index)
     if any(not citations for citations in coverage.values()):
         raise SourceFactsError("unbound_fact")
@@ -194,5 +203,6 @@ def extract_source_facts(
         json.dumps(sources, ensure_ascii=False),
         request_id + ":source-facts",
         system=SOURCE_FACTS_PROMPT,
+        response_schema=EXTRACTION_RESPONSE_SCHEMA,
     )
     return validate_extraction(response, sources)

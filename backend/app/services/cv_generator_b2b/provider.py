@@ -27,6 +27,7 @@ from typing import Any
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.claude_client import (
+    ClaudeDeadlineExceeded,
     ClaudeError,
     ClaudeOverloaded,
     ClaudeTruncated,
@@ -52,10 +53,11 @@ logger = logging.getLogger(__name__)
 # ekstrakcji strukturalnej płaci się za realnie wygenerowane tokeny, więc
 # normalne CV nie drożeją. Mieści się pod capem outputu modelu fallbackowego.
 _DEFAULT_MAX_TOKENS = 16384
-_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_MAX_RETRIES = 1
 # Sufit per żądanie. Domyślka SDK to 600 s — o wiele za dużo dla wywołania
 # biegnącego synchronicznie w slocie threadpoola FastAPI.
 _DEFAULT_REQUEST_TIMEOUT = 120.0
+_DEFAULT_TOTAL_TIMEOUT = 300.0
 
 PROMPT_NAME = "cv_b2b_extraction"
 # v3 (2026-06-11): poufność notatek (stawki/red flagi), kwantyfikacja, zwięzłość
@@ -82,6 +84,10 @@ class CVGeneratorAIError(RuntimeError):
 
 class CVGeneratorTruncatedError(CVGeneratorAIError):
     """Odpowiedź ucięta limitem max_tokens."""
+
+
+class CVGeneratorTimeoutError(CVGeneratorAIError):
+    """A timed-out request must not blame source readability or overload."""
 
 
 class CVGeneratorOverloadedError(CVGeneratorAIError):
@@ -199,6 +205,10 @@ def analyze_with_ai(
                 "CV_B2B_REQUEST_TIMEOUT", _DEFAULT_REQUEST_TIMEOUT, float
             ),
             max_retries=env_number("CV_B2B_MAX_RETRIES", _DEFAULT_MAX_RETRIES, int),
+            stream_response=True,
+            total_timeout=env_number(
+                "CV_B2B_TOTAL_TIMEOUT", _DEFAULT_TOTAL_TIMEOUT, float
+            ),
             thinking=_thinking_param(),
             # Ucięcie MA tu rzucać: `standalone_service` mapuje je na własny
             # kod błędu, a cicha, ucięta odpowiedź trafiłaby dalej jako
@@ -206,9 +216,21 @@ def analyze_with_ai(
             raise_on_truncation=True,
             **kwargs,
         )
+    except ClaudeDeadlineExceeded as exc:
+        raise CVGeneratorTimeoutError(
+            "Przekroczono czas oczekiwania na odpowiedź AI. "
+            "Generacja nie została ukończona; nie oznacza to błędu pliku CV."
+        ) from exc
     except ClaudeTruncated as exc:
         raise CVGeneratorTruncatedError(str(exc)) from exc
     except ClaudeOverloaded as exc:
+        import anthropic
+
+        if isinstance(exc.__cause__, anthropic.APITimeoutError):
+            raise CVGeneratorTimeoutError(
+                "Usługa AI nie odpowiedziała w wymaganym czasie. "
+                "Spróbuj ponownie; nie oznacza to błędu pliku CV."
+            ) from exc
         raise CVGeneratorOverloadedError(
             "Usługa AI (Claude) jest chwilowo przeciążona. "
             "Spróbuj wygenerować CV ponownie za chwilę."
@@ -216,6 +238,13 @@ def analyze_with_ai(
     except ClaudeError as exc:
         raise CVGeneratorAIError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — surowy błąd SDK (4xx, brak sieci)
+        import anthropic
+
+        if isinstance(exc, anthropic.APITimeoutError):
+            raise CVGeneratorTimeoutError(
+                "Usługa AI nie odpowiedziała w wymaganym czasie. "
+                "Spróbuj ponownie; nie oznacza to błędu pliku CV."
+            ) from exc
         raise CVGeneratorAIError(f"Claude call failed: {exc}") from exc
 
     logger.info(

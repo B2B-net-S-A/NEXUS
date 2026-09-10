@@ -49,6 +49,24 @@ def _install(monkeypatch, side_effects):
     seen: list[dict] = []
 
     class _Msgs:
+        def stream(self, **kwargs):
+            from contextlib import contextmanager
+
+            @contextmanager
+            def open_stream():
+                message = self.create(**kwargs)
+
+                class Stream:
+                    def __iter__(self):
+                        return iter([object()])
+
+                    def get_final_message(self):
+                        return message
+
+                yield Stream()
+
+            return open_stream()
+
         def create(self, **kwargs):
             seen.append(kwargs)
             effect = side_effects[len(seen) - 1]
