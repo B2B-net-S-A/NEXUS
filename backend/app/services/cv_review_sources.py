@@ -53,7 +53,7 @@ async def load_upload_requirements(db, generated_id: int):
             or not isinstance(payload, UploadGenerationInput)
         ):
             raise ValueError("Invalid upload snapshot")
-        return await run_in_threadpool(upload_requirements, payload)
+        return await run_in_threadpool(upload_requirements, payload, strict=True)
     except Exception as exc:
         raise ReviewSourceUnavailable(
             "Nie można odczytać wymagań zapisanej generacji."

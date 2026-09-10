@@ -91,3 +91,24 @@ async def test_requirements_recovered_from_frozen_upload_after_map_failure(
         ]
         assert "second_generated_id" in str(db.scalar.call_args.args[0])
     db.get.assert_not_awaited()
+
+
+async def test_broken_champion_is_not_reported_as_no_requirements(monkeypatch):
+    raw, digest = serialize_job_inputs(
+        "upload",
+        {
+            "payload": UploadGenerationInput(
+                cv_bytes=b"original",
+                cv_filename="original.docx",
+                champion_bytes=b"not-a-docx",
+                champion_filename="champion.docx",
+            )
+        },
+    )
+    db = AsyncMock()
+    db.scalar.return_value = SimpleNamespace(
+        kind="upload", input_storage_key="snapshot", input_sha256=digest
+    )
+    monkeypatch.setattr(service.object_storage, "download_cv", Mock(return_value=raw))
+    with pytest.raises(service.ReviewSourceUnavailable):
+        await service.load_upload_requirements(db, 12)

@@ -7,7 +7,9 @@ from app.services.cv_generator_b2b.standalone_service import UploadGenerationInp
 logger = logging.getLogger(__name__)
 
 
-def upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
+def upload_requirements(
+    payload: UploadGenerationInput, *, strict: bool = False
+) -> list[dict[str, str]]:
     """Wymagania na kafelki dla trybu upload (brak joba).
 
     Pierwszeństwo mają RĘCZNE pola rekrutera; gdy puste, a wgrano plik
@@ -36,6 +38,8 @@ def upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
             requirements = parse_manual_requirements(
                 ", ".join(champ.must_have), ", ".join(champ.nice_to_have)
             )
-        except Exception as err:  # noqa: BLE001 — fallback nie psuje mapy
-            logger.warning("[cv_b2b] champion parse for requirements failed: %s", err)
+        except Exception as err:  # noqa: BLE001 — optional generation mapping
+            if strict:
+                raise ValueError("Champion requirements unavailable") from err
+            logger.warning("[cv_b2b] champion parse for requirements failed")
     return requirements
