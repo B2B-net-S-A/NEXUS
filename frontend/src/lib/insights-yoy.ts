@@ -129,6 +129,12 @@ export interface YoYRow {
   monthIndex: number;
   label: string;
   values: Array<number | null>;
+  /**
+   * Delta i ocena. W wierszu miesiąca TRWAJĄCEGO porównanie z ostatnim rokiem
+   * jest wygaszone (`value: null`, `verdict: "unknown"`): kilka dni danych obok
+   * pełnego miesiąca roku poprzedniego to „spadek" o dziesiątki procent,
+   * którego nie ma.
+   */
   deltas: YoYDelta[];
   /** Ten miesiąc jeszcze trwa — wartość jest niepełna, nie słaba. */
   partial: boolean;
@@ -137,10 +143,18 @@ export interface YoYRow {
 export interface YoYSummary {
   values: Array<number | null>;
   deltas: YoYDelta[];
-  /** Ile miesięcy objęło porównanie z ostatnim rokiem (YTD). */
+  /**
+   * Ile PEŁNYCH miesięcy objęło porównanie z ostatnim rokiem (YTD). Miesiąc
+   * trwający jest wyłączony z obu lat — 1 lutego to 1 (styczeń), nie 2.
+   */
   comparedMonths: number;
   /** Czy porównanie zostało zawężone — wtedy wiersz musi o tym napisać. */
   ytd: boolean;
+  /**
+   * Czy z porównania wyłączono miesiąc, który jeszcze trwa. Przy
+   * `comparedMonths === 0` (styczeń w toku) ostatniej delty nie ma w ogóle.
+   */
+  excludesPartialMonth: boolean;
 }
 
 export interface YoYTable {
@@ -162,30 +176,58 @@ export function buildYoYTable(
 ): YoYTable {
   const columns = years.map((y) => metric.series[String(y)] ?? []);
   const opts = { unit: metric.unit, lowerIsBetter: metric.lower_is_better };
+  const lastYear = years[years.length - 1];
+  // Numer (1–12) miesiąca, który jeszcze trwa W OSTATNIM roku siatki — albo
+  // `null`, gdy żaden (wszystkie lata zamknięte albo trwający rok poza siatką).
+  const partialMonthNumber: number | null =
+    partialMonth !== null &&
+    partialMonth.year === lastYear &&
+    partialMonth.month >= 1 &&
+    partialMonth.month <= 12
+      ? partialMonth.month
+      : null;
+  const neutral = (mode: "pp" | "pct"): YoYDelta => ({
+    value: null,
+    mode,
+    verdict: "unknown",
+  });
 
   const rows: YoYRow[] = monthLabels.map((label, monthIndex) => {
     const values = columns.map((col) => col[monthIndex] ?? null);
+    const partial =
+      partialMonthNumber !== null && partialMonthNumber - 1 === monthIndex;
     return {
       monthIndex,
       label,
       values,
-      deltas: values
-        .slice(0, -1)
-        .map((prev, i) => yoyDelta(prev, values[i + 1], opts)),
-      partial:
-        partialMonth !== null &&
-        partialMonth.month - 1 === monthIndex &&
-        years[years.length - 1] === partialMonth.year,
+      deltas: values.slice(0, -1).map((prev, i) => {
+        const delta = yoyDelta(prev, values[i + 1], opts);
+        // Para z rokiem, w którym ten miesiąc jeszcze TRWA: bez oceny i bez
+        // liczby. „−95%" pierwszego dnia miesiąca to kalendarz, nie wynik.
+        const involvesPartial = partial && i === values.length - 2;
+        return involvesPartial ? neutral(delta.mode) : delta;
+      }),
+      partial,
     };
   });
 
-  // Zakres YTD wyznacza OSTATNI rok siatki: to on bywa niepełny.
-  const comparedMonths = coveredMonths(columns[columns.length - 1] ?? []);
-  const ytd = comparedMonths > 0 && comparedMonths < 12;
+  // Zakres YTD wyznacza OSTATNI rok siatki: to on bywa niepełny. Miesiąc
+  // TRWAJĄCY nie wchodzi do porównania — ani w roku bieżącym, ani w tym samym
+  // miesiącu roku poprzedniego. Bez tego 1 lutego zestawiał styczeń + jeden
+  // dzień lutego z pełnym styczniem i lutym, czyli „−45%", którego nie ma.
+  const covered = coveredMonths(columns[columns.length - 1] ?? []);
+  const excludesPartialMonth =
+    partialMonthNumber !== null && partialMonthNumber <= covered;
+  const comparedMonths =
+    excludesPartialMonth && partialMonthNumber !== null
+      ? partialMonthNumber - 1
+      : covered;
+  const ytd = excludesPartialMonth || (covered > 0 && covered < 12);
 
   // Wartość w komórce podsumowania opisuje CAŁY rok — to jest liczba, którą
   // czytelnik chce zobaczyć dla roku zamkniętego. Zawężony jest tylko MIANOWNIK
-  // porównania, i tylko dla pary z ostatnim rokiem.
+  // porównania, i tylko dla pary z ostatnim rokiem. Przy `comparedMonths === 0`
+  // (styczeń w toku) porównywać nie ma czego — delta to „—", nie −100%.
   const values = columns.map((col) => aggregateSeries(col, metric.aggregate));
   const ytdValues = columns.map((col) =>
     aggregateSeries(col, metric.aggregate, ytd ? comparedMonths : undefined),
@@ -197,7 +239,10 @@ export function buildYoYTable(
     return yoyDelta(previous, current, opts);
   });
 
-  return { rows, summary: { values, deltas, comparedMonths, ytd } };
+  return {
+    rows,
+    summary: { values, deltas, comparedMonths, ytd, excludesPartialMonth },
+  };
 }
 
 /** Kolejność i nagłówki grup — spis treści sekcji i zarazem kontrakt `group`. */
