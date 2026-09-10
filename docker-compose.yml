@@ -180,11 +180,17 @@ services:
     #    połączeń, pętla w tle blokująca event loop, alembic wiszący na locku),
     #    raportuje „Up" i nie serwuje niczego, dopóki nie zauważy tego człowiek.
     healthcheck:
-      # /api/health = standardowy kształt wg ~/.claude/rules/deployment.md.
-      # `-f` => 503 (`status: unhealthy`, np. padnięta baza) też liczy się jako
-      # porażka sondy — to celowe: kontener, który nie potrafi dobić do bazy,
-      # nie powinien udawać gotowego do przyjmowania ruchu.
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      # /api/health/live = sama żywotność procesu: bez bazy, puli połączeń,
+      # locków i sond zewnętrznych. Do 09.2026 sonda pytała /api/health, które
+      # robi kilkanaście zapytań z własnymi timeoutami — przy ciężkim pełnym
+      # przeglądzie bazy (nasycona pula, zajęta pętla zdarzeń) trzy sondy z rzędu
+      # nie mieściły się w 5 s, Docker oznaczał DZIAŁAJĄCY backend jako
+      # unhealthy, a Traefik przestawał na niego kierować ruch („no available
+      # server"). Awarię bazy nadal raportuje /api/health (smoke test po
+      # deployu, uptime-probe) — tamta sonda zostaje bez zmian.
+      # Kontener staje się healthy dopiero, gdy uvicorn obsługuje żądania, czyli
+      # PO migracjach i seedzie z entrypoint.sh — bramka deployu działa jak dotąd.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
       interval: 15s
       timeout: 5s
       retries: 3

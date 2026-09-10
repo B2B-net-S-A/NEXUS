@@ -31,7 +31,9 @@ services:
       # (nie czeka pełnego start_period), więc Coolify szybko przełącza proxy i
       # okno „no available server" przy deployu jest krótkie. start_period=60s =
       # zapas na `alembic upgrade head` uruchamiany w entrypoint na starcie.
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      # Sonda żywotności (/api/health/live), jak w docker-compose.yml — tam
+      # uzasadnienie; ten overlay nadpisałby ją przy ręcznej symulacji prod.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
       interval: 15s
       timeout: 5s
       retries: 3
