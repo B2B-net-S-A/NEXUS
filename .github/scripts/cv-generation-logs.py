@@ -1,10 +1,12 @@
 """Read bounded CV/provider diagnostics; never export source text or raw logs."""
 
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
 import re
+import time
 
 spec = importlib.util.spec_from_file_location(
     "cv_ops", Path(__file__).with_name("cv-quality-ops.py")
@@ -69,6 +71,33 @@ def main():
     if not isinstance(response, dict) or not isinstance(response.get("logs"), str):
         raise ops.OpsError("invalid_log_response")
     print(json.dumps(project(response["logs"]), indent=2))
+    # Coolify's application-log API selects only the first compose container.
+    # Read the backend state using its established scheduled-task route.
+    identity = ops.checked(os.environ["GITHUB_RUN_ID"], r"[1-9][0-9]{0,19}")
+    name = "nexus-cv-state-" + identity
+    code = base64.b64encode(Path(__file__).with_name("cv-generation-state.py").read_bytes()).decode()
+    command = f"if mkdir /tmp/{name} 2>/dev/null; then cd /app && echo {code} | base64 -d | python; fi"
+    task_id = None
+    try:
+        api.request("POST", api.tasks, {"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True})
+        owned = [t for t in api.inventory() if t.get("name") == name and t.get("command") == command]
+        if len(owned) != 1:
+            raise ops.OpsError("ambiguous_probe_task")
+        task_id = ops.checked(owned[0]["uuid"], r"[A-Za-z0-9-]{1,80}")
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            executions = api.request("GET", f"{api.tasks}/{task_id}/executions")
+            for execution in executions:
+                for line in (execution.get("message") or "").splitlines():
+                    if line.startswith("CV_GENERATION_STATE="):
+                        data = json.loads(line.split("=", 1)[1])
+                        print(json.dumps(data, indent=2))
+                        return
+            time.sleep(10)
+        raise ops.OpsError("probe_timeout")
+    finally:
+        if task_id is not None:
+            api.request("DELETE", f"{api.tasks}/{task_id}")
 
 
 if __name__ == "__main__":
