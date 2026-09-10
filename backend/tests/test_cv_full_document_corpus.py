@@ -4,6 +4,49 @@ import pytest
 from scripts.prepare_cv_document_corpus import load_cases, prepare
 
 
+def test_scan_pagination_preserves_every_paragraph_in_order(tmp_path, monkeypatch):
+    import pdfplumber
+    from PIL import ImageDraw, ImageFont
+    from types import SimpleNamespace
+    from scripts.prepare_cv_document_corpus import write_scanned_pdf
+
+    font = ImageFont.load_default(size=24)
+    original_draw = ImageDraw.Draw
+    rendered = []
+
+    def drawing(page):
+        actual = original_draw(page)
+
+        def text(position, content, **kwargs):
+            assert position[1] + 36 <= 1674
+            assert position[0] + font.getlength(content) <= 1160
+            rendered.append(content)
+            actual.text(position, content, **kwargs)
+
+        return SimpleNamespace(text=text)
+
+    monkeypatch.setattr(ImageDraw, "Draw", drawing)
+    paragraphs = [f"Employment record {number:03d}" for number in range(90)]
+    path = tmp_path / "long-history.pdf"
+    write_scanned_pdf(paragraphs, path, font)
+    assert rendered == paragraphs
+    with pdfplumber.open(path) as pdf:
+        assert len(pdf.pages) > 1
+        assert all(page.images and not page.extract_text() for page in pdf.pages)
+
+
+def test_scan_rejects_overwide_word_without_writing_partial_document(tmp_path):
+    from PIL import ImageFont
+    from scripts.prepare_cv_document_corpus import write_scanned_pdf
+
+    path = tmp_path / "invalid.pdf"
+    with pytest.raises(ValueError, match="page width"):
+        write_scanned_pdf(
+            ["First valid role", "W" * 1000], path, ImageFont.load_default(size=24)
+        )
+    assert not path.exists()
+
+
 def test_scanned_corpus_keeps_all_cases_and_records_font_identity(
     tmp_path, monkeypatch
 ):
