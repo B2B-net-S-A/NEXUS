@@ -579,3 +579,18 @@ describe("wybór konkretnego wyniku generatora", () => {
     expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
   });
 });
+
+it("przy braku zasobów wraca do generatora bez ponownego zastępowania szkicu", async () => {
+  brandedGet.mockResolvedValue({data: {status: "draft", edit_revision: 7, version: 1}});
+  selectGenerated.mockRejectedValueOnce({response: {data: {detail: {code: "cv_editor_assets_unavailable"}}}});
+  Element.prototype.scrollIntoView = vi.fn();
+  renderWorkbench();
+  await userEvent.click(await screen.findByRole("button", {name: "Użyj w rekrutacji"}));
+  await userEvent.click(screen.getByRole("button", {name: "Zastąp szkic i otwórz edytor"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Obecny szkic pozostaje bez zmian");
+  await userEvent.click(screen.getByRole("button", {name: "Przejdź do generatora"}));
+  expect(selectGenerated).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/Wczytać „Wybrane.docx”/)).toBeNull();
+  expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+});

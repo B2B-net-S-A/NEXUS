@@ -489,7 +489,9 @@ async def select_generated_cv(
             )
             metadata.update(capture_editor_origin(html, generated.render_payload))
     except CvAssetsError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(
+            422, {"code": "cv_editor_assets_unavailable", "message": str(error)}
+        ) from error
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1

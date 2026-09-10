@@ -757,9 +757,18 @@ export function CvHandoffWorkbench({
                       </select>
                     </label>
                     {approvedChoices.isError && <p role="alert">Nie udało się pobrać zatwierdzonych wersji. <button className="underline" onClick={() => approvedChoices.refetch()}>Spróbuj ponownie</button></p>}
-                    {selectGeneratedMut.isError && <p role="alert" className="mb-2 text-destructive">
+                    {selectGeneratedMut.isError && ((selectGeneratedMut.error as {response?: {data?: {detail?: {code?: string}}}})?.response?.data?.detail?.code === "cv_editor_assets_unavailable" ? (
+                      <div role="alert" className="mb-2 space-y-2 text-destructive">
+                        <p>Nie można wczytać zasobów tego CV. Obecny szkic pozostaje bez zmian. Ponów wybór lub wygeneruj nowe CV.</p>
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setPendingGenerated(null);
+                          selectGeneratedMut.reset();
+                          generatorRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+                        }}>Przejdź do generatora</Button>
+                      </div>
+                    ) : <p role="alert" className="mb-2 text-destructive">
                       Nie udało się wybrać CV. Odśwież dane rekrutacji — szkic mógł zmienić się w innej sesji.
-                    </p>}
+                    </p>)}
                     <Button size="sm" disabled={selectGeneratedMut.isPending || approvedChoices.isLoading || approvedChoices.isError}
                       onClick={() => selectGeneratedMut.mutate(pendingGenerated)}>
                       {selectGeneratedMut.isPending ? "Wczytywanie…" : "Zastąp szkic i otwórz edytor"}
