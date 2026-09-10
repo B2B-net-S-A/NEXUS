@@ -130,3 +130,33 @@ def test_cached_map_rechecks_evidence_without_changing_history():
     assert result[0]["evidence"] == []
     assert result[0]["note"] is None
     assert cached == original
+
+
+async def test_downloaded_html_uses_same_evidence_validation(monkeypatch):
+    from app.api import cv_generator_b2b as api
+    from app.services.cv_generator_b2b import html_export
+    from unittest.mock import Mock
+
+    row = SimpleNamespace(
+        status="ready",
+        filename="cv.docx",
+        render_payload={"language": "pl", "why_points": ["Current text"]},
+        requirement_map={
+            "items": [
+                {
+                    "requirement": "AWS",
+                    "kind": "must",
+                    "status": "met",
+                    "evidence": [{"quote": "Removed text"}],
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=row))
+    monkeypatch.setattr(api, "_interactive_available", AsyncMock(return_value=True))
+    renderer = Mock(return_value="<p>CV</p>")
+    monkeypatch.setattr(html_export, "render_interactive_html", renderer)
+    response = await api.download_generated_cv_html(7, object(), object())
+    assert response.status_code == 200
+    assert renderer.call_args.args[1][0]["status"] == "no_data"
+    assert renderer.call_args.args[1][0]["evidence"] == []

@@ -1990,10 +1990,12 @@ async def download_generated_cv_html(
         )
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
+    from app.services.cv_generator_b2b.requirement_map import validated_cached_items
 
+    public_payload = build_public_payload(row.render_payload)
     html_str = render_interactive_html(
-        build_public_payload(row.render_payload),
-        ((row.requirement_map or {}).get("items") or [])
+        public_payload,
+        validated_cached_items(public_payload, row.requirement_map)
         if await _interactive_available(db, row)
         else [],
     )
