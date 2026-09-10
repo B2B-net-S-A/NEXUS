@@ -44,6 +44,19 @@ _CHUNK = 500
 # Events the worker will still pick up (failed is retried); dead is final, so a
 # new approval may queue a fresh attempt for it.
 _OPEN_STATES = ("pending", "processing", "failed")
+# What an approval is FOR: exactly the ids it would queue (plus the ids it
+# deliberately leaves alone) in exactly these collections. Global totals
+# (candidates, points, jobs) stay in the response but out of the fingerprint:
+# every unrelated candidate embedded between review and approval moved them,
+# so a busy index answered every approval with 409 and the plan could never
+# be queued.
+_APPROVED_PARTS = (
+    "schema",
+    "collections",
+    "orphan_candidate_point_ids",
+    "jobs_to_embed",
+    "jobs_without_text",
+)
 
 
 class IndexUnavailable(RuntimeError):
@@ -165,7 +178,7 @@ async def build_plan(db) -> dict:
             "jobs_without_text": len(without_text),
         },
     }
-    plan["fingerprint"] = fingerprint(plan)
+    plan["fingerprint"] = fingerprint({key: plan[key] for key in _APPROVED_PARTS})
     return plan
 
 

@@ -247,6 +247,54 @@ async def test_changed_plan_or_counts_queue_nothing(monkeypatch, tamper):
 
 
 @pytest.mark.asyncio
+async def test_unrelated_embeddings_between_review_and_approval_do_not_409(
+    monkeypatch,
+):
+    """Only the plan's actionable parts are approved. A candidate or job that
+    got embedded in the meantime (row + point both present) moves the global
+    totals, not the plan — on a busy index every approval used to be 409."""
+    monkeypatch.setattr(index_cleanup, "worker_enabled", lambda: False)
+    async with AsyncSessionLocal() as db:
+        try:
+            seeded = await _seed(db)
+            fake = _install(monkeypatch, seeded)
+            plan = await index_cleanup.build_plan(db)
+
+            client = Client(name=f"Index cleanup newcomer {uuid.uuid4().hex[:10]}")
+            db.add(client)
+            await db.flush()
+            newcomer = Candidate(name="Index", lastname=f"Newcomer {uuid.uuid4().hex}")
+            new_job = Job(title="Rust developer", client_id=client.id)
+            db.add_all([newcomer, new_job])
+            await db.flush()
+            new_job.embedding_id = str(new_job.id)
+            await db.flush()
+            fake.collections["cands"].append(newcomer.id)
+            fake.collections["jobs"].append(new_job.id)
+
+            replanned = await index_cleanup.build_plan(db)
+            queued = await index_cleanup.enqueue_reviewed_cleanup(
+                db,
+                expected_fingerprint=plan["fingerprint"],
+                orphan_count=plan["counts"]["orphan_candidate_points"],
+                job_count=plan["counts"]["jobs_to_embed"],
+            )
+
+            # An actionable change still invalidates the approval.
+            fake.collections["cands"].append(seeded.orphans[-1] + 1)
+            changed = await index_cleanup.build_plan(db)
+        finally:
+            await db.rollback()
+
+    assert replanned["counts"]["candidates"] == plan["counts"]["candidates"] + 1
+    assert replanned["counts"]["job_points"] == plan["counts"]["job_points"] + 1
+    assert replanned["fingerprint"] == plan["fingerprint"]
+    assert queued["fingerprint"] == plan["fingerprint"]
+    assert queued["queued_orphan_deletes"] == len(plan["orphan_candidate_point_ids"])
+    assert changed["fingerprint"] != plan["fingerprint"]
+
+
+@pytest.mark.asyncio
 async def test_a_row_that_reappears_blocks_the_whole_approval(monkeypatch):
     """Re-read inside the enqueue transaction, after the plan's own read."""
     async with AsyncSessionLocal() as db:
