@@ -7363,6 +7363,35 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# PFRON 507–509 (0306, 09.2026) — jednorazowe rozdzielenie zamówień, które
+# czyszczenie kolejki maila z 9/10.09 przepisało W MIEJSCU nowym okresem:
+# nowy okres → nowy wiersz, oryginał wraca do stanu z Activity
+# `order_mail_reactivate`. Safety-net dla migracji 0306 (alembic na prodzie
+# bywa osierocony). Jedno źródło SQL-a w `app/services/pfron_renewal_split_repair.py`;
+# marker + advisory lock → drugi start kończy się natychmiast, a zamówienie,
+# którego tożsamość się nie zgadza, zostaje nietknięte z powodem w paragonie.
+echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
+python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.pfron_renewal_split_repair import (
+    PFRON_RENEWAL_SPLIT_MARKER,
+    PFRON_RENEWAL_SPLIT_SQL,
+)
+
+async def repair():
+    async with engine.begin() as conn:
+        await conn.execute(text(PFRON_RENEWAL_SPLIT_SQL))
+        receipt = await conn.scalar(
+            text("SELECT value::text FROM app_settings WHERE key = :key"),
+            {"key": PFRON_RENEWAL_SPLIT_MARKER},
+        )
+    print(f"pfron renewal split repair: {receipt}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
