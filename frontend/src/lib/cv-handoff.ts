@@ -138,16 +138,51 @@ export async function runCvHandoff(
   return { completed, skipped, failedAfterMove, shareUrlSuffix };
 }
 
+/** Status HTTP z błędu (axios: `error.response.status`) — `null` bez odpowiedzi. */
+function httpStatusOf(reason: unknown): number | null {
+  const status = (reason as { response?: { status?: unknown } } | null)?.response
+    ?.status;
+  return typeof status === "number" ? status : null;
+}
+
+/**
+ * Czy serwer JEDNOZNACZNIE odmówił (odpowiedź 4xx) — tylko wtedy wiadomo, że
+ * ruch się nie zapisał. Brak odpowiedzi (limit czasu, zerwane połączenie,
+ * „Network Error" po 500 bez nagłówków CORS) i 5xx z bramki albo serwera nie
+ * mówią, czy transakcja zdążyła się zatwierdzić.
+ */
+export function isDefiniteRefusal(reason: unknown): boolean {
+  const status = httpStatusOf(reason);
+  return status !== null && status >= 400 && status < 500;
+}
+
 /**
  * Zdanie po polsku dla sekwencji przerwanej na ruchu: co padło i co z tym
- * zrobić. Ruch idzie pierwszy, więc przy tej porażce nic nie powstało — ani
- * link, ani stawka — i ponowienie niczego nie zdubluje.
+ * zrobić. Ruch idzie pierwszy, więc przy tej porażce link i stawka nie
+ * powstały. O samym ruchu wiemy tyle, ile powiedział serwer: odmowa (4xx)
+ * znaczy „nic się nie zmieniło", ale brak odpowiedzi albo 5xx znaczy „nie
+ * wiadomo" — ruch mógł się zapisać, a ponowienie dopisałoby drugi etap
+ * „CV Wysłane".
  */
 export function describeCvHandoffFailure(
   error: CvHandoffError,
   detail: string,
 ): string {
-  const head = `Nie udało się: ${CV_HANDOFF_STEP_LABEL[error.step]}${detail ? ` — ${detail}` : "."}`;
+  const label = CV_HANDOFF_STEP_LABEL[error.step];
+  if (
+    error.step === "move" &&
+    error.completed.length === 0 &&
+    !isDefiniteRefusal(error.reason)
+  ) {
+    return (
+      `Nie wiadomo, czy się udało: ${label}${detail ? ` — ${detail}` : ""}. ` +
+      "Serwer nie potwierdził zapisu (limit czasu, zerwane połączenie albo błąd " +
+      "serwera), więc kandydat mógł już zostać przeniesiony. Odśwież kartę " +
+      "kandydata, zanim spróbujesz ponownie — ponowienie mogłoby dodać drugi " +
+      "etap „CV Wysłane”. Link dla klienta nie powstał."
+    );
+  }
+  const head = `Nie udało się: ${label}${detail ? ` — ${detail}` : "."}`;
   if (error.completed.length === 0) {
     return `${head} Nic nie zostało zmienione — link dla klienta nie powstał. Popraw przyczynę i spróbuj ponownie.`;
   }

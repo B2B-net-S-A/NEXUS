@@ -16,6 +16,7 @@ import {
   computeMarginPreview,
   describeCvHandoffFailure,
   describeCvHandoffSuccess,
+  isDefiniteRefusal,
   runCvHandoff,
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
@@ -115,16 +116,58 @@ describe("runCvHandoff", () => {
   });
 });
 
+/** Błąd axios z odpowiedzią serwera (odmowa) albo bez niej (limit czasu). */
+function httpError(status: number | null, message = "x"): Error {
+  return Object.assign(
+    new Error(message),
+    status === null ? { code: "ECONNABORTED" } : { response: { status } },
+  );
+}
+
 describe("describeCvHandoffFailure", () => {
-  it("po padniętym ruchu mówi, że nic się nie zmieniło — także link nie powstał", () => {
+  it("po ODMOWIE serwera (4xx) mówi, że nic się nie zmieniło — także link nie powstał", () => {
     const msg = describeCvHandoffFailure(
-      new CvHandoffError("move", [], new Error("x")),
+      new CvHandoffError("move", [], httpError(409)),
       "weto hiring managera",
     );
     expect(msg).toContain("przeniesienie na „CV Wysłane”");
     expect(msg).toContain("weto hiring managera");
     expect(msg).toContain("Nic nie zostało zmienione");
     expect(msg).toContain("link dla klienta nie powstał");
+  });
+
+  it("bez odpowiedzi serwera (limit czasu) NIE twierdzi, że nic się nie zmieniło", () => {
+    // Ruch mógł się zatwierdzić przed zerwaniem połączenia — ponowienie
+    // „bo nic się nie stało" dopisałoby drugi etap „CV Wysłane".
+    const msg = describeCvHandoffFailure(
+      new CvHandoffError("move", [], httpError(null, "timeout of 60000ms exceeded")),
+      "timeout of 60000ms exceeded",
+    );
+    expect(msg).not.toContain("Nic nie zostało zmienione");
+    expect(msg).toContain("Nie wiadomo, czy się udało");
+    expect(msg).toContain("Odśwież kartę kandydata");
+    expect(msg).toContain("drugi etap „CV Wysłane”");
+    expect(msg).toContain("Link dla klienta nie powstał");
+  });
+
+  it.each([500, 502, 504])(
+    "błąd serwera %i też jest niejednoznaczny — to nie odmowa",
+    (status) => {
+      const msg = describeCvHandoffFailure(
+        new CvHandoffError("move", [], httpError(status)),
+        "Bad Gateway",
+      );
+      expect(msg).not.toContain("Nic nie zostało zmienione");
+      expect(msg).toContain("Nie wiadomo, czy się udało");
+    },
+  );
+
+  it("odmowę od braku odpowiedzi rozróżnia `isDefiniteRefusal`", () => {
+    expect(isDefiniteRefusal(httpError(403))).toBe(true);
+    expect(isDefiniteRefusal(httpError(422))).toBe(true);
+    expect(isDefiniteRefusal(httpError(503))).toBe(false);
+    expect(isDefiniteRefusal(httpError(null))).toBe(false);
+    expect(isDefiniteRefusal(new Error("Network Error"))).toBe(false);
   });
 });
 

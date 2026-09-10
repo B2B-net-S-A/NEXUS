@@ -374,7 +374,11 @@ describe("CvHandoffWorkbench", () => {
   });
 
   it("porażka ruchu (odmowa serwera) NIE tworzy linku ani stawki — i mówi o tym wprost", async () => {
-    move.mockRejectedValueOnce(new Error("409 weto hiring managera"));
+    move.mockRejectedValueOnce(
+      Object.assign(new Error("409 weto hiring managera"), {
+        response: { status: 409 },
+      }),
+    );
     renderWorkbench();
     await readySendButton();
 
@@ -391,6 +395,30 @@ describe("CvHandoffWorkbench", () => {
     expect(shareCreate).not.toHaveBeenCalled();
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
     expect(screen.queryByRole("region", { name: "Utworzone linki do CV" })).toBeNull();
+  });
+
+  it("limit czasu ruchu NIE mówi „nic się nie zmieniło” — każe odświeżyć kartę przed ponowieniem", async () => {
+    // Bez odpowiedzi serwera ruch mógł się zatwierdzić; „nic się nie stało"
+    // zachęcało do ponowienia, które dopisuje drugi etap „CV Wysłane".
+    move.mockRejectedValueOnce(
+      Object.assign(new Error("timeout of 60000ms exceeded"), {
+        code: "ECONNABORTED",
+      }),
+    );
+    renderWorkbench();
+    await readySendButton();
+
+    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
+    await userEvent.click(await sendButton());
+
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    const msg = showError.mock.calls[0][0] as string;
+    expect(msg).not.toContain("Nic nie zostało zmienione");
+    expect(msg).toContain("Nie wiadomo, czy się udało");
+    expect(msg).toContain("Odśwież kartę kandydata");
+    // Link i stawka i tak nie powstały — sekwencja stanęła na ruchu.
+    expect(shareCreate).not.toHaveBeenCalled();
+    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
   });
 
   it("porażka stawki PO ruchu nie cofa ruchu — ostrzeżenie z następnym krokiem, jak na tablicy", async () => {

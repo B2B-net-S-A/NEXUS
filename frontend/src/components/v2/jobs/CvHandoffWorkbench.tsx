@@ -467,8 +467,10 @@ export function CvHandoffWorkbench({
       onMoved();
     },
     onError: (e) => {
-      // Ruch idzie pierwszy, więc przy tej porażce nic nie powstało — ani
-      // link dla klienta, ani stawka. Ponowienie niczego nie zdubluje.
+      // Ruch idzie pierwszy, więc przy tej porażce nie powstał ani link dla
+      // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
+      // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
+      // więc komunikat każe odświeżyć kartę przed ponowieniem.
       if (e instanceof CvHandoffError) {
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
