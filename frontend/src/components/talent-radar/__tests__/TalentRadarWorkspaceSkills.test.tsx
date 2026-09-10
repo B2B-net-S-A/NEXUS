@@ -60,6 +60,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    api: { ...actual.api, post: async (_url: string, { profile }: { profile: import("@/lib/api").ChampionProfile }) => {
+      const cp = structuredClone(profile);
+      cp.stack.must = String(cp.stack.must).split("\n").filter(Boolean).map(name => ({ name }));
+      cp.stack.nice = String(cp.stack.nice).split("\n").filter(Boolean).map(name => ({ name }));
+      cp.basics.rate_value = Number(cp.basics.rate_value) || null;
+      return { data: { champion_profile: cp } };
+    } },
     extractErrorMsg: (error: unknown) =>
       (error as { message?: string })?.message ?? "błąd",
   };
@@ -85,10 +92,11 @@ vi.mock("@/components/talent-radar/TalentRadarClientPicker", () => ({
   ),
 }));
 
+import { EMPTY_CHAMPION_PROFILE } from "@/lib/api";
 import { TalentRadarWorkspace } from "@/components/talent-radar/TalentRadarWorkspace";
 
 const PARSED = {
-  champion_profile: { role_name: "Senior Python Developer" },
+  champion_profile: { ...EMPTY_CHAMPION_PROFILE, basics: { ...EMPTY_CHAMPION_PROFILE.basics, role_name: "Senior Python Developer", rate_value: 150, work_mode: "hybrydowo", candidate_location_pref: "Kraków" }, stack: { must: [{name: "Python"}, {name: "FastAPI"}], nice: [{name: "Kubernetes"}], notes: "" } },
   must_skills: ["Python", "FastAPI"],
   nice_skills: ["Kubernetes"],
   summary: {
@@ -120,6 +128,7 @@ async function uploadProfile(user: ReturnType<typeof userEvent.setup>) {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }),
   );
+  await user.click(await screen.findByRole("button", { name: "Zastosuj / zapisz szkic" }));
   await screen.findByTestId("tr-champion-loaded");
 }
 

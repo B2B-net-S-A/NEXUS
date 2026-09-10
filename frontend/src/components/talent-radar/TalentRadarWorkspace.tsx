@@ -5,7 +5,7 @@
  * Only the request form and actor-scoped run ID survive profile navigation.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Radar } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -23,7 +23,8 @@ import {
 } from "@/components/talent-radar/TalentRadarClientPicker";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
-import { extractErrorMsg } from "@/lib/api";
+import { extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import { ChampionImportReview, ChampionImportButton, ChampionTemplateDownload, ChampionValidationPanel, type ChampionPreview, type ChampionValidation } from "@/components/ChampionIntake";
 import {
   talentRadarApi,
   type ChampionParseSummary,
@@ -105,6 +106,26 @@ function AdHocTalentRadarWorkspace() {
     must: string[];
     nice: string[];
   } | null>(null);
+  const [intakePreview, setIntakePreview] = useState<ChampionPreview | null>(null);
+  const [intakeValidation, setIntakeValidation] = useState<ChampionValidation>();
+  const importedValues = useRef<Record<string, string>>({});
+  const currentForImport = (): ChampionProfile | undefined => {
+    if (!championProfile && !budgetMax && !onsiteDaysPerWeek && !officeLocation) return undefined;
+    const cp = structuredClone({ ...EMPTY_CHAMPION_PROFILE, ...(championProfile ?? {}) }) as ChampionProfile;
+    cp.basics = { ...cp.basics, rate_value: budgetMax ? Number(budgetMax) : null, onsite_days_per_week: onsiteDaysPerWeek !== "" ? Number(onsiteDaysPerWeek) : null, candidate_location_pref: officeLocation || null };
+    return cp;
+  };
+  const applyIntake = (cp: ChampionProfile, result?: ChampionValidation) => {
+    setChampionProfile(cp as unknown as Record<string, unknown>); setIntakeValidation(result);
+    setChampionSkills({ must: cp.stack.must.map(s => s.name), nice: cp.stack.nice.map(s => s.name) });
+    setChampionSummary({ role_name: cp.basics.role_name ?? null, must_count: cp.stack.must.length, nice_count: cp.stack.nice.length, rate_value: cp.basics.rate_value ?? null, work_mode: cp.basics.work_mode ?? null, location: cp.basics.candidate_location_pref ?? null });
+    const next = { budget: String(cp.basics.rate_value ?? ""), days: String(cp.basics.onsite_days_per_week ?? ""), city: cp.basics.candidate_location_pref ?? "" };
+    for (const [key, previous] of Object.entries({ budget: budgetMax, days: onsiteDaysPerWeek, city: officeLocation })) {
+      if (!previous || previous !== next[key as keyof typeof next] || importedValues.current[key] === previous) importedValues.current[key] = next[key as keyof typeof next];
+    }
+    setBudgetMax(next.budget); setOnsiteDaysPerWeek(next.days); setOfficeLocation(next.city);
+    clearResults();
+  };
   const [parsingChampion, setParsingChampion] = useState(false);
   const [requirementsPreview, setRequirementsPreview] = useState<{
     source: string; must: string; nice: string; excluded: string[]; uncertain: string[];
@@ -248,21 +269,7 @@ function AdHocTalentRadarWorkspace() {
     setParsingChampion(true);
     try {
       const res = await talentRadarApi.parseChampion(f);
-      setChampionProfile(res.champion_profile);
-      setChampionSummary(res.summary);
-      // `?? []` mimo wymaganych pól w typie: to dane z sieci, a nie z
-      // kompilatora. Starsza odpowiedź bez tych kluczy zamieniłaby klik
-      // „Szukaj kandydatów" w TypeError zamiast w wyszukiwanie.
-      setChampionSkills({
-        must: res.must_skills ?? [],
-        nice: res.nice_skills ?? [],
-      });
-      // Stawka z profilu = budżet klienta na kandydata — pre-fill dla
-      // dealbreakera (rekruter może nadpisać/wyczyścić).
-      if (res.summary.rate_value && !budgetMax) {
-        setBudgetMax(String(res.summary.rate_value));
-      }
-      clearResults();
+      setIntakePreview({ champion_profile: res.champion_profile as unknown as ChampionProfile, validation: res.validation });
     } catch (error: unknown) {
       showError(extractErrorMsg(error));
     } finally {
@@ -274,6 +281,9 @@ function AdHocTalentRadarWorkspace() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex gap-2"><ChampionTemplateDownload />{hasProfile && <><Button variant="outline" size="sm" onClick={() => setIntakePreview({ champion_profile: currentForImport()!, validation: intakeValidation })}>Popraw profil</Button><ChampionImportButton current={currentForImport()} onApply={applyIntake} /></>}</div>
+      {intakePreview && <ChampionImportReview initial={intakePreview} current={currentForImport()} onApply={applyIntake} onClose={() => setIntakePreview(null)} />}
+      <ChampionValidationPanel validation={intakeValidation} />
       <PageHeader
         eyebrow="Sourcing"
         title="Talent Radar"
@@ -313,6 +323,11 @@ function AdHocTalentRadarWorkspace() {
                   setChampionProfile(null);
                   setChampionSummary(null);
                   setChampionSkills(null);
+                  setIntakeValidation(undefined);
+                  if (importedValues.current.budget === budgetMax) setBudgetMax("");
+                  if (importedValues.current.days === onsiteDaysPerWeek) setOnsiteDaysPerWeek("");
+                  if (importedValues.current.city === officeLocation) setOfficeLocation("");
+                  importedValues.current = {};
                   clearResults();
                 }}
               >
@@ -399,7 +414,7 @@ function AdHocTalentRadarWorkspace() {
                 min={1}
                 max={2000}
                 value={budgetMax}
-                onChange={(e) => setBudgetMax(e.target.value)}
+                onChange={(e) => { delete importedValues.current.budget; setBudgetMax(e.target.value); }}
                 placeholder="np. 150"
                 className="w-28"
               />
@@ -427,7 +442,7 @@ function AdHocTalentRadarWorkspace() {
               min={0}
               max={7}
               value={onsiteDaysPerWeek}
-              onChange={(e) => setOnsiteDaysPerWeek(e.target.value)}
+              onChange={(e) => { delete importedValues.current.days; setOnsiteDaysPerWeek(e.target.value); }}
               placeholder="np. 2 — 0 = tylko zdalnie"
               className="w-28"
             />
@@ -441,7 +456,7 @@ function AdHocTalentRadarWorkspace() {
             <Input
               id="tr-office-location"
               value={officeLocation}
-              onChange={(e) => setOfficeLocation(e.target.value)}
+              onChange={(e) => { delete importedValues.current.city; setOfficeLocation(e.target.value); }}
               placeholder="np. Warszawa"
               maxLength={200}
             />

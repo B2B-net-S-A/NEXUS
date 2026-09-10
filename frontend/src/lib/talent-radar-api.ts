@@ -134,6 +134,7 @@ export interface ChampionParseSummary {
 }
 
 export interface ChampionParseResponse {
+  validation?: import("@/components/ChampionIntake").ChampionValidation;
   champion_profile: Record<string, unknown>;
   /**
    * Wymagania z dokumentu. MUSZĄ zostać przekazane do `search` — profil

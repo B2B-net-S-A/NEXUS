@@ -17,14 +17,17 @@ const getMock = vi.fn((..._args: unknown[]): Promise<{data: unknown}> => Promise
 const postMock = vi.fn((..._args: unknown[]) =>
   Promise.resolve<{ data: unknown }>({ data: { id: 1, status: "processing", candidate_name: "x" } }),
 );
-vi.mock("@/lib/api", () => ({
-  default: {
+vi.mock("@/lib/api", async importOriginal => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  const client = {
     get: (...args: unknown[]) => getMock(...args),
-    post: (...args: unknown[]) => postMock(...args),
+    post: (...args: unknown[]) => args[0] === "/api/champion/preview"
+      ? Promise.resolve({ data: { champion_profile: structuredClone(actual.EMPTY_CHAMPION_PROFILE) } })
+      : postMock(...args),
     delete: vi.fn(() => Promise.resolve({ data: null })),
-  },
-  extractErrorMsg: (e: unknown) => String(e),
-}));
+  };
+  return { ...actual, default: client, api: client, extractErrorMsg: (e: unknown) => String(e) };
+});
 
 function setSourcingAccess(
   access: "read" | "write",

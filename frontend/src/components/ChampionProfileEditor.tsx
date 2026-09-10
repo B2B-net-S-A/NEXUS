@@ -25,6 +25,7 @@
  * / z AI, patrz `lib/champion-section-state.ts`).
  */
 
+import { ChampionImportButton, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel } from "./ChampionIntake";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -96,6 +97,7 @@ export function ChampionProfileEditor({
   });
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [remoteChange, setRemoteChange] = useState<{
     by: string;
@@ -286,6 +288,11 @@ export function ChampionProfileEditor({
           </button>
         )}
       </div>
+
+      <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => { qc.invalidateQueries({ queryKey: ["champion-profile", jobId] }); qc.invalidateQueries({ queryKey: ["job", String(jobId)] }); }} />}</div>
+      <ChampionValidationPanel validation={data?.validation} />
+      {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
+      {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => { qc.invalidateQueries({ queryKey: ["champion-profile", jobId] }); qc.invalidateQueries({ queryKey: ["job", String(jobId)] }); }} />}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
