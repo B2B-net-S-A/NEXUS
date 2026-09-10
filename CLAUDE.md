@@ -1469,7 +1469,33 @@ nie ma żadnej reguły do utrzymania.
   szukana po nazwisku ze zwiniętymi polskimi znakami po obu stronach. Jeden
   imiennik bez umowy u tego klienta zostaje dopięty tylko przy ręcznym
   „Zastosuj”; automat odsyła dokument do kolejki (samo nazwisko to za mało,
-  żeby dać komuś cudze zamówienie).
+  żeby dać komuś cudze zamówienie). **Blokadę zdejmuje `confirmed_by_human`,
+  nie `actor_user_id`** — „Przelicz plan” podaje klikającego wyłącznie do
+  audytu (`apply_document(actor_user_id=…, confirmed_by_human=False)`), więc
+  imiennik i dopasowanie niedokładne nadal wracają do kolejki, a wyłącznik
+  automatu dalej działa.
+- **Zamówienie nadpisane w miejscu da się odtworzyć z historii.** Activity
+  `order_mail_reactivate` niesie `before` (stan sprzed nadpisania), `message`
+  i `created_at` = chwila nadpisania; `before` NIE zapisuje `rate_unit`.
+  Jednorazowa korekta PFRON 507–509 (migracja `0306_pfron_renewal_split_repair`,
+  SQL w `services/pfron_renewal_split_repair.py`, lustro w `entrypoint.sh`):
+  nowy okres 01.09–30.11 przechodzi do NOWEGO wiersza, oryginał wraca do stanu
+  z `before` (koszt z harmonogramu umowy na ostatni dzień okresu), a konsumpcje,
+  alerty i dokument maila od 09.2026 idą za nowym wierszem. Każde zamówienie
+  jest przypięte tożsamością biznesową i pomijane z powodem, gdy stan produkcji
+  się nie zgadza; paragon w `app_settings['0306_pfron_renewal_split_repair']`.
+  Wynik weryfikuje Delivery Lead.
+- **Dedup alertów wygasania = (odbiorca, obiekt, próg, data końca)**
+  (`dl_portal_expiry_scanner.py`, także umowy ramowe). Data pochodzi z treści
+  komunikatu („kończy się/wygasa RRRR-MM-DD”), którą alerty niosą od maja —
+  **nie zmieniaj tego sformułowania bez `_end_phrase`**, bo stare powiadomienia
+  przestaną się deduplikować. Przedłużona umowa z nową datą końca dostaje nowy
+  alert; do 11.09 próg raz wysłany milczał przy każdej kolejnej dacie.
+- **Pierwszy szkic z maila u klienta bez DL** dostaje alert z dziennego
+  backstopu (`dl_alerts.py`), gdy tylko DL zostanie przypisany — ten sam klucz
+  co zapis, więc bez duplikatów. Do adminów świadomie nie idzie (jak #1394).
+- **Migracja uruchamiana przez `text()` nie może zawierać `:słowo`** (SQLAlchemy
+  zrobi z tego parametr) — czas przez `make_timestamptz(...)`, nie literał.
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
