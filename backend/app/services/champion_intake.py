@@ -97,6 +97,58 @@ def rate(value):
     return result if result and result > 0 else None
 
 
+# A document rate that is PLN per hour, written as one value or a range: the
+# only text a parser's number may be checked against. Matched on the folded
+# text (lower case, no diacritics, "zł" -> "zl").
+_RATE_NUMBER = r"\d+(?:[.,]\d+)?"
+_PLN_PER_HOUR = re.compile(
+    r"(?:pln|zl(?:otych|oty|ote)?\.?)\s*(?:/|za|na|per)\s*(?:1\s*)?"
+    r"(?:h|godz(?:ine|ina|\.)?|hour)(?![a-z])"
+)
+# Qualifiers that keep the value a net B2B hourly rate. "brutto" is NOT one:
+# a gross figure is a different number than the budget it would be read as.
+_NET_QUALIFIER = re.compile(r"(?<![a-z])(?:netto|net|\+\s*vat|b2b)(?![a-z])")
+_RATE_SHAPES = (
+    # "120–140", "od 120 do 140"
+    (re.compile(rf"(?:od\s*)?({_RATE_NUMBER})\s*(?:-|do)\s*({_RATE_NUMBER})"), 2),
+    # "do 140", "max. 140" — an upper bound: anything above zero up to it
+    (re.compile(rf"(?:do|max\.?|maks\.?|maksymalnie|up\s+to)\s*({_RATE_NUMBER})"), 1),
+    # "140", "ok. 140"
+    (re.compile(rf"(?:ok\.?|okolo|~)?\s*({_RATE_NUMBER})"), 0),
+)
+
+
+def pln_hourly_bounds(value):
+    """``(low, high)`` of a document rate written in PLN per hour, else None.
+
+    Accepts one value, a range or an upper bound, optionally net of VAT
+    ("120–140 zł/h", "do 140 PLN/h netto", "max. 140 zł/godz. + VAT"). Any
+    other currency, a day/MD/month rate, a gross figure, a missing unit or
+    extra words ("lub 1000 zł/MD", "do negocjacji") answer None: such a text
+    cannot vouch for a PLN/h number, whatever the model put next to it.
+    """
+    # Typographic dashes and the minus sign are range separators too.
+    text = re.sub(r"[\u2010-\u2015\u2212]", "-", folded(str(value or "")))
+    if not _PLN_PER_HOUR.search(text):
+        return None
+    text = _NET_QUALIFIER.sub(" ", _PLN_PER_HOUR.sub(" ", text))
+    text = re.sub(r"\(\s*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .,;:")
+    for pattern, kind in _RATE_SHAPES:
+        match = pattern.fullmatch(text)
+        if not match:
+            continue
+        values = [float(v.replace(",", ".")) for v in match.groups()]
+        if kind == 2:
+            low, high = values
+        elif kind == 1:
+            low, high = 0.0, values[0]
+        else:
+            low = high = values[0]
+        return (low, high) if 0 <= low <= high else None
+    return None
+
+
 def date(value):
     for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
         try:
@@ -117,8 +169,9 @@ LONG_REQUIREMENT_CHARS = 120
 ADVISORY_ISSUES = {
     "basics.rate_value": (
         "rate_source_ambiguous",
-        "Stawka w dokumencie nie jest jedną liczbą PLN/h. Zachowano stawkę z "
-        "profilu — sprawdź, czy to właściwa maksymalna stawka kandydata.",
+        "Stawka w dokumencie jest zakresem lub ma dopisek (PLN/h). Zachowano "
+        "liczbę z tego zakresu — sprawdź, czy to właściwa maksymalna stawka "
+        "kandydata.",
     ),
     "stack.must": (
         "long_requirement",
@@ -180,14 +233,21 @@ def _value_at(profile, path):
 
 
 def _normalize_rate(basics, raw_fields, unresolved, advisory):
-    """`rate_value` from the typed number or the document text, never lost to it.
+    """`rate_value` from the typed number or the document text.
 
-    The document text (`rate_raw`) wins when it parses — it is the source the
-    number was read from. When it does not ("120–140 zł/h", "do 140 PLN/h
-    netto", a currency), a valid number already in `rate_value` is KEPT and the
-    text is recorded as advisory. Until 09.2026 the text replaced the number
-    and nulled it on every content-changing save of the profile, so scoring
-    lost the Champion budget of every profile imported with a range.
+    The document text (`rate_raw`) wins when it parses as one PLN/h value — it
+    is the source the number was read from. When it does not, the number next
+    to it (the AI parser's reading) is kept ONLY if the text is still PLN per
+    hour and the number lies inside what it says ("120–140 zł/h", "do 140
+    PLN/h netto"); the text is then recorded as advisory. Until 09.2026 such a
+    range replaced the number and nulled it on every content-changing save.
+
+    A text in any other unit ("45 EUR/h", "1200 PLN/MD", "20 000 PLN/mies.
+    brutto") vouches for no number: it stays unresolved, the budget stays
+    empty and validation reports `missing_budget`. A kept number would be
+    copied into an empty `jobs.rate_budget_hourly` and read by scoring and the
+    rate dealbreaker as the candidate's maximum PLN/h — even when the model
+    converted the unit on its own.
     """
     path = "basics.rate_value"
     advisory.pop(path, None)
@@ -195,7 +255,8 @@ def _normalize_rate(basics, raw_fields, unresolved, advisory):
     value = raw_fields.get(path, basics.get("rate_value"))
     if raw and path not in raw_fields:
         current = rate(value) if value not in (None, "") else None
-        if rate(raw) is None and current is not None:
+        bounds = pln_hourly_bounds(raw) if rate(raw) is None else None
+        if current is not None and bounds and bounds[0] <= current <= bounds[1]:
             basics["rate_value"] = current
             unresolved.pop(path, None)
             advisory[path] = str(raw)[:STACK_ITEM_MAX_CHARS]
@@ -762,11 +823,21 @@ def user_edit(old, patch, actor_id, *, imported=False):
                         if path not in ("stack.must", "stack.nice"):
                             unresolved.pop(path, None)
         merged["intake"] = {**meta, "unresolved": unresolved, "advisory": advisory}
-    if (
-        "rate_value" in patch.get("basics", {})
-        and patch["basics"]["rate_value"] != normalized["basics"]["rate_value"]
-    ):
-        merged["basics"]["rate_raw"] = None
+    patch_basics = patch.get("basics") or {}
+    if "rate_value" in patch_basics:
+        if imported:
+            # An import brings the document's text WITH the parser's number,
+            # and `_normalize_rate` needs the pair to decide whether that
+            # number is a PLN/h budget at all. Clearing the text whenever the
+            # number differed from the stored one let any imported number win
+            # ("45 EUR/h" became 45 PLN/h in `jobs.rate_budget_hourly`) and
+            # dropped its warning. The text comes from the import or not at
+            # all — never from the profile the import replaces.
+            merged["basics"]["rate_raw"] = patch_basics.get("rate_raw")
+        elif patch_basics["rate_value"] != normalized["basics"]["rate_value"]:
+            # A number typed in the editor is the Delivery Lead's decision;
+            # the old document text must not overrule it.
+            merged["basics"]["rate_raw"] = None
     return prepare_profile(merged, actor_id=actor_id, previous=normalized)
 
 
