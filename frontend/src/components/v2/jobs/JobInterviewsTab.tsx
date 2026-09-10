@@ -37,10 +37,12 @@ import api, {
   type HiringManagerFeedback,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
@@ -75,6 +77,7 @@ import {
   WorkbenchHeader,
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
+import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
   { value: "advance", label: "Dalej" },
@@ -131,6 +134,9 @@ export function JobInterviewsTab({
     terminal: "rejected" | "withdrawn";
     entry: SelectedEntry;
   } | null>(null);
+  // Linki do karty Championa utworzone w tej sesji, po `candidate_id` —
+  // sekret wraca raz, a karta rozmowy montuje się od nowa po zapisie werdyktu.
+  const [championLinks, setChampionLinks] = useState<Record<number, string>>({});
 
   // ── Kto jest u klienta ──────────────────────────────────────────────
   const interviewColumns = useMemo(
@@ -486,6 +492,11 @@ export function JobInterviewsTab({
             onOpenScreening={(stageId, name) =>
               setScreeningFor({ stageId, name })
             }
+            championLinkUrl={championLinks[selected.item.candidate_id] ?? null}
+            onChampionLinkCreated={(url) => {
+              const candidateId = selected.item.candidate_id;
+              setChampionLinks((prev) => ({ ...prev, [candidateId]: url }));
+            }}
           />
         ) : null}
       </section>
@@ -603,6 +614,9 @@ interface InterviewCardProps {
   feedbackQueryState: ReturnType<typeof resolveViewState>;
   onFeedbackRetry: () => void;
   onOpenScreening: (stageId: number, name: string) => void;
+  /** Adres linku do karty Championa utworzonego dla tego kandydata (albo brak). */
+  championLinkUrl: string | null;
+  onChampionLinkCreated: (url: string) => void;
 }
 
 function InterviewCard({
@@ -616,6 +630,8 @@ function InterviewCard({
   feedbackQueryState,
   onFeedbackRetry,
   onOpenScreening,
+  championLinkUrl,
+  onChampionLinkCreated,
 }: InterviewCardProps) {
   const { item, col } = entry;
   const { showSuccess, showError } = useToast();
@@ -639,6 +655,14 @@ function InterviewCard({
     r.applies_to.includes("rejected"),
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId) ?? null;
+
+  // Zapis werdyktu stoi za `RecruiterPlus` (bez Head of Recruitment), a CUDZY
+  // werdykt nadpisuje wyłącznie autor, DL albo admin — to drugie mówi serwer
+  // polem `can_edit`. Bez tych bramek HoR i kolega autora widzieli aktywne
+  // „Zapisz", które kończyło się 403 albo cichym nadpisaniem cudzej decyzji.
+  const canRecordVerdict = useCapability("hm_feedback.record");
+  const verdictLockedByAuthor = Boolean(feedback) && feedback?.can_edit === false;
+  const canWriteVerdict = !readOnly && canRecordVerdict && !verdictLockedByAuthor;
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -665,12 +689,27 @@ function InterviewCard({
   });
   const answers = screeningQuery.data?.screening_answers ?? null;
 
+  // Sekret linku wraca JEDEN raz — adres zostaje na karcie, a „skopiowany"
+  // pada tylko po udanym zapisie do schowka (lustro kroku 06). Adres trzyma
+  // RODZIC: karta montuje się od nowa po zapisie werdyktu (klucz niesie id
+  // feedbacku), a lokalny stan zabrałby ze sobą jedyną kopię sekretu.
   const shareMutation = useMutation({
     mutationFn: () => screeningApi.createShareToken(item.id, 30),
-    onSuccess: (res) => {
-      const url = `${window.location.origin}${res.data.share_url_suffix}`;
-      void navigator.clipboard?.writeText(url).catch(() => undefined);
-      showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
+    onSuccess: async (res) => {
+      const suffix = res.data?.share_url_suffix;
+      if (!suffix) {
+        showError("Serwer nie zwrócił adresu linku do karty Championa.");
+        return;
+      }
+      const url = `${window.location.origin}${suffix}`;
+      onChampionLinkCreated(url);
+      if (await copyTextToClipboard(url)) {
+        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
+      } else {
+        showError(
+          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola na karcie.",
+        );
+      }
     },
     onError: (e) =>
       showError(extractErrorMsg(e) || "Nie udało się utworzyć linku"),
@@ -740,6 +779,15 @@ function InterviewCard({
           </button>
         }
       >
+        {championLinkUrl && (
+          <div className="mb-3">
+            <OneTimeLinkField
+              url={championLinkUrl}
+              label="Link do karty Championa dla klienta"
+              note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
+            />
+          </div>
+        )}
         <div className="text-xs">
           {screeningQuery.isLoading ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -827,7 +875,7 @@ function InterviewCard({
           />
         ) : (
           <div className="space-y-3">
-            <fieldset disabled={readOnly} className="space-y-3">
+            <fieldset disabled={!canWriteVerdict} className="space-y-3">
               <div className="space-y-1">
                 <span className="text-xs font-semibold text-foreground">
                   Werdykt hiring managera
@@ -922,7 +970,7 @@ function InterviewCard({
               )}
             </div>
 
-            {!readOnly && (
+            {canWriteVerdict && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
@@ -933,11 +981,21 @@ function InterviewCard({
                 </Button>
               </div>
             )}
-            {readOnly && (
+            {readOnly ? (
               <p className="text-[11px] text-muted-foreground">
                 Tylko do odczytu — brak prawa zapisu w tym pipeline.
               </p>
-            )}
+            ) : !canRecordVerdict ? (
+              <p className="text-[11px] text-muted-foreground">
+                Werdykt zapisuje zespół rekrutacji (rekruter, TAC, Delivery Lead,
+                admin) — Twoja rola ma tu podgląd.
+              </p>
+            ) : verdictLockedByAuthor ? (
+              <p className="text-[11px] text-muted-foreground">
+                Werdykt zapisał(a) {feedback?.author_name ?? "inna osoba"} —
+                zmienić go może autor, Delivery Lead albo admin.
+              </p>
+            ) : null}
           </div>
         )}
       </WorkbenchCard>

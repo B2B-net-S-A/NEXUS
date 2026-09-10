@@ -42,7 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
-import { formatExpectedRate } from "@/lib/pipeline-flow";
+import { formatExpectedRate, moveBlockedReason } from "@/lib/pipeline-flow";
 import {
   colId,
   type KanbanColumn,
@@ -94,10 +94,12 @@ interface StageHistoryItem {
  * Pigułki „Przenieś na etap" dla kroku 07.
  *
  * Bramka liczona z DANYCH KARTY (backend nie ma endpointu podglądu — egzekwuje
- * ją wewnątrz `POST /pipeline/move`), dokładnie jak w doku kroku 04: weto
- * hiring managera blokuje każdy ruch nie-terminalny, terminalne ZAWSZE
- * przechodzą, `pending` nie jest bramką. Do tego dochodzi powód „ten dialog
- * mieszka na tablicy" z `lib/pipeline-move-dialog`.
+ * ją wewnątrz `POST /pipeline/move`) JEDNĄ funkcją z doku kroku 04 i warsztatów
+ * 05/06 (`moveBlockedReason`): karta „Pending" blokuje każdy ruch, weto HM
+ * wyłącznie „CV Wysłane" i „Interview Klient", ruchy wypisujące przechodzą.
+ * Do tego dochodzi powód „ten dialog mieszka na tablicy" z
+ * `lib/pipeline-move-dialog`. Własna kopia tych reguł rozjechała się z
+ * serwerem: „Zatrudniony" przy wecie był martwy, a serwer go przepuszcza.
  */
 export function buildDecisionMoveTargets({
   item,
@@ -116,16 +118,14 @@ export function buildDecisionMoveTargets({
     .filter((c) => colIdOf(c) !== currentColId)
     .map((col) => {
       const terminal = terminalOf(col);
-      let blockedReason: string | null = null;
-      if (readOnly) {
-        blockedReason = "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
-      } else if (terminal === "rejected" || terminal === "withdrawn") {
-        blockedReason = null;
-      } else if (item.hm_veto) {
-        blockedReason = `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie (${formatDate(item.hm_veto.rejected_at)}) — ${item.hm_veto.rejection_reason_name}.`;
-      } else {
-        blockedReason = dialogUnavailableReason(moveDialogFor(col));
-      }
+      const removal = terminal === "rejected" || terminal === "withdrawn";
+      const blockedReason =
+        moveBlockedReason({
+          item,
+          readOnly,
+          terminal: removal,
+          targetStage: col.stage,
+        }) ?? (removal ? null : dialogUnavailableReason(moveDialogFor(col)));
       return { col, blockedReason };
     });
 }
@@ -193,6 +193,14 @@ export function InterviewDecisionDock({
   });
 
   const offerResponse = item.candidate_offer_response ?? null;
+  // Skróty odrzucenia/wycofania to te same ruchy wypisujące co pigułki — ta
+  // sama bramka (karta „Pending" blokuje także je, bo serwer odpowiada 409).
+  const removalBlocked = moveBlockedReason({
+    item,
+    readOnly,
+    terminal: true,
+    targetStage: null,
+  });
 
   return (
     <WorkbenchDock
@@ -271,8 +279,9 @@ export function InterviewDecisionDock({
                   })}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Etapy terminalne zawsze przechodzą bramkę — inaczej nie dałoby
-                  się zamknąć kandydata. „Zatrudniony” nigdy zbiorczo.
+                  Odrzucenie i wycofanie omijają weto HM — inaczej nie dałoby się
+                  zamknąć kandydata. Karta „Pending” blokuje każdy ruch, dopóki
+                  stawka czeka na decyzję. „Zatrudniony” nigdy zbiorczo.
                 </p>
               </div>
             ) : (
@@ -357,6 +366,8 @@ export function InterviewDecisionDock({
                 size="sm"
                 variant="outline"
                 className="w-full justify-start"
+                disabled={Boolean(removalBlocked)}
+                title={removalBlocked ?? undefined}
                 onClick={() => onTerminal(withdrawnColumn, "withdrawn")}
               >
                 <HandCoins className="h-3.5 w-3.5" /> Wycofaj z reakcją na ofertę
@@ -427,6 +438,8 @@ export function InterviewDecisionDock({
               <Button
                 size="sm"
                 variant="outline"
+                disabled={Boolean(removalBlocked)}
+                title={removalBlocked ?? undefined}
                 onClick={() => onTerminal(rejectedColumn, "rejected")}
                 className="col-span-2 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
               >

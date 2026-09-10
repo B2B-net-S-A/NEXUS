@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  HM_VETO_ENFORCED_STAGES,
+  PENDING_VERIFICATION_MOVE_BLOCK,
   PIPELINE_GROUP_LABEL,
   countAtClient,
   countContractSent,
@@ -265,51 +267,89 @@ describe("selektory KPI", () => {
   });
 });
 
+/**
+ * Bramka ruchu = lustro `POST /api/pipeline/move`. Każdy przypadek niżej to
+ * rozjazd, który istniał: UI wyszarzało „Zweryfikowany"/„Zatrudniony" przy
+ * wecie (serwer je przepuszcza), a kartę „Pending" przepuszczało prosto w 409
+ * — w kroku 06 PO utworzeniu żywego linku do CV.
+ */
 describe("moveBlockedReason", () => {
+  const veto = {
+    hiring_manager_contact_id: 5,
+    source_job_id: 2,
+    rejected_at: "2026-01-01",
+    rejection_reason_name: "Brak doświadczenia w bankowości",
+  };
+
   it("brak prawa zapisu blokuje wszystko", () => {
-    expect(moveBlockedReason({ item: item(), readOnly: true })).toContain(
-      "Tylko do odczytu",
-    );
+    expect(
+      moveBlockedReason({ item: item(), readOnly: true, targetStage: "verified" }),
+    ).toContain("Tylko do odczytu");
   });
 
-  it("weto hiring managera blokuje ruch nie-terminalny z powodem", () => {
-    const reason = moveBlockedReason({
-      item: item({
-        hm_veto: {
-          hiring_manager_contact_id: 5,
-          source_job_id: 2,
-          rejected_at: "2026-01-01",
-          rejection_reason_name: "Brak doświadczenia w bankowości",
-        },
-      }),
-      readOnly: false,
-    });
-    expect(reason).toContain("Brak doświadczenia w bankowości");
+  it.each(["cv_sent", "client_interview"])(
+    "weto hiring managera blokuje „%s” — to etapy przed klientem",
+    (targetStage) => {
+      const reason = moveBlockedReason({
+        item: item({ hm_veto: veto }),
+        readOnly: false,
+        targetStage,
+      });
+      expect(reason).toContain("Brak doświadczenia w bankowości");
+    },
+  );
+
+  it.each(["verified", "screening", "acceptance", "hired", "new"])(
+    "weto hiring managera NIE blokuje „%s” — serwer egzekwuje je wyłącznie przed klientem",
+    (targetStage) => {
+      expect(
+        moveBlockedReason({
+          item: item({ hm_veto: veto }),
+          readOnly: false,
+          targetStage,
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it("zbiór etapów weta jest lustrem VETO_ENFORCED_STAGES z backendu", () => {
+    expect([...HM_VETO_ENFORCED_STAGES].sort()).toEqual([
+      "client_interview",
+      "cv_sent",
+    ]);
   });
 
-  it("ruch TERMINALNY przechodzi mimo weta — inaczej kandydat utknąłby w procesie", () => {
+  it("ruch WYPISUJĄCY przechodzi mimo weta — inaczej kandydat utknąłby w procesie", () => {
     expect(
       moveBlockedReason({
-        item: item({
-          hm_veto: {
-            hiring_manager_contact_id: 5,
-            source_job_id: 2,
-            rejected_at: "2026-01-01",
-            rejection_reason_name: "Weto",
-          },
-        }),
+        item: item({ hm_veto: veto }),
         readOnly: false,
         terminal: true,
+        targetStage: "rejected",
       }),
     ).toBeNull();
   });
 
-  it("„pending” NIE jest bramką ruchu — backend też go tak nie traktuje", () => {
+  it("karta „Pending” blokuje KAŻDY ruch — także terminalny, bo serwer odpowiada 409", () => {
+    const pending = item({ verification_status: "pending" });
+    for (const targetStage of ["cv_sent", "verified", "hired"]) {
+      expect(
+        moveBlockedReason({ item: pending, readOnly: false, targetStage }),
+      ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
+    }
     expect(
       moveBlockedReason({
-        item: item({ verification_status: "pending" }),
+        item: pending,
         readOnly: false,
+        terminal: true,
+        targetStage: "rejected",
       }),
+    ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
+  });
+
+  it("karta bez weta i bez „Pending” przechodzi", () => {
+    expect(
+      moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),
     ).toBeNull();
   });
 });

@@ -45,6 +45,7 @@ export type Capability =
   | "contact.create"
   | "calendar_event.create"
   | "invite_link.create"
+  | "hm_feedback.record"
   // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
   | "candidate.document.manage"
   | "candidate.profile_fact.manage"
@@ -154,6 +155,12 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "calendar_event.create": RECRUITER_PLUS,
   // POST /api/invite-links → RecruiterPlus (backend/app/api/invite_links.py)
   "invite_link.create": RECRUITER_PLUS,
+  // POST /api/jobs/{id}/hiring-manager-feedback → RecruiterPlus
+  // (backend/app/api/hiring_manager_feedback.py). HoR CZYTA werdykty
+  // (RecruitmentReadAccess), ale zapis dostałby 403 — przycisk „Zapisz
+  // feedback" ma być dla niego niewidoczny. Nadpisanie CUDZEGO werdyktu
+  // dodatkowo pilnuje `can_edit` z odpowiedzi serwera (autor / DL / admin).
+  "hm_feedback.record": RECRUITER_PLUS,
 
   // POST /api/candidates/{id}/documents + PATCH .../documents/{doc_id} →
   // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (candidate_access.py) —
@@ -232,6 +239,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "contact.create": { section: "delivery", required: "write" },
   "calendar_event.create": { section: "pipeline", required: "write" },
   "invite_link.create": { section: "pipeline", required: "write" },
+  "hm_feedback.record": { section: "pipeline", required: "write" },
   "candidate.document.manage": { section: "sourcing", required: "write" },
   "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
   "candidate.requirement.verify": { section: "sourcing", required: "write" },
@@ -262,6 +270,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "contact.create",
   "calendar_event.create",
   "invite_link.create",
+  "hm_feedback.record",
   "candidate.document.manage",
   "candidate.profile_fact.manage",
   "candidate.requirement.verify",

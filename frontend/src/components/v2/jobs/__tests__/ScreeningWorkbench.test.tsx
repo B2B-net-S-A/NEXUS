@@ -207,7 +207,10 @@ describe("ScreeningWorkbench", () => {
     expect(move).not.toHaveBeenCalled();
   });
 
-  it("weto hiring managera blokuje ruch i mówi dlaczego", async () => {
+  it("weto hiring managera NIE blokuje „Zweryfikowany” — serwer egzekwuje je dopiero przed klientem", async () => {
+    // `puts_candidate_before_client` pilnuje weta wyłącznie na „CV Wysłane"
+    // i „Interview Klient". Do 09.2026 ten przycisk był przy wecie martwy,
+    // choć `POST /pipeline/move` na `verified` przechodził.
     renderWorkbench({
       columns: columns([
         item({
@@ -220,11 +223,49 @@ describe("ScreeningWorkbench", () => {
         }),
       ]),
     });
-    const button = await screen.findByRole("button", {
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    await userEvent.type(screen.getByLabelText("Kwota"), "118");
+    const button = screen.getByRole("button", {
       name: /Zweryfikowany — zapisz stawkę i przenieś/,
     });
-    expect(button).toBeDisabled();
-    expect(button.getAttribute("title")).toContain("Brak bankowości");
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(button.getAttribute("title") ?? "").not.toContain("Brak bankowości");
+  });
+
+  it("karta „Pending” blokuje ruch i odrzucenie z powodem — serwer odmawia każdego ruchu (409)", async () => {
+    const pending = item({
+      id: 41,
+      candidate_id: 141,
+      stage: "verified",
+      name: "Anna",
+      lastname: "Pending",
+      verification_status: "pending",
+    });
+    const cols = columns([item()]);
+    cols[1] = { ...cols[1], count: 1, items: [pending] };
+    cols.push({
+      stage: "rejected",
+      name: "Odrzucony",
+      category: "terminal",
+      terminal_type: "rejected",
+      stage_def_id: 9,
+      count: 0,
+      items: [],
+    });
+    renderWorkbench({ columns: cols });
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    await userEvent.click(screen.getByRole("button", { name: /Anna Pending/ }));
+    await screen.findByRole("heading", { name: /Screening · Anna Pending/ });
+
+    await userEvent.type(screen.getByLabelText("Kwota"), "118");
+    const move = screen.getByRole("button", {
+      name: /Zweryfikowany — zapisz stawkę i przenieś/,
+    });
+    expect(move).toBeDisabled();
+    expect(move.getAttribute("title")).toContain("czeka na akceptację");
+    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
+    expect(reject).toBeDisabled();
+    expect(reject.getAttribute("title")).toContain("czeka na akceptację");
   });
 
   it("tryb tylko do odczytu chowa zapis screeningu i ruch", async () => {
