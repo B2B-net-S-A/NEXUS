@@ -240,7 +240,8 @@ class TestAlior:
     def test_rate_is_the_fourth_number_razem_stawka_dla_banku(self):
         rows = alior.extract_rows(ALIOR)
         assert [r.rate_client for r in rows] == [Decimal("1340.00"), Decimal("1350.00")]
-        assert all(r.md_total == Decimal("189") for r in rows)
+        # Liczba Roboczodni jest pomijana (ticket 09.2026): nie trafia do zamówienia.
+        assert all(r.md_total is None for r in rows)
         assert all(
             (r.start_date, r.end_date) == ("2031-04-01", "2031-12-31") for r in rows
         )
