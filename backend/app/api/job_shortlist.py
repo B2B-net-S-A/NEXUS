@@ -230,8 +230,15 @@ async def update_shortlist_entry(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ShortlistEntryResponse:
+    # Blokada wiersza PRZED porównaniem wersji. Bez niej dwa równoległe zapisy
+    # z tą samą `version` oba czytały starą wartość, oba przechodziły kontrolę
+    # i drugi po cichu nadpisywał pierwszy (UPDATE czekał tylko na commit
+    # pierwszego, a wersję liczyliśmy już wcześniej). `FOR UPDATE` każe drugiemu
+    # poczekać i przeczytać wiersz PO commicie pierwszego — dostaje 409.
     entry = await db.scalar(
-        select(JobShortlistEntry).where(JobShortlistEntry.id == entry_id)
+        select(JobShortlistEntry)
+        .where(JobShortlistEntry.id == entry_id)
+        .with_for_update()
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
