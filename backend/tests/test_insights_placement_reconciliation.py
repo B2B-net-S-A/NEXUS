@@ -176,6 +176,62 @@ async def test_definition_codes_are_the_shared_constants(app_client, app_auth_he
     assert body["definitions"]["verifier_anchored"] == VERIFIER_ANCHORED_MILESTONES
 
 
+async def _viewer_headers() -> dict[str, str]:
+    """Read-only `user` — widzi /insights (D7), ale nie dane kandydatów."""
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        viewer = User(
+            email=f"recon-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("x"),
+            name="Recon Viewer",
+            role=UserRole.user,
+            roles=["user"],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(viewer)
+        await db.commit()
+        await db.refresh(viewer)
+        token = create_access_token(viewer.id, UserRole.user.value, roles=["user"])
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_viewer_without_candidate_access_gets_no_candidate_names(
+    app_client, app_auth_headers
+):
+    """Nazwiska kandydatów to PII — rola `user` jest od nich odcięta.
+
+    Raport nadal uzgadnia wiersze (``candidate_id`` zostaje), ale nie niesie
+    imion i nazwisk, a flaga mówi, że to redakcja, nie brak danych.
+    """
+    async with AsyncSessionLocal() as db:
+        seeded = await _seed_placement(db, kpi_eligible=True, tag="pii")
+
+    body = await _report(app_client, await _viewer_headers())
+    assert body["candidate_names_redacted"] is True
+    row = next(
+        i
+        for i in body["items"]
+        if (i["candidate_id"], i["job_id"])
+        == (seeded["candidate_id"], seeded["job_id"])
+    )
+    assert row["candidate_name"] is None
+    assert all(i["candidate_name"] is None for i in body["items"])
+
+    # Rola z dostępem do kandydatów widzi ten sam wiersz z nazwiskiem.
+    admin_body = await _report(app_client, app_auth_headers)
+    assert admin_body["candidate_names_redacted"] is False
+    admin_row = next(
+        i
+        for i in admin_body["items"]
+        if (i["candidate_id"], i["job_id"])
+        == (seeded["candidate_id"], seeded["job_id"])
+    )
+    assert admin_row["candidate_name"].startswith("Rekon CIL-pii-")
+
+
 @pytest.mark.asyncio
 async def test_rejects_a_broken_period_instead_of_guessing(
     app_client, app_auth_headers
