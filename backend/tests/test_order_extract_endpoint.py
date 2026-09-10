@@ -432,7 +432,7 @@ async def test_nordea_endpoint_forces_call_off_agreement_number(
         ),
     )
 
-    async def _wrong_ai_choice(text: str) -> OrderExtraction:
+    async def _wrong_ai_choice(text: str, **kwargs) -> OrderExtraction:
         return OrderExtraction(
             title="OFFER-999",
             start_date="2026-06-01",
@@ -905,7 +905,10 @@ async def test_nordea_endpoint_reads_net_hourly_rate_without_quantity_or_summary
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     monkeypatch.setattr(co, "extract_text", lambda *args: ORDER + SUMMARY)
 
-    async def parse(text):
+    async def parse(text, **kwargs):
+        assert kwargs == {"all_rows": True}
+        assert "Total" not in text
+        assert "Subtotal" not in text
         assert "Summary" not in text
         assert "Quantity" not in text
         assert "1 728" not in text
@@ -945,3 +948,62 @@ async def test_extraction_says_when_a_client_has_no_rules_yet(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["client_policy"] is None
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+async def test_nordea_all_paths_return_every_person_and_discard_totals(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, targeted
+):
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+    from app.services.order_policies.nordea import extract_rows
+    from tests.test_nordea_pdf_policy import JAKUB
+
+    client_id = await _seed_client("Nordea shared five fields")
+    candidate_id = await _seed_candidate(
+        "Jakub", "Górecki", contract_client_id=client_id
+    )
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
+    text = JAKUB.replace(
+        "Total, excl.",
+        "Anna Druga IT Developer Poland - 100 Hours 234,00 PLN 23 400,00 PLN\nTotal, excl.",
+    )
+    monkeypatch.setattr(co, "extract_text", lambda *args: text)
+
+    async def parse(projected, **kwargs):
+        assert kwargs == {"all_rows": True}
+        assert "Subtotal" not in projected and "Total" not in projected
+        return OrderExtraction(
+            consultant_rows=extract_rows(text),
+            total_value=Decimal("300000"),
+            uncertain=True,
+            uncertain_reasons=["Total_value nie odpowiada okresowi"],
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", parse)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data={"candidate_id": str(candidate_id)} if targeted else {},
+        files={"file": ("nordea.pdf", b"%PDF-dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["title"] == "286471"
+    assert data["start_date"] == "2026-09-09" and data["end_date"] == "2026-11-26"
+    assert (
+        data["total_value"] is None and "total_value" not in data["fields_confidence"]
+    )
+    assert not data["uncertain"] and not data["uncertain_reasons"]
+    assert [r["consultant_name"] for r in data["consultant_rows"]] == [
+        "Jakub Górecki",
+        "Anna Druga",
+    ]
+    assert [Decimal(str(r["rate_client"])) for r in data["consultant_rows"]] == [
+        Decimal("160"),
+        Decimal("234"),
+    ]
+    assert (
+        Decimal(str(data["rate_client"])) if data["rate_client"] is not None else None
+    ) == (Decimal("160") if targeted else None)

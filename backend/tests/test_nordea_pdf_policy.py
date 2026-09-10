@@ -257,7 +257,7 @@ async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypat
         row.gate_reasons = verdict.reasons
         assert verdict.is_auto, verdict.reasons
         assert len(proposal.rows) == 1
-        assert proposal.rows[0].rate_client == "175"
+        assert Decimal(proposal.rows[0].rate_client) == Decimal("175")
         assert proposal.rows[0].rate_unit == "hour"
         assert proposal.rows[0].md_total is None
         assert proposal.order_number == "277157"
@@ -268,6 +268,7 @@ async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypat
         AsyncMock(), row, b"%PDF-dummy", registry=ClientRegistry({})
     )
     apply.assert_awaited_once()
+    assert parser.call_args.kwargs == {"all_rows": True}
     sent = parser.call_args.args[0]
     assert "Summary" not in sent and "Quantity" not in sent and "999,00" not in sent
     assert row.gate_verdict == "auto"
@@ -332,3 +333,157 @@ async def test_refresh_uses_order_rows_and_restores_raw_net_amount(
     for field in ("title", "start_date", "end_date"):
         assert row.extraction[field] == saved[field]
     parser.assert_not_called()
+
+
+# The screenshots supply a second real layout; identities are regression data
+# supplied by the user, not looked up from unrelated production records.
+JAKUB = (
+    ORDER.replace("277157", "286471")
+    .replace("Jan Testowy", "Jakub Górecki")
+    .replace("2031-04-01", "2026-09-09")
+    .replace("2031-11-30", "2026-11-26")
+    .replace("175,00", "160,00")
+)
+
+
+@pytest.mark.parametrize("total", ["300 000,00", "999 999,99", "NIE CZYTELNE"])
+def test_nordea_five_field_projection_never_sends_totals_to_model(total):
+    original = JAKUB + "\nContact persons\nNot Consultant\nStart date: 2099-01-01\n"
+    projected = prepare_parser_text(original.replace("300 000,00", total), POLICIES)
+    assert projected == prepare_parser_text(original, POLICIES)
+    assert "total" not in projected.lower()
+    assert "2099" not in projected
+    assert "Not Consultant" not in projected
+    assert "286471" in projected and "160,00 PLN/hour netto" in projected
+    assert "2026-09-09" in projected and "2026-11-26" in projected
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Nieczytelne Total_value: brak kwoty",
+        "Total, excl. VAT nie jest przypisane jako total_value pola dokumentu",
+        "Subtotal nie pasuje do okresu zamówienia",
+        "Total_value nie odpowiada iloczynowi stawki i ilości",
+    ],
+)
+def test_nordea_totals_are_discarded_even_when_extracted_or_uncertain(reason):
+    ex = model_extraction(reason)
+    ex.total_value = Decimal("999999")
+    ex.confidence["total_value"] = 0.99
+    ex, _ = apply_policies(ex, PolicyContext(document_text=ORDER), POLICIES)
+    assert ex.total_value is None
+    assert "total_value" not in ex.confidence
+    assert not ex.uncertain
+    assert not ex.consultant_rows[0].uncertain
+    assert ex.uncertain_reasons == []
+    ex.uncertain_reasons = [reason + "; Nieczytelna stawka konsultanta"]
+    ex.uncertain = True
+    nordea.apply_rate_rules(ex)
+    assert ex.uncertain_reasons == ["Nieczytelna stawka konsultanta"]
+
+
+def test_nordea_initial_term_is_the_only_date_source():
+    assert nordea.initial_term("Start date End date\n2099-01-01 2099-12-31") == (
+        None,
+        None,
+    )
+    assert nordea.initial_term(
+        "Initial Term\nStart date: 2026-09-09\nEnd date: 2026-11-26\nMiscellaneous\nStart date End date\n2099-01-01 2099-12-31"
+    ) == ("2026-09-09", "2026-11-26")
+
+
+@pytest.mark.asyncio
+async def test_nordea_create_fill_extend_use_the_same_all_rows_parser_as_mail(
+    monkeypatch,
+):
+    from app.api import client_orders
+    from app.services.order_policies import parse_plan
+    from app.services.order_pdf_parser import parse_order_document
+    from app.services import order_pdf_parser as parser_module
+
+    text = JAKUB.replace(
+        "Total, excl.",
+        "Anna Druga IT Developer Poland - 100 Hours 234,00 PLN 23 400,00 PLN\nTotal, excl.",
+    )
+    rows = nordea.extract_rows(text)
+    assert [(r.consultant_name, r.rate_client) for r in rows] == [
+        ("Jakub Górecki", Decimal("160")),
+        ("Anna Druga", Decimal("234")),
+    ]
+    model = AsyncMock(
+        return_value=OrderExtraction(
+            title="286471", consultant_rows=rows, source="claude", uncertain=False
+        )
+    )
+    monkeypatch.setattr(parser_module, "_extract_all_rows_with_claude", model)
+    monkeypatch.setattr(
+        parser_module,
+        "_extract_with_claude",
+        AsyncMock(
+            side_effect=AssertionError("Nordea must always read all consultants")
+        ),
+    )
+    projected = prepare_parser_text(text, POLICIES)
+    mail = await parse_order_document(projected, all_rows=True)
+    mail, _ = apply_policies(
+        deepcopy(mail), PolicyContext(document_text=text), POLICIES
+    )
+    for target in (None, "Jakub Górecki", "Anna Druga"):
+        parsed = await client_orders._extract_with_plan(
+            projected,
+            plan=parse_plan(POLICIES),
+            target_consultant=target,
+            target_given_names=None,
+        )
+        parsed, _ = apply_policies(
+            deepcopy(parsed),
+            PolicyContext(document_text=text, target_consultant=target),
+            POLICIES,
+        )
+        assert parsed.consultant_rows == mail.consultant_rows
+        assert (
+            parsed.title,
+            parsed.start_date,
+            parsed.end_date,
+            parsed.total_value,
+        ) == ("286471", "2026-09-09", "2026-11-26", None)
+        assert (
+            parsed.rate_client
+            == {
+                "Jakub Górecki": Decimal("160"),
+                "Anna Druga": Decimal("234"),
+                None: None,
+            }[target]
+        )
+    assert model.await_count == 4
+    assert all(call.args == (projected,) for call in model.call_args_list)
+
+
+def test_model_row_name_disagreement_keeps_real_concern_after_table_override():
+    ex = model_extraction("Nieczytelna stawka konsultanta")
+    ex.consultant_rows[0].consultant_name = "J. Testowy"
+    ex, _ = apply_policies(ex, PolicyContext(document_text=ORDER), POLICIES)
+    assert ex.consultant_rows[0].consultant_name == "Jan Testowy"
+    assert ex.uncertain
+    assert "Nieczytelna stawka konsultanta" in ex.uncertain_reasons
+
+
+def test_nordea_missing_table_is_reviewed_and_polish_total_warning_is_ignored():
+    ex = model_extraction("Nieczytelna wartość całkowita zamówienia")
+    ex, _ = apply_policies(
+        ex, PolicyContext(document_text=ORDER.split("Person(s)")[0]), POLICIES
+    )
+    assert ex.consultant_rows == []
+    assert ex.rate_client is None
+    assert ex.uncertain_reasons == [
+        "Nie znaleziono osób i stawek w tabeli Consultant(s)"
+    ]
+
+
+def test_only_consultant_table_supplies_people_even_when_other_sections_look_like_rows():
+    decoy = "Anna Kontaktowa IT Developer Poland - 100 Hours 999,00 PLN\n"
+    text = decoy + ORDER + "\nContact persons\n" + decoy
+    assert [r.consultant_name for r in nordea.extract_rows(text)] == ["Jan Testowy"]
+    assert "Anna Kontaktowa" not in nordea.parser_text(text)
+    assert nordea.extract_rows(decoy) == []

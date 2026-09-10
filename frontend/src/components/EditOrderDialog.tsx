@@ -1,5 +1,6 @@
 "use client";
 
+import { ExtractedConsultants, type ExtractedConsultantRows } from "@/components/orders/ExtractedConsultants";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -180,6 +181,7 @@ export function EditOrderDialog({
   // pól „Start"/„Koniec". Pytanie „Tak/Nie" jest zarezerwowane dla widoku
   // wielo-konsultantowego; ujednolicenie byłoby złamaniem jednego z ticketów.
   const [extracting, setExtracting] = useState(false);
+  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
   // Polityka klientowa (Bank Pocztowy) nie znalazła numeru w dokumencie —
@@ -270,6 +272,7 @@ export function EditOrderDialog({
       // bez uprawnień finansowych też musi wiedzieć, czyjego zamówienia
       // dotyczy wgrany dokument.
       setConsultantRef(data.consultant_ref ?? null);
+      setExtractedRows(data.client_policy === "Nordea" ? (data.consultant_rows ?? []) : []);
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       showToast("Odczytano dane z dokumentu", "success");
@@ -304,6 +307,7 @@ export function EditOrderDialog({
     // i dla przeciągnięcia.
     setFileError("");
     setFile(picked);
+    setExtractedRows([]);
     setCheckData(false);
     setCheckReasons([]);
     setTitleCheck(false);
@@ -410,6 +414,7 @@ export function EditOrderDialog({
       await dlPortalApi.deleteOrderPo(clientId, order.id);
       setHasExistingFile(false);
       setFile(null);
+      setExtractedRows([]);
       setCheckData(false);
       setCheckReasons([]);
       setTitleCheck(false);
@@ -469,7 +474,8 @@ export function EditOrderDialog({
 
         {/* Baner NAD tytułem — tak samo jak w przedłużeniu; to pierwsze, co
             widać po odczycie, więc ostrzeżenie nie może być pod formularzem. */}
-        {checkData && (
+        <ExtractedConsultants rows={extractedRows} />
+          {checkData && (
           <div
             role="alert"
             className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900"

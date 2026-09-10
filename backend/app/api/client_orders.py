@@ -72,6 +72,7 @@ from app.schemas.client_order import (
     ContractWithOrdersRead,
     OrderDocumentItem,
     OrderDocumentsResponse,
+    OrderExtractionConsultant,
     OrderExtractionResult,
 )
 from app.schemas.new_contractor_order import (
@@ -1882,6 +1883,7 @@ async def create_order_extension(
 @router.post(
     "/{client_id}/orders/extract",
     response_model=OrderExtractionResult,
+    response_model_exclude_unset=True,
 )
 async def extract_order_pdf(
     client_id: int,
@@ -2072,7 +2074,7 @@ async def extract_order_pdf(
             if k not in _EXTRACTION_FINANCE_CONF_KEYS
         }
 
-    return OrderExtractionResult(
+    result = OrderExtractionResult(
         title=extraction.title,
         start_date=extraction.start_date,
         end_date=extraction.end_date,
@@ -2099,6 +2101,19 @@ async def extract_order_pdf(
         client_policy=" + ".join(applied_policies) or None,
         source=extraction.source,
     )
+    # Only Nordea exposes the full table; other policies retain their API shape.
+    if "Nordea" in applied_policies:
+        result.consultant_rows = [
+            OrderExtractionConsultant(
+                consultant_name=row.consultant_name,
+                start_date=row.start_date,
+                end_date=row.end_date,
+                rate_client=row.rate_client if show_finance else None,
+                rate_unit=row.rate_unit if show_finance else None,
+            )
+            for row in extraction.consultant_rows
+        ]
+    return result
 
 
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
@@ -2980,6 +2995,8 @@ async def _extract_with_plan(
     są tu istotne: BNP dostaje sam tekst (fail-closed matcher nie miałby czego
     dopasować), PFRON i Erste dokładają domyślną jednostkę stawki.
     """
+    if plan.all_rows:
+        return await parse_order_document(text, all_rows=True)
     if plan.single_consultant_document:
         return await parse_order_document(text)
     if target_consultant and plan.rate_unit_default:

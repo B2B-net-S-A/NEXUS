@@ -383,6 +383,24 @@ describe("NewContractorOrderDialog — PDF od klienta", () => {
     expect(screen.getByDisplayValue("2026-12-31")).toBeInTheDocument();
   });
 
+  it("pokazuje wszystkie osoby Nordea z własnymi stawkami", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: [] }));
+    extractOrderPdf.mockResolvedValue(extraction({
+      client_policy: "Nordea",
+      consultant_rows: [
+        { consultant_name: "Jakub Górecki", start_date: "2026-09-09", end_date: "2026-11-26", rate_client: 160, rate_unit: "hour" },
+        { consultant_name: "Anna Druga", start_date: "2026-09-09", end_date: "2026-11-26", rate_client: 234, rate_unit: "hour" },
+      ],
+    }) as never);
+    renderDialog();
+    await uploadPdf(user);
+    expect(await screen.findByText("Jakub Górecki")).toBeInTheDocument();
+    expect(screen.getByText("Anna Druga")).toBeInTheDocument();
+    expect(screen.getByText(/160 zł\/h/)).toBeInTheDocument();
+    expect(screen.getByText(/234 zł\/h/)).toBeInTheDocument();
+  });
+
   it("odczyt automatyczny NIE kasuje tego, co operator już wpisał", async () => {
     const user = userEvent.setup();
     mockApi(() => Promise.resolve({ data: [] }));

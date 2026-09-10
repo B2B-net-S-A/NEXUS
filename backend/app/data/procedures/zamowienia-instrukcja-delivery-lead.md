@@ -1157,3 +1157,9 @@ w edytorze procedur, przestanie być odświeżana** — od tego momentu utrzymuj
 sam. Dopisanie praktyki zespołu jest jak najbardziej w porządku; opisu działania
 systemu lepiej nie poprawiać na własną rękę — zgłoś rozbieżność, żeby poprawka
 weszła po obu stronach.
+
+### Nordea — wspólny odczyt PDF
+
+Mail, nowe zamówienie oraz uzupełnienie i przedłużenie używają tej samej reguły. Odczyt obejmuje wyłącznie numer „Call Off Agreement number”, daty „Start date” i „End date” z „Initial Term” oraz każdą osobę i jej stawkę z tabeli „Consultant(s)”. Formularz wskazanej osoby wybiera jej stawkę z tej samej pełnej listy. Odczytani konsultanci są widoczni przy formularzu.
+
+„Total, excl. VAT”, „Subtotal” i Quantity nie trafiają do modelu ani do budżetu zamówienia. Nie zatrzymują odczytu ani automatycznego zapisu. Nieznalezione pola wymagane, niejednoznaczna osoba i rzeczywiste konflikty nadal wymagają kontroli. Rozpoznanie klienta numerem rejestrowym pozostaje bez zmian.
