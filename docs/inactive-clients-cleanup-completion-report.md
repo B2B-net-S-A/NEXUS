@@ -117,7 +117,6 @@ przeglądarki. Każda poprawka ma test (mutacje sprawdzone).
   odmowa zamiast przywracania stanu nieistniejących klientów.
 - Reconcile Traffita pokaże stały rozjazd liczby klientów o liczbę
   nagrobków (tylko raport, nic nie blokuje).
-
 - Lista B zostaje w zakładce do decyzji człowieka — to wymóg ticketu
   (pkt 3), więc po operacji w zakładce mogą być klienci bez śladu
   współpracy, ale z innymi danymi. Raport mówi, czego dotyczą.
