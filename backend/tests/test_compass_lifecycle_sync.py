@@ -163,3 +163,125 @@ async def test_disabled_is_a_no_op(monkeypatch):
         result = await compass_lifecycle.sync_user_lifecycle(db)
     assert result.error == "disabled"
     assert result.deactivated == []
+
+
+# ── Tylko przy ZMIANIE statusu (09.2026) ─────────────────────────────────────
+
+
+async def _run_sync():
+    async with AsyncSessionLocal() as db:
+        return await compass_lifecycle.sync_user_lifecycle(db)
+
+
+async def _set_active(user_id: int, active: bool) -> None:
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        user.is_active = active
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_admin_reenable_survives_every_following_run(monkeypatch):
+    """Konto włączone przez admina mimo `exited` zostaje włączone.
+
+    Do 09.2026 pętla wyłączała je z powrotem przy każdym starcie kontenera
+    i co 6 h, dopóki COMPASS pokazywał `exited` — decyzja admina żyła do
+    najbliższego deployu.
+    """
+    email = f"lc-reen-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+
+    first = await _run_sync()
+    assert email in first.deactivated
+    assert await _is_active(uid) is False
+
+    await _set_active(uid, True)  # świadoma decyzja admina
+
+    for _ in range(2):
+        again = await _run_sync()
+        assert email not in again.deactivated
+        assert email in again.skipped_reenabled
+        assert await _is_active(uid) is True
+
+
+@pytest.mark.asyncio
+async def test_first_run_after_deploy_respects_an_earlier_admin_reenable(monkeypatch):
+    """Brak zapisanej obserwacji ≠ nowe odejście, gdy admin już zdecydował.
+
+    Stara pętla nie zapisywała stanu, więc konto włączone ręcznie po jej
+    deaktywacji wyglądałoby przy pierwszym przebiegu nowego kodu jak świeże
+    `exited`. Ślad `active_changed → True` z panelu admina rozstrzyga.
+    """
+    from app.models.activity import Activity
+
+    email = f"lc-boot-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=uid,
+                action="active_changed",
+                details={"from": False, "to": True, "target_email": email},
+            )
+        )
+        await db.commit()
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+
+    result = await _run_sync()
+
+    assert result.deactivated == []
+    assert email in result.skipped_reenabled
+    assert await _is_active(uid) is True
+
+
+@pytest.mark.asyncio
+async def test_a_new_exit_after_a_return_deactivates_again(monkeypatch):
+    """Zmiana `active → exited` to NOWE odejście — i ono nadal odbiera dostęp."""
+    email = f"lc-cycle-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+    await _run_sync()
+    await _set_active(uid, True)
+
+    _configure(monkeypatch, [{"email": email, "employment_status": "active"}])
+    await _run_sync()
+    assert await _is_active(uid) is True
+
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+    result = await _run_sync()
+    assert email in result.deactivated
+    assert await _is_active(uid) is False
+
+
+@pytest.mark.asyncio
+async def test_deactivation_leaves_an_audit_entry(monkeypatch):
+    """Konto wyłączone automatem musi mieć ślad KTO i DLACZEGO."""
+    from app.models.activity import Activity
+
+    email = f"lc-audit-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+
+    await _run_sync()
+
+    async with AsyncSessionLocal() as db:
+        entries = (
+            (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.entity_type == "user",
+                        Activity.entity_id == uid,
+                        Activity.action == compass_lifecycle.DEACTIVATION_ACTION,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(entries) == 1
+    assert entries[0].user_id is None
+    assert entries[0].details["compass_status"] == "exited"
+    assert entries[0].details["target_email"] == email
