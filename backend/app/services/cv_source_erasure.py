@@ -74,7 +74,16 @@ async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
             409,
             "Generacja lub kontrola CV kandydata nadal trwa. Ponów usunięcie po jej zakończeniu.",
         )
-    keys = sorted({job.input_storage_key for job in jobs if job.input_storage_key})
+    from app.services.cv_source_cleanup import is_purged_key
+
+    # A retired input (`purged/…`) is already deleted — no object to remove.
+    keys = sorted(
+        {
+            job.input_storage_key
+            for job in jobs
+            if job.input_storage_key and not is_purged_key(job.input_storage_key)
+        }
+    )
     for job in [*jobs, *reviews]:
         await db.delete(job)
     return keys
