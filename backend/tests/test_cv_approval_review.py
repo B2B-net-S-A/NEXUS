@@ -243,3 +243,22 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
     assert error.value.status_code == 422
     admission.assert_not_called()
     verification.assert_not_called()
+
+
+async def test_missing_source_returns_recovery_code_without_charging(monkeypatch):
+    monkeypatch.setattr(
+        review,
+        "load_review_source",
+        AsyncMock(side_effect=review.ReviewSourceMissing("Wygeneruj CV ponownie.")),
+    )
+    admission = Mock()
+    monkeypatch.setattr(review, "ai_feature", admission)
+    draft = SimpleNamespace(generated_document_id=11, branded_render_metadata={})
+    with pytest.raises(HTTPException) as error:
+        await review.review_for_approval(AsyncMock(), draft, "<p>Changed claim</p>", 7)
+    assert error.value.status_code == 409
+    assert error.value.detail == {
+        "code": "cv_source_regeneration_required",
+        "message": "Wygeneruj CV ponownie.",
+    }
+    admission.assert_not_called()

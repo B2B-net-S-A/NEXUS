@@ -14,7 +14,11 @@ from app.services.cv_editor_review import (
     EditorReviewInputError,
     EDITOR_REVIEW_VERSION,
 )
-from app.services.cv_review_sources import load_review_source, ReviewSourceUnavailable
+from app.services.cv_review_sources import (
+    load_review_source,
+    ReviewSourceUnavailable,
+    ReviewSourceMissing,
+)
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError
 from app.services.cv_generator_b2b.factual_verification import (
     FactualVerificationError,
@@ -51,6 +55,11 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     try:
         editor_claims(content_html)
         source = await load_review_source(db, generated_id)
+    except ReviewSourceMissing as exc:
+        raise HTTPException(
+            409,
+            {"code": "cv_source_regeneration_required", "message": str(exc)},
+        ) from exc
     except (EditorReviewInputError, ReviewSourceUnavailable) as exc:
         raise HTTPException(409, str(exc)) from exc
     html_sha256 = hashlib.sha256(content_html.encode()).hexdigest()

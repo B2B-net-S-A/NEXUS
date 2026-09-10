@@ -59,7 +59,31 @@ import { cvGeneratedEditorApi } from "@/lib/api";
 import { CVBrandedEditModal } from "../CVBrandedEditModal";
 import { downloadAuthenticatedFile, postAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-files";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+it.each(["pipeline", "standalone"])("%s keeps legacy recovery visible and saves edits before closing", async (mode) => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.status = "draft"; state.revision = 1;
+  const finalize = vi.spyOn(cvGeneratedEditorApi, "finalize").mockRejectedValueOnce({
+    response: {data: {detail: {code: "cv_source_regeneration_required", message: "Brak zamrożonych źródeł."}}},
+  });
+  const close = vi.fn();
+  const target = mode === "pipeline" ? {stageId: 21} : {generatedId: 7};
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={close}
+    candidateName="Synthetic" {...target} /></QueryClientProvider>);
+  await screen.findByLabelText("audit editor");
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>Preserve my changes</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Sfinalizuj"}));
+  await screen.findByText("Brak zamrożonych źródeł.");
+  expect(screen.getByText(/Wybierz oryginalny plik CV/)).toBeTruthy();
+  expect(state.status).toBe("draft");
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz szkic i zamknij"}));
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false));
+  expect(state.stored).toBe("<p>Preserve my changes</p>");
+  finalize.mockRestore();
+});
 
 it.each(["pipeline", "standalone"])("%s finalize before autosave includes the last edit", async (mode) => {
   state.html = state.stored = "<p>Old text</p>";

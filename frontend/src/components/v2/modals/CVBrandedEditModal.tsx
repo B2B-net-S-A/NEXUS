@@ -57,6 +57,7 @@ type Props = {
 
 function getErrorMessage(e: unknown): string {
  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+ if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;
  return typeof detail === "string" ? detail : e instanceof Error ? e.message : "Nie udało się wykonać operacji";
 }
 
@@ -79,6 +80,7 @@ function CVBrandedEditContent({
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const [confirmFinalize, setConfirmFinalize] = useState(false);
+ const [approvalError, setApprovalError] = useState<{message: string; regenerate: boolean} | null>(null);
  const [pendingTemplate, setPendingTemplate] = useState<CVTemplate | null>(
  null,
  );
@@ -203,9 +205,15 @@ function CVBrandedEditContent({
    onSuccess: (response) => {
      loadState(response.data);
      showSuccess("Zapisano i zatwierdzono bieżącą treść CV");
+     setApprovalError(null);
      setConfirmFinalize(false);
    },
-   onError: (e) => showError(getErrorMessage(e)),
+   onError: (e) => {
+     const detail = (e as {response?: {data?: {detail?: {code?: string}}}})?.response?.data?.detail;
+     setApprovalError({message: getErrorMessage(e), regenerate: detail?.code === "cv_source_regeneration_required"});
+     showError(getErrorMessage(e));
+     setConfirmFinalize(false);
+   },
  });
  const newDraftMut = useMutation({
    mutationFn: () => editorApi.newDraft(stageId, sessionRef.current!.revision),
@@ -281,6 +289,18 @@ function CVBrandedEditContent({
  <>
  <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
  <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
+ {approvalError && <div role="alert" className="px-5 py-3 border-b border-border text-sm">
+   <p className="text-destructive">{approvalError.message}</p>
+   {approvalError.regenerate && <>
+     <ol className="list-decimal pl-5 mt-2 space-y-1">
+       <li>Zapisz szkic i wróć do generatora CV.</li>
+       <li>Wybierz oryginalny plik CV lub wgraj go ponownie. Sprawdź rekrutację, klienta i notatki.</li>
+       <li>Wygeneruj nowe CV, sprawdź jego treść i zatwierdź nowy wynik.</li>
+     </ol>
+     <p className="mt-2">Nowa generacja zużyje zwykły limit AI. Obecne poprawki pozostają w szkicu; nie zostaną automatycznie przeniesione.</p>
+     <Button className="mt-2" size="sm" variant="outline" onClick={() => void closeEditor(false)}>Zapisz szkic i zamknij</Button>
+   </>}
+ </div>}
  <div className="flex items-center justify-between px-5 py-3 border-b border-border">
  <div className="min-w-0">
  <div className="text-xs uppercase tracking-wider text-muted-foreground">

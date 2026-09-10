@@ -18,6 +18,10 @@ class ReviewSourceUnavailable(ValueError):
     pass
 
 
+class ReviewSourceMissing(ReviewSourceUnavailable):
+    """Legacy generation has no frozen inputs; a fresh generation is required."""
+
+
 @dataclass(frozen=True)
 class ReviewSource:
     cv_bytes: bytes
@@ -40,7 +44,7 @@ async def load_review_source(db, generated_id: int) -> ReviewSource:
         )
     )
     if job is None:
-        raise ReviewSourceUnavailable(
+        raise ReviewSourceMissing(
             "Brak zamrożonych źródeł tej generacji. Wybierz źródła i wygeneruj CV ponownie."
         )
     try:
