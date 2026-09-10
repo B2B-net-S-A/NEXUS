@@ -13,7 +13,7 @@ Bezpieczniki:
   widzi klient;
 * każdy cytat-dowód jest walidowany jako substring tekstu publicznego payloadu
   (po normalizacji whitespace + case) — parafrazy i fabrykacje są wycinane,
-  a wymaganie bez ocalałego dowodu spada z "met" na "partial";
+  a wymaganie bez ocalałego dowodu spada do "no_data";
 * kwota AI (``AIFeatureKey.cv_requirement_map``) działa FAIL-OPEN: przekroczenie
   limitu lub błąd LLM nie psuje generacji CV — link działa w widoku classic,
   kafelki są po prostu niedostępne.
@@ -136,7 +136,7 @@ def _sanitize_items(
 
     Kontrakt anty-fabrykacyjny: cytat, którego nie ma w publicznym payloadzie
     (substring po normalizacji), jest ODRZUCANY; wymaganie ze statusem "met",
-    które straciło wszystkie dowody, spada na "partial". Wpisy spoza listy
+    które straciło wszystkie dowody, spada na "no_data". Wpisy spoza listy
     wymagań są ignorowane; brakujące dostają "no_data".
     """
     haystack = _normalize_for_match(public_payload_text(public_payload))
@@ -177,8 +177,12 @@ def _sanitize_items(
         for ev in item.get("evidence") or []:
             if not isinstance(ev, dict):
                 continue
-            quote = str(ev.get("quote") or "").strip()[:_MAX_QUOTE_CHARS]
-            if not quote or _normalize_for_match(quote) not in haystack:
+            quote = str(ev.get("quote") or "").strip()
+            if (
+                not quote
+                or len(quote) > _MAX_QUOTE_CHARS
+                or _normalize_for_match(quote) not in haystack
+            ):
                 continue  # parafraza/fabrykacja — odrzucamy
             idx: Optional[int] = ev.get("experience_index")
             if type(idx) is not int or not (0 <= idx < experience_count):
@@ -193,10 +197,12 @@ def _sanitize_items(
             if len(evidence_out) >= _MAX_EVIDENCE_PER_REQ:
                 break
 
-        if status == "met" and not evidence_out:
-            status = "partial"
+        if not evidence_out:
+            status = "no_data"
 
-        note = str(item.get("note") or "").strip()[:_MAX_NOTE_CHARS] or None
+        note = str(item.get("note") or "").strip() or None
+        if not evidence_out or (note and len(note) > _MAX_NOTE_CHARS):
+            note = None
         sanitized.append(
             {
                 "requirement": req["name"],

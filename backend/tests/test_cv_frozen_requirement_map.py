@@ -87,3 +87,24 @@ def test_evidence_cannot_point_to_another_employer(index, expected):
         payload,
     )
     assert result[0]["evidence"] == [{"quote": quote, "experience_index": expected}]
+
+
+def test_long_quote_is_rejected_whole_without_losing_qualification():
+    quote = "Testy AWS " * 25 + "wyłącznie szkoleniowo, bez wdrożeń produkcyjnych."
+    result = mapping._sanitize_items(
+        {
+            "items": [
+                {
+                    "requirement": "AWS",
+                    "status": "met",
+                    "note": "Kandydat spełnia wymaganie.",
+                    "evidence": [{"quote": quote}],
+                }
+            ]
+        },
+        [{"name": "AWS", "kind": "must"}],
+        {"why_points": [quote]},
+    )
+    assert result[0]["evidence"] == []
+    assert result[0]["status"] == "no_data"
+    assert result[0]["note"] is None

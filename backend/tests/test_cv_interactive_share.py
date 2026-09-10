@@ -11,7 +11,7 @@ Kontrakty:
   `Client.cv_interactive_enabled` ⇒ sam widok classic (requirements=None,
   chat_enabled=False);
 - **mapa wymagań** — walidator odrzuca cytaty spoza payloadu (parafrazy),
-  degraduje "met" bez dowodów do "partial", brakujące wymagania dostają
+  degraduje "met" bez dowodów do "no_data", brakujące wymagania dostają
   "no_data";
 - **chat** — prompt-injection dostaje odmowę BEZ wywołania LLM, dzienny limit
   pytań per link zwraca 429.
@@ -456,7 +456,9 @@ def test_requirement_map_rejects_paraphrased_quotes():
     )
     k8s = next(i for i in out if i["requirement"] == "Kubernetes")
     assert k8s["evidence"] == []
-    assert k8s["status"] == "partial", "met bez dowodów degraduje do partial"
+    assert k8s["status"] == "no_data", (
+        "brak dowodów nie potwierdza częściowego spełnienia"
+    )
 
 
 def test_requirement_map_keeps_verbatim_quotes_and_fills_missing():

@@ -687,3 +687,7 @@ Odtworzono uszkodzenie `2020-01-2024-12` do `2020-01.2024-12`. Formatowanie odcz
 ### CV-02: chat zatwierdzonej wersji — integracja w toku
 
 Publiczny chat zatwierdzonej wersji otrzymuje wyłącznie uporządkowany tekst jej HTML po sprawdzeniu właściciela i integralności przez istniejący resolver. Nie czyta pierwotnego payloadu ani starej mapy wymagań. Nieodczytywalna treść nie uruchamia zastępczego kontekstu starego CV. Widok zatwierdzonego HTML może pokazać panel chatu zgodnie z aktualnymi flagami klienta i AI. 16 testów projekcji i odczytu zatwierdzeń, Ruff oraz TypeScript przeszły lokalnie. Pozostają testy endpointu pytań i UI, hosted/produkcyjny odbiór oraz odbudowa mapy wymagań względem zatwierdzonej treści. Nie jest to jeszcze zamknięcie CV-02.
+
+### Dowody mapy wymagań
+
+Generowanie mapy wydzielono od zapisu dokumentu, aby można było użyć zamrożonego wejścia. Cytat przypisany do stanowiska musi występować w jego treści; inaczej wskaźnik stanowiska jest usuwany. Zbyt długie cytaty nie są obcinane, lecz odrzucane w całości. Brak ocalałych dowodów daje `no_data` i usuwa notatkę modelu, zamiast sugerować częściowe spełnienie wymagania. Siedem nowych testów oraz dwa istniejące testy walidatora przeszły lokalnie. Nie jest to dowód semantycznej trafności zachowanych cytatów ani zakończenie integracji mapy z zatwierdzonym CV.
