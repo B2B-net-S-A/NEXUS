@@ -1696,8 +1696,9 @@ def _probe_qdrant() -> str:
     # „wyszukiwarka nic nie znajduje".
     #
     # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
-    # zmienione razem z siedmioma w `app/services/` — inaczej sonda przestanie
-    # sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    # zmienione razem z ośmioma w `app/services/` (lista w requirements.txt,
+    # w tym pomiar pełnego przeglądu `full_search_measurement._exact_search`) —
+    # inaczej sonda przestanie sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
     try:
         client.search(
             collection_name=collection,
