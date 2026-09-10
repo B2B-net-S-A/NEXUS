@@ -143,7 +143,7 @@ def parser_text(text: str) -> str:
 
 
 _IGNORED_SUM_RE = re.compile(
-    r"total[_ ]value|total\s*,?\s*excl\.?\s*vat|subtotal", re.I
+    r"total[_ ]value|total\s*,?\s*excl\.?\s*vat|subtotal|wartos\w*\s+calkowit\w*", re.I
 )
 
 
@@ -182,7 +182,7 @@ def _remaining_reasons(reason: str) -> str:
             r"[;\n]+|,?\s+(?:ale|jednak|natomiast|but)\s+", reason, flags=re.I
         )
         if part.strip()
-        and not _IGNORED_SUM_RE.search(part)
+        and not _IGNORED_SUM_RE.search(_fold_policy_text(part))
         and not _resolved_reason(part)
     )
 
@@ -346,6 +346,10 @@ def apply_nordea_layout(
             row.uncertain = True
             row.uncertain_reason = "; ".join(dict.fromkeys(concerns))
     result.consultant_rows = rows
+    if not rows:
+        reason = "Nie znaleziono osób i stawek w tabeli Consultant(s)"
+        if reason not in result.uncertain_reasons:
+            result.uncertain_reasons.append(reason)
     result.currency = "PLN"
     if len(rows) != 1 and not target_consultant:
         result.rate_client = None

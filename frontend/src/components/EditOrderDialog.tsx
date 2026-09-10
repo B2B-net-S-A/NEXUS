@@ -273,7 +273,7 @@ export function EditOrderDialog({
       // dotyczy wgrany dokument.
       setConsultantRef(data.consultant_ref ?? null);
       setExtractedRows(data.client_policy === "Nordea" ? (data.consultant_rows ?? []) : []);
-    setCheckData(Boolean(data.uncertain));
+      setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       showToast("Odczytano dane z dokumentu", "success");
     } catch (err: unknown) {

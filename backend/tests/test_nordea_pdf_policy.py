@@ -458,3 +458,24 @@ async def test_nordea_create_fill_extend_use_the_same_all_rows_parser_as_mail(
         )
     assert model.await_count == 4
     assert all(call.args == (projected,) for call in model.call_args_list)
+
+
+def test_model_row_name_disagreement_keeps_real_concern_after_table_override():
+    ex = model_extraction("Nieczytelna stawka konsultanta")
+    ex.consultant_rows[0].consultant_name = "J. Testowy"
+    ex, _ = apply_policies(ex, PolicyContext(document_text=ORDER), POLICIES)
+    assert ex.consultant_rows[0].consultant_name == "Jan Testowy"
+    assert ex.uncertain
+    assert "Nieczytelna stawka konsultanta" in ex.uncertain_reasons
+
+
+def test_nordea_missing_table_is_reviewed_and_polish_total_warning_is_ignored():
+    ex = model_extraction("Nieczytelna wartość całkowita zamówienia")
+    ex, _ = apply_policies(
+        ex, PolicyContext(document_text=ORDER.split("Person(s)")[0]), POLICIES
+    )
+    assert ex.consultant_rows == []
+    assert ex.rate_client is None
+    assert ex.uncertain_reasons == [
+        "Nie znaleziono osób i stawek w tabeli Consultant(s)"
+    ]
