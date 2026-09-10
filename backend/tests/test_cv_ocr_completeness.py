@@ -1,12 +1,33 @@
 """OCR must not silently discard employment on later pages."""
 
 import sys
+import subprocess
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from app.services.cv_generator_b2b import text_extractor as extractor
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [subprocess.TimeoutExpired("pdftotext", 30), OSError("reader unavailable")],
+)
+def test_native_reader_failure_uses_complete_fallback(monkeypatch, failure):
+    monkeypatch.setattr(extractor, "_extract_mixed_pdf", lambda data: None)
+    monkeypatch.setattr(extractor.shutil, "which", lambda name: "/bin/pdftotext")
+    reader = Mock(side_effect=failure)
+    monkeypatch.setattr(extractor.subprocess, "run", reader)
+    full_text = "\n".join(f"Employer {i}: source employment history" for i in range(12))
+    fallback = Mock(return_value=full_text)
+    monkeypatch.setattr(extractor, "_extract_pdf_pdfplumber", fallback)
+    ocr = Mock(side_effect=AssertionError("Complete native text needs no OCR"))
+    monkeypatch.setattr(extractor, "_extract_pdf_ocr", ocr)
+
+    assert extractor.extract_text_from_file(b"synthetic PDF", "cv.pdf") == full_text
+    fallback.assert_called_once_with(b"synthetic PDF")
+    ocr.assert_not_called()
 
 
 @pytest.mark.parametrize("broken_page", [None, 11])
