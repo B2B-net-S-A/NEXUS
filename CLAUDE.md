@@ -1727,7 +1727,7 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
-## Polityki odczytu PDF per klient — jeden wzorzec, osiem bramek
+## Polityki odczytu PDF per klient — jeden wzorzec, bramka per klient
 
 Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model
 wybiera interpretację, nie stosuje reguł), bramkowana CSV `client_id` z env,
@@ -1743,6 +1743,7 @@ fail-closed:
 | Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
 | PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
 | BIK | `BIK_ORDER_CLIENT_IDS` (+ kanoniczne ID 18) | numer/data z „Numer/data zamówienia” (start = data, koniec = bezterminowo); każda „Poz.” = osoba z własnym limitem MD („Ilość zamów.”, SZT) i stawką PLN/MD („Cena jednostk.”); wartości netto tylko do kontroli |
+| Alior | `ALIOR_ORDER_EXTRACTION_CLIENT_IDS` | tylko 4 pola: „Zamówienie nr:”, nazwisko z kolumny konsultanta, okres z nawiasu pod nazwiskiem (inaczej „Moment wejścia w życie” / „czas oznaczony”), stawka z „Razem stawka dla Banku” za MD; zawsze netto, jawne „brutto” w tabeli → weryfikacja bez ÷1,23; Roboczodni/Stawka bazowa/Marża/Total ignorowane |
 
 - **BIK: tekst z SAP-a jest SKLEJONY** — pdfplumber oddaje
   „ProfilUR-JanKowalski”, „4500012345/20260903”, a etykieta „Numer/data”
@@ -1774,6 +1775,40 @@ fail-closed:
   alertami). Korekta przywracająca komuś MD wskrzesza grupę automatycznie —
   tylko zakończoną automatycznie; ręczne „Przywróć” takiej grupy daje 409
   z instrukcją. Siatka: dobowy skaner i `GET …/order-groups` (reconcile).
+- **Nordea i Alior mają tabelę osób jako źródło prawdy** (`table_authoritative`
+  w rejestrze): formularze czytają wszystkie osoby tak jak mail (parser
+  all-rows, osobę wybiera polityka), a „Przelicz plan” stosuje regułę ponownie
+  na zapisanym odczycie. U Aliora wiersz kotwiczy MARŻA (token z „%”), kwoty
+  mają spację jako separator tysięcy, a nazwisko to słowa bloku wiersza bez
+  słownika kompetencji. Model czyta osoby niezależnie: rozbieżność nazwiska,
+  stawki albo okresu z tabelą idzie do weryfikacji — także PUSTA stawka/okres
+  w odczycie modelu (prompt każe je zostawić puste, gdy model nie umie ich
+  powiązać z osobą, więc brak to nie zgoda).
+- **Alior porównuje tabelę z ZAPISANYM odczytem modelu** —
+  `OrderExtraction.model_rows`, utrwalane w `order_mail_documents.extraction`
+  i odtwarzane przez `restore_extraction`. Powody są budowane od zera przy
+  każdym zastosowaniu. Bez tego „Przelicz plan” porównywałby tabelę z własnym
+  wynikiem (`consultant_rows` po pierwszym zastosowaniu SĄ wierszami tabeli)
+  i każda rozbieżność znikałaby po jednym kliknięciu. Zapis sprzed tej reguły
+  nie ma `model_rows`; gdy dokument ma wiersze w starym kształcie
+  (`_LEGACY_ROW_RE` — stara reguła mogła podstawić tabelę za odczyt modelu),
+  nie potwierdza osób i idzie do człowieka. `model_rows` niesie kwoty, więc
+  kolejka redaguje je jak `consultant_rows`.
+- **U Aliora żadna pozycja nie znika po cichu**: osoba z odczytu modelu bez
+  odczytanego wiersza w tabeli (druga pozycja tej samej osoby, wiersz
+  w nietypowym układzie na kolejnej stronie) zostaje w wynikach jako niepewna.
+  Pomijane jest wyłącznie powtórzenie z IDENTYCZNĄ stawką i okresem.
+  Formularz z osobą (`target_consultant`) wybiera wiersz wspólnym ścisłym
+  matcherem `_name_match_score` — nie „wszystkie człony w bloku”, bo
+  „Anna Nowak” zawiera się w „Anna Nowak-Kowalska”.
+- **Szkic, który niesie już zamówienie, nie jest nadpisywany dokumentem na
+  rozłączny okres** (planer: `from_order_mail` z Activity `order_mail_*` albo
+  `has_file`): Alior przysyła wrzesień i październik–grudzień osobnymi mailami,
+  a szkic nie aktywuje się przed podpisem umowy. Ten sam numer albo nachodzący
+  okres (korekta dokumentu) nadal uzupełnia ten sam szkic; szkic linii grupy
+  zostaje przy `ACTION_GROUP` (osobne zamówienie obok linii MD rozdwoiłoby
+  współpracę). Szkic wypełniony ręcznie bez pliku nadal jest „pusty” — znane
+  ograniczenie, instrukcja każe dołączyć PDF.
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
 - **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją

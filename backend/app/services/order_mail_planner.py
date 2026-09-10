@@ -2,7 +2,10 @@
 
 Existing live orders take priority over drafts. A first order creates a draft,
 any single existing draft is filled, a completed order is reused with history.
-Actual period overlaps, ambiguous targets and revisions require review.
+A draft written from another mail document for a disjoint period counts as a
+planned order, not an empty draft (same number or overlapping period = its
+correction). Actual period overlaps, ambiguous targets and revisions require
+review.
 """
 
 from __future__ import annotations
@@ -51,6 +54,9 @@ class ExistingOrder:
     has_file: bool = False
     rate_client: Optional[Decimal] = None
     rate_unit: Optional[str] = None
+    #: Zamówienie zapisane już z dokumentu mailowego (Activity ``order_mail_*``).
+    #: Jego szkic niesie TAMTO zamówienie, a nie pusty szkic z zatrudnienia.
+    from_order_mail: bool = False
 
 
 @dataclass
@@ -122,8 +128,40 @@ def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
     return False
 
 
-def _is_draft_shell(order: ExistingOrder) -> bool:
-    return order.status == "draft"
+def _overlaps(order: ExistingOrder, start: date, end: Optional[str]) -> bool:
+    """Czy okres zamówienia nachodzi na okres z dokumentu (brak końca = bez końca)."""
+    return (order.end_date is None or order.end_date >= start) and (
+        end is None
+        or order.start_date is None
+        or order.start_date <= date.fromisoformat(end)
+    )
+
+
+def _is_draft_shell(
+    order: ExistingOrder, number: Optional[str], start: date, end: Optional[str]
+) -> bool:
+    """Szkic do uzupełnienia — chyba że niesie już zamówienie na INNY okres.
+
+    Dwa zamówienia tej samej osoby przychodzą osobnymi mailami (Alior: wrzesień
+    i październik–grudzień). Póki kontrakt nie jest podpisany, szkic wypełniony
+    pierwszym PDF-em nie staje się aktywnym zamówieniem — bez tego warunku drugi
+    PDF „uzupełniał" go i po cichu nadpisywał numer i okres pierwszego. Szkic
+    „niesie zamówienie", gdy zapisano go z maila albo ma dołączony PDF
+    zamówienia. Ten sam numer albo nachodzący okres to ten sam dokument (albo
+    jego korekta), więc uzupełnienie wolno; rozłączny okres to osobne zamówienie.
+    Linia grupy zostaje przy dotychczasowej ścieżce (``ACTION_GROUP``): osobne
+    zamówienie obok linii MD rozdwoiłoby współpracę.
+    """
+    if order.status != "draft":
+        return False
+    carries_order = order.from_order_mail or order.has_file
+    if (
+        order.order_group_id is not None
+        or not carries_order
+        or titles_collide(order.title, number)
+    ):
+        return True
+    return _overlaps(order, start, end)
 
 
 def _period_for_row(
@@ -250,7 +288,12 @@ def plan_document(
             continue
 
         open_live = [o for o in existing if o.status in ("active", "paused")]
-        shells = [o for o in existing if _is_draft_shell(o)]
+        shells = [
+            o for o in existing if _is_draft_shell(o, extraction.title, new_start, end)
+        ]
+        # Szkic z innego PDF-a na rozłączny okres to zaplanowane zamówienie:
+        # liczy się jak otwarte, więc ten dokument dostaje osobne zamówienie.
+        mail_drafts = [o for o in existing if o.status == "draft" and o not in shells]
         if len(shells) > 1 and not open_live:
             rp.reasons.append("Więcej niż jeden draft tej osoby — wybierz zamówienie")
             proposal.rows.append(rp)
@@ -270,18 +313,8 @@ def plan_document(
             proposal.rows.append(rp)
             continue
 
-        open_orders = open_live
-        new_start = date.fromisoformat(start)
-        overlapping = [
-            o
-            for o in open_orders
-            if (o.end_date is None or o.end_date >= new_start)
-            and (
-                end is None
-                or o.start_date is None
-                or o.start_date <= date.fromisoformat(end)
-            )
-        ]
+        open_orders = open_live + mail_drafts
+        overlapping = [o for o in open_orders if _overlaps(o, new_start, end)]
         if overlapping:
             rp.action = ACTION_OVERLAP
             rp.target_order_id = overlapping[0].id

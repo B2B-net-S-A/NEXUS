@@ -58,10 +58,14 @@ class PolicyContext:
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None
     filename: Optional[str] = None
+    #: Reguła działa ponownie na ZAPISANYM odczycie („Przelicz plan"), a nie na
+    #: świeżej odpowiedzi modelu — wiersze wejściowe mogą być jej własnym wynikiem.
+    reapplied: bool = False
 
 
 PolicyFn = Callable[[OrderExtraction, PolicyContext], OrderExtraction]
 RowsFn = Callable[[str], list[ConsultantOrderRow]]
+RateRulesFn = Callable[[OrderExtraction, str], Optional[OrderExtraction]]
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,17 @@ class OrderClientPolicy:
     #: Ręczny odczyt oddaje całą tabelę osób (``consultant_rows``) — formularz
     #: zamówienia wieloosobowego pokazuje ją i uzupełnia z niej linie.
     exposes_consultant_rows: bool = False
+    #: Tabela osób z PDF-a jest źródłem prawdy w KAŻDEJ ścieżce (Nordea, Alior):
+    #: formularze czytają wszystkie osoby tak jak mail (parser all-rows, osobę
+    #: wybiera polityka), a „Przelicz plan" stosuje regułę ponownie na zapisanym
+    #: odczycie — inaczej dokument sprzed poprawki reguły zostawałby w kolejce
+    #: z powodami, których reguła już nie generuje.
+    table_authoritative: bool = False
+    #: Reguła rodzaju stawki klienta w miejsce uniwersalnego rozpoznania
+    #: brutto/netto z dokumentu (Nordea: netto/h, Alior: netto, jawne „brutto" →
+    #: weryfikacja; BIK: netto z nagłówka tabeli). Reguła może oddać decyzję
+    #: (``None``) — wtedy, jak u klienta bez reguły, rozstrzyga oznaczenie w PDF-ie.
+    rate_rules: Optional[RateRulesFn] = None
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -197,7 +212,17 @@ def _velobank(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
 
 
 def _alior(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    return alior.apply_alior_order_policy(result, ctx.document_text)
+    return alior.apply_alior_order_policy(
+        result,
+        ctx.document_text,
+        target_consultant=ctx.target_consultant,
+        target_given_names=ctx.target_given_names,
+        reapplied=ctx.reapplied,
+    )
+
+
+def _nordea_rate_rules(result: OrderExtraction, text: str) -> OrderExtraction:
+    return nordea.apply_rate_rules(result)
 
 
 def _cardif(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
@@ -225,6 +250,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="hour",
         extract_rows=nordea.extract_rows,
         exposes_consultant_rows=True,
+        table_authoritative=True,
+        rate_rules=_nordea_rate_rules,
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -324,6 +351,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=150,
         rate_unit_default="day",
         extract_rows=alior.extract_rows,
+        table_authoritative=True,
+        rate_rules=alior.apply_rate_rules,
     ),
     OrderClientPolicy(
         key="cardif",
@@ -349,6 +378,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         open_ended_period=True,
         closes_on_md_exhaustion=True,
         exposes_consultant_rows=True,
+        rate_rules=bik.apply_rate_rules,
     ),
 )
 
@@ -396,7 +426,7 @@ def parse_plan(policies: list[OrderClientPolicy]) -> ParsePlan:
     return ParsePlan(
         single_consultant_document=single,
         rate_unit_default=unit,
-        all_rows=any(p.key == "nordea" for p in policies),
+        all_rows=any(p.table_authoritative for p in policies),
     )
 
 
@@ -444,20 +474,25 @@ def prepare_document_text(text: str, policies: list[OrderClientPolicy]) -> str:
 def apply_rate_kind(
     result: OrderExtraction, text: str, policies: list[OrderClientPolicy]
 ) -> OrderExtraction:
-    """Nordea ma jawną regułę netto; inni klienci nadal wymagają dowodu z PDF-a.
+    """Klient z własną regułą rodzaju stawki jej używa; reszta — dowodu z PDF-a.
 
-    BIK dowodzi netto nagłówkiem tabeli („Wart.netto" / „netto bez VAT") —
-    ogólne rozpoznanie szuka etykiety przy KWOCIE stawki, a w sklejonym tekście
-    z SAP-a („1.200,00", „wynosi1200,-zł/MD") jej nie widzi i oznaczało każdą
-    pozycję jako niepewną.
+    Nordea: zawsze netto za godzinę. Alior: netto z definicji, jawne „brutto" →
+    weryfikacja. BIK dowodzi netto nagłówkiem tabeli („Wart.netto" / „netto bez
+    VAT") — ogólne rozpoznanie szuka etykiety przy KWOCIE stawki, a w sklejonym
+    tekście z SAP-a („1.200,00", „wynosi1200,-zł/MD") jej nie widzi i oznaczało
+    każdą pozycję jako niepewną; bez tego nagłówka BIK oddaje decyzję (``None``).
     """
-    if any(p.key == "nordea" for p in policies):
-        return nordea.apply_rate_rules(result)
-    if any(p.key == "bik" for p in policies):
-        net = bik.apply_rate_rules(result, text)
-        if net is not None:
-            return net
+    for policy in sorted(policies, key=lambda p: p.order):
+        if policy.rate_rules is not None:
+            ruled = policy.rate_rules(result, text)
+            if ruled is not None:
+                return ruled
     return parser.apply_document_rate_kind(result, text)
+
+
+def reapplies_on_refresh(policies: list[OrderClientPolicy]) -> bool:
+    """Czy „Przelicz plan" stosuje reguły klienta ponownie na zapisanym odczycie."""
+    return any(p.table_authoritative for p in policies)
 
 
 def closes_on_md_exhaustion(client_id: Optional[int]) -> bool:
