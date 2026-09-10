@@ -139,6 +139,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # BIK: zamówienie kończy wyczerpanie limitów MD wszystkich osób.
     "backend/app/services/order_md_exhaustion.py",
     "backend/app/services/order_rate_snapshots.py",
+    # Synchronizacja kontrakt ↔ zamówienia (09.2026): okres i przychód
+    # z zamówienia do umowy, stawka kosztowa z umowy do zamówienia.
+    "backend/app/services/contract_order_sync.py",
     "backend/app/services/contract_order_offboarding.py",
     "backend/app/models/client_order.py",
     "backend/app/models/client_order_group.py",

@@ -87,6 +87,11 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckResponse,
 )
 from app.services.order_engagement_separation import has_open_group_line
+from app.services.contract_lifecycle import (
+    SIGNED_AGREEMENT_ACTIVATION,
+    activate_without_revenue_gate,
+)
+from app.services.contract_order_sync import resync_contract_safely
 from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
@@ -1956,6 +1961,21 @@ async def confirm_generated_contract_fully_signed(
         if result.order is None and result.order_skipped_reason is None:
             raise RuntimeError("employment automation returned no ClientOrder")
 
+        # Podpisana obustronnie umowa = kontrakt AKTYWNY od razu (09.2026):
+        # okres start umowy → bezterminowo, stawka kosztowa godzinowa z umowy.
+        # Stawka przychodowa dojdzie z zamówienia klienta — dlatego aktywacja
+        # omija bramkę kompletności, która wymaga obu stawek. Bez daty startu
+        # (historyczny wpis bez payloadu) kontrakt zostaje szkicem: aktywny
+        # kontrakt bez początku okresu wypadałby z każdego raportu okresowego.
+        contract_activated = False
+        if result.contract.start_date is not None:
+            contract_activated = await activate_without_revenue_gate(
+                db,
+                result.contract,
+                actor_id=current_user.id,
+                source=SIGNED_AGREEMENT_ACTIVATION,
+                extra={"generated_contract_id": row.id},
+            )
         row.signature_status = "signed_both"
         row.signature_source = "manual_confirmation"
         # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
@@ -1978,6 +1998,10 @@ async def confirm_generated_contract_fully_signed(
         await complete_signed_mail_drafts(
             db, result.contract.id, actor_id=current_user.id
         )
+        # Zamówienie tej osoby bywa uzupełnione PRZED podpisem (np. z maila
+        # od klienta) — wtedy kontrakt od razu dostaje okres zamówienia
+        # i stawkę przychodową, a zamówienia stawkę kosztową z umowy.
+        await resync_contract_safely(db, result.contract, actor_id=current_user.id)
         if row.render_payload is not None:
             row.render_payload = {
                 **row.render_payload,
@@ -2006,6 +2030,7 @@ async def confirm_generated_contract_fully_signed(
                     # mimo różnic, kontrakt został jak był".
                     "acknowledged_conflicts": list(result.acknowledged_conflicts),
                     "order_skipped_reason": result.order_skipped_reason,
+                    "contract_activated": contract_activated,
                 },
             )
         )
@@ -2029,12 +2054,15 @@ async def confirm_generated_contract_fully_signed(
                 + "). Sprawdź kontrakt i w razie potrzeby popraw go ręcznie."
             )
         elif result.created_contract:
+            contract_label = (
+                "aktywny kontrakt" if contract_activated else "szkic kontraktora"
+            )
             message = (
-                "Utworzono szkic kontraktora i zamówienia oraz oznaczono "
+                f"Utworzono {contract_label} i szkic zamówienia oraz oznaczono "
                 "kandydata jako zatrudnionego."
                 if result.order is not None
                 else (
-                    "Utworzono szkic kontraktora i oznaczono kandydata jako "
+                    f"Utworzono {contract_label} i oznaczono kandydata jako "
                     "zatrudnionego."
                 )
             )
@@ -2043,6 +2071,8 @@ async def confirm_generated_contract_fully_signed(
                 "Kontraktor już istniał — umowę powiązano bez tworzenia "
                 "duplikatu, a zatrudnienie zsynchronizowano."
             )
+            if contract_activated:
+                message += " Kontrakt jest teraz aktywny."
         if result.order_skipped_reason == ORDER_SKIPPED_OPEN_GROUP_LINE:
             # Osoba już na linii MD/kosztowej — inny powód i inny następny
             # krok niż u klienta kosztowego: nic nie trzeba dodawać, co

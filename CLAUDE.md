@@ -1684,7 +1684,7 @@ BEZTERMINOWY** (od 09.2026; do tego czasu dostawał datę końca zamówienia,
 a gdy jej okres mijał, cron kończył umowę ponownie — patrz sekcja o zakładce
 „Zakończeni"). Nocny `_promote_statuses` pomija `end_date IS NULL`, więc nie
 demotuje go „tej samej nocy". Data z zamówienia ma swoje miejsce w „Końcu
-zamówienia u klienta" (`client_order_end_date`, tylko gdy śledzony). Historię
+zamówienia u klienta" (`client_order_end_date` — od 09.2026 okres zamówienia zawsze z najnowszego uzupełnionego zamówienia, patrz „Synchronizacja kontrakt ↔ zamówienia"). Historię
 leczy migracja `0243` (reguła ogólna, zero ID w SQL-u).
 
 **Każdy writer aktywnego zamówienia musi wołać tę samą regułę.** Po 0243
@@ -1726,6 +1726,88 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   dacie końca umowy" jest tylko AUDYTOWANA do `app_settings` — masowe
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
+
+## Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
+
+Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
+bez przychodu i okresu zamówienia), choć zamówienie OIT/0189/2026/ITVM miało
+okres 15.09–31.12.2026 i 1340 PLN/MD. Serwis: `services/contract_order_sync.py`.
+Każda strona jest źródłem prawdy dla SWOICH pól:
+
+- **Podpis obustronny w Generatorze B2B = kontrakt AKTYWNY od razu**
+  (`confirm-fully-signed` → `contract_lifecycle.activate_without_revenue_gate`,
+  `source="b2b_signed_agreement"`): start z umowy → bezterminowo, stawka
+  kosztowa godzinowa z umowy. Bramka kompletności wymaga obu stawek, a
+  przychodowa przychodzi dopiero z zamówienia — dlatego osobne przejście
+  z DWOMA dozwolonymi źródłami (drugie: jednorazowa korekta). Wymaga daty startu.
+  Rusza też `ready_for_signature` (podpis obustronny zamyka tor QES).
+- **Zamówienie → kontrakt** (każdy zapis zamówienia): z najnowszego
+  „uzupełnionego" zamówienia (status ≠ cancelled, jest `start_date` I dodatnia
+  stawka przychodowa — auto-szkic z podpisu ma start umowy i PUSTĄ stawkę, więc
+  nie udaje okresu) kontrakt dostaje **okres zamówienia** w OSOBNYCH polach
+  `client_order_start_date`/`client_order_end_date` (nigdy `start_date`/
+  `end_date`; kolejne zamówienie nadpisuje poprzednie) oraz **stawkę
+  przychodową** jako krok `client_rate_schedule` od daty startu zamówienia
+  (`source_order_id` — krok z zamówienia vs krok ręczny/z aneksu; przyszła
+  stawka obowiązuje od swojej daty). **Jednostka kontraktu = jednostka
+  najnowszego zamówienia** (1 MD = 8 h, `convert_rate_between`): przełączenie
+  przelicza KAŻDĄ kwotę kontraktu (obie stawki + harmonogramy, ramowa, widełki).
+  Szkic z kompletem danych przechodzi na `active` przez zwykłą bramkę
+  (`auto_activate_complete_draft`) — ale nie szkic, którego `end_date` minęło.
+- **Kontrakt → zamówienie: stawka kosztowa.** Kontrakt jest JEDYNYM źródłem:
+  ręczny koszt w zamówieniu przegrywa przy zapisie (UI: pole tylko do odczytu,
+  „z kontraktu", gdy kontrakt ma stawkę). Zamówienie niesie jedną liczbę, więc
+  dostaje stawkę z harmonogramu na „dziś przycięte do okresu zamówienia"
+  (`cost_reference_day`), a przebieg dobowy (`run_daily_order_cost_sync` w cyklu
+  `contract_alerts`) wprowadza każdą zaplanowaną podwyżkę w jej dniu. Zakończone
+  i anulowane zamówienia są historią — nietknięte.
+- **Linie zamówień zbiorczych MD/kosztowych (`order_group_id`) są POZA
+  kierunkiem kosztowym — świadomie.** Ich stawkę kosztową prowadzi per linia DL
+  (patrz „Zamówienia wielo-konsultantowe"), a kontrakty tych osób bywają szkicami
+  z obsady bez stawki albo ze stawką sprzed lat — nadpisanie przestawiłoby
+  rozliczenia BIK/Polkomtela/BNP pierwszej nocy. Kierunek zamówienie → kontrakt
+  (okres, przychód, jednostka) je obejmuje.
+- **Hak jest JEDEN: `order_write_errors.commit_order_write`** (22 wywołania).
+  Listener `after_flush` na `Session` zbiera `contract_id` ruszonych zamówień
+  w `session.info`, a `sync_pending_order_contracts` synchronizuje je przed
+  commitem — w savepoincie, fail-soft (awaria = log, zamówienie i tak zapisane).
+  Writery spoza routerów wołają go jawnie: auto-zapis z maila
+  (`order_mail_apply.apply_document`), import Nordea (`admin_import`). Nowy
+  writer spoza tych ścieżek MUSI zrobić to samo.
+- **Po synchronizacji `_refresh_expired` doczytuje TYLKO wygasłe atrybuty.**
+  Sync zmienia zamówienie, które handler już `refresh`-ował, więc serwerowe
+  `updated_at` wygasa → `MissingGreenlet` przy serializacji. `refresh` całego
+  obiektu wygasiłby relacje (harmonogramy) — dlatego lista atrybutów.
+- **PATCH kontraktu**: jawna `rate_unit`/waluta w tym zapisie wygrywa z
+  zamówieniem (`follow_order_unit`/`follow_order_currency=False`); ręczna
+  stawka przychodowa przy istniejącym harmonogramie dopisuje krok od dziś
+  (`apply_manual_client_rate`) — ale TYLKO przy realnej zmianie, bo formularz
+  wysyła całą stawkę także nieruszaną, a krok z niezmienioną wartością
+  przykryłby późniejszą korektę w zamówieniu.
+- **Cała synchronizacja czeka na marker jednorazowej korekty**
+  (`sync_enabled`): padnięty blok w entrypoincie (loguje i idzie dalej) nie
+  może pozwolić zapisom zamówień zatrzeć niezgodności przed migawką. Ścieżki
+  kontraktu (PATCH, aneksy, `/bulk-extend`, `/bulk-mark-ended`, `/terminate`,
+  potwierdzenie podpisu) wołają `resync_contract_safely` — savepoint + log;
+  błąd projekcji nie cofa zapisu użytkownika. Przedłużenie/zakończenie MUSI
+  resyncować: `_synced_client_order_end` wpisałby datę końca UMOWY w okres
+  zamówienia.
+- **Alert kontraktowy „koniec zamówienia u klienta" pomija okres prowadzony
+  synchronizacją** (`client_order_start_date IS NOT NULL`) — o końcu zamówienia
+  ostrzega już skaner zamówień; dwa alerty nie deduplikują się (inne encje).
+- **Jednorazowo (`contract_order_sync_repair.py`, blok w `entrypoint.sh`,
+  marker `0304_contract_order_sync_repair`)**: NAJPIERW migawka raportu zgodności
+  zamówienie ↔ kontrakt (stan sprzed wdrożenia — potem sync by go zatarł), POTEM
+  szkice: zwykły → `active` (z okresem i przychodem, gdy osoba ma uzupełnione
+  zamówienie); minione `end_date` + trwające zamówienie → bezterminowy
+  `active` (aktywny z minioną datą zakończyłby cron razem z zamówieniami
+  i sprawami offboardingu MD); minione bez zamówienia → `ended` bez
+  offboardingu; **duplikat żywego kontraktu tej osoby u klienta → ZOSTAJE
+  szkicem** (aktywny podwoiłby MRR; decyzja w raporcie). Przebieg dobowy kosztów
+  rusza dopiero po markerze i odświeża też cache `rate_client` kontraktów,
+  którym wszedł krok (formularz odsyła kolumnę). Excel:
+  `GET /api/contracts/order-sync-report` (Admin, bez przycisku w UI) — arkusze
+  „Przed wdrożeniem", „Poprawione szkice", „Stan bieżący".
 
 ## Polityki odczytu PDF per klient — jeden wzorzec, osiem bramek
 

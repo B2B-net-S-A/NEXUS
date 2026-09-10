@@ -134,6 +134,7 @@ export function EditOrderDialog({
   const [mdBudget, setMdBudget] = useState(
     order?.md_quantity != null ? String(order.md_quantity) : "",
   );
+  const costFromContract = rateCandidate != null;
   const [rateCost, setRateCost] = useState(
     order?.rate_candidate != null
       ? String(order.rate_candidate)
@@ -613,15 +614,36 @@ export function EditOrderDialog({
               <div>
                 <label className="block">
                   <span className="text-sm font-medium">Stawka kosztowa</span>
+                  {/* Kontrakt jest źródłem prawdy dla stawki kosztowej
+                    (09.2026): wartość wpisana tutaj i tak zostałaby
+                    nadpisana przy synchronizacji, więc pole jest tylko do
+                    odczytu, dopóki kontrakt ma stawkę. */}
                   <input
                     value={rateCost}
                     inputMode="decimal"
+                    readOnly={costFromContract}
+                    aria-describedby={
+                      costFromContract ? "order-cost-from-contract" : undefined
+                    }
                     onChange={(e) =>
                       setRateCost(sanitizeDecimalInput(e.target.value))
                     }
-                    className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                    className={
+                      costFromContract
+                        ? "mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground"
+                        : "mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                    }
                     placeholder="np. 12000"
                   />
+                  {costFromContract && (
+                    <span
+                      id="order-cost-from-contract"
+                      className="mt-1 block text-xs text-muted-foreground"
+                    >
+                      Pochodzi z kontraktu tej osoby — zmień ją w kontrakcie.
+                      Zaplanowane podwyżki wejdą tu w swoim dniu.
+                    </span>
+                  )}
                 </label>
                 <OrderCurrencySelect
                   value={rateCandidateCurrency}

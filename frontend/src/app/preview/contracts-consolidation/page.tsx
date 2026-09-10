@@ -27,6 +27,7 @@ import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ToastProvider } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/auth";
+import { DEFAULT_CONTRACT_STATUS_FILTER } from "@/lib/contracts-list-navigation";
 
 const member = (over: Record<string, unknown>) => ({
   client_name: null,
@@ -105,8 +106,45 @@ const LIST_PAYLOAD = {
         }),
       ],
     },
+    // Przykład z ticketu synchronizacji kontrakt ↔ zamówienia (09.2026):
+    // umowa z generatora (120 zł/h) po uzupełnieniu zamówienia 1340 PLN/MD —
+    // aktywna, w MD, z osobnym okresem zamówienia pod okresem umowy.
+    {
+      id: 650,
+      candidate_id: 12,
+      candidate_name: "Bartosz Czapelka",
+      client_name: "Alior Bank S.A.",
+      job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Matyja",
+      status: "active",
+      contract_type: "b2b",
+      start_date: "2026-09-14",
+      end_date: null,
+      client_order_start_date: "2026-09-15",
+      client_order_end_date: "2026-12-31",
+      rate_candidate: 960,
+      rate_client: 1340,
+      margin: 380,
+      rate_unit: "daily",
+      currency: "PLN",
+      group_members: [
+        member({
+          id: 650,
+          client_id: 4,
+          client_name: "Alior Bank S.A.",
+          job_title: "Analityk Biznesowy - zastępstwo za: Wiktoria Matyja",
+          start_date: "2026-09-14",
+          end_date: null,
+          client_order_start_date: "2026-09-15",
+          client_order_end_date: "2026-12-31",
+          rate_candidate: 960,
+          rate_client: 1340,
+          margin: 380,
+          rate_unit: "daily",
+        }),
+      ],
+    },
   ],
-  total: 2,
+  total: 3,
   page: 1,
   page_size: 20,
 };
@@ -124,7 +162,12 @@ function seededClient(): QueryClient {
   });
   // Klucz MUSI odpowiadać temu z komponentu (debouncedSearch="", filtry puste,
   // endingSoon=false, page=1) — inaczej queryFn wystartuje i strzeli w API.
-  qc.setQueryData(["contracts-v2", "", [], [], false, 1], LIST_PAYLOAD);
+  // Domyślny filtr statusów rejestru to „Aktywne + Kończące się"
+  // (`DEFAULT_CONTRACT_STATUS_FILTER`) — klucz musi go nieść.
+  qc.setQueryData(
+    ["contracts-v2", "", DEFAULT_CONTRACT_STATUS_FILTER, [], false, 1],
+    LIST_PAYLOAD,
+  );
   qc.setQueryData(["contracts-expiring-v2"], []);
   qc.setQueryData(
     ["clients-lookup-add-project"],

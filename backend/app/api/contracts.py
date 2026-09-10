@@ -4,6 +4,7 @@ import hashlib
 import logging
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from io import BytesIO
 from typing import Annotated, List, Optional
 
@@ -108,6 +109,10 @@ from app.services.contract_lifecycle import (
     reopen_contract,
     revert_contract,
     void_contract,
+)
+from app.services.contract_order_sync import (
+    apply_manual_client_rate,
+    resync_contract_safely,
 )
 from app.services.client_identity import (
     client_display_name,
@@ -610,6 +615,36 @@ _DRAFT_ORDER_RATE_INHERITANCE_INPUTS = frozenset(
 )
 
 
+def _same_rate(left: object, right: object) -> bool:
+    """Równość kwot niezależna od typu (Decimal z bazy vs float z JSON-a)."""
+    if left is None or right is None:
+        return left is None and right is None
+    return Decimal(str(left)).quantize(Decimal("0.001")) == Decimal(
+        str(right)
+    ).quantize(Decimal("0.001"))
+
+
+# Pola PATCH-a kontraktu, po których kontrakt i zamówienia tej osoby muszą się
+# ponownie zgodzić (stawka kosztowa → zamówienia; status/daty/jednostka →
+# okres i stawka przychodowa z zamówień). Edycja PM-a czy notatek nie rusza
+# pieniędzy i nie powinna ich przeliczać.
+_ORDER_SYNC_INPUTS = frozenset(
+    {
+        "rate_candidate",
+        "rate_client",
+        "candidate_rate_schedule",
+        "currency",
+        "rate_client_currency",
+        "rate_candidate_currency",
+        "rate_unit",
+        "billing_hours_per_month",
+        "start_date",
+        "end_date",
+        "status",
+    }
+)
+
+
 async def _inherit_rates_into_unpriced_order_drafts(
     db: AsyncSession, contract: Contract
 ) -> int:
@@ -653,6 +688,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "job_id": contract.job_id,
         "start_date": contract.start_date,
         "end_date": contract.end_date,
+        "client_order_start_date": contract.client_order_start_date,
         "client_order_end_date": contract.client_order_end_date,
         "rate_candidate": contract.rate_candidate,
         "rate_client": contract.rate_client,
@@ -984,6 +1020,8 @@ def _group_member_from_contract(
         start_date=c.start_date,
         end_date=c.end_date,
         latest_order_end_date=latest_order_dates.get(c.id),
+        client_order_start_date=c.client_order_start_date,
+        client_order_end_date=c.client_order_end_date,
         job_title=c.job.title if c.job else None,
         rate_candidate=eff["rate_candidate"],
         rate_client=eff["rate_client"],
@@ -1748,6 +1786,58 @@ async def export_client_register(
     )
 
 
+@router.get("/order-sync-report")
+async def contract_order_sync_report(
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Jednorazowe zestawienie zgodności zamówienie ↔ kontrakt (XLSX, 09.2026).
+
+    Arkusz „Przed wdrożeniem" to migawka zapisana przez jednorazową korektę
+    PRZED jakąkolwiek synchronizacją — niezgodności sprzed wdrożenia, których
+    codzienny przebieg kosztowy już by nie pokazał. „Poprawione szkice" to
+    paragon korekty (stan przed/po), „Stan bieżący" liczy się przy pobraniu.
+    Nie ma przycisku w interfejsie: raport jest jednorazowy, a pełne stawki
+    wszystkich klientów widzi tylko administrator.
+    """
+    from app.models.app_setting import AppSetting
+    from app.services.contract_order_sync import REPAIR_MARKER
+    from app.services.contract_order_sync_repair import (
+        build_reconciliation_rows,
+        build_reconciliation_workbook,
+        repair_contract_names,
+    )
+
+    receipt = await db.get(AppSetting, REPAIR_MARKER)
+    if receipt is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Jednorazowa korekta kontraktów jeszcze się nie wykonała — "
+                "migawka stanu sprzed wdrożenia nie istnieje."
+            ),
+        )
+    value = receipt.value or {}
+    repaired = value.get("repaired") or []
+    content = build_reconciliation_workbook(
+        snapshot=value.get("snapshot") or [],
+        repaired=repaired,
+        repair_names=await repair_contract_names(
+            db, [item["contract_id"] for item in repaired]
+        ),
+        live=await build_reconciliation_rows(db),
+        summary=value,
+    )
+    filename = (
+        f"zgodnosc-zamowienie-kontrakt_{value.get('business_day', 'raport')}.xlsx"
+    )
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
     current_user: ContractReadUser,
@@ -2194,6 +2284,11 @@ async def bulk_extend_contracts(
                 user_id=current_user.id,
             )
         )
+    # Przedłużenie przesuwa „koniec zamówienia u klienta" razem z umową
+    # (`_synced_client_order_end`); okres zamówienia prowadzi jednak
+    # synchronizacja z zamówień, więc przywracamy go z ich prawdy.
+    for c in contracts:
+        await resync_contract_safely(db, c, actor_id=current_user.id)
     await db.commit()
     return {
         "requested": len(contract_ids),
@@ -2243,6 +2338,9 @@ async def bulk_mark_ended(
                 user_id=current_user.id,
             )
         )
+    # Zakończenie skróciło zamówienia — okres zamówienia w kontrakcie za nimi.
+    for c in contracts:
+        await resync_contract_safely(db, c, actor_id=current_user.id)
     await db.commit()
     return {"requested": len(contract_ids), "changed": changed}
 
@@ -2535,6 +2633,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     previous_end_date = contract.end_date
+    previous_rate_client = contract.rate_client
     was_incomplete_draft = contract.status == ContractStatus.draft and bool(
         validate_ready_for_activation(contract)
     )
@@ -2675,6 +2774,40 @@ async def update_contract(
         orders_synced_to_end = await _sync_client_orders_to_contract_end(
             db, contract.id, contract.end_date, actor_id=current_user.id
         )
+    # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
+    # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.
+    # Tylko gdy wartość RÓŻNI SIĘ od tej, którą formularz pokazał (kolumna
+    # sprzed zapisu): formularz odsyła całą stawkę przy każdej edycji, a
+    # kolumna bywa o krok w tyle za harmonogramem — porównanie z „dziś"
+    # zamieniłoby edycję nazwiska PM-a w obniżkę przychodu.
+    if "rate_client" in data.model_fields_set and not _same_rate(
+        previous_rate_client, data.rate_client
+    ):
+        apply_manual_client_rate(
+            contract,
+            data.rate_client,
+            actor_id=current_user.id,
+            today=business_today(),
+        )
+    # Synchronizacja z zamówieniami tej osoby: kontrakt jest źródłem stawki
+    # kosztowej zamówień, a zamówienia — okresu zamówienia i stawki
+    # przychodowej kontraktu. Jawnie wybrana w tym zapisie jednostka wygrywa
+    # z jednostką zamówienia, a jawny status — z automatyczną aktywacją.
+    order_sync = None
+    if data.model_fields_set & _ORDER_SYNC_INPUTS or orders_synced_to_end:
+        order_sync = await resync_contract_safely(
+            db,
+            contract,
+            actor_id=current_user.id,
+            auto_activate=not status_sent,
+            follow_order_unit="rate_unit" not in data.model_fields_set,
+            follow_order_currency=not (
+                {"currency", "rate_client_currency"} & data.model_fields_set
+            ),
+            audit=False,
+        )
+        if order_sync is not None and order_sync.activated:
+            updates["status"] = contract.status.value
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(
@@ -2708,11 +2841,16 @@ async def update_contract(
                     if orders_synced_to_end
                     else {}
                 ),
+                **(
+                    {"order_sync": order_sync.as_details()}
+                    if order_sync is not None and order_sync.changed
+                    else {}
+                ),
             },
         )
     )
     await db.flush()
-    if schedule_sent or framework_sent:
+    if schedule_sent or framework_sent or order_sync is not None:
         # Reload with relations so the response carries the replaced schedule
         # (+ ids/created_at) without risking an async lazy-load on the collection
         # we just reassigned. Mirrors create_contract's re-select.
@@ -3861,6 +3999,21 @@ async def create_contract_amendment(
         new_values["end_date"] = end.isoformat()
         new_values["status"] = contract.status.value
 
+    # Synchronizacja z zamówieniami: aneks stawki zmienia koszt w KONTRAKCIE
+    # (zamówienia dostają go od daty aneksu; przyszła podwyżka wejdzie w swoim
+    # dniu przez przebieg dobowy), a przedłużenie i wcześniejsze zakończenie
+    # ruszają okres zamówienia. Jednostka z aneksu wygrywa z zamówieniem.
+    if data.amendment_type != ContractAmendmentType.scope_change:
+        await resync_contract_safely(
+            db,
+            contract,
+            actor_id=current_user.id,
+            follow_order_unit=not (
+                data.amendment_type == ContractAmendmentType.rate_change
+                and data.new_rate_unit is not None
+            ),
+        )
+
     amendment = ContractAmendment(
         contract_id=contract_id,
         amendment_type=data.amendment_type,
@@ -4248,6 +4401,8 @@ async def terminate_contract(
             },
         )
     )
+    # Zamówienia skrócone do daty zakończenia → okres zamówienia w kontrakcie.
+    await resync_contract_safely(db, contract, actor_id=current_user.id)
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)

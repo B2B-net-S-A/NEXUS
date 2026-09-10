@@ -447,10 +447,10 @@ describe("OrdersAndContractsTab card", () => {
         .getByRole("button", { name: "Edytuj: Numer zamówienia" })
         .closest("[data-order-detail-line]"),
     ).toBe(numberRow);
+    // Stawka kosztowa pochodzi z kontraktu (09.2026) — w miejscu przycisku
+    // edycji jest znacznik źródła, w tej samej linii stawek.
     expect(
-      screen
-        .getByRole("button", { name: "Edytuj: Stawka kosztowa" })
-        .closest("[data-order-detail-line]"),
+      screen.getByText("(z kontraktu)").closest("[data-order-detail-line]"),
     ).toBe(costRow);
     expect(
       screen
@@ -624,7 +624,25 @@ describe("OrdersAndContractsTab card", () => {
     );
   });
 
+  it("keeps the cost rate read-only when the contract carries it", async () => {
+    // Kontrakt jest źródłem prawdy dla stawki kosztowej (09.2026): zapis
+    // w zamówieniu i tak nadpisałaby synchronizacja, więc pola nie da się
+    // edytować, a karta mówi, skąd liczba pochodzi.
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.queryByLabelText("Edytuj: Stawka kosztowa")).not.toBeInTheDocument();
+    expect(screen.getByText("(z kontraktu)")).toBeInTheDocument();
+  });
+
   it("saves an edited stawka kosztowa via the orders endpoint", async () => {
+    // Edycja zostaje wyłącznie dla kontraktu BEZ stawki kosztowej.
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [{ ...structuredClone(CONTRACTOR), rate_candidate: null }],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
     const user = userEvent.setup();
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });

@@ -123,3 +123,18 @@ export function toPlnMdRate(
   }
   return decimalToMoney(toMdDecimal(value, unit).times(rateToPln));
 }
+
+/**
+ * Sufiks jednostki stawki KONTRAKTU do wyświetlenia obok kwoty („/h", „/MD",
+ * „/mc"). Od synchronizacji kontrakt ↔ zamówienia (09.2026) kontrakt zmienia
+ * jednostkę razem z zamówieniem (120 zł/h → 960 zł/MD), więc kwota bez
+ * jednostki w rejestrze przestała cokolwiek znaczyć.
+ */
+export function contractRateUnitSuffix(
+  unit?: ContractRateUnit | string | null,
+): string {
+  if (unit === "hourly") return "/h";
+  if (unit === "daily") return "/MD";
+  if (unit === "monthly") return "/mc";
+  return "";
+}

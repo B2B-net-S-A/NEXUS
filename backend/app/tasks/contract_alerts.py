@@ -32,6 +32,7 @@ from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
+from app.services.contract_order_sync import run_daily_order_cost_sync
 from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
@@ -340,6 +341,13 @@ async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
             Contract.client_order_end_date.isnot(None),
             Contract.client_order_end_date <= cutoff,
             Contract.client_order_end_date >= today,
+            # Okres zamówienia prowadzony przez synchronizację z zamówień (0304)
+            # ma początek; o końcu TAKIEGO zamówienia ostrzega już skaner
+            # zamówień (`dl_portal_expiry_scanner`, 30/14/7 dni per zamówienie).
+            # Drugi alert z poziomu kontraktu byłby duplikatem, którego dedup
+            # nie złapie (inny `related_entity_type`). Zostaje ręcznie śledzony
+            # koniec bez początku — dla niego to jedyne ostrzeżenie.
+            Contract.client_order_start_date.is_(None),
         )
     )
     return list(res.scalars().all())
@@ -379,7 +387,18 @@ async def run_contract_alerts_cycle() -> dict:
         "client_order_alerts": 0,
         "md_offboarding_alerts": 0,
         "slack_sent": 0,
+        "order_costs_synced": 0,
     }
+    # Zaplanowane zmiany stawki kosztowej kontraktu wchodzą do zamówień
+    # dokładnie w swoim dniu (ticket 09.2026). Osobna sesja: awaria tej
+    # synchronizacji nie może zablokować alertów o kończących się umowach.
+    async with AsyncSessionLocal() as db:
+        try:
+            stats["order_costs_synced"] = await run_daily_order_cost_sync(db)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("contract_alerts: order cost sync failed")
     async with AsyncSessionLocal() as db:
         ending, ended = await _promote_statuses(db)
         stats["promoted_ending"] = ending

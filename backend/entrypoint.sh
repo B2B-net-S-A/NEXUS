@@ -3180,6 +3180,13 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_purged_clients_run_id ON purged_clients (run_id)",
     "CREATE INDEX IF NOT EXISTS ix_purged_clients_external "
     "ON purged_clients (external_source, external_id)",
+    # 0304: synchronizacja kontrakt ↔ zamówienia. Obie kolumny MUSZĄ istnieć
+    # przed jednorazową korektą szkiców (koniec pliku) — czyta je ORM.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS client_order_start_date DATE",
+    "ALTER TABLE contract_client_rates ADD COLUMN IF NOT EXISTS source_order_id "
+    "INTEGER REFERENCES client_orders(id) ON DELETE CASCADE",
+    "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_source_order_id "
+    "ON contract_client_rates (source_order_id)",
     "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
     "client_rule_version INTEGER",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "
@@ -7313,6 +7320,33 @@ async def repair():
             {"key": ENDED_TAB_REPAIR_MARKER},
         )
     print(f"ended-tab contract repair: {receipt}")
+
+asyncio.run(repair())
+PY
+
+# Synchronizacja kontrakt ↔ zamówienia (0304, 09.2026) — jednorazowo:
+# migawka raportu zgodności SPRZED synchronizacji, potem wszystkie szkice
+# kontraktów → Aktywny (z okresem zamówienia i stawką przychodową, gdy osoba
+# ma uzupełnione zamówienie). Logika ORM ta sama co bieżąca synchronizacja
+# (`app/services/contract_order_sync_repair.py`); marker w `app_settings` +
+# advisory lock → drugi start kończy się natychmiast. Dobowy przebieg kosztów
+# rusza dopiero po markerze, więc porażka tego bloku niczego nie nadpisze.
+echo "Contract ↔ order sync: report snapshot + draft contract repair (one-shot)..."
+python - <<'PY' || echo "contract-order sync repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_order_sync_repair import run_contract_order_sync_repair
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contract_order_sync_repair(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"contract-order sync repair: {summary or 'already done'}")
 
 asyncio.run(repair())
 PY

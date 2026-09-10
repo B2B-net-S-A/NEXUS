@@ -88,6 +88,7 @@ interface ContractDetail {
   job_title: string | null;
   start_date: string;
   end_date: string | null;
+  client_order_start_date?: string | null;
   client_order_end_date: string | null;
   rate_candidate: number | null;
   rate_client: number | null;
@@ -1107,16 +1108,29 @@ export default function ContractDetailPage() {
                     <span className="text-muted-foreground">—</span>
                   )}
                 </InfoRow>
-                <InfoRow icon={Calendar} label="Okres">
+                <InfoRow icon={Calendar} label="Okres umowy">
                   {formatDate(contract.start_date)} –{" "}
                   {contract.end_date ? formatDate(contract.end_date) : (
                     <span className="italic text-muted-foreground">bezterminowo</span>
                   )}
                 </InfoRow>
-                {contract.client_order_end_date && (
-                  <InfoRow icon={Calendar} label="Koniec zamówienia u klienta">
-                    {formatDate(contract.client_order_end_date)}
+                {contract.client_order_start_date ? (
+                  // Okres ZAMÓWIENIA — z najnowszego uzupełnionego zamówienia
+                  // tej osoby (synchronizacja 09.2026). Osobno od okresu umowy.
+                  <InfoRow icon={Calendar} label="Okres zamówienia">
+                    {formatDate(contract.client_order_start_date)} –{" "}
+                    {contract.client_order_end_date ? (
+                      formatDate(contract.client_order_end_date)
+                    ) : (
+                      <span className="italic text-muted-foreground">bezterminowo</span>
+                    )}
                   </InfoRow>
+                ) : (
+                  contract.client_order_end_date && (
+                    <InfoRow icon={Calendar} label="Koniec zamówienia u klienta">
+                      {formatDate(contract.client_order_end_date)}
+                    </InfoRow>
+                  )
                 )}
                 <InfoRow icon={FileEdit} label="Typ kontraktu">
                   {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
