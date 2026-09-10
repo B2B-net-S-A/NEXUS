@@ -167,6 +167,7 @@ export function CVGeneratorStandaloneV2({
   onSelectForRecruitment,
   selectedGeneratedId,
 }: CVGeneratorStandaloneV2Props = {}) {
+  const generatorFormRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const currentUser = useAuthStore((state) => state.user);
   const isImpersonating = useAuthStore((state) => state.realUser !== null);
@@ -686,7 +687,7 @@ export function CVGeneratorStandaloneV2({
   }
 
   return (
-    <div className={embedded ? undefined : "container mx-auto max-w-3xl py-8"}>
+    <div ref={generatorFormRef} tabIndex={-1} aria-label="Formularz generatora CV" className={embedded ? undefined : "container mx-auto max-w-3xl py-8"}>
       {!embedded && (
         <div className="mb-6 flex items-start gap-3">
           <div className="rounded-xl bg-primary/10 p-3 text-primary">
@@ -1136,6 +1137,10 @@ export function CVGeneratorStandaloneV2({
       </Card>
 
       {canWriteSourcing && editItem && <CVBrandedEditModal open generatedId={editItem.id}
+        onRegenerate={() => requestAnimationFrame(() => {
+          generatorFormRef.current?.focus({preventScroll: true});
+          generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+        })}
         candidateName={editItem.candidate_name} onOpenChange={open => { if (!open) setEditItem(null); }} />}
       <GeneratedCvPreviewModal
         item={previewItem}
