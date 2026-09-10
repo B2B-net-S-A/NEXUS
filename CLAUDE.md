@@ -1262,23 +1262,42 @@ web — jeden przegląd naraz, ~3 min.
   Kasowania sierot niosą `desired_hash="orphan-point"` i worker przy wykonaniu
   sprawdza, że wiersza kandydata nadal nie ma — tą ścieżką nie da się skasować
   punktu istniejącego kandydata. Plan czyta najpierw indeks, potem SQL, więc
-  kandydat dodany w trakcie nie wygląda na sierotę.
+  kandydat dodany w trakcie nie wygląda na sierotę. Odcisk obejmuje tylko części
+  wykonawcze (sieroty, oferty do embeddingu) — globalne liczniki są w odpowiedzi,
+  ale nie w odcisku, inaczej każdy niezwiązany embedding między GET a POST
+  dawałby 409.
 - **Kolumna dopasowania w wyszukiwarce ręcznej i pierścień „Dopasowanie” to
   kanoniczny fit** (ten sam, co na ekranach C2), a nie `CandidateJobMatchScore`
   — żaden ekran go już nie czyta. `/api/search/candidates/scores` liczy na
-  żądanie najwyżej 20 ID (422 powyżej), za `ensure_job_read_access`: rola bez
-  odczytu rekrutacji dostaje 403 (do 11.09 endpoint nie sprawdzał rekrutacji
-  wcale); stawki redagowane bez `view_finance`. Front pyta tylko o wiersze na
-  ekranie (`useVisibleMatchScores`); niezmierzony = „Ocena niepełna”, nigdy 0.
-  Proza uzasadnienia świadomie zostaje przy starym rozbiciu (cache jest
-  opłacony), więc może cytować inną liczbę niż pierścień.
+  żądanie najwyżej 20 ID (422 powyżej), limit 60/min, **za tą samą bramką co
+  pełny przegląd (`_authorized_job` z `candidate_search.py`)** — rekruter,
+  sourcer i TAC spoza zespołu widzą ten sam wynik na ekranach C2, więc kolumna
+  nie może być ostrzejsza (pierwsza wersja z `ensure_job_read_access` chowała go
+  im bez słowa); stawki redagowane bez `view_finance`. Front pyta tylko
+  o wiersze na ekranie (`useVisibleMatchScores`, anulowanie AbortControllerem,
+  cache per `profile_key` z odpowiedzi): niezmierzony = „Ocena niepełna”,
+  403 = „brak dostępu”, inny błąd = „nie policzono — ponów” (429 ponawia sam
+  z backoffem) — nigdy puste pole ani 0. Modal porównania pokazuje błąd
+  z „Ponów”, nie „Brak kryteriów”.
+- **Pierścień „Dopasowanie” liczy się we własnej sesji** (`display_fit`, tylko
+  do odczytu, nigdy nie rzuca): wcześniej wyjątek w nim robił rollback sesji
+  requestu, wygaszał `current_user` i zakładka kończyła się 500
+  (`MissingGreenlet`), a współdzielona instancja kandydata przestawiała stare
+  rozbicie i hash opisu (płatne regeneracje). **Opis AI nie podaje liczby
+  punktów** (`MATCH_JUSTIFICATION` v2 bez `{score}`) — liczbę pokazuje pierścień,
+  a opis tłumaczy mocne strony i luki. Zapisane opisy odświeżają się leniwie
+  przy następnym otwarciu (wersja promptu jest w hashu).
 - **Telemetria jest podpięta.** Strona wyników pełnego przeglądu zapisuje
-  impresje obsłużonych wierszy (`match_impressions`, `run_id` = id przeglądu),
-  a dodanie do pipeline'u z C2 zapisuje outcome `add_to_pipeline` przypięty do
-  przeglądu, w którym ta sama osoba ostatnio widziała kandydata. Zapis we
-  własnej sesji po commicie, nigdy nie rzuca, najwyżej 100 wierszy na wywołanie.
-  Tabele nie mają FK do kandydatów (celowo: analityka, pseudonimy, rozbicie
-  wyłącznie liczbowe) ani jeszcze retencji — to świadomy dług.
+  impresje obsłużonych wierszy jednym INSERT-em (`match_impressions`, `run_id`
+  = id przeglądu). Dodanie do pipeline'u (`proposals_bulk`) przypina outcome
+  `add_to_pipeline` WYŁĄCZNIE do przeglądu, który klient zadeklarował (`run_id`
+  + `source`), i tylko gdy to przegląd tej osoby, tej rekrutacji i z impresją
+  tego kandydata — w innym wypadku `run_id` = NULL. Żadnego zgadywania po
+  „ostatnio widzianym” (to zawyżało pozytywy C2 dodaniami z wyszukiwarki
+  ręcznej). `source` żyje w `match_outcomes.reason_code` (stały słownik, bez
+  migracji). Zapis we własnej sesji po commicie, nigdy nie rzuca, najwyżej 100
+  wierszy. Tabele nie mają FK do kandydatów (celowo: analityka, pseudonimy,
+  rozbicie wyłącznie liczbowe) ani jeszcze retencji — świadomy dług.
 - **Eval: nigdy nie porównuj metryk między scorerami.**
   `scripts/eval_matching.py --scorer canonical` domyślnie maskuje dowody wymagań
   zweryfikowane przez rekruterów (wyciek etykiety, jak `champion_fit`);
