@@ -76,6 +76,7 @@ async def test_public_link_uses_selected_approval_without_original_claims(
         expires_at=None,
     )
     version = SimpleNamespace(
+        id=12,
         template="standard",
         content_html="<p>Approved edit</p>",
         language="en",
@@ -88,6 +89,7 @@ async def test_public_link_uses_selected_approval_without_original_claims(
     monkeypatch.setattr(api, "_interactive_flags", flags)
     monkeypatch.setattr(approval, "approved_version_for_generation", resolver)
     db = SimpleNamespace(
+        get=AsyncMock(return_value=None),
         execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: 1)),
         add=Mock(),
         commit=AsyncMock(),
@@ -105,7 +107,8 @@ async def test_public_link_uses_selected_approval_without_original_claims(
         flags.assert_awaited_once_with(db, doc)
         assert result["cv_html"] == version.content_html
         assert result["cv"]["position"] == "Approved title"
-        assert result["requirements"] is None
+        assert result["requirements"] == []
+        assert result["requirements_status"] == "not_requested"
         assert result["chat_enabled"] is True
         assert "Original" not in str(result)
     else:

@@ -426,12 +426,20 @@ async def get_public_generated_cv(
     doc = _generated_doc_or_404(row)
     version_id = row.document_version_id
     approved = None
+    approved_requirements = []
+    requirements_status = None
     if version_id is not None:
         from app.services.cv_generated_approval import approved_version_for_generation
 
         approved = await approved_version_for_generation(db, doc, version_id)
         _tiles, chat = await _interactive_flags(db, doc)
-        tiles = False
+        tiles = _tiles
+        if tiles:
+            from app.services.cv_version_map_view import approved_map_view
+
+            requirements_status, approved_requirements = await approved_map_view(
+                db, approved
+            )
         from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
         from app.services.cv_editor_review import EditorReviewInputError
 
@@ -476,9 +484,14 @@ async def get_public_generated_cv(
         "cv": payload,
         "cv_html": approved.content_html if approved is not None else None,
         "document_version_id": version_id,
-        "requirements": validated_cached_items(payload, doc.requirement_map)
+        "requirements": (
+            approved_requirements
+            if approved is not None
+            else validated_cached_items(payload, doc.requirement_map)
+        )
         if tiles
         else None,
+        "requirements_status": requirements_status,
         "chat_enabled": chat,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }

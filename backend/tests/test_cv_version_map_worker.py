@@ -57,7 +57,11 @@ async def test_worker_checks_snapshot_before_model_and_records_terminal_result(
         ]
     assert finish.call_args.args == (db, 7, "owned-token")
     if case == "valid":
-        assert finish.call_args.kwargs["result"] == {"items": []}
+        assert finish.call_args.kwargs["result"] == {
+            "items": [],
+            "snapshot_sha256": digest,
+            "content_sha256": version.content_sha256,
+        }
     else:
         assert finish.call_args.kwargs["error"] == "mapping_unavailable"
 

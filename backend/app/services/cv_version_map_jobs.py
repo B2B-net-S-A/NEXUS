@@ -148,6 +148,7 @@ async def execute_map(version_id):
             ):
                 raise ValueError("Unavailable map owner")
             prepared = decode_map_input(job.input_content, job.input_sha256, version)
+            input_sha256 = job.input_sha256
             user_id = user.id
             await db.commit()
         heartbeat = asyncio.create_task(renew(version_id, token))
@@ -159,6 +160,12 @@ async def execute_map(version_id):
             await heartbeat
             return
         result = await work
+        if result is not None:
+            result = {
+                **result,
+                "snapshot_sha256": input_sha256,
+                "content_sha256": prepared.content_sha256,
+            }
         async with AsyncSessionLocal() as db:
             await finish_map(
                 db,
