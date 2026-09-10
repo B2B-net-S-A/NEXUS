@@ -67,7 +67,6 @@ from app.api.candidate_access import (
     CandidateWriteAccess,
 )
 from app.api.recruitment_access import (
-    ensure_job_membership,
     ensure_job_read_access,
     job_read_scope_clause,
 )
@@ -1132,13 +1131,22 @@ async def list_candidate_recruitments(
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
 ) -> list[RecruitmentOption]:
     """Return all recruitment processes the candidate participates in, with
-    readiness flags (champion present, screening notes present)."""
+    readiness flags (champion present, screening notes present).
 
+    Lista NIE jest zawężana do rekrutacji z zespołu wołającego (decyzja Artura
+    z 10.09.2026: generować CV może każdy — cofnięcie zawężenia z #1448). To jest
+    picker generatora: rekrutacja niewidoczna tutaj to rekrutacja, pod którą nie
+    da się wygenerować CV z interfejsu, więc zawężenie blokowało samą generację.
+    Odpowiedź niesie tytuł rekrutacji, klienta i flagi gotowości — bez treści
+    notatek i Championa; ten sam przekrój (rekrutacje kandydata + etap) i tak
+    zwraca każdej roli operacyjnej `GET /api/candidates/{id}/pipelines`.
+    """
+
+    del current_user  # bramka roli (CandidatePIIAccess) — bez zakresu rekrutacji
     try:
         readiness = await list_recruitments_with_readiness(
             db,
             candidate_id,
-            job_scope=job_read_scope_clause(current_user, CandidateStage.job_id),
             content_mode=content_mode,
         )
     except StandaloneGenerationError as err:
@@ -1247,7 +1255,8 @@ async def upload_consent_screenshot(
             raise HTTPException(
                 status_code=404, detail="Rekrutacja nie należy do tego kandydata."
             )
-        await ensure_job_membership(db, current_user, stage.job_id)
+        # Bez członkostwa w zespole rekrutacji: zrzut zgody jest krokiem
+        # generacji, a generować CV może każdy (decyzja 10.09.2026).
         job = await db.get(Job, stage.job_id)
         if job is None or (client_id is not None and job.client_id != client_id):
             raise HTTPException(
@@ -1377,8 +1386,10 @@ async def generate(
         raise HTTPException(
             status_code=404, detail="Rekrutacja nie należy do tego kandydata."
         )
-
-    await ensure_job_membership(db, current_user, stage.job_id)
+    # Członkostwa w zespole rekrutacji celowo NIE sprawdzamy: generować CV może
+    # każdy z rolą zapisu kandydata (decyzja Artura z 10.09.2026, cofnięcie
+    # bramki z #1448). Autor ma potem pełny dostęp do własnego dokumentu —
+    # patrz `_load_generated_document`.
 
     # Klienta wyprowadza SERWER z rekrutacji — front go nie wybiera. Jawna
     # wartość w żądaniu jest tylko asercją; rozjazd oznacza, że rekruter widzi
@@ -1623,8 +1634,11 @@ async def generate_from_upload(
     # Derive the client from a verified candidate-stage pair before rule/quota reads.
     # Candidate-only upload is a deliberate standalone association under
     # CandidateWriteAccess. It reads uploaded bytes, not that person's recruitment
-    # documents or notes, and grants no job binding. Selecting a stage requires
-    # membership below; do not infer a job from the candidate's other applications.
+    # documents or notes, and grants no job binding. Selecting a stage binds the
+    # row to that recruitment once the stage is proven to belong to the
+    # candidate; team membership is not required (everyone may generate — product
+    # decision 2026-09-10). Never infer a job from the candidate's other
+    # applications.
     job_id = None
     if stage_id is not None:
         if candidate_id is None:
@@ -1636,7 +1650,6 @@ async def generate_from_upload(
             raise HTTPException(
                 status_code=404, detail="Rekrutacja nie należy do tego kandydata."
             )
-        await ensure_job_membership(db, current_user, stage.job_id)
         job = await db.get(Job, stage.job_id)
         if job is None:
             raise HTTPException(
@@ -1834,14 +1847,32 @@ async def generate_from_upload(
 
 
 async def _load_generated_document(
-    db: AsyncSession, generated_id: int, user: User, *, write: bool = False
+    db: AsyncSession, generated_id: int, user: User
 ) -> CvGeneratedDocument:
+    """Wczytaj wygenerowane CV, jeśli wołający może je czytać i nim działać.
+
+    Jedna reguła dla odczytu (DOCX/HTML, linki, wersje) i dla działań na
+    istniejącym dokumencie (edycja, zatwierdzenie, udostępnienie, odwołanie):
+
+    * **autor** — zawsze. Generować CV może każdy (decyzja Artura z 10.09.2026,
+      cofnięcie bramki członkostwa z #1448), więc autor spoza zespołu
+      rekrutacji wygenerowałby dokument, którego nie mógłby potem pobrać,
+      zatwierdzić ani wysłać;
+    * cudzy dokument związany z rekrutacją — dostęp do ODCZYTU tej rekrutacji
+      (`ensure_job_read_access`: zespół, role nadzorcze, Finanse), nie
+      członkostwo;
+    * dokument bez rekrutacji (upload „poza zleceniem") — sama bramka roli
+      trasy, jak przed #1448.
+
+    Węższe reguły poszczególnych tras obowiązują dalej w handlerach (usunięcie:
+    autor albo admin).
+    """
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    if row.job_id is not None:
-        guard = ensure_job_membership if write else ensure_job_read_access
-        await guard(db, user, row.job_id)
+    if row.job_id is None or row.created_by == user.id:
+        return row
+    await ensure_job_read_access(db, user, row.job_id)
     return row
 
 
@@ -1864,11 +1895,22 @@ async def list_generated_cvs(
     """
     from app.models.cv_generation_job import CvGenerationJob
 
-    filters = [job_read_scope_clause(current_user, CvGeneratedDocument.job_id)]
+    # Autor widzi WSZYSTKIE swoje CV. Generować może każdy (10.09.2026), więc
+    # CV wygenerowane pod rekrutację spoza zespołu inaczej znikałoby z listy
+    # zaraz po kliknięciu „Generuj" — a modal i panel czekają na wynik właśnie
+    # przez tę listę. Cudze CV nadal tylko w zakresie odczytu rekrutacji.
+    filters = [
+        or_(
+            job_read_scope_clause(current_user, CvGeneratedDocument.job_id),
+            CvGeneratedDocument.created_by == current_user.id,
+        )
+    ]
     if candidate_id is not None:
         filters.append(CvGeneratedDocument.candidate_id == candidate_id)
     if job_id is not None:
-        await ensure_job_read_access(db, current_user, job_id)
+        # Bez 403 dla rekrutacji spoza zakresu: filtr zakresu wyżej zostawia
+        # wtedy wyłącznie własne CV wołającego — dokładnie to, co wolno mu
+        # zobaczyć w osadzonym panelu rekrutacji.
         filters.append(CvGeneratedDocument.job_id == job_id)
     if before_id is not None:
         filters.append(CvGeneratedDocument.id < before_id)
@@ -1947,7 +1989,7 @@ async def download_generated_cv(
     have no payload → 422 asking to generate again. Used for both inline preview
     and explicit download in the panel.
     """
-    row = await _load_generated_document(db, generated_id, current_user, write=False)
+    row = await _load_generated_document(db, generated_id, current_user)
     stored = getattr(row, "docx_content", None)
     digest = getattr(row, "docx_sha256", None)
     if stored is not None or digest is not None:
@@ -2008,7 +2050,7 @@ async def download_generated_cv_html(
     dokument. Bez mapy plik degraduje do samego widoku klasycznego. Chat
     celowo nieobecny — wymaga serwera, żyje na linku /cv/i/{{token}}.
     """
-    row = await _load_generated_document(db, generated_id, current_user, write=False)
+    row = await _load_generated_document(db, generated_id, current_user)
     if row.status != "ready" or not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -2051,7 +2093,7 @@ async def delete_generated_cv(
     Active work must finish first: deleting its parent cascades the durable job
     and could orphan a second-language result. Regeneration is a new AI call.
     """
-    row = await _load_generated_document(db, generated_id, current_user, write=True)
+    row = await _load_generated_document(db, generated_id, current_user)
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
         raise HTTPException(
             status_code=403,
@@ -2160,7 +2202,7 @@ async def approve_generated_cv(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await _load_generated_document(db, generated_id, current_user, write=True)
+    await _load_generated_document(db, generated_id, current_user)
     row = await db.scalar(
         select(CvGeneratedDocument)
         .where(CvGeneratedDocument.id == generated_id)
@@ -2191,7 +2233,7 @@ async def list_generated_approved_versions(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    row = await _load_generated_document(db, generated_id, current_user, write=True)
+    row = await _load_generated_document(db, generated_id, current_user)
     from app.models.cv_document_version import CvDocumentVersion
     from app.models.candidate_stage_cv import CandidateStageCV
 
@@ -2252,7 +2294,7 @@ async def create_generated_cv_share_token(
     raz. Przed wystawieniem — ostatnia linia obrony przed wysyłką CV osoby
     z wetem HM (ten sam gate co przy brandowanym CV).
     """
-    row = await _load_generated_document(db, generated_id, current_user, write=True)
+    row = await _load_generated_document(db, generated_id, current_user)
     if row.status != "ready" or not row.render_payload:
         raise HTTPException(
             status_code=409,
@@ -2394,9 +2436,7 @@ async def revoke_generated_cv_share_token(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Token nie znaleziony")
-    await _load_generated_document(
-        db, row.generated_document_id, current_user, write=True
-    )
+    await _load_generated_document(db, row.generated_document_id, current_user)
     if row.revoked:
         return {"ok": True, "already_revoked": True}
     row.revoked = True
@@ -2428,7 +2468,7 @@ from app.services import cv_generated_editor as generated_editor  # noqa: E402
 
 
 async def _load_generated_editor(db, generated_id, user):
-    await _load_generated_document(db, generated_id, user, write=True)
+    await _load_generated_document(db, generated_id, user)
     generated = await db.scalar(
         select(CvGeneratedDocument)
         .where(CvGeneratedDocument.id == generated_id)

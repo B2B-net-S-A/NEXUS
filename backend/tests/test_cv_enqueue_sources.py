@@ -76,7 +76,6 @@ async def test_source_is_captured_before_charge_and_scheduled_as_value(
     app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
         lambda: User(id=7, role=UserRole.admin)
     )
-    monkeypatch.setattr(api, "ensure_job_membership", AsyncMock())
     monkeypatch.setattr(api, "resolve_client_rule", AsyncMock(return_value=None))
     captured = source()
     order = []

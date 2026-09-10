@@ -7,15 +7,15 @@ from io import BytesIO
 from docx import Document
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from app.api import cv_generator_b2b as api
+from app.api import cv_generator_b2b as api, recruitment_access
 from app.models.user import User, UserRole
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "context,denied,expected",
+    "context,non_member,expected",
     [
         ({"candidate_id": 2, "stage_id": 3}, False, 202),
         ({"candidate_id": 2}, False, 202),
@@ -23,10 +23,14 @@ from app.models.user import User, UserRole
         ({"stage_id": 3}, False, 422),
         ({"candidate_id": 99, "stage_id": 3}, False, 404),
         ({"candidate_id": 2, "stage_id": 3, "client_id": 9}, False, 422),
-        ({"candidate_id": 2, "stage_id": 3}, True, 403),
+        # „Wszyscy mogą” (10.09.2026): osoba spoza zespołu rekrutacji też wiąże
+        # upload z rekrutacją — członkostwo nie jest w ogóle sprawdzane.
+        ({"candidate_id": 2, "stage_id": 3}, True, 202),
     ],
 )
-async def test_upload_context_precedes_quota(monkeypatch, context, denied, expected):
+async def test_upload_context_precedes_quota(
+    monkeypatch, context, non_member, expected
+):
     app = FastAPI()
     app.include_router(api.router)
     app.state.limiter = api.limiter
@@ -43,11 +47,12 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
 
     db.get.side_effect = get
     app.dependency_overrides[api.get_db] = lambda: db
+    role = UserRole.recruiter if non_member else UserRole.admin
     app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
-        lambda: User(id=7, role=UserRole.admin)
+        lambda: User(id=7, role=role, roles=[role.value])
     )
-    guard = AsyncMock(side_effect=HTTPException(403) if denied else None)
-    monkeypatch.setattr(api, "ensure_job_membership", guard)
+    membership = AsyncMock(return_value=False)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
     monkeypatch.setattr(api, "resolve_client_rule", AsyncMock(return_value=None))
     charge = AsyncMock(return_value=None)
     pending = AsyncMock(return_value=11)
@@ -82,6 +87,7 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
             },
         )
     assert response.status_code == expected, response.text
+    membership.assert_not_awaited()
     if expected != 202:
         charge.assert_not_awaited()
         pending.assert_not_awaited()

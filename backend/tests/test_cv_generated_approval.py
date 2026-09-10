@@ -129,7 +129,7 @@ async def test_version_list_scopes_metadata_without_loading_artifacts(monkeypatc
     db = SimpleNamespace(execute=AsyncMock(return_value=result))
     user = Mock()
     assert await api.list_generated_approved_versions(7, user, db) == [{"id": 12}]
-    loader.assert_awaited_once_with(db, 7, user, write=True)
+    loader.assert_awaited_once_with(db, 7, user)
     sql = str(db.execute.call_args.args[0].compile())
     assert "generated_document_id =" in sql
     assert "candidate_id =" in sql
