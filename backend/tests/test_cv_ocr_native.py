@@ -11,6 +11,35 @@ from PIL import Image, ImageDraw, ImageFont
 from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
 
 
+def test_native_ocr_reads_benchmark_scan_across_page_breaks(tmp_path):
+    from scripts.prepare_cv_document_corpus import write_scanned_pdf
+
+    missing = [
+        name for name in ("tesseract", "pdftoppm", "pdfinfo") if not shutil.which(name)
+    ]
+    if missing:
+        message = "Missing native OCR tools: " + ", ".join(missing)
+        if os.getenv("REQUIRE_NATIVE_CV_OCR") == "1":
+            pytest.fail(message)
+        pytest.skip(message)
+    font = ImageFont.load_default(size=24)
+    path = tmp_path / "benchmark-scan.pdf"
+    write_scanned_pdf(
+        ["First employer ScanCompanyStart", "2020: Python development"]
+        + ["Additional source note about the project."] * 60
+        + ["Final employer ScanCompanyFinal", "2023: SQL reporting"],
+        path,
+        font,
+    )
+    result = extract_text_from_file(path.read_bytes(), path.name)
+    compact = re.sub(r"\s+", "", result).lower()
+    assert "scancompanystart" in compact, result
+    assert "scancompanyfinal" in compact, result
+    assert compact.index("scancompanystart") < compact.index("scancompanyfinal")
+    assert "2020" in result and "Python" in result, result
+    assert "2023" in result and "SQL" in result, result
+
+
 def test_native_ocr_reads_all_twelve_scanned_pages():
     missing = [
         name for name in ("tesseract", "pdftoppm", "pdfinfo") if not shutil.which(name)
