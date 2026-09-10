@@ -46,6 +46,7 @@ from app.models.m365 import M365Connection
 from app.models.order_mail import (
     CONNECTION_PURPOSE_ORDERS,
     GATE_AUTO,
+    GATE_REVIEW,
     OUTCOME_AUTO_APPLIED,
     OUTCOME_DUPLICATE,
     OUTCOME_FAILED,
@@ -110,6 +111,41 @@ _MAIL_ORDER_ACTIONS = (
 
 def ingest_is_running() -> bool:
     return _ingest_lock.locked()
+
+
+# ── Wyłącznik automatu ───────────────────────────────────────────────────────
+
+#: Powód zatrzymania pewnego planu w kolejce, gdy automat jest wyłączony.
+AUTOAPPLY_DISABLED_REASON = (
+    "Automatyczny zapis jest wyłączony — plan przeszedł wszystkie kontrole, "
+    "sprawdź go i zastosuj ręcznie"
+)
+
+
+def autoapply_enabled() -> bool:
+    """Czy werdykt „auto" wolno zapisać bez człowieka (``ORDER_MAIL_AUTOAPPLY_ENABLED``)."""
+    return bool(settings.ORDER_MAIL_AUTOAPPLY_ENABLED)
+
+
+def hold_when_autoapply_disabled(row: OrderMailDocument) -> bool:
+    """Wyłącznik automatu — JEDNO miejsce dla każdego zapisu bez człowieka.
+
+    Bramka (``order_mail_gate.evaluate``) zostaje czysta: ocenia dokument, nie
+    konfigurację, więc „auto" dalej znaczy „plan jest pewny". O tym, czy pewny
+    plan wolno zapisać bez kliknięcia „Zastosuj", decyduje flaga — sprawdzana
+    tu przez wszystkie trzy ścieżki writera bez aktora (odczyt maila,
+    „Przelicz plan", jednorazowe sprzątanie kolejki). Do 10.09.2026 flaga była
+    ignorowana i nie dało się wyłączyć automatu bez deployu.
+
+    Zwraca ``True``, gdy dokument został zatrzymany w kolejce — wołający NIE
+    może wtedy uruchomić writera. Ręczne „Zastosuj" (z aktorem) flagi nie czyta.
+    """
+    if row.gate_verdict != GATE_AUTO or autoapply_enabled():
+        return False
+    row.gate_verdict = GATE_REVIEW
+    row.gate_reasons = [AUTOAPPLY_DISABLED_REASON]
+    row.outcome = OUTCOME_NEEDS_REVIEW
+    return True
 
 
 # Referencje do biegów uruchomionych „w tle" z requestu. ``asyncio.create_task``
@@ -479,6 +515,8 @@ async def process_pdf_bytes(
 
     # ── Bramka automatu: resolver → planer → werdykt (zawsze zapisany) ──────
     await _plan_and_gate(db, row, extraction, doc, policies, client_id, ident.method)
+    if hold_when_autoapply_disabled(row):
+        return row
     if row.gate_verdict == GATE_AUTO:
         from app.services.order_mail_apply import apply_document  # cykl importów
 
@@ -1044,7 +1082,7 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
     return {
         "enabled": bool(settings.ORDER_MAIL_INGEST_ENABLED),
         "interval_minutes": poll_interval_minutes(),
-        "autoapply_enabled": True,
+        "autoapply_enabled": autoapply_enabled(),
         "running": running,
         "started_at": _iso(state.get("last_run_started_at")),
         "interrupted": last_status == "running" and not running,

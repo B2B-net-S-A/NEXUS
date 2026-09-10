@@ -89,6 +89,7 @@ from app.services.client_order_lines import (
     active_shared_md_lines,
     apply_md_consumption,
     describe_import,
+    group_settles_in_month,
     historical_cost_lines,
     historical_md_lines,
     historical_shared_md_lines,
@@ -465,17 +466,21 @@ def _ordinary_locked_target_is_valid(
     if kind == "md_line":
         if order.status != ClientOrderStatus.active or order.md_total is None:
             return False
+    # Stan grupy: ta sama reguła co przy wyborze kandydatów
+    # (`active_shared_md_lines`/`active_cost_lines`). Zamówienie zakończone
+    # z datą nie wcześniejszą niż ten miesiąc nadal się w nim rozlicza — bez
+    # lustra import wybierał je, a po blokadach odrzucał całą partię 409.
     elif kind == "shared_md":
         if (
             order.status != ClientOrderStatus.active
-            or group.status != GROUP_STATUS_ACTIVE
+            or not group_settles_in_month(group, first)
             or not uses_shared_md_pool(group)
         ):
             return False
     elif kind == "cost":
         if (
             order.status not in (ClientOrderStatus.active, ClientOrderStatus.draft)
-            or group.status != GROUP_STATUS_ACTIVE
+            or not group_settles_in_month(group, first)
             or not group.is_cost_based
         ):
             return False

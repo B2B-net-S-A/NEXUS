@@ -59,8 +59,13 @@ def require_section_access(section: ProductSection):
         is_read = is_read_only_http_request(request.method, request.url.path)
         required = SectionAccess.read if is_read else SectionAccess.write
         granted = section_access_for_user(current_user, section)
-        if section is ProductSection.delivery and _is_tcm_contract_status_command(
-            request, current_user
+        # The TCM status command is a narrow write exception INSIDE Delivery,
+        # not a way around it: a user whose Delivery section was revoked
+        # (per-user override or role row = none) must not keep this mutation.
+        if (
+            section is ProductSection.delivery
+            and granted >= SectionAccess.read
+            and _is_tcm_contract_status_command(request, current_user)
         ):
             return current_user
         parts = request.url.path.strip("/").split("/")

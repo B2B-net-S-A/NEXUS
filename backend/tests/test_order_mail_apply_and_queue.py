@@ -507,3 +507,45 @@ async def test_refresh_auto_verdict_applies_without_another_click(
     )
     assert response.status_code == 200, response.text
     assert response.json()["outcome"] == "auto_applied"
+
+
+@pytest.mark.asyncio
+async def test_refresh_auto_verdict_waits_in_queue_when_autoapply_is_off(
+    seeded, app_client, monkeypatch
+):
+    """Wyłącznik automatu obejmuje też „Przelicz plan" (zapis bez aktora).
+
+    Ręczne „Zastosuj" flagi nie czyta — człowiek nadal zapisuje zamówienie.
+    """
+    from unittest.mock import AsyncMock
+
+    from app.api import order_mail_queue as queue
+
+    async def certain(db, doc):
+        doc.gate_verdict = "auto"
+        doc.gate_reasons = []
+
+    write = AsyncMock()
+    monkeypatch.setattr(queue, "refresh_review_plan", certain)
+    monkeypatch.setattr(queue, "apply_document", write)
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == OUTCOME_NEEDS_REVIEW
+    assert body["gate_verdict"] == "review"
+    assert body["gate_reasons"] == [svc.AUTOAPPLY_DISABLED_REASON]
+    assert body["applied_order_id"] is None
+    write.assert_not_awaited()
+
+    # Prawdziwy writer, flaga nadal wyłączona.
+    monkeypatch.setattr(queue, "apply_document", apply_document)
+    manual = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/apply", headers=headers
+    )
+    assert manual.status_code == 200, manual.text
+    assert manual.json()["ok"] is True
+    assert manual.json()["document"]["outcome"] == OUTCOME_APPLIED

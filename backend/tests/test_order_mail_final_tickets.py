@@ -204,7 +204,9 @@ def test_ending_contract_wins_over_draft():
     assert verdict.is_auto
 
 
-def test_completed_order_reused_even_with_same_number_and_actual_gap():
+def test_return_after_gap_is_planned_even_with_same_number_and_actual_gap():
+    """Powrót po przerwie: plan wskazuje zakończone zamówienie tylko jako
+    punkt odniesienia — writer zakłada NOWE (decyzja 10.09.2026)."""
     prop, verdict = plan(
         [(652, "ended")],
         {
@@ -216,10 +218,55 @@ def test_completed_order_reused_even_with_same_number_and_actual_gap():
         },
     )
     assert prop.rows[0].action == "reactivate" and prop.rows[0].target_order_id == 611
+    assert prop.rows[0].previous_end_date == "2026-08-15"
     assert prop.rows[0].reasons == [
         "Powrót po 32 dniach od zakończenia poprzedniego zamówienia"
     ]
     assert verdict.is_auto
+
+
+def test_completed_md_group_line_is_never_a_renewal_target():
+    """Linia grupy MD ma własny cykl życia — nie jest „poprzednim zamówieniem"."""
+    prop, _ = plan(
+        [(652, "ended")],
+        {
+            652: [
+                ExistingOrder(
+                    611,
+                    "completed",
+                    "445",
+                    date(2026, 1, 1),
+                    date(2026, 8, 15),
+                    order_group_id=77,
+                )
+            ]
+        },
+    )
+    assert prop.rows[0].action == "new"
+    assert prop.rows[0].target_order_id is None
+
+
+def test_renewal_points_at_the_standalone_order_not_a_later_group_line():
+    prop, _ = plan(
+        [(652, "ended")],
+        {
+            652: [
+                ExistingOrder(
+                    611, "completed", "286000", date(2026, 1, 1), date(2026, 6, 30)
+                ),
+                ExistingOrder(
+                    612,
+                    "completed",
+                    "445",
+                    date(2026, 7, 1),
+                    date(2026, 8, 15),
+                    order_group_id=77,
+                ),
+            ]
+        },
+    )
+    assert prop.rows[0].action == "reactivate" and prop.rows[0].target_order_id == 611
+    assert prop.rows[0].previous_end_date == "2026-06-30"
 
 
 def test_real_overlap_remains_a_specific_problem():
@@ -285,13 +332,20 @@ async def test_nordea_certificate_skipped_before_parser_and_non_nordea_unchanged
 
 
 @pytest.mark.asyncio
-async def test_286408_auto_verdict_calls_writer_even_when_old_shadow_flag_false(
-    monkeypatch,
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_286408_auto_verdict_honours_the_autoapply_kill_switch(
+    monkeypatch, enabled
 ):
+    """„auto" zapisuje bez kliknięcia wyłącznie przy włączonym automacie.
+
+    Do 10.09.2026 ``ORDER_MAIL_AUTOAPPLY_ENABLED`` był ignorowany — automatu
+    nie dało się zatrzymać bez deployu. Wyłączony zostawia pewny plan
+    w kolejce z powodem po polsku; writer nie jest nawet wołany.
+    """
     from app.services import order_mail_ingest as svc, order_mail_apply as writer
     from app.services.order_document_text import OrderDocumentText
 
-    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", enabled)
     monkeypatch.setattr(
         svc,
         "extract_order_text",
@@ -331,9 +385,66 @@ async def test_286408_auto_verdict_calls_writer_even_when_old_shadow_flag_false(
     db = AsyncMock()
     db.add = lambda row: None
     await svc.process_pdf_bytes(db, row, b"synthetic", registry=None)
-    assert row.outcome == "auto_applied"
-    apply.assert_awaited_once()
-    db.flush.assert_awaited_once()
+    if enabled:
+        assert row.outcome == "auto_applied"
+        apply.assert_awaited_once()
+        db.flush.assert_awaited_once()
+    else:
+        assert row.outcome == "needs_review"
+        assert row.gate_verdict == "review"
+        assert row.gate_reasons == [svc.AUTOAPPLY_DISABLED_REASON]
+        apply.assert_not_awaited()
+        db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "terminated_at,reason",
+    [
+        (date(2026, 6, 30), None),
+        (None, "project_ended"),
+        (date(2026, 6, 30), "project_ended"),
+    ],
+)
+async def test_terminated_contract_never_activates_a_mail_order(terminated_at, reason):
+    """Wypowiedzenie wygrywa z każdym statusem i z podpisem (A3, 10.09.2026).
+
+    Aktywne zamówienie z maila wskrzesiłoby wypowiedzianą umowę. Warunek musi
+    stać PRZED sprawdzeniem podpisu — ``complete_signed_mail_drafts`` (webhook
+    Autenti, potwierdzenie podpisu w generatorze B2B) woła tę samą funkcję.
+    """
+    from app.models.contract import ContractStatus
+    from app.services.order_mail_signature import can_activate_mail_order
+
+    db = SimpleNamespace(scalar=AsyncMock(return_value=1))  # podpis istnieje
+    for status in (
+        ContractStatus.active,
+        ContractStatus.ending,
+        ContractStatus.ended,
+        ContractStatus.draft,
+    ):
+        contract = SimpleNamespace(
+            id=1, status=status, terminated_at=terminated_at, termination_reason=reason
+        )
+        assert await can_activate_mail_order(db, contract) is False, status
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unterminated_contract_keeps_the_previous_activation_rules():
+    from app.models.contract import ContractStatus
+    from app.services.order_mail_signature import can_activate_mail_order
+
+    def contract(status):
+        return SimpleNamespace(
+            id=1, status=status, terminated_at=None, termination_reason=None
+        )
+
+    unsigned = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    assert await can_activate_mail_order(unsigned, contract(ContractStatus.ended))
+    assert not await can_activate_mail_order(unsigned, contract(ContractStatus.draft))
+    signed = SimpleNamespace(scalar=AsyncMock(return_value=7))
+    assert await can_activate_mail_order(signed, contract(ContractStatus.draft))
 
 
 @pytest.mark.parametrize(

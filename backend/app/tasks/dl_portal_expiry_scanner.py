@@ -176,7 +176,8 @@ async def _scan_framework_contracts(
                         notification_type=ntype,
                         related_entity_type="client_framework_contract",
                         related_entity_id=fc.id,
-                        link=f"/clients/{fc.client_id}?tab=framework-contracts",
+                        # Klucz z `frontend/src/lib/client-tab.ts`.
+                        link=f"/clients/{fc.client_id}?tab=umowy-ramowe",
                     )
                 )
                 sent += 1

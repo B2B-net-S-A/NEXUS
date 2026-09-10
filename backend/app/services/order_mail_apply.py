@@ -1,9 +1,11 @@
 """One transactional writer for automatic import and manual queue application.
 
 Lock the client, replan against the current roster, then save all people and
-the document receipt in one transaction. Drafts are filled in place, ended
-orders are reactivated with history, first engagements notify DL once. Cost
-rates come exclusively from the contractor agreement and its schedule.
+the document receipt in one transaction. Drafts are filled in place; a return
+after a gap creates a NEW order and never rewrites the completed one (it only
+gets referenced from the new order's Activity). First engagements notify DL
+once. Cost rates come exclusively from the contractor agreement and its
+schedule.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -26,6 +28,7 @@ from app.models.candidate import Candidate
 from app.models.activity import Activity
 from app.models.order_mail import OrderMailDocument
 from app.services import storage_service
+from app.services.advanced_candidate_search import fold_polish
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.contract_order_sync import sync_pending_order_contracts
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
@@ -88,22 +91,34 @@ def _date(value: Optional[str]) -> Optional[date]:
     return date.fromisoformat(value) if value else None
 
 
-async def _new_person_contract(db, doc, rp):
+async def _new_person_contract(db, doc, rp, actor_user_id=None):
     """Create the initial client engagement, with no inferred cost or signature.
 
     Client lock held by the writer serializes imports. Only a single exact
-    global name may be reused; ambiguous global names must be resolved before
-    associating personal records. Never guess an email or cost.
+    global name may be reused, and only by a HUMAN: the person has no contract
+    at this client, so the name is the only evidence and a namesake would get
+    a stranger's order (personal data + money). Without an actor the writer
+    refuses and the document goes to review. Ambiguous global names must be
+    resolved before associating personal records. Never guess an email or cost.
+
+    ``actor_user_id`` is positional-compatible on purpose (tests wrap this
+    function with ``*args``).
     """
+    # Leniwy import: warstwa API importuje serwisy zamówień z maila, więc import
+    # modułowy `app.api.clients` stąd groziłby cyklem.
+    from app.api.clients import polish_alphabetical_key
+
     tokens = rp["row_name"].strip().split()
     if len(tokens) < 2:
         raise ValueError("Brak pełnego imienia i nazwiska nowego kontraktora")
+    # Prefiltr po nazwisku ze zwiniętymi polskimi znakami po OBU stronach (prod
+    # nie ma `unaccent`): PDF/OCR bez diakrytyków („Gradzki") musi znaleźć
+    # „Grądzki" z bazy, inaczej writer zakładał po cichu drugą kartę tej osoby.
+    surname_keys = sorted({fold_polish(tokens[-1]), fold_polish(tokens[0])})
     candidates = (
         await db.scalars(
             select(Candidate).where(
-                func.lower(Candidate.lastname).in_(
-                    [tokens[-1].lower(), tokens[0].lower()]
-                ),
+                polish_alphabetical_key(Candidate.lastname).in_(surname_keys),
                 Candidate.external_deleted_at.is_(None),
             )
         )
@@ -115,6 +130,13 @@ async def _new_person_contract(db, doc, rp):
     ]
     if len(matches) > 1:
         raise ValueError("Kilka osób o tym imieniu i nazwisku w bazie — wybierz osobę")
+    if matches and actor_user_id is None:
+        existing = matches[0]
+        raise ValueError(
+            f"W bazie jest już osoba „{existing.name} {existing.lastname}” "
+            f"(#{existing.id}) bez umowy u tego klienta — potwierdź, że to ta "
+            "sama osoba, i zastosuj ręcznie"
+        )
     if matches:
         candidate = matches[0]
     else:
@@ -165,8 +187,65 @@ async def _notify_new_draft(db, doc, order, name):
         repeat_every_days=None,
         title=f"Nowy kontraktor {name} w {client.display_name or client.name}",
         message=f"Nowy kontraktor {name} w {client.display_name or client.name} — uzupełnij dane: stawka kosztowa.",
-        link=f"/clients/{doc.client_id}?tab=orders",
+        # Klucz zakładki z `frontend/src/lib/client-tab.ts` — nieznany klucz
+        # (dawniej „orders") otwierał profil zamiast zakładki ze sprawą.
+        link=f"/clients/{doc.client_id}?tab=zamowienia",
     )
+
+
+async def _renewal_of_completed_order(
+    db: AsyncSession, contract: Contract, rp: dict, start: Optional[date]
+) -> dict[str, Any]:
+    """Powrót po przerwie: przeczytaj (NIGDY nie zmieniaj) poprzednie zamówienie.
+
+    Decyzja z 10.09.2026: konsultant wracający po przerwie dostaje NOWE
+    zamówienie. Zakończone zamówienie jest zapisem zamkniętego okresu — na nim
+    rozliczono faktury — więc nie wolno go przepisać ani wskrzesić. Link do
+    niego żyje wyłącznie w szczegółach Activity nowego zamówienia:
+
+    * nie w ``notes`` — tam siedzi znacznik idempotencji porównywany dosłownie
+      (``notes == marker``), dopisek zepsułby ochronę przed duplikatem;
+    * nie w ``predecessor_order_id`` — to zamiana kontraktora na linii grupy MD
+      (czyta je ``client_order_lines._has_successor_line``).
+
+    Blokada ``FOR SHARE`` na czas transakcji: równoległe przywrócenie tego
+    zamówienia poczeka, zamiast dać dwa żywe zamówienia na ten sam okres.
+    Plan mógł się zestarzeć (ponowienie po częściowym zapisie korzysta z planu
+    utrwalonego), więc warunki planera sprawdzamy jeszcze raz — odmowa kończy
+    zapis całego dokumentu i odsyła go do weryfikacji.
+    """
+    previous = await db.scalar(
+        select(ClientOrder)
+        .where(
+            ClientOrder.id == rp.get("target_order_id"),
+            ClientOrder.contract_id == contract.id,
+        )
+        .with_for_update(read=True)
+        # Stan PO blokadzie, nie z mapy tożsamości sprzed niej.
+        .execution_options(populate_existing=True)
+    )
+    if (
+        previous is None
+        or previous.status != ClientOrderStatus.completed
+        or previous.order_group_id is not None
+        or previous.end_date is None
+        or start is None
+        or start <= previous.end_date
+    ):
+        raise ValueError(
+            "Poprzednie zamówienie zmieniło się albo nowy okres nie następuje "
+            "po nim — przelicz plan"
+        )
+    gap_days = (start - previous.end_date).days
+    return {
+        "renewal_of_order_id": previous.id,
+        "previous_end_date": previous.end_date.isoformat(),
+        "gap_days": gap_days,
+        "message": (
+            f"Powrót po {gap_days} dniach od zakończenia poprzedniego zamówienia "
+            f"#{previous.id} — nowe zamówienie, poprzednie bez zmian"
+        ),
+    }
 
 
 async def apply_document(
@@ -277,7 +356,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
             continue
         try:
             if applied.action == ACTION_NEW_DRAFT:
-                contract = await _new_person_contract(db, doc, rp)
+                contract = await _new_person_contract(db, doc, rp, actor_user_id)
             else:
                 contract = await db.scalar(
                     select(Contract)
@@ -308,20 +387,13 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 applied.activated = order.status == ClientOrderStatus.active
                 continue
             is_new_person = applied.action == ACTION_NEW_DRAFT
-            if applied.action in (ACTION_FILL_DRAFT, ACTION_REACTIVATE) and rp.get(
-                "target_order_id"
-            ):
+            if applied.action == ACTION_FILL_DRAFT and rp.get("target_order_id"):
                 order = await db.scalar(
                     select(ClientOrder)
                     .where(
                         ClientOrder.id == rp["target_order_id"],
                         ClientOrder.contract_id == contract.id,
-                        ClientOrder.status
-                        == (
-                            ClientOrderStatus.completed
-                            if applied.action == ACTION_REACTIVATE
-                            else ClientOrderStatus.draft
-                        ),
+                        ClientOrder.status == ClientOrderStatus.draft,
                     )
                     .with_for_update()
                 )
@@ -335,19 +407,6 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                     "rate_client": str(order.rate_client),
                     "file_path": order.file_path,
                 }
-                if applied.action == ACTION_REACTIVATE:
-                    if not start or not order.end_date or start <= order.end_date:
-                        raise ValueError(
-                            "Nowy okres nie następuje po zakończonym zamówieniu"
-                        )
-                    gap = (start - order.end_date).days
-                    message = (
-                        f"Powrót po {gap} dniach od zakończenia poprzedniego zamówienia"
-                    )
-                    order.notes = "\n".join(filter(None, [order.notes, message]))
-                    order.status = ClientOrderStatus.draft
-                else:
-                    message = "Uzupełnienie draftu z zamówienia mailowego"
                 db.add(
                     Activity(
                         entity_type="client_order",
@@ -357,7 +416,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                         details={
                             "document_id": doc.id,
                             "before": before,
-                            "message": message,
+                            "message": "Uzupełnienie draftu z zamówienia mailowego",
                         },
                     )
                 )
@@ -374,6 +433,14 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 order.rate_unit = unit
                 order.contract = contract
             else:
+                # Powrót po przerwie (ACTION_REACTIVATE) idzie tą samą ścieżką co
+                # nowe zamówienie: NOWY wiersz na nowy okres. Zakończone
+                # zamówienie jest tylko odczytywane — na nim rozliczono faktury.
+                renewal = (
+                    await _renewal_of_completed_order(db, contract, rp, start)
+                    if applied.action == ACTION_REACTIVATE
+                    else None
+                )
                 if applied.action != ACTION_FUTURE:
                     await assert_no_open_md_group_line(db, contract.id)
                 # Drugi guard, gdy `apply_result` nie zdążył się zapisać (crash
@@ -411,15 +478,19 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 )
                 db.add(order)
                 await db.flush()
+                if renewal is not None:
+                    action_name = "order_mail_renewal"
+                elif is_new_person:
+                    action_name = "order_mail_new_draft"
+                else:
+                    action_name = "order_mail_created"
                 db.add(
                     Activity(
                         entity_type="client_order",
                         entity_id=order.id,
-                        action="order_mail_new_draft"
-                        if is_new_person
-                        else "order_mail_created",
+                        action=action_name,
                         user_id=actor_user_id,
-                        details={"document_id": doc.id},
+                        details={"document_id": doc.id, **(renewal or {})},
                     )
                 )
 
@@ -427,9 +498,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 from app.api.client_orders import _apply_md_order_quantity
 
                 _apply_md_order_quantity(order, _dec(rp["md_total"]))
-            if pdf_bytes is not None and (
-                order.file_path is None or applied.action == ACTION_REACTIVATE
-            ):
+            if pdf_bytes is not None and order.file_path is None:
                 _attach_po_bytes(
                     order,
                     payload=pdf_bytes,
@@ -439,7 +508,7 @@ async def _write_document(db, doc, *, actor_user_id, only_actions):
                 )
             # Copy a cost only from the contract's own schedule, preserving
             # unit/currency. A first unsigned engagement has no such cost.
-            if order.rate_candidate is None or applied.action == ACTION_REACTIVATE:
+            if order.rate_candidate is None:
                 order.rate_candidate = convert_order_rate(
                     effective.get("rate_candidate"),
                     contract.rate_unit,
