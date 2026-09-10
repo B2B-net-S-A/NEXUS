@@ -428,7 +428,15 @@ async def get_public_generated_cv(
         from app.services.cv_generated_approval import approved_version_for_generation
 
         approved = await approved_version_for_generation(db, doc, version_id)
-        tiles, chat = False, False
+        _tiles, chat = await _interactive_flags(db, doc)
+        tiles = False
+        from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
+        from app.services.cv_editor_review import EditorReviewInputError
+
+        try:
+            approved_chat_context(approved)
+        except EditorReviewInputError:
+            chat = False
     else:
         tiles, chat = await _interactive_flags(db, doc)
 
@@ -493,8 +501,21 @@ async def post_public_generated_cv_chat(
     """
     row = await _load_generated_share(token, db)
     doc = _generated_doc_or_404(row)
+    approved_context = None
     if row.document_version_id is not None:
-        raise HTTPException(404, "Chat nie jest dostępny dla zatwierdzonej wersji.")
+        from app.services.cv_generated_approval import approved_version_for_generation
+        from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
+        from app.services.cv_editor_review import EditorReviewInputError
+
+        approved = await approved_version_for_generation(
+            db, doc, row.document_version_id
+        )
+        try:
+            approved_context = approved_chat_context(approved)
+        except EditorReviewInputError:
+            raise HTTPException(
+                409, "Nie można odczytać zatwierdzonej treści dla chatu."
+            ) from None
     _tiles, chat_enabled = await _interactive_flags(db, doc)
     if not chat_enabled:
         raise HTTPException(
@@ -510,7 +531,11 @@ async def post_public_generated_cv_chat(
 
     try:
         answer = await answer_question(
-            db, token_row=row, doc_row=doc, question=payload.question
+            db,
+            token_row=row,
+            doc_row=doc,
+            question=payload.question,
+            approved_context=approved_context,
         )
     except CvChatDailyLimitExceeded:
         raise HTTPException(

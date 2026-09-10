@@ -821,9 +821,14 @@ export default function PublicInteractiveCvPage() {
       </div>
 
       {view.cv_html ? (
-        <iframe title="CV" srcDoc={view.cv_html} sandbox="allow-same-origin"
-          className="w-full rounded-lg border border-border bg-white"
-          style={{ height: "calc(100vh - 220px)", minHeight: 600 }} />
+        <div className={showInteractive && view.chat_enabled ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start" : ""}>
+          <iframe title="CV" srcDoc={view.cv_html} sandbox="allow-same-origin"
+            className="w-full rounded-lg border border-border bg-white"
+            style={{ height: "calc(100vh - 220px)", minHeight: 600 }} />
+          {showInteractive && view.chat_enabled && (
+            <ChatPanel token={token} t={t} suggestions={suggestions} />
+          )}
+        </div>
       ) : showInteractive ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start">
           <div className="space-y-4 min-w-0">

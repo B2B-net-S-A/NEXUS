@@ -683,3 +683,7 @@ Usunięto awaryjne obcinanie punktów do limitu z wielokropkiem. Po istniejącym
 ### CV-11 / CV-18: zwarte zakresy dat
 
 Odtworzono uszkodzenie `2020-01-2024-12` do `2020-01.2024-12`. Formatowanie odczytuje teraz rozłączne tokeny z oryginalnego tekstu w jednym przebiegu, zamiast dwukrotnie przepisywać wynik. Zachowuje obie granice zakresu między wszystkimi trzema formatami miesięcznymi. Pełne daty dzienne i nieprawidłowe miesiące pozostają niezmienione. 56 testów polityki/informacji zwrotnej, w tym dziewięć konwersji zakresów między formatami, przeszło lokalnie.
+
+### CV-02: chat zatwierdzonej wersji — integracja w toku
+
+Publiczny chat zatwierdzonej wersji otrzymuje wyłącznie uporządkowany tekst jej HTML po sprawdzeniu właściciela i integralności przez istniejący resolver. Nie czyta pierwotnego payloadu ani starej mapy wymagań. Nieodczytywalna treść nie uruchamia zastępczego kontekstu starego CV. Widok zatwierdzonego HTML może pokazać panel chatu zgodnie z aktualnymi flagami klienta i AI. 16 testów projekcji i odczytu zatwierdzeń, Ruff oraz TypeScript przeszły lokalnie. Pozostają testy endpointu pytań i UI, hosted/produkcyjny odbiór oraz odbudowa mapy wymagań względem zatwierdzonej treści. Nie jest to jeszcze zamknięcie CV-02.

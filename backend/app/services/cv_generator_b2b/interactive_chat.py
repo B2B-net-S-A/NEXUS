@@ -182,6 +182,7 @@ async def answer_question(
     token_row: CvGeneratedShareToken,
     doc_row: CvGeneratedDocument,
     question: str,
+    approved_context: dict[str, Any] | None = None,
 ) -> str:
     """Odpowiedz na pytanie managera o kandydata z tego linku.
 
@@ -190,6 +191,11 @@ async def answer_question(
     kwoty w odpowiedzi) NIE są błędami — wracają jako grzeczna odpowiedź
     i są normalnie logowane.
     """
+    if (
+        getattr(token_row, "document_version_id", None) is not None
+        and approved_context is None
+    ):
+        raise CvChatLLMError("approved context required")
     question = (question or "").strip()[:MAX_QUESTION_CHARS]
     if not question:
         raise CvChatLLMError("empty question")
@@ -214,7 +220,9 @@ async def answer_question(
     # na KAŻDE pytanie, przy rosnącym liczniku.
     async with ai_feature(db, AIFeatureKey.cv_interactive_chat, user_id=None):
         await db.commit()
-        return await _answer_with_model(db, token_row, doc_row, question)
+        return await _answer_with_model(
+            db, token_row, doc_row, question, approved_context=approved_context
+        )
 
 
 async def _answer_with_model(
@@ -222,6 +230,7 @@ async def _answer_with_model(
     token_row: CvGeneratedShareToken,
     doc_row: CvGeneratedDocument,
     question: str,
+    approved_context: dict[str, Any] | None = None,
 ) -> str:
     """Wywołanie modelu i zapis wymiany — wyodrębnione, bo bramka kwot musi
     OBEJMOWAĆ wywołanie, a `ai_feature` deklaruje kontekst tylko na czas bloku."""
@@ -230,10 +239,12 @@ async def _answer_with_model(
     if not api_key:
         raise CvChatLLMError("ANTHROPIC_API_KEY not configured")
 
-    public_payload = build_public_payload(doc_row.render_payload)
-    requirement_items: list[dict[str, Any]] = list(
-        (doc_row.requirement_map or {}).get("items") or []
-    )
+    if approved_context is not None:
+        public_payload = approved_context
+        requirement_items = []
+    else:
+        public_payload = build_public_payload(doc_row.render_payload)
+        requirement_items = list((doc_row.requirement_map or {}).get("items") or [])
     system_prompt = _SYSTEM_PROMPT.format(
         profile_json=json.dumps(public_payload, ensure_ascii=False),
         requirement_map_json=json.dumps(requirement_items, ensure_ascii=False),
@@ -277,3 +288,17 @@ async def _answer_with_model(
 
     await _persist_exchange(db, token_row.token, question, answer)
     return answer
+
+
+def approved_chat_context(version) -> dict[str, Any]:
+    """Project only approved HTML; caller must resolve its ownership and hashes.
+
+    Do not reconstruct role facts or reuse a generated requirement map after
+    manual edits. The same ordered paragraph projection is used by approval.
+    """
+    from app.services.cv_editor_review import editor_claims
+
+    return {
+        "language": version.language,
+        "approved_content": editor_claims(version.content_html),
+    }
