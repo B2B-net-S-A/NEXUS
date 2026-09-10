@@ -1527,6 +1527,23 @@ async def health_check():
     return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}
 
 
+@app.get("/api/health/live")
+async def api_health_live():
+    """Liveness for the container healthcheck: the process serves requests.
+
+    Deliberately touches nothing — no database, no pool, no lock, no external
+    probe. `/api/health` runs a dozen of those with their own timeouts, and
+    under a heavy full candidate search (pool saturated, busy event loop) it
+    could miss the 5 s probe window three times in a row: Docker then marked
+    a WORKING backend unhealthy and Traefik stopped routing to it ("no
+    available server"). Readiness and the deploy smoke test keep using
+    `/api/health`; this answers one question only — is the process alive.
+    """
+    import os
+
+    return {"status": "alive", "version": os.environ.get("GIT_SHA", "unknown")}
+
+
 def _resolve_deployed_at() -> str:
     """Return ISO-8601 deployedAt string.
 
