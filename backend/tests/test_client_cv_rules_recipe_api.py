@@ -568,8 +568,8 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         stored_inputs = {}
 
-        def upload_snapshot(raw, filename, content_type):
-            key = f"test-only/{uuid.uuid4().hex}"
+        def upload_snapshot(raw, filename, content_type, *, storage_key=None):
+            key = storage_key or f"test-only/{uuid.uuid4().hex}"
             stored_inputs[key] = raw
             return key
 

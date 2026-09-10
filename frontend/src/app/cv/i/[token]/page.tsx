@@ -85,6 +85,7 @@ interface PublicCvIView {
   document_version_id?: number | null;
   cv: PublicCvPayload;
   requirements: RequirementItem[] | null;
+  requirements_status?: string | null;
   chat_enabled: boolean;
   expires_at: string | null;
 }
@@ -399,7 +400,7 @@ function RequirementTiles({
 }: {
   items: RequirementItem[];
   t: Labels;
-  onQuoteClick: (expIndex: number | null) => void;
+  onQuoteClick?: (expIndex: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const groups: { kind: "must" | "nice"; label: string }[] = [
@@ -475,8 +476,9 @@ function RequirementTiles({
                                   <li key={i}>
                                     <button
                                       type="button"
+                                      disabled={!onQuoteClick || ev.experience_index === null}
                                       onClick={() =>
-                                        onQuoteClick(ev.experience_index)
+                                        onQuoteClick?.(ev.experience_index)
                                       }
                                       className="w-full text-left text-sm italic rounded bg-background/60 dark:bg-background/30 border border-border/60 px-2 py-1.5 hover:border-primary/50 transition-colors"
                                     >
@@ -667,7 +669,8 @@ export default function PublicInteractiveCvPage() {
         // gdy jest dostępna; przełącznik pozwala wrócić do klasycznego widoku.
         if (
           (res.data.requirements && res.data.requirements.length > 0) ||
-          res.data.chat_enabled
+          res.data.chat_enabled ||
+          (res.data.cv_html && res.data.requirements_status && !["complete", "not_requested"].includes(res.data.requirements_status))
         ) {
           setMode("interactive");
         }
@@ -743,7 +746,8 @@ export default function PublicInteractiveCvPage() {
   const cv = view.cv;
   const hasInteractive =
     (view.requirements !== null && view.requirements.length > 0) ||
-    view.chat_enabled;
+    view.chat_enabled ||
+    Boolean(view.cv_html && view.requirements_status && !["complete", "not_requested"].includes(view.requirements_status));
   const showInteractive = mode === "interactive" && hasInteractive;
 
   const expiresLabel = view.expires_at
@@ -822,9 +826,21 @@ export default function PublicInteractiveCvPage() {
 
       {view.cv_html ? (
         <div className={showInteractive && view.chat_enabled ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] items-start" : ""}>
+          <div className="space-y-4 min-w-0">
+          {showInteractive && view.requirements && view.requirements.length > 0 && (
+            <RequirementTiles items={view.requirements} t={t} />
+          )}
+          {showInteractive && view.requirements_status && !["complete", "not_requested"].includes(view.requirements_status) && (
+            <p role="status" className="text-sm text-muted-foreground print:hidden">
+              {["queued", "running"].includes(view.requirements_status)
+                ? (cv.language === "en" ? "Requirement assessment is being prepared. Reopen this page later to see the result." : "Ocena wymagań jest przygotowywana. Otwórz stronę ponownie później, aby zobaczyć wynik.")
+                : (cv.language === "en" ? "Requirement assessment is unavailable for this CV version." : "Ocena wymagań jest niedostępna dla tej wersji CV.")}
+            </p>
+          )}
           <iframe title="CV" srcDoc={view.cv_html} sandbox="allow-same-origin"
             className="w-full rounded-lg border border-border bg-white"
             style={{ height: "calc(100vh - 220px)", minHeight: 600 }} />
+          </div>
           {showInteractive && view.chat_enabled && (
             <ChatPanel token={token} t={t} suggestions={suggestions} />
           )}

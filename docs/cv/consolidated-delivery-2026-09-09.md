@@ -697,3 +697,10 @@ Zapisane mapy są ponownie walidowane przy odczycie publicznym i przygotowaniu k
 ### CV-09: rezerwacja źródła przed uploadem
 
 Przed wysłaniem źródła zapisywana jest niezależnie zatwierdzona rezerwacja w istniejącej kolejce sprzątania, z terminem kontroli po 24 godzinach. Transakcja generowania blokuje rezerwację przed uploadem i usuwa ją atomowo z zapisem zadania. Rollback lub awaria przed commitem pozostawia rezerwację do sprzątania; worker nie usuwa pliku używanego przez zatwierdzone zadanie. Nie obejmuje to historycznych plików bez rezerwacji. 32 testy lokalne oraz Ruff przeszły. Nowe dwa przypadki PostgreSQL commit/rollback wymagają wykonania w CI; dowód awarii procesu na środowisku pozostaje otwarty.
+
+
+### CV-02: mapa zatwierdzonej wersji
+
+Dodano kolejkę `cv_version_maps` (migracja 0302), zamrożone wejście związane z sumą HTML, dzierżawę wykonania i zapis zlecenia w transakcji zatwierdzenia. Wynik jest związany z sumami wejścia i treści. Publiczny odczyt nie korzysta ze starej mapy przy braku wyniku, błędzie ani niezgodności. Widok pokazuje mapę obok zatwierdzonego HTML i stan oczekiwania/niedostępności, bez automatycznych odczytów zużywających limit wyświetleń. Cytaty bez stanowiska nie przenoszą do starszych ról. Lokalnie: 42 testy backendu oraz 7 testów publicznego UI. Pozostają rzeczywiste testy PostgreSQL dzierżaw i atomowości nowej kolejki, kompletność wymagań uploadu po błędzie pierwotnej mapy, ocena semantyczna z modelami oraz produkcyjny odbiór. Całość pozostaje w PR #1444.
+
+CI 34436308200 zakończyło się błędem testu podglądu reguł: atrapa uploadu nie przyjmowała nowego argumentu `storage_key`. Poprawiono atrapę, zachowując rezerwowany klucz i rzeczywisty przebieg transakcji. Weryfikacja tej poprawki wymaga kolejnego hosted CI.
