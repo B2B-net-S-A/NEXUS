@@ -40,7 +40,11 @@ async def test_probe_only_reads_the_explicitly_selected_failed_upload(
 @pytest.mark.asyncio
 async def test_probe_rejects_other_source_bytes_before_any_generation(monkeypatch):
     job = SimpleNamespace(
-        kind="upload", status="failed", input_storage_key="private", input_sha256="hash"
+        kind="upload",
+        status="failed",
+        input_storage_key="private",
+        input_sha256="hash",
+        created_by=1,
     )
     db = SimpleNamespace(get=AsyncMock(return_value=job))
 

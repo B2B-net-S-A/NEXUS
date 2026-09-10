@@ -117,6 +117,11 @@ def main():
                     if report.get("cv_sha256") not in (None, fingerprint):
                         raise ops.OpsError("probe_source_mismatch")
                     print(json.dumps({"code_sha": sha, "report": report}), flush=True)
+                    if (
+                        report.get("outcome") != "generated"
+                        or report.get("verified") != "verified"
+                    ):
+                        raise ops.OpsError("generation_did_not_pass")
                     return
             time.sleep(15)
         raise ops.OpsError("probe_timeout")

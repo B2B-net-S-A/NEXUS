@@ -130,6 +130,19 @@ def test_live_responsibility_schema_only_accepts_source_ranges():
     assert set(fields) == {"source", "start_line", "end_line"}
 
 
+def test_repeated_source_ranges_cannot_amplify_the_materialized_ledger(monkeypatch):
+    payload = line_response()
+    payload["document"]["experience"][0]["responsibilities"] = [
+        {"source": "cv", "start_line": 1, "end_line": 4}
+    ] * 3
+    monkeypatch.setattr(facts, "MAX_MATERIALIZED_SOURCE_CHARS", len(SOURCE) * 2)
+    with pytest.raises(facts.SourceFactsError) as error:
+        facts.validate_extraction(
+            json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+        )
+    assert error.value.reason == "oversized_materialized_source"
+
+
 def test_response_wrapper_paths_resolve_to_the_same_document_fields():
     payload = line_response()
     for citation in payload["evidence"]:
@@ -170,6 +183,38 @@ def test_surplus_empty_field_and_structural_label_citations_make_no_claims():
         facts.validate_extraction(
             json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
         )
+
+
+def test_tool_lists_and_skills_keep_original_spelling_and_qualifiers():
+    definitions = facts.EXTRACTION_RESPONSE_SCHEMA["$defs"]
+    assert definitions["Role"]["properties"]["technologies"]["items"] == {
+        "$ref": "#/$defs/SourceStatement"
+    }
+    assert definitions["Skills"]["properties"]["content"] == {
+        "$ref": "#/$defs/SourceStatement"
+    }
+    payload = line_response()
+    original = SOURCE.replace(
+        "Przygotowywał zapytania SQL.",
+        "Szkolenie: MSSQL oraz Active Direc-\ntory. Bez pracy na produkcji.",
+    )
+    ref = {"source": "cv", "start_line": 2, "end_line": 3}
+    role = payload["document"]["experience"][0]
+    role["responsibilities"] = [ref]
+    role["technologies"] = [ref]
+    payload["document"]["skills"] = [{"label": "Technology", "content": ref}]
+    payload["evidence"][2]["end_line"] = 3
+    for citation in payload["evidence"][3:]:
+        citation["start_line"] += 1
+        citation["end_line"] += 1
+    result = facts.validate_extraction(
+        json.dumps(payload), {"cv": original, "screening_notes": ""}
+    )
+    expected = "".join(original.splitlines(keepends=True)[1:3])
+    assert result["document"]["experience"][0]["technologies"] == [expected]
+    assert result["document"]["skills"][0]["content"] == expected
+    assert result["field_evidence"]["/experience/0/technologies/0"]
+    assert result["field_evidence"]["/skills/0/content"]
 
 
 @pytest.mark.parametrize(

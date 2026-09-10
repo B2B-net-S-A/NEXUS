@@ -61,9 +61,10 @@ Return ONLY JSON, with exactly these keys:
  "position": "verbatim headline if explicitly present, otherwise empty",
  "experience": [{"dates":"verbatim range", "company":"verbatim name",
    "industry":"only if explicit", "position":"verbatim title",
-   "responsibilities":[{"source":"cv", "start_line":10, "end_line":12}], "technologies":["verbatim tool name"]}],
+   "responsibilities":[{"source":"cv", "start_line":10, "end_line":12}],
+   "technologies":[{"source":"cv", "start_line":10, "end_line":12}]}],
  "education":[{"dates":"", "institution":"", "degree":"", "location":""}],
- "skills":[{"label":"neutral category", "content":"verbatim skill list"}],
+ "skills":[{"label":"neutral category", "content":{"source":"cv", "start_line":10, "end_line":12}}],
  "certifications":["verbatim possessed qualification"],
  "languages":["verbatim language and stated level"]},
  "evidence":[{"path":"/experience/0", "source":"cv", "start_line":10, "end_line":18}]}
@@ -73,12 +74,14 @@ objects. Every nonempty factual leaf needs evidence at its own path OR an
 ancestor's path. Skill category labels are structural, not factual evidence.
 Paths are relative to document: use /name or /experience/0, without /document.
 Do not cite empty fields, empty lists, structural skill labels or the root object.
-For responsibilities, SELECT every original statement by its source and inclusive
-line range. Never retype, fix typos, shorten or paraphrase responsibility text.
+For responsibilities, technology lists and skill contents, SELECT every original
+statement by its source and inclusive line range. Never retype, fix typos,
+shorten, canonicalize tool names or paraphrase this text.
 The program copies the original lines itself. Include the full statement and its
 qualifiers even when wrapped or interrupted by a PDF date column. Separate
 statements into separate ranges. Do not select lines belonging to another role.
-Responsibility ranges are their own evidence; do not duplicate them in evidence.
+Select one range per original technology list, not a copy of the same list for
+each tool. These ranges are their own evidence; do not duplicate them in evidence.
 Use ONLY source identifiers cv and screening_notes. Every extracted value must
 occur verbatim within the cited original lines. Preserve capitalization, spelling
 and punctuation, including PDF hyphenation. Keep separate source skill statements
@@ -107,7 +110,7 @@ class Role(StrictModel):
     # Strings remain accepted for previous snapshots and historical fixtures.
     # The live schema only permits original source ranges, materialized below.
     responsibilities: list[str | SourceStatement] = Field(max_length=100)
-    technologies: list[str] = Field(max_length=100)
+    technologies: list[str | SourceStatement] = Field(max_length=100)
 
 
 class Education(StrictModel):
@@ -119,7 +122,7 @@ class Education(StrictModel):
 
 class Skills(StrictModel):
     label: str
-    content: str
+    content: str | SourceStatement
 
 
 class SourceDocument(StrictModel):
@@ -144,9 +147,13 @@ class Extraction(StrictModel):
 
 
 EXTRACTION_RESPONSE_SCHEMA = line_response_schema(Extraction.model_json_schema())
-EXTRACTION_RESPONSE_SCHEMA["$defs"]["Role"]["properties"]["responsibilities"][
-    "items"
-] = {"$ref": "#/$defs/SourceStatement"}
+for _field in ("responsibilities", "technologies"):
+    EXTRACTION_RESPONSE_SCHEMA["$defs"]["Role"]["properties"][_field]["items"] = {
+        "$ref": "#/$defs/SourceStatement"
+    }
+EXTRACTION_RESPONSE_SCHEMA["$defs"]["Skills"]["properties"]["content"] = {
+    "$ref": "#/$defs/SourceStatement"
+}
 
 
 class SourceFactsError(ValueError):
@@ -210,6 +217,7 @@ def _document_paths(data: dict) -> set[str]:
 
 
 MAX_EXTRACTION_RESPONSE_CHARS = 8_000_000
+MAX_MATERIALIZED_SOURCE_CHARS = 8_000_000
 
 
 def validate_extraction(response: str, sources: dict[str, str]) -> dict:
@@ -219,20 +227,33 @@ def validate_extraction(response: str, sources: dict[str, str]) -> dict:
         extracted = Extraction.model_validate_json(response)
     except ValidationError:
         raise SourceFactsError() from None
-    document = extracted.document.model_dump()
     statements = []
-    for role_index, role in enumerate(extracted.document.experience):
-        for index, statement in enumerate(role.responsibilities):
-            if isinstance(statement, str):
-                continue
-            path = f"/experience/{role_index}/responsibilities/{index}"
-            span = reference_span(sources[statement.source], statement)
+    materialized_chars = 0
+
+    def materialize(value, path=""):
+        nonlocal materialized_chars
+        if isinstance(value, SourceStatement):
+            span = reference_span(sources[value.source], value)
             if span is None:
                 raise SourceFactsError("invalid_evidence", [path])
-            document["experience"][role_index]["responsibilities"][index] = sources[
-                statement.source
-            ][slice(*span)]
-            statements.append(Evidence(path=path, **statement.model_dump()))
+            materialized_chars += span[1] - span[0]
+            if materialized_chars > MAX_MATERIALIZED_SOURCE_CHARS:
+                raise SourceFactsError("oversized_materialized_source")
+            statements.append(Evidence(path=path, **value.model_dump()))
+            return sources[value.source][slice(*span)]
+        if isinstance(value, BaseModel):
+            return {
+                key: materialize(getattr(value, key), f"{path}/{key}")
+                for key in type(value).model_fields
+            }
+        if isinstance(value, list):
+            return [
+                materialize(child, f"{path}/{index}")
+                for index, child in enumerate(value)
+            ]
+        return value
+
+    document = materialize(extracted.document)
     leaves = source_leaves(document)
     if not leaves or len(leaves) > 2000:
         raise SourceFactsError("empty_or_oversized_extraction")
@@ -380,6 +401,8 @@ async def _probe_failed_upload(job_id: int, fingerprint: str) -> dict:
         job = await db.get(CvGenerationJob, job_id)
         if job is None or job.kind != "upload" or job.status != "failed":
             return {"outcome": "wrong_job_scope"}
+        if job.created_by is None:
+            return {"outcome": "no_billing_user"}
         raw = await asyncio.to_thread(object_storage.download_cv, job.input_storage_key)
         kind, inputs = deserialize_job_inputs(raw, job.input_sha256)
         payload = inputs.get("payload")
