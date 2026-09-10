@@ -45,6 +45,28 @@ def load_cases():
 def prepare(output: Path):
     cases, digest = load_cases()
     output.mkdir(parents=True, exist_ok=True)
+    existing = output / "manifest.json"
+    if existing.exists():
+        manifest = json.loads(existing.read_text())
+        if manifest.get("corpus_sha256") != digest or len(
+            manifest.get("cases", [])
+        ) != len(cases):
+            raise ValueError("Existing corpus differs; use a new output directory")
+        for original, saved in zip(cases, manifest["cases"], strict=True):
+            filename = f"{original['id']}.docx"
+            if (
+                any(saved.get(key) != value for key, value in original.items())
+                or saved.get("input_file") != filename
+                or not (output / filename).is_file()
+                or hashlib.sha256((output / filename).read_bytes()).hexdigest()
+                != saved.get("input_sha256")
+            ):
+                raise ValueError(
+                    "Existing corpus input changed; refusing to overwrite evidence"
+                )
+        return manifest
+    if any(output.iterdir()):
+        raise ValueError("Incomplete corpus directory; use a new output directory")
     manifest = {"corpus_sha256": digest, "evaluated": False, "cases": []}
     for case in cases:
         document = Document()

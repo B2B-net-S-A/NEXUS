@@ -1,6 +1,25 @@
 from docx import Document
+import pytest
 
 from scripts.prepare_cv_document_corpus import load_cases, prepare
+
+
+def test_repreparing_preserves_inputs_and_rejects_tampered_evidence(
+    tmp_path, monkeypatch
+):
+    manifest = prepare(tmp_path)
+    source = tmp_path / manifest["cases"][0]["input_file"]
+    original = source.read_bytes()
+    monkeypatch.setattr(
+        "scripts.prepare_cv_document_corpus.Document",
+        lambda: pytest.fail("Must reuse frozen files"),
+    )
+    assert prepare(tmp_path) == manifest
+    assert source.read_bytes() == original
+    source.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        prepare(tmp_path)
+    assert source.read_bytes() == b"changed"
 
 
 def test_corpus_covers_distinct_failure_modes_with_paired_languages():
