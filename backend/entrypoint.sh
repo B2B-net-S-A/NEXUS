@@ -7193,56 +7193,13 @@ PY
 # bookmark. Reuse the migration only when the schema/policy is missing; a
 # normal restart must never recreate user overrides or increment the revision.
 #
-# MIĘKKI i z `lock_timeout` (09.2026). Ten krok nie jest warunkiem startu:
-# bez polityki aplikacja wstaje i działa, brakuje jedynie osobnego uprawnienia
-# do potwierdzania podpisu — a następny start ponawia naprawę. Pod `set -e`
-# bez limitu zamka start potrafił wisieć bez końca (DDL z 0282 czeka na ACCESS
-# EXCLUSIVE za nocnym pg_dump), więc błąd jest łapany W bloku, nie przez `||`
-# (test wycina ten heredoc i kompiluje go w całości).
-python - <<'PY_SIGNATURE_POLICY'
-import asyncio
-import importlib.util
-from pathlib import Path
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import text
-from app.core.database import engine
-
-async def prepare_signature_policy():
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(text("SET LOCAL lock_timeout = '10s'"))
-            await connection.execute(text("SELECT pg_advisory_xact_lock(734092782)"))
-            await connection.execute(text("SELECT id FROM rbac_policy_state WHERE id = 1 FOR UPDATE"))
-            ready = await connection.scalar(text("""
-                SELECT (
-                    SELECT count(*) FROM pg_constraint
-                    WHERE conname IN ('ck_rbac_role_action_permissions_action',
-                                      'ck_rbac_user_action_overrides_action')
-                      AND pg_get_constraintdef(oid) LIKE '%b2b_signature_confirmation%'
-                ) = 2 AND EXISTS (
-                    SELECT 1 FROM rbac_role_action_permissions
-                    WHERE action = 'b2b_signature_confirmation'
-                )
-            """))
-            if not ready:
-                path = Path("/app/alembic/versions/0282_b2b_signature_permission.py")
-                spec = importlib.util.spec_from_file_location("signature_policy_schema", path)
-                migration = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(migration)
-                def upgrade(sync_connection):
-                    with Operations.context(MigrationContext.configure(sync_connection)):
-                        migration.upgrade()
-                await connection.run_sync(upgrade)
-    except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
-        print(f"Signature confirmation policy skipped (next start retries): {exc!r}")
-        return
-    finally:
-        await engine.dispose()
-    print("Signature confirmation policy verified")
-
-asyncio.run(prepare_signature_policy())
-PY_SIGNATURE_POLICY
+# MIĘKKI wyłącznie przy timeoucie zamka (`lock_timeout`, 09.2026): bez
+# polityki aplikacja wstaje i działa, brakuje jedynie osobnego uprawnienia do
+# potwierdzania podpisu — a następny start ponawia naprawę. Każdy INNY błąd
+# (zepsuta migracja, brak tabeli, zerwane połączenie) zatrzymuje start, jak
+# przed 09.2026; logika w module, żeby testy ćwiczyły ją na prawdziwym
+# Postgresie (`test_entrypoint_lock_timeouts.py`).
+python -m app.services.signature_policy_bootstrap
 
 # Availability/allocation must be in place before ORM reads at login or startup.
 # Reuse the exact idempotent migration in one transaction when the historical
