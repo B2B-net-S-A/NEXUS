@@ -2068,6 +2068,10 @@ async def delete_generated_cv(
             source_job.second_generated_id = None
             source_job.generated_id = survivor_id
             await db.flush()
+        else:
+            from app.services.cv_source_cleanup import schedule_source_cleanup
+
+            await schedule_source_cleanup(db, source_job.input_storage_key)
     await db.delete(row)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

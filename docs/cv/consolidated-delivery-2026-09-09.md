@@ -660,3 +660,10 @@ This does not establish real-model quality, production restart/network behavior,
 full retention/orphan cleanup, or production UI acceptance. In particular, the
 cancel API exists but a dedicated cancellation control is not yet in the editor.
 No production migration or deployment has occurred.
+
+### Dalsze domknięcie: anulowanie kontroli i usuwanie źródeł
+
+- Edytor obu trybów pozwala anulować kontrolę, zatrzymuje automatyczne zatwierdzanie i zachowuje zmiany także po przekroczeniu czasu oczekiwania. Błąd anulowania pozwala ponowić żądanie. Lokalne: 20 testów frontendowych i TypeScript zakończone powodzeniem (commit `1085af0b`).
+- Usunięcie ostatniej wersji językowej zapisuje w tej samej transakcji trwałe zlecenie usunięcia źródła (migracja `0301_cv_source_cleanup`). Worker ponawia błędy magazynu i nie usuwa źródła nadal używanego przez zadanie. Nie wykonuje historycznego czyszczenia.
+- Lokalne: 32 testy jednostkowe usuwania i trwałych zadań przeszły; Ruff i pojedyncza głowa Alembic potwierdzone. Dwa rozszerzone testy PostgreSQL sprawdzające obie kolejności usuwania języków i rollback zlecenia wymagają wykonania w CI.
+- Ta zmiana nie zamyka luki awarii procesu pomiędzy zapisem nowego obiektu a utworzeniem zadania w bazie ani odbioru jakości na rzeczywistych modelach.

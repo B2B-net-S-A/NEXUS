@@ -40,6 +40,7 @@ async def test_cv_bootstrap_repairs_old_schema_and_is_repeatable():
                     "cv_generated_drafts",
                     "cv_generation_requests",
                     "cv_approval_jobs",
+                    "cv_source_cleanup",
                 ):
                     assert inspector.has_table(table)
                 columns = {
