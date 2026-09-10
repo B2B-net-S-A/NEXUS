@@ -307,6 +307,15 @@ export function InactiveCleanupPreviewView({
           zostaną usunięci trwale. Nic nie zostało jeszcze zmienione.
         </p>
       </div>
+      {preview.to_delete.length === 0 ? (
+        <p
+          role="status"
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
+        >
+          Nie ma klientów do usunięcia — każdy ma ślad współpracy albo inne
+          powiązane dane. Nic nie zostanie zapisane.
+        </p>
+      ) : null}
       <ListSection
         tone="destructive"
         icon={<Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />}
@@ -365,9 +374,7 @@ export function InactiveCleanupConfirm({
           onChange={(event) => onAcknowledgedChange(event.target.checked)}
         />
         <span>
-          {deleteCount > 0
-            ? `Rozumiem, że klienci z listy „Do trwałego usunięcia” (${deleteCount}) zostaną usunięci na zawsze. Operacja jest jednorazowa.`
-            : "Rozumiem, że nic nie zostanie usunięte, a raport zakończy jednorazową operację."}
+          {`Rozumiem, że klienci z listy „Do trwałego usunięcia” (${deleteCount}) zostaną usunięci na zawsze. Operacja jest jednorazowa.`}
         </span>
       </label>
       <Button variant="outline" disabled={executing} onClick={onCancel}>
@@ -379,9 +386,7 @@ export function InactiveCleanupConfirm({
         loading={executing}
         onClick={onExecute}
       >
-        {deleteCount > 0
-          ? `Usuń trwale (${deleteCount})`
-          : "Zakończ i zapisz raport"}
+        {`Usuń trwale (${deleteCount})`}
       </Button>
     </>
   );
@@ -484,7 +489,10 @@ export function InactiveClientsCleanupDialog({
     );
   }
 
-  const showExecuteControls = !report && previewQuery.isSuccess && preview;
+  // Bez klientów do usunięcia nie ma czego wykonać — zapis raportu zużyłby
+  // jednorazową operację, zanim ktokolwiek rozstrzygnie listę wstrzymanych.
+  const showExecuteControls =
+    !report && previewQuery.isSuccess && preview && deleteCount > 0;
 
   return (
     <AppModal

@@ -30,10 +30,10 @@ Mapowanie 8 źródeł na dane:
 | Zamknięte projekty | `jobs` o statusie `closed` |
 | Archiwalni konsultanci | `contracts` o statusie `ended` |
 | Zamówienia (wszystkie etapy) | `client_orders`, `client_order_groups`, `client_order_offboarding_cases` |
-| Umowy / kontrakty (dowolny status) | `contracts`, `client_framework_contracts`, `b2b_generated_contracts` (+ zdarzenia) |
+| Umowy / kontrakty (dowolny status) | `contracts`, `client_framework_contracts`, `b2b_generated_contracts` (+ zdarzenia; po nazwie także umowy B2B bez rekrutacji), okres umowy przypięty do zakresu portfela |
 | Notatki w profilu | `clients.notes` niepuste |
 | Materiały sprzedażowe | `client_one_pagers`, `client_contract_terms` |
-| Statystyki współpracy | przejścia `candidate_stages` na rekrutacjach klienta, `dr_clients`, `dr_placement_details` |
+| Statystyki współpracy | przejścia `candidate_stages` na rekrutacjach klienta; po nazwie: `dr_clients` (MRR/placementy DynaReportera), `dr_board_placement_clients`, `finance_monthly_results` |
 
 „Inne powiązane dane" (lista B) to:
 
@@ -49,7 +49,16 @@ Mapowanie 8 źródeł na dane:
 - **zakres w innej zakładce** (Aktywni/Relacyjni) — usunięcie klienta
   zabrałoby go i stamtąd;
 - **NDA podpisane**;
-- klient wskazany w **konfiguracji** (`*_CLIENT_IDS` w env Coolify).
+- klient wskazany w **konfiguracji** (`*_CLIENT_IDS` w env Coolify) albo
+  w **stałych kodu** (e-Zdrowie, Polkomtel, Wedel, Cyfrowy Polsat, kanoniczne
+  ID polityk odczytu PDF);
+- klient **zakładany przy starcie** („Ministerstwo Sprawiedliwości") i nazwa
+  pasująca do **wzorca zasiewu karty klienta**;
+- **leady i oferty sprzedażowe** DynaReportera (dopasowanie po nazwie);
+- FK zadeklarowane w modelach ORM, których brakuje w bazie.
+
+Dopasowanie po nazwie zdejmuje formy prawne („Sp. z o.o.", „S.A."…).
+Fałszywe trafienie może klienta wyłącznie zatrzymać.
 
 Pomijane jako „wpis w katalogu", nie dane o współpracy: zakres portfela,
 aliasy nazwy, wiersz audytu manifestu portfela.
@@ -80,18 +89,34 @@ aliasy nazwy, wiersz audytu manifestu portfela.
 - Backend: `app/services/inactive_client_cleanup.py`,
   `app/services/inactive_client_cleanup_run.py`,
   `app/api/client_inactive_cleanup.py`, `app/schemas/client_cleanup.py`,
-  `app/models/client_cleanup.py`; zmiany w `client_portfolio_import.py`
+  `app/models/client_cleanup.py`, `app/services/inactive_client_cleanup_signals.py`; zmiany w `client_portfolio_import.py`
   (inwariant + rollback), `traffit/importer.py` (nagrobek), `main.py`
   (router + sondy deep-health), `models/client_directory.py` (2 kolumny).
 - Migracja `0303_inactive_client_cleanup` + lustro DDL w `entrypoint.sh`.
 - Frontend: `components/clients/InactiveClientsCleanupDialog.tsx`, przycisk
   w `ClientsListV2.tsx`, API w `lib/api.ts`, harness
   `/preview/inactive-clients-cleanup` (publiczny, zero zapytań).
-- Testy: `tests/test_inactive_client_cleanup.py` (7, żywa baza, w tym API,
+- Testy: `tests/test_inactive_client_cleanup.py` (12, żywa baza, w tym API,
   jednorazowość, nagrobek Traffita), `tests/test_client_portfolio_apply_once.py`
-  (inwariant z oznaczonymi wierszami), vitest dialogu (3).
+  (inwariant z oznaczonymi wierszami i bez kolumny), vitest dialogu (4).
+
+## Przegląd adwersarialny
+
+Przed wypuszczeniem kod przeszedł przegląd adwersarialny. Potwierdzone
+i naprawione: przypięty okres umowy na zakresie nie liczył się jako ślad;
+powiązania DynaReportera, Finansów i B2B bez rekrutacji są po nazwie
+(nie FK), więc skan ich nie widział; zasiewy przy starcie mogły odtworzyć
+klienta albo przestawić kartę; brak kolumny `purged_at` mógł wywrócić start;
+pusta lista zużywała operację; wykonanie miało 30-sekundowy timeout
+przeglądarki. Każda poprawka ma test (mutacje sprawdzone).
 
 ## Znane ograniczenia
+
+- Rollback zaaplikowanego manifestu portfela jest po czyszczeniu
+  niedostępny (manifest ma wiersz audytu dla każdego klienta) — świadomie:
+  odmowa zamiast przywracania stanu nieistniejących klientów.
+- Reconcile Traffita pokaże stały rozjazd liczby klientów o liczbę
+  nagrobków (tylko raport, nic nie blokuje).
 
 - Lista B zostaje w zakładce do decyzji człowieka — to wymóg ticketu
   (pkt 3), więc po operacji w zakładce mogą być klienci bez śladu

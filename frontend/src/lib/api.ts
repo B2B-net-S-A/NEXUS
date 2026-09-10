@@ -515,15 +515,21 @@ export interface InactiveCleanupStatus {
 export const inactiveClientsCleanupApi = {
   status: () =>
     api.get<InactiveCleanupStatus>("/api/clients/directory/inactive-cleanup"),
+  // Ocena przechodzi po każdym kluczu obcym do klienta — wolniejsza niż
+  // zwykły odczyt, więc sufit jak dla ciężkich endpointów. Przy wykonaniu to
+  // ważniejsze: timeout przeglądarki przy trwającym po stronie serwera
+  // commicie pokazałby „nie udało się" dla operacji, która się udała.
   preview: () =>
     api.get<InactiveCleanupPreview>(
       "/api/clients/directory/inactive-cleanup/preview",
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   /** Serwer usuwa wyłącznie przecięcie tej listy z klientami, którzy nadal się kwalifikują. */
   execute: (confirmedClientIds: number[]) =>
     api.post<InactiveCleanupReport>(
       "/api/clients/directory/inactive-cleanup/execute",
       { confirmed_client_ids: confirmedClientIds },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
 };
 

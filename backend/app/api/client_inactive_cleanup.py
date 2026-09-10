@@ -80,6 +80,16 @@ async def execute_inactive_cleanup(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
+    existing = await get_cleanup_run(db)
+    if existing is not None:
+        raise _already_executed(existing.executed_at)
+    if not payload.confirmed_client_ids:
+        # Operacja jest jednorazowa — zapis raportu bez usunięcia kogokolwiek
+        # zablokowałby ją na zawsze, zanim ktokolwiek rozstrzygnie listę B.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Brak klientów zatwierdzonych do usunięcia — nic nie zapisano.",
+        )
     try:
         await execute_inactive_client_cleanup(
             db,

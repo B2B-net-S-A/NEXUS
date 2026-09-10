@@ -177,6 +177,26 @@ describe("InactiveClientsCleanupDialog", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("bez klientów do usunięcia nie oferuje wykonania (nie zużywa operacji)", async () => {
+    mocks.status.mockResolvedValue({
+      data: { report: null, source_labels: SOURCE_LABELS },
+    });
+    mocks.preview.mockResolvedValue({
+      data: { ...PREVIEW, to_delete: [], candidates_count: 2 },
+    });
+    renderDialog();
+
+    expect(
+      await screen.findByText(/Nie ma klientów do usunięcia/),
+    ).toBeInTheDocument();
+    // Lista B nadal jest widoczna — decyzja ręczna nie czeka na wykonanie.
+    expect(screen.getByText("Z Kontaktem SA")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Usuń trwale/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("awaria podglądu jest komunikatem, nie pustą listą", async () => {
     mocks.status.mockResolvedValue({
       data: { report: null, source_labels: SOURCE_LABELS },

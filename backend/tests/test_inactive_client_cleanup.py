@@ -10,11 +10,11 @@ zapisuje.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
@@ -489,3 +489,181 @@ async def test_traffit_sync_does_not_resurrect_a_purged_client(clean_cleanup_sta
             )
             await db.execute(delete(User).where(User.id == admin.id))
             await db.commit()
+
+
+# ── Poprawki z przeglądu adwersarialnego ─────────────────────────────────────
+
+
+async def test_pinned_contract_period_on_scope_counts_as_contract():
+    """Daty umowy przypięte do zakresu portfela giną razem z klientem."""
+
+    client_id = await _make_client("przypiete-daty")
+    try:
+        async with AsyncSessionLocal() as db:
+            scope = await db.scalar(
+                select(ClientPortfolioScope).where(
+                    ClientPortfolioScope.client_id == client_id
+                )
+            )
+            scope.contract_start_override = date(2022, 1, 1)
+            scope.contract_end_override = date(2024, 12, 31)
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            plan = await evaluate_inactive_clients(
+                db, restrict_ids=[client_id], environ={}
+            )
+        assert _verdicts(plan)[client_id] == "keep"
+        assert plan.kept[0].sources["contracts"] == 1
+    finally:
+        await _drop_clients([client_id])
+
+
+async def test_name_only_references_keep_or_hold_the_client():
+    """DynaReporter, B2B bez rekrutacji i sprzedaż wiążą klienta NAZWĄ."""
+
+    tag = uuid.uuid4().hex[:6]
+    in_dynareporter = await _make_client(f"dr {tag}")
+    in_b2b = await _make_client(f"b2b {tag}")
+    in_sales = await _make_client(f"sales {tag}")
+    ids = [in_dynareporter, in_b2b, in_sales]
+    async with AsyncSessionLocal() as db:
+        names = dict(
+            (
+                await db.execute(
+                    select(Client.id, Client.name).where(Client.id.in_(ids))
+                )
+            ).all()
+        )
+    admin = await _make_admin()
+    seq = 100_000 + int(uuid.uuid4().int % 800_000)
+    try:
+        async with AsyncSessionLocal() as db:
+            # Forma prawna i wielkość liter nie mogą zgubić dopasowania.
+            await db.execute(
+                text("INSERT INTO dr_clients (name) VALUES (:n)"),
+                {"n": names[in_dynareporter].upper() + " SP. Z O.O."},
+            )
+            await db.execute(
+                text(
+                    "INSERT INTO b2b_generated_contracts "
+                    "(year, seq, contract_number, client_name) "
+                    "VALUES (2099, :seq, :num, :n)"
+                ),
+                {"seq": seq, "num": f"TEST/{seq}/2099", "n": names[in_b2b]},
+            )
+            await db.execute(
+                text(
+                    "INSERT INTO dr_sales_leads (user_id, week_start, company_name) "
+                    "VALUES (:u, DATE '2099-01-05', :n)"
+                ),
+                {"u": admin.id, "n": names[in_sales]},
+            )
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            plan = await evaluate_inactive_clients(db, restrict_ids=ids, environ={})
+
+        verdicts = _verdicts(plan)
+        assert verdicts[in_dynareporter] == "keep"
+        assert verdicts[in_b2b] == "keep"
+        assert verdicts[in_sales] == "hold"
+        kept = {item.client_id: item for item in plan.kept}
+        assert kept[in_dynareporter].sources["cooperation_stats"] == 1
+        assert kept[in_b2b].sources["contracts"] == 1
+        reason = plan.held[0].as_dict()["reasons"][0]
+        assert reason["code"] == "name_reference"
+        assert reason["table"] == "dr_sales_leads"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("DELETE FROM dr_clients WHERE name = :n"),
+                {"n": names[in_dynareporter].upper() + " SP. Z O.O."},
+            )
+            await db.execute(
+                text(
+                    "DELETE FROM b2b_generated_contracts WHERE year = 2099 AND seq = :s"
+                ),
+                {"s": seq},
+            )
+            await db.execute(
+                text("DELETE FROM dr_sales_leads WHERE user_id = :u"), {"u": admin.id}
+            )
+            await db.execute(delete(User).where(User.id == admin.id))
+            await db.commit()
+        await _drop_clients(ids)
+
+
+async def test_boot_seeded_and_playbook_seed_clients_are_held():
+    async with AsyncSessionLocal() as db:
+        seeded = Client(name="Ministerstwo Sprawiedliwości", external_source="manual")
+        pattern = Client(
+            name=f"BNP Cleanup {uuid.uuid4().hex[:6]}", external_source="manual"
+        )
+        db.add_all([seeded, pattern])
+        await db.flush()
+        db.add_all(
+            [
+                ClientPortfolioScope(client_id=seeded.id),
+                ClientPortfolioScope(client_id=pattern.id),
+            ]
+        )
+        await db.commit()
+        ids = [seeded.id, pattern.id]
+    try:
+        async with AsyncSessionLocal() as db:
+            plan = await evaluate_inactive_clients(db, restrict_ids=ids, environ={})
+        held = {item.client_id: item.as_dict()["reasons"] for item in plan.held}
+        assert set(held) == set(ids)
+        assert "boot_seed" in {reason["code"] for reason in held[ids[0]]}
+        assert "playbook_seed" in {reason["code"] for reason in held[ids[1]]}
+    finally:
+        await _drop_clients(ids)
+
+
+async def test_code_constant_and_model_foreign_key_signals():
+    from app.services.inactive_client_cleanup_signals import (
+        code_configured_client_ids,
+        matching_playbook_patterns,
+        model_client_foreign_keys,
+        name_key,
+    )
+
+    from app.services import (
+        cyfrowy_polsat_orders,
+        ezdrowie,
+        finance_order_matching,
+        lotte_wedel_orders,
+    )
+
+    constants = code_configured_client_ids()
+    # Żywe wartości, nie literały: conftest przestawia część stałych na ujemne,
+    # żeby nie kolidowały z serialem `clients.id` w bazie testowej.
+    for client_id in (
+        ezdrowie.EZDROWIE_CLIENT_ID,
+        finance_order_matching.POLKOMTEL_CLIENT_ID,
+        lotte_wedel_orders.LOTTE_WEDEL_CLIENT_ID,
+        cyfrowy_polsat_orders.CYFROWY_POLSAT_CLIENT_ID,
+        35,  # Orlen — kanoniczne ID polityki odczytu PDF
+        122,  # PFRON
+    ):
+        assert client_id in constants, client_id
+    refs = {(table, column) for table, column, _code in model_client_foreign_keys()}
+    assert ("contacts", "client_id") in refs
+    assert ("client_portfolio_scopes", "client_id") in refs
+    assert matching_playbook_patterns("BNP Paribas", ("%bnp%", "%pko%")) == ["%bnp%"]
+    assert name_key("ACME SP. Z O.O.") == name_key("Acme") == "acme"
+
+
+async def test_api_refuses_an_empty_execution(
+    app_client, app_auth_headers, clean_cleanup_state
+):
+    """Pusta lista nie może zużyć jednorazowej operacji."""
+
+    response = await app_client.post(
+        "/api/clients/directory/inactive-cleanup/execute",
+        json={"confirmed_client_ids": []},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 422
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(ClientCleanupRun.id)) is None

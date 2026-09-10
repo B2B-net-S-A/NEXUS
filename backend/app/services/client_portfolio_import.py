@@ -19,7 +19,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -379,6 +379,27 @@ async def get_client_portfolio_import_health(
             "counts": empty_counts,
         }
 
+    # Kolumna z 0303. Lustro DDL w entrypoint.sh dokłada ją z krótkim
+    # lock_timeout i przy kontencji po cichu pomija — a ta funkcja biegnie
+    # w `--apply-once` pod `set -e`. Brak kolumny nie może położyć startu:
+    # wtedy nie ma też oznaczonych wierszy, więc zero jest prawdą.
+    purged_supported = bool(
+        await db.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = current_schema() "
+                "AND table_name = 'client_import_rows' "
+                "AND column_name = 'purged_at')"
+            )
+        )
+    )
+    purged_rows_column = (
+        func.count(ClientImportRow.id)
+        .filter(ClientImportRow.purged_at.is_not(None))
+        .label("purged_rows")
+        if purged_supported
+        else literal(0).label("purged_rows")
+    )
     count_row = (
         await db.execute(
             select(
@@ -398,9 +419,7 @@ async def get_client_portfolio_import_health(
                 func.count(func.distinct(ClientImportRow.framework_contract_id)).label(
                     "framework_contracts"
                 ),
-                func.count(ClientImportRow.id)
-                .filter(ClientImportRow.purged_at.is_not(None))
-                .label("purged_rows"),
+                purged_rows_column,
                 *(
                     func.count(ClientImportRow.id)
                     .filter(

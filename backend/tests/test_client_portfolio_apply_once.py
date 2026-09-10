@@ -322,6 +322,28 @@ async def test_import_health_still_flags_a_missing_scope_that_was_not_purged() -
     assert health["status"] == "inconsistent"
 
 
+@pytest.mark.asyncio
+async def test_import_health_survives_a_missing_purged_at_column() -> None:
+    """Lustro DDL w entrypoint.sh może przegrać wyścig o blokadę i pominąć
+    kolumnę z 0303, a zdrowie liczy się w `--apply-once` pod `set -e`.
+    Brak kolumny = zero oznaczonych wierszy, nie wywrócony start."""
+    manifest = {
+        "source": {"sha256": "c" * 64},
+        "rows": [{"category": "inactive"} for _ in range(3)],
+    }
+    db = _inactive_manifest_health_db(
+        manifest=manifest, portfolio_scopes=3, live_scopes=3, purged_rows=0
+    )
+    run = await db.scalar()
+    db.scalar = AsyncMock(side_effect=[run, False])
+
+    health = await get_client_portfolio_import_health(db, manifest=manifest)
+
+    assert health["status"] == "applied"
+    statement = db.execute.await_args_list[0].args[0]
+    assert "purged_at" not in str(statement.compile(dialect=postgresql.dialect()))
+
+
 def test_entrypoint_runs_apply_once_before_api_without_fail_open() -> None:
     entrypoint = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
         encoding="utf-8"

@@ -56,6 +56,9 @@ async def _snapshot(db: AsyncSession, client_id: int) -> dict[str, Any]:
                 ClientPortfolioScope.source_key,
                 ClientPortfolioScope.label,
                 ClientPortfolioScope.archived_at,
+                ClientPortfolioScope.framework_contract_id,
+                ClientPortfolioScope.contract_start_override,
+                ClientPortfolioScope.contract_end_override,
             ).where(ClientPortfolioScope.client_id == client_id)
         )
     ).all()
@@ -81,6 +84,9 @@ async def _snapshot(db: AsyncSession, client_id: int) -> dict[str, Any]:
                 "source_key": row[4],
                 "label": row[5],
                 "archived_at": row[6].isoformat() if row[6] else None,
+                "framework_contract_id": row[7],
+                "contract_start_override": row[8].isoformat() if row[8] else None,
+                "contract_end_override": row[9].isoformat() if row[9] else None,
             }
             for row in scopes
         ],

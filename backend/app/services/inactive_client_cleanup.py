@@ -33,26 +33,40 @@ nigdy przy zmianie statusu.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Collection, Iterable, Literal, Optional
 
-from sqlalchemy import Text, cast, distinct, func, select, text
+from sqlalchemy import Text, cast, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_cleanup import ClientCleanupRun
-from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
+from app.models.client_directory import (
+    ClientAlias,
+    ClientPortfolioScope,
+    PortfolioCategory,
+)
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
+)
+from app.services.inactive_client_cleanup_signals import (
+    NAME_REFERENCES,
+    code_configured_client_ids,
+    column_exists,
+    configuration_reasons,
+    configured_client_ids,
+    model_client_foreign_keys,
+    name_key,
+    name_reference_counts,
+    playbook_seed_patterns,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,10 +107,9 @@ _SOURCE_BY_TABLE: dict[str, str] = {
     # Sekcja „Materiały sprzedażowe" w profilu: one-pagery + warunki umowy.
     "client_one_pagers": "sales_materials",
     "client_contract_terms": "sales_materials",
-    # Historia przychodowa z DynaReportera to też statystyka współpracy.
-    "dr_clients": "cooperation_stats",
-    "dr_placement_details": "cooperation_stats",
 }
+# Historia DynaReportera, wyniki Finansów i B2B bez rekrutacji wiążą klienta
+# NAZWĄ, nie kluczem — patrz ``inactive_client_cleanup_signals``.
 
 # Wpis w katalogu, nie dane o współpracy — patrz docstring modułu.
 _STRUCTURAL_REFERENCES: frozenset[tuple[str, str]] = frozenset(
@@ -328,28 +341,6 @@ def kept_by_source(kept: Iterable[ClientEvaluation]) -> dict[str, int]:
     return counts
 
 
-def configured_client_ids(
-    environ: Optional[dict[str, str]] = None,
-) -> dict[int, list[str]]:
-    """Klienci wskazani z nazwy w zmiennych ``*_CLIENT_IDS`` (bramki per klient).
-
-    Usunięcie takiego klienta nic by nie zepsuło w bazie, ale zostawiłoby
-    w Coolify wpis wskazujący na nieistniejący rekord — i zdradza, że ktoś
-    świadomie skonfigurował dla niego zachowanie. To decyzja dla człowieka.
-    """
-
-    source = os.environ if environ is None else environ
-    found: dict[int, list[str]] = defaultdict(list)
-    for key, raw in source.items():
-        if not key.endswith("_CLIENT_IDS") or not raw:
-            continue
-        for token in re.split(r"[,;\s]+", raw):
-            token = token.strip()
-            if token.isdigit():
-                found[int(token)].append(key)
-    return {client_id: sorted(keys) for client_id, keys in found.items()}
-
-
 async def list_client_foreign_keys(db: AsyncSession) -> list[ForeignKeyRef]:
     rows = (await db.execute(_FOREIGN_KEYS_SQL)).all()
     return [
@@ -522,6 +513,101 @@ async def _fill_activity_reasons(
         )
 
 
+async def _model_only_foreign_keys(
+    db: AsyncSession, catalog: list[ForeignKeyRef]
+) -> list[ForeignKeyRef]:
+    """FK zadeklarowane w modelach, których w bazie brak (dryf schematu)."""
+
+    known = {(ref.table_name, ref.column_name) for ref in catalog}
+    missing: list[ForeignKeyRef] = []
+    schema: Optional[str] = None
+    for table, column, _code in model_client_foreign_keys():
+        if (table, column) in known or not await column_exists(db, table, column):
+            continue
+        schema = schema or str(await db.scalar(text("SELECT current_schema()")))
+        # Bez więzu baza nic nie zrobi tym wierszom — zostałyby osierocone,
+        # niezależnie od tego, co deklaruje model.
+        missing.append(ForeignKeyRef(schema, table, column, "n"))
+    return missing
+
+
+async def _fill_scope_contract_periods(
+    db: AsyncSession, by_id: dict[int, _Candidate], ids: list[int]
+) -> None:
+    """Okres umowy przypięty ręcznie do zakresu portfela to ślad umowy.
+
+    Katalog pokazuje te daty w kolumnach „Start/Koniec umowy". Zakres jest
+    usuwany razem z klientem, więc bez tej reguły data zniknęłaby po cichu.
+    Podpięta umowa ramowa (``framework_contract_id``) liczy się już przez FK.
+    """
+
+    rows = (
+        await db.execute(
+            select(ClientPortfolioScope.client_id, func.count(ClientPortfolioScope.id))
+            .where(
+                ClientPortfolioScope.client_id.in_(ids),
+                or_(
+                    ClientPortfolioScope.contract_start_override.is_not(None),
+                    ClientPortfolioScope.contract_end_override.is_not(None),
+                ),
+            )
+            .group_by(ClientPortfolioScope.client_id)
+        )
+    ).all()
+    for client_id, count in rows:
+        by_id[client_id].sources["contracts"] += int(count)
+
+
+async def _fill_name_references(
+    db: AsyncSession, by_id: dict[int, _Candidate], ids: list[int]
+) -> None:
+    alias_rows = (
+        await db.execute(
+            select(ClientAlias.client_id, ClientAlias.alias).where(
+                ClientAlias.client_id.in_(ids), ClientAlias.archived_at.is_(None)
+            )
+        )
+    ).all()
+    keys: dict[int, set[str]] = {
+        client_id: {
+            name_key(value)
+            for value in (
+                candidate.name,
+                candidate.source_name,
+                candidate.legal_name,
+            )
+        }
+        for client_id, candidate in by_id.items()
+    }
+    for client_id, alias in alias_rows:
+        keys[client_id].add(name_key(alias))
+    for client_keys in keys.values():
+        client_keys.discard("")
+
+    for ref in NAME_REFERENCES:
+        counts = await name_reference_counts(db, ref, _quoted)
+        if not counts:
+            continue
+        for client_id, client_keys in keys.items():
+            matched = sum(counts.get(key, 0) for key in client_keys)
+            if not matched:
+                continue
+            candidate = by_id[client_id]
+            if ref.target != "related":
+                candidate.sources[ref.target] += matched
+                continue
+            candidate.related.append(
+                {
+                    "code": "name_reference",
+                    "label": ref.label,
+                    "table": ref.table,
+                    "column": ref.column,
+                    "count": matched,
+                    "effect": "wiążą klienta nazwą — zostałyby bez klienta",
+                }
+            )
+
+
 async def evaluate_inactive_clients(
     db: AsyncSession,
     *,
@@ -543,10 +629,12 @@ async def evaluate_inactive_clients(
             candidate.sources["notes"] = 1
 
     await _fill_job_sources(db, by_id, ids)
+    await _fill_scope_contract_periods(db, by_id, ids)
 
     # Każdy klucz obcy wskazujący na klienta: albo należy do jednego z ośmiu
     # źródeł, albo jest wpisem katalogu, albo jest „innym powiązaniem".
-    for ref in await list_client_foreign_keys(db):
+    catalog = await list_client_foreign_keys(db)
+    for ref in [*catalog, *await _model_only_foreign_keys(db, catalog)]:
         key = (ref.table_name, ref.column_name)
         if key in _STRUCTURAL_REFERENCES:
             continue
@@ -575,8 +663,11 @@ async def evaluate_inactive_clients(
             )
 
     await _fill_activity_reasons(db, by_id, ids)
+    await _fill_name_references(db, by_id, ids)
 
-    configured = configured_client_ids(environ)
+    env_ids = configured_client_ids(environ)
+    code_ids = code_configured_client_ids()
+    patterns = playbook_seed_patterns()
     for candidate in candidates:
         if candidate.other_categories:
             labels = ", ".join(
@@ -600,16 +691,15 @@ async def evaluate_inactive_clients(
                     "effect": "informacja o NDA zostałaby usunięta",
                 }
             )
-        keys = configured.get(candidate.client_id)
-        if keys:
-            candidate.related.append(
-                {
-                    "code": "configuration",
-                    "label": "Klient wskazany w konfiguracji: " + ", ".join(keys),
-                    "count": len(keys),
-                    "effect": "konfiguracja wskazywałaby nieistniejącego klienta",
-                }
+        candidate.related.extend(
+            configuration_reasons(
+                candidate.client_id,
+                (candidate.name, candidate.source_name),
+                env_ids=env_ids,
+                code_ids=code_ids,
+                patterns=patterns,
             )
+        )
 
     deletable: list[ClientEvaluation] = []
     held: list[ClientEvaluation] = []
