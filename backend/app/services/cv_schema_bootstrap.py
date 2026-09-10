@@ -18,6 +18,7 @@ def ensure_cv_schema(connection):
         ("cv_generation_requests", "0297_cv_request_receipts.py"),
         ("cv_approval_jobs", "0300_cv_approval_jobs.py"),
         ("cv_source_cleanup", "0301_cv_source_cleanup.py"),
+        ("cv_version_maps", "0302_cv_version_maps.py"),
     ):
         if not inspect(connection).has_table(table):
             spec = importlib.util.spec_from_file_location(table, versions / filename)
