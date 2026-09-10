@@ -596,7 +596,7 @@ async def test_pending_md_alert_cannot_be_manually_marked_handled():
         offboarding_case_id=case.id,
         title="Decyzja MD",
         message="Podejmij decyzję",
-        link="/clients/71?tab=orders",
+        link="/clients/71?tab=zamowienia",
         dedupe_key="case:501:8",
     )
     alert.offboarding_case = case

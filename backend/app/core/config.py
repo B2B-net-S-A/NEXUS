@@ -442,9 +442,14 @@ class Settings(BaseSettings):
     # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a
     # nierozpoznany dokument kończy jako wpis w dzienniku, nie w zamówieniach).
     ORDER_MAIL_SENDER_ALLOWLIST: str = ""
-    # Legacy configuration accepted for deployment compatibility. Since the
-    # final 2026-09-09 ticket every "auto" verdict executes the shared writer;
-    # this old shadow-mode flag no longer suppresses a confirmed order.
+    # Wyłącznik automatu (kill-switch bez deployu). True = werdykt „auto"
+    # zapisuje zamówienie bez kliknięcia „Zastosuj"; False = pewny plan zostaje
+    # w kolejce z powodem „Automatyczny zapis jest wyłączony…". Czytany przez
+    # wszystkie trzy zapisy bez aktora (odczyt maila, „Przelicz plan",
+    # sprzątanie kolejki — `order_mail_ingest.hold_when_autoapply_disabled`).
+    # Bramka `order_mail_gate.evaluate` go NIE czyta (ocenia dokument, nie
+    # konfigurację). Ręczne „Zastosuj" działa niezależnie od flagi.
+    # Do 10.09.2026 flaga była ignorowana (opisana jako „legacy").
     ORDER_MAIL_AUTOAPPLY_ENABLED: bool = True
     # CSV client_id WYKLUCZONYCH z automatu (pusta = nikt nie wykluczony —
     # spójnie z konwencją repo, w której pusta lista CSV nigdy nie znaczy

@@ -1,8 +1,10 @@
 """Pure order lifecycle plan, shared by ingestion, refresh and the writer.
 
 Existing live orders take priority over drafts. A first order creates a draft,
-any single existing draft is filled, a completed order is reused with history.
-Actual period overlaps, ambiguous targets and revisions require review.
+any single existing draft is filled. A return after a gap creates a NEW order
+next to the completed one — a completed order is never rewritten (decision of
+2026-09-10): invoices were settled against it. Actual period overlaps,
+ambiguous targets and revisions require review.
 """
 
 from __future__ import annotations
@@ -20,6 +22,10 @@ ACTION_FILL_DRAFT = "fill_draft"
 ACTION_FUTURE = "future"
 ACTION_NEW = "new"
 ACTION_NEW_DRAFT = "new_draft"
+#: Powrót po przerwie. Nazwa zostaje historyczna (utrwalone plany i etykiety
+#: frontu), ale od 10.09.2026 znaczy „NOWE zamówienie na nowy okres, obok
+#: zakończonego" — writer nie dotyka zakończonego zamówienia, więc akcja może
+#: zostać automatyczna.
 ACTION_REACTIVATE = "reactivate"
 ACTION_UNCHANGED = "unchanged"
 ACTION_REVISION = "revision"
@@ -202,10 +208,17 @@ def plan_document(
 
         existing = existing_orders_by_contract.get(res.contract_id, [])
         new_start = date.fromisoformat(start)
+        # Punkt odniesienia powrotu to wyłącznie samodzielne zamówienie
+        # (okresowe/kosztowe). Linia grupy MD ma własny cykl życia (budżet,
+        # zamiana kontraktora, decyzja o MD po offboardingu) i nie jest
+        # „poprzednim zamówieniem" osoby — writer i tak jej nie zmieni.
         completed_return = [
             o
             for o in existing
-            if o.status == "completed" and o.end_date and o.end_date < new_start
+            if o.order_group_id is None
+            and o.status == "completed"
+            and o.end_date
+            and o.end_date < new_start
         ]
         if completed_return and not any(
             o.status in ("active", "paused", "draft") for o in existing

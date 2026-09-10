@@ -263,6 +263,43 @@ async def test_shared_md_clamps_at_zero_warns_and_exhausts_group(
     assert blocked.status_code == 409, blocked.text
 
 
+async def test_shared_md_import_reaches_a_pool_closed_with_a_future_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zakończenie z datą w przyszłości: bieżący miesiąc nadal schodzi z puli.
+
+    ``close_order_group`` stawia ``completed`` od razu; zanim data nadejdzie,
+    konsultant pracuje. Wybór kandydatów i ponowna walidacja po blokadach
+    muszą stosować tę samą regułę stanu grupy — inaczej 409 na całą partię.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_cyfrowy_polsat(monkeypatch, client_id)
+    group = await _create_shared_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        contracts[0],
+        order_number="4500810091",
+    )
+    closed = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/close",
+        json={"closure_date": (_TODAY + timedelta(days=30)).isoformat()},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    finance = await _finance_headers(app_client)
+
+    detail = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 12, "SAP 4500810091", 0)])
+    )
+
+    assert detail["rows_applied"] == 1, detail["rows"]
+    body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
+    assert body["status"] == "completed"
+    assert body["md_budget_used"] == pytest.approx(12.0)
+    assert body["md_budget_remaining"] == pytest.approx(38.0)
+
+
 async def test_shared_md_bad_or_ambiguous_number_never_writes_or_falls_back(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

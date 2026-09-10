@@ -32,7 +32,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -600,6 +600,40 @@ class LineMatch:
     consultant_name: str
 
 
+def group_settles_in_month(group: ClientOrderGroup, first_day: date) -> bool:
+    """Czy import za miesiąc zaczynający się ``first_day`` może rozliczać grupę.
+
+    Aktywna — zawsze. Zakończona — wtedy, gdy data zakończenia nie jest
+    wcześniejsza niż pierwszy dzień importowanego miesiąca. ``close_order_group``
+    stawia ``completed`` OD RAZU, także dla daty w przyszłości, a linie zostają
+    aktywne do tej daty (konsultant dalej pracuje) — bez tego import za bieżący
+    miesiąc gubił dni i faktury zamówienia zakończonego „z datą na koniec
+    miesiąca". Okres samej linii (``end_date`` = data zakończenia) nadal
+    wyznacza granicę, więc miesiąc PO zakończeniu i tak niczego nie dopasuje.
+    Lustro ``_HISTORICAL_GROUP_STATUSES``/``_historical_period_conditions``;
+    ``exhausted`` świadomie poza — z wyczerpanej puli nic się już nie zdejmuje.
+    """
+    if group.status == GROUP_STATUS_ACTIVE:
+        return True
+    return (
+        group.status == GROUP_STATUS_COMPLETED
+        and group.closure_date is not None
+        and group.closure_date >= first_day
+    )
+
+
+def _group_settles_in_month_clause(first_day: date):
+    """SQL-owe lustro ``group_settles_in_month`` (zapytania z JOIN na grupie)."""
+    return or_(
+        ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+        and_(
+            ClientOrderGroup.status == GROUP_STATUS_COMPLETED,
+            ClientOrderGroup.closure_date.isnot(None),
+            ClientOrderGroup.closure_date >= first_day,
+        ),
+    )
+
+
 async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
     """Wszystkie AKTYWNE linie MD obowiązujące w danym miesiącu.
 
@@ -632,7 +666,7 @@ async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch
             and group.md_budget_mode != "per_person"
         ):
             continue
-        if group.status != GROUP_STATUS_ACTIVE:
+        if not group_settles_in_month(group, first):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (
@@ -652,7 +686,8 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     * linia kosztowa NIE ma budżetu MD (``md_total IS NULL``), więc filtr po
       ``md_total`` byłby tu dokładnie odwrotny do potrzeby,
     * pytamy o stan GRUPY, nie tylko linii — z wyczerpanego zamówienia nie
-      wolno już nic zdejmować, a z zakończonego tym bardziej.
+      wolno już nic zdejmować, a z zakończonego wyłącznie za miesiące, które
+      nie leżą po dacie zakończenia (``group_settles_in_month``).
 
     Historyczne grupy (``order_type IS NULL``) nadal wymagają starej listy
     klientów. Wyłącznie nowa, jawnie oznaczona grupa ``order_type='cost'``
@@ -668,7 +703,7 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_cost_based.is_(True),
-            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+            _group_settles_in_month_clause(first),
             ClientOrder.status.in_([ClientOrderStatus.active, ClientOrderStatus.draft]),
             (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
             (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
@@ -708,7 +743,7 @@ async def active_shared_md_lines(
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_md_budget_based.is_(True),
-            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+            _group_settles_in_month_clause(first),
             ClientOrder.status == ClientOrderStatus.active,
             (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
             (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),

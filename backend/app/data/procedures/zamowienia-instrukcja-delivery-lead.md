@@ -429,19 +429,41 @@ Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
 osób, system pokazuje ich imiona i nazwiska, identyfikatory rekordów oraz
 numery kontraktów do ręcznego rozstrzygnięcia. **Brak osoby u klienta tworzy
 nowy draft z numerem, okresem i stawką przychodową z maila.** DL otrzymuje raz
-powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”.
+powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”;
+kliknięcie otwiera zakładkę „Zamówienia” tego klienta.
 Aktualizacje tego draftu nie powtarzają powiadomienia.
+
+**Gdy osoby nie ma u klienta, ale w bazie jest dokładnie jedna osoba o tym
+imieniu i nazwisku** (także zapisanym w PDF-ie bez polskich znaków, np.
+„Lukasz Gradzki” = „Łukasz Grądzki”), **automat jej nie dopina** — samo nazwisko
+nie dowodzi, że to ta sama osoba. Wpis czeka w weryfikacji z powodem
+„W bazie jest już osoba … (#numer) … zastosuj ręcznie”. Sprawdź, że to ta sama
+osoba, i kliknij **„Zastosuj”**: system dopina istniejącą kartę, bez zakładania
+drugiej. Kilka takich osób w bazie nadal wymaga wskazania właściwej.
 
 System uzupełnia istniejący draft, także opisany nazwą rekrutacji. Aktywne lub
 kończące się zamówienie ma pierwszeństwo przed draftem: kolejny okres tworzy
-przedłużenie przy dotychczasowym kontrakcie. Po zakończonej współpracy aktualizuje
-i aktywuje dotychczasowe zamówienie, zachowując poprzednie dane w historii
-oraz dopisując faktyczny odstęp w dniach. Rzeczywisty konflikt okresów albo kilka
-możliwych osób lub kontraktów nadal wymaga decyzji.
+przedłużenie przy dotychczasowym kontrakcie. **Powrót po przerwie** (poprzednie
+zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
+okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
+faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
+odstęp w dniach. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+„poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
+lub kontraktów nadal wymaga decyzji.
 
-**„Automat: pewne” zawsze uruchamia zapis bez przycisku „Zastosuj”.** Wynik jest
-w zakładce **„Zapisane automatycznie”**. Dotyczy to również pierwszego zamówienia
-na nową osobę. W zamówieniu okresowym brak niewykorzystywanej wartości całkowitej nie blokuje
+**Mail nie cofa wypowiedzenia umowy.** Jeżeli umowa tej osoby została
+wypowiedziana („Zakończ współpracę”, także z datą w przyszłości), zamówienie
+z maila zapisuje się jako **draft** i nie aktywuje się samo — ani przy odczycie
+maila, ani po podpisie umowy. Wypowiedziana umowa nie wraca przez to do
+aktywnych. O powrocie do współpracy decydujesz Ty.
+
+**„Automat: pewne” uruchamia zapis bez przycisku „Zastosuj”, dopóki automat jest
+włączony.** Wynik jest w zakładce **„Zapisane automatycznie”**. Dotyczy to również
+pierwszego zamówienia na nową osobę. Administrator może automat **wyłączyć bez
+wdrożenia** — wtedy pewny plan czeka w **„Do weryfikacji”** z powodem
+„Automatyczny zapis jest wyłączony…” i zapisujesz go przyciskiem „Zastosuj”.
+Wyłącznik obejmuje także „Przelicz plan”.
+W zamówieniu okresowym brak niewykorzystywanej wartości całkowitej nie blokuje
 zapisu z powodu technicznej niejasności nazwy tego pola. Rzeczywiste sprzeczności
 stawek oraz budżety zamówień kosztowych i MD nadal wymagają kontroli.
 Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
@@ -466,8 +488,8 @@ listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczyt
 Dla PFRON ponownie wybiera aktywny rekord klienta, odczytuje numer z nazwy PDF
 i datę końca z pola „Termin wykonania Prac”. Dla pozostałych klientów zachowuje
 rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób.
-**Pewny plan zapisuje się automatycznie; plan z konkretną wątpliwością pozostaje
-w weryfikacji.** Przycisk jest dostępny administratorowi albo
+**Pewny plan zapisuje się automatycznie (gdy automat jest włączony); plan
+z konkretną wątpliwością pozostaje w weryfikacji.** Przycisk jest dostępny administratorowi albo
 Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
@@ -548,6 +570,9 @@ Trafiają tu powiadomienia o zbliżającym się końcu:
 | **Umowa ramowa wygasa za N dni** | 30, 14 i 7 dni przed końcem umowy ramowej z klientem |
 | Zbliżający się koniec umowy z konsultantem | 90, 60, 30, 14 i 7 dni przed końcem |
 | **Nowy draft kontraktu + zamówienia** | w chwili zatrudnienia kandydata — z prośbą o uzupełnienie stawek, dat i wgranie PDF-a |
+
+Kliknięcie powiadomienia otwiera od razu właściwą zakładkę profilu klienta —
+„Zamówienia” albo „Umowy” (umowy ramowe i aneksy).
 
 Każdy próg przychodzi raz. **Zmiana daty zakończenia w istniejącym zamówieniu
 nie odnawia progów** — jeśli przesuniesz koniec o pół roku, ostrzeżenia 30/14/7
@@ -647,6 +672,10 @@ eksportów mogących zawierać stawki; nie może też wykonywać żadnych zmian.
 **Head of Recruitment, TAC, Rekruter i Sourcer nie mają dostępu do sekcji
 Delivery**, więc nie widzą zamówień ani tych akcji.
 
+**Odebranie dostępu do sekcji Delivery (roli albo konkretnej osobie) działa
+w całości** — także wąski wyjątek, w którym Talent Community Manager zmienia
+status umowy, przestaje wtedy działać.
+
 **Przedłużenie zamówienia zbiorczego** może rozpocząć administrator, przypisany
 Delivery Lead albo Finanse. Jeżeli przedłużenie od razu zawiera konsultantów ze
 stawkami, wymaga administratora albo przypisanego Delivery Leada. Talent
@@ -680,6 +709,12 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   „Wymaga przypisania"** i system czeka, aż człowiek wskaże właściwe zamówienie.
   Nie zgaduje, bo trafienie w złe zamówienie odejmuje dni nie temu klientowi
   i wychodzi dopiero na fakturze.
+* **Zamówienie zakończone z datą w przyszłości nadal przyjmuje import** za
+  miesiące, które nie leżą po dacie zakończenia — konsultant pracuje do tej
+  daty, choć zamówienie od razu figuruje w „Zakończonych”. Dotyczy MD przy
+  osobie, wspólnej puli MD i zamówień kosztowych. Za miesiąc po dacie
+  zakończenia wiersz zostanie „Brak aktywnego zamówienia”. Zamówienie
+  **wyczerpane** importu nie przyjmuje.
 * **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
   wystarcza** — wiersz musi mieć dodatkowo **numer tego zamówienia w kolumnie
   „Uwagi"**. Bez numeru (albo gdy numer pasuje do kilku zamówień) **z puli nie

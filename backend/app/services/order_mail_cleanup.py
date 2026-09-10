@@ -25,7 +25,10 @@ from app.services.client_portfolio_import import (
     _direct_client_fk_specs,
     _validate_identifier,
 )
-from app.services.order_mail_ingest import refresh_review_plan
+from app.services.order_mail_ingest import (
+    hold_when_autoapply_disabled,
+    refresh_review_plan,
+)
 from app.services.order_policies.registry import is_client_in_policy
 from app.services.order_policies.nordea import non_order_reason
 from app.services.order_mail_apply import apply_document
@@ -307,6 +310,9 @@ async def queue_inventory(db):
                     )
                 else:
                     await refresh_review_plan(db, doc)
+                    # Sprzątanie zapisuje bez aktora — wyłączony automat zamienia
+                    # „apply" w zwykłe odświeżenie z powodem w kolejce.
+                    hold_when_autoapply_disabled(doc)
                     after = _snapshot(doc)
                     pfron = is_client_in_policy("pfron", doc.client_id)
                     action = (
@@ -405,7 +411,16 @@ async def apply_cleanup_plan(db, expected_fingerprint):
             doc.document_meta = {"ignored_non_order": True, "reason": item["reason"]}
         elif action in ("refresh", "apply"):
             await refresh_review_plan(db, doc)
+            held = hold_when_autoapply_disabled(doc)
             if action == "apply":
+                if held:
+                    # Audyt z włączonym automatem nie przejdzie odcisku przy
+                    # wyłączonym, więc tu trafia tylko zmiana flagi w trakcie
+                    # tego wywołania — przerwij całość, zamiast zapisać.
+                    raise ValueError(
+                        "Automatyczny zapis jest wyłączony — wykonaj nowy audyt; "
+                        "nic nie zapisano."
+                    )
                 applied = await apply_document(db, doc, actor_user_id=None)
                 if not applied.ok:
                     raise ValueError(

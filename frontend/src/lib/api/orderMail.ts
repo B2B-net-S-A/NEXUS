@@ -158,7 +158,8 @@ export const orderMailApi = {
 export const ORDER_MAIL_ACTION_LABEL: Record<OrderMailProposalRow["action"], string> = {
   fill_draft: "Uzupełni szkic",
   new_draft: "Nowy kontraktor — utworzy draft",
-  reactivate: "Powrót — uaktywni zakończone zamówienie",
+  // Powrót po przerwie tworzy NOWE zamówienie; zakończone zostaje bez zmian.
+  reactivate: "Powrót po przerwie — nowe zamówienie (poprzednie bez zmian)",
   unchanged: "Zamówienie już zapisane — dane zgodne",
   future: "Nowe zamówienie (przyszłe)",
   new: "Nowe zamówienie",

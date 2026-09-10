@@ -108,6 +108,12 @@ class TestSyncSnapshot:
         assert snap["interrupted"] is False
         assert snap["interval_minutes"] == svc.poll_interval_minutes()
 
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_reports_the_real_autoapply_flag(self, monkeypatch, flag):
+        """Do 10.09.2026 stan mówił zawsze „automat włączony", nawet przy False."""
+        monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", flag)
+        assert svc.sync_snapshot(None, running=False)["autoapply_enabled"] is flag
+
     def test_running_without_lock_is_interrupted_and_keeps_previous_result(self):
         """Wiersz „running" po restarcie: poprzedni wynik zostaje, bieg = przerwany."""
         state = {

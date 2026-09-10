@@ -233,14 +233,19 @@ def gate_for(ex, doc):
 
 
 @pytest.mark.asyncio
-async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypatch):
+@pytest.mark.parametrize("autoapply", [True, False])
+async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(
+    monkeypatch, autoapply
+):
     from app.services import order_mail_apply as writer
     from app.services.order_mail_apply import ApplyResult
 
     apply = AsyncMock(return_value=ApplyResult())
     monkeypatch.setattr(writer, "apply_document", apply)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
-    monkeypatch.setattr(ingest.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
+    # Wyłącznik automatu jest czytany od 10.09.2026: przy False pewny plan
+    # zostaje w kolejce, a writer nie jest wołany.
+    monkeypatch.setattr(ingest.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", autoapply)
     doc = OrderDocumentText(ORDER + SUMMARY, 4, False, False, None, 0.0)
     monkeypatch.setattr(ingest, "extract_order_text", lambda *args: doc)
     monkeypatch.setattr(
@@ -267,12 +272,18 @@ async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(monkeypat
     await ingest.process_pdf_bytes(
         AsyncMock(), row, b"%PDF-dummy", registry=ClientRegistry({})
     )
-    apply.assert_awaited_once()
     assert parser.call_args.kwargs == {"all_rows": True}
     sent = parser.call_args.args[0]
     assert "Summary" not in sent and "Quantity" not in sent and "999,00" not in sent
-    assert row.gate_verdict == "auto"
-    assert row.gate_reasons == []
+    if autoapply:
+        apply.assert_awaited_once()
+        assert row.gate_verdict == "auto"
+        assert row.gate_reasons == []
+    else:
+        apply.assert_not_awaited()
+        assert row.outcome == "needs_review"
+        assert row.gate_verdict == "review"
+        assert row.gate_reasons == [ingest.AUTOAPPLY_DISABLED_REASON]
 
 
 def test_remaining_error_still_blocks_auto_proposal():

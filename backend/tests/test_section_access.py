@@ -184,6 +184,35 @@ async def test_delivery_dependency_is_read_only_for_talent_community_manager() -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "delivery,allowed", [("none", False), ("read", True), ("write", True)]
+)
+async def test_tcm_status_command_honours_a_revoked_delivery_section(
+    delivery, allowed
+) -> None:
+    """Odebranie sekcji Delivery odbiera też wąską komendę statusu TCM.
+
+    Do 09.2026 wyjątek dla ``PATCH /api/contracts/{id}/status`` wracał PRZED
+    porównaniem uprawnień — TCM z odebraną sekcją (nadpisanie per osoba albo
+    wiersz roli = none) nadal zmieniał status kontraktu. Zakres TCM (cała
+    organizacja) zostaje bez zmian; zmienia się tylko to, że odebranie działa.
+    """
+    tcm = _user(UserRole.talent_community_manager)
+    tcm.effective_section_access = {section.value: "none" for section in ProductSection}
+    tcm.effective_section_access[ProductSection.delivery.value] = delivery
+    dependency = require_section_access(ProductSection.delivery)
+    request = _request("PATCH", "/api/contracts/42/status")
+    if allowed:
+        assert await dependency(request, tcm) is tcm
+    else:
+        with pytest.raises(HTTPException) as exc_info:
+            await dependency(request, tcm)
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "section_access_denied"
+        assert exc_info.value.detail["granted"] == "none"
+
+
+@pytest.mark.asyncio
 async def test_exact_read_only_post_uses_read_level_without_opening_sibling_mutation() -> (
     None
 ):

@@ -42,6 +42,7 @@ from app.services import storage_service
 from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.order_mail_apply import apply_document
 from app.services.order_mail_ingest import (
+    hold_when_autoapply_disabled,
     ingest_is_running,
     read_state,
     refresh_review_plan,
@@ -426,7 +427,9 @@ async def refresh_queue_plan(
     # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje prawa
     # do nowego rekordu ani jego danych finansowych.
     await _require_apply_rights(db, doc, user)
-    if doc.gate_verdict == "auto":
+    # Zapis poniżej idzie BEZ aktora (automat), więc słucha wyłącznika
+    # ``ORDER_MAIL_AUTOAPPLY_ENABLED`` — wyłączony zostawia pewny plan w kolejce.
+    if not hold_when_autoapply_disabled(doc) and doc.gate_verdict == "auto":
         result = await apply_document(db, doc, actor_user_id=None)
         if result.ok:
             doc.outcome = OUTCOME_AUTO_APPLIED

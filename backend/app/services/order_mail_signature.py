@@ -12,7 +12,28 @@ from app.core.scheduling import business_today
 from app.services.order_rate_snapshots import convert_order_rate
 
 
+def contract_was_terminated(contract) -> bool:
+    """Czy ktoś ŚWIADOMIE zakończył tę współpracę (``/terminate``).
+
+    Lustro reguły SQL ``terminated_at IS NULL AND termination_reason IS NULL``
+    z ``order_separation_repair`` i ``contract_ended_tab_repair`` — tam oznacza
+    „nikt nie wypowiedział umowy". Data końca bez wypowiedzenia to zwykły upływ
+    okresu, a nie decyzja człowieka.
+    """
+    return contract.terminated_at is not None or contract.termination_reason is not None
+
+
 async def can_activate_mail_order(db, contract):
+    """Czy zamówienie z maila wolno aktywować bez człowieka.
+
+    Wypowiedziana umowa (dowolny status, także przyszła data wypowiedzenia)
+    NIGDY: aktywne zamówienie wskrzesiłoby ją (``sync_contract_to_live_order``,
+    a potem dobowy skaner), czyli mail cofnąłby decyzję człowieka. Zamówienie
+    zostaje wtedy szkicem — powrót do współpracy przywraca człowiek. Warunek
+    stoi PRZED podpisem: podpisana umowa nie znosi wypowiedzenia.
+    """
+    if contract_was_terminated(contract):
+        return False
     if contract.status in (
         ContractStatus.active,
         ContractStatus.ending,
