@@ -291,7 +291,9 @@ def prepare_profile(
     as stored, together with its `unresolved`/`advisory` notes. An edit of the
     project description must not re-parse, and so rewrite, a rate or a
     requirement list nobody touched. Without ``previous`` (a fresh document,
-    a preview, validation) the whole profile is normalised.
+    a preview, validation) the whole profile is normalised — but a stack entry
+    set aside in `unresolved` by an older normaliser is never pulled back:
+    that happens only on a save that edits the stack field.
     """
     data = deepcopy(data or {})
     old_meta = data.get("intake") or {}
@@ -367,11 +369,21 @@ def prepare_profile(
         path = f"stack.{key}"
         if path not in dirty:
             continue
-        restored = [
-            line
-            for line in str(unresolved.get(path) or "").splitlines()
-            if meaningful(line)
-        ]
+        # Entries an older normaliser set aside in `unresolved` rejoin the
+        # list only on a SAVE that edits this field (`previous` given). A
+        # normalisation without `previous` — `validation()` above all — must
+        # see the stack as stored: resurrecting there validated a list that
+        # differed from the stored one and from `jobs.must_skills` synced from
+        # it, a `skill_column_conflict` nobody could see in the editor.
+        restored = (
+            [
+                line
+                for line in str(unresolved.get(path) or "").splitlines()
+                if meaningful(line)
+            ]
+            if previous is not None
+            else []
+        )
         values, placeholders, long_items, unstorable = split_skills(
             stack.get(key), restored
         )
@@ -419,12 +431,20 @@ def prepare_profile(
 
 
 def validation(profile, job=None, *, enforce=False):
+    """Issues of the profile AS STORED; never rewrites what it is given.
+
+    The re-normalisation below only re-derives notes from stored values — it
+    pulls no set-aside entry back into the stack (see `prepare_profile`) — and
+    the recruitment columns are compared with the stack as stored, the list
+    `jobs.must_skills`/`nice_skills` were synced from.
+    """
     from pydantic import ValidationError
 
     try:
         cp = ChampionProfile.model_validate(profile or {}).model_dump(mode="json")
     except ValidationError:
         cp = prepare_profile(profile)
+    stored_stack = cp["stack"]
     meta = cp.get("intake") or {}
     active = (
         enforce
@@ -543,7 +563,8 @@ def validation(profile, job=None, *, enforce=False):
         for key, column in STACK_COLUMNS.items():
             raw_column = getattr(job, column, None)
             declared = effective_skill_names(job, key)
-            requested = [item["name"] for item in stack[key]]
+            # The stored stack: that is what the columns were synced from.
+            requested = [item["name"] for item in stored_stack[key]]
             if (
                 raw_column is not None
                 or getattr(job, "matching_requirements", None) is not None
@@ -552,6 +573,9 @@ def validation(profile, job=None, *, enforce=False):
                     "skill_column_conflict",
                     f"stack.{key}",
                     "Profil i pola rekrutacji mają różne wymagania. Uzgodnij wybraną listę.",
+                    # No gate reads NICE (dealbreakers and readiness are MUST
+                    # only), so a NICE mismatch is a warning at most.
+                    warning=key == "nice",
                 )
         if getattr(job, "client_id", None) is None:
             add(
