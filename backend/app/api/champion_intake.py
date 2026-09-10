@@ -19,7 +19,8 @@ TEMPLATE = (
 
 
 @router.get("/template")
-async def download_template(current_user: OperationalUser):
+@limiter.limit("60/minute")
+async def download_template(request: Request, current_user: OperationalUser):
     return FileResponse(
         TEMPLATE,
         filename=TEMPLATE.name,
@@ -76,7 +77,10 @@ async def preview(
 
 
 @router.post("/validate")
-async def validate_preview(current_user: OperationalUser, payload: dict):
+@limiter.limit("30/minute")
+async def validate_preview(
+    request: Request, current_user: OperationalUser, payload: dict
+):
     from app.services.champion_intake import prepare_profile, validation
 
     try:
