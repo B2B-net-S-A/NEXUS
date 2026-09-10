@@ -215,10 +215,16 @@ class MatchScoresResponse(BaseModel):
     shown as 0. ``breakdowns`` carries the explainability payload (per-layer
     points + matched/gap skills, salary redacted without ``view_finance``) plus
     ``total`` and ``measurement``; for an unmeasured candidate it holds only
-    ``{"total": null, "measurement": "<reason>"}``."""
+    ``{"total": null, "measurement": "<reason>"}``.
+
+    ``profile_key`` identifies the weight profile (id + weights) the scores
+    were computed under: the same pair scores differently under another
+    profile, so a client caching scores keys them by it and never shows two
+    profiles side by side. ``None`` when nothing was scored."""
 
     scores: dict[str, int] = Field(default_factory=dict)
     breakdowns: dict[str, Any] = Field(default_factory=dict)
+    profile_key: Optional[str] = None
 
 
 class WaterfallStage(BaseModel):

@@ -1,7 +1,12 @@
+# UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
+# `/candidates/scores` (slowapi #579: PEP 563 zamienia body i `Annotated`
+# guardy w parametry QUERY → 422 na poprawnym żądaniu).
+import hashlib
+import json
 import time
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
@@ -199,7 +205,12 @@ async def _competence_facets(
 
 
 @router.post("/candidates/scores", response_model=MatchScoresResponse)
+# Every call measures on demand (query embedding + exact vector lookup +
+# scoring); the front end asks per viewport, so this is a ceiling for runaway
+# clients, not a budget normal scrolling ever reaches.
+@limiter.limit("60/minute")
 async def candidate_match_scores(
+    request: Request,
     body: MatchScoresRequest,
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
@@ -215,11 +226,16 @@ async def candidate_match_scores(
     the route stays a read-only POST (``request_semantics``).
 
     Bounded by the request schema (``MATCH_SCORES_MAX_CANDIDATES`` ids — the
-    front end asks only for rows on screen) and scoped by recruitment read
-    access. A candidate without a verified measurement (stale/missing vector,
-    provider outage) gets no score — never a retrieval score in disguise — and
-    its breakdown says why (``measurement``), so the row can say "not
-    measured" instead of looking unscored.
+    front end asks only for rows on screen). Scoped by the SAME guard as the
+    full-search runs, ``/pipeline-scores`` and ``/ai-matches``
+    (``_authorized_job``: pipeline section read + the recruitment exists):
+    a recruiter outside the job team already sees this number on those C2
+    screens, so the column cannot be stricter. A candidate without a verified
+    measurement (stale/missing vector, provider outage) gets no score — never
+    a retrieval score in disguise — and its breakdown says why
+    (``measurement``), so the row can say "not measured" instead of looking
+    unscored. ``profile_key`` names the weight profile the scores were
+    computed under, so a client cache never mixes two profiles on one screen.
     """
     if not body.candidate_ids:
         return MatchScoresResponse(scores={})
@@ -228,8 +244,8 @@ async def candidate_match_scores(
         AnalyticsCapability,
         user_has_capability,
     )
+    from app.api.candidate_search import _authorized_job  # noqa: PLC0415
     from app.api.recommendations import _score_breakdown_payload  # noqa: PLC0415
-    from app.api.recruitment_access import ensure_job_read_access  # noqa: PLC0415
     from app.services.canonical_fit import (  # noqa: PLC0415
         display_score,
         score_candidates,
@@ -239,10 +255,7 @@ async def candidate_match_scores(
     )
     from app.services.scoring_service import resolve_active_profile  # noqa: PLC0415
 
-    await ensure_job_read_access(db, current_user, body.job_id)
-    job = await db.scalar(select(Job).where(Job.id == body.job_id))
-    if job is None:
-        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    job = await _authorized_job(db, current_user, body.job_id)
     candidate_ids = list(dict.fromkeys(body.candidate_ids))
     candidates = list(
         (await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids))))
@@ -255,7 +268,8 @@ async def candidate_match_scores(
     profile = await resolve_active_profile(
         db, user_id=current_user.id, client_id=job.client_id
     )
-    fits = await score_candidates(db, build_request_context(job, profile), candidates)
+    context = build_request_context(job, profile)
+    fits = await score_candidates(db, context, candidates)
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
@@ -273,7 +287,23 @@ async def candidate_match_scores(
             "total": fit.fit_score,
             "measurement": fit.measurement,
         }
-    return MatchScoresResponse(scores=scores, breakdowns=breakdowns)
+    return MatchScoresResponse(
+        scores=scores,
+        breakdowns=breakdowns,
+        profile_key=_profile_key(context.weights),
+    )
+
+
+def _profile_key(weights: dict) -> str:
+    """``<profile id>:<digest>`` of the base-fit weights the fit was computed with.
+
+    The id alone would miss an admin editing a profile's weights in place; the
+    digest alone would be opaque when debugging a response.
+    """
+    digest = hashlib.sha256(
+        json.dumps(weights, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"{weights.get('id')}:{digest[:12]}"
 
 
 async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:
