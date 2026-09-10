@@ -74,6 +74,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
 from app.services.cv_generator_b2b.source_facts import (
     SourceFactsError,
     extract_source_facts,
+    source_evidence_enforced,
 )
 from app.services.cv_generator_b2b.prompts import get_prompt
 from app.services.cv_generator_b2b.factual_verification import (
@@ -1726,38 +1727,55 @@ def _run_generation_pipeline(
             request_id=request_id,
         )
     except FactualVerificationError as err:
-        logger.info(
-            "[cv_b2b][%s] final factual review rejected: reason=%s field_count=%s",
-            request_id,
-            err.reason,
-            len(err.paths),
-        )
-        labels = {
-            "why_points": "podsumowanie",
-            "experience": "doświadczenie",
-            "certifications": "certyfikaty",
-            "skills": "umiejętności",
-            "languages": "języki",
-            "education": "edukacja",
-            "name": "imię i nazwisko",
-            "first_name": "imię",
-            "position": "stanowisko",
-        }
-        fields = ", ".join(
-            dict.fromkeys(
-                labels.get(path.split("/")[1], "dane kandydata") for path in err.paths
+        if not source_evidence_enforced():
+            # Advisory mode: the final review could not confirm every claim,
+            # but do not block the document — record the outcome and proceed
+            # (pre-#1476 behavior). Flip CV_SOURCE_EVIDENCE_ENFORCED to block.
+            logger.info(
+                "[cv_b2b][%s] final factual review advisory: reason=%s field_count=%s",
+                request_id,
+                err.reason,
+                len(err.paths),
             )
-        )
-        raise StandaloneGenerationError(
-            code="source_verification_failed",
-            diagnostic_code="verify_" + err.reason,
-            message=(
-                "Nie utworzono CV: końcowa kontrola nie potwierdziła wszystkich "
-                "twierdzeń w materiałach źródłowych. Sprawdź CV i notatki, a następnie "
-                "ponów generację."
-                + (f" Pola do sprawdzenia: {fields}." if fields else "")
-            ),
-        ) from err
+            candidate_data["factual_verification"] = {
+                "status": "advisory",
+                "reason": err.reason,
+                "paths": list(err.paths),
+            }
+        else:
+            logger.info(
+                "[cv_b2b][%s] final factual review rejected: reason=%s field_count=%s",
+                request_id,
+                err.reason,
+                len(err.paths),
+            )
+            labels = {
+                "why_points": "podsumowanie",
+                "experience": "doświadczenie",
+                "certifications": "certyfikaty",
+                "skills": "umiejętności",
+                "languages": "języki",
+                "education": "edukacja",
+                "name": "imię i nazwisko",
+                "first_name": "imię",
+                "position": "stanowisko",
+            }
+            fields = ", ".join(
+                dict.fromkeys(
+                    labels.get(path.split("/")[1], "dane kandydata")
+                    for path in err.paths
+                )
+            )
+            raise StandaloneGenerationError(
+                code="source_verification_failed",
+                diagnostic_code="verify_" + err.reason,
+                message=(
+                    "Nie utworzono CV: końcowa kontrola nie potwierdziła wszystkich "
+                    "twierdzeń w materiałach źródłowych. Sprawdź CV i notatki, a następnie "
+                    "ponów generację."
+                    + (f" Pola do sprawdzenia: {fields}." if fields else "")
+                ),
+            ) from err
     except CVGeneratorAIError as err:
         raise StandaloneGenerationError(
             code="source_verification_unavailable",

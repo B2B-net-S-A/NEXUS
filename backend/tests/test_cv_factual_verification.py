@@ -24,6 +24,9 @@ DOCUMENT = {
 
 @pytest.fixture(autouse=True)
 def _source_stage_isolated_for_final_review_tests(monkeypatch):
+    # This suite asserts the strict source-evidence rejection contract, which
+    # ships behind a flag defaulting OFF (advisory) in production.
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
     monkeypatch.setattr(
         svc,
         "extract_source_facts",
@@ -174,6 +177,30 @@ def run_pipeline(rule=None, prepared=None):
         client_rule=rule,
         prepared_source_facts=prepared,
     )
+
+
+def test_gate_off_by_default_downgrades_final_review_to_advisory(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
+    monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: SOURCE)
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(DOCUMENT))
+    monkeypatch.setattr(
+        gate,
+        "analyze_with_ai",
+        lambda content, *a, **k: json.dumps(
+            review_response(content, status="unsupported", evidence=[])
+        ),
+    )
+    # Enforced, an "unsupported" verdict raises source_verification_failed
+    # before render. Advisory default: it must proceed PAST the gate, so the
+    # only failure left is our sentinel render.
+    monkeypatch.setattr(
+        svc, "render_cv_to_bytes", Mock(side_effect=RuntimeError("reached render"))
+    )
+    with pytest.raises(svc.StandaloneGenerationError) as error:
+        run_pipeline(CvRuleSnapshot(None, False, None, False, False))
+    assert error.value.code == "render_failed"
 
 
 @pytest.mark.parametrize("rewrite_succeeds", [True, False])

@@ -11,6 +11,25 @@ from app.services.cv_generator_b2b import source_facts as facts
 from tests.test_cv_complete_source_facts import response, SOURCE
 
 
+@pytest.fixture(autouse=True)
+def _enforce_source_evidence(monkeypatch):
+    # Asserts that invented facts are rejected; strict enforcement ships behind
+    # a flag defaulting OFF (advisory) in production.
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+
+
+def test_gate_off_by_default_keeps_unverified_facts_instead_of_rejecting(monkeypatch):
+    monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
+    payload = response()
+    # An invented tool with no source evidence would be an unbound_fact and
+    # hard-reject when enforced. Advisory default: keep it, never block.
+    payload["document"]["experience"][0]["technologies"].append("Kubernetes")
+    result = facts.validate_extraction(
+        json.dumps(payload), {"cv": SOURCE, "screening_notes": ""}
+    )
+    assert "Kubernetes" in result["document"]["experience"][0]["technologies"]
+
+
 def test_pdf_line_wrap_and_spacing_keep_original_evidence_offsets():
     source = "Heading\nModeling   business\nprocesses\twith UML.\nNext role"
     span = source_quote_span(source, "Modeling business processes with UML.")
