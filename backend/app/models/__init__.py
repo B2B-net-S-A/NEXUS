@@ -638,3 +638,4 @@ from app.models.requirement_verification import RequirementVerification  # noqa:
 from app.models.cv_generated_draft import CvGeneratedDraft  # noqa: F401
 
 from app.models.cv_generation_request import CvGenerationRequest  # noqa: F401
+from app.models.cv_approval_job import CvApprovalJob  # noqa: F401

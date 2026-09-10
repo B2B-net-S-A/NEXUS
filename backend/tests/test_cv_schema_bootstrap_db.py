@@ -17,6 +17,7 @@ async def test_cv_bootstrap_repairs_old_schema_and_is_repeatable():
             await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             for table in (
                 "users",
+                "candidate_stage_cvs",
                 "cv_generated_documents",
                 "client_cv_rule_previews",
                 "cv_generated_share_tokens",
@@ -38,6 +39,7 @@ async def test_cv_bootstrap_repairs_old_schema_and_is_repeatable():
                     "cv_generation_jobs",
                     "cv_generated_drafts",
                     "cv_generation_requests",
+                    "cv_approval_jobs",
                 ):
                     assert inspector.has_table(table)
                 columns = {
@@ -79,6 +81,41 @@ async def test_cv_bootstrap_repairs_old_schema_and_is_repeatable():
             await connection.run_sync(verify)
             await connection.execute(
                 text("INSERT INTO cv_generated_documents (id) VALUES (1)")
+            )
+            await connection.execute(text("INSERT INTO users (id) VALUES (1)"))
+            await connection.execute(
+                text("INSERT INTO candidate_stage_cvs (id) VALUES (1)")
+            )
+            insert_review = text("""INSERT INTO cv_approval_jobs
+                (user_id, candidate_stage_cv_id, generated_document_id, request_key,
+                 request_sha256, expected_revision, status, input_sha256, input_content)
+                VALUES (1, :owner, 1, :key, :hash, :revision, :status, :hash, :content)""")
+            review_values = dict(
+                owner=1,
+                key="first",
+                hash="a" * 64,
+                revision=0,
+                status="queued",
+                content=b"private review source",
+            )
+            await connection.execute(insert_review, review_values)
+            for changes in (
+                {},
+                {"key": "ownerless", "owner": None},
+                {"key": "invalid-status", "status": "approved"},
+                {"key": "invalid-revision", "revision": -1},
+            ):
+                with pytest.raises(IntegrityError):
+                    async with connection.begin_nested():
+                        await connection.execute(
+                            insert_review, {**review_values, **changes}
+                        )
+            await connection.execute(
+                text("DELETE FROM candidate_stage_cvs WHERE id = 1")
+            )
+            assert (
+                await connection.scalar(text("SELECT count(*) FROM cv_approval_jobs"))
+                == 0
             )
             await connection.execute(
                 text(
