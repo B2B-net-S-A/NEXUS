@@ -186,6 +186,8 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
         # Zakres z myślnikiem bez spacji: dwie daty, nie jedna zlepka.
         ("03.2019-05.2021", "MM/YYYY", "03/2019-05/2021"),
         ("03.2019-05.2021", "YYYY-MM", "2019-03-2021-05"),
+        ("2020-01-2024-12", "MM.YYYY", "01.2020-12.2024"),
+        ("2020-01-2024-12", "YYYY", "2020-2024"),
         ("13.2020", "YYYY-MM", "13.2020"),
         ("00/2020", "YYYY", "00/2020"),
         ("2020-13", "MM.YYYY", "2020-13"),
@@ -198,6 +200,15 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
 )
 def test_reformat_dates(text: str, fmt: str, expected: str) -> None:
     assert reformat_dates(text, fmt) == expected
+
+
+@pytest.mark.parametrize(
+    "source", ["01.2020-12.2024", "01/2020-12/2024", "2020-01-2024-12"]
+)
+@pytest.mark.parametrize("fmt", ["MM.YYYY", "MM/YYYY", "YYYY-MM"])
+def test_compact_ranges_preserve_both_endpoints_across_formats(source, fmt):
+    formatted = reformat_dates(source, fmt)
+    assert reformat_dates(formatted, "MM.YYYY") == "01.2020-12.2024"
 
 
 def test_apply_date_format_touches_experience_and_education_only_when_set() -> None:

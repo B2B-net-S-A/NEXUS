@@ -499,6 +499,9 @@ _DATE_MONTH_YEAR = re.compile(
 _DATE_YEAR_MONTH = re.compile(
     r"(?<![\d./])(\d{4})-(0?[1-9]|1[0-2])(?![\d./]|-\d{1,2}(?!\d))"
 )
+_DATE_TOKEN = re.compile(
+    rf"(?P<year_month>{_DATE_YEAR_MONTH.pattern})|(?P<month_year>{_DATE_MONTH_YEAR.pattern})"
+)
 
 
 def _render_date(year: str, month: str | None, fmt: str) -> str:
@@ -523,13 +526,17 @@ def reformat_dates(text: str, fmt: str) -> str:
     """
     if fmt not in DATE_FORMATS or not text:
         return text
-    # Najpierw `MM.YYYY` (częstszy kształt), potem `YYYY-MM` — w tej kolejności
-    # zakres z myślnikiem bez spacji zostaje dwoma datami, nie jedną zlepką.
-    out = _DATE_MONTH_YEAR.sub(
-        lambda m: _render_date(m.group(2), m.group(1), fmt), text
-    )
-    out = _DATE_YEAR_MONTH.sub(lambda m: _render_date(m.group(1), m.group(2), fmt), out)
-    return out
+
+    # Read original tokens exactly once. Two substitution passes can interpret
+    # the middle of 2020-01-2024-12 as 01-2024 or reparse generated output.
+    def render(match):
+        if match.group("year_month") is not None:
+            token = _DATE_YEAR_MONTH.fullmatch(match.group("year_month"))
+            return _render_date(token.group(1), token.group(2), fmt)
+        token = _DATE_MONTH_YEAR.fullmatch(match.group("month_year"))
+        return _render_date(token.group(2), token.group(1), fmt)
+
+    return _DATE_TOKEN.sub(render, text)
 
 
 def apply_date_format(

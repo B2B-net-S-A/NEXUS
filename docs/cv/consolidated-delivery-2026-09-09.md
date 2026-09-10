@@ -679,3 +679,7 @@ Informacja zwrotna rozpoznaje pełny poprawny zapis dla czterech obsługiwanych 
 ### CV-15: brak mechanicznego ucinania obowiązków
 
 Usunięto awaryjne obcinanie punktów do limitu z wielokropkiem. Po istniejącym ograniczonym etapie redakcyjnego przepisania każdy pozostały zbyt długi punkt kończy generację błędem `editorial_limits_failed`, zamiast tracić końcowe zastrzeżenie lub zakres odpowiedzialności. Końcowa kontrola faktów pozostaje wymagana dla poprawnie przepisanej treści. 51 testów limitów, polityki prezentacji i bezpiecznych aliasów oraz Ruff przeszły lokalnie. Nie stanowi to pomiaru jakości podsumowań na rzeczywistym modelu.
+
+### CV-11 / CV-18: zwarte zakresy dat
+
+Odtworzono uszkodzenie `2020-01-2024-12` do `2020-01.2024-12`. Formatowanie odczytuje teraz rozłączne tokeny z oryginalnego tekstu w jednym przebiegu, zamiast dwukrotnie przepisywać wynik. Zachowuje obie granice zakresu między wszystkimi trzema formatami miesięcznymi. Pełne daty dzienne i nieprawidłowe miesiące pozostają niezmienione. 56 testów polityki/informacji zwrotnej, w tym dziewięć konwersji zakresów między formatami, przeszło lokalnie.
