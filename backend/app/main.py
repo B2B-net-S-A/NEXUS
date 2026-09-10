@@ -605,6 +605,7 @@ async def lifespan(app: FastAPI):
     )
     from app.services.cv_approval_worker import recovery_loop as cv_approval_loop
     from app.services.cv_source_cleanup import recovery_loop as cv_source_cleanup_loop
+    from app.services.cv_version_map_jobs import recovery_loop as cv_version_map_loop
 
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
@@ -684,6 +685,7 @@ async def lifespan(app: FastAPI):
         "cv_generation": asyncio.create_task(cv_recovery_loop()),
         "cv_approval": asyncio.create_task(cv_approval_loop()),
         "cv_source_cleanup": asyncio.create_task(cv_source_cleanup_loop()),
+        "cv_version_maps": asyncio.create_task(cv_version_map_loop()),
         "candidate_search": asyncio.create_task(candidate_search_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),

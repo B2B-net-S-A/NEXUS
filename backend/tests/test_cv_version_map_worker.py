@@ -1,0 +1,62 @@
+import asyncio
+from contextlib import asynccontextmanager
+import hashlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.services import cv_version_map_jobs as worker
+from app.services.cv_version_map_input import encode_map_input
+
+
+@pytest.mark.parametrize("case", ["valid", "inactive", "corrupt", "provider_failure"])
+async def test_worker_checks_snapshot_before_model_and_records_terminal_result(
+    monkeypatch, case
+):
+    html = "<p>Testy AWS tylko szkoleniowo.</p>"
+    version = SimpleNamespace(
+        id=7,
+        language="pl",
+        content_html=html,
+        content_sha256=hashlib.sha256(html.encode()).hexdigest(),
+    )
+    raw, digest = encode_map_input(version, [{"name": "AWS", "kind": "must"}])
+    db = AsyncMock()
+    db.scalar.return_value = SimpleNamespace(
+        user_id=3,
+        input_content=raw,
+        input_sha256="0" * 64 if case == "corrupt" else digest,
+    )
+    db.get.side_effect = [version, SimpleNamespace(id=3, is_active=case != "inactive")]
+
+    @asynccontextmanager
+    async def session():
+        yield db
+
+    async def heartbeat(*args):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(worker, "AsyncSessionLocal", session)
+    monkeypatch.setattr(worker, "claim_map", AsyncMock(return_value="owned-token"))
+    monkeypatch.setattr(worker, "renew", heartbeat)
+    measure = AsyncMock(
+        return_value={"items": []},
+        side_effect=RuntimeError("failure") if case == "provider_failure" else None,
+    )
+    finish = AsyncMock()
+    monkeypatch.setattr(worker, "measure", measure)
+    monkeypatch.setattr(worker, "finish_map", finish)
+    await worker.execute_map(7)
+    if case in {"inactive", "corrupt"}:
+        measure.assert_not_awaited()
+    else:
+        measure.assert_awaited_once()
+        assert measure.call_args.args[0].public_payload()["why_points"] == [
+            "Testy AWS tylko szkoleniowo."
+        ]
+    assert finish.call_args.args == (db, 7, "owned-token")
+    if case == "valid":
+        assert finish.call_args.kwargs["result"] == {"items": []}
+    else:
+        assert finish.call_args.kwargs["error"] == "mapping_unavailable"
