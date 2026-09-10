@@ -23,7 +23,16 @@ def source_quote_span(source: str, quote: str) -> tuple[int, int] | None:
 
 
 def same_source_value(value: str, quote: str) -> bool:
-    return " ".join(value.split()) in " ".join(quote.split())
+    if " ".join(value.split()) in " ".join(quote.split()):
+        return True
+
+    # PDF soft hyphens and letter-only end-of-line hyphenation are layout.
+    # Do not erase hyphens within lines, change case or concatenate dates.
+    def unwrap(text):
+        text = re.sub(r"(?<=[^\W\d_])[-\u00ad][ \t]*\r?\n[ \t]*(?=[^\W\d_])", "", text)
+        return " ".join(text.split())
+
+    return unwrap(value) in unwrap(quote)
 
 
 _NUMERIC_DATE = (
@@ -49,6 +58,16 @@ def source_column_dates(value: str, quote: str) -> bool:
     date_range = _COLUMN_RANGE.fullmatch(value.strip())
     if date_range is None:
         return False
+    # A range separator is layout too: '2006 - 2008' and '2006–2008'
+    # contain the same unchanged endpoints. Never accept a partial date match.
+    inline = re.compile(rf"(?<![\w./-]){_COLUMN_RANGE.pattern}(?![\w./-])", re.I)
+    for line in quote.splitlines():
+        for candidate in inline.finditer(line):
+            if (
+                candidate["start"] == date_range["start"]
+                and candidate["end"] == date_range["end"]
+            ):
+                return True
     lines = quote.splitlines()
     for index, line in enumerate(lines):
         start = _COLUMN_START.match(line)
@@ -62,3 +81,20 @@ def source_column_dates(value: str, quote: str) -> bool:
             if _COLUMN_START.match(following):
                 break  # Never borrow an endpoint from the next employment row.
     return False
+
+
+def source_role_text(quote: str) -> str:
+    """Keep role prose in order when the date column interrupts its first lines."""
+    lines = quote.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        start = _COLUMN_START.match(line.rstrip("\r\n"))
+        if start is None or _COLUMN_RANGE.match(line.lstrip()):
+            continue
+        for following in range(index + 1, min(index + 3, len(lines))):
+            if _COLUMN_START.match(lines[following].rstrip("\r\n")):
+                break
+            end = _COLUMN_END.match(lines[following])
+            if end is not None:
+                lines[following] = lines[following][end.end() :].lstrip(" \t")
+                break
+    return "".join(lines)

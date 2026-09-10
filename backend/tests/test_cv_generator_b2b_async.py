@@ -102,6 +102,25 @@ async def test_finalize_failure_marks_row_failed_and_truncates_message():
 
 
 @pytest.mark.asyncio
+async def test_source_failure_code_is_saved_only_on_the_owned_job(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.cv_generator_b2b import job_leases
+
+    row = _pending_row()
+    job = SimpleNamespace(error_code=None)
+    monkeypatch.setattr(job_leases, "lock_owned_job", AsyncMock(return_value=job))
+    await _finalize_failure(
+        _FakeDB(row), 1, "Generation failed", diagnostic_code="source_unbound_fact"
+    )
+    assert job.error_code == "source_unbound_fact"
+    assert row.status == "failed"
+    await _finalize_failure(
+        _FakeDB(row), 1, "Generation failed", diagnostic_code="private source text"
+    )
+    assert job.error_code == "source_unbound_fact"
+
+
+@pytest.mark.asyncio
 async def test_finalizers_noop_when_row_deleted_midflight():
     # Recruiter deleted the „processing" row before the job finished — both
     # finalizers must no-op (return / do nothing) rather than raise.

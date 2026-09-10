@@ -113,7 +113,7 @@ def test_unbound_or_mutated_facts_stop_before_editing(mutation):
 def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
     calls = []
 
-    def extract(content, request_id, system, response_schema):
+    def extract(content, request_id, system, response_schema, total_timeout):
         assert response_schema is facts.EXTRACTION_RESPONSE_SCHEMA
         calls.append(("extract", json.loads(content), system))
         return json.dumps(response())
@@ -172,7 +172,9 @@ def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
     assert len(payload["experience"]) == 1 and payload["education"] == []
     assert payload["source_facts"]["document"] == FULL
     assert payload["source_facts"]["tenure"]["career_months"] == 132
-    assert calls[0][1] == {"cv": SOURCE, "screening_notes": "PRIVATE INTERNAL NOTE"}
+    assert calls[0][1] == facts.numbered_sources(
+        {"cv": SOURCE, "screening_notes": "PRIVATE INTERNAL NOTE"}
+    )
     assert "max_roles" not in str(calls[0]) and "maksymalnie 1" not in str(calls[0])
     assert "PRIVATE INTERNAL NOTE" not in calls[1][1]
     assert "source_facts" not in build_public_payload(payload)

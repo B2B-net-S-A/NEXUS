@@ -74,11 +74,12 @@ def main():
     # The task command column is limited to 255 characters. Both fixed probes
     # only SELECT bounded metadata; no source content or arbitrary SQL input.
     queries = {
-        "jobs": "select id,generated_id,status,created_at::text from cv_generation_jobs order by id desc limit 6",
+        "jobs": "select id,generated_id,status,error_code from cv_generation_jobs order by id desc limit 6",
         "calls": "select model,latency_ms,input_tokens,output_tokens from ai_provider_calls order by created_at desc limit 6",
     }
     identity = ops.checked(os.environ["GITHUB_RUN_ID"], r"[1-9][0-9]{0,19}")
     owned_ids = {}
+    registered = {}
     try:
         for label, query in queries.items():
             name = "nexus-cv-state-" + identity + "-" + label
@@ -86,6 +87,11 @@ def main():
             command = "python -c '" + code + "'"
             if len(command) > 255:
                 raise ops.OpsError("probe_command_too_long")
+            if any(task.get("name") == name for task in api.inventory()):
+                raise ops.OpsError("probe_already_exists")
+            # Register before POST: an uncertain response can still mean that
+            # creation succeeded. Resolve this exact ownership in finally.
+            registered[name] = command
             api.request("POST", api.tasks, {"name": name, "command": command, "frequency": "* * * * *", "container": "backend", "enabled": True})
             owned = [t for t in api.inventory() if t.get("name") == name and t.get("command") == command]
             if len(owned) != 1:
@@ -115,8 +121,24 @@ def main():
             time.sleep(10)
         raise ops.OpsError("probe_timeout")
     finally:
-        for task_id in owned_ids.values():
-            api.request("DELETE", f"{api.tasks}/{task_id}")
+        cleanup_ids = set(owned_ids.values())
+        try:
+            if registered:
+                cleanup_ids.update(
+                    ops.checked(task["uuid"], r"[A-Za-z0-9-]{1,80}")
+                    for task in api.inventory()
+                    if task.get("name") in registered
+                    and task.get("command") == registered[task["name"]]
+                )
+        finally:
+            failures = []
+            for task_id in cleanup_ids:
+                try:
+                    api.request("DELETE", f"{api.tasks}/{task_id}")
+                except ops.OpsError as error:
+                    failures.append(str(error))
+            if failures:
+                raise ops.OpsError("probe_cleanup_failed")
 
 
 if __name__ == "__main__":

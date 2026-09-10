@@ -265,7 +265,7 @@ def test_verifier_sees_glossary_result_and_never_receives_client_rules_as_eviden
     # Reviewed translations precede the gate; arbitrary replacements are blocked.
     assert requests[0]["final_document"]["position"] == "Programista"
     assert requests[0]["final_document"]["why_points"] == ["Tworzył API w Pythonie."]
-    assert requests[0]["sources"]["cv"] == SOURCE
+    assert requests[0]["sources"]["cv"] == gate.numbered_sources({"cv": SOURCE})["cv"]
     assert "Target vacancy" not in json.dumps(requests)
     assert "glossary" not in json.dumps(requests)
 
@@ -416,7 +416,7 @@ def test_limit_rewrite_is_reviewed_against_original_source_before_docx(monkeypat
             CvRuleSnapshot(None, False, None, False, False, max_bullet_chars=40)
         )
     assert raised.value.code == "source_verification_failed"
-    assert requests[0]["sources"]["cv"] == original
+    assert requests[0]["sources"]["cv"] == gate.numbered_sources({"cv": original})["cv"]
     assert requests[0]["final_document"]["experience"][0]["responsibilities"] == [
         "Wdrażał produkcyjnie AWS."
     ]

@@ -1,6 +1,6 @@
 """Real PostgreSQL commit/rollback boundary for pre-upload recovery intent."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 from datetime import datetime, timedelta
 import asyncio
 
@@ -54,7 +54,9 @@ async def test_upload_reservation_survives_only_uncommitted_job(
                 # A due reservation must be skipped, not blocked on or deleted,
                 # while the owner's commit outcome remains unknown.
                 await asyncio.wait_for(source_cleanup.clean_pending_sources(cleaner), 3)
-            remove.assert_not_called()
+            # The cleaner scans the shared test database and may legitimately
+            # remove older reservations. Pin protection to this upload's key.
+            assert call(key) not in remove.call_args_list
             if commit_job:
                 await db.commit()
             else:
@@ -66,9 +68,9 @@ async def test_upload_reservation_survives_only_uncommitted_job(
             ) == commit_job
             await source_cleanup.clean_pending_sources(observer)
             if commit_job:
-                remove.assert_not_called()
+                assert call(key) not in remove.call_args_list
             else:
-                remove.assert_called_once_with(key)
+                assert remove.call_args_list.count(call(key)) == 1
     finally:
         async with AsyncSessionLocal() as cleanup:
             if key:
