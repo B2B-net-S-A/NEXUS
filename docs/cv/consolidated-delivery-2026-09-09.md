@@ -585,5 +585,6 @@ Tesseract inserted whitespace before some numeric suffixes (`Company 10`,
 Commit a86ef1c0 changes only the assertion to extract employer numbers with an
 optional whitespace boundary, requiring the exact ordered list 01 through 12.
 It does not accept missing, duplicated or substituted employer numbers. The
-corrected gate awaits CI 34420500564. No generator output normalization or OCR
+corrected native OCR gate passed in CI 34420500564, job 102694726055,
+for a86ef1c0. The remaining backend suite was still running at that checkpoint. No generator output normalization or OCR
 text rewriting was introduced by this assertion change.
