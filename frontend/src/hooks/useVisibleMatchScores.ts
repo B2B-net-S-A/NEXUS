@@ -16,6 +16,41 @@ export const MATCH_SCORES_MAX_CANDIDATES = 20;
 const BATCH_WINDOW_MS = 120;
 
 /**
+ * A 429 is retried on its own this many times, the delay doubling from
+ * `RATE_LIMIT_RETRY_BASE_MS` (5, 10, 20, 40 s — past the server's one-minute
+ * window). After that the row keeps its "ponów" control.
+ */
+export const RATE_LIMIT_MAX_AUTO_RETRIES = 4;
+export const RATE_LIMIT_RETRY_BASE_MS = 5_000;
+
+/**
+ * Why a row that was asked for has no score. Distinct from "not asked yet"
+ * (no marker) and from "Ocena niepełna" (answered: no verified measurement).
+ */
+export type ScoreFailure =
+  /** 403 — no access to canonical fit for this recruitment; not retried. */
+  | "forbidden"
+  /** 429, 5xx, network — "nie policzono", can be asked again. */
+  | "retry";
+
+function httpStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("response" in error)) {
+    return undefined;
+  }
+  const status = (error as { response?: { status?: unknown } }).response?.status;
+  return typeof status === "number" ? status : undefined;
+}
+
+export function scoreFailureFor(error: unknown): ScoreFailure {
+  return httpStatus(error) === 403 ? "forbidden" : "retry";
+}
+
+/** 429 from the scoring endpoints' rate limit — worth retrying on its own. */
+export function isRateLimited(error: unknown): boolean {
+  return httpStatus(error) === 429;
+}
+
+/**
  * Up to `max` ids that became visible and were not requested yet, in display
  * order — so the top of the screen is scored first.
  */
@@ -37,16 +72,65 @@ interface ScoreState {
   epoch: object;
   scores: Record<string, number>;
   breakdowns: Record<string, MatchBreakdown>;
+  failures: Record<string, ScoreFailure>;
 }
 
+/** Bookkeeping of one result set (one `epoch`). */
 interface Book {
   epoch: object;
+  /** Visible, waiting for the next request. */
   pending: Set<number>;
+  /** Asked for (in flight or answered) under `profileKey`. */
   requested: Set<number>;
+  /** Every row reported on screen — re-asked if the profile changes. */
+  seen: Set<number>;
+  /** Failed with "retry" — what the "ponów" control asks for again. */
+  retryable: Set<number>;
+  /** The server said 403 for this recruitment: stop asking. */
+  forbidden: boolean;
+  /** Weight profile the held scores were computed under (`profile_key`). */
+  profileKey: string | null;
+  controllers: Set<AbortController>;
+  /** Consecutive 429 answers — the automatic back-off exponent. */
+  rateLimited: number;
+  retryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const EMPTY_SCORES: Record<string, number> = {};
 const EMPTY_BREAKDOWNS: Record<string, MatchBreakdown> = {};
+const EMPTY_FAILURES: Record<string, ScoreFailure> = {};
+
+function newBook(epoch: object): Book {
+  return {
+    epoch,
+    pending: new Set(),
+    requested: new Set(),
+    seen: new Set(),
+    retryable: new Set(),
+    forbidden: false,
+    profileKey: null,
+    controllers: new Set(),
+    rateLimited: 0,
+    retryTimer: null,
+  };
+}
+
+/** Cancel everything a superseded result set still has in flight. */
+function retire(book: Book): void {
+  for (const controller of book.controllers) controller.abort();
+  book.controllers.clear();
+  if (book.retryTimer !== null) clearTimeout(book.retryTimer);
+  book.retryTimer = null;
+}
+
+function emptyState(epoch: object): ScoreState {
+  return {
+    epoch,
+    scores: EMPTY_SCORES,
+    breakdowns: EMPTY_BREAKDOWNS,
+    failures: EMPTY_FAILURES,
+  };
+}
 
 /**
  * Canonical fit badges for the rows a recruiter actually sees.
@@ -54,12 +138,18 @@ const EMPTY_BREAKDOWNS: Record<string, MatchBreakdown> = {};
  * Rows report themselves with `onRowVisible(id)` when they enter the viewport;
  * ids seen within a short window go out in ONE request of at most
  * `MATCH_SCORES_MAX_CANDIDATES`, top of the screen first. Each row is asked
- * for once per result set. A new result set (or job) starts over: its
- * `epoch` changes, so scores of the previous rows never leak onto the next
- * ones and a late response for an old result set is dropped.
+ * for once per result set. A new result set (or job) starts over: its `epoch`
+ * changes, requests still in flight for the previous one are aborted, and a
+ * late answer for it is dropped.
  *
- * A failed request leaves those rows without a badge and is not retried in a
- * loop — the column is decoration of a search that already rendered.
+ * The cache is also keyed by the weight profile the server scored under
+ * (`profile_key`): when it changes, the rows held under the old profile are
+ * dropped and asked for again — two profiles never share one screen.
+ *
+ * A failure is never shown as "no score yet": a 403 marks the row
+ * `forbidden` ("brak dostępu") and stops asking for this recruitment; any
+ * other failure marks it `retry` ("nie policzono — ponów") until `retry()` —
+ * and a 429 is retried on its own with a doubling delay.
  */
 export function useVisibleMatchScores(
   jobId: number | null | undefined,
@@ -68,53 +158,146 @@ export function useVisibleMatchScores(
   // A fresh identity per (job, result set) — compared by reference only.
   const epoch = useMemo(() => ({ jobId, items }), [jobId, items]);
   const order = useMemo(() => (items ?? []).map((item) => item.id), [items]);
-  const [state, setState] = useState<ScoreState>(() => ({
-    epoch,
-    scores: EMPTY_SCORES,
-    breakdowns: EMPTY_BREAKDOWNS,
-  }));
-  const book = useRef<Book>({ epoch, pending: new Set(), requested: new Set() });
+  const [state, setState] = useState<ScoreState>(() => emptyState(epoch));
+  const book = useRef<Book>(newBook(epoch));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Lets timers and answers of this render call the current closures.
+  const flushRef = useRef<() => void>(() => {});
 
-  useEffect(
-    () => () => {
-      if (timer.current !== null) clearTimeout(timer.current);
+  const schedule = useCallback((delay: number) => {
+    if (timer.current === null) {
+      timer.current = setTimeout(() => flushRef.current(), delay);
+    }
+  }, []);
+
+  const updateFailures = useCallback(
+    (ids: readonly number[], failure: ScoreFailure | null) => {
+      setState((prev) => {
+        const base = prev.epoch === epoch ? prev : emptyState(epoch);
+        const failures = { ...base.failures };
+        for (const id of ids) {
+          if (failure === null) delete failures[String(id)];
+          else failures[String(id)] = failure;
+        }
+        return { ...base, failures };
+      });
     },
-    [],
+    [epoch],
+  );
+
+  /** Put `ids` back in the queue of the CURRENT result set. */
+  const requeue = useCallback(
+    (current: Book, ids: readonly number[]) => {
+      if (book.current !== current || current.forbidden || ids.length === 0) return;
+      for (const id of ids) {
+        current.retryable.delete(id);
+        current.requested.delete(id);
+        current.pending.add(id);
+      }
+      updateFailures(ids, null);
+      schedule(0);
+    },
+    [schedule, updateFailures],
   );
 
   const flush = useCallback(() => {
     timer.current = null;
     const current = book.current;
-    if (jobId == null || current.epoch !== epoch) return;
+    if (jobId == null || current.epoch !== epoch || current.forbidden) return;
     const batch = pickScoreRequestIds(order, current.pending, current.requested);
     if (batch.length === 0) return;
     for (const id of batch) {
       current.pending.delete(id);
       current.requested.add(id);
     }
+    const controller = new AbortController();
+    current.controllers.add(controller);
     candidateSearchApi
-      .matchScores(jobId, batch)
+      .matchScores(jobId, batch, { signal: controller.signal })
       .then((response) => {
-        if (book.current.epoch !== epoch) return; // an earlier result set
+        if (controller.signal.aborted || book.current !== current) return;
+        current.rateLimited = 0;
+        const key = response.profile_key ?? null;
+        const switched =
+          key !== null && current.profileKey !== null && key !== current.profileKey;
+        if (key !== null) current.profileKey = key;
+        if (switched) {
+          // Answers sent under the previous profile are superseded, and the
+          // rows it scored are asked for again under this one.
+          for (const other of current.controllers) {
+            if (other !== controller) other.abort();
+          }
+          const again = [...current.seen].filter((id) => !batch.includes(id));
+          for (const id of again) {
+            current.requested.delete(id);
+            current.retryable.delete(id);
+            current.pending.add(id);
+          }
+          schedule(0);
+        }
+        for (const id of batch) current.retryable.delete(id);
         setState((prev) => {
-          const base =
-            prev.epoch === epoch
-              ? prev
-              : { epoch, scores: EMPTY_SCORES, breakdowns: EMPTY_BREAKDOWNS };
+          const base = prev.epoch === epoch && !switched ? prev : emptyState(epoch);
+          const failures = { ...base.failures };
+          for (const id of batch) delete failures[String(id)];
           return {
             epoch,
             scores: { ...base.scores, ...response.scores },
             breakdowns: { ...base.breakdowns, ...response.breakdowns },
+            failures,
           };
         });
       })
-      .catch(() => {
-        // Rows stay without a badge; nothing is retried in a loop.
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || book.current !== current) return;
+        const failure = scoreFailureFor(error);
+        if (failure === "forbidden") {
+          current.forbidden = true;
+          current.pending.clear();
+          updateFailures([...current.seen], "forbidden");
+          return;
+        }
+        for (const id of batch) current.retryable.add(id);
+        updateFailures(batch, "retry");
+        if (isRateLimited(error) && current.rateLimited < RATE_LIMIT_MAX_AUTO_RETRIES) {
+          const delay = RATE_LIMIT_RETRY_BASE_MS * 2 ** current.rateLimited;
+          current.rateLimited += 1;
+          if (current.retryTimer !== null) clearTimeout(current.retryTimer);
+          current.retryTimer = setTimeout(() => {
+            current.retryTimer = null;
+            requeue(
+              current,
+              batch.filter((id) => current.retryable.has(id)),
+            );
+          }, delay);
+        }
+      })
+      .finally(() => {
+        current.controllers.delete(controller);
       });
     // More rows came into view than one request may carry: next batch.
-    if (current.pending.size > 0) timer.current = setTimeout(flush, 0);
-  }, [epoch, jobId, order]);
+    if (current.pending.size > 0) schedule(0);
+  }, [epoch, jobId, order, requeue, schedule, updateFailures]);
+
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
+
+  // A superseded result set (or unmount) cancels what it still has in flight.
+  useEffect(
+    () => () => {
+      if (book.current.epoch === epoch) retire(book.current);
+    },
+    [epoch],
+  );
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+    },
+    [],
+  );
 
   const onRowVisible = useCallback(
     (id: number) => {
@@ -123,22 +306,39 @@ export function useVisibleMatchScores(
         // First row of a new result set: forget the previous one, including
         // a flush it had scheduled (it would bail out on the old epoch and
         // strand this set's pending rows).
+        retire(book.current);
         if (timer.current !== null) clearTimeout(timer.current);
         timer.current = null;
-        book.current = { epoch, pending: new Set(), requested: new Set() };
+        book.current = newBook(epoch);
       }
       const current = book.current;
-      if (current.requested.has(id) || current.pending.has(id)) return;
+      current.seen.add(id);
+      if (current.forbidden) {
+        updateFailures([id], "forbidden");
+        return;
+      }
+      if (current.requested.has(id)) return;
       current.pending.add(id);
-      if (timer.current === null) timer.current = setTimeout(flush, BATCH_WINDOW_MS);
+      schedule(BATCH_WINDOW_MS);
     },
-    [epoch, jobId, flush],
+    [epoch, jobId, schedule, updateFailures],
   );
+
+  /** Ask again for every row that failed with "nie policzono — ponów". */
+  const retry = useCallback(() => {
+    const current = book.current;
+    if (current.epoch !== epoch) return;
+    if (current.retryTimer !== null) clearTimeout(current.retryTimer);
+    current.retryTimer = null;
+    requeue(current, [...current.retryable]);
+  }, [epoch, requeue]);
 
   const visible = state.epoch === epoch;
   return {
     scores: visible ? state.scores : EMPTY_SCORES,
     breakdowns: visible ? state.breakdowns : EMPTY_BREAKDOWNS,
+    failures: visible ? state.failures : EMPTY_FAILURES,
     onRowVisible,
+    retry,
   };
 }

@@ -1,6 +1,6 @@
 import type { AnchorHTMLAttributes } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const search = vi.fn();
@@ -112,6 +112,61 @@ describe("CandidateSearchView — canonical fit column", () => {
         name: "Ocena niepełna: profil kandydata zmienił się od ostatniej indeksacji",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("a failed request is a 'ponów' marker on the row, not an empty cell", async () => {
+    matchScores
+      .mockReset()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("HTTP 503"), { response: { status: 503 } }),
+      )
+      .mockResolvedValueOnce({
+        scores: { "1": 77 },
+        breakdowns: { "1": { total: 77.4, measurement: "measured" } },
+        profile_key: "0:default",
+      });
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <CandidateSearchView addToJob={{ id: 9, title: "Java" }} />
+      </QueryClientProvider>,
+    );
+
+    const markers = await screen.findAllByRole("button", {
+      name: "Nie policzono dopasowania — ponów",
+    });
+    expect(markers).toHaveLength(20);
+    expect(screen.queryByRole("img", { name: /Ocena niepełna/ })).not.toBeInTheDocument();
+
+    fireEvent.click(markers[0]);
+
+    expect(await screen.findByRole("button", { name: /^77$/ })).toBeInTheDocument();
+    expect(matchScores).toHaveBeenCalledTimes(2);
+    expect((matchScores.mock.calls[1] as [number, number[]])[1]).toHaveLength(20);
+  });
+
+  it("no access to the recruitment is said on the row", async () => {
+    matchScores
+      .mockReset()
+      .mockRejectedValue(
+        Object.assign(new Error("HTTP 403"), { response: { status: 403 } }),
+      );
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <CandidateSearchView addToJob={{ id: 9, title: "Java" }} />
+      </QueryClientProvider>,
+    );
+
+    const locks = await screen.findAllByRole("img", {
+      name: "Brak dostępu do oceny dopasowania",
+    });
+    expect(locks.length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: "Nie policzono dopasowania — ponów" }),
+    ).not.toBeInTheDocument();
   });
 
   it("outside a recruitment context never measures", async () => {

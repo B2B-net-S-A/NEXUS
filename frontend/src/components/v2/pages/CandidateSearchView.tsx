@@ -18,7 +18,9 @@ import {
   GitCompare,
   ListPlus,
   Loader2,
+  Lock,
   Plus,
+  RotateCcw,
   Search,
   Trash2,
   TriangleAlert,
@@ -60,6 +62,7 @@ import { assignErrorMessage } from "@/lib/assign-error";
 import {
   MATCH_SCORES_MAX_CANDIDATES,
   useVisibleMatchScores,
+  type ScoreFailure,
 } from "@/hooks/useVisibleMatchScores";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
@@ -356,6 +359,8 @@ export function CandidateSearchView({
           : {}),
         ...(note ? { note } : {}),
         ...(tags.length ? { tags } : {}),
+        // Telemetry: no full-search run here, so the outcome stays unattributed.
+        source: "manual_search",
       });
       setBulkResult(resp);
       clearSelection();
@@ -471,12 +476,28 @@ export function CandidateSearchView({
   // Match scores (job context only): canonical fit — the number C2 screens
   // show — measured on demand for the rows on screen only, at most 20 per
   // request (`useVisibleMatchScores`). Until 09.2026 this read a legacy cache
-  // nothing writes any more, so the column was silently empty.
+  // nothing writes any more, so the column was silently empty. A failed
+  // request is a marker on the row ("brak dostępu" / "nie policzono —
+  // ponów"), never an empty cell that reads as "not scored yet".
   const {
     scores: matchScores,
     breakdowns: matchBreakdowns,
+    failures: matchFailures,
     onRowVisible,
+    retry: retryMatchScores,
   } = useVisibleMatchScores(addToJob?.id, data?.items);
+
+  // Stable while the selection and the result set are: the compare modal
+  // keys its request on these ids, so a new array per render must not look
+  // like a new comparison.
+  const compareCandidates = useMemo(
+    () =>
+      (data?.items ?? [])
+        .filter((c) => selected.has(c.id))
+        .slice(0, 5)
+        .map((c) => ({ id: c.id, name: `${c.name} ${c.lastname}` })),
+    [data, selected],
+  );
 
   const ccCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -868,6 +889,8 @@ export function CandidateSearchView({
             onToggleSelect={() => toggleSelect(c.id)}
             score={matchScores[String(c.id)]}
             breakdown={matchBreakdowns[String(c.id)]}
+            scoreFailure={matchFailures[String(c.id)]}
+            onRetryScore={retryMatchScores}
             onVisible={addToJob ? onRowVisible : undefined}
             scoreWithoutObserver={index < MATCH_SCORES_MAX_CANDIDATES}
           />
@@ -1056,10 +1079,7 @@ export function CandidateSearchView({
       {compareOpen && addToJob && (
         <CandidateCompareModal
           jobId={addToJob.id}
-          candidates={(data?.items ?? [])
-            .filter((c) => selected.has(c.id))
-            .slice(0, 5)
-            .map((c) => ({ id: c.id, name: `${c.name} ${c.lastname}` }))}
+          candidates={compareCandidates}
           onClose={() => setCompareOpen(false)}
         />
       )}
@@ -1076,6 +1096,10 @@ interface CandidateSearchRowProps {
   score?: number;
   /** Fit breakdown (per-layer points + matched/gap skills, or why unmeasured). */
   breakdown?: MatchBreakdown;
+  /** The score request for this row failed (403 / anything else). */
+  scoreFailure?: ScoreFailure;
+  /** Ask again for the rows whose score request failed. */
+  onRetryScore?: () => void;
   /** Reports the row once it is on screen, so only visible rows get scored. */
   onVisible?: (candidateId: number) => void;
   /**
@@ -1127,6 +1151,8 @@ function CandidateSearchRow({
   onToggleSelect,
   score,
   breakdown,
+  scoreFailure,
+  onRetryScore,
   onVisible,
   scoreWithoutObserver = false,
 }: CandidateSearchRowProps) {
@@ -1134,8 +1160,11 @@ function CandidateSearchRow({
   useReportWhenVisible(rowRef, item.id, onVisible, scoreWithoutObserver);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const canExpand = typeof score === "number" && hasBreakdownDetail(breakdown);
+  const failure = typeof score !== "number" ? scoreFailure : undefined;
   const notMeasured =
-    typeof score !== "number" ? unmeasuredReason(breakdown?.measurement) : null;
+    typeof score !== "number" && !failure
+      ? unmeasuredReason(breakdown?.measurement)
+      : null;
   const skillsList = Array.isArray(item.skills)
     ? (item.skills as Array<string | { name?: string }>)
     : [];
@@ -1176,6 +1205,27 @@ function CandidateSearchRow({
           }`}
         >
           {score}
+        </button>
+      )}
+      {failure === "forbidden" && (
+        <span
+          role="img"
+          aria-label="Brak dostępu do oceny dopasowania"
+          title="Brak dostępu do oceny dopasowania dla tej rekrutacji"
+          className="mt-0.5 inline-flex h-6 w-9 shrink-0 cursor-help items-center justify-center rounded-md border border-dashed border-border text-muted-foreground"
+        >
+          <Lock className="h-3 w-3" aria-hidden="true" />
+        </span>
+      )}
+      {failure === "retry" && (
+        <button
+          type="button"
+          onClick={onRetryScore}
+          aria-label="Nie policzono dopasowania — ponów"
+          title="Nie policzono dopasowania — kliknij, aby ponowić"
+          className="mt-0.5 inline-flex h-6 w-9 shrink-0 items-center justify-center rounded-md bg-warning-muted text-warning-muted-foreground hover:ring-1 hover:ring-ring"
+        >
+          <RotateCcw className="h-3 w-3" aria-hidden="true" />
         </button>
       )}
       {notMeasured && (

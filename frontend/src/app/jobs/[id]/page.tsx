@@ -667,6 +667,14 @@ function AIMatchingSection({
     queryClient.setQueryData(["full-search-summary", actorId, jobId], searchSummary);
   }, [searchSummary, actorId, jobId, queryClient]);
 
+  // Telemetria dopasowań: ranking, z którego pochodzi dodanie. Trasa bulk jest
+  // wspólna z ekranami bez przeglądu, więc backend przypina outcome do tego
+  // runu tylko wtedy, gdy jest nasz, dla tej rekrutacji i pokazał kandydata.
+  const fullSearchOrigin = {
+    run_id: fullSearch.runId,
+    source: "full_search" as const,
+  };
+
   // Wspólny kanon z sekcją „Kandydaci z podobnych projektów": bulk-proposals
   // dedupuje (już-w-pipeline → total_added=0) i wybiera pierwszy nie-terminalny
   // etap. Wcześniej legacy wysyłał `pipeline/move` ze `stage:"sourced"` (spoza
@@ -676,7 +684,10 @@ function AIMatchingSection({
       if (readOnly) {
         throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       }
-      return proposalsBulkApi.add(jobId, { candidate_ids: [candidateId] });
+      return proposalsBulkApi.add(jobId, {
+        candidate_ids: [candidateId],
+        ...fullSearchOrigin,
+      });
     },
     onMutate: ({ candidateId }) => setAddingId(candidateId),
     onSuccess: (res, { candidateId, fullName }) => {
@@ -723,7 +734,7 @@ function AIMatchingSection({
       if (readOnly) {
         throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       }
-      return proposalsBulkApi.add(jobId, { candidate_ids: ids });
+      return proposalsBulkApi.add(jobId, { candidate_ids: ids, ...fullSearchOrigin });
     },
     onSuccess: (res, ids) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });

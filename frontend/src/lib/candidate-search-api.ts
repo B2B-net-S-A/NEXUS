@@ -187,23 +187,31 @@ export const candidateSearchApi = {
    * `MATCH_SCORES_MAX_CANDIDATES` ids per call (see `useVisibleMatchScores`;
    * the backend answers 422 beyond that): ask only for rows on screen.
    * Unmeasured candidates have no score and a `{ total: null, measurement }`
-   * breakdown.
+   * breakdown. `signal` cancels a request whose rows are no longer on screen.
    */
   matchScores: (
     jobId: number,
     candidateIds: number[],
+    options?: { signal?: AbortSignal },
   ): Promise<MatchScoresResponse> =>
     api
-      .post<MatchScoresResponse>("/api/search/candidates/scores", {
-        job_id: jobId,
-        candidate_ids: candidateIds,
-      })
+      .post<MatchScoresResponse>(
+        "/api/search/candidates/scores",
+        { job_id: jobId, candidate_ids: candidateIds },
+        { signal: options?.signal },
+      )
       .then((r) => r.data),
 };
 
 export interface MatchScoresResponse {
   scores: Record<string, number>;
   breakdowns: Record<string, MatchBreakdown>;
+  /**
+   * The weight profile the scores were computed under (`<id>:<digest>`). The
+   * same pair scores differently under another profile, so cached scores are
+   * keyed by it. `null`/absent when nothing was scored.
+   */
+  profile_key?: string | null;
 }
 
 export type BulkSkipReason =
@@ -217,11 +225,25 @@ export type BulkSkipReason =
 
 export type BulkWarningReason = "current_employment" | "excluded_by_candidate";
 
+/** The screen an add came from — mirror of `BulkAddSource` in `proposals_bulk.py`. */
+export type BulkAddSource =
+  | "full_search"
+  | "manual_search"
+  | "historical"
+  | "quick_add";
+
 export interface BulkProposalsRequest {
   candidate_ids: number[];
   initial_stage_def_id?: number | null;
   note?: string | null;
   tags?: string[];
+  /**
+   * Match telemetry only: the full-search run whose ranking the add followed
+   * from. The backend attributes the outcome to it only when the run is this
+   * user's, for this job, and showed the candidate — never guessed.
+   */
+  run_id?: string | null;
+  source?: BulkAddSource | null;
 }
 
 export interface BulkSkippedRow {
