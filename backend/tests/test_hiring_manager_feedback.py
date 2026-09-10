@@ -356,10 +356,12 @@ async def test_listing_returns_one_verdict_per_candidate(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert len(rows) == 1
     assert rows[0]["candidate_id"] == world["candidate_id"]
     assert rows[0]["blocks_future_proposals"] is True
+    # Admin przejdzie POST — formularz ma być edytowalny.
+    assert resp.json()["can_record"] is True
 
 
 async def test_without_auth_it_is_closed(app_client) -> None:
@@ -496,10 +498,13 @@ async def test_finance_reads_verdicts_without_team_membership(
 
     resp = await app_client.get(_url(world), headers=finance_headers)
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert len(rows) == 1
     # Finance nie jest autorem ani DL/adminem — podgląd, bez nadpisywania.
     assert rows[0]["can_edit"] is False
+    # …i spoza zespołu tej rekrutacji: POST skończyłby się 403, więc
+    # formularz nie może obiecywać „Zapisz feedback".
+    assert resp.json()["can_record"] is False
 
 
 async def test_a_colleague_cannot_silently_overwrite_someone_elses_verdict(
@@ -542,13 +547,15 @@ async def test_a_colleague_cannot_silently_overwrite_someone_elses_verdict(
     assert "zmienić go może autor" in second.json()["detail"]
 
     as_author = (await app_client.get(_url(world), headers=author_headers)).json()
-    assert as_author[0]["decision"] == "reject"
-    assert as_author[0]["author_id"] == author_id
-    assert as_author[0]["can_edit"] is True
+    assert as_author["items"][0]["decision"] == "reject"
+    assert as_author["items"][0]["author_id"] == author_id
+    assert as_author["items"][0]["can_edit"] is True
 
     as_colleague = (await app_client.get(_url(world), headers=colleague_headers)).json()
-    assert as_colleague[0]["can_edit"] is False
-    assert as_colleague[0]["author_name"].startswith("HM recruiter")
+    # Kolega z zespołu MOŻE zapisywać werdykty — tylko nie nadpisać cudzego.
+    assert as_colleague["can_record"] is True
+    assert as_colleague["items"][0]["can_edit"] is False
+    assert as_colleague["items"][0]["author_name"].startswith("HM recruiter")
 
 
 async def test_author_and_delivery_lead_may_update_the_verdict(app_client) -> None:
@@ -606,7 +613,8 @@ async def test_head_of_recruitment_reads_but_cannot_record(app_client) -> None:
 
     listed = await app_client.get(_url(world), headers=hor_headers)
     assert listed.status_code == 200, listed.text
-    assert listed.json()[0]["can_edit"] is False
+    assert listed.json()["items"][0]["can_edit"] is False
+    assert listed.json()["can_record"] is False
 
     write = await app_client.post(
         _url(world),
@@ -614,3 +622,70 @@ async def test_head_of_recruitment_reads_but_cannot_record(app_client) -> None:
         json={"candidate_id": world["candidate_id"], "decision": "reject"},
     )
     assert write.status_code == 403, write.text
+
+
+# ── `can_record`: formularz tylko dla tych, których POST przepuści (09.2026) ──
+
+
+async def test_can_record_matches_the_post_for_every_persona(
+    app_client, app_auth_headers
+) -> None:
+    """`can_record` z odczytu = wynik PRAWDZIWEGO zapisu, persona po personie.
+
+    Do 09.2026 formularz decydował po capability roli, a zapis dodatkowo po
+    członkostwie w zespole — Finance (tier RecruiterPlus) na cudzej rekrutacji
+    widziało aktywne „Zapisz feedback" kończące się 403. Każda persona dostaje
+    własną rekrutację, żeby reguła nadpisywania CUDZEGO werdyktu (`can_edit`)
+    nie mieszała się z prawem do zapisu.
+    """
+    from app.models.user import UserRole
+
+    # Rekruter spoza zespołu nie dostaje nawet ODCZYTU (403 z bramki
+    # członkostwa) — nie ma tu czego porównywać. Finance czyta organizacyjnie,
+    # więc to na nim widać różnicę między odczytem a zapisem.
+    cases = [
+        ("admin", None, True),
+        ("recruiter-member", UserRole.recruiter, True),
+        ("finance-member", UserRole.finance, True),
+        ("finance-outsider", UserRole.finance, False),
+        # Obejście członkostwa dla Delivery Leada — to samo co w POST.
+        ("delivery-lead-outsider", UserRole.delivery_lead, True),
+        ("head-of-recruitment", UserRole.head_of_recruitment, False),
+    ]
+    for label, role, expected in cases:
+        world = await _seed()
+        if role is None:
+            headers = app_auth_headers
+        else:
+            headers, _ = await _role_headers(
+                role,
+                member_of_job=world["job_id"] if label.endswith("-member") else None,
+            )
+
+        listed = await app_client.get(_url(world), headers=headers)
+        assert listed.status_code == 200, (label, listed.text)
+        can_record = listed.json()["can_record"]
+
+        write = await app_client.post(
+            _url(world),
+            headers=headers,
+            json={"candidate_id": world["candidate_id"], "decision": "on_hold"},
+        )
+        assert write.status_code in (201, 403), (label, write.text)
+        assert can_record is (write.status_code == 201), (label, can_record, write.text)
+        assert can_record is expected, label
+
+
+async def test_impersonated_view_cannot_record(app_client, app_auth_headers) -> None:
+    """Podgląd „jako użytkownik" jest tylko do odczytu — POST dostałby 403."""
+    from app.models.user import UserRole
+
+    world = await _seed()
+    _, member_id = await _role_headers(UserRole.recruiter, member_of_job=world["job_id"])
+
+    listed = await app_client.get(
+        _url(world),
+        headers={**app_auth_headers, "X-Impersonate-User-Id": str(member_id)},
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["can_record"] is False

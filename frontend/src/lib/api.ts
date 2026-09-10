@@ -1469,10 +1469,24 @@ export interface HiringManagerFeedback {
   can_edit?: boolean;
 }
 
+/** Odpowiedź `GET /api/jobs/{id}/hiring-manager-feedback`. */
+export interface HiringManagerFeedbackList {
+  /**
+   * Czy WOŁAJĄCY przejdzie `POST` na tej rekrutacji — liczone TYMI SAMYMI
+   * bramkami co zapis (rola, sekcja pipeline, członkostwo w zespole z
+   * obejściem dla DL, brak trybu podglądu). Formularz edytowalny tylko przy
+   * `true` — inaczej np. Finance na cudzej rekrutacji klikało „Zapisz" w 403.
+   */
+  can_record: boolean;
+  items: HiringManagerFeedback[];
+}
+
 export const hiringManagerFeedbackApi = {
   list: (jobId: number) =>
     api
-      .get<HiringManagerFeedback[]>(`/api/jobs/${jobId}/hiring-manager-feedback`)
+      .get<HiringManagerFeedbackList>(
+        `/api/jobs/${jobId}/hiring-manager-feedback`,
+      )
       .then((r) => r.data),
   record: (jobId: number, payload: HiringManagerFeedbackPayload) =>
     api

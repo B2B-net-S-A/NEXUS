@@ -35,6 +35,7 @@ import api, {
   screeningApi,
   type HiringManagerDecision,
   type HiringManagerFeedback,
+  type HiringManagerFeedbackList,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
@@ -216,18 +217,22 @@ export function JobInterviewsTab({
   }, [columns]);
 
   // ── Werdykty hiring managera dla całej rekrutacji (jedno zapytanie) ──
-  const feedbackQuery = useQuery<HiringManagerFeedback[]>({
+  const feedbackQuery = useQuery<HiringManagerFeedbackList>({
     queryKey: ["hiring-manager-feedback", jobId],
     queryFn: () => hiringManagerFeedbackApi.list(jobId),
     staleTime: 30_000,
   });
   const feedbackByCandidate = useMemo(() => {
     const map = new Map<number, HiringManagerFeedback>();
-    for (const row of feedbackQuery.data ?? []) {
+    for (const row of feedbackQuery.data?.items ?? []) {
       if (!map.has(row.candidate_id)) map.set(row.candidate_id, row);
     }
     return map;
   }, [feedbackQuery.data]);
+  // Czy zapis werdyktu przejdzie na serwerze — `null`, dopóki nie wiadomo.
+  const canRecordOnServer = feedbackQuery.data
+    ? feedbackQuery.data.can_record
+    : null;
 
   const reasonsQuery = useQuery<RejectionReasonOption[]>({
     queryKey: ["job-rejection-reasons", jobId],
@@ -482,6 +487,7 @@ export function JobInterviewsTab({
             reasons={rejectionReasons}
             reasonsLoading={reasonsQuery.isLoading}
             feedback={feedbackByCandidate.get(selected.item.candidate_id) ?? null}
+            canRecord={canRecordOnServer}
             feedbackQueryState={resolveViewState({
               isLoading: feedbackQuery.isLoading,
               isError: feedbackQuery.isError,
@@ -611,6 +617,11 @@ interface InterviewCardProps {
   reasons: RejectionReasonOption[];
   reasonsLoading: boolean;
   feedback: HiringManagerFeedback | null;
+  /**
+   * `can_record` z odczytu werdyktów: czy `POST` przejdzie na serwerze.
+   * `null` — odpowiedź jeszcze nie przyszła (formularz zostaje zablokowany).
+   */
+  canRecord: boolean | null;
   feedbackQueryState: ReturnType<typeof resolveViewState>;
   onFeedbackRetry: () => void;
   onOpenScreening: (stageId: number, name: string) => void;
@@ -627,6 +638,7 @@ function InterviewCard({
   reasons,
   reasonsLoading,
   feedback,
+  canRecord,
   feedbackQueryState,
   onFeedbackRetry,
   onOpenScreening,
@@ -656,13 +668,15 @@ function InterviewCard({
   );
   const chosenReason = rejectedReasons.find((r) => r.id === reasonId) ?? null;
 
-  // Zapis werdyktu stoi za `RecruiterPlus` (bez Head of Recruitment), a CUDZY
-  // werdykt nadpisuje wyłącznie autor, DL albo admin — to drugie mówi serwer
-  // polem `can_edit`. Bez tych bramek HoR i kolega autora widzieli aktywne
-  // „Zapisz", które kończyło się 403 albo cichym nadpisaniem cudzej decyzji.
+  // Zapis werdyktu decyduje SERWER: `can_record` z odczytu liczy te same
+  // bramki co `POST` (rola, sekcja, członkostwo w zespole z obejściem dla DL).
+  // Sama capability roli nie wystarczała — Finance na cudzej rekrutacji
+  // widziało aktywne „Zapisz feedback" kończące się 403. CUDZY werdykt
+  // nadpisuje wyłącznie autor, DL albo admin — to mówi `can_edit` wiersza.
+  // Capability zostaje wyłącznie do WYJAŚNIENIA, dlaczego jest tylko podgląd.
   const canRecordVerdict = useCapability("hm_feedback.record");
   const verdictLockedByAuthor = Boolean(feedback) && feedback?.can_edit === false;
-  const canWriteVerdict = !readOnly && canRecordVerdict && !verdictLockedByAuthor;
+  const canWriteVerdict = !readOnly && canRecord === true && !verdictLockedByAuthor;
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -985,10 +999,16 @@ function InterviewCard({
               <p className="text-[11px] text-muted-foreground">
                 Tylko do odczytu — brak prawa zapisu w tym pipeline.
               </p>
-            ) : !canRecordVerdict ? (
+            ) : canRecord === false && !canRecordVerdict ? (
               <p className="text-[11px] text-muted-foreground">
                 Werdykt zapisuje zespół rekrutacji (rekruter, TAC, Delivery Lead,
                 admin) — Twoja rola ma tu podgląd.
+              </p>
+            ) : canRecord === false ? (
+              <p className="text-[11px] text-muted-foreground">
+                Werdykt zapisuje zespół tej rekrutacji (właściciel, TAC,
+                współpracownicy, Delivery Lead) — nie należysz do niego, więc
+                masz tu podgląd.
               </p>
             ) : verdictLockedByAuthor ? (
               <p className="text-[11px] text-muted-foreground">

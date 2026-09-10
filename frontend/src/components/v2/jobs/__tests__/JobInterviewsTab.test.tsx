@@ -158,7 +158,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   loginAs("recruiter");
   copyText.mockResolvedValue(true);
-  listFeedback.mockResolvedValue([]);
+  listFeedback.mockResolvedValue({ can_record: true, items: [] });
   recordFeedback.mockResolvedValue({
     id: 1,
     job_id: 10,
@@ -243,6 +243,7 @@ describe("JobInterviewsTab", () => {
     await screen.findByRole("option", {
       name: "Nie spełnia wymagań technicznych",
     });
+    await editableForm();
     return select;
   }
 
@@ -264,8 +265,16 @@ describe("JobInterviewsTab", () => {
     ).toBeTruthy();
   });
 
+  /** Formularz odblokowuje się dopiero po `can_record` z serwera. */
+  async function editableForm() {
+    await waitFor(() =>
+      expect(screen.getByLabelText("Notatka z feedbacku")).not.toBeDisabled(),
+    );
+  }
+
   it("zapisuje werdykt przez `POST /jobs/{id}/hiring-manager-feedback`", async () => {
     renderTab();
+    await editableForm();
     await userEvent.click(await screen.findByRole("button", { name: "Odrzuca" }));
     await userEvent.selectOptions(await reasonSelect(), "3");
     await userEvent.type(
@@ -353,14 +362,36 @@ describe("JobInterviewsTab", () => {
 
   it("Head of Recruitment ma podgląd werdyktu, ale nie dostaje „Zapisz” kończącego się 403", async () => {
     loginAs("head_of_recruitment");
+    listFeedback.mockResolvedValue({ can_record: false, items: [] });
     renderTab();
-    expect(await screen.findByLabelText("Powód (gdy odrzuca)")).toBeDisabled();
+    expect(await screen.findByText(/Twoja rola ma tu podgląd/)).toBeTruthy();
+    expect(screen.getByLabelText("Powód (gdy odrzuca)")).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
-    expect(screen.getByText(/Twoja rola ma tu podgląd/)).toBeTruthy();
+  });
+
+  it("Finance spoza zespołu rekrutacji dostaje podgląd, nie „Zapisz” kończące się 403 (`can_record=false`)", async () => {
+    // Finance ma capability zapisu (tier RecruiterPlus), ale POST sprawdza też
+    // członkostwo w zespole — o tym mówi wyłącznie serwer polem `can_record`.
+    loginAs("finance");
+    listFeedback.mockResolvedValue({ can_record: false, items: [] });
+    renderTab();
+    expect(await screen.findByText(/nie należysz do niego/)).toBeTruthy();
+    expect(screen.getByLabelText("Notatka z feedbacku")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("zanim serwer powie `can_record`, formularz nie jest edytowalny", async () => {
+    listFeedback.mockReturnValue(new Promise(() => {}));
+    renderTab();
+    expect(await screen.findByLabelText("Notatka z feedbacku")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
   });
 
   it("cudzy werdykt (can_edit=false) jest zablokowany z imieniem autora — bez cichego nadpisania", async () => {
-    listFeedback.mockResolvedValue([
+    listFeedback.mockResolvedValue({
+      can_record: true,
+      items: [
       {
         id: 55,
         job_id: 10,
@@ -381,7 +412,8 @@ describe("JobInterviewsTab", () => {
         author_name: "Ewa Kolega",
         can_edit: false,
       },
-    ]);
+      ],
+    });
     renderTab();
     expect(await screen.findByText(/zapisał\(a\) Ewa Kolega/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
