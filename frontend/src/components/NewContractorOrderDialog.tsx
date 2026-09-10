@@ -188,7 +188,7 @@ export function NewContractorOrderDialog({
 
   function resetExtraction() {
     setExtractedRows([]);
-      setCheckData(false);
+    setCheckData(false);
     setCheckReasons([]);
     setClientPolicy(null);
   }

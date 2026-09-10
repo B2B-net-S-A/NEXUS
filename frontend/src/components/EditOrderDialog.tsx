@@ -308,7 +308,7 @@ export function EditOrderDialog({
     setFileError("");
     setFile(picked);
     setExtractedRows([]);
-      setCheckData(false);
+    setCheckData(false);
     setCheckReasons([]);
     setTitleCheck(false);
     setConsultantRef(null);

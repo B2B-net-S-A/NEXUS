@@ -524,7 +524,7 @@ export function ExtendOrderDialog({
               setFile(picked);
               setFileError(null);
               setExtractedRows([]);
-      setCheckData(false);
+              setCheckData(false);
               setCheckReasons([]);
               setTitleCheck(false);
               setConsultantRef(null);
@@ -562,7 +562,7 @@ export function ExtendOrderDialog({
                     setFile(null);
                     setFileError(null);
                     setExtractedRows([]);
-      setCheckData(false);
+                    setCheckData(false);
                     setCheckReasons([]);
                     setTitleCheck(false);
                     setConsultantRef(null);
