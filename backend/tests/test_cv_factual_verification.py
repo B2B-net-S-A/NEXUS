@@ -176,6 +176,66 @@ def run_pipeline(rule=None, prepared=None):
     )
 
 
+@pytest.mark.parametrize("rewrite_succeeds", [True, False])
+def test_editorial_rewrite_precedes_final_gate_and_failure_never_renders(
+    monkeypatch, rewrite_succeeds
+):
+    from unittest.mock import Mock
+    from app.services.cv_generator_b2b import editorial_limits as editor
+
+    long = "Testował migrację AWS wyłącznie szkoleniowo, bez odpowiedzialności za produkcję."
+    rewritten = "Testy AWS tylko szkoleniowo."
+    data = {
+        **DOCUMENT,
+        "experience": [
+            {
+                "company": "Test",
+                "position": "Programista",
+                "dates": "2020–2021",
+                "responsibilities": [long],
+                "technologies": [],
+            }
+        ],
+    }
+    monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: SOURCE + long)
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(data))
+    monkeypatch.setattr(
+        editor,
+        "analyze_with_ai",
+        lambda *a, **k: json.dumps(
+            {
+                "items": [
+                    {
+                        "path": "/experience/0/responsibilities/0",
+                        "text": rewritten if rewrite_succeeds else long,
+                    }
+                ]
+            }
+        ),
+    )
+    seen = []
+
+    def reject(content, *a, **k):
+        seen.append(json.loads(content)["final_document"])
+        return json.dumps(review_response(content, status="unsupported", evidence=[]))
+
+    monkeypatch.setattr(gate, "analyze_with_ai", reject)
+    render = Mock(side_effect=AssertionError("Rejected CV must not be exported"))
+    monkeypatch.setattr(svc, "render_cv_to_bytes", render)
+    with pytest.raises(svc.StandaloneGenerationError) as error:
+        run_pipeline(
+            CvRuleSnapshot(None, False, None, False, False, max_bullet_chars=40)
+        )
+    assert error.value.code == (
+        "source_verification_failed" if rewrite_succeeds else "editorial_limits_failed"
+    )
+    if rewrite_succeeds:
+        assert seen[0]["experience"][0]["responsibilities"] == [rewritten]
+    else:
+        assert seen == []
+    render.assert_not_called()
+
+
 def test_verifier_sees_glossary_result_and_never_receives_client_rules_as_evidence(
     monkeypatch,
 ):
