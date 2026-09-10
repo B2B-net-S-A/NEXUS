@@ -111,9 +111,14 @@ def reviewed_label_status(candidate, job, label, level):
     if not getattr(candidate, "_reviewed_requirements", {}).get("groups"):
         return None
     from app.schemas.matching_requirements import SkillRequirement
-    from app.services.requirement_contract import alternatives, requirements_for_job
+    from app.services.requirement_contract import (
+        alternatives,
+        contract_names,
+        requirements_for_job,
+    )
 
-    group = SkillRequirement(any_of=alternatives(label), level=level)
+    # Same clipping as the contract's own groups, or the key never matches.
+    group = SkillRequirement(any_of=contract_names(alternatives(label)), level=level)
     review = reviewed_group(
         candidate, requirements_for_job(job), group, job_id=getattr(job, "id", None)
     )
@@ -122,7 +127,7 @@ def reviewed_label_status(candidate, job, label, level):
 
 def reviewed_gate_status(candidate, label, *, job_id, fingerprint):
     from app.schemas.matching_requirements import SkillRequirement
-    from app.services.requirement_contract import alternatives
+    from app.services.requirement_contract import alternatives, contract_names
 
     state = getattr(candidate, "_reviewed_requirements", {})
     if (
@@ -132,6 +137,8 @@ def reviewed_gate_status(candidate, label, *, job_id, fingerprint):
         or state.get("fingerprint") != fingerprint
     ):
         return None
-    key = group_key(SkillRequirement(any_of=alternatives(label), level="must"))
+    key = group_key(
+        SkillRequirement(any_of=contract_names(alternatives(label)), level="must")
+    )
     review = state.get("groups", {}).get(key)
     return review["status"] if review else None

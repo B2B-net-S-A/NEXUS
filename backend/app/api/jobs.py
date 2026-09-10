@@ -2028,7 +2028,10 @@ async def _save_champion_profile(
     # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
-    intake_changed = old_profile.get("intake") != new_profile.get("intake")
+    # Normalised on both sides, like the diff above: a stored intake written
+    # before a schema field existed (e.g. `advisory`) must not read as a change
+    # — that would turn every no-op save into a write plus a notification.
+    intake_changed = normalized_old.get("intake") != new_profile.get("intake")
     if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,

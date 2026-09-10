@@ -16,10 +16,7 @@ from dataclasses import dataclass, field
 
 from app.services.champion_document import _split_skills
 from app.services import champion_view
-from app.services.cv_generator_b2b.text_extractor import (
-    extract_text_from_file,
-    CVTextExtractionError,
-)
+from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
 from app.services.skill_normalize import iter_skill_names
 
 logger = logging.getLogger(__name__)
@@ -552,14 +549,15 @@ def parse_champion_from_docx_bytes(
     and so cannot hit any of this.
     """
     from app.services.champion_document import table_profile, document_text
-    from app.services.champion_intake import prepare_profile, MAX_TEXT
+    from app.services.champion_intake import prepare_profile
 
     if filename.lower().endswith(".docx"):
+        # No length limit here: neither the table reader nor the heading
+        # segmentation below involves a model. The 14 000-character limit
+        # belongs to the AI parser only (`champion_intake.MAX_TEXT`); applied
+        # here it rejected long but perfectly readable profiles — and the
+        # upload preflight reported that as an unreadable DOCX.
         text = document_text(data)
-        if len(text) > MAX_TEXT:
-            raise CVTextExtractionError(
-                "Profil przekracza limit 14000 znaków. Skróć dokument."
-            )
         structured = table_profile(data)
         if structured is not None:
             cp = prepare_profile(
