@@ -443,6 +443,19 @@ async def bulk_add_proposals(
 
     await db.commit()
 
+    # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one
+    # `add_to_pipeline` outcome per candidate that actually entered the
+    # pipeline — never for skipped ones — correlated with the full-search run in
+    # which this user was shown the candidate (C2 adds through this route). AFTER
+    # the commit and in the telemetry service's own session: it cannot undo or
+    # fail the add (it never raises), and it writes at most one row per id.
+    if added:
+        from app.services.match_telemetry_service import emit_pipeline_additions
+
+        await emit_pipeline_additions(
+            job_id=job_id, candidate_ids=added, user_id=current_user.id
+        )
+
     return BulkProposalsResponse(
         added=added,
         skipped=skipped,
