@@ -76,7 +76,10 @@ async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
         )
     from app.services.cv_source_cleanup import is_purged_key
 
-    # A retired input (`purged/…`) is already deleted — no object to remove.
+    # A retired input (`purged/<id>`) names no object. Its real key was handed
+    # to the deletion ledger (`cv_source_cleanup`) when it was retired, and the
+    # ledger deletes that object with retries — it may still be pending, but
+    # it is not this erasure's key to return.
     keys = sorted(
         {
             job.input_storage_key
