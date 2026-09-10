@@ -140,6 +140,23 @@ class SourceFactsError(ValueError):
         self.paths = paths or []
         super().__init__("Complete source facts could not be established")
 
+    @property
+    def diagnostic_code(self) -> str:
+        code = "source_" + self.reason
+        # Retain the kind of rejected field, never a model-supplied pointer,
+        # candidate value, row index or raw response in operational metadata.
+        if self.reason == "unbound_fact" and self.paths:
+            match = re.fullmatch(
+                r"/(?:experience/\d+/(dates|company|industry|position|responsibilities|technologies)(?:/\d+)?"
+                r"|education/\d+/(dates|institution|degree|location)"
+                r"|skills/\d+/(content)|(name|first_name|position)"
+                r"|(certifications|languages)/\d+)",
+                self.paths[0],
+            )
+            if match:
+                code += "_" + next(value for value in match.groups() if value)
+        return code
+
 
 def source_leaves(data: dict) -> dict[str, str]:
     leaves = {}

@@ -168,6 +168,24 @@ def test_invalid_pointer_gets_one_repair_without_losing_any_source_history(monke
     }
 
 
+@pytest.mark.parametrize(
+    "path,suffix",
+    [
+        ("/experience/12/responsibilities/3", "_responsibilities"),
+        ("/education/0/dates", "_dates"),
+        ("/skills/0/content", "_content"),
+        ("/name", "_name"),
+        ("/certifications/1", "_certifications"),
+        ("/experience/0/private candidate value", ""),
+        ("/name/private", ""),
+    ],
+)
+def test_failure_metadata_contains_only_fixed_field_categories(path, suffix):
+    error = facts.SourceFactsError("unbound_fact", [path])
+    assert error.diagnostic_code == "source_unbound_fact" + suffix
+    assert len(error.diagnostic_code) <= 64
+
+
 def test_pdf_date_column_and_split_words_do_not_require_retyped_role_quotes():
     role = "16.01.2015- Firma B. Analityk. Admin-\n31.03.2015 istration of Active Direc-\ntory only in training.\n"
     original = SOURCE.replace(SOURCE.splitlines(keepends=True)[1], role)
