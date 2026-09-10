@@ -48,3 +48,10 @@ export async function withCvGenerationRequest<T>(path: string, data: object | Fo
     throw error;
   }
 }
+
+/** Clear a JSON request only after the server acknowledges a terminal state. */
+export async function forgetCvGenerationRequest(path: string, input: object): Promise<void> {
+  const storageKey = `nexus:cv-request:${await digest(JSON.stringify(canonical({path, input})))}`;
+  pending.delete(storageKey);
+  try { sessionStorage.removeItem(storageKey); } catch { /* Memory fallback. */ }
+}

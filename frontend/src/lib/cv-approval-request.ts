@@ -31,10 +31,12 @@ export async function reviewBeforeFinalize<T>(path: string,
     start: (key: string) => Promise<CvReviewState>;
     get: (id: number) => Promise<CvReviewState>;
     finalize: () => Promise<T>;
-  }, signal?: AbortSignal): Promise<T> {
+  }, signal?: AbortSignal, onReview?: (state: CvReviewState) => void): Promise<T> {
   const outcome = await withCvGenerationRequest(path, payload, async key => {
     abortCheck(signal);
     let state = await transport.start(key);
+    abortCheck(signal);
+    onReview?.(state);
     const deadline = Date.now() + 120_000;
     while (state.status === "queued" || state.status === "running") {
       abortCheck(signal);
@@ -42,6 +44,8 @@ export async function reviewBeforeFinalize<T>(path: string,
       if (Date.now() >= deadline) throw new Error("Kontrola nadal trwa. Kliknij ponownie, aby sprawdzić tę samą próbę.");
       await pause(signal);
       state = await transport.get(state.review_id);
+      abortCheck(signal);
+      onReview?.(state);
     }
     abortCheck(signal);
     if (state.status !== "verified") {

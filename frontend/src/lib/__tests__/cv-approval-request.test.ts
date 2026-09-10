@@ -1,3 +1,4 @@
+import { forgetCvGenerationRequest } from "../cv-generation-request";
 import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { reviewBeforeFinalize, type CvReviewState } from "../cv-approval-request";
@@ -48,4 +49,14 @@ it("leaving the editor prevents automatic approval when a late review response a
   respond(state("verified"));
   await pending;
   expect(transport.finalize).not.toHaveBeenCalled();
+});
+
+
+it("clears the pending attempt only after acknowledged cancellation", async () => {
+  const transport = {start: vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(state("verified")), get: vi.fn(), finalize: vi.fn().mockResolvedValue("approved")};
+  await expect(reviewBeforeFinalize("/review/cancel-ack", payload, transport)).rejects.toThrow("offline");
+  const original = transport.start.mock.calls[0][0];
+  await forgetCvGenerationRequest("/review/cancel-ack", payload);
+  await reviewBeforeFinalize("/review/cancel-ack", payload, transport);
+  expect(transport.start.mock.calls[1][0]).not.toBe(original);
 });

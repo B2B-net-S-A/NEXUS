@@ -44,6 +44,7 @@ vi.mock("@/lib/api", () => {
       state.revision += 1;
       return {data: { edit_revision: state.revision }};
     },
+    cancelReview: async () => ({data: {review_id: 9, status: "cancelled", error_code: null}}),
     finalize: async (_id: number, body: {content_html: string; expected_revision: number}) => {
       expect(body.expected_revision).toBe(state.revision);
       state.snapshot = state.stored = body.content_html;
@@ -143,4 +144,55 @@ it("shows the source recovery error and retries loading instead of a blank edito
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   expect(get).toHaveBeenCalledTimes(2);
   get.mockRestore();
+});
+
+
+it.each(["pipeline", "standalone"])("%s cancellation keeps the saved draft and reports a failed request honestly", async mode => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.spyOn(cvGeneratedEditorApi, "finalize").mockImplementation(async (_id, _body, signal, onReview) => {
+    onReview?.({review_id: 9, status: "running", error_code: null});
+    return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("Stopped waiting")), {once: true}));
+  });
+  const cancel = vi.spyOn(cvGeneratedEditorApi, "cancelReview").mockRejectedValueOnce(new Error("offline"));
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  const target = mode === "pipeline" ? {stageId: 21} : {generatedId: 7};
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={vi.fn()} candidateName="Synthetic" {...target} /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Saved before review</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Sfinalizuj"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Anuluj kontrolę"}));
+  await screen.findByText("Nie udało się potwierdzić anulowania: offline");
+  expect(state.status).toBe("draft");
+  expect(state.snapshot).toBe("");
+  expect(state.stored).toBe("<p>Saved before review</p>");
+  expect(cancel).toHaveBeenCalledWith(mode === "pipeline" ? 21 : 7, 9, {
+    content_html: "<p>Saved before review</p>", expected_revision: 2,
+  });
+  fireEvent.click(screen.getByRole("button", {name: "Anuluj kontrolę"}));
+  await waitFor(() => expect(screen.queryByRole("button", {name: "Anuluj kontrolę"})).not.toBeInTheDocument());
+  expect(cancel).toHaveBeenCalledTimes(2);
+  expect(state.status).toBe("draft");
+  expect(state.snapshot).toBe("");
+});
+
+it("cancelling after a polling timeout preserves edits made while the review was still running", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  vi.spyOn(cvGeneratedEditorApi, "finalize").mockImplementation(async (_id, _body, _signal, onReview) => {
+    onReview?.({review_id: 9, status: "running", error_code: null});
+    throw new Error("Review timeout");
+  });
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open generatedId={7} onOpenChange={vi.fn()} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>Reviewed version</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
+  fireEvent.click(await screen.findByRole("button", {name: "Sfinalizuj"}));
+  await screen.findByText("Review timeout");
+  fireEvent.change(screen.getByLabelText("audit editor"), {target: {value: "<p>New edits after timeout</p>"}});
+  fireEvent.click(screen.getByRole("button", {name: "Anuluj kontrolę"}));
+  await waitFor(() => expect(screen.queryByRole("button", {name: "Anuluj kontrolę"})).not.toBeInTheDocument());
+  expect(state.stored).toBe("<p>New edits after timeout</p>");
+  expect(state.html).toBe("<p>New edits after timeout</p>");
+  expect(state.snapshot).toBe("");
 });

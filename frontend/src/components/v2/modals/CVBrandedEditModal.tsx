@@ -109,6 +109,9 @@ function CVBrandedEditContent({
 
  const sessionRef = useRef<CvDraftSession | null>(null);
  const approvalAbort = useRef<AbortController | null>(null);
+ const cancellingRef = useRef(false);
+ const [cancellingReview, setCancellingReview] = useState(false);
+ const [activeReview, setActiveReview] = useState<{id: number; payload: {content_html: string; expected_revision: number}} | null>(null);
  useEffect(() => () => approvalAbort.current?.abort(), [open]);
  const loadedStage = useRef<number | null>(null);
  const replacingRef = useRef(false);
@@ -116,6 +119,7 @@ function CVBrandedEditContent({
 
  const loadState = (state: CVBrandedState) => {
    approvalAbort.current?.abort();
+   setActiveReview(null);
    const session = new CvDraftSession(state.content_html ?? "<p></p>", state.edit_revision,
      state.status === "finalized", {
        save: (html, revision) => editorApi.update(stageId, {
@@ -124,9 +128,12 @@ function CVBrandedEditContent({
        finalize: (html, revision) => {
          approvalAbort.current?.abort();
          approvalAbort.current = new AbortController();
-         return editorApi.finalize(stageId, {
-           content_html: html, expected_revision: revision,
-         }, approvalAbort.current.signal).then((r) => r.data);
+         const payload = {content_html: html, expected_revision: revision};
+         setActiveReview(null);
+         return editorApi.finalize(stageId, payload, approvalAbort.current.signal, state => {
+           setActiveReview(state.review_id != null && (state.status === "queued" || state.status === "running")
+             ? {id: state.review_id, payload} : null);
+         }).then((r) => r.data);
        },
      }, (status) => {
        if (sessionRef.current === session) setSaveState(status);
@@ -150,8 +157,8 @@ function CVBrandedEditContent({
  }, [editor, data, stageId]);
 
  useEffect(() => {
-   editor?.setEditable(!replacingRef.current && saveState !== "finalized" && saveState !== "finalizing");
- }, [editor, saveState]);
+   editor?.setEditable(!replacingRef.current && !cancellingReview && saveState !== "finalized" && saveState !== "finalizing");
+ }, [editor, saveState, cancellingReview]);
 
  useEffect(() => {
    if (!editor) return;
@@ -175,7 +182,7 @@ function CVBrandedEditContent({
 
  const closeEditor = async (nextOpen: boolean) => {
    if (nextOpen) { onOpenChange(true); return true; }
-   if (replacingRef.current || sessionRef.current?.state === "finalizing") return false;
+   if (replacingRef.current || cancellingRef.current || sessionRef.current?.state === "finalizing") return false;
    try {
      await sessionRef.current?.settle();
      await sessionRef.current?.save();
@@ -209,6 +216,8 @@ function CVBrandedEditContent({
  const finalizeMut = useMutation({
    mutationFn: async () => {
      if (!sessionRef.current) throw new Error("CV nie jest jeszcze wczytane");
+     if (cancellingRef.current) throw new Error("Trwa anulowanie kontroli CV");
+     setConfirmFinalize(false);
      await sessionRef.current.finalize();
      return editorApi.get(stageId);
    },
@@ -219,12 +228,42 @@ function CVBrandedEditContent({
      setConfirmFinalize(false);
    },
    onError: (e) => {
+     if (cancellingRef.current || approvalAbort.current?.signal.aborted) return;
      const detail = (e as {response?: {data?: {detail?: {code?: string}}}})?.response?.data?.detail;
      setApprovalError({message: getErrorMessage(e), regenerate: detail?.code === "cv_source_regeneration_required"});
      showError(getErrorMessage(e));
      setConfirmFinalize(false);
    },
  });
+ const cancelReview = async () => {
+   if (!activeReview || cancellingRef.current) return;
+   const target = activeReview;
+   cancellingRef.current = true;
+   setCancellingReview(true);
+   approvalAbort.current?.abort();
+   try {
+     const result = await editorApi.cancelReview(stageId, target.id, target.payload);
+     // After a polling timeout the recruiter may already have edited again.
+     // Persist those edits before loading the server state after cancellation.
+     const session = sessionRef.current;
+     await session?.settle();
+     await session?.save();
+     while (session?.state === "unsaved") await session.save();
+     const current = await editorApi.get(stageId);
+     loadState(current.data);
+     setApprovalError(null);
+     showSuccess(current.data.status === "finalized" ? "CV zostało już zatwierdzone."
+       : result.data.status === "cancelled" ? "Anulowano kontrolę. Szkic został zachowany."
+       : "Kontrola zakończona. CV pozostaje szkicem.");
+   } catch (error) {
+     const message = "Nie udało się potwierdzić anulowania: " + getErrorMessage(error);
+     setApprovalError({message, regenerate: false});
+     showError(message);
+   } finally {
+     cancellingRef.current = false;
+     setCancellingReview(false);
+   }
+ };
  const newDraftMut = useMutation({
    mutationFn: () => editorApi.newDraft(stageId, sessionRef.current!.revision),
    onSuccess: (response) => loadState(response.data),
@@ -232,12 +271,14 @@ function CVBrandedEditContent({
  });
 
  const handleTemplateChange = (val: CVTemplate) => {
+ if (cancellingRef.current) return;
  if (data?.status === "finalized") return;
  if (val === data?.template) return;
  setPendingTemplate(val);
  };
 
  const handleLanguageChange = (val: CVLanguage) => {
+ if (cancellingRef.current) return;
  if (data?.status === "finalized") return;
  if (val === data?.language) return;
  setPendingLanguage(val);
@@ -430,6 +471,12 @@ function CVBrandedEditContent({
     error: "Błąd zapisu — poprawki pozostają w edytorze", finalizing: "Kontrola treści i zatwierdzanie…",
     finalized: `Zatwierdzona wersja ${data?.version ?? ""}` }[saveState]}
  </span>
+ {activeReview && <div className="text-right">
+ <Button size="sm" variant="outline" disabled={cancellingReview} onClick={() => void cancelReview()}>
+ {cancellingReview ? "Anulowanie…" : "Anuluj kontrolę"}
+ </Button>
+ <p className="text-[10px] text-muted-foreground">Rozpoczęta kontrola może zużyć limit AI.</p>
+ </div>}
  {saveState === "error" ? <Button size="sm" variant="outline" onClick={() => void saveCurrent()}>Ponów zapis</Button> : null}
 
  </div>
@@ -520,7 +567,7 @@ function CVBrandedEditContent({
  <Button
  size="sm"
  onClick={() => finalizeMut.mutate()}
- disabled={finalizeMut.isPending}
+ disabled={finalizeMut.isPending || cancellingReview}
  >
  {finalizeMut.isPending ? (
  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
