@@ -2,6 +2,7 @@
 
 from datetime import date
 import hashlib
+import json
 
 import pytest
 
@@ -30,6 +31,57 @@ def test_upload_roundtrip_keeps_bytes_quota_and_literal_type_keys():
     assert kind == "upload"
     assert restored == inputs
     assert restored["payload"] is not inputs["payload"]
+
+
+def _upload_snapshot(mutate) -> tuple[bytes, str]:
+    """Serialize an upload job, then edit its UploadGenerationInput fields —
+    the shape a job queued by an older (or newer) deploy would carry."""
+    raw, _ = serialize_job_inputs(
+        "upload",
+        {
+            "payload": UploadGenerationInput(
+                cv_bytes=b"%PDF-1.4 source", cv_filename="cv.pdf", language="en"
+            ),
+            "user_id": 7,
+        },
+    )
+    data = json.loads(raw)
+    mutate(data["inputs"]["value"]["payload"]["value"])
+    raw = json.dumps(
+        data, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    ).encode()
+    return raw, hashlib.sha256(raw).hexdigest()
+
+
+def test_upload_queued_before_a_defaulted_field_was_added_still_decodes():
+    # #1477 added `champion_profile` (default None); jobs queued earlier lack it.
+    raw, digest = _upload_snapshot(lambda fields: fields.pop("champion_profile"))
+    kind, restored = deserialize_job_inputs(raw, digest)
+    assert kind == "upload"
+    payload = restored["payload"]
+    assert payload.champion_profile is None
+    assert (payload.cv_bytes, payload.cv_filename, payload.language) == (
+        b"%PDF-1.4 source",
+        "cv.pdf",
+        "en",
+    )
+    assert restored["user_id"] == 7
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        # A field this code does not know: never guess what it meant.
+        lambda fields: fields.update(unexpected={"type": "bytes", "value": ""}),
+        # A required field is gone: the job cannot be run faithfully.
+        lambda fields: fields.pop("cv_bytes"),
+    ],
+    ids=["unknown-field", "missing-required-field"],
+)
+def test_upload_snapshot_with_unknown_or_missing_required_field_is_rejected(mutate):
+    raw, digest = _upload_snapshot(mutate)
+    with pytest.raises(ValueError, match="fields changed"):
+        deserialize_job_inputs(raw, digest)
 
 
 def test_modified_source_is_rejected_before_decode():
