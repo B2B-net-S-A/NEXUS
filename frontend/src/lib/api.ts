@@ -1,3 +1,5 @@
+import { forgetCvGenerationRequest } from "./cv-generation-request";
+import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
@@ -5176,13 +5178,14 @@ export type CVTemplate = "standard" | "blind";
 export type CVLanguage = "pl" | "en";
 
 export interface CVBrandedState {
+  presentation_review?: { status: string; message?: string; manual_fields?: string[]; checked_fields?: string[]; reason?: string } | null;
   docx_available?: boolean;
   docx_filename?: string | null;
   generated_document_id?: number | null;
   from_generator?: boolean;
   edit_revision: number;
   version: number;
-  candidate_stage_id: number;
+  candidate_stage_id: number | null;
   status: CVBrandedStatus;
   content_html: string | null;
   template: string | null;
@@ -5201,7 +5204,7 @@ export interface CVBrandedFinalizeResponseT {
   edit_revision: number;
   version: number;
   document_version_id: number;
-  candidate_stage_id: number;
+  candidate_stage_id: number | null;
   status: CVBrandedStatus;
   snapshot_filename: string;
   snapshot_size_bytes: number;
@@ -5246,9 +5249,9 @@ export const candidateStageCvApi = {
       ),
   },
   branded: {
-    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number) =>
+    selectGenerated: (stageId: number, generated_document_id: number, expected_revision: number, document_version_id?: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-generated`, {
-        generated_document_id, expected_revision,
+        generated_document_id, expected_revision, ...(document_version_id ? { document_version_id } : {}),
       }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
@@ -5266,12 +5269,10 @@ export const candidateStageCvApi = {
     // plik — 120 s zamiast domyślnych 30 s (patrz `lib/http-timeouts.ts`).
     newDraft: (stageId: number, expected_revision: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/new-draft`, { expected_revision }),
-    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }) =>
-      api.post<CVBrandedFinalizeResponseT>(
-        `/api/candidates/stages/${stageId}/cv/branded/finalize`,
-        payload,
-        { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
-      ),
+    finalize: (stageId: number, payload: { content_html: string; expected_revision: number }, signal?: AbortSignal, onReview?: (state: CvReviewState) => void) =>
+      finalizeReviewedCv(`/api/candidates/stages/${stageId}/cv/branded`, payload, signal, onReview),
+    cancelReview: (stageId: number, reviewId: number, payload: {content_html: string; expected_revision: number}) =>
+      cancelReviewedCv(`/api/candidates/stages/${stageId}/cv/branded`, reviewId, payload),
   },
   share: {
     // M4 PR-04: default TTL 14 dni (backend max 90), opcjonalny limit wyświetleń.
@@ -5306,6 +5307,7 @@ export const candidateStageCvApi = {
 // ── Generator CV B2B — publiczny link (interaktywne CV) ─────────────────────
 
 export interface CvGeneratedShareCreateResp {
+  document_version_id?: number | null;
   token: string;
   expires_at: string;
   share_url_suffix: string;
@@ -5316,6 +5318,7 @@ export interface CvGeneratedShareCreateResp {
 }
 
 export interface CvGeneratedShareListItem {
+  document_version_id?: number | null;
   revoke_key: string;
   token_preview: string;
   created_at?: string | null;
@@ -5329,15 +5332,39 @@ export interface CvGeneratedShareListItem {
   last_viewed_at?: string | null;
 }
 
+export const cvGeneratedEditorApi = {
+  get: (id: number) => api.get<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`),
+  update: (id: number, payload: { content_html: string; expected_revision: number } | { template?: CVTemplate; language?: CVLanguage; expected_revision: number }) =>
+    api.patch<CVBrandedState>(`/api/cv-generator/generated/${id}/editor`, payload),
+  newDraft: (id: number, expected_revision: number) =>
+    api.post<CVBrandedState>(`/api/cv-generator/generated/${id}/editor/new-draft`, { expected_revision }),
+  finalize: (id: number, payload: { content_html: string; expected_revision: number }, signal?: AbortSignal, onReview?: (state: CvReviewState) => void) =>
+    finalizeReviewedCv(`/api/cv-generator/generated/${id}/editor`, payload, signal, onReview),
+  cancelReview: (id: number, reviewId: number, payload: {content_html: string; expected_revision: number}) =>
+    cancelReviewedCv(`/api/cv-generator/generated/${id}/editor`, reviewId, payload),
+};
+
+export interface CvGeneratedApprovedVersion {
+  id: number;
+  version: number;
+  approved_at: string;
+  language: string | null;
+  job_title: string | null;
+}
+
 export const cvGeneratedShareApi = {
+  approve: (generatedId: number) => api.post<{ document_version_id: number; version: number }>(`/api/cv-generator/generated/${generatedId}/approve`),
+  approvedVersions: (generatedId: number) =>
+    api.get<CvGeneratedApprovedVersion[]>(`/api/cv-generator/generated/${generatedId}/approved-versions`),
   // Token v2-only: sekret zwracany raz, w DB tylko SHA-256.
-  create: (generatedId: number, expiresInDays = 14, maxViews?: number) =>
+  create: (generatedId: number, expiresInDays = 14, maxViews?: number, documentVersionId?: number) =>
     api.post<CvGeneratedShareCreateResp>(
       `/api/cv-generator/generated/${generatedId}/share-token`,
       null,
       {
         params: {
           expires_in_days: expiresInDays,
+          ...(documentVersionId ? { document_version_id: documentVersionId } : {}),
           ...(maxViews ? { max_views: maxViews } : {}),
         },
       },
@@ -6771,3 +6798,22 @@ export type DrAccelerationPath = {
 // w NEXUS-ie (481 kontraktów od 2022), a liczby pokazuje /insights.
 
 export default api;
+
+
+function finalizeReviewedCv(path: string, payload: {content_html: string; expected_revision: number}, signal?: AbortSignal, onReview?: (state: CvReviewState) => void) {
+  return reviewBeforeFinalize(path + "/review", payload, {
+    start: key => api.post<CvReviewState>(path + "/review", {...payload, request_key: key}, {signal, timeout: SLOW_ENDPOINT_TIMEOUT_MS}).then(r => r.data),
+    get: id => api.get<CvReviewState>(`${path}/review/${id}`, {signal}).then(r => r.data),
+    finalize: () => api.post<CVBrandedFinalizeResponseT>(path + "/finalize", payload, {signal, timeout: SLOW_ENDPOINT_TIMEOUT_MS}),
+  }, signal, onReview);
+}
+
+
+async function cancelReviewedCv(path: string, reviewId: number, payload: {content_html: string; expected_revision: number}) {
+  const response = await api.delete<CvReviewState>(`${path}/review/${reviewId}`);
+  if (response.data.status === "queued" || response.data.status === "running") {
+    throw new Error("Kontrola nadal trwa. Ponów anulowanie.");
+  }
+  await forgetCvGenerationRequest(path + "/review", payload);
+  return response;
+}

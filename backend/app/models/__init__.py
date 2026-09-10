@@ -71,6 +71,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
+from app.models.cv_generation_job import CvGenerationJob  # noqa: F401
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
@@ -633,3 +634,12 @@ from app.models.ai_metering import AISpendAlert  # noqa: F401
 from app.models.cv_document_version import CvDocumentVersion  # noqa: F401
 from app.models.candidate_search_run import CandidateSearchRun, CandidateSearchResult  # noqa: F401
 from app.models.requirement_verification import RequirementVerification  # noqa: F401
+
+from app.models.cv_generated_draft import CvGeneratedDraft  # noqa: F401
+
+from app.models.cv_generation_request import CvGenerationRequest  # noqa: F401
+from app.models.cv_approval_job import CvApprovalJob  # noqa: F401
+
+from app.models.cv_source_cleanup import CvSourceCleanup  # noqa: F401
+
+from app.models.cv_version_map import CvVersionMap  # noqa: F401

@@ -9,20 +9,20 @@ function deferred<T>() {
 }
 
 describe("CV draft persistence", () => {
-  it("immediate approval sends the current edit atomically", async () => {
+  it("approval persists the exact current edit before starting durable review", async () => {
     const finalize = vi.fn().mockResolvedValue({ edit_revision: 2 });
-    const save = vi.fn();
+    const save = vi.fn().mockResolvedValue({ edit_revision: 2 });
     const session = new CvDraftSession("old", 1, false, { save, finalize }, vi.fn());
     session.edit("new");
     await session.finalize();
-    expect(finalize).toHaveBeenCalledWith("new", 1);
-    expect(save).not.toHaveBeenCalled();
+    expect(finalize).toHaveBeenCalledWith("new", 2);
+    expect(save).toHaveBeenCalledWith("new", 1);
     expect(session.state).toBe("finalized");
   });
 
   it("waits for the older save then approves the newer text with its returned revision", async () => {
     const pending = deferred<{ edit_revision: number }>();
-    const save = vi.fn().mockReturnValue(pending.promise);
+    const save = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue({ edit_revision: 3 });
     const finalize = vi.fn().mockResolvedValue({ edit_revision: 3 });
     const session = new CvDraftSession("old", 1, false, { save, finalize }, vi.fn());
     session.edit("first");
@@ -32,7 +32,7 @@ describe("CV draft persistence", () => {
     expect(finalize).not.toHaveBeenCalled();
     pending.resolve({ edit_revision: 2 });
     await Promise.all([saving, approval]);
-    expect(finalize).toHaveBeenCalledWith("second", 2);
+    expect(finalize).toHaveBeenCalledWith("second", 3);
     expect(session.html).toBe("second");
   });
 

@@ -421,16 +421,6 @@ def build_prompt_blocks(rule: Optional[CvRuleSnapshot], language: str = "pl") ->
 # ── Polityka prezentacji egzekwowana w kodzie ───────────────────────────────
 
 
-def _shorten(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    cut = text[: max(limit - 1, 1)]
-    space = cut.rfind(" ")
-    if space > limit // 2:
-        cut = cut[:space]
-    return cut.rstrip(" ,;:") + "…"
-
-
 def apply_presentation_policy(
     candidate_data: dict[str, Any], rule: Optional[CvRuleSnapshot]
 ) -> list[str]:
@@ -467,21 +457,16 @@ def apply_presentation_policy(
                 f"ucięto punkty obowiązków do {rule.max_bullets_per_role} "
                 f"na stanowisko ({trimmed} stanowisk)"
             )
-    if rule.max_bullet_chars:
-        shortened = 0
-        for role in candidate_data.get("experience") or []:
-            bullets = role.get("responsibilities") or []
-            new_bullets = []
-            for bullet in bullets:
-                short = _shorten(str(bullet), rule.max_bullet_chars)
-                if short != bullet:
-                    shortened += 1
-                new_bullets.append(short)
-            role["responsibilities"] = new_bullets
-        if shortened:
-            notes.append(
-                f"skrócono {shortened} punktów obowiązków do {rule.max_bullet_chars} znaków"
-            )
+    if rule.max_bullet_chars and any(
+        len(str(bullet)) > rule.max_bullet_chars
+        for role in candidate_data.get("experience") or []
+        for bullet in role.get("responsibilities") or []
+    ):
+        from app.services.cv_generator_b2b.editorial_limits import EditorialLimitError
+
+        # The bounded rewrite must already have produced complete prose.
+        # Never hide a missed rewrite by cutting away factual qualifications.
+        raise EditorialLimitError("responsibility_still_exceeds_limit")
     why_points = candidate_data.get("why_points") or []
     if rule.why_points_max and len(why_points) > rule.why_points_max:
         candidate_data["why_points"] = why_points[: rule.why_points_max]
@@ -506,10 +491,17 @@ def apply_presentation_policy(
     return notes
 
 
-_DATE_MONTH_YEAR = re.compile(r"(?<!\d)(\d{1,2})[./-](\d{4})(?!\d)")
+_DATE_MONTH_YEAR = re.compile(
+    r"(?<![\d./])(?<!\b\d-)(?<!\b\d{2}-)(0?[1-9]|1[0-2])[./-](\d{4})(?!\d)"
+)
 # Rok poprzedzony separatorem daty to koniec tokenu `MM.YYYY`, nie początek
 # `YYYY-MM` — bez tego „03.2019-05.2021" rozpadał się na „03.05/2019.2021".
-_DATE_YEAR_MONTH = re.compile(r"(?<![\d./])(\d{4})-(\d{1,2})(?!\d)")
+_DATE_YEAR_MONTH = re.compile(
+    r"(?<![\d./])(\d{4})-(0?[1-9]|1[0-2])(?![\d./]|-\d{1,2}(?!\d))"
+)
+_DATE_TOKEN = re.compile(
+    rf"(?P<year_month>{_DATE_YEAR_MONTH.pattern})|(?P<month_year>{_DATE_MONTH_YEAR.pattern})"
+)
 
 
 def _render_date(year: str, month: str | None, fmt: str) -> str:
@@ -534,13 +526,17 @@ def reformat_dates(text: str, fmt: str) -> str:
     """
     if fmt not in DATE_FORMATS or not text:
         return text
-    # Najpierw `MM.YYYY` (częstszy kształt), potem `YYYY-MM` — w tej kolejności
-    # zakres z myślnikiem bez spacji zostaje dwoma datami, nie jedną zlepką.
-    out = _DATE_MONTH_YEAR.sub(
-        lambda m: _render_date(m.group(2), m.group(1), fmt), text
-    )
-    out = _DATE_YEAR_MONTH.sub(lambda m: _render_date(m.group(1), m.group(2), fmt), out)
-    return out
+
+    # Read original tokens exactly once. Two substitution passes can interpret
+    # the middle of 2020-01-2024-12 as 01-2024 or reparse generated output.
+    def render(match):
+        if match.group("year_month") is not None:
+            token = _DATE_YEAR_MONTH.fullmatch(match.group("year_month"))
+            return _render_date(token.group(1), token.group(2), fmt)
+        token = _DATE_MONTH_YEAR.fullmatch(match.group("month_year"))
+        return _render_date(token.group(2), token.group(1), fmt)
+
+    return _DATE_TOKEN.sub(render, text)
 
 
 def apply_date_format(

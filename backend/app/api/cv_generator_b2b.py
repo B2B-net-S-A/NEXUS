@@ -46,6 +46,7 @@ from fastapi import (
 )
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from app.core.http_headers import content_disposition_attachment
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,15 +91,18 @@ from app.services.ai_quota import (
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
+    validate_cv_file,
     validate_upload_inputs,
 )
 from app.services.cv_generator_b2b.client_rules import (
+    CvRuleSnapshot,
     required_input_problems,
     resolve_client_rule,
     resolve_content_mode,
     snapshot_rule,
 )
 from app.services.cv_generator_b2b.standalone_service import (
+    CandidateGenerationSource,
     ContentMode,
     DEFAULT_CONTENT_MODE,
     StandaloneGenerationError,
@@ -106,9 +110,12 @@ from app.services.cv_generator_b2b.standalone_service import (
     apply_content_mode_cap,
     ascii_filename_fallback,
     champion_present,
-    generate_cv_for_candidate,
+    generate_cv_from_candidate_source,
     generate_cv_from_uploads,
+    load_candidate_generation_source,
     list_recruitments_with_readiness,
+    list_candidate_cv_sources,
+    prepare_source_facts,
     rerender_docx_from_payload,
     screening_notes_char_count,
 )
@@ -156,6 +163,7 @@ class RecruitmentOption(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    cv_document_id: int = Field(..., ge=1)
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
     # Klient jest wyprowadzany z rekrutacji; jawna wartość służy wyłącznie do
@@ -200,6 +208,9 @@ class GeneratedCvItem(BaseModel):
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
     status: str = "ready"
+    job_status: Optional[
+        Literal["queued", "running", "complete", "failed", "interrupted"]
+    ] = None
     error_message: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     created_at: Optional[str] = None
@@ -364,6 +375,9 @@ async def _finalize_success(
     it can be re-downloaded/previewed later without another Claude call. Returns
     ``False`` when the row vanished (recruiter deleted it mid-generation).
     """
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return False
@@ -385,6 +399,37 @@ async def _finalize_success(
     if consent_screenshot and isinstance(result.render_payload, dict):
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
+    final_docx = result.docx_bytes
+    frozen_consent = None
+    if consent_screenshot:
+        from copy import deepcopy
+        from app.services.cv_generator_b2b.standalone_service import (
+            hydrate_consent_screenshot,
+        )
+
+        hydrated = await run_in_threadpool(
+            hydrate_consent_screenshot, deepcopy(result.render_payload)
+        )
+        frozen_consent = (hydrated.get("consent_screenshot") or {}).get("_bytes")
+        if not frozen_consent:
+            raise ValueError("Nie można zapisać CV bez dołączonego obrazu zgody.")
+        final_docx = await run_in_threadpool(
+            rerender_docx_from_payload,
+            hydrated,
+            require_consent=True,
+            template_bytes=getattr(result, "template_bytes", None),
+        )
+    row.consent_content = frozen_consent
+    row.docx_content = final_docx
+    row.template_content = getattr(result, "template_bytes", None)
+    row.docx_sha256 = hashlib.sha256(final_docx).hexdigest()
+    if isinstance(row.render_payload, dict):
+        provenance = dict(row.render_payload.get("artifact_provenance") or {})
+        provenance["generated_docx_sha256"] = row.docx_sha256
+        provenance["consent_sha256"] = (
+            hashlib.sha256(frozen_consent).hexdigest() if frozen_consent else None
+        )
+        row.render_payload = {**row.render_payload, "artifact_provenance": provenance}
     row.warnings = list(result.warnings or [])
     # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
     # powstało CV, na które klient się skarży".
@@ -439,7 +484,9 @@ async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> QuotaSt
     )
 
     try:
-        return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
+        return await check_and_increment(
+            db, AIFeatureKey.cv_generator, user_id=user_id, commit_with_caller=True
+        )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -480,6 +527,9 @@ async def _run_declared(fn, *args, quota_state=None, quota_user_id=None, **kwarg
 
 async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
     """Mark a „processing" row „failed" with the reason. No-op if it's gone."""
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return
@@ -509,12 +559,14 @@ def _second_language(rule, language: str) -> Optional[str]:
 
 async def _charge_second_language_or_note(
     db: AsyncSession, *, first_generated_id: int, user_id: int
-) -> bool:
+) -> QuotaState | None:
     """Obciąż kwotę za drugą wersję; przy odmowie dopisz uwagę do pierwszego
     wiersza zamiast padać — druga wersja jest wygodą, pierwsza już powstała."""
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     try:
-        await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
-        return True
+        return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
     except AIQuotaExceeded as exc:
         row = await db.get(CvGeneratedDocument, first_generated_id)
         if row is not None:
@@ -525,7 +577,7 @@ async def _charge_second_language_or_note(
                 + " — wygeneruj ją ręcznie.",
             ]
         await db.commit()
-        return False
+        return None
 
 
 # ── Background generation jobs ─────────────────────────────────────────────
@@ -546,6 +598,8 @@ async def _run_generate_new_job(
     language: Literal["pl", "en"],
     blind_cv: bool,
     user_id: int,
+    source: CandidateGenerationSource,
+    rule_snapshot: CvRuleSnapshot | None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
     client_id: int | None = None,
     project_ref: str = "",
@@ -554,20 +608,21 @@ async def _run_generate_new_job(
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            # Regułę czytamy w SESJI TEGO ZADANIA i od razu zamrażamy do
-            # snapshotu — pipeline jest synchroniczny i leci w threadpoolu,
-            # gdzie dostęp do atrybutu wiersza ORM kończy się MissingGreenlet.
-            rule = await resolve_client_rule(db, client_id)
-            rule_snapshot = snapshot_rule(rule)
-            result = await generate_cv_for_candidate(
-                db,
-                candidate_id=candidate_id,
-                stage_id=stage_id,
+            source_facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=source.cv_bytes,
+                cv_filename=source.cv_filename,
+                screening_notes_text=source.screening_notes_text,
+                request_id=f"cvgen_source_{generated_id}",
+            )
+            result = await generate_cv_from_candidate_source(
+                source,
                 language=language,
                 blind_cv=blind_cv,
                 content_mode=content_mode,
                 client_rule=rule_snapshot,
                 project_ref=project_ref or None,
+                prepared_source_facts=source_facts,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
@@ -620,16 +675,24 @@ async def _run_generate_new_job(
                 ensure_requirement_map,
             )
 
-            await ensure_requirement_map(db, generated_id, user_id=user_id)
+            await ensure_requirement_map(
+                db,
+                generated_id,
+                user_id=user_id,
+                requirements=[
+                    {"name": name, "kind": kind} for name, kind in source.requirements
+                ],
+            )
 
         # Druga wersja językowa (0267): klient oczekuje PL i EN, a Delivery
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
         # awaria — porażka drugiej nie dotyka pierwszej.
         second = _second_language(rule_snapshot, language) if finalized else None
         if second is not None:
-            if not await _charge_second_language_or_note(
+            second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
-            ):
+            )
+            if second_quota is None:
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
             second_id = await _create_pending_row(
@@ -645,18 +708,25 @@ async def _run_generate_new_job(
                 client_id=client_id,
                 job_id=result.job_id,
             )
+            from app.services.cv_generator_b2b.job_leases import (
+                register_second_document,
+            )
+
+            await register_second_document(db, second_id)
             await db.commit()
             try:
-                second_result = await generate_cv_for_candidate(
-                    db,
-                    candidate_id=candidate_id,
-                    stage_id=stage_id,
-                    language=second,  # type: ignore[arg-type]
-                    blind_cv=blind_cv,
-                    content_mode=content_mode,
-                    client_rule=rule_snapshot,
-                    project_ref=project_ref or None,
-                )
+                with declared_call(
+                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                ):
+                    second_result = await generate_cv_from_candidate_source(
+                        source,
+                        language=second,  # type: ignore[arg-type]
+                        blind_cv=blind_cv,
+                        content_mode=content_mode,
+                        client_rule=rule_snapshot,
+                        project_ref=project_ref or None,
+                        prepared_source_facts=source_facts,
+                    )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)
                 await db.commit()
@@ -706,41 +776,21 @@ async def _run_generate_new_job(
                     ensure_requirement_map,
                 )
 
-                await ensure_requirement_map(db, second_id, user_id=user_id)
+                await ensure_requirement_map(
+                    db,
+                    second_id,
+                    user_id=user_id,
+                    requirements=[
+                        {"name": name, "kind": kind}
+                        for name, kind in source.requirements
+                    ],
+                )
 
 
 def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
-    """Wymagania na kafelki dla trybu upload (brak joba).
+    from app.services.cv_generator_b2b.upload_requirements import upload_requirements
 
-    Pierwszeństwo mają RĘCZNE pola rekrutera; gdy puste, a wgrano plik
-    championa — sekcje MUST-HAVE/NICE-TO-HAVE z niego. Champion jest tu
-    parsowany DRUGI raz (pierwszy — w pipeline generacji): świadomie, to tani
-    regex na DOCX, a przewlekanie list przez ``GenerationResult`` wiązałoby
-    kontrakt wyniku generacji z feature'em kafelków. Zwraca [] gdy brak źródeł.
-    """
-    from app.services.cv_generator_b2b.requirement_map import (
-        parse_manual_requirements,
-    )
-
-    requirements = parse_manual_requirements(
-        payload.must_requirements, payload.nice_requirements
-    )
-    if not requirements and payload.champion_bytes:
-        try:
-            from app.services.cv_generator_b2b.champion_builder import (
-                parse_champion_from_docx_bytes,
-            )
-
-            champ = parse_champion_from_docx_bytes(
-                payload.champion_bytes,
-                payload.champion_filename or "champion.docx",
-            )
-            requirements = parse_manual_requirements(
-                ", ".join(champ.must_have), ", ".join(champ.nice_to_have)
-            )
-        except Exception as err:  # noqa: BLE001 — fallback nie psuje mapy
-            logger.warning("[cv_b2b] champion parse for requirements failed: %s", err)
-    return requirements
+    return upload_requirements(payload)
 
 
 async def _run_generate_upload_job(
@@ -753,7 +803,16 @@ async def _run_generate_upload_job(
     """Background worker for Old-mode (manual upload) generation."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await run_in_threadpool(generate_cv_from_uploads, payload)
+            source_facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=payload.cv_bytes,
+                cv_filename=payload.cv_filename,
+                screening_notes_text=payload.screening_notes or "",
+                request_id=f"cvgen_upload_source_{generated_id}",
+            )
+            result = await run_in_threadpool(
+                generate_cv_from_uploads, payload, prepared_source_facts=source_facts
+            )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
             await db.commit()
@@ -819,9 +878,10 @@ async def _run_generate_upload_job(
         if second is not None:
             import dataclasses
 
-            if not await _charge_second_language_or_note(
+            second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
-            ):
+            )
+            if second_quota is None:
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
             second_payload = dataclasses.replace(payload, language=second)  # type: ignore[arg-type]
@@ -838,11 +898,21 @@ async def _run_generate_upload_job(
                 content_mode=payload.content_mode,
                 client_id=first_row.client_id if first_row else None,
             )
+            from app.services.cv_generator_b2b.job_leases import (
+                register_second_document,
+            )
+
+            await register_second_document(db, second_id)
             await db.commit()
             try:
-                second_result = await run_in_threadpool(
-                    generate_cv_from_uploads, second_payload
-                )
+                with declared_call(
+                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                ):
+                    second_result = await run_in_threadpool(
+                        generate_cv_from_uploads,
+                        second_payload,
+                        prepared_source_facts=source_facts,
+                    )
             except StandaloneGenerationError as err:
                 await _finalize_failure(db, second_id, err.message)
                 await db.commit()
@@ -1004,6 +1074,30 @@ async def search_candidates(
         )
         for c in rows
     ]
+
+
+class CvSourceOption(BaseModel):
+    id: int
+    filename: str
+    is_primary: bool
+    uploaded_at: datetime | None = None
+
+
+@router.get(
+    "/candidates/{candidate_id}/cv-sources", response_model=list[CvSourceOption]
+)
+async def candidate_cv_sources(
+    candidate_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[CvSourceOption]:
+    try:
+        rows = await list_candidate_cv_sources(db, candidate_id)
+    except StandaloneGenerationError as err:
+        raise HTTPException(
+            status_code=_error_status(err.code), detail=err.message
+        ) from err
+    return [CvSourceOption(**row) for row in rows]
 
 
 @router.get(
@@ -1248,9 +1342,8 @@ async def generate(
     recruiter can close/leave the tab without losing the result — it lands on
     the „Wygenerowane CV" list (``GET /generated``) with ``status`` „ready" or
     „failed". A „processing" placeholder row is created here so the CV shows up
-    on the list right away; the deep readiness contract (CV file / champion /
-    notes present) is validated inside the background job and any failure is
-    written onto that row.
+    on the list right away. Source values and the client rule are captured
+    before quota/enqueue; rendering and provider failures are recorded by the worker.
     """
     candidate = await db.get(Candidate, payload.candidate_id)
     if candidate is None:
@@ -1283,6 +1376,21 @@ async def generate(
                 "Klient wskazany w żądaniu nie zgadza się z klientem tej "
                 "rekrutacji. Odśwież stronę i spróbuj ponownie."
             ),
+        )
+
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        request.headers.get("Idempotency-Key"),
+        "new",
+        payload.model_dump(mode="json"),
+    )
+    if previous is not None:
+        await db.commit()
+        return GenerateEnqueuedResponse(
+            id=previous.id, status="processing", candidate_name=previous.candidate_name
         )
 
     rule = await resolve_client_rule(db, client_id)
@@ -1338,9 +1446,54 @@ async def generate(
             )
         )
 
+    # Freeze owned values before quota and enqueue, including the actual file.
+    # Both document languages must use the source and policy accepted here.
+    try:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            cv_document_id=payload.cv_document_id,
+        )
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if (
+        source.candidate_id,
+        source.stage_id,
+        source.job_id,
+        source.client_id,
+        source.cv_document_id,
+    ) != (
+        payload.candidate_id,
+        payload.stage_id,
+        stage.job_id,
+        client_id,
+        payload.cv_document_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Kontekst rekrutacji zmienił się podczas odczytu źródeł. Odśwież stronę i spróbuj ponownie.",
+        )
+    try:
+        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if effective_mode == "tailored" and not source.has_champion:
+        _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
+    _reject_missing_inputs(
+        required_input_problems(
+            rule_snapshot,
+            mode="new",
+            screening_chars=len(source.screening_notes_text.strip()),
+            has_project_ref=bool(payload.project_ref.strip()),
+            has_position=True,
+            has_champion=source.has_champion,
+        )
+    )
+
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
     generated_id = await _create_pending_row(
@@ -1356,26 +1509,33 @@ async def generate(
         client_id=client_id,
         job_id=stage.job_id,
     )
-    # Commit before scheduling/returning so the row is visible to both the poll
-    # and the background job (which opens its own session).
-    await db.commit()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
-    background_tasks.add_task(
-        _run_declared,
-        _run_generate_new_job,
-        generated_id,
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-        candidate_id=payload.candidate_id,
-        stage_id=payload.stage_id,
-        language=payload.language,
-        blind_cv=payload.blind_cv,
+    durable_id = await persist_job(
+        db,
+        generated_id=generated_id,
+        kind="new",
         user_id=current_user.id,
-        content_mode=effective_mode,
-        client_id=client_id,
-        project_ref=payload.project_ref or "",
-        consent_screenshot=consent,
+        charge=lambda: _charge_cv_generation_quota(db, current_user.id),
+        inputs=dict(
+            quota_user_id=current_user.id,
+            source=source,
+            rule_snapshot=rule_snapshot,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            blind_cv=payload.blind_cv,
+            user_id=current_user.id,
+            content_mode=effective_mode,
+            client_id=client_id,
+            project_ref=payload.project_ref or "",
+            consent_screenshot=consent,
+        ),
     )
+    if receipt is not None:
+        receipt.generated_id = generated_id
+    await db.commit()
+    background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=candidate_name
     )
@@ -1435,6 +1595,10 @@ async def generate_from_upload(
     """
     # A user explicitly binds the uploaded file; never match by parsed name.
     # Derive the client from a verified candidate-stage pair before rule/quota reads.
+    # Candidate-only upload is a deliberate standalone association under
+    # CandidateWriteAccess. It reads uploaded bytes, not that person's recruitment
+    # documents or notes, and grants no job binding. Selecting a stage requires
+    # membership below; do not infer a job from the candidate's other applications.
     job_id = None
     if stage_id is not None:
         if candidate_id is None:
@@ -1460,6 +1624,48 @@ async def generate_from_upload(
         job_id, client_id = job.id, job.client_id
     if candidate_id is not None and await db.get(Candidate, candidate_id) is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
+
+    cv_bytes = await cv_file.read(MAX_UPLOAD_BYTES + 1)
+    champion_bytes: bytes | None = None
+    champion_filename: str | None = None
+    if champion_file is not None and champion_file.filename:
+        champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
+        champion_filename = champion_file.filename
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        request.headers.get("Idempotency-Key"),
+        "upload",
+        {
+            "cv_sha256": hashlib.sha256(cv_bytes).hexdigest(),
+            "cv_filename": cv_file.filename,
+            "champion_sha256": hashlib.sha256(champion_bytes).hexdigest()
+            if champion_bytes is not None
+            else None,
+            "champion_filename": champion_filename,
+            "client_id": client_id,
+            "candidate_id": candidate_id,
+            "stage_id": stage_id,
+            "job_id": job_id,
+            "position": position,
+            "project_ref": project_ref,
+            "language": language,
+            "blind_cv": blind_cv,
+            "content_mode": content_mode,
+            "screening_notes": screening_notes,
+            "must_requirements": must_requirements,
+            "nice_requirements": nice_requirements,
+            "consent_screenshot_key": consent_screenshot_key,
+            "consent_screenshot_token": consent_screenshot_token,
+        },
+    )
+    if previous is not None:
+        await db.commit()
+        return GenerateEnqueuedResponse(
+            id=previous.id, status="processing", candidate_name=previous.candidate_name
+        )
 
     # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
     # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
@@ -1500,7 +1706,6 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    cv_bytes = await cv_file.read(MAX_UPLOAD_BYTES + 1)
     consent = _verified_consent(
         rule,
         consent_screenshot_token,
@@ -1510,11 +1715,6 @@ async def generate_from_upload(
             cv_sha256=hashlib.sha256(cv_bytes).hexdigest(), client_id=client_id
         ),
     )
-    champion_bytes: bytes | None = None
-    champion_filename: str | None = None
-    if champion_file is not None and champion_file.filename:
-        champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
-        champion_filename = champion_file.filename
 
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
@@ -1536,7 +1736,6 @@ async def generate_from_upload(
         await run_in_threadpool(validate_upload_inputs, gen_payload)
     except StandaloneGenerationError as error:
         raise HTTPException(422, error.message) from error
-    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     # Provisional label until Claude parses the real name out of the CV.
     provisional = Path(cv_file.filename or "").stem or "Nowe CV"
@@ -1553,18 +1752,25 @@ async def generate_from_upload(
         content_mode=effective_mode,
         client_id=client_id,
     )
-    await db.commit()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
-    background_tasks.add_task(
-        _run_declared,
-        _run_generate_upload_job,
-        generated_id,
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-        payload=gen_payload,
+    durable_id = await persist_job(
+        db,
+        generated_id=generated_id,
+        kind="upload",
         user_id=current_user.id,
-        consent_screenshot=consent,
+        charge=lambda: _charge_cv_generation_quota(db, current_user.id),
+        inputs=dict(
+            quota_user_id=current_user.id,
+            payload=gen_payload,
+            user_id=current_user.id,
+            consent_screenshot=consent,
+        ),
     )
+    if receipt is not None:
+        receipt.generated_id = generated_id
+    await db.commit()
+    background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=provisional
     )
@@ -1602,6 +1808,8 @@ async def list_generated_cvs(
     saved ``render_payload`` (rows from before this feature have none);
     ``can_delete`` whether the current user may remove the row (author or admin).
     """
+    from app.models.cv_generation_job import CvGenerationJob
+
     filters = [job_read_scope_clause(current_user, CvGeneratedDocument.job_id)]
     if candidate_id is not None:
         filters.append(CvGeneratedDocument.candidate_id == candidate_id)
@@ -1613,14 +1821,29 @@ async def list_generated_cvs(
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
+    from sqlalchemy.orm import defer
+
     rows = (
         await db.execute(
             select(
                 CvGeneratedDocument,
                 User.name,
+                select(CvGenerationJob.status)
+                .where(
+                    (CvGenerationJob.generated_id == CvGeneratedDocument.id)
+                    | (CvGenerationJob.second_generated_id == CvGeneratedDocument.id)
+                )
+                .correlate(CvGeneratedDocument)
+                .limit(1)
+                .scalar_subquery(),
                 func.coalesce(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
+            )
+            .options(
+                defer(CvGeneratedDocument.docx_content),
+                defer(CvGeneratedDocument.template_content),
+                defer(CvGeneratedDocument.consent_content),
             )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
@@ -1644,14 +1867,17 @@ async def list_generated_cvs(
             content_mode=r.content_mode,
             filename=r.filename,
             status=r.status,
+            job_status=job_status,
             error_message=r.error_message,
             warnings=list(r.warnings or []),
             created_at=r.created_at.isoformat() if r.created_at else None,
             created_by_name=creator_name,
             can_download=r.status == "ready" and r.render_payload is not None,
-            can_delete=is_admin or r.created_by == current_user.id,
+            can_delete=(is_admin or r.created_by == current_user.id)
+            and r.status != "processing"
+            and job_status not in {"queued", "running"},
         )
-        for r, creator_name, client_name in rows
+        for r, creator_name, job_status, client_name in rows
     ]
 
 
@@ -1668,6 +1894,25 @@ async def download_generated_cv(
     and explicit download in the panel.
     """
     row = await _load_generated_document(db, generated_id, current_user, write=False)
+    stored = getattr(row, "docx_content", None)
+    digest = getattr(row, "docx_sha256", None)
+    if stored is not None or digest is not None:
+        if (
+            row.status != "ready"
+            or not stored
+            or hashlib.sha256(stored).hexdigest() != digest
+        ):
+            raise HTTPException(
+                409, "Nie można potwierdzić integralności zapisanego DOCX."
+            )
+        return _build_docx_response(
+            docx_bytes=stored,
+            filename=row.filename,
+            candidate_name=row.candidate_name,
+            warnings=[],
+            processing_time_ms=0,
+            generated_id=row.id,
+        )
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -1717,10 +1962,12 @@ async def download_generated_cv_html(
         )
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
+    from app.services.cv_generator_b2b.requirement_map import validated_cached_items
 
+    public_payload = build_public_payload(row.render_payload)
     html_str = render_interactive_html(
-        build_public_payload(row.render_payload),
-        ((row.requirement_map or {}).get("items") or [])
+        public_payload,
+        validated_cached_items(public_payload, row.requirement_map)
         if await _interactive_available(db, row)
         else [],
     )
@@ -1747,8 +1994,8 @@ async def delete_generated_cv(
 ) -> Response:
     """Remove a row from the „Wygenerowane CV" list (author or admin only).
 
-    Only the list entry is deleted; nothing irreplaceable is lost — the CV can be
-    regenerated from the candidate's recruitment at any time.
+    Active work must finish first: deleting its parent cascades the durable job
+    and could orphan a second-language result. Regeneration is a new AI call.
     """
     row = await _load_generated_document(db, generated_id, current_user, write=True)
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
@@ -1756,6 +2003,49 @@ async def delete_generated_cv(
             status_code=403,
             detail="Możesz usunąć tylko CV, które samodzielnie wygenerowałeś.",
         )
+    from app.models.cv_generation_job import CvGenerationJob
+    from sqlalchemy import or_
+
+    active_job = await db.scalar(
+        select(CvGenerationJob.id)
+        .where(
+            or_(
+                CvGenerationJob.generated_id == row.id,
+                CvGenerationJob.second_generated_id == row.id,
+            ),
+            CvGenerationJob.status.in_(("queued", "running")),
+        )
+        .limit(1)
+    )
+    if row.status == "processing" or active_job is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Generacja CV nadal trwa. Usuń dokument po zakończeniu obu wersji językowych.",
+        )
+    # The primary FK cascades the job. Keep the frozen source ledger reachable
+    # from a surviving language variant before deleting its original parent.
+    # Lock the job so concurrent deletions of both variants serialize here.
+    source_job = await db.scalar(
+        select(CvGenerationJob)
+        .where(
+            or_(
+                CvGenerationJob.generated_id == row.id,
+                CvGenerationJob.second_generated_id == row.id,
+            )
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if source_job is not None and source_job.generated_id == row.id:
+        survivor_id = source_job.second_generated_id
+        if survivor_id is not None:
+            source_job.second_generated_id = None
+            source_job.generated_id = survivor_id
+            await db.flush()
+        else:
+            from app.services.cv_source_cleanup import schedule_source_cleanup
+
+            await schedule_source_cleanup(db, source_job.input_storage_key)
     await db.delete(row)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1772,6 +2062,7 @@ _SHARE_PATH_PREFIX = "/cv/i/"
 
 
 class CvGeneratedShareCreateResponse(BaseModel):
+    document_version_id: int | None = None
     token: str
     expires_at: datetime
     share_url_suffix: str
@@ -1784,6 +2075,7 @@ class CvGeneratedShareCreateResponse(BaseModel):
 
 
 class CvGeneratedShareListItem(BaseModel):
+    document_version_id: int | None = None
     revoke_key: str
     token_preview: str
     created_at: Optional[str] = None
@@ -1808,6 +2100,85 @@ async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> 
     )
 
 
+@router.post("/generated/{generated_id}/approve")
+async def approve_generated_cv(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await _load_generated_document(db, generated_id, current_user, write=True)
+    row = await db.scalar(
+        select(CvGeneratedDocument)
+        .where(CvGeneratedDocument.id == generated_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if row is None:
+        raise HTTPException(404, "Nie znaleziono CV.")
+    from app.services.cv_standalone_approval import approve_unchanged_generation
+
+    version = await approve_unchanged_generation(db, row, current_user.id)
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=row.id,
+            action="cv_generated_approved",
+            user_id=current_user.id,
+            details={"document_version_id": version.id},
+        )
+    )
+    await db.commit()
+    return {"document_version_id": version.id, "version": version.version}
+
+
+@router.get("/generated/{generated_id}/approved-versions")
+async def list_generated_approved_versions(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    row = await _load_generated_document(db, generated_id, current_user, write=True)
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    versions = (
+        (
+            await db.execute(
+                select(
+                    CvDocumentVersion.id,
+                    CvDocumentVersion.version,
+                    CvDocumentVersion.approved_at,
+                    CvDocumentVersion.language,
+                    CvDocumentVersion.job_title,
+                )
+                .outerjoin(
+                    CandidateStageCV,
+                    CandidateStageCV.id == CvDocumentVersion.candidate_stage_cv_id,
+                )
+                .outerjoin(
+                    CandidateStage,
+                    CandidateStage.id == CandidateStageCV.candidate_stage_id,
+                )
+                .where(
+                    CvDocumentVersion.generated_document_id == row.id,
+                    (CvDocumentVersion.generated_owner_id == row.id)
+                    | (
+                        (CandidateStage.candidate_id == row.candidate_id)
+                        & (CandidateStage.job_id == row.job_id)
+                        & CvDocumentVersion.candidate_stage_cv_id.is_not(None)
+                    ),
+                )
+                .order_by(
+                    CvDocumentVersion.approved_at.desc(), CvDocumentVersion.id.desc()
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(version) for version in versions]
+
+
 @router.post(
     "/generated/{generated_id}/share-token",
     response_model=CvGeneratedShareCreateResponse,
@@ -1818,6 +2189,7 @@ async def create_generated_cv_share_token(
     current_user: CandidateWriteAccess,
     expires_in_days: int = Query(14, ge=1, le=90),
     max_views: Optional[int] = Query(None, ge=1, le=1000),
+    document_version_id: Annotated[Optional[int], Query(ge=1)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> CvGeneratedShareCreateResponse:
     """Wygeneruj publiczny link do wygenerowanego CV dla hiring managera.
@@ -1855,6 +2227,14 @@ async def create_generated_cv_share_token(
                     ),
                 )
 
+    if document_version_id is None:
+        raise HTTPException(
+            409, "Wybierz zatwierdzoną wersję CV przed utworzeniem linku."
+        )
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    await approved_version_for_generation(db, row, document_version_id)
+
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
     token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -1864,12 +2244,13 @@ async def create_generated_cv_share_token(
             token=revoke_key,
             token_sha256=token_digest,
             generated_document_id=row.id,
+            document_version_id=document_version_id,
             created_by=current_user.id,
             expires_at=expires_at,
             max_views=max_views,
         )
     )
-    interactive = await _interactive_available(db, row)
+    interactive = False
     db.add(
         Activity(
             entity_type="cv_generated_document",
@@ -1887,6 +2268,7 @@ async def create_generated_cv_share_token(
     await db.commit()
 
     return CvGeneratedShareCreateResponse(
+        document_version_id=document_version_id,
         token=raw_token,
         expires_at=expires_at,
         share_url_suffix=f"{_SHARE_PATH_PREFIX}{raw_token}",
@@ -1922,6 +2304,7 @@ async def list_generated_cv_share_tokens(
     )
     return [
         CvGeneratedShareListItem(
+            document_version_id=r.document_version_id,
             revoke_key=r.token,
             token_preview=f"v2 · {r.token_sha256[:6]}…",
             created_at=r.created_at.isoformat() if r.created_at else None,
@@ -1977,3 +2360,219 @@ async def revoke_generated_cv_share_token(
     )
     await db.commit()
     return {"ok": True, "already_revoked": False}
+
+
+# The standalone editor shares revision, rendering and factual-review semantics
+# with the pipeline editor; its parent is the authorized generated document.
+from app.schemas.candidate_stage_cv import (  # noqa: E402
+    CVBrandedUpdate,
+    CVBrandedFinalize,
+    CVBrandedReview,
+    CVBrandedNewDraft,
+)
+from app.services import cv_generated_editor as generated_editor  # noqa: E402
+
+
+async def _load_generated_editor(db, generated_id, user):
+    await _load_generated_document(db, generated_id, user, write=True)
+    generated = await db.scalar(
+        select(CvGeneratedDocument)
+        .where(CvGeneratedDocument.id == generated_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if generated is None:
+        raise HTTPException(404, "Nie znaleziono CV.")
+    return await generated_editor.load_draft(db, generated)
+
+
+@router.get("/generated/{generated_id}/editor")
+async def get_generated_editor(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.patch("/generated/{generated_id}/editor")
+async def save_generated_editor(
+    generated_id: int,
+    payload: CVBrandedUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    if payload.content_html is None:
+        raise HTTPException(409, "Zmiana języka lub szablonu wymaga nowej generacji.")
+    generated_editor.save(draft, payload.expected_revision, payload.content_html)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/new-draft")
+async def new_generated_editor_draft(
+    generated_id: int,
+    payload: CVBrandedNewDraft,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    generated_editor.new_draft(draft, payload.expected_revision)
+    result = generated_editor.state(draft)
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/finalize")
+async def finalize_generated_editor(
+    generated_id: int,
+    payload: CVBrandedFinalize,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    version = await generated_editor.finalize(
+        db, draft, payload.expected_revision, payload.content_html, current_user.id
+    )
+    from app.services.cv_version_map_jobs import schedule_approved_map
+
+    await schedule_approved_map(db, version, current_user.id)
+    result = {
+        **generated_editor.state(draft),
+        "document_version_id": version.id,
+        "snapshot_filename": version.docx_filename,
+        "snapshot_size_bytes": len(version.docx_content),
+    }
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=generated_id,
+            action="cv_generated_edit_approved",
+            user_id=current_user.id,
+            details={"document_version_id": version.id, "version": version.version},
+        )
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/generated/{generated_id}/editor/preview-docx")
+async def preview_generated_editor(
+    generated_id: int,
+    payload: CVBrandedFinalize,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    from app.services.cv_document_versions import check_revision
+
+    check_revision(draft, payload.expected_revision)
+    content = await generated_editor.render(draft, payload.content_html)
+    await db.commit()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="SZKIC_CV.docx"'},
+    )
+
+
+@router.get("/generated/{generated_id}/editor/render-pdf")
+async def print_generated_editor(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    content = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CV</title>'
+        "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script>"
+        "</head><body>" + sanitize_cv_html(draft.branded_draft_html) + "</body></html>"
+    )
+    await db.commit()
+    return Response(
+        content=content, media_type="text/html", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.get("/generated/{generated_id}/editor/versions/{version_number}/docx")
+async def download_generated_approved_version(
+    generated_id: int,
+    version_number: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    generated = await _load_generated_document(db, generated_id, current_user)
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    version_id = await db.scalar(
+        select(CvDocumentVersion.id).where(
+            CvDocumentVersion.generated_owner_id == generated_id,
+            CvDocumentVersion.version == version_number,
+        )
+    )
+    if version_id is None:
+        raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji.")
+    version = await approved_version_for_generation(db, generated, version_id)
+    return Response(
+        content=version.docx_content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                version.docx_filename or "CV.docx"
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/generated/{generated_id}/editor/review")
+async def start_generated_cv_review(
+    generated_id: int,
+    payload: CVBrandedReview,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import enqueue_review
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await enqueue_review(db, draft, payload, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.get("/generated/{generated_id}/editor/review/{review_id}")
+async def get_generated_cv_review(
+    generated_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await review_state(db, draft, review_id, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.delete("/generated/{generated_id}/editor/review/{review_id}")
+async def cancel_generated_cv_review(
+    generated_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_generated_editor(db, generated_id, current_user)
+    result = await review_state(db, draft, review_id, current_user.id, cancel=True)
+    await db.commit()
+    return result

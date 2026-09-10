@@ -1,6 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 /**
  * Standalone CV Generator — dynamic import with ssr:false eliminates the
@@ -25,6 +27,20 @@ const CVGeneratorStandaloneV2 = dynamic(
   },
 );
 
+function ContextualGenerator() {
+  const params = useSearchParams();
+  const positiveId = (value: string | null) => {
+    if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
+    const id = Number(value);
+    return Number.isSafeInteger(id) ? id : undefined;
+  };
+  const candidateId = positiveId(params.get("candidate_id"));
+  return <CVGeneratorStandaloneV2 prefillCandidateId={candidateId}
+    prefillJobId={candidateId ? positiveId(params.get("job_id")) : undefined} />;
+}
+
 export default function CVGeneratorPage() {
-  return <CVGeneratorStandaloneV2 />;
+  return <Suspense fallback={<div className="p-8">Ładowanie generatora CV…</div>}>
+    <ContextualGenerator />
+  </Suspense>;
 }

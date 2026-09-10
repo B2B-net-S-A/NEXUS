@@ -6,6 +6,12 @@ import { ToastProvider } from "@/components/Toast";
 import { CVGeneratorStandaloneV2 } from "../CVGeneratorStandaloneV2";
 import { useAuthStore } from "@/store/auth";
 
+vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
+  CVBrandedEditModal: ({onRegenerate, onOpenChange}: {
+    onRegenerate: () => void; onOpenChange: (open: boolean) => void;
+  }) => <button onClick={() => { onOpenChange(false); onRegenerate(); }}>Recover saved draft</button>,
+}));
+
 // The page GETs the generated-CV list on mount and POSTs the multipart upload.
 const getMock = vi.fn((..._args: unknown[]): Promise<{data: unknown}> => Promise.resolve({ data: [] }));
 const postMock = vi.fn((..._args: unknown[]) =>
@@ -84,6 +90,55 @@ function drop(input: HTMLInputElement, file: File) {
 function confirmOutsideAssignment() {
   fireEvent.click(screen.getByLabelText(/Generuję CV poza zleceniem/));
 }
+
+it("recovers uploaded history without reusing the current source or losing its client", async () => {
+  setSourcingAccess("write");
+  getMock.mockImplementation(async (url) => ({data: url === "/api/cv-generator/generated" ? [{
+    id: 902, candidate_id: null, job_id: null, candidate_name: "Uploaded Person",
+    client_id: 51, client_name: "Original Client", position: "Source role",
+    language: "en", blind: false, mode: "upload", status: "ready", filename: "cv.docx",
+    can_download: true, can_delete: false,
+  }] : []}));
+  const assign = vi.fn();
+  vi.stubGlobal("location", {...window.location, assign});
+  try {
+    renderPage();
+    await openUploadMode();
+    drop(cvInput(), new File(["unrelated"], "unrelated.pdf"));
+    confirmOutsideAssignment();
+    expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeEnabled();
+    fireEvent.click(await screen.findByTitle("Edytuj i zatwierdź CV"));
+    fireEvent.click(screen.getByText("Recover saved draft"));
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Stanowisko")).toHaveValue("Source role");
+    expect(screen.getByText("Original Client")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeDisabled();
+    expect(screen.queryByText("unrelated.pdf")).not.toBeInTheDocument();
+  } finally {
+    vi.unstubAllGlobals();
+    getMock.mockImplementation(async () => ({data: []}));
+  }
+});
+
+it.each([88, null])("recovers the history document context after closing its editor (job %s)", async (jobId) => {
+  setSourcingAccess("write");
+  getMock.mockImplementation(async (url) => ({data: url === "/api/cv-generator/generated" ? [{
+    id: 901, candidate_id: 77, job_id: jobId, candidate_name: "History Person",
+    language: "pl", mode: "new", status: "ready", filename: "cv.docx",
+    can_download: true, can_delete: false,
+  }] : []}));
+  const assign = vi.fn();
+  vi.stubGlobal("location", {...window.location, assign});
+  try {
+    renderPage({prefillCandidateId: 999, prefillJobId: 1000});
+    fireEvent.click(await screen.findByTitle("Edytuj i zatwierdź CV"));
+    fireEvent.click(screen.getByText("Recover saved draft"));
+    expect(assign).toHaveBeenCalledWith(`/cv-generator?candidate_id=77${jobId == null ? "" : "&job_id=88"}`);
+  } finally {
+    vi.unstubAllGlobals();
+    getMock.mockImplementation(async () => ({data: []}));
+  }
+});
 
 describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
   beforeEach(() => {
@@ -360,6 +415,7 @@ describe("CV readiness follows the selected content mode", () => {
     setSourcingAccess("write");
     getMock.mockReset();
     getMock.mockImplementation(async (url, options) => {
+      if (String(url).endsWith("/cv-sources")) return {data: [{id: 71, filename: "source.pdf", is_primary: true, uploaded_at: null}]};
       if (!String(url).endsWith("/recruitments")) return {data: String(url).includes("cv-rule") ? null : []};
       const mode = (options as {params: {content_mode: string}}).params.content_mode;
       return {data: [{stage_id: 30, job_id: 40, job_title: "Test job", has_cv: true,
@@ -369,9 +425,56 @@ describe("CV readiness follows the selected content mode", () => {
     });
     renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
     expect(await screen.findByText("Profil Championa (opcjonalny)")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+    await screen.findByRole("option", {name: "source.pdf · główne"});
+    fireEvent.change(screen.getByLabelText("Plik do generacji"), {target: {value: "71"}});
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", {name: /Pod rekrutację/}));
     expect(await screen.findByText("Tryb dopasowany wymaga Profilu Championa.")).toBeInTheDocument();
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+  });
+});
+
+
+describe("Explicit CV source selection", () => {
+  it("submits the chosen non-primary file and blocks generation before selection", async () => {
+    setSourcingAccess("write");
+    postMock.mockClear();
+    getMock.mockReset();
+    getMock.mockImplementation(async (url) => {
+      if (String(url).endsWith("/cv-sources")) return {data: [
+        {id: 71, filename: "primary.pdf", is_primary: true, uploaded_at: null},
+        {id: 72, filename: "chosen.docx", is_primary: false, uploaded_at: null},
+      ]};
+      if (String(url).endsWith("/recruitments")) return {data: [{stage_id: 30, job_id: 40,
+        job_title: "Synthetic job", has_cv: true, has_champion: false, has_notes: false,
+        ready: true, required_champion: false, required_notes_min_chars: 0, missing_inputs: []}]};
+      return {data: String(url).includes("cv-rule") ? null : []};
+    });
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Synthetic", prefillJobId: 40});
+    await screen.findByRole("option", {name: "chosen.docx"});
+    expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Plik do generacji"), {target: {value: "72"}});
+    await waitFor(() => expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", {name: /Generuj CV/}));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith(
+      "/api/cv-generator/generate", expect.objectContaining({candidate_id: 2, stage_id: 30, cv_document_id: 72}),
+      expect.anything(),
+    ));
+  });
+});
+
+describe("durable generation status", () => {
+  it("distinguishes queued and interrupted work in history", async () => {
+    setSourcingAccess("write");
+    getMock.mockReset();
+    getMock.mockImplementation(async (url) => ({data: String(url) === "/api/cv-generator/generated" ? [
+      {id: 901, candidate_name: "Queued Person", language: "pl", mode: "upload", status: "processing", job_status: "queued", filename: "", can_download: false, can_delete: false},
+      {id: 902, candidate_name: "Interrupted Person", language: "en", mode: "upload", status: "failed", job_status: "interrupted", filename: "", error_message: "Generacja przerwana", can_download: false, can_delete: false},
+    ] : []}));
+    renderPage();
+    expect(await screen.findByText("Oczekuje w kolejce")).toBeInTheDocument();
+    expect(screen.getByText("Przerwano")).toBeInTheDocument();
+    expect(screen.getByText("Generacja przerwana")).toBeInTheDocument();
   });
 });

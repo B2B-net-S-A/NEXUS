@@ -14,13 +14,15 @@ synchronous and slow (30-60 s). All DB access happens in the async part of
 from __future__ import annotations
 
 import copy
+import hashlib
+from io import BytesIO
 import json
 import logging
 import re
 import time
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -42,14 +44,15 @@ from app.services import object_storage
 from app.services import champion_view
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
+    PROMPT_VERSION,
     CVGeneratorOverloadedError,
     CVGeneratorTruncatedError,
     analyze_with_ai,
 )
 from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
+    ChampionParseDiagnostics,
     build_champion_section,
-    build_screening_notes_section,
     from_nexus_job,
     parse_champion_from_docx_bytes,
 )
@@ -68,7 +71,15 @@ from app.services.cv_generator_b2b.docx_renderer import (
     highlight_spans,
     render_cv_to_bytes,
 )
+from app.services.cv_generator_b2b.source_facts import (
+    SourceFactsError,
+    extract_source_facts,
+)
 from app.services.cv_generator_b2b.prompts import get_prompt
+from app.services.cv_generator_b2b.factual_verification import (
+    FactualVerificationError,
+    verify_final_cv,
+)
 from app.services.cv_generator_b2b.text_extractor import (
     CVTextExtractionError,
     extract_text_from_file,
@@ -209,6 +220,7 @@ class GenerationResult:
     # Claude. ``job_id`` is set in New mode (None for manual upload).
     render_payload: dict[str, Any]
     job_id: int | None = None
+    template_bytes: bytes | None = None
 
 
 def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
@@ -240,7 +252,12 @@ def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
+def rerender_docx_from_payload(
+    render_payload: dict[str, Any],
+    *,
+    require_consent: bool = False,
+    template_bytes: bytes | None = None,
+) -> bytes:
     """Re-render a previously generated CV from its saved ``render_payload``.
 
     Deterministic — no Claude call. Deep-copies because ``render_cv_to_bytes``
@@ -252,7 +269,19 @@ def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
     z drugiego i każdego kolejnego pliku.
     """
     payload = hydrate_consent_screenshot(copy.deepcopy(render_payload))
-    return render_cv_to_bytes(payload, TEMPLATE_PATH)
+    if require_consent:
+        consent = payload.get("consent_screenshot") or {}
+        image_bytes = consent.get("_bytes")
+        if not image_bytes:
+            raise ValueError("Nie można zapisać CV bez dołączonego obrazu zgody.")
+        from PIL import Image
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.verify()
+    return render_cv_to_bytes(
+        payload,
+        BytesIO(template_bytes) if template_bytes is not None else TEMPLATE_PATH,
+    )
 
 
 @dataclass(frozen=True)
@@ -790,7 +819,7 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
             {
                 "dates": str(job.get("dates") or "").strip(),
                 "company": str(job.get("company") or "").strip(),
-                "industry": str(job.get("industry") or "IT").strip(),
+                "industry": str(job.get("industry") or "").strip(),
                 "position": str(job.get("position") or "").strip(),
                 "responsibilities": _str_list(job.get("responsibilities")),
                 "technologies": _str_list(job.get("technologies")),
@@ -873,8 +902,8 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
     return (start, end)
 
 
-def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
-    """Completed years in the union of all precisely dated employment months.
+def _total_experience_months(experience: list[dict[str, Any]]) -> int | None:
+    """Union count of precisely dated employment calendar months.
 
     Missing dates or year-only precision make the total unknown. Never replace
     an explicit source claim with a total based on a partially dated history.
@@ -910,8 +939,19 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
             cur_start, cur_end = start, end
     total_months += cur_end - cur_start + 1
 
-    years = total_months // 12
-    return years if years >= 1 else None
+    return total_months
+
+
+def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
+    months = _total_experience_months(experience)
+    return months // 12 if months is not None and months >= 12 else None
+
+
+def _full_history(candidate_data: dict[str, Any]) -> list[dict[str, Any]]:
+    facts = candidate_data.get("source_facts")
+    if isinstance(facts, dict) and isinstance(facts.get("document"), dict):
+        return facts["document"].get("experience") or []
+    return candidate_data.get("experience") or []
 
 
 # A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
@@ -958,7 +998,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
     total. Decimal/range/plus claims are matched atomically, without changing
     only the trailing digit (e.g. Polish "2,5 roku").
     """
-    years = _total_experience_years(candidate_data.get("experience") or [])
+    years = _total_experience_years(_full_history(candidate_data))
     if not years:
         return
     if language == "en":
@@ -1153,19 +1193,15 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
     CV. Without this allowance the guard would flag its own arithmetic.
     """
     allowed: set[str] = set()
-    total = _total_experience_years(candidate_data.get("experience") or [])
+    total = _total_experience_years(_full_history(candidate_data))
     if total is not None:
-        # ±1 absorbs the rounding _fix_experience_years applies.
-        allowed.update(str(total + delta) for delta in (-1, 0, 1) if total + delta >= 0)
-    for job in candidate_data.get("experience") or []:
-        span = _parse_date_range(str(job.get("dates") or ""))
-        if not span:
-            continue
-        start, end = span
-        now = datetime.now()
-        end = min(end, now.year * 12 + (now.month - 1))
-        years = max(0, (end - start) // 12)
-        allowed.update(str(years + delta) for delta in (0, 1))
+        allowed.add(str(total))
+    for job in _full_history(candidate_data):
+        # Use the same precision checks, inclusive months and completed years
+        # as the headline. Missing months cannot authorize an invented duration.
+        years = _total_experience_years([job])
+        if years is not None:
+            allowed.add(str(years))
     return allowed
 
 
@@ -1377,6 +1413,69 @@ def _champion_parse_warnings(
 # ── Shared Claude → DOCX pipeline (sync; run via threadpool) ───────────────
 
 
+@dataclass(frozen=True)
+class PreparedSourceFacts:
+    cv_text: str
+    facts_json: str
+    cv_sha256: str
+    notes_sha256: str
+
+
+def prepare_source_facts(
+    *,
+    cv_bytes: bytes,
+    cv_filename: str,
+    screening_notes_text: str,
+    request_id: str,
+) -> PreparedSourceFacts:
+    """One independent extraction and dated tenure ledger for all preview variants."""
+    # ── 1. Extract CV text ───────────────────────────────────────────────
+    try:
+        cv_text = extract_text_from_file(cv_bytes, cv_filename or "cv.pdf")
+    except CVTextExtractionError as err:
+        raise StandaloneGenerationError(
+            code="extraction_failed",
+            message=f"Nie udało się odczytać tekstu z CV: {err}",
+        ) from err
+
+    # Capture the full history BEFORE any client, language or page-length rule.
+    # Editorial output may omit roles/sections; these source facts never do so
+    # because of presentation settings and remain separate from render fields.
+    try:
+        source_facts = extract_source_facts(
+            cv_text=cv_text, screening_notes=screening_notes_text, request_id=request_id
+        )
+    except SourceFactsError as err:
+        logger.info(
+            "[cv_b2b][%s] source extraction rejected: %s", request_id, err.reason
+        )
+        raise StandaloneGenerationError(
+            code="source_extraction_failed",
+            message="Nie udało się potwierdzić pełnych danych źródłowych. Sprawdź czytelność CV i ponów generację.",
+        ) from err
+    except CVGeneratorAIError as err:
+        raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
+    full_history = source_facts["document"].get("experience") or []
+    source_facts["tenure"] = {
+        "as_of": datetime.now().date().isoformat(),
+        "precision": "calendar_months",
+        "career_months": _total_experience_months(full_history),
+        "career_completed_years": _total_experience_years(full_history),
+        "role_months": [
+            {"path": f"/experience/{index}", "months": _total_experience_months([role])}
+            for index, role in enumerate(full_history)
+        ],
+        "technology_durations": None,  # A tool in a role is not a dated tool history.
+    }
+
+    return PreparedSourceFacts(
+        cv_text=cv_text,
+        facts_json=json.dumps(source_facts, ensure_ascii=False),
+        cv_sha256=hashlib.sha256(cv_bytes).hexdigest(),
+        notes_sha256=hashlib.sha256(screening_notes_text.encode()).hexdigest(),
+    )
+
+
 def _run_generation_pipeline(
     *,
     cv_bytes: bytes,
@@ -1394,6 +1493,7 @@ def _run_generation_pipeline(
     client_rule: CvRuleSnapshot | None = None,
     project_ref: str | None = None,
     position_ref: str | None = None,
+    prepared_source_facts: PreparedSourceFacts | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1406,25 +1506,36 @@ def _run_generation_pipeline(
     the model at all, so the prompt's whole positioning section has nothing to
     act on, and the client's requirement list stops driving what gets bolded.
     """
-    # ── 1. Extract CV text ───────────────────────────────────────────────
-    try:
-        cv_text = extract_text_from_file(cv_bytes, cv_filename or "cv.pdf")
-    except CVTextExtractionError as err:
+    facts = prepared_source_facts or prepare_source_facts(
+        cv_bytes=cv_bytes,
+        cv_filename=cv_filename,
+        screening_notes_text=screening_notes_text,
+        request_id=request_id,
+    )
+    if (
+        facts.cv_sha256 != hashlib.sha256(cv_bytes).hexdigest()
+        or facts.notes_sha256
+        != hashlib.sha256(screening_notes_text.encode()).hexdigest()
+    ):
         raise StandaloneGenerationError(
-            code="extraction_failed",
-            message=f"Nie udało się odczytać tekstu z CV: {err}",
-        ) from err
+            code="source_extraction_failed",
+            message="Źródła zmieniły się po ekstrakcji faktów. Uruchom podgląd ponownie.",
+        )
+    cv_text = facts.cv_text
+    source_facts = json.loads(facts.facts_json)
 
-    # ── 2. Build prompt (system = instructions, user = data in tags) ─────
+    # ── 2. Edit the already extracted facts ────────────────────────────
     mode = normalize_content_mode(content_mode)
     system_prompt = get_prompt(language, blind_cv, mode)
-
-    user_parts = [f"<cv>\n{cv_text.strip()}\n</cv>"]
-    screening_section = build_screening_notes_section(screening_notes_text, language)
-    if screening_section.strip():
-        user_parts.append(
-            f"<screening_notes>\n{screening_section.strip()}\n</screening_notes>"
-        )
+    editorial_input = {
+        "document": source_facts["document"],
+        "tenure": source_facts["tenure"],
+    }
+    user_parts = [
+        "<source_facts>\n"
+        + json.dumps(editorial_input, ensure_ascii=False)
+        + "\n</source_facts>"
+    ]
     # Only "tailored" gets the client's requirements in front of the model.
     # Withholding the section (rather than relying on the prompt to ignore it)
     # is what makes the lower modes trustworthy: there is nothing to position
@@ -1497,6 +1608,25 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    candidate_data["source_facts"] = source_facts
+    candidate_data["client_rule_snapshot"] = (
+        asdict(client_rule) if client_rule else None
+    )
+    candidate_data["editorial_provenance"] = {
+        "prompt_version": PROMPT_VERSION,
+        "system_prompt_sha256": hashlib.sha256(system_prompt.encode()).hexdigest(),
+        "input_sha256": hashlib.sha256(user_content.encode()).hexdigest(),
+        "rule_sha256": hashlib.sha256(
+            json.dumps(
+                asdict(client_rule) if client_rule else None,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
+        "cv_sha256": facts.cv_sha256,
+        "notes_sha256": facts.notes_sha256,
+    }
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
     # Stamped BEFORE the render_payload snapshot so the saved row records which
@@ -1521,8 +1651,8 @@ def _run_generation_pipeline(
         else None,
     )
 
-    # Exact years of experience — Claude tends to under-count ("ponad 4" for a
-    # 5-year candidate); recompute the headline from the extracted dates.
+    # Only full source history can support the generic career total. The
+    # editorial response may already have obeyed the client's role limit.
     _fix_experience_years(candidate_data, language)
 
     # The recruitment role (Champion Profile → Job.title) names the vacancy, not
@@ -1543,14 +1673,79 @@ def _run_generation_pipeline(
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
 
     # Klocki reguły klienta domykane W KODZIE — PO bezpiecznikach, nie przed:
-    # `_fix_experience_years` i `_derivable_years` liczą lata z PEŁNEJ listy
-    # stanowisk (obcięcie do `max_roles` przed nimi zaniżałoby nagłówek
-    # „N lat doświadczenia" i flagowało poprawną liczbę jako brak pokrycia),
+    # `_fix_experience_years` i `_derivable_years` liczą lata z osobnego
+    # pełnego source_facts, nigdy z listy przyciętej przez redakcję modelu,
     # a słownik podmienia nazewnictwo, którego bezpiecznik nie znalazłby
     # w źródle. Model dostał te same reguły w prompcie, ale prośba nie jest
     # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
-    policy_notes = apply_presentation_policy(candidate_data, client_rule)
+    from app.services.cv_generator_b2b.editorial_limits import (
+        EditorialLimitError,
+        fit_responsibilities,
+    )
+
+    try:
+        fit_responsibilities(
+            candidate_data, client_rule, language=language, request_id=request_id
+        )
+        policy_notes = apply_presentation_policy(candidate_data, client_rule)
+    except (EditorialLimitError, CVGeneratorAIError) as err:
+        raise StandaloneGenerationError(
+            code="editorial_limits_failed",
+            message="Nie udało się przygotować pełnych punktów w limicie znaków klienta. Zwiększ limit lub ponów generację; nie utworzono uciętego dokumentu.",
+        ) from err
     apply_date_format(candidate_data, client_rule)
+
+    # Check the actual final claims, including glossary replacements and date
+    # formatting. Warnings alone must never turn unsupported claims into a
+    # downloadable document. Client rules and the vacancy are not evidence.
+    try:
+        candidate_data["factual_verification"] = verify_final_cv(
+            candidate_data,
+            cv_text=cv_text,
+            screening_notes=screening_notes_text,
+            identity=fallback_name or "",
+            request_id=request_id,
+        )
+    except FactualVerificationError as err:
+        logger.info(
+            "[cv_b2b][%s] final factual review rejected: reason=%s field_count=%s",
+            request_id,
+            err.reason,
+            len(err.paths),
+        )
+        labels = {
+            "why_points": "podsumowanie",
+            "experience": "doświadczenie",
+            "certifications": "certyfikaty",
+            "skills": "umiejętności",
+            "languages": "języki",
+            "education": "edukacja",
+            "name": "imię i nazwisko",
+            "first_name": "imię",
+            "position": "stanowisko",
+        }
+        fields = ", ".join(
+            dict.fromkeys(
+                labels.get(path.split("/")[1], "dane kandydata") for path in err.paths
+            )
+        )
+        raise StandaloneGenerationError(
+            code="source_verification_failed",
+            message=(
+                "Nie utworzono CV: końcowa kontrola nie potwierdziła wszystkich "
+                "twierdzeń w materiałach źródłowych. Sprawdź CV i notatki, a następnie "
+                "ponów generację."
+                + (f" Pola do sprawdzenia: {fields}." if fields else "")
+            ),
+        ) from err
+    except CVGeneratorAIError as err:
+        raise StandaloneGenerationError(
+            code="source_verification_unavailable",
+            message=(
+                "Nie utworzono CV: kontrola zgodności ze źródłami jest chwilowo "
+                "niedostępna. Ponów generację później."
+            ),
+        ) from err
 
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
     # (blind mode rewrites name/company in place). Re-rendering this payload
@@ -1559,7 +1754,12 @@ def _run_generation_pipeline(
 
     # ── 5. Render DOCX ───────────────────────────────────────────────────
     try:
-        docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
+        template_bytes = Path(TEMPLATE_PATH).read_bytes()
+        docx_bytes = render_cv_to_bytes(candidate_data, BytesIO(template_bytes))
+        render_payload["artifact_provenance"] = {
+            "template_sha256": hashlib.sha256(template_bytes).hexdigest(),
+            "generated_docx_sha256": hashlib.sha256(docx_bytes).hexdigest(),
+        }
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
         logger.exception("[cv_b2b][%s] DOCX render failed: %s", request_id, err)
         raise StandaloneGenerationError(
@@ -1640,6 +1840,7 @@ def _run_generation_pipeline(
         processing_time_ms=duration_ms,
         render_payload=render_payload,
         job_id=job_id,
+        template_bytes=template_bytes,
     )
 
 
@@ -1664,6 +1865,8 @@ async def list_recruitments_with_readiness(
     *,
     job_scope=None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    rule_overrides: dict[int, CvRuleSnapshot | None] | None = None,
+    content_mode_cap_overrides: dict[int, str | None] | None = None,
 ) -> list[RecruitmentReadiness]:
     """Return the candidate's recruitment processes annotated with readiness
     flags (champion / notes / CV present).
@@ -1764,6 +1967,10 @@ async def list_recruitments_with_readiness(
             )
         ).all()
         client_rules = {row.client_id: snapshot_rule(row) for row in rows}
+    # Internal preview snapshots override published policy for explicitly named clients.
+    # A None value intentionally tests the variant without a client rule.
+    if rule_overrides:
+        client_rules.update(rule_overrides)
 
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
@@ -1773,7 +1980,11 @@ async def list_recruitments_with_readiness(
         locked_mode, _ = resolve_content_mode(rule, content_mode)
         effective_mode, _ = apply_content_mode_cap(
             locked_mode,
-            getattr(job.client, "cv_content_mode_cap", None) if job else None,
+            content_mode_cap_overrides[job.client_id]
+            if job
+            and content_mode_cap_overrides is not None
+            and job.client_id in content_mode_cap_overrides
+            else (getattr(job.client, "cv_content_mode_cap", None) if job else None),
         )
         minimum = (rule.require_screening_notes_min_chars or 0) if rule else 0
 
@@ -1970,33 +2181,73 @@ def champion_present(job: Job | None) -> bool:
 # ── Main entrypoint ────────────────────────────────────────────────────────
 
 
-async def generate_cv_for_candidate(
+@dataclass(frozen=True)
+class CandidateGenerationSource:
+    """Owned immutable source values, reusable across comparison variants."""
+
+    cv_bytes: bytes
+    cv_filename: str
+    champion_json: str
+    has_champion: bool
+    screening_notes_text: str
+    source_warnings: tuple[str, ...]
+    fallback_name: str | None
+    job_id: int
+    job_title: str
+    client_content_mode_cap: str | None
+    candidate_id: int
+    stage_id: int
+    cv_document_id: int | None
+    requirements: tuple[tuple[str, str], ...] = ()
+    client_id: int | None = None
+
+    def champion(self) -> ChampionProfileForPrompt:
+        # Each renderer owns a fresh DTO; mutation cannot contaminate another variant.
+        data = json.loads(self.champion_json)
+        data["diagnostics"] = ChampionParseDiagnostics(**data["diagnostics"])
+        return ChampionProfileForPrompt(**data)
+
+
+async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list[dict]:
+    if await db.get(Candidate, candidate_id) is None:
+        raise StandaloneGenerationError(
+            code="candidate_not_found", message="Konsultant nie istnieje."
+        )
+    rows = (
+        await db.scalars(
+            select(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                _supported_cv_doc_filter(),
+            )
+            .order_by(
+                CandidateDocument.is_primary.desc(),
+                CandidateDocument.uploaded_at.desc(),
+                CandidateDocument.id.desc(),
+            )
+        )
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "is_primary": bool(row.is_primary),
+            "uploaded_at": row.uploaded_at,
+        }
+        for row in rows
+    ]
+
+
+async def load_candidate_generation_source(
     db: AsyncSession,
     *,
     candidate_id: int,
     stage_id: int,
     language: Language = "pl",
-    blind_cv: bool = False,
-    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
-    client_rule: CvRuleSnapshot | None = None,
-    project_ref: str | None = None,
-    client_policy_override: dict[str, Any] | None = None,
-) -> GenerationResult:
-    """Generate the B2B-formatted CV for ``candidate_id`` using the champion
-    + notes context tied to the given ``stage_id``.
-
-    Validates the readiness contract documented in
-    :class:`StandaloneGenerationError`. Raises with a specific ``code`` so
-    the API layer can map to the right HTTP status.
-
-    ``content_mode`` is clamped to the recruiting client's ceiling
-    (``Client.cv_content_mode_cap``) before it reaches the pipeline, so a
-    commitment made to a client holds regardless of what the recruiter picks
-    in the UI.
-    """
-    request_id = f"cvgen_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
-    started_at = time.time()
-
+    cv_document_id: int | None = None,
+) -> CandidateGenerationSource:
+    """Read the chosen file, recruitment context and notes once; no provider calls."""
+    request_id = f"cvsource_{uuid.uuid4().hex[:12]}"
     candidate = await db.get(Candidate, candidate_id)
     if candidate is None:
         raise StandaloneGenerationError(
@@ -2023,34 +2274,7 @@ async def generate_cv_for_candidate(
             message=f"Stage {stage_id} has no linked job",
         )
 
-    # Blokada trybu z reguły klienta (0267) — zablokowany tryb NADPISUJE
-    # żądanie rekrutera; kafelki w UI są wyłączone, ale kontrakt trzyma serwer.
-    locked_mode, was_forced = resolve_content_mode(client_rule, content_mode)
-    if was_forced:
-        logger.info(
-            "[cv_b2b][%s] content_mode forced %s→%s by client rule",
-            request_id,
-            normalize_content_mode(content_mode),
-            locked_mode,
-        )
-    # Per-client ceiling. NULL cap (the default everywhere) = no ceiling, so
-    # nothing changes for clients we have made no promise to.
     client = await db.get(Client, job.client_id) if job.client_id else None
-    effective_mode, was_capped = apply_content_mode_cap(
-        locked_mode,
-        client_policy_override.get("cv_content_mode_cap")
-        if client_policy_override is not None
-        else getattr(client, "cv_content_mode_cap", None),
-    )
-    if was_capped:
-        logger.info(
-            "[cv_b2b][%s] content_mode capped %s→%s by client %s",
-            request_id,
-            normalize_content_mode(content_mode),
-            effective_mode,
-            job.client_id,
-        )
-
     # ── 1. CV file ────────────────────────────────────────────────────────
     cv_doc_q = (
         select(CandidateDocument)
@@ -2063,7 +2287,14 @@ async def generate_cv_for_candidate(
         )
         .limit(1)
     )
+    if cv_document_id is not None:
+        cv_doc_q = cv_doc_q.where(CandidateDocument.id == cv_document_id)
     cv_doc = (await db.scalars(cv_doc_q)).first()
+    if cv_doc is None and cv_document_id is not None:
+        raise StandaloneGenerationError(
+            code="no_cv_file",
+            message="Wybrane CV nie jest dostępne dla tego konsultanta. Wybierz plik ponownie.",
+        )
     if cv_doc is None:
         any_doc_id = await db.scalar(
             select(CandidateDocument.id)
@@ -2105,18 +2336,6 @@ async def generate_cv_for_candidate(
             message="CV kandydata jest puste (brak storage_key i file_content).",
         )
 
-    # ── 2. Champion ───────────────────────────────────────────────────────
-    if (
-        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
-    ) and not _champion_present(job):
-        raise StandaloneGenerationError(
-            code="no_champion",
-            message=(
-                "Profil Championa dla tej rekrutacji jest pusty. Uzupełnij "
-                "must-have / nice-to-have / kontekst projektu przed generacją CV."
-            ),
-        )
-
     champion_dto = from_nexus_job(
         must_skills=job.must_skills,
         nice_skills=job.nice_skills,
@@ -2124,7 +2343,6 @@ async def generate_cv_for_candidate(
         requirements=job.requirements,
     )
 
-    # ── 3. Screening notes — scoped to THIS recruitment ──────────────────
     source_warnings: list[str] = []
     screening_notes_text = await collect_screening_notes_text(
         db,
@@ -2134,39 +2352,114 @@ async def generate_cv_for_candidate(
         warnings=source_warnings,
         language=language,
     )
+    from app.services.cv_generator_b2b.requirement_map import build_requirements
+
+    return CandidateGenerationSource(
+        cv_bytes=bytes(cv_bytes),
+        cv_filename=cv_doc.filename or "cv.pdf",
+        champion_json=json.dumps(asdict(champion_dto), ensure_ascii=False),
+        has_champion=_champion_present(job),
+        screening_notes_text=screening_notes_text,
+        source_warnings=tuple(source_warnings),
+        fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
+        job_id=job.id,
+        job_title=job.title,
+        client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
+        candidate_id=candidate_id,
+        stage_id=stage_id,
+        cv_document_id=getattr(cv_doc, "id", None),
+        requirements=tuple(
+            (item["name"], item["kind"]) for item in build_requirements(job)
+        ),
+        client_id=job.client_id,
+    )
+
+
+async def generate_cv_from_candidate_source(
+    source: CandidateGenerationSource,
+    *,
+    language: Language = "pl",
+    blind_cv: bool = False,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
+    prepared_source_facts: PreparedSourceFacts | None = None,
+) -> GenerationResult:
+    """Apply one variant's policy to already captured source values, with no DB reads."""
+    locked_mode, _ = resolve_content_mode(client_rule, content_mode)
+    effective_mode, _ = apply_content_mode_cap(
+        locked_mode,
+        client_policy_override.get("cv_content_mode_cap")
+        if client_policy_override is not None
+        else source.client_content_mode_cap,
+    )
+    if (
+        effective_mode == "tailored" or (client_rule and client_rule.require_champion)
+    ) and not source.has_champion:
+        raise StandaloneGenerationError(
+            code="no_champion",
+            message="Profil Championa dla tej rekrutacji jest pusty. Uzupełnij go przed generacją CV.",
+        )
     minimum = (client_rule.require_screening_notes_min_chars or 0) if client_rule else 0
-    if len(screening_notes_text.strip()) < minimum:
+    if len(source.screening_notes_text.strip()) < minimum:
         raise StandaloneGenerationError(
             code="no_notes",
-            message=(
-                f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} "
-                f"znaków, dostępne {len(screening_notes_text.strip())}."
-            ),
+            message=f"Reguła klienta wymaga notatek z rozmów: co najmniej {minimum} znaków, dostępne {len(source.screening_notes_text.strip())}.",
         )
-
-    # ── 4-6. Sync pipeline in a worker thread — event loop stays free ────
-    fallback_name = f"{candidate.name} {candidate.lastname}".strip() or None
+    started_at = time.time()
+    request_id = f"cvgen_{int(started_at * 1000)}_{uuid.uuid4().hex[:6]}"
     result = await run_in_threadpool(
         lambda: _run_generation_pipeline(
-            cv_bytes=cv_bytes,
-            cv_filename=cv_doc.filename or "cv.pdf",
-            champion_dto=champion_dto,
-            screening_notes_text=screening_notes_text,
+            cv_bytes=source.cv_bytes,
+            cv_filename=source.cv_filename,
+            champion_dto=source.champion(),
+            screening_notes_text=source.screening_notes_text,
             language=language,
             blind_cv=blind_cv,
             request_id=request_id,
-            fallback_name=fallback_name,
+            fallback_name=source.fallback_name,
             started_at=started_at,
-            job_id=job.id,
-            job_title=job.title,
+            job_id=source.job_id,
+            job_title=source.job_title,
             content_mode=effective_mode,
             client_rule=client_rule,
             project_ref=project_ref,
+            prepared_source_facts=prepared_source_facts,
         )
     )
-    if source_warnings:
-        result.warnings.extend(source_warnings)
+    if source.source_warnings:
+        result.warnings.extend(source.source_warnings)
     return result
+
+
+async def generate_cv_for_candidate(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    stage_id: int,
+    language: Language = "pl",
+    blind_cv: bool = False,
+    content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    client_policy_override: dict[str, Any] | None = None,
+) -> GenerationResult:
+    source = await load_candidate_generation_source(
+        db,
+        candidate_id=candidate_id,
+        stage_id=stage_id,
+        language=language,
+    )
+    return await generate_cv_from_candidate_source(
+        source,
+        language=language,
+        blind_cv=blind_cv,
+        content_mode=content_mode,
+        client_rule=client_rule,
+        project_ref=project_ref,
+        client_policy_override=client_policy_override,
+    )
 
 
 # ── Old mode: manual upload (1:1 with external CV-Generator) ──────────────
@@ -2210,7 +2503,11 @@ def _validate_upload(
         )
 
 
-def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult:
+def generate_cv_from_uploads(
+    payload: UploadGenerationInput,
+    *,
+    prepared_source_facts: PreparedSourceFacts | None = None,
+) -> GenerationResult:
     """Generate the B2B CV from user-uploaded files (Old mode).
 
     1:1 with the external CV-Generator ``POST /api/v1/generate`` flow, sharing
@@ -2282,6 +2579,7 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         client_rule=payload.client_rule,
         project_ref=payload.project_ref or None,
         position_ref=payload.position or None,
+        prepared_source_facts=prepared_source_facts,
     )
 
 

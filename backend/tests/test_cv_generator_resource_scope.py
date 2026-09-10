@@ -85,7 +85,7 @@ async def test_generation_scope_precedes_rules_sources_and_quota(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await api.generate.__wrapped__(
             Request({"type": "http"}),
-            api.GenerateRequest(candidate_id=2, stage_id=3),
+            api.GenerateRequest(candidate_id=2, stage_id=3, cv_document_id=9),
             user(),
             BackgroundTasks(),
             db,

@@ -8,25 +8,61 @@ CI, merge, expected deployment revision and relevant production verification.
 | Finding | Acceptance criteria | Status |
 |---|---|---|
 | CV-01 | Consent reset on candidate switch; server rejects asset bound to another subject | Signed upload receipt binds owner, candidate/stage/client or uploaded CV bytes/client. UI resets and ignores late responses. Local regressions pass; CI/deploy/production proof pending |
-| CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Pending |
+| CV-02 | Standalone and pipeline share an immutable selected version across edit, approval, export and share; legacy links preserved | Shared editor, standalone approvals, explicit approved-link selection and pipeline import implemented. Immutable rendering assets added locally. Approved-only API enforcement is now implemented locally; hosted integration and production proof remain open |
 | CV-03 | Atomic save/finalize, version conflict detection, recoverable failed autosave, new revision after approval | Atomic current-content approval, draft OCC, immutable versions and pinned legacy links implemented; hosted DB races, CI and production interaction pending |
 | CV-04 | Share result survives stage move and queue depletion; action labels distinguish link creation from sending | Implemented with 23 component regressions; CI and production interaction pending |
 | CV-05 | Explicit upload candidate/job association; server-filtered paginated history | Implemented with explicit process selection and server cursor history; local tests pass, hosted DB >60-document regression and production proof pending |
 | CV-06 | Common client resolver respects upload client in public CV, chat and export | Implemented locally; CI and production verification pending |
 | CV-07 | Job resource authorization on generation, listing, download and share; authorized Finance reads preserved | Shared read/write guards and SQL filtering implemented; 163 local regressions pass, hosted database and production checks pending |
-| CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Pending |
-| CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Pending |
-| CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Pending |
-| CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | In progress: conservative arithmetic and scoped-claim regressions; source-linked tenure still pending |
-| CV-12 | Complete facts extracted independently of display limits/omitted sections | Pending |
-| CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Pending |
+| CV-08 | Mode/client-specific readiness; frozen explicit source selection; invalid required inputs block generation | Mode/client readiness and file preflight implemented. Public candidate generation now requires explicit document ID and verifies the captured file/context before quota. 71 focused checks pass; hosted latest-head and production interaction remain pending |
+| CV-09 | Durable inputs/jobs, retry/idempotency/progress; validate before charging quota | Private source snapshots, durable leased jobs, shared capacity, queue status and request idempotency implemented. Hosted PostgreSQL competing-receipt commit/rollback tests passed in CI 34413855594 for d2495aa0. Preview idempotency implemented in 0299 and included in green CI 34426918356. Complete retention lifecycle and production restart/network recovery proof remain open |
+| CV-10 | Evidence-based review gate; source/rule/model/prompt/template metadata; stable approved artifact bytes/hash | Generated and approved DOCX bytes/hashes, editorial/source provenance and shared edited-content review implemented. Durable review queue, immutable inputs, request receipts, worker leases, editor polling and exact-result reuse implemented through 2ea6da63. Finalize no longer calls the model. Full hosted acceptance, remaining recovery/cancellation usability and real-model acceptance remain open |
+| CV-11 | Full/scoped tenure distinguished; month formats, gaps, overlap, partial dates and career changes handled without inflated claims | Conservative full/scoped arithmetic and source-linked extraction are implemented. Actual primary/fallback quality measurements and production proof remain pending |
+| CV-12 | Complete facts extracted independently of display limits/omitted sections | Separate source extraction and cited ledger implemented; full history retained before client/editorial limits. Real-model completeness benchmark pending |
+| CV-13 | Claims bound to source subject, polarity, unit and role; unsupported claims removed or approval blocked | Final semantic review gate implemented locally: exhaustive field verdicts and exact citations, reject before DOCX. Structured fact ledger is implemented; real-model semantic and completeness evaluation remains pending |
 | CV-14 | Typed independent highlighting; identical verified spans in DOCX, HTML and public view | Implemented locally with typed policy, shared matcher and public text runs; CI and production artifact verification pending |
-| CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Pending |
+| CV-15 | Distinct concise fact-based summaries; meaningful rewriting instead of mechanical truncation | Removed rigid career/role/biggest-company and MUST-list instructions; final source review added. Rewrite/quality evaluation still pending |
 | CV-16 | Typed language aliases cannot alter technologies, certification or seniority; final factual validation | Typed reviewed role translations implemented, arbitrary legacy substitutions skipped with warnings, unsafe publication blocked. CI, deployment and final factual review acceptance pending |
 | CV-17 | Independent draft/published recipes incl. flags; atomic versioned publish, concurrency, rollback | Implemented with migration and local regressions; hosted API/migration tests and production verification pending |
-| CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Recipe snapshot, language check and draft cap implemented; source snapshot, DOCX and complete validation still pending |
+| CV-18 | Snapshot-based preview uses production contract and actual DOCX; applied/skipped/conflicting rule feedback | Frozen source/recipe, exact downloadable DOCX bytes with integrity check and presentation feedback implemented. Free-text instructions and unknown date formats explicitly require human review. Complete recipe feedback, visual comparison and DL acceptance remain open |
 | CV-19 | Validate client naming patterns and mappings; review exact recipes and evidence before operational publication | Filename validation implemented locally; configuration review/publication and production verification pending |
-| CV-20 | Shared deterministic policies and versioned source corpus; primary/fallback evaluations and DL acceptance evidence | Pending |
+| CV-20 | Shared deterministic policies and versioned source corpus; primary/fallback evaluations and DL acceptance evidence | Versioned full-document corpus and metered runner implemented. Local v2 has 40 output variants from 20 histories, including two English sources. Runner checks tenure, source facts and date/company/title role identities and preserves interrupted operation receipts. Forty image-only PDF variants are supported; native synthetic OCR acceptance passed in CI 34426918356. Actual primary/fallback generation runs, output visual review and DL acceptance remain open |
+
+## Current evidence boundary
+
+### Older CVs without original source snapshots
+
+Existing downloads and historical share links keep their existing paths. New
+source-verified approval requires original captured inputs and a recorded review.
+For an older generation without those records, the supported recovery is to
+select the original candidate CV (or upload it), select the recruitment/client,
+provide the relevant notes and generate a new version, then review and approve
+that result. It is a new generation with normal quota admission, not a backfill
+claiming that today's candidate profile was the historical source.
+
+The approval API returns a typed `cv_source_regeneration_required` response
+when a generation has no frozen source job. The shared editor keeps this error
+visible, lists the source-selection and regeneration steps, and provides a
+save-and-close action. Draft edits are saved before closing; they are not
+silently copied into a new generation. The message explains the normal AI quota
+for a new generation. Missing-source rejection itself does not consume quota.
+Storage outages or invalid snapshots do not receive this legacy recovery code.
+Local evidence for `fd77401e`: 20 source/review backend tests, five editor tests
+(including preservation of edits in both standalone and pipeline recovery), and
+TypeScript passed. Direct navigation with preselected recruitment/client and
+production verification remain open; this is not completion of CV-02/10.
+
+PR #1444 remains the single delivery PR. CI 34412484203 passed all four backend
+shards and frontend build for `5b9c1d15`. Its separate formatting gate failed;
+the correction is in `d2495aa0`, whose CI Gate 34413855623 passed. Main CI
+34413855594 for that revision remains in progress at this checkpoint.
+Generation-time template/consent retention (migration 0298, `abd092c2`) and its
+offline-storage tests (`0b952fe4`) are committed locally and not covered by those
+runs. Request retry receipts and browser retry keys are implemented in the
+pushed revision; concurrent PostgreSQL tests still await that run's result.
+These gates do not prove semantic model quality or production behavior.
+No consolidated completion or production deployment is claimed. Detailed
+subsequent evidence is in `consolidated-delivery-2026-09-09.md`.
 
 ## Verification ledger
 
@@ -78,6 +114,49 @@ DOCX, downloadable HTML and public text runs use the same matcher. Public runs
 are derived after privacy projection and are not added to AI input payloads.
 Ambiguous Polish uses of Jest are excluded unless a testing context is present.
 Keyword formatting leaves structural heading styles intact.
+
+
+## Final factual review package (in progress)
+
+After glossary, shortening and date formatting, every nonempty factual field
+must receive a supported verdict with exact CV/note citations. Missing fields,
+duplicate paths, invented quotes, private/contradicted/unsupported verdicts,
+malformed responses and provider failures stop generation before DOCX rendering.
+The client recipe and vacancy are never evidence. Identity metadata can support
+only candidate names. Private reports record document/source/prompt hashes and
+source locations; public projection excludes them.
+
+This adds provider calls (batches of at most 40 fields). Token cost, latency and
+false rejection rate need actual-model evaluation before production acceptance.
+Contract tests with controlled verdicts prove gate enforcement, not the model's
+ability to classify hallucinations. Source-grounded extraction, role-specific
+fact provenance, safe aliases and frozen source artifacts remain required.
+
+
+The versioned `app/data/cv_quality/factual_gate_v1.json` contains 40 synthetic
+verifier diagnostics (20 positive/20 negative, PL/EN). It is **not** the requested
+full-document corpus or a DL-approved holdout. `scripts.eval_cv_factual_gate`
+validates it offline, and its real run uses the regular master switch/quota,
+records actual provider models, token/cost evidence and separates semantic
+rejections from protocol/provider failures. Runtime execution still pending.
+
+## Source extraction package (draft, not enabled in production)
+
+The first extraction call has only the source CV and screening notes; client,
+vacancy, language and role/section limits enter the later editorial call. Each
+populated source fact must occur in a literal source citation. The private
+ledger retains every extracted role and section even when the document omits
+them. Career calculations read that ledger and record the calculation date,
+calendar-month precision and per-role intervals. A technology listed in a role
+does not receive that role's duration. Final review still checks source text.
+
+222 focused host tests passed, including the real DOCX renderer with controlled
+provider responses: a one-role document retains 11 years from two source roles
+and keeps an omitted education entry in the private ledger. The tests establish
+phase isolation and deterministic behavior, not real-model completeness or
+semantic accuracy. Frozen source artifacts, precise scoped tenure, full-document
+quality/cost/latency measurements and DL acceptance remain outstanding. This
+package must not be enabled merely because mocked tests pass.
 
 ## Draft persistence and approved versions
 
@@ -228,4 +307,4 @@ AI claims, font availability or complete Word/browser pagination parity.
 
 Upload now reads at most the existing 50 MB limit plus one byte and validates both files before charging quota or creating a generation row. It rejects unsupported/empty/corrupt DOCX and PDF documents, empty DOCX text, blank PDF pages and oversized DOCX expansion. A client-required Champion must have recognized content or explicit manual requirements; a filename alone is insufficient. Optional unrecognized profiles retain the existing warning behavior.
 
-The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. Depends on the explicit upload/history package #1450.
+The preflight runs without AI or OCR. Image PDFs remain eligible for the existing worker OCR, so unreadable scans and later OCR failures still need durable worker/quota accounting; this package does not claim to solve those cases or restart/retry persistence. 35 host-only tests pass, including real PDF/DOCX parsing and six HTTP cases proving no quota, pending row or worker call on invalid uploads. Production and hosted acceptance remain open. The explicit upload/history changes are included in the consolidated PR #1444.

@@ -13,11 +13,13 @@
  * innego klienta na cudzej rekrutacji niczego by nie pokazała.
  */
 
+import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
+import { downloadBlob } from "@/lib/cv-generator";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 import {
   cvRulesApi,
@@ -46,9 +48,6 @@ interface Props {
   onPreviewId: (id: number | null) => void;
 }
 
-// Po tym czasie backend i tak pokazuje „processing" jako awarię (restart
-// serwera w trakcie zadania); dalsze odpytywanie byłoby pętlą bez końca.
-const POLL_CAP_MS = 15 * 60 * 1000;
 
 type Payload = Record<string, unknown>;
 
@@ -76,10 +75,12 @@ function VariantColumn({
   title,
   variant,
   other,
+  onDownload,
 }: {
   title: string;
   variant: PreviewVariant | null;
   other: PreviewVariant | null;
+  onDownload: () => void;
 }) {
   const payload = (variant?.payload ?? null) as Payload | null;
   const otherPayload = (other?.payload ?? null) as Payload | null;
@@ -102,6 +103,12 @@ function VariantColumn({
   return (
     <div className="space-y-3 rounded-md border p-3 text-sm">
       <h4 className="font-semibold">{title}</h4>
+      {!!variant?.rule_feedback?.length && <ul className="space-y-1 text-xs" aria-label="Kontrola reguł prezentacji">
+        {variant.rule_feedback.map((item, index) => <li key={`${item.field}-${index}`}>
+          {item.label}: {{satisfied: "zgodne", not_applicable: "brak treści do zastosowania", conflict: "niezgodność — sprawdź", needs_review: "ocena ręczna", skipped: "pominięto"}[item.status]}
+        </li>)}
+      </ul>}
+      {variant?.can_download && <Button type="button" variant="outline" size="sm" onClick={onDownload}>Pobierz DOCX — {title.toLowerCase()}</Button>}
       <p>
         <span className="text-xs text-muted-foreground">Stanowisko: </span>
         {String(payload.position ?? "—")}
@@ -177,6 +184,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
   const [candidateQuery, setCandidateQuery] = useState("");
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [stageId, setStageId] = useState<string>("");
+  const sourceSelection = useCvSourceSelection(candidate?.id, true);
   const [enqueueError, setEnqueueError] = useState("");
   const [enqueuing, setEnqueuing] = useState(false);
 
@@ -218,8 +226,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
     refetchInterval: (q) => {
       const data = q.state.data;
       if (data?.status !== "processing") return false;
-      const started = data.created_at ? new Date(data.created_at).getTime() : Date.now();
-      return Date.now() - started < POLL_CAP_MS ? 4000 : false;
+      return 4000;
     },
   });
   const preview: RulePreview | undefined = previewQuery.data;
@@ -227,12 +234,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
   const selected = recruitments.find((r) => String(r.stage_id) === stageId) ?? null;
 
   const enqueue = async () => {
-    if (!candidate || !selected) return;
+    if (!candidate || !selected || !sourceSelection.selected) return;
     setEnqueuing(true);
     setEnqueueError("");
     try {
       const row = await cvRulesApi.enqueuePreview(clientId, {
         candidate_id: candidate.id,
+        cv_document_id: sourceSelection.selected.id,
         stage_id: selected.stage_id,
         language,
       });
@@ -241,6 +249,16 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
       setEnqueueError(extractErrorMsg(err) || "Nie udało się uruchomić CV próbnego.");
     } finally {
       setEnqueuing(false);
+    }
+  };
+
+  const downloadPreview = async (variant: "with_rule" | "without_rule") => {
+    if (!preview) return;
+    try {
+      const response = await api.get(`/api/clients/${clientId}/cv-rule/preview/${preview.id}/docx/${variant}`, {responseType: "blob"});
+      downloadBlob(response.data as Blob, preview[variant]?.filename || "cv-probne.docx");
+    } catch (error) {
+      setEnqueueError(extractErrorMsg(error) || "Nie udało się pobrać DOCX podglądu.");
     }
   };
 
@@ -295,7 +313,7 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
       <section className="space-y-3">
         <h4 className="text-xs font-medium">CV próbne — z regułą i bez, obok siebie</h4>
         <p className="text-xs text-muted-foreground">
-          Dwie generacje (2-3 min, dwa obciążenia kwoty generatora). Wynik nie
+          Dwie generacje (jedna rezerwacja dwóch jednostek limitu). Wynik nie
           trafia na listę „Wygenerowane CV”. Podgląd używa reguły ZAPISANEJ,
           także niezatwierdzonej.
         </p>
@@ -368,12 +386,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
             ) : null}
           </div>
         </div>
+        {candidate && <CvSourcePicker selection={sourceSelection} />}
         <div className="flex items-center gap-3">
           <Button
             type="button"
             size="sm"
             loading={enqueuing}
-            disabled={!candidate || !selected || enqueuing || preview?.status === "processing"}
+            disabled={!candidate || !selected || !sourceSelection.selected || enqueuing || preview?.status === "processing"}
             onClick={enqueue}
           >
             Wygeneruj CV próbne
@@ -393,11 +412,13 @@ export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Pr
         {preview?.status === "ready" ? (
           <div className="grid gap-3 md:grid-cols-2">
             <VariantColumn
+              onDownload={() => void downloadPreview("with_rule")}
               title="Z regułą"
               variant={preview.with_rule}
               other={preview.without_rule}
             />
             <VariantColumn
+              onDownload={() => void downloadPreview("without_rule")}
               title="Bez reguły"
               variant={preview.without_rule}
               other={preview.with_rule}

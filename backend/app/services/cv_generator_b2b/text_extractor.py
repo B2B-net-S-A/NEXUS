@@ -15,6 +15,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,11 @@ def _extract_pdf_pdftotext(data: bytes) -> str | None:
                 check=True,
             )
             return result.stdout.decode("utf-8", errors="replace")
-        except subprocess.CalledProcessError as err:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as err:
             logger.warning("[cv_b2b] pdftotext failed (%s); falling back", err)
             return None
 
@@ -63,43 +68,117 @@ def _extract_pdf_pdfplumber(data: bytes) -> str:
 _OCR_FALLBACK_THRESHOLD_CHARS = 100
 
 
-def _extract_pdf_ocr(data: bytes) -> str | None:
+def _extract_pdf_ocr(
+    data: bytes, *, native_pages: dict[int, str] | None = None
+) -> str | None:
     """Render PDF pages to images and OCR them via tesseract.
 
-    Fallback for scanned / image-only PDFs where neither pdftotext nor
-    pdfplumber find a text layer. Heavy (~2-5s per page) — capped to the
-    first 10 pages; CVs are short. Returns None when OCR is unavailable.
+    Read every page, one image at a time. A deadline rejects incomplete input
+    rather than silently omitting the oldest employment after page ten.
+    Returns None when the optional Python OCR dependencies are unavailable.
     """
     try:
         import pytesseract  # type: ignore[import-untyped]
-        from pdf2image import convert_from_bytes  # type: ignore[import-untyped]
-
-        pages = convert_from_bytes(data, dpi=200, last_page=10)
-        out: list[str] = []
-        for img in pages:
-            txt = pytesseract.image_to_string(img, lang="pol+eng")
-            if txt:
-                out.append(txt)
-        return "\n\n".join(out) if out else ""
-    except Exception as err:  # pragma: no cover — system tesseract may be missing
-        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
+        from pdf2image import convert_from_bytes, pdfinfo_from_bytes  # type: ignore[import-untyped]
+    except ImportError:
         return None
+    try:
+        deadline = time.monotonic() + 120
+        count = int(pdfinfo_from_bytes(data, timeout=10)["Pages"])
+        if count < 1:
+            raise ValueError("PDF has no pages")
+        out: list[str] = []
+        for page in range(1, count + 1):
+            if native_pages is not None and page in native_pages:
+                out.append(native_pages[page])
+                continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("CV OCR deadline exceeded")
+            pages = convert_from_bytes(
+                data,
+                dpi=200,
+                first_page=page,
+                last_page=page,
+                timeout=min(30, remaining),
+            )
+            try:
+                if len(pages) != 1:
+                    raise ValueError("Incomplete PDF page rendering")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("CV OCR deadline exceeded")
+                txt = pytesseract.image_to_string(
+                    pages[0], lang="pol+eng", timeout=min(30, remaining)
+                )
+                if not txt or not txt.strip():
+                    raise ValueError("No readable text on scanned PDF page")
+                out.append(txt)
+            finally:
+                for img in pages:
+                    img.close()
+        return "\n\n".join(out) if out else ""
+    except Exception as err:
+        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
+        raise CVTextExtractionError(
+            "Nie odczytano wszystkich stron skanu CV. Wgraj tekstowy PDF lub DOCX."
+        ) from err
+
+
+def _extract_mixed_pdf(data: bytes) -> str | None:
+    """Keep native pages and OCR image pages in their original order."""
+    import pdfplumber
+
+    native_pages = {}
+    needs_ocr = False
+    try:
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for number, page in enumerate(pdf.pages, 1):
+                text = page.extract_text() or ""
+                if page.images and len(text.strip()) < _OCR_FALLBACK_THRESHOLD_CHARS:
+                    needs_ocr = True
+                else:
+                    native_pages[number] = text
+    except Exception:
+        # The ordinary extraction path still handles unreadable PDFs.
+        return None
+    if not needs_ocr:
+        return None
+    result = _extract_pdf_ocr(data, native_pages=native_pages)
+    if not result:
+        raise CVTextExtractionError(
+            "Nie odczytano skanowanych stron PDF. Wgraj tekstowy PDF lub DOCX."
+        )
+    return result
 
 
 def _extract_docx(data: bytes) -> str:
-    """Pull paragraphs and table cells from a DOCX."""
+    """Preserve the ordering of paragraphs, tables and nested table contents."""
     from docx import Document
+    from docx.text.paragraph import Paragraph
 
-    doc = Document(io.BytesIO(data))
+    try:
+        doc = Document(io.BytesIO(data))
+    except Exception as exc:
+        raise CVTextExtractionError("Nie można odczytać dokumentu DOCX.") from exc
     parts: list[str] = []
-    for para in doc.paragraphs:
-        if para.text:
-            parts.append(para.text)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text:
-                    parts.append(cell.text)
+
+    def collect(container):
+        for block in container.iter_inner_content():
+            if isinstance(block, Paragraph):
+                if block.text:
+                    parts.append(block.text)
+            else:
+                # Merged cells appear repeatedly in the grid but contain one
+                # source statement. Do not duplicate duties or date ranges.
+                seen_cells = set()
+                for row in block.rows:
+                    for cell in row.cells:
+                        if cell._tc not in seen_cells:
+                            seen_cells.add(cell._tc)
+                            collect(cell)
+
+    collect(doc)
     return "\n".join(parts)
 
 
@@ -119,6 +198,9 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
     ext = Path(file_name).suffix.lower()
 
     if ext == ".pdf":
+        mixed = _extract_mixed_pdf(data)
+        if mixed is not None:
+            return mixed
         text = _extract_pdf_pdftotext(data)
         if text is None or not text.strip():
             try:

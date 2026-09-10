@@ -66,19 +66,24 @@ def _safe_filename(name: str) -> str:
     return name[:200] or "file"
 
 
+def new_cv_storage_key(filename: str) -> str:
+    today = datetime.now(timezone.utc)
+    return f"cv/{today.year}/{today.month:02d}/{uuid4().hex}-{_safe_filename(filename)}"
+
+
 def upload_cv(
     content: bytes,
     filename: str,
     content_type: Optional[str] = None,
+    *,
+    storage_key: str | None = None,
 ) -> str:
     """Upload bytes do object storage.
 
     Returns storage_key (np. 'cv/2026/05/abc-123.pdf') do zapisania w
     candidate_documents.storage_key.
     """
-    today = datetime.now(timezone.utc)
-    safe = _safe_filename(filename)
-    key = f"cv/{today.year}/{today.month:02d}/{uuid4().hex}-{safe}"
+    key = storage_key or new_cv_storage_key(filename)
     extra = {"ContentType": content_type} if content_type else {}
     _client().put_object(Bucket=_bucket_name(), Key=key, Body=content, **extra)
     logger.info("uploaded %d bytes to s3://%s/%s", len(content), _bucket_name(), key)

@@ -26,15 +26,24 @@ w ``client_cv_rule_events`` — bez tego reklamacja klienta jest nie do
 prześledzenia.
 """
 
+import hashlib
 import logging
 from contextlib import nullcontext
 import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func, select
@@ -78,9 +87,13 @@ from app.services.cv_generator_b2b.client_rules import (
 )
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
-    generate_cv_for_candidate,
+    CandidateGenerationSource,
+    generate_cv_from_candidate_source,
+    load_candidate_generation_source,
+    prepare_source_facts,
     list_recruitments_with_readiness,
 )
+from app.services.cv_generator_b2b.upload_preflight import validate_cv_file
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -476,12 +489,24 @@ class PromptPreview(BaseModel):
 
 
 class PreviewRequest(BaseModel):
+    cv_document_id: int | None = Field(default=None, ge=1)
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
     language: Literal["pl", "en"] = "pl"
 
 
+class RuleFeedbackItem(BaseModel):
+    field: str
+    label: str
+    status: Literal[
+        "satisfied", "not_applicable", "conflict", "needs_review", "skipped"
+    ]
+
+
 class PreviewVariant(BaseModel):
+    rule_feedback: list[RuleFeedbackItem] = Field(default_factory=list)
+    can_download: bool = False
+    docx_sha256: Optional[str] = None
     payload: Optional[dict[str, Any]] = None
     warnings: list[str] = Field(default_factory=list)
     filename: Optional[str] = None
@@ -1337,17 +1362,21 @@ def _variant(value: Optional[dict]) -> Optional[PreviewVariant]:
     if not value:
         return None
     return PreviewVariant(
+        rule_feedback=value.get("rule_feedback") or [],
+        can_download=bool(value.get("docx_sha256")),
+        docx_sha256=value.get("docx_sha256"),
         payload=value.get("payload"),
         warnings=list(value.get("warnings") or []),
         filename=value.get("filename"),
     )
 
 
-def _preview_read(row: ClientCvRulePreview) -> PreviewRead:
+def _preview_read(row: ClientCvRulePreview, *, durable: bool = False) -> PreviewRead:
     status_value = row.status
     error_message = row.error_message
     if (
         status_value == "processing"
+        and not durable
         and row.created_at is not None
         and datetime.now(timezone.utc) - row.created_at > PREVIEW_STALE_AFTER
     ):
@@ -1376,6 +1405,9 @@ async def _mark_preview_failed(db: AsyncSession, preview_id: int, message: str) 
     jest w stanie, w którym `commit()` sam rzuca, a wiersz zostałby
     „processing" na zawsze."""
     await db.rollback()
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+    await lock_owned_job(db)
     row = await db.get(ClientCvRulePreview, preview_id)
     if row is None:
         return
@@ -1402,6 +1434,7 @@ async def _run_rule_preview_job(
     language: str,
     quota_state: "QuotaState | None" = None,
     quota_user_id: int | None = None,
+    source: CandidateGenerationSource | None = None,
 ) -> None:
     """Dwie generacje w tle: z regułą (zapisaną, choćby niezatwierdzoną)
     i bez. Awaria którejkolwiek = wiersz „failed" z powodem; nic nie jest
@@ -1427,6 +1460,7 @@ async def _run_rule_preview_job(
             candidate_id=candidate_id,
             stage_id=stage_id,
             language=language,
+            source=source,
         )
 
 
@@ -1437,6 +1471,7 @@ async def _run_rule_preview_job_inner(
     candidate_id: int,
     stage_id: int,
     language: str,
+    source: CandidateGenerationSource | None = None,
 ) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(ClientCvRulePreview, preview_id)
@@ -1452,18 +1487,29 @@ async def _run_rule_preview_job_inner(
             frozen = ClientCvRule()
             _apply_payload(frozen, recipe)
             snap = snapshot_rule(frozen)
-            with_rule = await generate_cv_for_candidate(
+            source = source or await load_candidate_generation_source(
                 db,
                 candidate_id=candidate_id,
                 stage_id=stage_id,
+                language=language,
+            )
+            facts = await run_in_threadpool(
+                prepare_source_facts,
+                cv_bytes=source.cv_bytes,
+                cv_filename=source.cv_filename,
+                screening_notes_text=source.screening_notes_text,
+                request_id=f"cv-rule-preview:{preview_id}:source",
+            )
+            with_rule = await generate_cv_from_candidate_source(
+                source,
+                prepared_source_facts=facts,
                 language=language,  # type: ignore[arg-type]
                 client_rule=snap,
                 client_policy_override=row.recipe_snapshot,
             )
-            without_rule = await generate_cv_for_candidate(
-                db,
-                candidate_id=candidate_id,
-                stage_id=stage_id,
+            without_rule = await generate_cv_from_candidate_source(
+                source,
+                prepared_source_facts=facts,
                 language=language,  # type: ignore[arg-type]
                 client_rule=None,
                 client_policy_override={"cv_content_mode_cap": None},
@@ -1477,12 +1523,24 @@ async def _run_rule_preview_job_inner(
                 db, preview_id, "Nieoczekiwany błąd generacji CV próbnego."
             )
             return
+        from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+        await lock_owned_job(db)
+        row.with_rule_docx = with_rule.docx_bytes
+        row.without_rule_docx = without_rule.docx_bytes
+        from app.services.cv_generator_b2b.rule_feedback import presentation_feedback
+
         row.with_rule = {
+            "rule_feedback": presentation_feedback(
+                with_rule.render_payload or {}, snap
+            ),
+            "docx_sha256": hashlib.sha256(with_rule.docx_bytes).hexdigest(),
             "payload": with_rule.render_payload,
             "warnings": list(with_rule.warnings or []),
             "filename": with_rule.filename,
         }
         row.without_rule = {
+            "docx_sha256": hashlib.sha256(without_rule.docx_bytes).hexdigest(),
             "payload": without_rule.render_payload,
             "warnings": list(without_rule.warnings or []),
             "filename": without_rule.filename,
@@ -1491,6 +1549,40 @@ async def _run_rule_preview_job_inner(
         row.status = "ready"
         row.error_message = None
         await db.commit()
+
+
+async def _require_preview_inputs(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    candidate_id: int,
+    stage_id: int,
+    recipe_snapshot: dict,
+) -> None:
+    frozen = ClientCvRule()
+    _apply_payload(frozen, ClientCvRulePayload(**recipe_snapshot))
+    variants = (
+        ("Z regułą", snapshot_rule(frozen), recipe_snapshot.get("cv_content_mode_cap")),
+        ("Bez reguły", None, None),
+    )
+    for label, rule, cap in variants:
+        readiness = await list_recruitments_with_readiness(
+            db,
+            candidate_id,
+            rule_overrides={client_id: rule},
+            content_mode_cap_overrides={client_id: cap},
+        )
+        match = next((r for r in readiness if r.stage_id == stage_id), None)
+        if match is None or not match.ready:
+            missing = (
+                match.missing_inputs if match is not None else ["aktywna rekrutacja"]
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=f"Ta rekrutacja nie jest gotowa do generacji ({label}) — brakuje: "
+                + ", ".join(missing)
+                + ".",
+            )
 
 
 @router.post(
@@ -1504,6 +1596,7 @@ async def enqueue_client_cv_rule_preview(
     current_user: DeliverySectionUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> PreviewRead:
     """CV próbne: wybrany kandydat i rekrutacja u tego klienta, z regułą i bez.
 
@@ -1532,24 +1625,18 @@ async def enqueue_client_cv_rule_preview(
             status_code=422,
             detail="Wybrana rekrutacja należy do innego klienta niż ta reguła.",
         )
-    # Gotowość rekrutacji (CV, Champion, notatki) PRZED naliczeniem kwoty —
-    # inaczej DL płaci dwie generacje za wiersz „failed".
-    readiness = await list_recruitments_with_readiness(db, payload.candidate_id)
-    match = next((r for r in readiness if r.stage_id == payload.stage_id), None)
-    if match is None or not match.ready:
-        missing = []
-        if match is None or not match.has_cv:
-            missing.append("CV w systemie")
-        if match is None or not match.has_champion:
-            missing.append("Profil Championa")
-        if match is None or not match.has_notes:
-            missing.append("notatki z rozmów")
-        raise HTTPException(
-            status_code=422,
-            detail="Ta rekrutacja nie jest gotowa do generacji — brakuje: "
-            + ", ".join(missing)
-            + ".",
-        )
+    from app.services.cv_generator_b2b.request_receipts import reserve_request
+
+    receipt, previous = await reserve_request(
+        db,
+        current_user.id,
+        idempotency_key,
+        "preview",
+        {"client_id": client_id, **payload.model_dump(mode="json")},
+    )
+    if previous is not None:
+        await db.commit()
+        return _preview_read(previous, durable=True)
     await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
     await db.refresh(client)
     rule = await _rule_for(db, client_id)
@@ -1566,39 +1653,62 @@ async def enqueue_client_cv_rule_preview(
     if rule is None:
         recipe_snapshot = _recipe_payload(ClientCvRulePayload(), client)
     _validated_recipe(recipe_snapshot)
-    # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
-    # kolejnego — bez osobnego crona.
-    from sqlalchemy import delete as sa_delete
-
-    await db.execute(
-        sa_delete(ClientCvRulePreview).where(
-            ClientCvRulePreview.client_id == client_id,
-            ClientCvRulePreview.created_at
-            < datetime.now(timezone.utc) - PREVIEW_RETENTION,
-        )
+    await _require_preview_inputs(
+        db,
+        client_id=client_id,
+        candidate_id=payload.candidate_id,
+        stage_id=payload.stage_id,
+        recipe_snapshot=recipe_snapshot,
     )
     try:
-        # Dwie generacje (z regułą i bez) = DWA obciążenia cv_generator
-        # (kontrakt billingowy: per generację). Naliczamy sekwencyjnie PRZED
-        # zakolejkowaniem: jeśli limit skończy się na drugim, rollback cofa oba,
-        # więc DL dostaje pełny podgląd albo czyste 503 — nigdy połowy.
-        await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            cv_document_id=payload.cv_document_id,
         )
-        quota_state = await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id
-        )
-    except AIQuotaExceeded as exc:
-        await db.rollback()
+        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if (source.candidate_id, source.stage_id, source.client_id) != (
+        payload.candidate_id,
+        payload.stage_id,
+        client_id,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "feature": exc.feature.value,
-                "reason": exc.reason,
-                "used": exc.used,
-                "limit": exc.limit,
-            },
-        ) from exc
+            status_code=409,
+            detail="Źródła rekrutacji zmieniły się. Wybierz proces ponownie.",
+        )
+    # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
+    # kolejnego — bez osobnego crona.
+    from app.services.cv_preview_retention import retire_previews
+
+    await retire_previews(db, client_id, datetime.now(timezone.utc) - PREVIEW_RETENTION)
+
+    async def charge_preview():
+        try:
+            # Both variants and their admission commit with the durable job,
+            # before a worker can make a provider call.
+            return await check_and_increment(
+                db,
+                AIFeatureKey.cv_generator,
+                user_id=current_user.id,
+                units=2,
+                commit_with_caller=True,
+            )
+        except AIQuotaExceeded as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "feature": exc.feature.value,
+                    "reason": exc.reason,
+                    "used": exc.used,
+                    "limit": exc.limit,
+                },
+            ) from exc
+
     row = ClientCvRulePreview(
         client_id=client_id,
         candidate_id=payload.candidate_id,
@@ -1609,23 +1719,34 @@ async def enqueue_client_cv_rule_preview(
         created_by=current_user.id,
     )
     db.add(row)
+    await db.flush()
+    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
+
+    durable_id = await persist_job(
+        db,
+        kind="preview",
+        preview_id=row.id,
+        user_id=current_user.id,
+        charge=charge_preview,
+        inputs=dict(
+            client_id=client_id,
+            candidate_id=payload.candidate_id,
+            stage_id=payload.stage_id,
+            language=payload.language,
+            # Kwota jest naliczona WYŻEJ, w handlerze — bramka musi tam zostać,
+            # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
+            # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
+            # ustawiony przez handler nie dożywa do `BackgroundTasks`.
+            quota_user_id=current_user.id,
+            source=source,
+        ),
+    )
+    if receipt is not None:
+        receipt.preview_id = row.id
     await db.commit()
     await db.refresh(row)
-    background_tasks.add_task(
-        _run_rule_preview_job,
-        row.id,
-        client_id=client_id,
-        candidate_id=payload.candidate_id,
-        stage_id=payload.stage_id,
-        language=payload.language,
-        # Kwota jest naliczona WYŻEJ, w handlerze — bramka musi tam zostać,
-        # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
-        # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
-        # ustawiony przez handler nie dożywa do `BackgroundTasks`.
-        quota_state=quota_state,
-        quota_user_id=current_user.id,
-    )
-    return _preview_read(row)
+    background_tasks.add_task(execute_job, durable_id)
+    return _preview_read(row, durable=True)
 
 
 @router.get(
@@ -1642,7 +1763,12 @@ async def get_client_cv_rule_preview(
     row = await db.get(ClientCvRulePreview, preview_id)
     if row is None or row.client_id != client_id:
         raise HTTPException(status_code=404, detail="Podgląd nie istnieje.")
-    return _preview_read(row)
+    from app.models.cv_generation_job import CvGenerationJob
+
+    durable_id = await db.scalar(
+        select(CvGenerationJob.id).where(CvGenerationJob.preview_id == row.id)
+    )
+    return _preview_read(row, durable=durable_id is not None)
 
 
 # ── Przegląd zbiorczy ────────────────────────────────────────────────────────
@@ -1720,3 +1846,41 @@ async def cv_rules_overview(
         else []
     )
     return CvRulesOverview(rules=rules, unassigned_templates=unassigned)
+
+
+@router.get("/clients/{client_id}/cv-rule/preview/{preview_id}/docx/{variant}")
+async def download_rule_preview_docx(
+    client_id: int,
+    preview_id: int,
+    variant: Literal["with_rule", "without_rule"],
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import Response
+    from urllib.parse import quote
+
+    await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
+    row = await db.get(ClientCvRulePreview, preview_id)
+    if row is None or row.client_id != client_id:
+        raise HTTPException(404, "Podgląd nie istnieje.")
+    content = row.with_rule_docx if variant == "with_rule" else row.without_rule_docx
+    metadata = row.with_rule if variant == "with_rule" else row.without_rule
+    if row.status != "ready" or not content or not metadata:
+        raise HTTPException(
+            409, "Ten podgląd nie ma zapisanego pliku DOCX. Uruchom nową próbę."
+        )
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != metadata.get("docx_sha256"):
+        raise HTTPException(409, "Nie można potwierdzić integralności pliku podglądu.")
+    filename = metadata.get("filename") or "cv-probne.docx"
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(filename, safe=""),
+            "Cache-Control": "no-store",
+            "X-Content-SHA256": digest,
+        },
+    )

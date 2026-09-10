@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import api from "@/lib/api";
+import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function CVGeneratorV2({
   candidateName,
 }: Props) {
   const toast = useToast();
+  const sourceSelection = useCvSourceSelection(candidateId, open);
   const [stageId, setStageId] = useState<string>("");
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
@@ -119,6 +121,13 @@ export function CVGeneratorV2({
   // (dziś PKO BP). Klienta bierzemy z wybranej rekrutacji, tak jak robi to
   // serwer, żeby ekran i walidacja mówiły o tym samym.
   const [consentKey, setConsentKey] = useState<string | null>(null);
+  useEffect(() => {
+    setStageId("");
+    setConsentKey(null);
+    setEnqueued(false);
+    setGeneratedId(null);
+    setError(null);
+  }, [candidateId]);
   // Ten sam hook i ten sam klucz cache co w generatorze standalone — dwa
   // własne zapytania o tę samą regułę rozjechałyby się przy pierwszej zmianie.
   // `is_active`, bo propozycja z seeda (niezatwierdzona) nie obowiązuje i serwer
@@ -130,12 +139,13 @@ export function CVGeneratorV2({
 
   const canSubmit =
     !!selectedRecruitment &&
+    !!sourceSelection.selected &&
     selectedRecruitment.ready &&
     (!consentRequired || !!consentKey);
 
   const generateMut = useMutation({
     mutationFn: async () => {
-      if (!selectedRecruitment) throw new Error("Wybierz rekrutację");
+      if (!selectedRecruitment || !sourceSelection.selected) throw new Error("Wybierz rekrutację i źródłowe CV");
       const res = await api.post<{
         id: number;
         status: string;
@@ -144,6 +154,7 @@ export function CVGeneratorV2({
         "/api/cv-generator/generate",
         {
           candidate_id: candidateId,
+          cv_document_id: sourceSelection.selected.id,
           stage_id: selectedRecruitment.stage_id,
           language,
           blind_cv: blindCv,
@@ -177,6 +188,7 @@ export function CVGeneratorV2({
   function handleOpenChange(next: boolean) {
     if (!next) setConsentKey(null);
     if (!next) {
+      sourceSelection.choose("");
       setEnqueued(false);
       setGeneratedId(null);
       setError(null);
@@ -369,6 +381,8 @@ export function CVGeneratorV2({
                 </>
               )}
             </div>
+
+            <CvSourcePicker selection={sourceSelection} />
 
             <div>
               <Label className="mb-2 block">Obróbka treści</Label>

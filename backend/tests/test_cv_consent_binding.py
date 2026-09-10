@@ -126,6 +126,7 @@ async def test_generation_rejects_foreign_attachment_before_quota_and_background
                 json={
                     "candidate_id": 1,
                     "stage_id": 2,
+                    "cv_document_id": 9,
                     "consent_screenshot_token": token,
                 },
             )

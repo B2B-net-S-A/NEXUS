@@ -211,11 +211,14 @@ async def check_and_increment(
     user_id: Optional[int] = None,
     *,
     units: int = 1,
+    commit_with_caller: bool = False,
 ) -> QuotaState:
     """Atomic-ish quota check + increment.
 
     Raises ``AIQuotaExceeded`` if blocked. Returns post-increment state on
-    success. Admission is durably committed independently of business work.
+    success. Admission normally commits independently of business work.
+    Durable queues may set ``commit_with_caller`` to persist admission together
+    with their job. They MUST commit before dispatching any provider call.
 
     ``units`` obsługuje operacje, które są JEDNĄ decyzją użytkownika, ale
     kilkoma wywołaniami modelu — dziś tylko lint reguł CV (jedno pole = jedno
@@ -272,17 +275,20 @@ async def check_and_increment(
     from app.core.database import AsyncSessionLocal
 
     operation_id = str(uuid4())
-    async with AsyncSessionLocal() as metering_db:
-        metering_db.add(
-            AIOperation(
-                id=operation_id,
-                feature=feature.value,
-                actor_key=f"user:{user_id}" if user_id is not None else "system",
-                period_start=period,
-                units=units,
-            )
-        )
-        await metering_db.commit()
+    operation = AIOperation(
+        id=operation_id,
+        feature=feature.value,
+        actor_key=f"user:{user_id}" if user_id is not None else "system",
+        period_start=period,
+        units=units,
+    )
+    if commit_with_caller:
+        db.add(operation)
+        await db.flush()
+    else:
+        async with AsyncSessionLocal() as metering_db:
+            metering_db.add(operation)
+            await metering_db.commit()
     return QuotaState(
         used=total_used + units,
         limit=limit,

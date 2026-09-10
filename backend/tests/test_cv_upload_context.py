@@ -54,7 +54,15 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
     monkeypatch.setattr(api, "_charge_cv_generation_quota", charge)
     monkeypatch.setattr(api, "_create_pending_row", pending)
     worker = AsyncMock()
-    monkeypatch.setattr(api, "_run_declared", worker)
+    from app.services.cv_generator_b2b import durable_jobs
+
+    async def persist(*args, **kwargs):
+        await kwargs["charge"]()
+        return 21
+
+    persisted = AsyncMock(side_effect=persist)
+    monkeypatch.setattr(durable_jobs, "persist_job", persisted)
+    monkeypatch.setattr(durable_jobs, "execute_job", worker)
     source = BytesIO()
     document = Document()
     document.add_paragraph("Audyt Testowy. Programista Python.")
@@ -90,6 +98,7 @@ async def test_upload_context_precedes_quota(monkeypatch, context, denied, expec
 async def test_upload_finalize_retains_authorized_context():
     row = SimpleNamespace(job_id=4, candidate_id=2, client_id=5)
     result = SimpleNamespace(
+        docx_bytes=b"synthetic-docx",
         render_payload={"name": "Synthetic"},
         candidate_name="Synthetic",
         job_id=None,

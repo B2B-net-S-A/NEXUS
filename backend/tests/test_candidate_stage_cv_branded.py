@@ -60,6 +60,21 @@ from app.services.candidate_stage_cv_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def approved_content_review(monkeypatch):
+    """This module tests persistence/sharing/RBAC with a successful review result.
+
+    Factual review behavior has focused tests; rejection is also exercised below
+    through the real HTTP approval endpoint and database state.
+    """
+    from unittest.mock import AsyncMock
+    from app.services import cv_approval_review
+
+    result = AsyncMock(return_value={"status": "verified", "method": "test-review"})
+    monkeypatch.setattr(cv_approval_review, "review_for_approval", result)
+    return result
+
+
 async def _draft_request_body(url, body=None):
     sid = int(url.split("/stages/")[1].split("/")[0])
     async with AsyncSessionLocal() as db:
@@ -848,3 +863,26 @@ async def test_selected_generated_document_is_edited_approved_and_pinned_to_link
     document = Document(BytesIO(second_docx.content))
     visible = "\n".join(p.text for p in document.paragraphs)
     assert "Reviewed Python result" in visible and "Chosen" not in visible
+
+
+async def test_review_rejection_keeps_database_draft(
+    app_client, app_auth_headers, approved_content_review
+):
+    from fastapi import HTTPException
+
+    sid, _, _ = await _seed_full_stage()
+    await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    )
+    approved_content_review.side_effect = HTTPException(422, "Niepotwierdzone fakty")
+    response = await _post(
+        app_client,
+        f"/api/candidates/stages/{sid}/cv/branded/finalize",
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 422
+    current = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    )
+    assert current.status_code == 200
+    assert current.json()["status"] == "draft"

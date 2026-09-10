@@ -495,16 +495,26 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         )
         assert r.status_code == 200, r.text
 
-        charged: list[str] = []
+        charged: list[tuple[str, int]] = []
+        remaining = 1
 
-        async def fake_charge(db, feature, user_id=None):
-            charged.append(feature.value)
+        async def fake_charge(
+            db, feature, user_id=None, *, units=1, commit_with_caller=False
+        ):
+            nonlocal remaining
+            assert commit_with_caller is True
+            from app.services.ai_quota import AIQuotaExceeded
+
+            if remaining < units:
+                raise AIQuotaExceeded(feature, "Limit", used=9, limit=10)
+            remaining -= units
+            charged.append((feature.value, units))
 
         monkeypatch.setattr(api_module, "check_and_increment", fake_charge)
 
         seen_rules: list[object] = []
 
-        async def fake_generate(db, *, candidate_id, stage_id, language="pl", **kw):
+        async def fake_generate(source, *, language="pl", **kw):
             seen_rules.append(kw.get("client_rule"))
             from app.services.cv_generator_b2b.standalone_service import (
                 GenerationResult,
@@ -520,7 +530,58 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
                 job_id=stage_id,
             )
 
-        monkeypatch.setattr(api_module, "generate_cv_for_candidate", fake_generate)
+        from unittest.mock import AsyncMock
+
+        from types import SimpleNamespace
+
+        from io import BytesIO
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Synthetic candidate CV with source experience.")
+        buffer = BytesIO()
+        document.save(buffer)
+        from app.services.cv_generator_b2b.standalone_service import (
+            CandidateGenerationSource,
+        )
+
+        frozen_source = CandidateGenerationSource(
+            cv_bytes=buffer.getvalue(),
+            cv_filename="cv.docx",
+            screening_notes_text="notes",
+            champion_json="{}",
+            has_champion=True,
+            source_warnings=(),
+            fallback_name="Synthetic",
+            job_id=job_id,
+            job_title="Developer",
+            client_content_mode_cap=None,
+            cv_document_id=None,
+            candidate_id=candidate_id,
+            stage_id=stage_id,
+            client_id=cid,
+        )
+        monkeypatch.setattr(
+            api_module, "prepare_source_facts", lambda **kwargs: object()
+        )
+        from app.services import object_storage
+
+        stored_inputs = {}
+
+        def upload_snapshot(raw, filename, content_type, *, storage_key=None):
+            key = storage_key or f"test-only/{uuid.uuid4().hex}"
+            stored_inputs[key] = raw
+            return key
+
+        monkeypatch.setattr(object_storage, "upload_cv", upload_snapshot)
+        monkeypatch.setattr(
+            object_storage, "download_cv", lambda key: stored_inputs[key]
+        )
+        load_source = AsyncMock(return_value=frozen_source)
+        monkeypatch.setattr(api_module, "load_candidate_generation_source", load_source)
+        monkeypatch.setattr(
+            api_module, "generate_cv_from_candidate_source", fake_generate
+        )
 
         # Rekrutacja bez CV / Championa / notatek → 422 PRZED kwotą (prawdziwa
         # gotowość: kandydat testowy nie ma nic z tych trzech).
@@ -535,9 +596,7 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert "nie jest gotowa" in r.json()["detail"]
         assert charged == []
 
-        from types import SimpleNamespace
-
-        async def fake_readiness(db, candidate_id):
+        async def fake_readiness(db, candidate_id, **kwargs):
             return [
                 SimpleNamespace(
                     stage_id=stage_id,
@@ -581,9 +640,22 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
             json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
             headers=headers,
         )
+        assert r.status_code == 503, r.text
+        assert charged == [], "one remaining unit must not be consumed"
+        assert remaining == 1
+        assert seen_rules == [], "neither variant may run after denied admission"
+
+        remaining = 2
+        r = await rule_request(
+            app_client,
+            "POST",
+            RULE_URL.format(cid=cid) + "/preview",
+            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
+            headers=headers,
+        )
         assert r.status_code == 202, r.text
-        assert charged == ["cv_generator", "cv_generator"], (
-            "dwie generacje = dwa obciążenia"
+        assert charged == [("cv_generator", 2)], (
+            "both preview variants must have one admission for two units"
         )
         preview_id = r.json()["id"]
 

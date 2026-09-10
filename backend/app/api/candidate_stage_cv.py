@@ -70,6 +70,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.candidate_stage_cv import (
     CVBrandedFinalize,
+    CVBrandedReview,
     CVBrandedNewDraft,
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
@@ -306,7 +307,12 @@ def _build_branded_response(
     finalized_by_name: Optional[str] = None,
     rendered_from_default: bool = False,
 ) -> CVBrandedResponse:
+    from app.services.cv_editor_rules import editor_rule_feedback
+
     return CVBrandedResponse(
+        presentation_review=editor_rule_feedback(
+            csv.branded_draft_html, csv.branded_render_metadata
+        ),
         candidate_stage_id=csv.candidate_stage_id,
         generated_document_id=csv.generated_document_id,
         from_generator=bool(csv.branded_from_generator),
@@ -449,14 +455,43 @@ async def select_generated_cv(
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
-    try:
-        template, consent, metadata = await run_in_threadpool(
-            generated_assets, generated
-        )
-    except CvAssetsError as error:
-        raise HTTPException(422, str(error)) from error
+    from app.services.cv_approval_provenance import capture_editor_origin
+
     public = build_public_payload(generated.render_payload)
-    html = sanitize_cv_html(render_interactive_html(public, [], document_only=True))
+    approved = None
+    if payload.document_version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+
+        approved = await approved_version_for_generation(
+            db, generated, payload.document_version_id
+        )
+    try:
+        if approved is not None:
+            from app.services.cv_document_assets import approved_assets
+
+            template, consent, metadata = approved_assets(approved)
+            html = sanitize_cv_html(approved.content_html)
+            public["language"] = approved.language or public["language"]
+            public["blind"] = approved.template == "blind"
+            metadata.update(
+                {
+                    "source_document_version_id": approved.id,
+                    "source_document_content_sha256": approved.content_sha256,
+                    "source_document_docx_sha256": approved.docx_sha256,
+                }
+            )
+        else:
+            template, consent, metadata = await run_in_threadpool(
+                generated_assets, generated
+            )
+            html = sanitize_cv_html(
+                render_interactive_html(public, [], document_only=True)
+            )
+            metadata.update(capture_editor_origin(html, generated.render_payload))
+    except CvAssetsError as error:
+        raise HTTPException(
+            422, {"code": "cv_editor_assets_unavailable", "message": str(error)}
+        ) from error
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
@@ -700,11 +735,22 @@ async def finalize_branded_cv(
     # Render the exact submitted/sanitized content once, before approval. The
     # stored bytes are subsequently downloaded without accessing live sources.
     docx, template = await _render_editor_docx(csv, csv.branded_draft_html)
+    from app.services.cv_approval_review import review_for_approval
+
+    content_review = await review_for_approval(
+        db, csv, csv.branded_draft_html, current_user.id
+    )
+
     docx_filename = (
         csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
     )
+    from app.services.cv_approval_provenance import approval_provenance
+
     metadata = {
         **(csv.branded_render_metadata or {}),
+        **approval_provenance(csv.branded_draft_html, csv.branded_render_metadata),
+        "content_review": content_review,
+        "requires_content_review": False,
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(template).hexdigest(),
         "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()
@@ -732,6 +778,7 @@ async def finalize_branded_cv(
     csv.branded_snapshot_size_bytes = size
 
     csv.branded_docx_filename = docx_filename
+    csv.branded_template_content = template
     csv.branded_render_metadata = metadata
     version = await freeze_approved_version(
         db,
@@ -740,6 +787,9 @@ async def finalize_branded_cv(
         docx_filename=docx_filename,
         render_metadata=metadata,
     )
+    from app.services.cv_version_map_jobs import schedule_approved_map
+
+    await schedule_approved_map(db, version, current_user.id)
     db.add(
         Activity(
             entity_type="candidate_stage_cv",
@@ -1080,3 +1130,48 @@ async def revoke_all_cv_share_tokens(
     )
     await db.commit()
     return {"status": "revoked_all", "count": result.rowcount or 0}
+
+
+@router.post("/candidates/stages/{stage_id}/cv/branded/review")
+async def start_stage_cv_review(
+    stage_id: int,
+    payload: CVBrandedReview,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import enqueue_review
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    result = await enqueue_review(db, draft, payload, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.get("/candidates/stages/{stage_id}/cv/branded/review/{review_id}")
+async def get_stage_cv_review(
+    stage_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user)
+    result = await review_state(db, draft, review_id, current_user.id)
+    await db.commit()
+    return result
+
+
+@router.delete("/candidates/stages/{stage_id}/cv/branded/review/{review_id}")
+async def cancel_stage_cv_review(
+    stage_id: int,
+    review_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_approval_queue import review_state
+
+    draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    result = await review_state(db, draft, review_id, current_user.id, cancel=True)
+    await db.commit()
+    return result

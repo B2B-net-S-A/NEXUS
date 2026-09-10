@@ -33,21 +33,17 @@ def _docx_container(data: bytes) -> None:
             raise ValueError("DOCX document missing")
 
 
-def validate_upload_inputs(payload: UploadGenerationInput) -> None:
-    _validate_upload(
-        payload.cv_bytes, payload.cv_filename, allowed_ext=_ALLOWED_CV_EXT, label="CV"
-    )
+def validate_cv_file(cv_bytes: bytes, cv_filename: str) -> None:
+    _validate_upload(cv_bytes, cv_filename, allowed_ext=_ALLOWED_CV_EXT, label="CV")
     try:
-        if Path(payload.cv_filename).suffix.lower() == ".docx":
-            _docx_container(payload.cv_bytes)
-            if not extract_text_from_file(
-                payload.cv_bytes, payload.cv_filename
-            ).strip():
+        if Path(cv_filename).suffix.lower() == ".docx":
+            _docx_container(cv_bytes)
+            if not extract_text_from_file(cv_bytes, cv_filename).strip():
                 raise ValueError("Empty DOCX")
         else:
             import pdfplumber
 
-            with pdfplumber.open(BytesIO(payload.cv_bytes)) as pdf:
+            with pdfplumber.open(BytesIO(cv_bytes)) as pdf:
                 if not any(page.chars or page.images for page in pdf.pages):
                     raise ValueError("Empty PDF")
     except Exception as error:
@@ -56,6 +52,9 @@ def validate_upload_inputs(payload: UploadGenerationInput) -> None:
             "CV: nie można odczytać dokumentu lub plik jest pusty. Wgraj poprawny PDF/DOCX; PDF nie może być zabezpieczony hasłem.",
         ) from error
 
+
+def validate_upload_inputs(payload: UploadGenerationInput) -> None:
+    validate_cv_file(payload.cv_bytes, payload.cv_filename)
     champion = None
     if payload.champion_bytes is not None:
         filename = payload.champion_filename or ""

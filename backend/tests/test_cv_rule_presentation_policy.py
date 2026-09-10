@@ -127,14 +127,15 @@ def test_obedient_model_leaves_no_notes() -> None:
     assert notes == []
 
 
-def test_long_bullets_are_shortened_at_a_word_boundary() -> None:
+def test_long_bullets_require_rewrite_instead_of_cutting_qualifications() -> None:
+    from copy import deepcopy
+    from app.services.cv_generator_b2b.editorial_limits import EditorialLimitError
+
     data = _data()
-    notes = apply_presentation_policy(data, _rule(max_bullet_chars=40))
-    first = data["experience"][0]["responsibilities"][0]
-    assert len(first) <= 40
-    assert first.endswith("…")
-    assert " " not in first[-2:]  # bez wiszącej spacji przed wielokropkiem
-    assert any("skrócono" in n for n in notes)
+    before = deepcopy(data)
+    with pytest.raises(EditorialLimitError, match="responsibility_still_exceeds_limit"):
+        apply_presentation_policy(data, _rule(max_bullet_chars=40))
+    assert data == before
 
 
 def test_glossary_target_with_backslash_does_not_crash() -> None:
@@ -185,10 +186,29 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
         # Zakres z myślnikiem bez spacji: dwie daty, nie jedna zlepka.
         ("03.2019-05.2021", "MM/YYYY", "03/2019-05/2021"),
         ("03.2019-05.2021", "YYYY-MM", "2019-03-2021-05"),
+        ("2020-01-2024-12", "MM.YYYY", "01.2020-12.2024"),
+        ("2020-01-2024-12", "YYYY", "2020-2024"),
+        ("13.2020", "YYYY-MM", "13.2020"),
+        ("00/2020", "YYYY", "00/2020"),
+        ("2020-13", "MM.YYYY", "2020-13"),
+        ("03.01.2020", "YYYY-MM", "03.01.2020"),
+        ("03/01/2020", "YYYY", "03/01/2020"),
+        ("03-01-2020", "YYYY", "03-01-2020"),
+        ("3-1-2020", "YYYY", "3-1-2020"),
+        ("2020-01-03", "MM.YYYY", "2020-01-03"),
     ],
 )
 def test_reformat_dates(text: str, fmt: str, expected: str) -> None:
     assert reformat_dates(text, fmt) == expected
+
+
+@pytest.mark.parametrize(
+    "source", ["01.2020-12.2024", "01/2020-12/2024", "2020-01-2024-12"]
+)
+@pytest.mark.parametrize("fmt", ["MM.YYYY", "MM/YYYY", "YYYY-MM"])
+def test_compact_ranges_preserve_both_endpoints_across_formats(source, fmt):
+    formatted = reformat_dates(source, fmt)
+    assert reformat_dates(formatted, "MM.YYYY") == "01.2020-12.2024"
 
 
 def test_apply_date_format_touches_experience_and_education_only_when_set() -> None:
@@ -248,7 +268,17 @@ def test_required_inputs_report_each_missing_item_in_polish() -> None:
         has_champion=True,
     )
     assert problems_new == []
-    assert required_input_problems(None, mode="new", screening_chars=0, has_project_ref=False, has_position=False, has_champion=False) == []
+    assert (
+        required_input_problems(
+            None,
+            mode="new",
+            screening_chars=0,
+            has_project_ref=False,
+            has_position=False,
+            has_champion=False,
+        )
+        == []
+    )
 
 
 # ── Blok promptu ────────────────────────────────────────────────────────────
@@ -288,7 +318,9 @@ def test_notes_go_to_their_own_block_and_are_neutralized() -> None:
     assert "<" not in body and ">" not in body
     assert build_client_notes_block(_rule()) == ""
     combined = build_prompt_blocks(_rule(notes="x", generator_instructions="y"), "pl")
-    assert combined.index("<client_presentation_rules>") < combined.index("<client_notes>")
+    assert combined.index("<client_presentation_rules>") < combined.index(
+        "<client_notes>"
+    )
 
 
 def test_describe_rule_names_every_layer() -> None:

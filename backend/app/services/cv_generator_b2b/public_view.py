@@ -39,11 +39,13 @@ def _mask_blind(payload: dict[str, Any]) -> None:
     for job in payload.get("experience", []) or []:
         if not isinstance(job, dict):
             continue
-        industry = job.get("industry", "IT")
+        industry = str(job.get("industry") or "").strip()
         if language == "en":
-            job["company"] = f"Company from {industry} industry"
+            job["company"] = (
+                f"Company from {industry} industry" if industry else "Company"
+            )
         else:
-            job["company"] = f"Firma z branży {industry}"
+            job["company"] = f"Firma z branży {industry}" if industry else "Firma"
 
 
 def _str_list(value: Any) -> list[str]:

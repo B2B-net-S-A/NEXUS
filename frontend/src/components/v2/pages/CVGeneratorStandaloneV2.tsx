@@ -1,5 +1,6 @@
 "use client";
 
+import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
@@ -10,6 +11,7 @@ import {
   ChevronsUpDown,
   Download,
   Eye,
+  Pencil,
   FileCode2,
   FileText,
   Link2,
@@ -54,7 +56,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
+import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
@@ -108,6 +112,7 @@ type GeneratedCvItem = {
   mode: string;
   filename: string;
   status: "processing" | "ready" | "failed";
+  job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
   error_message?: string | null;
   warnings?: string[];
   created_at?: string | null;
@@ -162,6 +167,7 @@ export function CVGeneratorStandaloneV2({
   onSelectForRecruitment,
   selectedGeneratedId,
 }: CVGeneratorStandaloneV2Props = {}) {
+  const generatorFormRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const currentUser = useAuthStore((state) => state.user);
   const isImpersonating = useAuthStore((state) => state.realUser !== null);
@@ -207,6 +213,7 @@ export function CVGeneratorStandaloneV2({
   // z bazy kandydata nie idzie do modelu tą ścieżką.
   const [uploadCandidate, setUploadCandidate] = useState<CandidateOption | null>(null);
   const [uploadStageId, setUploadStageId] = useState("");
+  const [recoveryContext, setRecoveryContext] = useState<{candidateId: number; jobId: number} | null>(null);
   const uploadBindingCandidateId = embedded ? prefillCandidateId : uploadCandidate?.id;
   const [uploadCandidateOpen, setUploadCandidateOpen] = useState(false);
   const [uploadCandidateQuery, setUploadCandidateQuery] = useState("");
@@ -234,6 +241,7 @@ export function CVGeneratorStandaloneV2({
 
   // „Wygenerowane CV" — server-side list, survives navigation/refresh.
   const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
+  const [editItem, setEditItem] = useState<GeneratedCvItem | null>(null);
   const [shareItem, setShareItem] = useState<GeneratedCvItem | null>(null);
   const historyCandidateId = embedded ? prefillCandidateId : undefined;
   const historyJobId = embedded ? prefillJobId : undefined;
@@ -268,6 +276,9 @@ export function CVGeneratorStandaloneV2({
     enabled: candidateOpen && mode === "new",
     staleTime: 30_000,
   });
+
+  const sourceSelection = useCvSourceSelection(candidate?.id, mode === "new");
+  const selectedSource = sourceSelection.selected;
 
   const recruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments", candidate?.id, contentMode],
@@ -363,6 +374,12 @@ export function CVGeneratorStandaloneV2({
     embedded ? r.job_id === prefillJobId : String(r.stage_id) === uploadStageId,
   );
   useEffect(() => { setUploadStageId(""); }, [uploadBindingCandidateId]);
+  useEffect(() => {
+    if (!recoveryContext || recoveryContext.candidateId !== uploadBindingCandidateId || !uploadRecruitmentsQuery.data) return;
+    const match = uploadRecruitmentsQuery.data.find(r => r.job_id === recoveryContext.jobId);
+    setUploadStageId(match ? String(match.stage_id) : "");
+    setRecoveryContext(null);
+  }, [recoveryContext, uploadBindingCandidateId, uploadRecruitmentsQuery.data]);
 
   const uploadClientOptions = useMemo<ClientRef[]>(() => {
     const seen = new Map<number, ClientRef>();
@@ -377,7 +394,7 @@ export function CVGeneratorStandaloneV2({
     // Dokładnie jeden klient w procesach kandydata = wybieramy go sami. Przy
     // kilku decyduje rekruter (przyciski niżej); przy zerze nie zgadujemy.
     if (mode === "old" && uploadCandidate && uploadClientOptions.length === 1) {
-      setUploadClient(uploadClientOptions[0]);
+      setUploadClient(current => current ?? uploadClientOptions[0]);
     }
   }, [mode, uploadCandidate, uploadClientOptions]);
   useEffect(() => {
@@ -461,7 +478,7 @@ export function CVGeneratorStandaloneV2({
     (mode === "new" ? !!selectedRecruitment : !!uploadClient);
 
   const canSubmitNew =
-    !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
+    !!candidate && !!selectedRecruitment && selectedRecruitment.ready && !!selectedSource;
   const canSubmitOld = !!cvFile &&
     (embedded ? !!uploadRecruitment : (!uploadStageId || !!uploadRecruitment)) &&
     (!!effectiveClientId || outsideAssignment);
@@ -475,13 +492,12 @@ export function CVGeneratorStandaloneV2({
   // can leave the tab; the CV lands on the „Wygenerowane CV" list when ready.
   const generateMut = useMutation({
     mutationFn: async () => {
-      if (!candidate || !selectedRecruitment) {
+      if (!candidate || !selectedRecruitment || !selectedSource) {
         throw new Error("Missing inputs");
       }
-      const res = await api.post<EnqueuedResponse>(
-        "/api/cv-generator/generate",
-        {
+      const payload = {
           candidate_id: candidate.id,
+          cv_document_id: selectedSource.id,
           stage_id: selectedRecruitment.stage_id,
           // Asercja, nie wybór: serwer i tak bierze klienta z rekrutacji,
           // a rozjazd odrzuca 422 — dzięki temu rekruter nigdy nie dostanie
@@ -492,9 +508,10 @@ export function CVGeneratorStandaloneV2({
           blind_cv: blindCv,
           content_mode: contentMode,
           consent_screenshot_token: consentKey ?? "",
-        },
-        { timeout: 30_000 },
-      );
+      };
+      const res = await withCvGenerationRequest("/api/cv-generator/generate", payload,
+        key => api.post<EnqueuedResponse>("/api/cv-generator/generate", payload,
+          { timeout: 30_000, headers: { "Idempotency-Key": key } }));
       return res.data;
     },
     onSuccess: (data) => {
@@ -531,7 +548,7 @@ export function CVGeneratorStandaloneV2({
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
       if (consentKey) fd.append("consent_screenshot_token", consentKey);
-      const res = await api.post<EnqueuedResponse>(
+      const res = await withCvGenerationRequest("/api/cv-generator/generate-upload", fd, key => api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
         fd,
         {
@@ -539,10 +556,10 @@ export function CVGeneratorStandaloneV2({
           // an explicit multipart Content-Type so axios fills in the boundary,
           // otherwise FastAPI can't parse the upload (422). Matches every other
           // upload in the app.
-          headers: { "Content-Type": "multipart/form-data" },
+          headers: { "Content-Type": "multipart/form-data", "Idempotency-Key": key },
           timeout: 60_000,
         },
-      );
+      ));
       return res.data;
     },
     onSuccess: (data) => {
@@ -677,7 +694,7 @@ export function CVGeneratorStandaloneV2({
   }
 
   return (
-    <div className={embedded ? undefined : "container mx-auto max-w-3xl py-8"}>
+    <div ref={generatorFormRef} tabIndex={-1} aria-label="Formularz generatora CV" className={embedded ? undefined : "container mx-auto max-w-3xl py-8"}>
       {!embedded && (
         <div className="mb-6 flex items-start gap-3">
           <div className="rounded-xl bg-primary/10 p-3 text-primary">
@@ -773,6 +790,15 @@ export function CVGeneratorStandaloneV2({
           setMustRequirements={setMustRequirements}
           setNiceRequirements={setNiceRequirements}
         />
+      )}
+
+      {mode === "new" && candidate && (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <CvSourcePicker selection={sourceSelection} />
+          </CardContent>
+        </Card>
       )}
 
       <Card className="mt-4">
@@ -1031,7 +1057,7 @@ export function CVGeneratorStandaloneV2({
         <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
           {activeMut.isPending
             ? "Uruchamiam generację…"
-            : "Generacja leci w tle (60–90 s) — CV pojawi się na liście poniżej. Możesz zamknąć kartę."}
+            : "Generowanie i sprawdzanie CV ze źródłami odbywa się w tle — wynik pojawi się na liście poniżej. Możesz zamknąć kartę."}
         </p>
         <Button
           size="lg"
@@ -1102,6 +1128,7 @@ export function CVGeneratorStandaloneV2({
                   onPreview={setPreviewItem}
                   onDownload={handleDownloadGenerated}
                   onDownloadHtml={handleDownloadHtml}
+                  onEdit={setEditItem}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
                   canWrite={canWriteSourcing}
@@ -1116,6 +1143,47 @@ export function CVGeneratorStandaloneV2({
         </CardContent>
       </Card>
 
+      {canWriteSourcing && editItem && <CVBrandedEditModal open generatedId={editItem.id}
+        onRegenerate={() => {
+          // History may belong to a different candidate than the current form.
+          // Re-enter through the authorized prefill flow after saving the draft.
+          if (!embedded && editItem.mode !== "upload" && editItem.candidate_id != null) {
+            const context = new URLSearchParams({candidate_id: String(editItem.candidate_id)});
+            if (editItem.job_id != null) context.set("job_id", String(editItem.job_id));
+            window.location.assign(`/cv-generator?${context}`);
+            return;
+          }
+          if (!embedded) {
+            setMode("old");
+            setCvFile(null);
+            setChampionFile(null);
+            setChampionError(null);
+            setConsentKey(null);
+            setScreeningNotes("");
+            setMustRequirements("");
+            setNiceRequirements("");
+            setProjectRef("");
+            setPosition(editItem.position ?? "");
+            setLanguage(editItem.language === "en" ? "en" : "pl");
+            setBlindCv(editItem.blind);
+            setUploadStageId("");
+            setUploadCandidate(editItem.candidate_id == null ? null : {
+              id: editItem.candidate_id, full_name: editItem.candidate_name,
+              name: editItem.candidate_name, lastname: "",
+            });
+            setUploadClient(editItem.client_id == null ? null : {
+              id: editItem.client_id, name: editItem.client_name ?? `#${editItem.client_id}`,
+            });
+            setOutsideAssignment(false);
+            setRecoveryContext(editItem.candidate_id != null && editItem.job_id != null
+              ? {candidateId: editItem.candidate_id, jobId: editItem.job_id} : null);
+          }
+          requestAnimationFrame(() => {
+            generatorFormRef.current?.focus({preventScroll: true});
+            generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+          });
+        }}
+        candidateName={editItem.candidate_name} onOpenChange={open => { if (!open) setEditItem(null); }} />}
       <GeneratedCvPreviewModal
         item={previewItem}
         onClose={() => setPreviewItem(null)}
@@ -1259,8 +1327,8 @@ function NewModeForm({
           <CardHeader>
             <CardTitle>Krok 2 — Proces rekrutacyjny</CardTitle>
             <CardDescription>
-              Wymagany Profil Championa oraz co najmniej jedna notatka z rozmowy
-              dla wybranego procesu.
+              Wymagane źródła zależą od trybu obróbki i reguły klienta.
+              Po wybraniu procesu zobaczysz, które dane są potrzebne.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1713,6 +1781,7 @@ type GeneratedCvRowProps = {
   onPreview: (item: GeneratedCvItem) => void;
   onDownload: (item: GeneratedCvItem) => void;
   onDownloadHtml: (item: GeneratedCvItem) => void;
+  onEdit: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
   canWrite: boolean;
@@ -1726,6 +1795,7 @@ function GeneratedCvRow({
   onDownload,
   onDownloadHtml,
   onShare,
+  onEdit,
   onDelete,
   canWrite,
 }: GeneratedCvRowProps) {
@@ -1761,13 +1831,13 @@ function GeneratedCvRow({
             {item.status === "processing" && (
               <Badge variant="warning" className="flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Generuję…
+                {item.job_status === "queued" ? "Oczekuje w kolejce" : "Generuję…"}
               </Badge>
             )}
             {item.status === "failed" && (
               <Badge variant="danger" className="flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" />
-                Błąd
+                {item.job_status === "interrupted" ? "Przerwano" : "Błąd"}
               </Badge>
             )}
             {item.status === "ready" && warnings.length > 0 && (
@@ -1835,6 +1905,8 @@ function GeneratedCvRow({
                   >
                     <FileCode2 className="h-4 w-4" />
                   </Button>
+                  {canWrite && <Button variant="ghost" size="sm" disabled={!item.can_download}
+                    onClick={() => onEdit(item)} title="Edytuj i zatwierdź CV"><Pencil className="h-4 w-4" /></Button>}
                   {canWrite ? (
                     <Button
                       variant="ghost"

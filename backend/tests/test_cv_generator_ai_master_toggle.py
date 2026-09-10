@@ -43,7 +43,7 @@ async def test_gate_raises_503_when_quota_refuses(monkeypatch):
     """Każdy powód odmowy (master off / funkcja off / sufit) leci tą samą drogą."""
     import app.services.ai_quota as ai_quota
 
-    async def _refuse(_db, feature, user_id=None):
+    async def _refuse(_db, feature, user_id=None, *, commit_with_caller=False):
         raise ai_quota.AIQuotaExceeded(feature, "Miesięczny limit wyczerpany", 50, 50)
 
     monkeypatch.setattr(ai_quota, "check_and_increment", _refuse)
@@ -74,7 +74,8 @@ async def test_gate_charges_the_cv_generator_bucket(monkeypatch):
 
     seen: dict[str, object] = {}
 
-    async def _accept(_db, feature, user_id=None):
+    async def _accept(_db, feature, user_id=None, *, commit_with_caller=False):
+        assert commit_with_caller is True
         seen["feature"] = feature
         seen["user_id"] = user_id
         return None
@@ -115,7 +116,27 @@ def test_both_generation_endpoints_pass_through_the_gate():
     )
 
     for name, fn in found.items():
-        assert _GATE in _awaited_names(fn), (
-            f"{name}() nie woła {_GATE}() — najdroższe wywołanie Claude'a "
-            "w produkcie znowu stoi poza kwotą, kill-switchem i ai_usage_log."
+        admissions = [
+            node.value
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Await)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "persist_job"
+        ]
+        assert len(admissions) == 1, f"{name}: expected one durable admission"
+        callback = next(
+            (kw.value for kw in admissions[0].keywords if kw.arg == "charge"), None
+        )
+        assert isinstance(callback, ast.Lambda), (
+            f"{name}: missing mandatory quota callback"
+        )
+        call = callback.body
+        assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+        assert call.func.id == _GATE, f"{name}: wrong quota gate"
+        assert [ast.unparse(arg) for arg in call.args] == ["db", "current_user.id"], (
+            f"{name}: admission must use the authenticated user and request session"
+        )
+        assert not callback.args.args, (
+            f"{name}: callback cannot require unsupplied arguments"
         )

@@ -75,7 +75,16 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
         return json.dumps(_AI_JSON)
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+
+    def facts(**kwargs):
+        seen["extraction_sources"] = kwargs
+        return {"version": 1, "document": json.loads(json.dumps(_AI_JSON))}
+
+    monkeypatch.setattr(svc, "extract_source_facts", facts)
     monkeypatch.setattr(svc, "analyze_with_ai", fake_analyze)
+    # These tests isolate presentation. Evidence review has dedicated integration
+    # regressions in test_cv_factual_verification.py, including rejection paths.
+    monkeypatch.setattr(svc, "verify_final_cv", lambda *a, **k: {"status": "verified"})
     monkeypatch.setattr(svc, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
     return seen
 
@@ -181,11 +190,18 @@ def test_broken_cap_value_does_not_disable_the_ceiling() -> None:
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])
-def test_lower_modes_get_an_addendum_and_tailored_does_not(language: str) -> None:
-    """ "tailored" to prompt bazowy; basic/polished dokładają ograniczenia."""
-    tailored = get_prompt(language, False, "tailored")
-    for mode in ("basic", "polished"):
-        assert len(get_prompt(language, False, mode)) > len(tailored)
+def test_editorial_modes_have_distinct_source_fact_policies(language: str) -> None:
+    prompts = [get_prompt(language, False, mode) for mode in CONTENT_MODES]
+    assert len(set(prompts)) == 3
+    for prompt in prompts:
+        assert "<source_facts>" in prompt
+        assert "<cv>" not in prompt
+        assert "<screening_notes>" not in prompt
+    assert "minimal wording changes" in get_prompt(language, False, "basic")
+    assert "reusable CV" in get_prompt(language, False, "polished")
+    assert "prioritize relevant existing facts" in get_prompt(
+        language, False, "tailored"
+    )
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])
@@ -216,18 +232,13 @@ def test_truth_ceiling_is_identical_in_every_mode(language: str, mode: str) -> N
     byłyby licencją na zmyślanie — a to jest właśnie zarzut klienta.
     """
     prompt = get_prompt(language, False, mode)
-    if language == "pl":
-        needles = [
-            "NIE wymyślaj certyfikatów",
-            "NIGDY nie wymyślaj ani nie szacuj liczb",
-            "NIE dedukuj ani nie dodawaj technologii",
-        ]
-    else:
-        needles = [
-            "DO NOT fabricate certifications",
-            "NEVER invent or estimate numbers",
-            "DO NOT deduce or add technologies",
-        ]
+    needles = [
+        "Every candidate claim must follow from source_facts.document",
+        "certification level and role ownership",
+        "Never invent outcomes, metrics",
+        "not professional delivery or completed achievements",
+        "Do not sum overlapping",
+    ]
     for needle in needles:
         assert needle.lower() in prompt.lower(), f"{mode}/{language}: brak „{needle}”"
 
@@ -269,9 +280,11 @@ def test_lower_modes_never_send_the_job_ad_to_the_model(
     assert "<champion_profile>" not in seen["user"]
     assert "Kubernetes" not in seen["user"]
     assert "Utrzymanie klastrów produkcyjnych" not in seen["user"]
-    # CV i notatki nadal idą — tryb ogranicza pozycjonowanie, nie materiał.
-    assert "<cv>" in seen["user"]
-    assert "<screening_notes>" in seen["user"]
+    # Both sources reach full extraction; editing receives the extracted facts.
+    assert seen["extraction_sources"]["cv_text"] == _CV_TEXT
+    assert "potwierdził" in seen["extraction_sources"]["screening_notes"]
+    assert "<source_facts>" in seen["user"]
+    assert "<screening_notes>" not in seen["user"]
 
 
 def test_tailored_still_sends_the_champion_profile(captured_prompt: dict) -> None:

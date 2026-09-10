@@ -1373,7 +1373,7 @@ def normalize_letterhead_layout(doc: Any) -> None:
 
 def render_cv_to_bytes(
     candidate_data: dict[str, Any],
-    template_path: str,
+    template_path: str | io.BytesIO,
 ) -> bytes:
     """Render the candidate dict into a DOCX and return its bytes.
 
@@ -1384,7 +1384,7 @@ def render_cv_to_bytes(
             ``language`` ('pl' default), ``blind_cv`` (False default),
             ``highlight_keywords`` (champion MUST-HAVE + NICE-TO-HAVE
             technologies).
-        template_path: Path to ``szablon_firmowy.docx``.
+        template_path: Template path or a stream of frozen template bytes.
 
     Returns:
         bytes — the rendered DOCX file content.
@@ -1402,11 +1402,13 @@ def render_cv_to_bytes(
             candidate_data["first_name"] = "Kandydat"
 
         for job in candidate_data.get("experience", []):
-            industry = job.get("industry", "IT")
+            industry = str(job.get("industry") or "").strip()
             if language == "en":
-                job["company"] = f"Company from {industry} industry"
+                job["company"] = (
+                    f"Company from {industry} industry" if industry else "Company"
+                )
             else:
-                job["company"] = f"Firma z branży {industry}"
+                job["company"] = f"Firma z branży {industry}" if industry else "Firma"
 
     logger.info(
         "[cv_generator_b2b] Rendering CV name=%s lang=%s blind=%s",

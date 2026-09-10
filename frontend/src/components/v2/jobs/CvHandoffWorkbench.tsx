@@ -38,6 +38,7 @@ import {
 
 import {
   candidateStageCvApi,
+  cvGeneratedShareApi,
   candidatesApi,
   extractErrorMsg,
   pipelineApi,
@@ -219,14 +220,19 @@ export function CvHandoffWorkbench({
     enabled: stageId != null,
   });
   const [pendingGenerated, setPendingGenerated] = useState<{
-    id: number; filename: string; stageId: number; revision: number;
+    id: number; filename: string; stageId: number; revision: number; documentVersionId?: number;
   } | null>(null);
+  const approvedChoices = useQuery({
+    queryKey: ["cv-generated-approved-versions", pendingGenerated?.id],
+    queryFn: () => cvGeneratedShareApi.approvedVersions(pendingGenerated!.id).then(r => r.data),
+    enabled: pendingGenerated != null,
+  });
   const selectedStageRef = useRef(stageId);
   selectedStageRef.current = stageId;
   useEffect(() => { setPendingGenerated(null); setOpenBranded(false); }, [stageId]);
   const selectGeneratedMut = useMutation({
     mutationFn: (choice: NonNullable<typeof pendingGenerated>) =>
-      candidateStageCvApi.branded.selectGenerated(choice.stageId, choice.id, choice.revision),
+      candidateStageCvApi.branded.selectGenerated(choice.stageId, choice.id, choice.revision, choice.documentVersionId),
     onSuccess: (response, choice) => {
       queryClient.setQueryData(["cv-branded", choice.stageId], response.data);
       if (selectedStageRef.current === choice.stageId) {
@@ -740,10 +746,30 @@ export function CvHandoffWorkbench({
                     <p className="my-2 text-xs text-muted-foreground">
                       Zastąpi to bieżący szkic. Zatwierdzone wersje i dotychczasowe linki zachowają swoją treść.
                     </p>
-                    {selectGeneratedMut.isError && <p role="alert" className="mb-2 text-destructive">
+                    <label className="mb-2 block">Treść do wczytania
+                      <select aria-label="Wersja CV do rekrutacji" className="mt-1 block w-full rounded border bg-background p-2"
+                        value={pendingGenerated.documentVersionId ?? ""}
+                        onChange={e => setPendingGenerated({...pendingGenerated, documentVersionId: e.target.value ? Number(e.target.value) : undefined})}>
+                        <option value="">Pierwotny wynik generatora</option>
+                        {approvedChoices.data?.map(v => <option key={v.id} value={v.id}>
+                          Zatwierdzona wersja {v.version} · {v.language?.toUpperCase()} · {new Date(v.approved_at).toLocaleString("pl-PL")}
+                        </option>)}
+                      </select>
+                    </label>
+                    {approvedChoices.isError && <p role="alert">Nie udało się pobrać zatwierdzonych wersji. <button className="underline" onClick={() => approvedChoices.refetch()}>Spróbuj ponownie</button></p>}
+                    {selectGeneratedMut.isError && ((selectGeneratedMut.error as {response?: {data?: {detail?: {code?: string}}}})?.response?.data?.detail?.code === "cv_editor_assets_unavailable" ? (
+                      <div role="alert" className="mb-2 space-y-2 text-destructive">
+                        <p>Nie można wczytać zasobów tego CV. Obecny szkic pozostaje bez zmian. Ponów wybór lub wygeneruj nowe CV.</p>
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setPendingGenerated(null);
+                          selectGeneratedMut.reset();
+                          generatorRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+                        }}>Przejdź do generatora</Button>
+                      </div>
+                    ) : <p role="alert" className="mb-2 text-destructive">
                       Nie udało się wybrać CV. Odśwież dane rekrutacji — szkic mógł zmienić się w innej sesji.
-                    </p>}
-                    <Button size="sm" disabled={selectGeneratedMut.isPending}
+                    </p>)}
+                    <Button size="sm" disabled={selectGeneratedMut.isPending || approvedChoices.isLoading || approvedChoices.isError}
                       onClick={() => selectGeneratedMut.mutate(pendingGenerated)}>
                       {selectGeneratedMut.isPending ? "Wczytywanie…" : "Zastąp szkic i otwórz edytor"}
                     </Button>
@@ -1169,6 +1195,7 @@ export function CvHandoffWorkbench({
         <CVBrandedEditModal
           open
           onOpenChange={setOpenBranded}
+          onRegenerate={() => generatorRef.current?.scrollIntoView({behavior: "smooth", block: "start"})}
           stageId={selected.item.id}
           jobTitle={jobLabel}
           candidateName={fullName}

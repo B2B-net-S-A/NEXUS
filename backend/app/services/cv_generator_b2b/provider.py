@@ -69,7 +69,11 @@ PROMPT_NAME = "cv_b2b_extraction"
 # v7 (2026-07-29): trzy tryby obróbki treści (basic/polished/tailored) jako
 # addendum do promptu bazowego; kwoty wymuszające wypełniacz zamienione na
 # górne limity — przy ubogim CV model zwraca tyle, ile jest w źródle.
-PROMPT_VERSION = 7
+# v8: evidence-led summaries; no total-career-to-role instruction or MUST list quota.
+# v9: extract complete source history before applying client display limits.
+# v10: independent editorial contract consumes frozen source facts instead of
+# reusing the raw extraction contract; extraction JSON size is bounded separately.
+PROMPT_VERSION = 10
 
 
 class CVGeneratorAIError(RuntimeError):
@@ -134,6 +138,7 @@ def analyze_with_ai(
     system: str | None = None,
     *,
     model_override: str | None = None,
+    response_schema: dict[str, Any] | None = None,
 ) -> str:
     """Zawołaj model i zwróć tekst odpowiedzi. Sygnatura bez zmian.
 
@@ -178,6 +183,10 @@ def analyze_with_ai(
     if system:
         kwargs["system"] = system
         kwargs["cache_system"] = True
+    if response_schema is not None:
+        kwargs["output_config"] = {
+            "format": {"type": "json_schema", "schema": response_schema}
+        }
 
     try:
         text = call_claude_text(

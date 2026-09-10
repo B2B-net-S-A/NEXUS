@@ -4574,6 +4574,9 @@ async def delete_candidate(
             status_code=status.HTTP_404_NOT_FOUND, detail="Kandydat nie znaleziony"
         )
 
+    # Serialize erasure with new source rows referencing this candidate.
+    await db.refresh(candidate, with_for_update=True)
+
     # Klucze plików trzeba zebrać TERAZ — po `db.delete()` wiersze już nie
     # istnieją, a bez klucza nie da się skasować obiektu ze storage.
     storage_keys: list[str] = []
@@ -4586,6 +4589,11 @@ async def delete_candidate(
         )
     )
     storage_keys.extend(k for k in document_keys.scalars().all() if k)
+
+    from app.services.cv_source_erasure import detach_candidate_job_sources
+
+    storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
+    storage_keys = sorted(set(storage_keys))
 
     # Fail-closed, ZANIM cokolwiek zmutujemy: bez działającego object storage
     # pliki CV zostałyby w buckecie (i w kopii off-site, którą backup.sh celowo

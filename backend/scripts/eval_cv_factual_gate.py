@@ -29,6 +29,7 @@ from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_generator_b2b.factual_verification import (
     FactualVerificationError,
     VERIFICATION_PROMPT,
+    REVIEW_RESPONSE_SCHEMA_SHA256,
     verify_final_cv,
 )
 from app.services.cv_generator_b2b.provider import (
@@ -134,6 +135,7 @@ async def evaluate(
         "run_identity": identity,
         "corpus_sha256": corpus_hash,
         "prompt_sha256": hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest(),
+        "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
         "requested_models": requested_models,
         "cases_per_model": limit,
         "complete": False,

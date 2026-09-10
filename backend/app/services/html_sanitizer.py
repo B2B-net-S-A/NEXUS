@@ -77,6 +77,7 @@ ALLOWED_TAGS = [
 ALLOWED_ATTRIBUTES = {
     "*": ["style", "class"],
     "p": ["data-cv-section"],
+    "h2": ["data-cv-section"],
     "a": ["href", "title", "rel"],
     "img": ["src", "alt", "width", "height"],
     "td": ["colspan", "rowspan"],

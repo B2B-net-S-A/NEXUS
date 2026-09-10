@@ -936,6 +936,7 @@ export function PipelineCandidateDock({
         <CVBrandedEditModal
           open
           onOpenChange={setOpenBranded}
+          onRegenerate={() => window.location.assign(`/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`)}
           stageId={item.id}
           jobTitle={jobLabel}
           candidateName={fullName}

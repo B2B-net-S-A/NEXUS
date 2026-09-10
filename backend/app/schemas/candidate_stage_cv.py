@@ -12,6 +12,8 @@ Mirror `app/schemas/contract.py` (Contract Draft):
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -37,9 +39,11 @@ class CVOriginalSnapshotResponse(BaseModel):
 class CVBrandedSelectGenerated(BaseModel):
     expected_revision: int = Field(ge=0)
     generated_document_id: int = Field(ge=1)
+    document_version_id: int | None = Field(default=None, ge=1)
 
 
 class CVBrandedResponse(BaseModel):
+    presentation_review: dict | None = None
     docx_available: bool = False
     docx_filename: str | None = None
     generated_document_id: int | None = None
@@ -89,6 +93,10 @@ class CVBrandedUpdate(BaseModel):
 class CVBrandedFinalize(BaseModel):
     expected_revision: int = Field(ge=0)
     content_html: str = Field(min_length=1, max_length=500000)
+
+
+class CVBrandedReview(CVBrandedFinalize):
+    request_key: UUID
 
 
 class CVBrandedNewDraft(BaseModel):

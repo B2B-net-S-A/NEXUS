@@ -13,7 +13,7 @@ Bezpieczniki:
   widzi klient;
 * każdy cytat-dowód jest walidowany jako substring tekstu publicznego payloadu
   (po normalizacji whitespace + case) — parafrazy i fabrykacje są wycinane,
-  a wymaganie bez ocalałego dowodu spada z "met" na "partial";
+  a wymaganie bez ocalałego dowodu spada do "no_data";
 * kwota AI (``AIFeatureKey.cv_requirement_map``) działa FAIL-OPEN: przekroczenie
   limitu lub błąd LLM nie psuje generacji CV — link działa w widoku classic,
   kafelki są po prostu niedostępne.
@@ -108,6 +108,7 @@ def _input_hash(
     blob = json.dumps(
         {
             "prompt_version": CV_REQUIREMENT_MAP.version,
+            "evidence_validation_version": 2,
             "model": DEFAULT_MODEL,
             "cv": public_payload,
             "requirements": requirements,
@@ -136,7 +137,7 @@ def _sanitize_items(
 
     Kontrakt anty-fabrykacyjny: cytat, którego nie ma w publicznym payloadzie
     (substring po normalizacji), jest ODRZUCANY; wymaganie ze statusem "met",
-    które straciło wszystkie dowody, spada na "partial". Wpisy spoza listy
+    które straciło wszystkie dowody, spada na "no_data". Wpisy spoza listy
     wymagań są ignorowane; brakujące dostają "no_data".
     """
     haystack = _normalize_for_match(public_payload_text(public_payload))
@@ -177,20 +178,32 @@ def _sanitize_items(
         for ev in item.get("evidence") or []:
             if not isinstance(ev, dict):
                 continue
-            quote = str(ev.get("quote") or "").strip()[:_MAX_QUOTE_CHARS]
-            if not quote or _normalize_for_match(quote) not in haystack:
+            quote = str(ev.get("quote") or "").strip()
+            if (
+                not quote
+                or len(quote) > _MAX_QUOTE_CHARS
+                or _normalize_for_match(quote) not in haystack
+            ):
                 continue  # parafraza/fabrykacja — odrzucamy
             idx: Optional[int] = ev.get("experience_index")
-            if not isinstance(idx, int) or not (0 <= idx < experience_count):
+            if type(idx) is not int or not (0 <= idx < experience_count):
+                idx = None
+            elif _normalize_for_match(quote) not in _normalize_for_match(
+                public_payload_text({"experience": [public_payload["experience"][idx]]})
+            ):
+                # A quote elsewhere in the CV cannot justify a pointer to this
+                # employer/role. Keep the quote but do not invent an association.
                 idx = None
             evidence_out.append({"experience_index": idx, "quote": quote})
             if len(evidence_out) >= _MAX_EVIDENCE_PER_REQ:
                 break
 
-        if status == "met" and not evidence_out:
-            status = "partial"
+        if not evidence_out:
+            status = "no_data"
 
-        note = str(item.get("note") or "").strip()[:_MAX_NOTE_CHARS] or None
+        note = str(item.get("note") or "").strip() or None
+        if not evidence_out or (note and len(note) > _MAX_NOTE_CHARS):
+            note = None
         sanitized.append(
             {
                 "requirement": req["name"],
@@ -201,6 +214,31 @@ def _sanitize_items(
             }
         )
     return sanitized
+
+
+def validated_cached_items(public_payload: dict, cached: dict | None) -> list[dict]:
+    """Recheck stored evidence at read time, without rewriting historical rows."""
+    if not isinstance(cached, dict) or not isinstance(cached.get("items"), list):
+        return []
+    requirements = []
+    seen = set()
+    for item in cached["items"]:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("requirement")
+        kind = item.get("kind")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not isinstance(kind, str)
+            or kind not in {"must", "nice"}
+        ):
+            continue
+        key = _normalize_for_match(name)
+        if key not in seen:
+            seen.add(key)
+            requirements.append({"name": name, "kind": kind})
+    return _sanitize_items(cached, requirements, public_payload)
 
 
 _REQ_SPLIT_RE = re.compile(r"[,;\n\r]+")
@@ -329,6 +367,27 @@ async def _generate_requirement_map(
     którym łatwo przeoczyć zgubioną gałąź — a tutaj każda z nich kończy się
     `return` i decyduje o tym, czy kafelki w ogóle powstaną.
     """
+    result = await generate_map_result(public_payload, requirements)
+    if result is None:
+        return
+    row.requirement_map = {"items": result["items"]}
+    row.requirement_map_input_hash = digest
+    row.requirement_map_model = result["model"]
+    row.requirement_map_generated_at = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info(
+        "[cv_req_map] generated=%s items=%d", generated_id, len(result["items"])
+    )
+
+
+async def generate_map_result(
+    public_payload: dict, requirements: list[dict[str, str]]
+) -> dict | None:
+    """Map the supplied frozen input without loading or mutating document rows.
+
+    Caller owns AI quota admission and persists the result against its exact
+    source version. This function must not be invoked from public GET routes.
+    """
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:
         logger.warning("[cv_req_map] no API key configured — skipping")
@@ -364,14 +423,9 @@ async def _generate_requirement_map(
         raise ValueError("LLM returned non-object JSON")
 
     items = _sanitize_items(parsed, requirements, public_payload)
-    row.requirement_map = {"items": items}
-    row.requirement_map_input_hash = digest
-    row.requirement_map_model = DEFAULT_MODEL
-    row.requirement_map_generated_at = datetime.now(timezone.utc)
-    await db.commit()
-    logger.info(
-        "[cv_req_map] generated=%s items=%d latency_ms=%d",
-        generated_id,
-        len(items),
-        int((time.time() - started) * 1000),
-    )
+    return {
+        "items": items,
+        "model": DEFAULT_MODEL,
+        "input_hash": _input_hash(public_payload, requirements),
+        "latency_ms": int((time.time() - started) * 1000),
+    }

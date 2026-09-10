@@ -360,14 +360,14 @@ def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
 
 
 async def _interactive_flags(
-    db: AsyncSession, doc: CvGeneratedDocument
+    db: AsyncSession, doc: CvGeneratedDocument, *, approved_version: bool = False
 ) -> tuple[bool, bool]:
     """Resolve client policy identically for upload and recruitment documents."""
     from app.services.cv_generator_b2b.document_policy import (
         interactive_client_enabled,
     )
 
-    tiles = bool((doc.requirement_map or {}).get("items"))
+    tiles = approved_version or bool((doc.requirement_map or {}).get("items"))
     if not await interactive_client_enabled(db, doc):
         return False, False
     if (doc.mode != "new" or doc.job_id is None) and not tiles:
@@ -398,6 +398,8 @@ async def get_public_generated_cv(
     bez PII spoza treści CV; przy blind — zamaskowane nazwisko i firmy.
     Walidacja: 404 nieznany/odwołany, 410 wygasły / limit wyświetleń.
     """
+    from app.services.cv_generator_b2b.requirement_map import validated_cached_items
+
     row = await _load_generated_share(token, db)
 
     # Limit wyświetleń — atomowy UPDATE (ten sam wzorzec co /cv/{token}).
@@ -422,7 +424,31 @@ async def get_public_generated_cv(
         )
 
     doc = _generated_doc_or_404(row)
-    tiles, chat = await _interactive_flags(db, doc)
+    version_id = row.document_version_id
+    approved = None
+    approved_requirements = []
+    requirements_status = None
+    if version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+
+        approved = await approved_version_for_generation(db, doc, version_id)
+        _tiles, chat = await _interactive_flags(db, doc, approved_version=True)
+        tiles = _tiles
+        if tiles:
+            from app.services.cv_version_map_view import approved_map_view
+
+            requirements_status, approved_requirements = await approved_map_view(
+                db, approved
+            )
+        from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
+        from app.services.cv_editor_review import EditorReviewInputError
+
+        try:
+            approved_chat_context(approved)
+        except EditorReviewInputError:
+            chat = False
+    else:
+        tiles, chat = await _interactive_flags(db, doc)
 
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
@@ -430,6 +456,15 @@ async def get_public_generated_cv(
     from app.services.cv_generator_b2b.format_annotations import text_annotations
 
     payload["text_runs"] = text_annotations(payload)
+    if approved is not None:
+        # Never expose titles or facts from the superseded generated payload.
+        payload = {
+            "language": approved.language,
+            "candidate_name": ("Candidate" if approved.language == "en" else "Kandydat")
+            if approved.template == "blind"
+            else approved.candidate_first_name,
+            "position": approved.job_title,
+        }
 
     db.add(
         Activity(
@@ -447,7 +482,16 @@ async def get_public_generated_cv(
 
     return {
         "cv": payload,
-        "requirements": ((doc.requirement_map or {}).get("items") if tiles else None),
+        "cv_html": approved.content_html if approved is not None else None,
+        "document_version_id": version_id,
+        "requirements": (
+            approved_requirements
+            if approved is not None
+            else validated_cached_items(payload, doc.requirement_map)
+        )
+        if tiles
+        else None,
+        "requirements_status": requirements_status,
         "chat_enabled": chat,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
@@ -474,7 +518,24 @@ async def post_public_generated_cv_chat(
     """
     row = await _load_generated_share(token, db)
     doc = _generated_doc_or_404(row)
-    _tiles, chat_enabled = await _interactive_flags(db, doc)
+    approved_context = None
+    if row.document_version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+        from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
+        from app.services.cv_editor_review import EditorReviewInputError
+
+        approved = await approved_version_for_generation(
+            db, doc, row.document_version_id
+        )
+        try:
+            approved_context = approved_chat_context(approved)
+        except EditorReviewInputError:
+            raise HTTPException(
+                409, "Nie można odczytać zatwierdzonej treści dla chatu."
+            ) from None
+    _tiles, chat_enabled = await _interactive_flags(
+        db, doc, approved_version=row.document_version_id is not None
+    )
     if not chat_enabled:
         raise HTTPException(
             status_code=404, detail="Chat nie jest dostępny dla tego linku."
@@ -489,7 +550,11 @@ async def post_public_generated_cv_chat(
 
     try:
         answer = await answer_question(
-            db, token_row=row, doc_row=doc, question=payload.question
+            db,
+            token_row=row,
+            doc_row=doc,
+            question=payload.question,
+            approved_context=approved_context,
         )
     except CvChatDailyLimitExceeded:
         raise HTTPException(
