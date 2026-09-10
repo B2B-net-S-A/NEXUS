@@ -308,6 +308,61 @@ export function moveBlockedReason({
   return null;
 }
 
+export interface PrimaryForwardMove {
+  /** Etap, na który dok proponuje ruch naprzód — `null`, gdy nie proponuje. */
+  target: KanbanColumn | null;
+  /**
+   * Etap, który stoi na drodze naprzód, i powód blokady — ustawione wtedy,
+   * gdy dok NIE proponuje ruchu, bo kolejny krok blokuje weto hiring managera.
+   */
+  blocked: { col: KanbanColumn; reason: string } | null;
+}
+
+/**
+ * Główna akcja „naprzód" doku karty: PIERWSZY dozwolony etap PO bieżącym
+ * w kolejności szablonu (terminalne pomijamy — „Odrzuć z powodem" to osobny
+ * przycisk, a „Zatrudniony" nie jest krokiem naprzód z doku).
+ *
+ * Weto hiring managera ZATRZYMUJE szukanie: gdy między bieżącym etapem a
+ * kandydatem na cel leży etap, na który weto blokuje ruch („CV Wysłane",
+ * „Interview Klient"), dok nie proponuje żadnego ruchu naprzód, tylko mówi,
+ * co blokuje. Do 09.2026 pętla przeskakiwała zablokowany etap i proponowała
+ * pierwszy dalszy — w „Default B2B" karta z wetem na „Zweryfikowany" dostawała
+ * „Przenieś na etap: Preparation Meeting", czyli objazd weta jednym kliknięciem.
+ * Ręczne pigułki ruchu i reguła serwera zostają bez zmian (bramka dla KAŻDEGO
+ * celu to nadal {@link moveBlockedReason}).
+ */
+export function primaryForwardMove({
+  item,
+  columns,
+  currentColId,
+  readOnly,
+}: {
+  item: KanbanItem;
+  columns: KanbanColumn[];
+  currentColId: string;
+  readOnly: boolean;
+}): PrimaryForwardMove {
+  const none: PrimaryForwardMove = { target: null, blocked: null };
+  const currentIndex = columns.findIndex((c) => colId(c) === currentColId);
+  if (currentIndex < 0) return none;
+  for (let i = currentIndex + 1; i < columns.length; i += 1) {
+    const col = columns[i];
+    if (terminalOf(col) != null) continue;
+    const reason = moveBlockedReason({
+      item,
+      readOnly,
+      terminal: false,
+      targetStage: col.stage,
+    });
+    if (!reason) return { target: col, blocked: null };
+    if (item.hm_veto && HM_VETO_ENFORCED_STAGES.has(col.stage)) {
+      return { target: null, blocked: { col, reason } };
+    }
+  }
+  return none;
+}
+
 /** Imię i nazwisko z karty, z uczciwym fallbackiem. */
 export function itemFullName(item: KanbanItem): string {
   return `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";

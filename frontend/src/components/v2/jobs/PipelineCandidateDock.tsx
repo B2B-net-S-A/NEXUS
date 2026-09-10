@@ -206,6 +206,12 @@ export interface PipelineCandidateDockProps {
   nextAction?: NextAction | null;
   /** Pierwszy DOZWOLONY etap po bieżącym — główna akcja doku. */
   primaryTarget?: KanbanColumn | null;
+  /**
+   * Etap blokujący drogę naprzód (weto HM) i powód — gdy jest, dok zamiast
+   * akcji „naprzód" pokazuje wyszarzony krok z powodem, a nie objazd weta.
+   * Wynik `primaryForwardMove` z `lib/pipeline-flow.ts`.
+   */
+  primaryBlocked?: { col: KanbanColumn; reason: string } | null;
   onClose: () => void;
   onMoveTo: (col: KanbanColumn) => void;
   onOpenScreening: (stageId: number, name: string) => void;
@@ -230,6 +236,7 @@ export function PipelineCandidateDock({
   onSelectNext,
   nextAction,
   primaryTarget,
+  primaryBlocked = null,
   onClose,
   onMoveTo,
   onOpenScreening,
@@ -899,6 +906,25 @@ export function PipelineCandidateDock({
               <ChevronRight className="h-3.5 w-3.5" />
               Przenieś na etap: {primaryTarget.name ?? primaryTarget.stage}
             </Button>
+          )}
+          {/* Weto HM na drodze naprzód: kolejny krok wyszarzony z powodem —
+              nie proponujemy dalszego etapu, bo to byłby objazd weta. */}
+          {!primaryTarget && primaryBlocked && !readOnly && (
+            <div className="col-span-2 space-y-1">
+              <Button
+                size="sm"
+                disabled
+                title={primaryBlocked.reason}
+                className="w-full justify-start"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+                Przenieś na etap:{" "}
+                {primaryBlocked.col.name ?? primaryBlocked.col.stage}
+              </Button>
+              <p role="note" className="text-[10.5px] leading-snug text-destructive">
+                {primaryBlocked.reason}
+              </p>
+            </div>
           )}
           <Button
             size="sm"

@@ -395,6 +395,76 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     expect(within(pills).getByRole("button", { name: "Odrzucony" })).not.toBeDisabled();
   });
 
+  /** Fragment „Default B2B": między „Wysłać do Cpro" a „Interview Klient"
+   *  stoją „CV Wysłane" (weto blokuje) i „Preparation Meeting" (nie blokuje). */
+  function vetoRouteColumns(extra: Record<string, unknown>) {
+    return [
+      {
+        stage: "new",
+        name: "Wysłać do Cpro",
+        category: "internal",
+        stage_def_id: 401,
+        count: 1,
+        items: [
+          {
+            id: 811,
+            candidate_id: 71,
+            name: "Ewa",
+            lastname: "Objazd",
+            stage: "new",
+            days_in_stage: 1,
+            verification_status: "active",
+            ...extra,
+          },
+        ],
+      },
+      { stage: "cv_sent", name: "CV Wysłane", category: "internal", stage_def_id: 402, count: 0, items: [] },
+      { stage: "new", name: "Preparation Meeting", category: "external", stage_def_id: 403, count: 0, items: [] },
+      { stage: "client_interview", name: "Interview Klient", category: "external", stage_def_id: 404, count: 0, items: [] },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 405,
+        count: 0,
+        items: [],
+        terminal_type: "rejected",
+      },
+    ] as never;
+  }
+
+  it("weto HM na drodze naprzód: główna akcja doku nie robi objazdu na „Preparation Meeting”", async () => {
+    renderBoard(
+      vetoRouteColumns({
+        hm_veto: {
+          hiring_manager_contact_id: 5,
+          source_job_id: 2,
+          rejected_at: "2026-01-01",
+          rejection_reason_name: "Brak bankowości",
+        },
+      }),
+    );
+    await openDockPills();
+
+    expect(
+      screen.queryByRole("button", { name: /Przenieś na etap: Preparation Meeting/ }),
+    ).toBeNull();
+    const blocked = screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ });
+    expect(blocked).toBeDisabled();
+    expect(blocked.getAttribute("title")).toContain("Brak bankowości");
+    // Powód widać bez najeżdżania kursorem — pod wyszarzonym krokiem.
+    expect(blocked.parentElement?.textContent).toContain("Brak bankowości");
+  });
+
+  it("karta bez weta dostaje zwykłą akcję naprzód na „CV Wysłane”", async () => {
+    renderBoard(vetoRouteColumns({}));
+    await openDockPills();
+
+    expect(
+      screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ }),
+    ).not.toBeDisabled();
+  });
+
   it("karta „Pending” w doku: każdy etap i „Odrzuć z powodem” zablokowane z powodem", async () => {
     renderBoard(gateColumns({ verification_status: "pending" }));
     const pills = await openDockPills();

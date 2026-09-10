@@ -24,12 +24,17 @@ import {
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
+  primaryForwardMove,
   selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
   stageAgeTone,
 } from "@/lib/pipeline-flow";
-import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import {
+  colId,
+  type KanbanColumn,
+  type KanbanItem,
+} from "@/components/v2/pages/kanban-shared";
 
 function item(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
@@ -361,6 +366,112 @@ describe("moveBlockedReason", () => {
     expect(
       moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),
     ).toBeNull();
+  });
+});
+
+/**
+ * Główna akcja „naprzód" doku. Do 09.2026 pętla przeskakiwała etap
+ * zablokowany wetem HM i proponowała pierwszy dalszy — w „Default B2B" karta
+ * z wetem przed „CV Wysłane" dostawała „Przenieś na etap: Preparation
+ * Meeting", czyli objazd weta jednym kliknięciem.
+ */
+describe("primaryForwardMove", () => {
+  const veto = {
+    hiring_manager_contact_id: 5,
+    source_job_id: 2,
+    rejected_at: "2026-01-01",
+    rejection_reason_name: "Brak doświadczenia w bankowości",
+  };
+
+  function at(stageName: string, overrides: Partial<KanbanItem> = {}) {
+    const columns = defaultB2B();
+    const current = columns.find((c) => c.name === stageName);
+    if (!current) throw new Error(`brak etapu ${stageName}`);
+    return {
+      columns,
+      currentColId: colId(current),
+      item: item({ stage: current.stage, ...overrides }),
+    };
+  }
+
+  it("karta z wetem przed „CV Wysłane” NIE dostaje objazdu na „Preparation Meeting”", () => {
+    const { columns, currentColId, item: card } = at("Wysłać do Cpro", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target).toBeNull();
+    expect(move.blocked?.col.name).toBe("CV Wysłane");
+    expect(move.blocked?.reason).toContain("Brak doświadczenia w bankowości");
+  });
+
+  it("karta z wetem przed „Interview Klient” nie przeskakuje do „Akceptacji”", () => {
+    const { columns, currentColId, item: card } = at("Preparation Meeting", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target).toBeNull();
+    expect(move.blocked?.col.name).toBe("Interview Klient");
+  });
+
+  it("weto nie blokuje kroku, przed którym nie stoi etap z wetem", () => {
+    // Już na „CV Wysłane" (np. weto przyszło z innej rekrutacji tego
+    // managera): „Preparation Meeting" jest następnym krokiem, bez objazdu.
+    const { columns, currentColId, item: card } = at("CV Wysłane", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("Preparation Meeting");
+    expect(move.blocked).toBeNull();
+  });
+
+  it("karta bez weta idzie na następny etap — w tym „CV Wysłane”", () => {
+    const { columns, currentColId, item: card } = at("Wysłać do Cpro");
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("CV Wysłane");
+    expect(move.blocked).toBeNull();
+  });
+
+  it("terminal po drodze jest pomijany — „Zatrudniony” nie jest krokiem naprzód z doku", () => {
+    const { columns, currentColId, item: card } = at("Umowa podpisana");
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("Onboarding");
+  });
+
+  it("karta „Pending” i brak prawa zapisu: żadnej akcji naprzód (jak dotąd)", () => {
+    const pending = at("Wysłać do Cpro", { verification_status: "pending" });
+    expect(
+      primaryForwardMove({ ...pending, readOnly: false }),
+    ).toEqual({ target: null, blocked: null });
+    const readOnly = at("Wysłać do Cpro");
+    expect(primaryForwardMove({ ...readOnly, readOnly: true })).toEqual({
+      target: null,
+      blocked: null,
+    });
   });
 });
 

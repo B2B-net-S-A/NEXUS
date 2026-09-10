@@ -103,8 +103,10 @@ import {
  PIPELINE_GROUP_SHORT_LABEL,
  groupKanbanColumns,
  moveBlockedReason,
+ primaryForwardMove,
  type PipelineColumnGroup,
  type PipelineGroupKey,
+ type PrimaryForwardMove,
 } from "@/lib/pipeline-flow";
 import {
  columnSlaHint,
@@ -2080,20 +2082,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
 
  // Główna akcja doku: PIERWSZY dozwolony etap PO bieżącym w kolejności
- // szablonu. Terminalne odpadają — „Odrzuć z powodem" jest osobnym, czerwonym
- // przyciskiem i nie może wejść pod przycisk oznaczony jako krok naprzód.
- const dockPrimaryTarget = useMemo<KanbanColumn | null>(() => {
- if (!dockItemColId) return null;
- const currentIndex = stageCols.findIndex((c) => colId(c) === dockItemColId);
- if (currentIndex < 0) return null;
- for (let i = currentIndex + 1; i < stageCols.length; i += 1) {
- const candidate = stageCols[i];
- if (terminalOf(candidate) != null) continue;
- const target = dockMoveTargets.find((t) => colId(t.col) === colId(candidate));
- if (target && !target.blockedReason) return candidate;
- }
- return null;
- }, [dockItemColId, stageCols, dockMoveTargets]);
+ // szablonu — ale nigdy objazd weta HM (etap z wetem na drodze = brak akcji
+ // naprzód i powód zamiast niej). Reguła mieszka w `primaryForwardMove`
+ // (`lib/pipeline-flow.ts`), obok jedynej bramki ruchu `moveBlockedReason`.
+ const dockPrimaryMove = useMemo<PrimaryForwardMove | null>(() => {
+ if (!dockItem || !dockItemColId) return null;
+ return primaryForwardMove({
+ item: dockItem,
+ columns: stageCols,
+ currentColId: dockItemColId,
+ readOnly,
+ });
+ }, [dockItem, dockItemColId, stageCols, readOnly]);
 
  // Wiersz „następna akcja" doku — TA SAMA funkcja, którą renderuje karta na
  // tablicy; osobna kopia rozjechałaby się przy pierwszej zmianie progu.
@@ -2702,7 +2702,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onSelectPrevious={() => selectAdjacentDockCard(-1)}
  onSelectNext={() => selectAdjacentDockCard(1)}
  nextAction={dockNextAction}
- primaryTarget={dockPrimaryTarget}
+ primaryTarget={dockPrimaryMove?.target ?? null}
+ primaryBlocked={dockPrimaryMove?.blocked ?? null}
  onClose={closeDock}
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
