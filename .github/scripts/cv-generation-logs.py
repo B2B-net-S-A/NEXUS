@@ -2,11 +2,15 @@
 
 import importlib.util
 import ast
+import base64
 import json
 import os
 from pathlib import Path
 import re
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 spec = importlib.util.spec_from_file_location(
     "cv_ops", Path(__file__).with_name("cv-quality-ops.py")
@@ -64,9 +68,46 @@ def project(logs):
     return {"events": events[-250:], "matching_events": len(events)}
 
 
+def backend_events(api, app):
+    """Use the existing log sink; never return credentials or raw log lines."""
+    rows = api.request("GET", f"/api/v1/applications/{app}/envs")
+    if not isinstance(rows, list):
+        raise ops.OpsError("invalid_environment_response")
+    wanted = {"GRAFANA_LOKI_URL", "GRAFANA_LOKI_USER", "GRAFANA_LOKI_TOKEN"}
+    settings = {row.get("key"): row.get("value") for row in rows if row.get("key") in wanted}
+    if not all(isinstance(settings.get(key), str) and settings[key] for key in wanted):
+        raise ops.OpsError("log_sink_unconfigured")
+    base = settings["GRAFANA_LOKI_URL"].rstrip("/")
+    if not re.fullmatch(r"https://[a-zA-Z0-9.-]+\.grafana\.net", base):
+        raise ops.OpsError("unexpected_log_sink")
+    query = urllib.parse.urlencode({
+        "query": '{app="nexus",service="backend"} |~ "source extraction rejected|final factual review rejected"',
+        "since": "6h", "limit": 250, "direction": "backward",
+    })
+    credential = base64.b64encode((settings["GRAFANA_LOKI_USER"] + ":" + settings["GRAFANA_LOKI_TOKEN"]).encode()).decode()
+    request = urllib.request.Request(base + "/loki/api/v1/query_range?" + query, headers={"Authorization": "Basic " + credential})
+    try:
+        with urllib.request.build_opener(ops.NoRedirect).open(request, timeout=30) as response:
+            raw = response.read(2_000_001)
+        if len(raw) > 2_000_000:
+            raise ops.OpsError("log_sink_response_too_large")
+        result = json.loads(raw)
+        lines = [value[1] for stream in result["data"]["result"] for value in stream["values"]]
+    except urllib.error.HTTPError as error:
+        raise ops.OpsError("log_sink_http_" + str(error.code)) from None
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ops.OpsError("log_sink_unavailable") from None
+    return project("\n".join(lines))
+
+
 def main():
     api = ops.Api(os.environ)
     app = ops.checked(os.environ["APP_UUID"], r"[A-Za-z0-9-]{1,80}")
+    try:
+        print(json.dumps({"backend": backend_events(api, app)}, indent=2))
+    except ops.OpsError as error:
+        print(json.dumps({"backend": str(error)}))
+    return
     response = api.request("GET", f"/api/v1/applications/{app}/logs?lines=10000")
     if not isinstance(response, dict) or not isinstance(response.get("logs"), str):
         raise ops.OpsError("invalid_log_response")
