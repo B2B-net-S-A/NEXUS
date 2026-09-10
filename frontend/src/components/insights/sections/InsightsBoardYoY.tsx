@@ -14,6 +14,7 @@ import {
   VERDICT_LABEL,
   YOY_GROUPS,
   type YoYDelta,
+  type YoYSummary,
 } from "@/lib/insights-yoy";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
@@ -167,6 +168,21 @@ function Header({ data }: { data: InsightsYoYResponse }) {
   );
 }
 
+/**
+ * Zdanie pod tabelą, gdy ostatnia delta jest liczona YTD. Mówi też, że miesiąc
+ * TRWAJĄCY jest poza porównaniem — inaczej „Δ = 1 mies." pierwszego lutego
+ * czytałoby się jak błąd w liczeniu.
+ */
+function ytdNote(summary: YoYSummary): string {
+  if (summary.comparedMonths === 0) {
+    return "Ostatniej delty nie liczymy — bieżący rok nie ma jeszcze żadnego pełnego miesiąca, a trwający miesiąc obok pełnego pokazywałby spadek, którego nie ma.";
+  }
+  const partialNote = summary.excludesPartialMonth
+    ? " Miesiąc, który jeszcze trwa, jest poza porównaniem w obu latach."
+    : "";
+  return `Ostatnia delta porównuje ${summary.comparedMonths} pierwszych pełnych miesięcy obu lat — pełny rok obok niepełnego pokazywałby spadek, którego nie ma.${partialNote}`;
+}
+
 function formatValue(value: number | null, unit: string): string {
   if (value === null || value === undefined) return "—";
   if (unit === "pln") return money(value);
@@ -299,7 +315,9 @@ function MetricTable({
                 {aggregateLabel}
                 {table.summary.ytd ? (
                   <span className="ml-1 text-xs font-normal text-muted-foreground">
-                    (Δ = {table.summary.comparedMonths} mies.)
+                    {table.summary.comparedMonths > 0
+                      ? `(Δ = ${table.summary.comparedMonths} mies.)`
+                      : "(Δ — brak pełnego miesiąca)"}
                   </span>
                 ) : null}
               </td>
@@ -332,9 +350,7 @@ function MetricTable({
           <span>
             {definition}
             {definition && table.summary.ytd ? " · " : ""}
-            {table.summary.ytd
-              ? `Ostatnia delta porównuje ${table.summary.comparedMonths} pierwszych miesięcy obu lat — pełny rok obok niepełnego pokazywałby spadek, którego nie ma.`
-              : ""}
+            {table.summary.ytd ? ytdNote(table.summary) : ""}
           </span>
         </div>
       )}
