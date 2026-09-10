@@ -591,14 +591,35 @@ text rewriting was introduced by this assertion change.
 
 ## Candidate erasure dependency for source retention
 
-Current candidate hard-delete collects `Candidate.cv_storage_key` and
-`CandidateDocument.storage_key`, then removes those storage objects. It does not
-collect `CvGenerationJob.input_storage_key`. Generated CV rows have a nullable
-candidate association and survive candidate deletion; their durable input jobs
-therefore also remain reachable without their original candidate association.
-The new private source snapshots need explicit integration with the existing
-erasure path before CV-09 retention can be accepted. The change must account for
-active generation leases, both language outputs, preview jobs, frozen approval
-assets and rollback/retry when storage deletion fails. No production erasure was
-performed during this inspection. This is an open implementation requirement,
-not evidence of complete retention.
+The original inspection found that candidate hard-delete omitted private job
+inputs. This is now integrated through `cv_source_erasure.py`: source jobs are
+resolved through both language outputs and previews, active generation blocks
+erasure, and contended job locks return a retryable response without waiting
+while holding the candidate lock. Existing generated-document retention remains
+in force. Hosted PostgreSQL tests confirmed lock contention/retry and storage
+failure rollback; the active test fixture cleanup was corrected after it occupied
+a slot in the following capacity test. Full CI `34424543296` then passed for
+`5be313bd`, including the unchanged capacity assertions. Full CI `34425769545`
+and CI Gate `34425769532` passed for `3ad7dad3`. This is integration evidence,
+not proof of the entire retention lifecycle or production erasure. No production
+erasure has been performed.
+
+## Scanned full-document benchmark inputs
+
+Commit `9499bfe4` includes optional `--scan-font` preparation/evaluation of all
+40 variants as image-only PDFs. Font identity and renderer settings are recorded
+in a distinct corpus digest. Repeated preparation preserves existing source
+bytes; a different run identity cannot overwrite another report directory.
+Pagination tests cover all 90 ordered paragraphs and reject an overwide word
+without producing a partial PDF. Forty inputs were also prepared with an actual
+font; two representative Polish/English inputs were visually inspected with
+readable glyphs and no clipping. This does not certify all input layouts.
+
+The required Native CV OCR acceptance step passed in CI `34426918356`, job
+`102714013096`, for `9499bfe4`, including the new benchmark-renderer page-break
+test. The rest of this CI run was still in progress at this checkpoint. These
+checks do not constitute full primary/fallback generation or human acceptance.
+Those measurements, async edited-content review, complete rule feedback and
+production delivery remain open. The latest read-only staging diagnostic
+`34424911634` still reported `exited:unhealthy` on another task's branch; no
+staging deployment or configuration change was made.
