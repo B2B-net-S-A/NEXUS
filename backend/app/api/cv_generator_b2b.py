@@ -1774,10 +1774,26 @@ async def generate_from_upload(
             from app.api.champion_intake import read_preview
 
             await champion_file.seek(0)
-            imported_profile = (await read_preview(champion_file, db))[
-                "champion_profile"
-            ]
-        if effective_mode == "tailored":
+            try:
+                imported_profile = (await read_preview(champion_file, db))[
+                    "champion_profile"
+                ]
+            except HTTPException as exc:
+                # The AI preview is an aid, not a gate (mirror of the step-2
+                # behaviour in the generator UI). An unparseable model answer
+                # (422) or an unavailable model / quota (503) must not cost
+                # the champion: the pipeline reads the DOCX itself,
+                # deterministically (`parse_champion_from_docx_bytes`).
+                if exc.status_code not in (422, 503):
+                    raise
+                logger.warning(
+                    "[cv_b2b] champion preview skipped at generation (%s): %s",
+                    exc.status_code,
+                    exc.detail,
+                )
+                imported_profile = None
+            await champion_file.seek(0)
+        if effective_mode == "tailored" and imported_profile is not None:
             enforce_operation(
                 SimpleNamespace(champion_profile=imported_profile), "cv", force=True
             )
