@@ -92,7 +92,7 @@ rapidfuzz==3.14.5
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
-weasyprint==69.0
+weasyprint==70.0
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # 0.36.2 requires cryptography>=47 (no upper bound — zgodny z pinem 50.x wyżej).
 # [etsi] adds EU Trusted List parsing (xsdata, signxml, lxml). Authoritative
