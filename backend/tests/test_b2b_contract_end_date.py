@@ -598,6 +598,21 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             "Klient — No budget",
             "Kandydat",
         }
+        # Stan zamówień sprzed korekty — do odwrócenia daty wstecznej.
+        future_details = next(
+            item
+            for item in details["terminated"]
+            if item["contract_id"] == future_person["contract_id"]
+        )
+        assert future_details["orders_before"] == [
+            {
+                "order_id": order_id,
+                "status": "active",
+                "start_date": (TODAY - timedelta(days=30)).isoformat(),
+                "end_date": (TODAY + timedelta(days=120)).isoformat(),
+                "order_group_id": None,
+            }
+        ]
         assert audit and audit[0].details["previous_end_date"] == (
             order_copied.isoformat()
         )

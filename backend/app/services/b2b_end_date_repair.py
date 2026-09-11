@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
+from app.models.client_order import ClientOrder
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -97,8 +98,28 @@ class TicketTermination:
         return NOTE_REASON[self.note]
 
 
-# Zgłoszenie 11.09.2026 — 16 osób. Trójki ID ustalone na produkcji.
-TICKET_TERMINATIONS: tuple[TicketTermination, ...] = ()
+# Zgłoszenie 11.09.2026 — 16 osób. Trójki ID (kontrakt, kandydat, klient)
+# odczytane z produkcji 11.09.2026: każda osoba ma dokładnie jeden kontrakt.
+TICKET_TERMINATIONS: tuple[TicketTermination, ...] = (
+    TicketTermination(49, 25574, 11, date(2026, 10, 2), "Klient — No budget"),
+    TicketTermination(91, 6404, 11, date(2026, 9, 19), "Klient — Wydajność"),
+    TicketTermination(105, 75983, 11, date(2026, 8, 24), "Klient — Wydajność"),
+    TicketTermination(139, 26203, 11, date(2026, 9, 30), "Klient — No budget"),
+    TicketTermination(259, 25896, 11, date(2026, 10, 31), "Kandydat — Wyższa stawka"),
+    TicketTermination(345, 197213, 11, date(2026, 9, 30), "Kandydat — Wyższa stawka"),
+    TicketTermination(419, 25753, 16, date(2026, 12, 31), "Internalizacja"),
+    TicketTermination(433, 13252, 35, date(2026, 7, 31), "Klient — Wydajność"),
+    TicketTermination(452, 65741, 26, date(2026, 8, 31), "Klient — Wydajność"),
+    TicketTermination(489, 5435, 39, date(2026, 9, 11), "Klient — No budget"),
+    TicketTermination(498, 19471, 11, date(2026, 6, 30), "Kandydat"),
+    TicketTermination(
+        518, 5874, 12, date(2026, 9, 30), "Kandydat — Przyczyny osobiste"
+    ),
+    TicketTermination(519, 67701, 26, date(2026, 8, 18), "Klient — Wydajność"),
+    TicketTermination(574, 70446, 18, date(2026, 9, 3), "Klient — Wydajność"),
+    TicketTermination(605, 12579, 61, date(2026, 10, 31), "Kandydat — No budget"),
+    TicketTermination(618, 5404, 26, date(2026, 8, 31), "Kandydat — Wyższa stawka"),
+)
 
 
 def target_status(end_date: date, today: date) -> ContractStatus:
@@ -178,6 +199,24 @@ async def _apply_ticket_termination(
         ),
     }
     item["before_lessons"] = contract.termination_lessons
+    # Data wsteczna skraca albo anuluje zamówienia (tak jak `/terminate`) —
+    # stan sprzed korekty zostaje w szczegółach, żeby dało się ją odwrócić.
+    item["orders_before"] = [
+        {
+            "order_id": order.id,
+            "status": order.status.value,
+            "start_date": order.start_date.isoformat() if order.start_date else None,
+            "end_date": order.end_date.isoformat() if order.end_date else None,
+            "order_group_id": order.order_group_id,
+        }
+        for order in (
+            await db.scalars(
+                select(ClientOrder)
+                .where(ClientOrder.contract_id == contract.id)
+                .order_by(ClientOrder.id)
+            )
+        ).all()
+    ]
 
     contract.terminated_at = spec.end_date
     contract.termination_reason = spec.reason
@@ -353,6 +392,7 @@ async def run_b2b_end_date_repair(
                         "note": spec.note,
                         "before": item.get("before"),
                         "before_lessons": item.get("before_lessons"),
+                        "orders_before": item.get("orders_before"),
                     }
                     for spec, item in zip(terminations, terminated)
                     if item["skipped"] is None
