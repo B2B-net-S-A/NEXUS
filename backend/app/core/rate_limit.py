@@ -67,6 +67,29 @@ def client_ip_key(request: Request) -> str:
     return _peer_address(request)
 
 
+def user_or_ip_key(request: Request) -> str:
+    """Klucz limitu dla tras za logowaniem = zalogowany użytkownik, nie IP.
+
+    Biuro wychodzi do internetu jednym adresem (NAT), więc limit per IP na
+    trasie, którą każdy rekruter woła przy przewijaniu listy (kolumna wyniku
+    w wyszukiwarce ręcznej), dzieliłby jeden kubełek na cały zespół. Dekorator
+    slowapi wykonuje się PO zależnościach FastAPI, więc ``get_current_user``
+    zweryfikował już token — tu tylko odczytujemy ``sub``. Bez ważnego tokena
+    dostępu wracamy do klucza po IP; klucz nigdy nie rzuca.
+    """
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() == "bearer" and token:
+        from app.core.security import decode_token  # leniwie: bez cyklu importów
+
+        try:
+            payload = decode_token(token)
+        except Exception:  # noqa: BLE001 — klucz limitu nie może wywrócić żądania
+            payload = None
+        if payload and payload.get("type") == "access" and payload.get("sub"):
+            return f"user:{payload['sub']}"
+    return client_ip_key(request)
+
+
 # ``default_limits=[]`` jest ŚWIADOME i nie wolno go "naprawić" w tym pliku.
 #
 # W slowapi limity globalne (``_application_limits``) sprawdza wyłącznie

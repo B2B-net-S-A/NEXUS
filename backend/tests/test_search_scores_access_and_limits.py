@@ -161,6 +161,36 @@ async def test_score_column_is_rate_limited(app_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_score_column_limit_is_per_user_not_per_office_ip(
+    app_client: AsyncClient,
+):
+    """Koledzy zza tego samego NAT-u biura nie dzielą jednego kubełka."""
+    from app.core.rate_limit import limiter
+
+    office = f"198.51.100.{uuid.uuid4().int % 250 + 1}"
+    first = {**(await _user(UserRole.recruiter)), "X-Forwarded-For": office}
+    second = {**(await _user(UserRole.recruiter)), "X-Forwarded-For": office}
+
+    async def status(headers: dict[str, str]) -> int:
+        response = await app_client.post(
+            SCORES, json={"job_id": 1, "candidate_ids": []}, headers=headers
+        )
+        return response.status_code
+
+    limiter.enabled = True
+    try:
+        first_statuses = [await status(first) for _ in range(61)]
+        second_statuses = [await status(second) for _ in range(60)]
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+
+    assert first_statuses[:60] == [200] * 60
+    assert first_statuses[60] == 429
+    assert second_statuses == [200] * 60
+
+
+@pytest.mark.asyncio
 async def test_scoring_feedback_is_rate_limited(app_client: AsyncClient):
     headers = _own_bucket(await _user(UserRole.recruiter))
     path = "/api/candidates/2000000000/scoring/2000000000/feedback"

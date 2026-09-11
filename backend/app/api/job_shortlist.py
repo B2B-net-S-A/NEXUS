@@ -230,6 +230,15 @@ async def update_shortlist_entry(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ShortlistEntryResponse:
+    # Najpierw uprawnienia (bez blokady), dopiero potem blokada wiersza — inaczej
+    # osoba spoza zespołu rekrutacji zakładałaby `FOR UPDATE` na cudzy wpis,
+    # zanim dostanie 403.
+    job_id = await db.scalar(
+        select(JobShortlistEntry.job_id).where(JobShortlistEntry.id == entry_id)
+    )
+    if job_id is None:
+        raise HTTPException(status_code=404, detail="Shortlist entry not found")
+    await ensure_job_membership(db, current_user, job_id)
     # Blokada wiersza PRZED porównaniem wersji. Bez niej dwa równoległe zapisy
     # z tą samą `version` oba czytały starą wartość, oba przechodziły kontrolę
     # i drugi po cichu nadpisywał pierwszy (UPDATE czekał tylko na commit
@@ -242,7 +251,6 @@ async def update_shortlist_entry(
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Shortlist entry not found")
-    await ensure_job_membership(db, current_user, entry.job_id)
     if entry.version != body.version:
         raise HTTPException(
             status_code=409,

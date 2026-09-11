@@ -488,7 +488,9 @@ async def test_present_like_end_words_are_current_employment(app_client) -> None
                     "company": company,
                     "role": "Architekt",
                     "start": "2021",
-                    "end": " teraz ",
+                    # Tabulator i nowa linia z parsera CV — SQL musi
+                    # przycinać tak samo jak Python (`.strip()`).
+                    "end": "\tteraz\n",
                 },
             ],
         )

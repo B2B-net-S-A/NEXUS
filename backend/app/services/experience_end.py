@@ -41,7 +41,7 @@ def is_current_end(value: object) -> bool:
 
 
 def sql_current_end_literals(*, include_empty: bool) -> str:
-    """Lista literałów do ``IN (...)`` — porównywana z ``lower(btrim(end))``."""
+    """Lista literałów do ``IN (...)`` — porównywana z ``lower(btrim(end, białe znaki))``."""
     words = sorted(CURRENT_END_MARKERS if include_empty else CURRENT_END_WORDS)
     return ", ".join(f"'{word}'" for word in words)
 

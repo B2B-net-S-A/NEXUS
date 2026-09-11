@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
@@ -208,7 +208,7 @@ async def _competence_facets(
 # Every call measures on demand (query embedding + exact vector lookup +
 # scoring); the front end asks per viewport, so this is a ceiling for runaway
 # clients, not a budget normal scrolling ever reaches.
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def candidate_match_scores(
     request: Request,
     body: MatchScoresRequest,

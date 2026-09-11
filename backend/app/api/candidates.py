@@ -471,7 +471,10 @@ def _at_client_predicate():
 # ze znacznikami „pracy obecnej" z `experience_end` (tymi samymi, których
 # używają szybki podgląd kandydata i ATLAS). Pusty `end` i słowa „present",
 # „current", „obecnie", „teraz" to praca OBECNA, nie przeszła.
-_EXPERIENCE_END_SQL = "lower(btrim(coalesce(elem->>'end', '')))"
+# `btrim` z jawnym zestawem białych znaków: gołe `btrim` tnie tylko spacje,
+# a `is_current_end` w Pythonie (`.strip()`) także tabulatory i nowe linie —
+# „present\n” z parsera CV byłby w SQL-u datą, a w ATLAS pracą obecną.
+_EXPERIENCE_END_SQL = "lower(btrim(coalesce(elem->>'end', ''), E' \\t\\r\\n'))"
 _CURRENT_EXPERIENCE_SQL = (
     f"{_EXPERIENCE_END_SQL} IN ({sql_current_end_literals(include_empty=True)})"
 )

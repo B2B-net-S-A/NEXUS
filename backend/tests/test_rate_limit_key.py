@@ -19,7 +19,8 @@ może dopisać klient i podszyć się pod cudzy klucz albo ominąć limit logowa
 from types import SimpleNamespace
 from typing import Dict, Optional
 
-from app.core.rate_limit import client_ip_key
+from app.core.rate_limit import client_ip_key, user_or_ip_key
+from app.core.security import create_access_token, create_refresh_token
 
 
 def _request(headers: Optional[Dict[str, str]], peer: Optional[str] = "172.18.0.5"):
@@ -69,3 +70,29 @@ def test_handles_missing_client_and_blank_entries():
         client_ip_key(_request({"x-forwarded-for": "203.0.113.7,  , "}))
         == "203.0.113.7"
     )
+
+
+def test_user_key_is_the_access_token_subject_not_the_office_ip():
+    """Biuro wychodzi jednym adresem (NAT): kubełek per zalogowany użytkownik."""
+    office = {"x-forwarded-for": "203.0.113.7"}
+    first = user_or_ip_key(
+        _request({**office, "authorization": f"Bearer {create_access_token(41, 'recruiter')}"})
+    )
+    second = user_or_ip_key(
+        _request({**office, "authorization": f"Bearer {create_access_token(42, 'recruiter')}"})
+    )
+
+    assert (first, second) == ("user:41", "user:42")
+
+
+def test_user_key_falls_back_to_the_ip_without_a_valid_access_token():
+    """Brak tokena, śmieć, inny schemat albo token odświeżania → klucz po IP."""
+    office = {"x-forwarded-for": "203.0.113.7"}
+    for extra in (
+        {},
+        {"authorization": "Bearer nie-jwt"},
+        {"authorization": "Basic dXNlcjpwYXNz"},
+        {"authorization": f"Bearer {create_refresh_token(41)}"},
+    ):
+        assert user_or_ip_key(_request({**office, **extra})) == "203.0.113.7", extra
+

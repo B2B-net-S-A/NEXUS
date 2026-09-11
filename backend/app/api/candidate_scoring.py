@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_justification import CandidateMatchJustification
@@ -177,7 +177,7 @@ async def get_scoring_justification(
 )
 # Each response measures canonical fit on demand (query embedding + exact
 # vector lookup), so the thumbs are metered like the other on-demand scoring.
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def rate_scoring_justification(
     request: Request,
     candidate_id: int,
