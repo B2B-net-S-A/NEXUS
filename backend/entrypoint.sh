@@ -7437,6 +7437,42 @@ async def resync():
 asyncio.run(resync())
 PY
 
+# Umowy B2B bezterminowe (09.2026) — jednorazowo: najpierw zakończenia osób ze
+# zgłoszenia (po trójkach ID, bez nazwisk w repo), potem każda umowa B2B
+# „Aktywny"/„Kończący się" z datą końca, której nikt ręcznie nie zakończył,
+# staje się bezterminowa. Logika ORM w `app/services/b2b_end_date_repair.py`;
+# marker w `app_settings` + advisory lock → drugi start kończy się od razu.
+# Porażka nie zapisuje niczego (rollback) — następny start spróbuje ponownie.
+# Log: wyłącznie liczby.
+echo "B2B contracts: ticket terminations + indefinite end dates (one-shot)..."
+python - <<'PY' || echo "b2b end-date repair skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.b2b_end_date_repair import (
+    run_b2b_end_date_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_b2b_end_date_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"b2b end-date repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"b2b end-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of

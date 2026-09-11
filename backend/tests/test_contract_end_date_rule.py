@@ -31,7 +31,9 @@ from app.models.contract import Contract, ContractStatus, ContractType, Contract
 pytestmark = pytest.mark.asyncio
 
 
-async def _seed_active_contract() -> tuple[int, int]:
+async def _seed_active_contract(
+    contract_type: ContractType = ContractType.b2b,
+) -> tuple[int, int]:
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"VeloRule Test {suffix}")
@@ -41,7 +43,7 @@ async def _seed_active_contract() -> tuple[int, int]:
         contract = Contract(
             candidate_id=candidate.id,
             client_id=client.id,
-            contract_type=ContractType.b2b,
+            contract_type=contract_type,
             work_mode=ContractWorkMode.remote,
             status=ContractStatus.active,
             start_date=date.today() - timedelta(days=100),
@@ -83,7 +85,10 @@ async def test_contract_end_date_caps_the_live_order_and_only_shortens(
     app_client, app_auth_headers
 ):
     today = date.today()
-    client_id, contract_id = await _seed_active_contract()
+    # Umowa zlecenie: data końca umowy B2B powstaje wyłącznie przez „Zakończ
+    # współpracę" (reguła 09.2026, `test_b2b_contract_end_date.py`), więc
+    # PATCH samej daty to ścieżka umów z terminem.
+    client_id, contract_id = await _seed_active_contract(ContractType.uzlecenie)
     order_id = await _post_active_order(
         app_client,
         app_auth_headers,
@@ -145,7 +150,7 @@ async def test_past_contract_end_date_completes_the_order_at_once(
 ):
     """Data z przeszłości: zamówienie domknięte od razu, nie za noc."""
     today = date.today()
-    client_id, contract_id = await _seed_active_contract()
+    client_id, contract_id = await _seed_active_contract(ContractType.uzlecenie)
     order_id = await _post_active_order(
         app_client,
         app_auth_headers,

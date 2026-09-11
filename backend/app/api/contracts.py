@@ -100,6 +100,14 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import storage_service
+from app.services.b2b_contract_end_date import (
+    B2B_END_DATE_MESSAGE,
+    B2B_END_DATE_REASON,
+    end_date_allowed,
+    has_early_termination_amendment,
+    is_b2b,
+    is_manually_terminated,
+)
 from app.services.critical_events import DeletionAudit, audited_deletion
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
@@ -283,6 +291,70 @@ def _synced_client_order_end(
     user deliberately left one out. Shared by the amendment and bulk-extend paths.
     """
     return new_end_date if current is not None else None
+
+
+def _reject_b2b_end_date() -> None:
+    """422 dla daty zakończenia umowy B2B spoza „Zakończ współpracę".
+
+    Odmowa, nie ciche wyzerowanie: pole przysłane z formularza znika wtedy na
+    oczach operatora, a on nie wie dlaczego. ``field`` pozwala formularzom
+    podświetlić właściwe pole. Reguła: ``app.services.b2b_contract_end_date``.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "message": B2B_END_DATE_MESSAGE,
+            "reason": B2B_END_DATE_REASON,
+            "field": "end_date",
+        },
+    )
+
+
+async def _assert_b2b_end_date_update(
+    contract: Contract,
+    updates: dict,
+    status_target: Optional[str],
+    db: AsyncSession,
+) -> None:
+    """PATCH: odmowa, gdy TO żądanie daje umowie B2B datę bez zakończenia.
+
+    Sprawdzamy wyłącznie zmianę daty albo typu umowy — zapis innego pola
+    (formularz odsyła też nieruszaną datę) nie może się wywrócić na wierszu,
+    którego żądanie w tym miejscu nie dotyka. Status liczymy WYNIKOWY:
+    „Zakończony" z datą w przyszłości samoleczenie cofa na „Aktywny", więc
+    taka zmiana daty też wymaga zakończenia.
+    """
+    end_changed = "end_date" in updates and updates["end_date"] != contract.end_date
+    type_changed = updates.get("contract_type") is not None and is_b2b(
+        updates["contract_type"]
+    ) != is_b2b(contract.contract_type)
+    if not (end_changed or type_changed):
+        return
+    new_type = updates.get("contract_type") or contract.contract_type
+    new_end = updates["end_date"] if "end_date" in updates else contract.end_date
+    if status_target is not None:
+        resulting_status = ContractStatus(status_target)
+    else:
+        resulting_status = _status_after_end_date_change(
+            contract.status, new_end, business_today()
+        )
+    if end_date_allowed(
+        contract_type=new_type,
+        status=resulting_status,
+        end_date=new_end,
+        manually_terminated=False,
+    ):
+        return
+    # Ślad wypowiedzenia liczymy po TYM żądaniu — PATCH niesie też pola
+    # `terminated_at`/`termination_reason` i może je ustawić albo wyczyścić.
+    terminated_fields = [
+        updates[field] if field in updates else getattr(contract, field)
+        for field in ("terminated_at", "termination_reason")
+    ]
+    if any(value is not None for value in terminated_fields):
+        return
+    if not await has_early_termination_amendment(db, contract.id):
+        _reject_b2b_end_date()
 
 
 def _status_after_end_date_change(
@@ -2113,6 +2185,15 @@ async def create_contract(
                 },
             )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
+    # Nowa umowa B2B rodzi się bezterminowa; datę niesie tylko wpis umowy już
+    # zakończonej (rejestr importowanej historii).
+    if not end_date_allowed(
+        contract_type=data.contract_type,
+        status=data.status,
+        end_date=data.end_date,
+        manually_terminated=False,
+    ):
+        _reject_b2b_end_date()
     payload = data.model_dump()
     # Kontrakt RODZI SIĘ szkicem i dopiero potem PRZECHODZI do wybranego stanu.
     # To nie jest odebranie rejestrowi listy rozwijanej — wybór operatora jest
@@ -2251,7 +2332,12 @@ async def bulk_extend_contracts(
     extended = 0
     skipped: list[int] = []
     for c in contracts:
-        if c.end_date is None:
+        # Umowa B2B bez zakończenia nie ma czego przedłużać — jest bezterminowa
+        # (`b2b_contract_end_date`). Przedłużyć można wyłącznie datę umowy
+        # zakończonej ręcznie, czyli przesunąć jej zakończenie.
+        if c.end_date is None or (
+            is_b2b(c.contract_type) and not await is_manually_terminated(db, c)
+        ):
             skipped.append(c.id)
             continue
         # Add N months naively (month-wise; day may clamp if end-of-month)
@@ -2656,6 +2742,7 @@ async def update_contract(
     # `_apply_contract_status_change` opisuje komplet skutków.
     status_sent = "status" in updates
     status_target = updates.pop("status", None)
+    await _assert_b2b_end_date_update(contract, updates, status_target, db)
     for k, v in updates.items():
         setattr(contract, k, v)
     if schedule_sent:
@@ -2714,12 +2801,27 @@ async def update_contract(
     # samym żądaniu — a linijkę niżej ta sama kolumna była już wypełniana.
     auto_activated = False
     if status_sent and status_target is not None:
+        status_before_change = contract.status
         await _apply_contract_status_change(
             db,
             contract,
             ContractStatus(status_target),
             actor_id=current_user.id,
         )
+        # Umowa B2B przywrócona z „Zakończony"/„Kończący się" na „Aktywny"
+        # wraca BEZTERMINOWA — ta sama reguła co wskrzeszenie zamówieniem
+        # (`sync_contract_to_live_order`). Ze starą datą nocny cron kończyłby
+        # ją ponownie następnej nocy. Datę jawnie zmienioną w tym samym
+        # żądaniu zostawiamy (pilnuje jej `_assert_b2b_end_date_update`).
+        if (
+            is_b2b(contract.contract_type)
+            and status_before_change in (ContractStatus.ended, ContractStatus.ending)
+            and contract.status == ContractStatus.active
+            and contract.end_date is not None
+            and contract.end_date == previous_end_date
+        ):
+            contract.end_date = None
+            updates["end_date"] = None
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
@@ -3911,6 +4013,13 @@ async def create_contract_amendment(
                 status_code=422,
                 detail="new_end_date is required for extension amendment",
             )
+        # Aneks przedłużający dawał umowie B2B datę, której nikt nie
+        # wypowiedział — dokładnie ten stan, który korekta 09.2026 czyści.
+        # Zakończoną ręcznie umowę B2B wolno przedłużyć (przesunięcie końca).
+        if is_b2b(contract.contract_type) and not await is_manually_terminated(
+            db, contract
+        ):
+            _reject_b2b_end_date()
         contract.end_date = data.new_end_date
         # Keep "Koniec zamówienia u klienta" in step with the new contract end —
         # an extension renews the client's order alongside the contract. Only

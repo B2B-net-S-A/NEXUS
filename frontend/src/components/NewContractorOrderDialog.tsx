@@ -21,6 +21,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { B2B_INDEFINITE_HINT } from "@/lib/contract-end-date";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -107,7 +108,6 @@ export function NewContractorOrderDialog({
   const [jobId, setJobId] = useState<string>(""); // "" = brak
   const [title, setTitle] = useState("");
   const [contractStart, setContractStart] = useState("");
-  const [contractEnd, setContractEnd] = useState("");
   const [orderStart, setOrderStart] = useState("");
   const [orderEnd, setOrderEnd] = useState("");
   const [rateClient, setRateClient] = useState("");
@@ -370,7 +370,6 @@ export function NewContractorOrderDialog({
         job_id: jobId ? Number(jobId) : null,
         title,
         contract_start_date: contractStart,
-        contract_end_date: contractEnd || null,
         order_start_date: orderStart || contractStart,
         order_end_date: orderEnd || null,
         order_type: orderType,
@@ -710,19 +709,19 @@ export function NewContractorOrderDialog({
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
-          <label>
+          {/* Bez pola „Contract end": ten formularz zakłada umowę B2B, a ta
+              jest bezterminowa — koniec zamówienia ma własne pole niżej.
+              Reguła: `lib/contract-end-date.ts`. */}
+          <div>
             <span className="text-sm">Contract end</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={contractEnd}
-              onChange={(e) => setContractEnd(e.target.value)}
-              onBlur={(e) => setContractEnd(normalizeDateInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
+            <p
+              className="mt-1 px-3 py-2 text-sm text-muted-foreground"
+              data-testid="contract-end-indefinite"
+              title={B2B_INDEFINITE_HINT}
+            >
+              Bezterminowo (umowa B2B)
+            </p>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

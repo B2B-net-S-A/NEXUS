@@ -464,6 +464,8 @@ async def test_create_contract_honours_register_status_body(
     app_client, app_auth_headers, selected_status
 ) -> None:
     cand_id, cli_id = await _seed_candidate_and_client()
+    # Umowa zlecenie: „Kończący się" wymaga daty końca, a nowa umowa B2B jest
+    # bezterminowa (reguła 09.2026 — wariant B2B w `test_b2b_contract_end_date`).
     resp = await app_client.post(
         "/api/contracts",
         json={
@@ -473,7 +475,7 @@ async def test_create_contract_honours_register_status_body(
             "end_date": (date.today() + timedelta(days=90)).isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
-            "contract_type": "b2b",
+            "contract_type": "uzlecenie",
             "work_mode": "remote",
             "status": selected_status,
         },

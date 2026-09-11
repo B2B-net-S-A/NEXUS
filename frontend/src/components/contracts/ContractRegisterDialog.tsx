@@ -48,6 +48,7 @@ import {
   type ProlongationStatus,
   type RegisterContractRow,
 } from "@/lib/contract-register";
+import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 
 type CandidateOption = {
   id: number;
@@ -217,6 +218,16 @@ export function ContractRegisterDialog({
     enabled: candidateOpen && !isEdit,
   });
 
+  // Umowa B2B bez ręcznego zakończenia jest bezterminowa — pole daty znika,
+  // a zapis wysyła `null` (`lib/contract-end-date.ts`, lustro backendu).
+  // Wybór statusu „Zakończony" odblokowuje datę: to ręczne zakończenie.
+  const endDateLocked = b2bEndDateLocked({
+    contract_type: contract ? contract.contract_type : "b2b",
+    status: statusVal || contract?.status,
+    terminated_at: contract?.terminated_at,
+    termination_reason: contract?.termination_reason,
+  });
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const isPool = engagementModel === "hours_pool";
@@ -225,7 +236,7 @@ export function ContractRegisterDialog({
         project_name: projectName.trim() || null,
         engagement_model: engagementModel,
         start_date: startDate,
-        end_date: openEnded ? null : endDate || null,
+        end_date: endDateLocked || openEnded ? null : endDate || null,
         hours_pool_total: isPool && hoursTotal ? Number(hoursTotal) : null,
         hours_pool_consumed: isPool && hoursConsumed ? Number(hoursConsumed) : null,
         prolongation_status: prolongation,
@@ -483,19 +494,30 @@ export function ContractRegisterDialog({
               </div>
               <div>
                 <Label className="mb-1.5 block">Data zakończenia</Label>
-                <Input
-                  type="date"
-                  value={openEnded ? "" : endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  disabled={openEnded}
-                />
-                <label className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Checkbox
-                    checked={openEnded}
-                    onCheckedChange={(v) => setOpenEnded(v === true)}
-                  />
-                  Czas nieokreślony
-                </label>
+                {endDateLocked ? (
+                  <p
+                    className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
+                    data-testid="end-date-b2b-indefinite"
+                  >
+                    Bezterminowo. {B2B_END_DATE_HOW}
+                  </p>
+                ) : (
+                  <>
+                    <Input
+                      type="date"
+                      value={openEnded ? "" : endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      disabled={openEnded}
+                    />
+                    <label className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Checkbox
+                        checked={openEnded}
+                        onCheckedChange={(v) => setOpenEnded(v === true)}
+                      />
+                      Czas nieokreślony
+                    </label>
+                  </>
+                )}
               </div>
             </div>
 

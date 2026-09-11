@@ -299,7 +299,6 @@ export interface NewContractorOrderRequest {
   job_id?: number | null;
   framework_contract_id?: number | null;
   contract_start_date: string;
-  contract_end_date?: string | null;
   title: string;
   order_start_date: string;
   order_end_date?: string | null;

@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
 import {
   buildCandidateRateSchedule,
@@ -203,6 +204,12 @@ function NewContractForm() {
   // Status „Aktywny"/„Kończący się" podnosi wymagalność pól aktywacyjnych —
   // etykiety dostają gwiazdkę dynamicznie, walidacja w handleSubmit.
   const wantsLive = statusVal === "active" || statusVal === "ending";
+  // Nowa umowa B2B jest bezterminowa — datę niesie tylko wpis umowy już
+  // zakończonej (reguła `lib/contract-end-date.ts`, lustro backendu).
+  const endDateLocked = b2bEndDateLocked({
+    contract_type: contractType,
+    status: statusVal,
+  });
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const createMutation = useMutation({
@@ -213,7 +220,7 @@ function NewContractForm() {
         client_id: Number(clientId),
         job_id: selectedJobId,
         start_date: startDate,
-        end_date: endDate || null,
+        end_date: endDateLocked ? null : endDate || null,
         contract_type: contractType,
         status: statusVal,
         work_mode: workMode || null,
@@ -658,23 +665,28 @@ function NewContractForm() {
               <div>
                 <Label className="mb-1.5 block">
                   Data zakończenia{" "}
-                  {wantsLive ? (
-                    <span className="text-destructive">*</span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      (opcjonalna dla szkicu)
-                    </span>
-                  )}
+                  <span className="text-xs text-muted-foreground">
+                    (opcjonalna)
+                  </span>
                 </Label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    clearField("end_date");
-                  }}
-                  className={cn(fieldErrors.end_date && "border-destructive")}
-                />
+                {endDateLocked ? (
+                  <p
+                    className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
+                    data-testid="end-date-b2b-indefinite"
+                  >
+                    Bezterminowo. {B2B_END_DATE_HOW}
+                  </p>
+                ) : (
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value);
+                      clearField("end_date");
+                    }}
+                    className={cn(fieldErrors.end_date && "border-destructive")}
+                  />
+                )}
                 {fieldError("end_date")}
               </div>
               <div>

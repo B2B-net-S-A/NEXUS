@@ -136,14 +136,14 @@ export function ContractTerminationDialog({
         </label>
         <label className="block">
           <span className="text-xs text-muted-foreground">
-            Wnioski / co zrobiliśmy źle albo dobrze (TAC only)
+            Kto zdecydował i dlaczego / wnioski (TAC only)
           </span>
           <textarea
             value={lessons}
             onChange={(e) => setLessons(e.target.value)}
             className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
             rows={4}
-            placeholder="Np.: klient poprosił o konsultanta na 6 mies., potrzebowali 12 — zbadać wcześniej…"
+            placeholder="Np.: Klient — brak budżetu. Klient poprosił o konsultanta na 6 mies., potrzebowali 12 — zbadać wcześniej…"
           />
         </label>
         {mut.isError && (
