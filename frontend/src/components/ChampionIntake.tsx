@@ -74,8 +74,10 @@ export function ChampionTemplateDownload() {
   return <span><Button type="button" variant="outline" size="sm" onClick={download}>Pobierz wzór Championa</Button>{error && <span role="alert">{error}</span>}</span>;
 }
 
-export function ChampionImportReview({ initial, current, jobId, fingerprint, jobValues, onApply, onClose }: {
+export function ChampionImportReview({ initial, current, jobId, fingerprint, jobValues, sourceIsDocument = false, onApply, onClose }: {
   initial: ChampionPreview; current?: ChampionProfile; jobId?: number; fingerprint?: string; jobValues?: Record<string, unknown>;
+  /** `initial` was just read from a DOCUMENT (preview), not built from a stored profile. */
+  sourceIsDocument?: boolean;
   onApply: (profile: ChampionProfile, validation?: ChampionValidation) => void; onClose: () => void;
 }) {
   const [source, setSource] = useState(initial);
@@ -93,6 +95,18 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     setBusy(true); setError("");
     try {
       const final = withValues(existing ?? source.champion_profile, Object.fromEntries(fields.map(([path]) => [path, selected[path] ? values[path] : old[path] ?? ""])));
+      // `withValues` drops `rate_raw`, so an EDITED rate cannot revive an old
+      // ambiguous fragment. The text goes back ONLY with a rate freshly read
+      // from a document and applied exactly as read: the server reads the
+      // budget from "120–140 zł/h" (its upper bound) and warns it was a range.
+      // A rate taken from a stored profile — kept in an import, or shown by the
+      // reconcile dialog over the stored draft — goes back as a bare number:
+      // the server keeps the stored text of an unchanged rate, and re-sending
+      // that text made it re-read a budget nobody had touched.
+      const ratePath = "basics.rate_value";
+      if (sourceIsDocument && selected[ratePath] && values[ratePath] === readValues(source.champion_profile)[ratePath]) {
+        final.basics.rate_raw = source.champion_profile.basics.rate_raw ?? null;
+      }
       final.intake = { ...final.intake, policy_version: 1, unresolved: {}, template_version: source.champion_profile.intake?.template_version, document_context: source.champion_profile.intake?.document_context };
       final.screening_questions = useQuestions ? questions : existing?.screening_questions ?? [];
       const { data: checked } = await api.post<ChampionPreview>("/api/champion/validate", { profile: final });
@@ -138,5 +152,5 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
 
 export function ChampionImportButton({ current, jobId, fingerprint, jobValues, onApply }: { current?: ChampionProfile; jobId?: number; fingerprint?: string; jobValues?: Record<string, unknown>; onApply: (profile: ChampionProfile, validation?: ChampionValidation) => void }) {
   const [preview, setPreview] = useState<ChampionPreview | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  return <><label className="inline-flex border rounded px-3 py-2 text-sm cursor-pointer">{busy ? "Odczytuję…" : "Importuj Word / PDF"}<input className="sr-only" type="file" accept=".docx,.pdf" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; setBusy(true); setError(""); try { const form = new FormData(); form.append("file", file); const { data } = await api.post<ChampionPreview>("/api/champion/preview", form, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000 }); setPreview(data); } catch (err) { setError(extractErrorMsg(err)); } finally { setBusy(false); } }} /></label>{error && <p role="alert">{error}</p>}{preview && <ChampionImportReview initial={preview} current={current} jobId={jobId} fingerprint={fingerprint} jobValues={jobValues} onApply={onApply} onClose={() => setPreview(null)} />}</>;
+  return <><label className="inline-flex border rounded px-3 py-2 text-sm cursor-pointer">{busy ? "Odczytuję…" : "Importuj Word / PDF"}<input className="sr-only" type="file" accept=".docx,.pdf" disabled={busy} onChange={async e => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; setBusy(true); setError(""); try { const form = new FormData(); form.append("file", file); const { data } = await api.post<ChampionPreview>("/api/champion/preview", form, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000 }); setPreview(data); } catch (err) { setError(extractErrorMsg(err)); } finally { setBusy(false); } }} /></label>{error && <p role="alert">{error}</p>}{preview && <ChampionImportReview initial={preview} current={current} jobId={jobId} fingerprint={fingerprint} jobValues={jobValues} sourceIsDocument onApply={onApply} onClose={() => setPreview(null)} />}</>;
 }

@@ -404,6 +404,55 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(await screen.findByText("ponad budżet")).toBeTruthy();
   });
 
+  it("stawka godzinowa jest normalizowana do miesiąca przed porównaniem z budżetem", async () => {
+    // 150 zł/h × 168 h = 25 200 zł/mc > 20 000 zł/mc. Surowe porównanie
+    // (150 < 20 000) mówiło „w budżecie" — dokładnie zgłoszony defekt.
+    renderDock({
+      item: baseItem({
+        expected_rate_value: 150,
+        expected_rate_currency: "PLN",
+        expected_rate_unit: "hourly",
+        budget_max_at_move: 20000,
+      }),
+    });
+    expect(await screen.findByText("ponad budżet")).toBeTruthy();
+    expect(screen.queryByText(/w budżecie do/)).toBeNull();
+  });
+
+  it("stawka godzinowa mieszcząca się po normalizacji jest „w budżecie”", async () => {
+    // 100 zł/h × 168 h = 16 800 zł/mc ≤ 20 000 zł/mc.
+    renderDock({
+      item: baseItem({
+        expected_rate_value: "100",
+        expected_rate_currency: "PLN",
+        expected_rate_unit: "hourly",
+        budget_max_at_move: 20000,
+      }),
+    });
+    expect(await screen.findByText(/w budżecie do 20\s000 PLN\/mc/)).toBeTruthy();
+  });
+
+  it("stawka w obcej walucie nie udaje porównania z budżetem w PLN", async () => {
+    renderDock({
+      item: baseItem({
+        expected_rate_value: 40,
+        expected_rate_currency: "EUR",
+        expected_rate_unit: "hourly",
+        budget_max_at_move: 20000,
+      }),
+    });
+    expect(await screen.findByText(/nie do porównania z budżetem/)).toBeTruthy();
+    expect(screen.queryByText(/w budżecie do/)).toBeNull();
+    expect(screen.queryByText("ponad budżet")).toBeNull();
+  });
+
+  it("„Odrzuć z powodem” zostaje widoczne, ale zablokowane z powodem, gdy tablica tak mówi", () => {
+    renderDock({ rejectBlockedReason: "Stawka czeka na akceptację" });
+    const button = screen.getByRole("button", { name: /Odrzuć z powodem/ });
+    expect(button).toBeDisabled();
+    expect(button.getAttribute("title")).toBe("Stawka czeka na akceptację");
+  });
+
   it("zielona pigułka nie obiecuje więcej, niż karta wie", () => {
     const target = stageCol("screening", "Screening", { stage_def_id: 2 });
     renderDock({ moveTargets: [{ col: target, blockedReason: null }] });

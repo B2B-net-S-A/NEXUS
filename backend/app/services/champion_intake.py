@@ -10,11 +10,19 @@ import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from app.schemas.champion import ChampionProfile, migrate_legacy_champion_shape
+from app.schemas.champion import (
+    STACK_ITEM_MAX_CHARS,
+    ChampionProfile,
+    migrate_legacy_champion_shape,
+)
 from app.services.champion_document import folded, meaningful, table_profile
 
 logger = logging.getLogger(__name__)
 POLICY_VERSION = 1
+# Input limit of the AI parser (`parse_champion_document`), and ONLY of it: a
+# longer text makes the model run out of output tokens and return a profile
+# with silently missing sections. The Word form read from its tables involves
+# no model, so it has no such limit.
 MAX_TEXT = 14_000
 OPERATIONS = ["search", "handoff", "cv"]
 
@@ -89,6 +97,126 @@ def rate(value):
     return result if result and result > 0 else None
 
 
+# ── A document rate written in PLN per hour ──────────────────────────────────
+#
+# Matched on the folded text (lower case, no diacritics, "zł" -> "zl"). The
+# grammar is TOKEN-based, not one fixed phrase: recruiters put the currency,
+# the per-hour unit and the net qualifiers in any order ("140 zł netto/h",
+# "140 zł/h netto", "PLN 140/h", "140 zł/h (netto, B2B)"). The first grammar
+# (11.09) rejected "140 zł netto/h", and a stored rate whose text it rejected
+# lost its number on the next reconcile, import or template copy — together
+# with `jobs.rate_budget_hourly`.
+#
+# A number: an optional space as the thousands separator ("1 400") and a comma
+# or a dot as the decimal one ("140,50").
+_RATE_NUMBER = r"\d{1,3}(?: \d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?"
+_PLN = re.compile(r"(?<![a-z])(?:pln|zl(?:otych|oty|ote)?)(?![a-z])\.?")
+_HOUR = r"(?:h|hr|hour|godz(?:ina|ine|\.)?)(?![a-z])"
+_PER_HOUR = re.compile(
+    rf"/\s*(?:1\s*)?{_HOUR}|(?<![a-z])(?:za|na|per)\s+(?:1\s*)?{_HOUR}"
+)
+# Qualifiers that keep the value a net B2B hourly rate. "brutto" is NOT one:
+# a gross figure is a different number than the budget it would be read as.
+_NET_QUALIFIER = re.compile(
+    r"(?<![a-z])(?:na\s+)?b2b(?![a-z])"
+    r"|(?<![a-z])(?:netto|net)(?![a-z])"
+    r"|(?:\+|(?<![a-z])plus|(?<![a-z])bez)\s*vat(?![a-z])"
+)
+# A label in front of the value: "Stawka: 140 zł/h", "Maks. stawka kandydata:".
+_RATE_LABEL = re.compile(
+    r"^(?:(?:maksymalna|maks\.?|max\.?)\s*)?(?:stawka|budzet|rate)(?![a-z])"
+    r"(?:\s+(?:maksymalna|maks\.?|max\.?|kandydata|godzinowa|netto|b2b|docelowa)"
+    r"(?![a-z]))*\s*:?\s*"
+)
+_RATE_SHAPES = (
+    # "120–140", "120/140", "od 120 do 140"
+    (
+        re.compile(rf"(?:od\s*)?({_RATE_NUMBER})\s*(?:-|/|do)\s*({_RATE_NUMBER})"),
+        "range",
+    ),
+    # "do 140", "max. 140" — an upper bound: anything above zero up to it
+    (
+        re.compile(
+            r"(?:do|max\.?|maks\.?|maksymalnie|up\s+to|nie\s+wiecej\s+niz|<=?)"
+            rf"\s*({_RATE_NUMBER})"
+        ),
+        "upper",
+    ),
+    # "140", "ok. 140"
+    (re.compile(rf"(?:ok\.?|okolo|ca\.?|~)?\s*({_RATE_NUMBER})"), "single"),
+)
+
+
+def _rate_float(text):
+    return float(text.replace(" ", "").replace(",", "."))
+
+
+def pln_hourly_bounds(value):
+    """``(low, high)`` of a document rate written in PLN per hour, else None.
+
+    Accepts one value, a range ("120–140", "120/140", "od 120 do 140") or an
+    upper bound ("do 140", "max. 140"), with the currency and the per-hour
+    unit in any order and spelling ("zł/h", "PLN / h", "zł za godzinę", "PLN
+    140/h"), optionally net of VAT and after a "Stawka:" label ("140 zł
+    netto/h", "140 zł/h (netto, B2B)", "120 – 140 PLN/h + VAT"). Any other
+    currency, a day/MD/month rate, a gross figure, a missing currency or unit
+    and any word left over ("lub 1000 zł/MD", "do negocjacji") answer None:
+    such a text cannot vouch for a PLN/h number, whatever the model put next
+    to it.
+
+    Nothing is capped here — "1 400 zł/h" answers ``(1400.0, 1400.0)``;
+    `rate` decides whether a number is a plausible budget.
+    """
+    text = folded(str(value or ""))
+    # Typographic dashes and the minus sign are range separators too; the
+    # no-break spaces ("1 400" pasted from Word) are plain separators.
+    text = re.sub(r"[\u2010-\u2015\u2212]", "-", text)
+    text = re.sub(r"[\u00a0\u2007\u202f]", " ", text).strip()
+    if not (_PLN.search(text) and _PER_HOUR.search(text)):
+        return None
+    text = _RATE_LABEL.sub("", text, count=1)
+    for token in (_PER_HOUR, _PLN, _NET_QUALIFIER):
+        text = token.sub(" ", text)
+    # "(netto, B2B)" leaves an empty pair of brackets behind.
+    text = re.sub(r"\([\s,;/]*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .,;:")
+    for pattern, kind in _RATE_SHAPES:
+        match = pattern.fullmatch(text)
+        if not match:
+            continue
+        values = [_rate_float(v) for v in match.groups()]
+        if kind == "range":
+            low, high = values
+        elif kind == "upper":
+            low, high = 0.0, values[0]
+        else:
+            low = high = values[0]
+        return (low, high) if 0 <= low <= high else None
+    return None
+
+
+def document_rate(text):
+    """``(rate, is_bound)`` read from a document's rate text, or None.
+
+    The text is the source of truth and its UPPER bound is the budget: the
+    field is the candidate's maximum PLN/h and `dealbreaker_filters` reads it
+    as a ceiling, so a range "120–140 zł/h" is a budget of 140 — the parser's
+    midpoint (130) understated it. ``is_bound`` says the text was a range or
+    "do X" rather than one value: worth a warning, never a reason to drop it.
+    """
+    single = rate(text)
+    if single is not None:
+        return single, False
+    bounds = pln_hourly_bounds(text)
+    if bounds is None:
+        return None
+    low, high = bounds
+    value = rate(high)
+    if value is None:
+        return None
+    return value, low < high
+
+
 def date(value):
     for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
         try:
@@ -98,43 +226,284 @@ def date(value):
     return None
 
 
-def split_skills(value):
+# A requirement longer than this reads like prose rather than a technology. It
+# is KEPT (in the stack and in `jobs.must_skills`) and only flagged: until
+# 09.2026 crossing either bound moved the entry to `intake.unresolved` and out
+# of the requirement list, so scoring and the search lost a requirement the
+# Delivery Lead had written down.
+LONG_REQUIREMENT_WORDS = 12
+LONG_REQUIREMENT_CHARS = 120
+
+ADVISORY_ISSUES = {
+    "basics.rate_value": (
+        "rate_source_ambiguous",
+        "Stawka w dokumencie jest zakresem lub górną granicą (PLN/h) — przyjęto "
+        "górną granicę jako maksymalną stawkę kandydata. Sprawdź, czy to "
+        "właściwa wartość.",
+    ),
+    "stack.must": (
+        "long_requirement",
+        "Wymaganie zapisane jest opisowo. Zostało zachowane; rozważ skrócenie "
+        "go do nazwy technologii.",
+    ),
+    "stack.nice": (
+        "long_requirement",
+        "Wymaganie zapisane jest opisowo. Zostało zachowane; rozważ skrócenie "
+        "go do nazwy technologii.",
+    ),
+}
+
+
+def split_skills(value, restored=()):
+    """Split MUST/NICE input into stack entries without losing a requirement.
+
+    Returns ``(items, placeholders, long_items, unstorable)``: every meaningful
+    entry (deduplicated case-insensitively, in input order), the non-answers
+    such as "brak"/"do ustalenia", the kept entries that read like prose
+    (advisory only) and the entries too long to store as one item.
+    ``restored`` are entries an earlier version of this function set aside in
+    ``intake.unresolved``; they rejoin the list instead of staying lost there.
+    """
     from app.services.champion_document import _split_skills
 
     if isinstance(value, str):
         value = _split_skills(value)
-    out, dropped = [], []
-    for item in value or []:
+    items, placeholders, long_items, unstorable = [], [], [], []
+    seen = set()
+    for item in [*(value or []), *restored]:
         text = str(item.get("name", "") if isinstance(item, dict) else item).strip()
-        if not meaningful(text) or len(text) > 120 or len(text.split()) > 12:
-            if text:
-                dropped.append(text)
-        elif text.casefold() not in {s["name"].casefold() for s in out}:
-            out.append({"name": text})
-    return out, dropped
+        if not text:
+            continue
+        if not meaningful(text):
+            placeholders.append(text)
+            continue
+        if len(text) > STACK_ITEM_MAX_CHARS:
+            unstorable.append(text)
+            continue
+        if text.casefold() in seen:
+            continue
+        seen.add(text.casefold())
+        items.append({"name": text})
+        if (
+            len(text) > LONG_REQUIREMENT_CHARS
+            or len(text.split()) > LONG_REQUIREMENT_WORDS
+        ):
+            long_items.append(text)
+    return items, placeholders, long_items, unstorable
 
 
-def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=None):
-    """Store unresolved input alongside null/empty canonical values, not guesses."""
+def _set_aside_requirements_lost(stored_meta, meta, path="stack.must"):
+    """Stored set-aside MUST entries the current normaliser cannot restore.
+
+    A normalisation without `previous` (validation) drops the stored
+    `intake.unresolved` note of a non-empty stack and does not pull the
+    entries back (see `prepare_profile`). That is silent on purpose for the
+    entries the current normaliser accepts — they rejoin the list on the next
+    stack edit. An entry it would reject (longer than `STACK_ITEM_MAX_CHARS`)
+    never rejoins: it is reported, as a warning only.
+    """
+    stored_note = str((stored_meta.get("unresolved") or {}).get(path) or "")
+    lines = [line.strip() for line in stored_note.splitlines() if meaningful(line)]
+    _, _, _, unstorable = split_skills([], lines)
+    current_note = str((meta.get("unresolved") or {}).get(path) or "")
+    still_noted = set(current_note.splitlines())
+    return [line for line in unstorable if line not in still_noted]
+
+
+def _value_at(profile, path):
+    section, _, key = path.partition(".")
+    value = (profile or {}).get(section)
+    if not key:
+        return value
+    return value.get(key) if isinstance(value, dict) else None
+
+
+RATE_PATH = "basics.rate_value"
+
+
+def _rate_number(value):
+    """A rate as a number — "140", 140 and 140.0 are the same rate — or None."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return rate(str(value).strip())
+
+
+def _same_rate(a, b) -> bool:
+    """The same rate input: the same number, or the same text (blank = None)."""
+    number_a, number_b = _rate_number(a), _rate_number(b)
+    if number_a is not None and number_b is not None:
+        return abs(number_a - number_b) < 1e-9
+    if number_a is not None or number_b is not None:
+        return False
+    return str(a or "").strip() == str(b or "").strip()
+
+
+def rate_unchanged(value, previous) -> bool:
+    """Whether ``value`` is the budget already stored in ``previous``.
+
+    Compared as NUMBERS ("140" == 140.0): a form sends the stored number back
+    as text. Only a stored number counts — with no stored budget there is
+    nothing a save could wrongly re-derive, and the document text or
+    unresolved note the save brings (an import of "45 EUR/h") is recorded.
+    """
+    stored = ((previous or {}).get("basics") or {}).get("rate_value")
+    return _rate_number(stored) is not None and _same_rate(value, stored)
+
+
+def _keep_stored_rate(basics, unresolved, advisory, previous):
+    """The stored rate, its document text and its notes, exactly as stored."""
+    stored_basics = previous.get("basics") or {}
+    stored_meta = previous.get("intake") or {}
+    basics["rate_value"] = stored_basics.get("rate_value")
+    basics["rate_raw"] = stored_basics.get("rate_raw")
+    for notes, key in ((unresolved, "unresolved"), (advisory, "advisory")):
+        note = (stored_meta.get(key) or {}).get(RATE_PATH)
+        if note is None:
+            notes.pop(RATE_PATH, None)
+        else:
+            notes[RATE_PATH] = note
+
+
+def _normalize_rate(basics, raw_fields, unresolved, advisory):
+    """`rate_value` from a document's rate text or from a typed number.
+
+    Only for a rate that is NEW — a fresh document, a preview, or a save that
+    changed the number (`prepare_profile` keeps an unchanged stored rate as
+    it is, see `rate_unchanged`).
+
+    A document text — `rate_raw` from the AI parser, the cell of the Word
+    form (`raw_fields`), or the text an import dialog sends back with an
+    untouched document rate — is the source of truth: one PLN/h value is the
+    budget, a range or "do X" gives its UPPER bound, noted in `advisory`
+    ("120–140 zł/h" -> 140; the field is the candidate's maximum PLN/h and the
+    dealbreaker reads it as a ceiling, so the parser's midpoint understated
+    it). A text in any other unit ("45 EUR/h", "1200 PLN/MD", "20 000
+    PLN/mies. brutto") vouches for no number: it stays unresolved, the budget
+    stays empty and validation reports `missing_budget` — a kept number would
+    be copied into an empty `jobs.rate_budget_hourly` and read by scoring and
+    the rate dealbreaker as the candidate's maximum PLN/h, even when the model
+    converted the unit on its own.
+
+    Without a text the value is a typed (or parsed) number: stored as the
+    budget, with no document text and no warning.
+    """
+    path = RATE_PATH
+    advisory.pop(path, None)
+    text = raw_fields[path] if path in raw_fields else basics.get("rate_raw")
+    text = "" if text is None else str(text)
+    if text.strip():
+        found = document_rate(text)
+        basics["rate_raw"] = text if len(text) <= 255 else None
+        if found is None:
+            unresolved[path] = text
+            basics["rate_value"] = None
+            return
+        value, bound = found
+        unresolved.pop(path, None)
+        basics["rate_value"] = value
+        if bound:
+            advisory[path] = text[:STACK_ITEM_MAX_CHARS]
+        return
+    value = basics.get("rate_value")
+    # A typed number replaces the document text; a typed text that is not a
+    # number stays visible in `unresolved` only (as the editor shows it).
+    basics["rate_raw"] = None
+    if value is None or not str(value).strip():
+        basics["rate_value"] = None
+        return
+    result = rate(value)
+    if result is None:
+        unresolved[path] = str(value)
+    else:
+        unresolved.pop(path, None)
+    basics["rate_value"] = result
+
+
+def prepare_profile(
+    data,
+    *,
+    actor_id=None,
+    template_version=None,
+    raw_fields=None,
+    previous=None,
+):
+    """Store unresolved input alongside null/empty canonical values, not guesses.
+
+    ``previous`` is the normalised stored profile. When given, only the fields
+    whose value differs from it are normalised; everything else stays exactly
+    as stored, together with its `unresolved`/`advisory` notes. An edit of the
+    project description must not re-parse, and so rewrite, a rate or a
+    requirement list nobody touched. Without ``previous`` (a fresh document,
+    a preview, validation) the whole profile is normalised — but a stack entry
+    set aside in `unresolved` by an older normaliser is never pulled back:
+    that happens only on a save that edits the stack field.
+
+    The rate is compared as a NUMBER, whatever `rate_raw` the save carries: an
+    unchanged rate keeps its stored value, document text and notes. The
+    reconcile dialog, an import that keeps the current rate and a template
+    copy send the stored number back (as "140", or with the stored text, or
+    with none); re-deriving it from a text the grammar could not read wiped
+    140 PLN/h from ~949 profiles of the 08.2026 import and, with the sync box
+    ticked, from `jobs.rate_budget_hourly`.
+    """
     data = deepcopy(data or {})
     old_meta = data.get("intake") or {}
     unresolved = dict(old_meta.get("unresolved") or {})
+    advisory = dict(old_meta.get("advisory") or {})
     basics = data.setdefault("basics", {})
     raw_fields = raw_fields or {}
     normalizers = {
-        "rate_value": rate,
         "seniority_min_years": lambda v: number(v, 60, integer=True),
         "onsite_days_per_week": lambda v: number(v, 7, integer=True),
         "work_mode": mode,
         "start_date": date,
         "deadline": date,
     }
+    text_limits = {
+        "role_name": 255,
+        "candidate_location_pref": 255,
+        "language": 50,
+        "contract_length": 255,
+    }
+    tracked = [
+        *(
+            f"basics.{key}"
+            for key in ("rate_value", "rate_raw", *normalizers, *text_limits)
+        ),
+        "stack.must",
+        "stack.nice",
+        "search.disqualifiers",
+        "screening_questions",
+        *(
+            f"{section}.{key}"
+            for section in ("project", "client")
+            for key in (data.get(section) or {})
+        ),
+    ]
+    # Decided BEFORE anything is rewritten: a normaliser must not make its
+    # neighbour look edited.
+    dirty = {
+        path
+        for path in tracked
+        if previous is None
+        or path in raw_fields
+        or _value_at(data, path) != _value_at(previous, path)
+    }
+    if (
+        previous is not None
+        and RATE_PATH not in raw_fields
+        and rate_unchanged(basics.get("rate_value"), previous)
+    ):
+        _keep_stored_rate(basics, unresolved, advisory, previous)
+    elif {RATE_PATH, "basics.rate_raw"} & dirty:
+        _normalize_rate(basics, raw_fields, unresolved, advisory)
     for key, normalize in normalizers.items():
         path = f"basics.{key}"
+        if path not in dirty:
+            continue
         value = raw_fields.get(path, basics.get(key))
-        if key == "rate_value" and basics.get("rate_raw") and path not in raw_fields:
-            # Never trust an AI-chosen number if the source was a range/unit mismatch.
-            value = basics["rate_raw"]
         if value in (None, ""):
             basics[key] = None
             continue
@@ -144,51 +513,75 @@ def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=No
         else:
             unresolved.pop(path, None)
         basics[key] = result
-        if key == "rate_value":
-            basics["rate_raw"] = str(value) if len(str(value)) <= 255 else None
-    for key in ("role_name", "candidate_location_pref", "language", "contract_length"):
+    for key, limit in text_limits.items():
+        path = f"basics.{key}"
+        if path not in dirty:
+            continue
         value = basics.get(key)
-        if value and not meaningful(value):
-            unresolved[f"basics.{key}"] = str(value)
+        if value and (not meaningful(value) or len(str(value)) > limit):
+            unresolved[path] = str(value)
             basics[key] = None
         elif value:
-            unresolved.pop(f"basics.{key}", None)
+            unresolved.pop(path, None)
     stack = data.setdefault("stack", {})
     for key in ("must", "nice"):
-        values, dropped = split_skills(stack.get(key))
-        stack[key] = values
         path = f"stack.{key}"
-        if dropped:
-            unresolved[path] = "\n".join(dropped)
+        if path not in dirty:
+            continue
+        # Entries an older normaliser set aside in `unresolved` rejoin the
+        # list only on a SAVE that edits this field (`previous` given). A
+        # normalisation without `previous` — `validation()` above all — must
+        # see the stack as stored: resurrecting there validated a list that
+        # differed from the stored one and from `jobs.must_skills` synced from
+        # it, a `skill_column_conflict` nobody could see in the editor.
+        restored = (
+            [
+                line
+                for line in str(unresolved.get(path) or "").splitlines()
+                if meaningful(line)
+            ]
+            if previous is not None
+            else []
+        )
+        values, placeholders, long_items, unstorable = split_skills(
+            stack.get(key), restored
+        )
+        stack[key] = values
+        set_aside = placeholders + unstorable
+        if set_aside:
+            unresolved[path] = "\n".join(set_aside)
         elif values:
             unresolved.pop(path, None)
+        if long_items:
+            advisory[path] = "\n".join(long_items)
+        else:
+            advisory.pop(path, None)
     search = data.setdefault("search", {})
-    if isinstance(search.get("disqualifiers"), str):
+    if "search.disqualifiers" in dirty and isinstance(search.get("disqualifiers"), str):
         search["disqualifiers"] = [
             x.strip() for x in search["disqualifiers"].splitlines() if meaningful(x)
         ]
-    questions = []
-    for q in data.get("screening_questions") or []:
-        if isinstance(q, dict) and meaningful(q.get("question")):
-            questions.append({**q, "id": str(q.get("id") or f"q{len(questions) + 1}")})
-    data["screening_questions"] = questions
+    if "screening_questions" in dirty:
+        questions = []
+        for q in data.get("screening_questions") or []:
+            if isinstance(q, dict) and meaningful(q.get("question")):
+                questions.append(
+                    {**q, "id": str(q.get("id") or f"q{len(questions) + 1}")}
+                )
+        data["screening_questions"] = questions
     for section in ("project", "client"):
         for key, value in list(data.setdefault(section, {}).items()):
-            if isinstance(value, str) and not meaningful(value):
+            if (
+                f"{section}.{key}" in dirty
+                and isinstance(value, str)
+                and not meaningful(value)
+            ):
                 data[section][key] = ""
-    for key, limit in {
-        "role_name": 255,
-        "candidate_location_pref": 255,
-        "language": 50,
-        "contract_length": 255,
-    }.items():
-        if basics.get(key) and len(str(basics[key])) > limit:
-            unresolved[f"basics.{key}"] = str(basics[key])
-            basics[key] = None
     data["intake"] = {
         "policy_version": POLICY_VERSION,
         "template_version": template_version or old_meta.get("template_version"),
         "unresolved": unresolved,
+        "advisory": advisory,
         "document_context": old_meta.get("document_context", {}),
         "applied_by": actor_id,
         "applied_at": datetime.now(timezone.utc).isoformat(),
@@ -197,13 +590,27 @@ def prepare_profile(data, *, actor_id=None, template_version=None, raw_fields=No
 
 
 def validation(profile, job=None, *, enforce=False):
+    """Issues of the profile AS STORED; never rewrites what it is given.
+
+    The re-normalisation below only re-derives notes from stored values — it
+    pulls no set-aside entry back into the stack (see `prepare_profile`) — and
+    the recruitment columns are compared with the stack as stored, the list
+    `jobs.must_skills`/`nice_skills` were synced from. The budget checks read
+    the rate as stored too: re-reading a stored document text can give
+    another number than the one stored (a range whose parser midpoint was
+    stored before the upper bound became the rule), and that number was never
+    the budget of this profile or of `jobs.rate_budget_hourly`.
+    """
     from pydantic import ValidationError
 
     try:
         cp = ChampionProfile.model_validate(profile or {}).model_dump(mode="json")
     except ValidationError:
         cp = prepare_profile(profile)
-    meta = cp.get("intake") or {}
+    stored_stack = cp["stack"]
+    stored_rate = cp["basics"].get("rate_value")
+    stored_meta = cp.get("intake") or {}
+    meta = stored_meta
     active = (
         enforce
         or ((profile or {}).get("intake") or {}).get("policy_version") == POLICY_VERSION
@@ -228,7 +635,8 @@ def validation(profile, job=None, *, enforce=False):
             }
         )
 
-    basics, stack = cp["basics"], cp["stack"]
+    basics = {**cp["basics"], "rate_value": stored_rate}
+    stack = cp["stack"]
     for path, source in (meta.get("unresolved") or {}).items():
         ops = (
             ["search", "handoff"]
@@ -248,6 +656,22 @@ def validation(profile, job=None, *, enforce=False):
             ops,
             source,
             warning=path == "stack.nice",
+        )
+    for path, source in (meta.get("advisory") or {}).items():
+        code, message = ADVISORY_ISSUES.get(
+            path, ("advisory_value", "Sprawdź ten wpis.")
+        )
+        add(code, path, message, source=source, warning=True)
+    lost = _set_aside_requirements_lost(stored_meta, meta) if active else []
+    if lost:
+        add(
+            "unstorable_requirement",
+            "stack.must",
+            "Wymaganie odłożone przy wcześniejszym zapisie jest za długie na "
+            f"jedną pozycję listy MUST (limit {STACK_ITEM_MAX_CHARS} znaków) i nie "
+            "trafi do wymagań rekrutacji. Skróć je albo podziel i dodaj ponownie.",
+            source="\n".join(lost),
+            warning=True,
         )
     if not meaningful(basics.get("role_name") or getattr(job, "title", None)):
         add("missing_role", "basics.role_name", "Uzupełnij nazwę roli.")
@@ -316,7 +740,8 @@ def validation(profile, job=None, *, enforce=False):
         for key, column in STACK_COLUMNS.items():
             raw_column = getattr(job, column, None)
             declared = effective_skill_names(job, key)
-            requested = [item["name"] for item in stack[key]]
+            # The stored stack: that is what the columns were synced from.
+            requested = [item["name"] for item in stored_stack[key]]
             if (
                 raw_column is not None
                 or getattr(job, "matching_requirements", None) is not None
@@ -325,6 +750,9 @@ def validation(profile, job=None, *, enforce=False):
                     "skill_column_conflict",
                     f"stack.{key}",
                     "Profil i pola rekrutacji mają różne wymagania. Uzgodnij wybraną listę.",
+                    # No gate reads NICE (dealbreakers and readiness are MUST
+                    # only), so a NICE mismatch is a warning at most.
+                    warning=key == "nice",
                 )
         if getattr(job, "client_id", None) is None:
             add(
@@ -499,16 +927,13 @@ async def preview_document(data, filename, *, db=None):
     text = await run_in_threadpool(extract_document_text, data, filename)
     if not text:
         raise ValueError("Nie odczytano tekstu dokumentu.")
-    if len(text) > MAX_TEXT:
-        raise ValueError(
-            f"Dokument przekracza limit {MAX_TEXT} znaków. Skróć treść; niczego nie zaimportowano."
-        )
     structured = (
         await run_in_threadpool(table_profile, data)
         if filename.lower().endswith(".docx")
         else None
     )
     if structured:
+        # The Word form is read from its tables — no model, no input limit.
         structured["profile"]["intake"] = {
             "document_context": structured.get("document_context", {})
         }
@@ -518,6 +943,13 @@ async def preview_document(data, filename, *, db=None):
             template_version=structured["template_version"],
         )
     else:
+        # Checked BEFORE the quota block: rejecting an over-long document must
+        # not cost an AI call from the monthly limit.
+        if len(text) > MAX_TEXT:
+            raise ValueError(
+                f"Dokument przekracza limit {MAX_TEXT} znaków odczytu przez AI. "
+                "Skróć treść albo użyj wzoru Word v4; niczego nie zaimportowano."
+            )
         if db is None:
             parsed = await parse_champion_document(text)
         else:
@@ -571,26 +1003,62 @@ def user_edit(old, patch, actor_id, *, imported=False):
         merged["_parser"] = PARSER_VERSION
         merged["intake"] = {
             "unresolved": (patch.get("intake") or {}).get("unresolved", {}),
+            "advisory": (patch.get("intake") or {}).get("advisory", {}),
             "template_version": (patch.get("intake") or {}).get("template_version"),
             "document_context": (patch.get("intake") or {}).get("document_context", {}),
         }
     else:
-        unresolved = dict((normalized.get("intake") or {}).get("unresolved", {}))
+        meta = normalized.get("intake") or {}
+        unresolved = dict(meta.get("unresolved") or {})
+        advisory = dict(meta.get("advisory") or {})
         for section, fields in patch.items():
             if isinstance(fields, dict):
                 for key, value in fields.items():
+                    path = f"{section}.{key}"
                     if value != (normalized.get(section) or {}).get(key):
-                        unresolved.pop(f"{section}.{key}", None)
-        merged["intake"] = {
-            **(normalized.get("intake") or {}),
-            "unresolved": unresolved,
-        }
-    if (
-        "rate_value" in patch.get("basics", {})
-        and patch["basics"]["rate_value"] != normalized["basics"]["rate_value"]
-    ):
-        merged["basics"]["rate_raw"] = None
-    return prepare_profile(merged, actor_id=actor_id)
+                        advisory.pop(path, None)
+                        # Requirements an earlier normaliser set aside are not
+                        # a stale value of this field: nobody saw them in the
+                        # editor, so nobody can have removed them. They stay
+                        # and rejoin the list in `prepare_profile`.
+                        if path not in ("stack.must", "stack.nice"):
+                            unresolved.pop(path, None)
+        merged["intake"] = {**meta, "unresolved": unresolved, "advisory": advisory}
+    patch_basics = patch.get("basics") or {}
+    # A stored budget the save leaves UNCHANGED is kept whole by
+    # `prepare_profile` (value, text and notes), whatever `rate_raw` the save
+    # carries; the rules below decide only what a NEW rate is read from.
+    if "rate_value" in patch_basics:
+        if imported:
+            # An import brings the document's text WITH the parser's number,
+            # and `_normalize_rate` reads the budget from that text. Clearing
+            # it whenever the number differed from the stored one let any
+            # imported number win ("45 EUR/h" became 45 PLN/h in
+            # `jobs.rate_budget_hourly`) and dropped its warning. The text
+            # comes from the import or not at all — never from the profile the
+            # import replaces.
+            merged["basics"]["rate_raw"] = patch_basics.get("rate_raw")
+        elif not _same_rate(
+            patch_basics["rate_value"], normalized["basics"]["rate_value"]
+        ):
+            # A number typed in the editor is the Delivery Lead's decision;
+            # the old document text must not overrule it.
+            merged["basics"]["rate_raw"] = None
+    return prepare_profile(merged, actor_id=actor_id, previous=normalized)
+
+
+def copy_profile(profile, actor_id):
+    """A template copy (`POST /api/jobs` with `from_job_id`), as stored.
+
+    The source profile is its own `previous`: every field is unchanged, so
+    nothing is re-normalised — the rate keeps its number and document text,
+    the stack its entries, the notes stay as they were. Only the intake stamp
+    and the import provenance are new, as for any import. Until 09.2026 the
+    copy went through a fresh-document import and re-read the stored rate
+    text; "140 zł netto/h" gave the new recruitment no budget at all.
+    """
+    stored = ChampionProfile.model_validate(profile or {}).model_dump(mode="json")
+    return user_edit(stored, deepcopy(stored), actor_id, imported=True)
 
 
 def sync_selected_rubrics(job, profile, fields):

@@ -102,8 +102,11 @@ import {
 import {
  PIPELINE_GROUP_SHORT_LABEL,
  groupKanbanColumns,
+ moveBlockedReason,
+ primaryForwardMove,
  type PipelineColumnGroup,
  type PipelineGroupKey,
+ type PrimaryForwardMove,
 } from "@/lib/pipeline-flow";
 import {
  columnSlaHint,
@@ -1522,6 +1525,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  []
  );
 
+ // Strona trzyma pipeline pod `["kanban", id]` (`id` to string z `useParams`)
+ // i karmi nim listwę kroków, klaster KPI w jobbarze oraz kolejki kroków
+ // 05–08. Tablica ma WŁASNY stan `cols` (ruch optymistyczny), więc bez
+ // unieważnienia tamtego zapytania po ruchu KPI i kolejki pokazywały stan
+ // sprzed ruchu aż do przeładowania strony. Oba klucze — jak w
+ // `confirmRemoveFromRecruitment` (część konsumentów trzyma liczbę).
+ const syncKanbanCache = useCallback(() => {
+ void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ }, [queryClient, jobId]);
+
  // M4 PR-03: po błędzie ruchu NIE zostawiamy karty w niepotwierdzonej
  // kolumnie — dociągamy prawdę z serwera (a nie lokalny snapshot, bo 409
  // oznacza, że stan pary i tak się zmienił pod nami).
@@ -1539,7 +1553,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  } catch (e) {
  console.error("Kanban refresh failed", e);
  }
- }, [jobId]);
+ // Częściowy sukces (bulk) i 409 „stan zmienił się pod nami" dotyczą też
+ // reszty strony — ta sama prawda ma trafić do KPI i kolejek kroków.
+ syncKanbanCache();
+ }, [jobId, syncKanbanCache]);
 
  const sendMove = useCallback(
  async (
@@ -1553,7 +1570,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Wolny tekst powodu — tylko gdy szablon nie miał zdefiniowanych powodów.
  freeReason?: string;
  },
- opts?: { silent?: boolean }
+ opts?: {
+ silent?: boolean;
+ // Pętle zbiorcze (i ruch + PATCH stawki) unieważniają zapytanie strony
+ // RAZ, po całej operacji — odświeżenie w środku pętli nadpisywało
+ // optymistyczne ruchy kolejnych kart stanem sprzed nich.
+ deferCacheSync?: boolean;
+ }
  ): Promise<boolean> => {
  try {
  const response = await api.post<{
@@ -1647,6 +1670,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  stageName: dst.name ?? dst.stage,
  });
  }
+ if (!opts?.deferCacheSync) syncKanbanCache();
  return true;
  } catch (e) {
  console.error("Move failed", e);
@@ -1665,6 +1689,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  jobId,
  stagesWithScorecard,
  refreshBoardAfterMove,
+ syncKanbanCache,
  showActionToast,
  showSuccess,
  showError,
@@ -1680,6 +1705,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
  if (readOnly) return;
  if (srcColId === colId(dst)) return;
+
+ // Ta sama bramka co pigułki doku i warsztaty 05–07. Bez niej przeciągnięcie
+ // karty „Pending" (albo z wetem na „CV Wysłane") otwierało modal stawki,
+ // a dopiero po jego wypełnieniu serwer odpowiadał 409.
+ const dstTerminal = terminalOf(dst);
+ const blocked = moveBlockedReason({
+ item,
+ readOnly,
+ terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
+ targetStage: dst.stage,
+ });
+ if (blocked) {
+ showError(blocked);
+ return;
+ }
 
  // Która gałąź — decyduje `lib/pipeline-move-dialog`, wspólne z dokiem
  // „Decyzja" kroku 07. Zachowanie bit w bit takie samo jak przed
@@ -1731,7 +1771,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  applyOptimistic(item, srcColId, dst);
  sendMove(item, dst);
  },
- [readOnly, applyOptimistic, sendMove]
+ [readOnly, applyOptimistic, sendMove, showError]
  );
 
  const onDragEnd = useCallback(
@@ -1810,6 +1850,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showSuccess("Wysłano do akceptacji delivery_lead. Karta będzie aktywna po zatwierdzeniu."
  );
  }
+ syncKanbanCache();
  } catch (e) {
  console.error("Move to verified failed", e);
  showError("Nie udało się przesunąć kandydata.");
@@ -1834,6 +1875,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  verifiedBulkTotal,
  jobId,
  jobBudgetMax,
+ syncKanbanCache,
  showSuccess,
  showError,
  ]
@@ -1851,13 +1893,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ),
  }))
  );
+ // Karta przestaje być „Pending" — kolejki kroków 05/06 i licznik
+ // blokad czytają to z zapytania strony, nie z `cols`.
+ syncKanbanCache();
  showSuccess("Weryfikacja zaakceptowana.");
  } catch (e) {
  console.error("Accept verification failed", e);
  showError("Nie udało się zaakceptować weryfikacji.");
  }
  },
- [showSuccess, showError]
+ [syncKanbanCache, showSuccess, showError]
  );
 
  const submitRejectVerification = useCallback(async () => {
@@ -1877,6 +1922,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )
  );
  }
+ syncKanbanCache();
  showSuccess("Weryfikacja odrzucona — kandydat wrócił na poprzedni stage.");
  } catch (e) {
  console.error("Reject verification failed", e);
@@ -1884,7 +1930,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  } finally {
  setPendingRejectVerification(null);
  }
- }, [pendingRejectVerification, jobId, showSuccess, showError]);
+ }, [pendingRejectVerification, jobId, syncKanbanCache, showSuccess, showError]);
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
  // kartę z kolumny, kasuje go z zaznaczenia bulk i odświeża powiązane widoki
@@ -1996,48 +2042,58 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // Pigułki „Przenieś na etap": wszystkie kolumny szablonu poza tą, na której
  // kandydat dziś stoi. Bramka liczona z DANYCH KARTY (backend nie ma endpointu
- // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`,
- // `assert_candidate_move_eligible`), więc wyszarzamy dokładnie to, co karta
- // wie: weto hiring managera blokuje KAŻDY ruch nie-terminalny (także
- // „Zatrudniony"). Terminalne (`rejected`/`withdrawn`) ZAWSZE przechodzą —
- // kontrakt programu C2. Pozostałe twarde powody (czarna lista, NDA, klient
- // konkurencyjny, zatrudnienie u tego klienta) nie są na karcie — te kończą się
- // 409 z polskim powodem w toaście, tą samą ścieżką co drag&drop. `pending`
- // NIE jest bramką ruchu (backend jej nie zna; drag przenosi takich
- // kandydatów dziś bez przeszkód), więc dok też go nie blokuje.
+ // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`) JEDNĄ funkcją
+ // `moveBlockedReason`, wspólną z warsztatami 05–07: karta „Pending" blokuje
+ // KAŻDY ruch (serwer odpowiada 409, zanim sprawdzi cokolwiek innego), weto
+ // hiring managera wyłącznie „CV Wysłane" i „Interview Klient", a ruchy
+ // wypisujące (`rejected`/`withdrawn`) omijają weto. Do 09.2026 dok trzymał
+ // własną kopię z odwrotnymi regułami — „Zweryfikowany"/„Zatrudniony" przy
+ // wecie były martwe, a karta „Pending" przepuszczała ruch prosto w 409.
+ // Pozostałe twarde powody (czarna lista, NDA, klient konkurencyjny) nie są na
+ // karcie — te kończą się 409 z polskim powodem w toaście.
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
  return stageCols
  .filter((c) => colId(c) !== dockItemColId)
  .map((c) => {
  const terminal = terminalOf(c);
- let blockedReason: string | null = null;
- if (readOnly) {
- blockedReason = "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
- } else if (terminal === "rejected" || terminal === "withdrawn") {
- blockedReason = null;
- } else if (dockItem.hm_veto) {
- blockedReason = `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie (${formatDate(dockItem.hm_veto.rejected_at)}) — ${dockItem.hm_veto.rejection_reason_name}.`;
- }
+ const blockedReason = moveBlockedReason({
+ item: dockItem,
+ readOnly,
+ terminal: terminal === "rejected" || terminal === "withdrawn",
+ targetStage: c.stage,
+ });
  return { col: c, blockedReason };
  });
  }, [dockItem, dockItemColId, stageCols, readOnly]);
+ // „Odrzuć z powodem" w doku to ten sam ruch wypisujący — karta „Pending"
+ // blokuje także jego (serwer odmawia każdego ruchu przed decyzją o stawce).
+ const dockRejectBlockedReason = useMemo(
+ () =>
+ dockItem
+ ? moveBlockedReason({
+ item: dockItem,
+ readOnly,
+ terminal: true,
+ targetStage: rejectedTemplateCol?.stage ?? null,
+ })
+ : null,
+ [dockItem, readOnly, rejectedTemplateCol]
+ );
 
  // Główna akcja doku: PIERWSZY dozwolony etap PO bieżącym w kolejności
- // szablonu. Terminalne odpadają — „Odrzuć z powodem" jest osobnym, czerwonym
- // przyciskiem i nie może wejść pod przycisk oznaczony jako krok naprzód.
- const dockPrimaryTarget = useMemo<KanbanColumn | null>(() => {
- if (!dockItemColId) return null;
- const currentIndex = stageCols.findIndex((c) => colId(c) === dockItemColId);
- if (currentIndex < 0) return null;
- for (let i = currentIndex + 1; i < stageCols.length; i += 1) {
- const candidate = stageCols[i];
- if (terminalOf(candidate) != null) continue;
- const target = dockMoveTargets.find((t) => colId(t.col) === colId(candidate));
- if (target && !target.blockedReason) return candidate;
- }
- return null;
- }, [dockItemColId, stageCols, dockMoveTargets]);
+ // szablonu — ale nigdy objazd weta HM (etap z wetem na drodze = brak akcji
+ // naprzód i powód zamiast niej). Reguła mieszka w `primaryForwardMove`
+ // (`lib/pipeline-flow.ts`), obok jedynej bramki ruchu `moveBlockedReason`.
+ const dockPrimaryMove = useMemo<PrimaryForwardMove | null>(() => {
+ if (!dockItem || !dockItemColId) return null;
+ return primaryForwardMove({
+ item: dockItem,
+ columns: stageCols,
+ currentColId: dockItemColId,
+ readOnly,
+ });
+ }, [dockItem, dockItemColId, stageCols, readOnly]);
 
  // Wiersz „następna akcja" doku — TA SAMA funkcja, którą renderuje karta na
  // tablicy; osobna kopia rozjechałaby się przy pierwszej zmianie progu.
@@ -2208,7 +2264,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const isBulk = clientRateBulkTotal > 1;
 
  applyOptimistic(item, srcColId, destCol);
- const ok = await sendMove(item, destCol, undefined, { silent: isBulk });
+ // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
+ // dostałyby „CV Wysłane" bez stawki, którą zaraz zapiszemy.
+ const ok = await sendMove(item, destCol, undefined, {
+ silent: isBulk,
+ deferCacheSync: true,
+ });
  if (ok && payload) {
  try {
  await candidatesApi.setRecruitmentClientRate(item.candidate_id, jobId, {
@@ -2227,6 +2288,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  } else if (!ok && isBulk) {
  await refreshBoardAfterMove();
  }
+ if (ok) syncKanbanCache();
 
  // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki (lub zamknij).
  const [next, ...rest] = clientRateQueue;
@@ -2243,6 +2305,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  applyOptimistic,
  sendMove,
  refreshBoardAfterMove,
+ syncKanbanCache,
  showSuccess,
  showError,
  ]
@@ -2319,16 +2382,23 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  let failures = 0;
  for (const { item, srcColId } of entries) {
  applyOptimistic(item, srcColId, dst);
- const ok = await sendMove(item, dst, undefined, { silent: true });
+ const ok = await sendMove(item, dst, undefined, {
+ silent: true,
+ deferCacheSync: true,
+ });
  if (!ok) failures += 1;
  }
  if (failures > 0) {
  showError(
  `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
  );
+ // `refreshBoardAfterMove` odświeża też zapytanie strony.
  await refreshBoardAfterMove();
- } else if (entries.length > 1) {
+ } else {
+ syncKanbanCache();
+ if (entries.length > 1) {
  showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
+ }
  }
  setSelected(new Set());
  } finally {
@@ -2626,12 +2696,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly={readOnly}
  contactFeatureEnabled={contactFeature.enabled}
  canReject={canRejectDockItem}
+ rejectBlockedReason={dockRejectBlockedReason}
  position={dockIndex >= 0 ? dockIndex + 1 : null}
  total={dockOrder.length}
  onSelectPrevious={() => selectAdjacentDockCard(-1)}
  onSelectNext={() => selectAdjacentDockCard(1)}
  nextAction={dockNextAction}
- primaryTarget={dockPrimaryTarget}
+ primaryTarget={dockPrimaryMove?.target ?? null}
+ primaryBlocked={dockPrimaryMove?.blocked ?? null}
  onClose={closeDock}
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
@@ -2686,7 +2758,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  candidateOfferResponse: candidateOfferResponse ?? null,
  freeReason,
  },
- { silent: entries.length > 1 }
+ {
+ silent: entries.length > 1,
+ deferCacheSync: entries.length > 1,
+ }
  );
  if (!ok) failures += 1;
  }
@@ -2698,6 +2773,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  await refreshBoardAfterMove();
  } else if (entries.length > 1) {
+ syncKanbanCache();
  showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
  }
  })();

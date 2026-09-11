@@ -310,6 +310,15 @@ class Settings(BaseSettings):
     # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
     CV_BACKFILL_MAX_CALLS: int = 45_000
 
+    # Retencja zamrożonych wejść generatora CV (pełne CV, notatki screeningowe,
+    # Champion — obiekt w magazynie plików na zadanie). Wejścia generacji, która
+    # NIE dała żadnego dokumentu do użycia (błąd/przerwanie), oraz CV próbnych
+    # są kasowane po tylu dniach; do 09.2026 zostawały bezterminowo. Wejścia
+    # gotowych CV zostają — czyta je kontrola przy zatwierdzaniu i mapa wersji.
+    # Kill-switch (env, bez zmiany kodu): CV_JOB_INPUT_RETENTION_ENABLED=false.
+    CV_JOB_INPUT_RETENTION_ENABLED: bool = True
+    CV_JOB_INPUT_RETENTION_DAYS: int = 7
+
     # --- Fala 2: pasaże CV --------------------------------------------------
     # Kolekcja może istnieć i być wypełniona, a mimo to NIE brać udziału w
     # retrievalu. Rozdzielenie jest celowe: pozwala zbudować i zmierzyć indeks

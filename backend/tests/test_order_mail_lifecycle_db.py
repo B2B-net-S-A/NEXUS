@@ -211,6 +211,69 @@ async def test_return_after_gap_creates_new_order_and_leaves_completed_untouched
         await db.rollback()
 
 
+def test_renewal_orders_count_as_orders_from_mail():
+    """Powrót po przerwie to zamówienie z maila — planer nie może traktować
+    jego draftu (np. bez PDF-u) jak pustego szkicu do nadpisania."""
+    from app.services.order_mail_ingest import _MAIL_ORDER_ACTIONS
+
+    assert "order_mail_renewal" in _MAIL_ORDER_ACTIONS
+
+
+@pytest.mark.asyncio
+async def test_refresh_plan_records_the_clicking_user_without_confirming():
+    """„Przelicz plan” zapisuje pewny plan z aktorem — do atrybucji.
+
+    Do 09.2026 szło to z ``actor_user_id=None``: zamówienie, jego plik
+    i Activity nie wskazywały nikogo, choć zapis uruchomił konkretny człowiek.
+    """
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    old_start, old_end = date(2034, 1, 1), date(2034, 7, 31)
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        reviewer = User(
+            email=f"refresh-actor-{suffix}@example.test",
+            password_hash=hash_password(f"P4ss_{suffix}!"),
+            name="Refresh actor",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(reviewer)
+        await db.flush()
+        client, candidate, contract, completed = await _returning_consultant(
+            db, start=old_start, end=old_end
+        )
+        doc = document(
+            client.id,
+            f"{candidate.name} {candidate.lastname}",
+            "Refresh order",
+            start="2034-09-01",
+            end="2034-11-30",
+        )
+        db.add(doc)
+        await db.flush()
+        result = await apply_document(
+            db, doc, actor_user_id=reviewer.id, confirmed_by_human=False
+        )
+        assert result.ok, result.as_dict()
+        renewal = await db.get(ClientOrder, result.rows[0].order_id)
+        assert renewal.created_by_user_id == reviewer.id
+        assert doc.applied_by_user_id == reviewer.id
+        activity = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "client_order",
+                Activity.entity_id == renewal.id,
+                Activity.action == "order_mail_renewal",
+            )
+        )
+        assert activity.user_id == reviewer.id
+        await _assert_completed_untouched(db, completed, start=old_start, end=old_end)
+        await db.rollback()
+
+
 @pytest.mark.asyncio
 async def test_return_on_terminated_contract_stays_draft_and_never_revives_it():
     """Mail nie cofa wypowiedzenia umowy (A3, 10.09.2026).
@@ -316,6 +379,15 @@ async def test_single_global_namesake_needs_a_human_and_diacritics_fold(monkeypa
             )
             == 0
         )
+        assert await people_with_suffix() == 1
+
+        # „Przelicz plan”: aktor idzie do atrybucji, ale plan NIE jest przez
+        # niego zatwierdzony — imiennika dalej nie dopinamy (zapis automatu).
+        refreshed = await apply_document(
+            db, doc, actor_user_id=reviewer.id, confirmed_by_human=False
+        )
+        assert not refreshed.ok
+        assert "zastosuj ręcznie" in refreshed.error
         assert await people_with_suffix() == 1
 
         manual = await apply_document(db, doc, actor_user_id=reviewer.id)

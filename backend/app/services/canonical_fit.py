@@ -6,6 +6,8 @@ exact, provenance-checked semantic measurement used in a fit score.
 
 from __future__ import annotations
 
+import asyncio
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -15,6 +17,10 @@ from app.services.search_telemetry import stage
 
 if TYPE_CHECKING:
     from app.services.scoring_service import ScoreBreakdown
+
+# Scoring a base fit never awaits real I/O, so a 1000-candidate pool would
+# otherwise hold the event loop for the whole loop in the web process.
+YIELD_EVERY = 32
 
 
 @dataclass
@@ -32,6 +38,19 @@ class CanonicalFit:
             "total": self.fit_score,
             "measurement": self.measurement,
         }
+
+
+def display_score(fit_score: float | None) -> int | None:
+    """Integer badge value for a fit score, rounded like the UI's ``Math.round``.
+
+    Python's ``round`` rounds half to even (72.5 -> 72) while the front end
+    rounds half up (72.5 -> 73); a screen that receives an int from the API and
+    one that rounds the float itself must not disagree on the same pair.
+    ``None`` (not measured) stays ``None`` — it is never shown as 0.
+    """
+    if fit_score is None:
+        return None
+    return int(math.floor(min(max(float(fit_score), 0.0), 100.0) + 0.5))
 
 
 async def score_pair(db, context: RequestMatchingContext, candidate, measurement):
@@ -76,7 +95,9 @@ async def score_candidates(db, context: RequestMatchingContext, candidates):
             outcome["failed"] = any(
                 m.status == "unavailable" for m in measurements.values()
             )
-        for candidate in batch:
+        for index, candidate in enumerate(batch):
+            if index and index % YIELD_EVERY == 0:
+                await asyncio.sleep(0)
             results.append(
                 await score_pair(db, context, candidate, measurements[candidate.id])
             )

@@ -1,5 +1,6 @@
 """Shared durable full-search transport for Radar and recruitment requests."""
 
+import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Literal
@@ -35,6 +36,8 @@ from app.services.talent_radar_search import (
     shape_radar_candidate,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     dependencies=[
         Depends(
@@ -45,6 +48,31 @@ router = APIRouter(
         )
     ]
 )
+
+
+async def _record_page_impressions(db, *, run, user, entries, degraded) -> None:
+    """Match telemetry for the rows this page actually served. Best-effort.
+
+    `record_impressions` already swallows its own failures; this wrapper also
+    covers everything around it, because a telemetry problem must never turn a
+    readable ranking into a 500. Writes go through the telemetry service's own
+    session, never this request's transaction.
+    """
+    from app.services.match_telemetry_service import record_full_search_page
+
+    try:
+        await record_full_search_page(
+            db,
+            run_id=run.id,
+            job_id=run.job_id,
+            client_id=run.client_id,
+            user_id=user.id,
+            version_trace=run.version_trace,
+            entries=entries,
+            degraded=degraded,
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry never breaks the page
+        logger.warning("[telemetry] full-search impressions skipped: %s", exc)
 
 
 @router.get("/candidate-search/jobs/{job_id}/requirements")
@@ -248,7 +276,14 @@ async def search_results(
         db, job=job, candidate_ids=list(current), now=datetime.now(timezone.utc)
     )
     from app.api.matching import _eligibility_annotation
+    from app.services.match_telemetry_service import (
+        ImpressionEntry,
+        numeric_fit_breakdown,
+        telemetry_enabled,
+    )
 
+    record_telemetry = telemetry_enabled()
+    impressions: list = []
     results = []
     for row in rows:
         decision = decisions.get(row.candidate_id)
@@ -329,12 +364,27 @@ async def search_results(
             # (known technology gap; missing proof only under "exclude") was
             # decided by the run's gate, not re-derived from current data here.
             details["missing_must"] = []
+        measurement = "stale" if row_changed else row.measurement
+        if record_telemetry:
+            # Exactly what this row showed: its position on the served list,
+            # the (possibly nulled) score and a numbers-only breakdown.
+            impressions.append(
+                ImpressionEntry(
+                    candidate_id=row.candidate_id,
+                    rank=offset + len(results),
+                    eligible=decision.assignment_allowed,
+                    fit_score=fit_score,
+                    fit_breakdown=numeric_fit_breakdown(
+                        breakdown, total=fit_score, measurement=measurement
+                    ),
+                )
+            )
         results.append(
             {
                 "match": details,
                 "candidate": shape_radar_candidate(current[row.candidate_id]),
                 "fit_score": fit_score,
-                "measurement": "stale" if row_changed else row.measurement,
+                "measurement": measurement,
                 "breakdown": breakdown,
                 "requirements": requirements,
                 "eligibility": annotation,
@@ -342,6 +392,16 @@ async def search_results(
         )
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
+    if impressions:
+        await _record_page_impressions(
+            db,
+            run=run,
+            user=user,
+            entries=impressions,
+            degraded=not (
+                run.state == "complete" and not data_changed and counts["failed"] == 0
+            ),
+        )
     return {
         "run_id": run.id,
         "state": run.state,

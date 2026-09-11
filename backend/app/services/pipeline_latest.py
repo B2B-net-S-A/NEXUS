@@ -18,11 +18,13 @@ kandydatów" per TAC pokazywały inny etap niż tablica i niż KPI.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import Subquery, select
+from sqlalchemy import Subquery, and_, or_, select
+from sqlalchemy.orm import aliased
 
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
 
 def latest_stage_ids(*, job_ids: Optional[Sequence[int]] = None) -> Subquery:
@@ -48,4 +50,43 @@ def latest_stage_ids(*, job_ids: Optional[Sequence[int]] = None) -> Subquery:
     return stmt.subquery()
 
 
-__all__ = ["latest_stage_ids"]
+def current_hired_stage_exists(candidate_id: Any, *, client_id: Any = None):
+    """``EXISTS``: kandydat stoi DZIŚ na ``hired`` w jakiejś rekrutacji.
+
+    ``candidate_stages`` to historia dopisywana, więc „stoi dziś" znaczy:
+    wiersz ``hired`` bez późniejszego ruchu w tej samej parze (kandydat,
+    rekrutacja) — tym samym tiebreakerem ``(moved_at, id)`` co
+    :func:`latest_stage_ids`. Korelacja idzie po przekazanym wyrażeniu
+    (``Candidate.id`` w filtrze listy kandydatów, ``Contract.candidate_id``
+    w definicji żywej umowy), a ``client_id`` zawęża do rekrutacji tego
+    klienta. Jedna kopia reguły — wcześniej żyła w ``_at_client_predicate``.
+    """
+    later = aliased(CandidateStage)
+    newer_move_exists = (
+        select(1)
+        .where(
+            and_(
+                later.candidate_id == CandidateStage.candidate_id,
+                later.job_id == CandidateStage.job_id,
+                or_(
+                    later.moved_at > CandidateStage.moved_at,
+                    and_(
+                        later.moved_at == CandidateStage.moved_at,
+                        later.id > CandidateStage.id,
+                    ),
+                ),
+            )
+        )
+        .exists()
+    )
+    conditions = [
+        CandidateStage.candidate_id == candidate_id,
+        CandidateStage.stage == PipelineStage.hired,
+        ~newer_move_exists,
+    ]
+    if client_id is not None:
+        conditions += [Job.id == CandidateStage.job_id, Job.client_id == client_id]
+    return select(1).where(and_(*conditions)).exists()
+
+
+__all__ = ["current_hired_stage_exists", "latest_stage_ids"]

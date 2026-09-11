@@ -3,11 +3,13 @@
  * w języku C2", PR 6/7).
  *
  * Zakres: kolejka zweryfikowanych, bramka wysyłki widoczna z powodem oraz
- * SEKWENCJA „Wyślij klientowi" — kolejność `share-token → move → client-rate`
- * (link przed ruchem, bo ruch tworzy nowy etap bez CV; stawka po ruchu, bo
- * zapisuje się na najnowszym etapie), porażka PRZED ruchem przerywa resztę,
- * porażka stawki PO ruchu jest ostrzeżeniem. Stawkę do klienta zapisuje
- * wyłącznie admin (`CandidateFinanceAccess`) — inne role nie widzą pola.
+ * SEKWENCJA „Wyślij klientowi" — kolejność `move → share-token → client-rate`
+ * (ruch pierwszy, bo link to żywy dostęp do CV i nie może powstać dla ruchu,
+ * którego serwer odmówi; link celuje w etap SPRZED ruchu, gdzie leży CV
+ * brandowane; stawka po ruchu, bo zapisuje się na najnowszym etapie), porażka
+ * ruchu przerywa resztę, porażka linku lub stawki PO ruchu jest ostrzeżeniem.
+ * Stawkę do klienta zapisuje wyłącznie admin (`CandidateFinanceAccess`) —
+ * inne role nie widzą pola.
  * Generator CV, reguły klienta i modale snapshotów są zamockowane: mają własne
  * zapytania do innych endpointów, niepowiązane z tym, co testujemy.
  */
@@ -36,6 +38,13 @@ const selectGenerated = vi.fn();
 const shareList = vi.fn();
 const shareRevokeAll = vi.fn();
 const createScreeningShareToken = vi.fn();
+// Schowek sterowany wprost — `user-event` podmienia `navigator.clipboard`
+// własną zaślepką, która zawsze się udaje, a tu testujemy także porażkę.
+const copyText = vi.fn(async (..._a: unknown[]) => true);
+
+vi.mock("@/lib/clipboard", () => ({
+  copyTextToClipboard: (...a: unknown[]) => copyText(...a),
+}));
 
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
 
@@ -204,6 +213,7 @@ beforeEach(() => {
   originalGet.mockResolvedValue({ data: { has_snapshot: true } });
   brandedGet.mockResolvedValue({ data: { status: "finalized" } });
   shareList.mockResolvedValue({ data: [] });
+  copyText.mockResolvedValue(true);
 });
 
 describe("CvHandoffWorkbench", () => {
@@ -245,7 +255,7 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/Nikt nie czeka na wysyłkę CV/)).toBeNull();
   });
 
-  it("sekwencja idzie: link → ruch → stawka (stawka na NOWYM etapie, jak na tablicy)", async () => {
+  it("sekwencja idzie: ruch → link (na etapie SPRZED ruchu) → stawka (na NOWYM etapie)", async () => {
     const { onMoved } = renderWorkbench();
     await readySendButton();
 
@@ -253,7 +263,9 @@ describe("CvHandoffWorkbench", () => {
     await userEvent.click(await sendButton());
 
     await waitFor(() => expect(setRecruitmentClientRate).toHaveBeenCalledOnce());
-    expect(calls).toEqual(["share_link", "move", "client_rate"]);
+    expect(calls).toEqual(["move", "share_link", "client_rate"]);
+    // Etap 21 = „Zweryfikowany", na którym leży sfinalizowane CV brandowane —
+    // nie świeży „CV Wysłane" (id 99), który ruch właśnie utworzył.
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
     expect(move).toHaveBeenCalledWith({
       candidate_id: 121,
@@ -278,11 +290,13 @@ describe("CvHandoffWorkbench", () => {
 
     await userEvent.click(await sendButton());
 
-    await waitFor(() => expect(move).toHaveBeenCalledOnce());
-    expect(calls).toEqual(["share_link", "move"]);
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
+    expect(calls).toEqual(["move", "share_link"]);
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-    expect(showSuccess).toHaveBeenCalledWith(
-      expect.stringContaining("Stawka do klienta bez zmian"),
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith(
+        expect.stringContaining("Stawka do klienta bez zmian"),
+      ),
     );
   });
 
@@ -295,9 +309,9 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.getByText(/Stawkę do klienta zapisuje admin/)).toBeTruthy();
 
     await userEvent.click(await sendButton());
-    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-    expect(calls).toEqual(["share_link", "move"]);
+    expect(calls).toEqual(["move", "share_link"]);
   });
 
   it("bez sfinalizowanego CV brandowanego link nie powstaje, a powód jest widoczny", async () => {
@@ -328,8 +342,43 @@ describe("CvHandoffWorkbench", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
   });
 
-  it("porażka linku ZATRZYMUJE ruch i mówi, że nic nie zostało zmienione", async () => {
-    shareCreate.mockRejectedValueOnce(new Error("409 brak finalizacji"));
+  it("porażka linku PO ruchu: ruch został, a panel wyników daje ponowienie na etapie sprzed ruchu", async () => {
+    shareCreate.mockRejectedValueOnce(new Error("502 bramka"));
+    const { onMoved } = renderWorkbench();
+    await readySendButton();
+
+    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
+    await userEvent.click(await sendButton());
+
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(move).toHaveBeenCalledOnce();
+    // Stawka i tak się zapisuje — porażka linku nie jest fatalna.
+    expect(setRecruitmentClientRate).toHaveBeenCalledOnce();
+    expect(onMoved).toHaveBeenCalled();
+    const msg = showError.mock.calls[0][0] as string;
+    expect(msg).toContain("Kandydat przeniesiony");
+    expect(msg).toContain("Linku dla klienta NIE udało się utworzyć");
+    expect(msg).toContain("502 bramka");
+
+    // Profil i dok celują w najnowszy etap (bez CV brandowanego), więc jedyna
+    // droga do linku to ponowienie z ZAPAMIĘTANEGO etapu 21.
+    shareCreate.mockResolvedValueOnce({ data: { share_url_suffix: "/cv/retried" } });
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /Utwórz link ponownie: Grzegorz Żebrowski/,
+      }),
+    );
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledTimes(2));
+    expect(shareCreate).toHaveBeenLastCalledWith(21, 14);
+    expect(await screen.findByText(/\/cv\/retried/)).toBeTruthy();
+  });
+
+  it("porażka ruchu (odmowa serwera) NIE tworzy linku ani stawki — i mówi o tym wprost", async () => {
+    move.mockRejectedValueOnce(
+      Object.assign(new Error("409 weto hiring managera"), {
+        response: { status: 409 },
+      }),
+    );
     renderWorkbench();
     await readySendButton();
 
@@ -337,31 +386,39 @@ describe("CvHandoffWorkbench", () => {
     await userEvent.click(await sendButton());
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(move).not.toHaveBeenCalled();
-    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
     const msg = showError.mock.calls[0][0] as string;
-    expect(msg).toContain("utworzenie linku dla klienta");
-    expect(msg).toContain("409 brak finalizacji");
+    expect(msg).toContain("przeniesienie na „CV Wysłane”");
     expect(msg).toContain("Nic nie zostało zmienione");
+    expect(msg).toContain("link dla klienta nie powstał");
+    // Do 09.2026 link powstawał PRZED ruchem — odmowa zostawiała żywy,
+    // wielodniowy dostęp do CV, którego nikt nie wysłał.
+    expect(shareCreate).not.toHaveBeenCalled();
+    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Utworzone linki do CV" })).toBeNull();
   });
 
-  it("porażka ruchu pokazuje utworzony link w doku i odznacza „Utwórz link”, żeby ponowienie nie zrobiło drugiego", async () => {
-    move.mockRejectedValueOnce(new Error("409 weto hiring managera"));
+  it("limit czasu ruchu NIE mówi „nic się nie zmieniło” — każe odświeżyć kartę przed ponowieniem", async () => {
+    // Bez odpowiedzi serwera ruch mógł się zatwierdzić; „nic się nie stało"
+    // zachęcało do ponowienia, które dopisuje drugi etap „CV Wysłane".
+    move.mockRejectedValueOnce(
+      Object.assign(new Error("timeout of 60000ms exceeded"), {
+        code: "ECONNABORTED",
+      }),
+    );
     renderWorkbench();
     await readySendButton();
 
+    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(await sendButton());
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
     const msg = showError.mock.calls[0][0] as string;
-    expect(msg).toContain("przeniesienie na „CV Wysłane”");
-    expect(msg).toContain("JUŻ ISTNIEJE");
+    expect(msg).not.toContain("Nic nie zostało zmienione");
+    expect(msg).toContain("Nie wiadomo, czy się udało");
+    expect(msg).toContain("Odśwież kartę kandydata");
+    // Link i stawka i tak nie powstały — sekwencja stanęła na ruchu.
+    expect(shareCreate).not.toHaveBeenCalled();
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-    // Sekret tokenu jest zwracany RAZ — musi zostać na ekranie.
-    expect(await screen.findByText(/abc123/)).toBeTruthy();
-    expect(
-      screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ }),
-    ).not.toBeChecked();
   });
 
   it("porażka stawki PO ruchu nie cofa ruchu — ostrzeżenie z następnym krokiem, jak na tablicy", async () => {
@@ -375,7 +432,7 @@ describe("CvHandoffWorkbench", () => {
     await userEvent.click(await sendButton());
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(calls).toEqual(["share_link", "move"]);
+    expect(calls).toEqual(["move", "share_link"]);
     expect(onMoved).toHaveBeenCalled();
     const msg = showError.mock.calls[0][0] as string;
     expect(msg).toContain("Kandydat przeniesiony");
@@ -383,13 +440,18 @@ describe("CvHandoffWorkbench", () => {
     expect(msg).toContain("uzupełnij ją z profilu kandydata");
   });
 
-  it("karta czekająca na akceptację stawki NIE jest blokowana (pending nie jest bramką ruchu), tylko oznaczona", async () => {
+  it("karta czekająca na akceptację stawki JEST zablokowana z powodem — serwer odmawia każdego ruchu (409)", async () => {
     renderWorkbench({
       columns: columns([item({ verification_status: "pending" })]),
     });
-    const button = await readySendButton();
-    expect(button).not.toBeDisabled();
+    const button = await sendButton();
+    await waitFor(() =>
+      expect(button.getAttribute("title")).toContain("czeka na akceptację"),
+    );
+    expect(button).toBeDisabled();
     expect(screen.getByText(/Stawka czeka na/)).toBeTruthy();
+    expect(shareCreate).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
   });
 
   it("weto hiring managera blokuje wysyłkę", async () => {
@@ -408,6 +470,54 @@ describe("CvHandoffWorkbench", () => {
     const button = await sendButton();
     expect(button).toBeDisabled();
     expect(button.getAttribute("title")).toContain("Brak bankowości");
+  });
+
+  // ── Link do karty Championa: sekret zwracany RAZ ────────────────────────
+  it("link do karty Championa: nieudane kopiowanie NIE udaje sukcesu, a adres zostaje na ekranie", async () => {
+    createScreeningShareToken.mockResolvedValueOnce({
+      data: { share_url_suffix: "/share/champion-card/sekret-1" },
+    });
+    copyText.mockResolvedValueOnce(false);
+    renderWorkbench();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
+    );
+
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
+    expect(showSuccess).not.toHaveBeenCalledWith(
+      expect.stringContaining("skopiowany"),
+    );
+    const field = await screen.findByLabelText("Link do karty Championa");
+    expect((field as HTMLInputElement).value).toBe(
+      `${window.location.origin}/share/champion-card/sekret-1`,
+    );
+    expect(createScreeningShareToken).toHaveBeenCalledWith(21, 30);
+  });
+
+  it("link do karty Championa: udane kopiowanie potwierdza toastem i też zostawia adres", async () => {
+    createScreeningShareToken.mockResolvedValueOnce({
+      data: { share_url_suffix: "/share/champion-card/sekret-2" },
+    });
+    renderWorkbench();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Utwórz link (30 dni)" }),
+    );
+
+    await waitFor(() =>
+      expect(showSuccess).toHaveBeenCalledWith(
+        "Link do karty Championa skopiowany (ważny 30 dni).",
+      ),
+    );
+    expect(copyText).toHaveBeenCalledWith(
+      `${window.location.origin}/share/champion-card/sekret-2`,
+    );
+    expect(
+      ((await screen.findByLabelText("Link do karty Championa")) as HTMLInputElement)
+        .value,
+    ).toContain("sekret-2");
   });
 
   it("link do reguł CV klienta tylko dla ról z `cv_rule.manage` (inne dostałyby 403 z middleware)", () => {

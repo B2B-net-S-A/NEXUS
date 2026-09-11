@@ -18,6 +18,7 @@ import {
   type MatchJustification,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { unmeasuredReason } from "@/lib/match-breakdown";
 import { cn } from "@/lib/utils";
 
 interface Recruitment {
@@ -42,9 +43,47 @@ function ringColorClass(score: number): string {
   return "text-muted-foreground";
 }
 
-function ScoreRing({ score }: { score: number }) {
-  const pct = Math.max(0, Math.min(100, Math.round(score)));
+function ScoreRing({
+  score,
+  measurement,
+}: {
+  score: number | null;
+  measurement?: string;
+}) {
   const radius = 34;
+  if (score === null) {
+    // Canonical fit refuses to put a number on a pair it could not measure;
+    // an empty ring (not a 0) says so, with the reason on hover.
+    const reason = unmeasuredReason(measurement) ?? "brak pomiaru dopasowania";
+    return (
+      <div
+        className="relative h-24 w-24 shrink-0"
+        role="img"
+        aria-label={`Dopasowanie: ocena niepełna — ${reason}`}
+        title={`Ocena niepełna: ${reason}`}
+      >
+        <svg viewBox="0 0 80 80" className="h-24 w-24 -rotate-90">
+          <circle
+            cx="40"
+            cy="40"
+            r={radius}
+            className="fill-none stroke-muted"
+            strokeWidth="7"
+            strokeDasharray="4 6"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-bold leading-none text-muted-foreground">
+            —
+          </span>
+          <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            ocena niepełna
+          </span>
+        </div>
+      </div>
+    );
+  }
+  const pct = Math.max(0, Math.min(100, Math.round(score)));
   const circumference = 2 * Math.PI * radius;
   const dash = (pct / 100) * circumference;
   return (
@@ -246,7 +285,7 @@ export function DopasowanieTab({
         <div className="space-y-5">
           {/* Score + summary */}
           <div className="flex flex-col gap-4 rounded-xl border border-border bg-card/60 p-5 sm:flex-row sm:items-start">
-            <ScoreRing score={data.score} />
+            <ScoreRing score={data.score} measurement={data.score_measurement} />
             <div className="min-w-0 flex-1">
               <h3 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Podsumowanie

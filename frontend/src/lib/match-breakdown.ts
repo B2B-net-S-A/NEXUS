@@ -1,8 +1,9 @@
 /**
- * Shape + summariser for the cached hybrid-score breakdown (SEARCH-P1-03).
- * The backend stores this per (candidate, job) and the search-scores endpoint
- * returns it read-only, so the row detail panel can show WHY a candidate ranks
- * (per-layer points + matched / missing skills).
+ * Shape + summariser for the canonical fit breakdown (SEARCH-P1-03). The
+ * search-scores endpoint measures it on demand for the visible rows, so the
+ * row detail panel can show WHY a candidate ranks (per-layer points + matched
+ * / missing skills). For a pair without a verified measurement it carries only
+ * `{ total: null, measurement }` — see `unmeasuredReason`.
  */
 
 export interface MatchLayer {
@@ -13,7 +14,10 @@ export interface MatchLayer {
 }
 
 export interface MatchBreakdown {
-  total?: number;
+  /** Canonical fit; `null` when the pair has no verified measurement. */
+  total?: number | null;
+  /** `measured` | `stale` | `missing_index` | `unavailable`. */
+  measurement?: string | null;
   semantic?: MatchLayer;
   skills?: MatchLayer;
   salary?: MatchLayer;
@@ -140,6 +144,28 @@ export function compareSkillRows(
     (a, b) => matchedCount(b) - matchedCount(a) || a.skill.localeCompare(b.skill),
   );
   return rows;
+}
+
+/**
+ * Why a pair has no fit number — or `null` when it is measured / unknown.
+ *
+ * Canonical fit never substitutes a retrieval score for a missing vector
+ * measurement; the UI must say "ocena niepełna" instead of looking unscored
+ * (an empty badge reads as "no match", which is a different claim).
+ */
+export function unmeasuredReason(
+  measurement: string | null | undefined,
+): string | null {
+  switch (measurement) {
+    case "stale":
+      return "profil kandydata zmienił się od ostatniej indeksacji";
+    case "missing_index":
+      return "kandydat nie ma jeszcze wektora w indeksie";
+    case "unavailable":
+      return "pomiar semantyczny chwilowo niedostępny";
+    default:
+      return null;
+  }
 }
 
 /** True when a breakdown has anything worth showing in the detail panel. */

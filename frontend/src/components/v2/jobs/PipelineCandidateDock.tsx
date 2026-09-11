@@ -56,6 +56,7 @@ import { Button } from "@/components/ui/button";
 import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
+import { normalizeRateToMonthly } from "@/lib/verified-rate-gate";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -189,6 +190,12 @@ export interface PipelineCandidateDockProps {
   readOnly: boolean;
   contactFeatureEnabled: boolean;
   canReject: boolean;
+  /**
+   * Powód, dla którego „Odrzuć z powodem" jest dziś zablokowane (np. karta
+   * „Pending" — serwer odmawia każdego ruchu przed decyzją o stawce). Przycisk
+   * zostaje widoczny i wyszarzony z powodem, zamiast odbić się o 409.
+   */
+  rejectBlockedReason?: string | null;
   /** Pozycja karty w kolejności TABLICY (1-based) i liczba kart. Bez nich
    *  nawigator „‹ N z M ›" się nie renderuje — nie zgadujemy pozycji. */
   position?: number | null;
@@ -199,6 +206,12 @@ export interface PipelineCandidateDockProps {
   nextAction?: NextAction | null;
   /** Pierwszy DOZWOLONY etap po bieżącym — główna akcja doku. */
   primaryTarget?: KanbanColumn | null;
+  /**
+   * Etap blokujący drogę naprzód (weto HM) i powód — gdy jest, dok zamiast
+   * akcji „naprzód" pokazuje wyszarzony krok z powodem, a nie objazd weta.
+   * Wynik `primaryForwardMove` z `lib/pipeline-flow.ts`.
+   */
+  primaryBlocked?: { col: KanbanColumn; reason: string } | null;
   onClose: () => void;
   onMoveTo: (col: KanbanColumn) => void;
   onOpenScreening: (stageId: number, name: string) => void;
@@ -216,12 +229,14 @@ export function PipelineCandidateDock({
   readOnly,
   contactFeatureEnabled,
   canReject,
+  rejectBlockedReason = null,
   position,
   total,
   onSelectPrevious,
   onSelectNext,
   nextAction,
   primaryTarget,
+  primaryBlocked = null,
   onClose,
   onMoveTo,
   onOpenScreening,
@@ -263,12 +278,32 @@ export function PipelineCandidateDock({
       ? Math.max(0, Math.min(100, Math.round(matchScore)))
       : null;
 
-  // `budget_max_at_move` to budżet zapisany PRZY RUCHU na „Zweryfikowany" —
-  // porównanie ma sens tylko wtedy, gdy karta niesie obie liczby.
-  const overBudget =
-    item.expected_rate_value != null &&
-    item.budget_max_at_move != null &&
-    Number(item.expected_rate_value) > item.budget_max_at_move;
+  // `budget_max_at_move` to MIESIĘCZNY budżet w PLN zapisany PRZY RUCHU na
+  // „Zweryfikowany", a stawka kandydata bywa godzinowa albo dzienna. Surowe
+  // porównanie liczb mówiło „w budżecie" przy 150 zł/h wobec 20 000 zł/mc
+  // (150 < 20 000), choć to 25 200 zł/mc. Normalizujemy tą samą polityką co
+  // bramka serwera (`normalizeRateToMonthly`, 168h-21d-v1); nieznana jednostka
+  // albo waluta ≠ PLN to „nie do porównania", nigdy „w budżecie".
+  const budgetCheck = useMemo(() => {
+    const raw = item.expected_rate_value;
+    if (raw == null || raw === "" || item.budget_max_at_move == null) {
+      return { verdict: "none" as const, monthly: null };
+    }
+    const numeric = Number.parseFloat(String(raw).replace(",", "."));
+    const monthly = Number.isFinite(numeric)
+      ? normalizeRateToMonthly(numeric, item.expected_rate_unit, item.expected_rate_currency)
+      : null;
+    if (monthly == null) return { verdict: "incomparable" as const, monthly: null };
+    return {
+      verdict: monthly > item.budget_max_at_move ? ("over" as const) : ("within" as const),
+      monthly,
+    };
+  }, [
+    item.expected_rate_value,
+    item.expected_rate_unit,
+    item.expected_rate_currency,
+    item.budget_max_at_move,
+  ]);
 
   const addedAttribution = item.added_to_job_by_name?.trim()
     ? `Dodano do rekrutacji przez: ${item.added_to_job_by_name.trim()}${
@@ -583,17 +618,28 @@ export function PipelineCandidateDock({
                       <span
                         className={cn(
                           "font-medium tabular-nums",
-                          overBudget ? "text-warning" : "text-success"
+                          budgetCheck.verdict === "over"
+                            ? "text-warning"
+                            : budgetCheck.verdict === "within"
+                              ? "text-success"
+                              : "text-foreground"
                         )}
+                        title={
+                          budgetCheck.monthly != null
+                            ? `≈ ${budgetCheck.monthly.toLocaleString("pl-PL")} PLN/mc (21 dni × 8 h)`
+                            : undefined
+                        }
                       >
                         {item.expected_rate_value} {item.expected_rate_currency ?? "PLN"}
                         {item.expected_rate_unit ? `/${item.expected_rate_unit}` : ""}
                       </span>
                       {item.budget_max_at_move != null && (
                         <span className="ml-1 text-muted-foreground">
-                          {overBudget
+                          {budgetCheck.verdict === "over"
                             ? "ponad budżet"
-                            : `w budżecie do ${item.budget_max_at_move}`}
+                            : budgetCheck.verdict === "within"
+                              ? `w budżecie do ${item.budget_max_at_move.toLocaleString("pl-PL")} PLN/mc`
+                              : "nie do porównania z budżetem (jednostka lub waluta)"}
                         </span>
                       )}
                     </>
@@ -861,6 +907,25 @@ export function PipelineCandidateDock({
               Przenieś na etap: {primaryTarget.name ?? primaryTarget.stage}
             </Button>
           )}
+          {/* Weto HM na drodze naprzód: kolejny krok wyszarzony z powodem —
+              nie proponujemy dalszego etapu, bo to byłby objazd weta. */}
+          {!primaryTarget && primaryBlocked && !readOnly && (
+            <div className="col-span-2 space-y-1">
+              <Button
+                size="sm"
+                disabled
+                title={primaryBlocked.reason}
+                className="w-full justify-start"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+                Przenieś na etap:{" "}
+                {primaryBlocked.col.name ?? primaryBlocked.col.stage}
+              </Button>
+              <p role="note" className="text-[10.5px] leading-snug text-destructive">
+                {primaryBlocked.reason}
+              </p>
+            </div>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -889,6 +954,8 @@ export function PipelineCandidateDock({
               size="sm"
               variant="outline"
               onClick={onReject}
+              disabled={Boolean(rejectBlockedReason)}
+              title={rejectBlockedReason ?? undefined}
               className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem

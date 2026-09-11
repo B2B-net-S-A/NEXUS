@@ -43,6 +43,13 @@ CZTERY DECYZJE, KTÓRE TRZYMAJĄ TEN RAPORT UCZCIWYM
 4. **Zero zapisu.** Ten moduł nie mutuje niczego. ``VERIFIER_ANCHORED_CTE``
    i ``_rank_recruiters_by_stage`` to jedyne dwie ścieżki, którymi ta praca
    mogłaby dotknąć pieniędzy — obie zostają nietknięte.
+
+Imiona i nazwiska kandydatów to PII: ``/insights`` widzi każda zalogowana
+rola (D7), a read-only ``user`` jest przez ``candidate_access`` odcięty od
+danych kandydatów. Bez dostępu do kandydatów wiersz niesie wyłącznie
+``candidate_id`` (do uzgadniania wystarcza), a odpowiedź mówi to wprost
+flagą ``candidate_names_redacted`` — pusta kolumna bez tej flagi czytałaby
+się jak brak danych.
 """
 
 import logging
@@ -53,6 +60,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import PeriodError, resolve_period
+from app.api.candidate_access import user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -182,10 +190,15 @@ async def insights_placement_reconciliation(
         .all()
     )
 
+    # Ta sama reguła co wyszukiwarka globalna i joby dla viewera: bez odczytu
+    # kandydatów (rola `user`, sekcje sourcing/pipeline odcięte) — bez nazwisk.
+    show_candidate_names = user_has_candidate_read(current_user)
     items = [
         {
             "candidate_id": r["candidate_id"],
-            "candidate_name": r["candidate_name"] or None,
+            "candidate_name": (
+                (r["candidate_name"] or None) if show_candidate_names else None
+            ),
             "job_id": r["job_id"],
             "job_title": r["job_title"],
             "client_id": r["client_id"],
@@ -253,5 +266,8 @@ async def insights_placement_reconciliation(
         # czyta się jak komplet, a raport do uzgadniania, który cicho gubi
         # wiersze, jest gorszy niż jego brak.
         "truncated": len(items) >= _MAX_ROWS,
+        # Nazwiska ukryte, bo rola nie ma dostępu do danych kandydatów — nie
+        # dlatego, że ich brak. Pusta kolumna bez tej flagi myli jedno z drugim.
+        "candidate_names_redacted": not show_candidate_names,
         "items": items,
     }

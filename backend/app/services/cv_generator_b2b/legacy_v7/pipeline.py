@@ -27,6 +27,7 @@ from pathlib import Path
 from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
     build_screening_notes_section,
+    cap_champion_prompt_section,
 )
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
@@ -153,6 +154,18 @@ def run_legacy_generation(
         if champion_dto and mode == "tailored"
         else ""
     )
+    # Not part of 2bc6b14f: the 14 000-character bound of the Champion text is
+    # enforced here now that the Word reader no longer applies it.
+    champion_section, champion_cap_warnings = cap_champion_prompt_section(
+        champion_section
+    )
+    if champion_cap_warnings:
+        logger.warning(
+            "[cv_b2b][%s] Champion section capped to %d chars (%s)",
+            request_id,
+            len(champion_section),
+            PIPELINE_ID,
+        )
     if champion_section.strip():
         user_parts.append(
             f"<champion_profile>\n{champion_section.strip()}\n</champion_profile>"
@@ -254,6 +267,7 @@ def run_legacy_generation(
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
+    guard_warnings.extend(champion_cap_warnings)
 
     policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)

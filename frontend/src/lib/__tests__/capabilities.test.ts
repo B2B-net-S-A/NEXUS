@@ -159,6 +159,17 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // POST /api/jobs/{id}/hiring-manager-feedback → RecruiterPlus (bez HoR!).
+  // HoR czyta werdykty, ale „Zapisz feedback" dostałby 403.
+  "hm_feedback.record": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (RecruiterPlus, bez HoR).
   // HoR czyta teczkę, ale nie wgrywa — upload dostałby 403.
   "candidate.document.manage": {
@@ -346,6 +357,7 @@ function talentCommunityManagerExpected(capability: Capability): boolean {
     "candidate.create",
     "calendar_event.create",
     "invite_link.create",
+    "hm_feedback.record",
     "candidate.document.manage",
     "candidate.profile_fact.manage",
     "candidate.requirement.verify",
@@ -787,6 +799,8 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     guards: [["recruitmentAccess", "CALENDAR_WRITE_ROLES"]],
   },
   "invite_link.create": { guards: [["deps", "RecruiterPlus"]] },
+  // POST /api/jobs/{id}/hiring-manager-feedback (hiring_manager_feedback.py).
+  "hm_feedback.record": { guards: [["deps", "RecruiterPlus"]] },
   "candidate.document.manage": {
     guards: [["candidateAccess", "CandidateWriteAccess"]],
   },

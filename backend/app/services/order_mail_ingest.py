@@ -101,11 +101,14 @@ _MESSAGE_SELECT = (
 )
 _PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 #: Activity, które zostawia writer (``order_mail_apply``) na zapisanym zamówieniu.
+#: ``order_mail_renewal`` = powrót po przerwie (nowe zamówienie, od 10.09.2026);
+#: bez niej draft powrotu bez PDF-u wyglądałby jak pusty szkic do nadpisania.
 _MAIL_ORDER_ACTIONS = (
     "order_mail_fill_draft",
     "order_mail_reactivate",
     "order_mail_created",
     "order_mail_new_draft",
+    "order_mail_renewal",
 )
 
 

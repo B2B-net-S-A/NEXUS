@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowUpRight, Check, Trash2, UserCheck } from "lucide-react";
 
@@ -9,6 +10,7 @@ import {
   type EvaluationStatus,
   type OutreachStatus,
   type ShortlistEntry,
+  type ShortlistUpdate,
 } from "@/lib/candidate-search-api";
 import { useToast } from "@/components/Toast";
 
@@ -28,6 +30,162 @@ function isoToLocalInput(iso: string | null | undefined): string {
   return (
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
     `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/** Wartość `<input type="datetime-local">` jako znacznik czasu (`null` = puste). */
+function localInputMs(value: string): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+// Porównania wartości pól — na poziomie modułu, żeby tożsamość funkcji była
+// stała (pole trzyma je w zależnościach efektu).
+const sameNote = (a: string, b: string) => a.trim() === b.trim();
+const sameInstant = (a: string, b: string) => localInputMs(a) === localInputMs(b);
+
+/** Stan pola na serwerze: wartość w formacie pola + wersja wpisu. */
+interface FieldServerState {
+  value: string;
+  version: number;
+}
+
+/** Wynik zapisu pola — mówi polu, co zrobić z tym, co wpisał użytkownik. */
+type FieldCommitOutcome =
+  /** Zapisane — pole pokazuje wartość z odpowiedzi serwera. */
+  | ({ status: "saved" } & FieldServerState)
+  /**
+   * Kolega zmienił TO pole w międzyczasie. Tekst użytkownika zostaje w polu,
+   * a pole przyjmuje nową wersję — kolejny świadomy zapis nadpisze zmianę
+   * kolegi, wiedząc o niej.
+   */
+  | ({ status: "conflict" } & FieldServerState)
+  /** Inny błąd — tekst i baza edycji zostają; kolejny blur ponowi zapis. */
+  | { status: "failed" };
+
+interface ServerSyncedInputProps
+  extends Omit<
+    InputHTMLAttributes<HTMLInputElement>,
+    "value" | "defaultValue" | "onChange" | "onFocus" | "onBlur"
+  > {
+  /** Wartość z serwera w formacie pola (np. lokalny datetime). */
+  serverValue: string;
+  /** `ShortlistEntry.version` — każda zmiana wpisu na serwerze ją podbija. */
+  serverVersion: number;
+  /** Czy dwie wartości pola znaczą to samo (np. ta sama chwila w czasie). */
+  sameValue: (a: string, b: string) => boolean;
+  /**
+   * Zapis zmiany UŻYTKOWNIKA. `base` to stan serwera, od którego zaczęła się
+   * zmiana (wartość tego pola + wersja wpisu) — serwer odpowie 409, jeśli ktoś
+   * zapisał wpis w międzyczasie, zamiast po cichu nadpisać jego zmianę.
+   */
+  onCommit: (value: string, base: FieldServerState) => Promise<FieldCommitOutcome>;
+}
+
+/**
+ * Pole tekstowe zapisywane na blur, zsynchronizowane z serwerem.
+ *
+ * Do 09.2026 notatka i termin były polami NIEKONTROLOWANYMI z wartością
+ * z pierwszego renderu, a potem łapały bazę edycji przy WEJŚCIU w pole.
+ * Obie wersje gubiły cudzą albo własną pracę:
+ *  - Tab z notatki do terminu łapał bazę terminu, zanim wrócił zapis notatki
+ *    — własny, wcześniejszy zapis kończył się 409 na polu obok;
+ *  - 409 odświeżało listę i pole bez fokusu nadpisywało wpisany tekst.
+ * Teraz:
+ *  - dopóki pole ma wartość serwera, idzie za serwerem (wartość i wersja);
+ *    baza edycji zamarza przy PIERWSZEJ zmianie użytkownika,
+ *  - blur bez zmiany (albo z powrotem do stanu wyjścia) NIE zapisuje niczego,
+ *  - po 409 tekst użytkownika zostaje w polu — co dalej, decyduje `onCommit`
+ *    (cichy rebase, gdy kolega zmienił inne pole; konflikt, gdy to samo).
+ */
+function ServerSyncedInput({
+  serverValue,
+  serverVersion,
+  sameValue,
+  onCommit,
+  ...inputProps
+}: ServerSyncedInputProps) {
+  const [draft, setDraft] = useState(serverValue);
+  const draftRef = useRef(serverValue);
+  // Najnowszy znany stan serwera: z propsów albo z odpowiedzi własnego zapisu
+  // (ta wyprzedza odświeżenie listy — bez tego kolejna zmiana zamroziłaby
+  // bazę na wersji sprzed własnego zapisu).
+  const knownRef = useRef<FieldServerState>({
+    value: serverValue,
+    version: serverVersion,
+  });
+  // Baza bieżącej zmiany; `null` = pole ma wartość serwera i idzie za nim.
+  const baseRef = useRef<FieldServerState | null>(null);
+
+  const updateDraft = (value: string) => {
+    draftRef.current = value;
+    setDraft(value);
+  };
+
+  useEffect(() => {
+    // Starszy stan niż znany (lista jeszcze nie odświeżona po zapisie) — pomiń.
+    if (serverVersion < knownRef.current.version) return;
+    knownRef.current = { value: serverValue, version: serverVersion };
+    const clean = baseRef.current === null;
+    if (clean || sameValue(draftRef.current, serverValue)) {
+      // Pole bez zmian idzie za serwerem; zmienione — gdy serwer ma już
+      // dokładnie to, co wpisano, pole znów jest „czyste".
+      baseRef.current = null;
+      draftRef.current = serverValue;
+      setDraft(serverValue);
+    }
+  }, [serverValue, serverVersion, sameValue]);
+
+  const commit = async (value: string, base: FieldServerState) => {
+    let outcome: FieldCommitOutcome;
+    try {
+      outcome = await onCommit(value, base);
+    } catch {
+      outcome = { status: "failed" };
+    }
+    if (outcome.status === "failed") return;
+    knownRef.current = { value: outcome.value, version: outcome.version };
+    if (outcome.status === "saved") {
+      baseRef.current = null;
+      updateDraft(outcome.value);
+      return;
+    }
+    // Konflikt: tekst zostaje, baza przyjmuje nową wersję — następny zapis
+    // nadpisze zmianę kolegi świadomie.
+    baseRef.current = { value: outcome.value, version: outcome.version };
+  };
+
+  return (
+    <input
+      {...inputProps}
+      value={draft}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (sameValue(next, knownRef.current.value)) {
+          baseRef.current = null;
+        } else if (baseRef.current === null) {
+          baseRef.current = { ...knownRef.current };
+        }
+        updateDraft(next);
+      }}
+      onBlur={() => {
+        const base = baseRef.current;
+        const value = draftRef.current;
+        if (
+          base === null ||
+          sameValue(value, base.value) ||
+          sameValue(value, knownRef.current.value)
+        ) {
+          // Nic do zapisania — pokaż aktualny stan serwera (mógł się zmienić,
+          // gdy pole miało fokus) i NIE zapisuj.
+          baseRef.current = null;
+          updateDraft(knownRef.current.value);
+          return;
+        }
+        void commit(value, base);
+      }}
+    />
   );
 }
 
@@ -80,6 +238,36 @@ function isPast(iso: string | null | undefined): boolean {
   return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
 }
 
+/** Pola tekstowe wpisu zapisywane na blur (`ServerSyncedInput`). */
+type ShortlistTextField = "note" | "next_action_at";
+
+/** Biernik do komunikatu o konflikcie — „zmienił w międzyczasie …". */
+const TEXT_FIELD_LABEL: Record<ShortlistTextField, string> = {
+  note: "notatkę",
+  next_action_at: "termin następnej akcji",
+};
+
+/** Wartość pola wpisu w formacie `<input>` (datetime lokalny dla terminu). */
+function fieldInputValue(entry: ShortlistEntry, field: ShortlistTextField): string {
+  return field === "note"
+    ? (entry.note ?? "")
+    : isoToLocalInput(entry.next_action_at);
+}
+
+/** Wartość pola z `<input>` → fragment `PATCH`-a. */
+function fieldPatch(
+  field: ShortlistTextField,
+  value: string,
+): Pick<ShortlistUpdate, "note" | "next_action_at"> {
+  return field === "note"
+    ? { note: value.trim() || null }
+    : { next_action_at: value ? new Date(value).toISOString() : null };
+}
+
+function httpStatusOf(e: unknown): number | undefined {
+  return (e as { response?: { status?: number } })?.response?.status;
+}
+
 interface JobShortlistProps {
   jobId: number;
   readOnly?: boolean;
@@ -90,9 +278,11 @@ interface JobShortlistProps {
  * `job_shortlist_entries` (ocena → kontakt → promocja do pipeline'u).
  *
  * Zapisy chroni blokada optymistyczna (`version`): równoległy zapis kończy się
- * 409, wtedy odświeżamy listę i prosimy o ponowienie, zamiast po cichu nadpisać
- * cudzą decyzję. Promocja przechodzi przez tę samą bramkę dopuszczalności co
- * ranking — jej 409 pokazujemy z powodem po polsku.
+ * 409, zamiast po cichu nadpisać cudzą decyzję. Przy ocenie, kontakcie
+ * i właścicielu odświeżamy listę i prosimy o ponowienie; przy notatce
+ * i terminie wpisany tekst ZOSTAJE w polu (patrz `fieldMutation`). Promocja
+ * przechodzi przez tę samą bramkę dopuszczalności co ranking — jej 409
+ * pokazujemy z powodem po polsku.
  */
 export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
   const queryClient = useQueryClient();
@@ -151,6 +341,115 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
       } else {
         showError("Nie udało się zapisać zmiany.");
       }
+    },
+  });
+
+  // Świeży stan wpisu — po 409 trzeba wiedzieć, CO zmieniło się na serwerze.
+  // Lista trafia też do cache, żeby reszta wiersza pokazała zmianę kolegi.
+  const fetchFreshEntry = async (entryId: number): Promise<ShortlistEntry | null> => {
+    const fresh = await shortlistApi.list(jobId);
+    queryClient.setQueryData(jobShortlistQueryKey(jobId), fresh);
+    return fresh.find((e) => e.id === entryId) ?? null;
+  };
+
+  // Zapis notatki / terminu (`ServerSyncedInput`). 409 NIE wyrzuca wpisanego
+  // tekstu: gdy kolega zmienił INNE pole wpisu (albo to był własny wcześniejszy
+  // zapis — Tab z pola do pola), to pole wciąż ma wartość, od której zaczęła
+  // się edycja, więc zapis powtarzamy RAZ na nowej wersji. Gdy zmienił TO
+  // pole — tekst zostaje w polu, toast mówi, co się stało, a pole przyjmuje
+  // nową wersję, więc następny świadomy zapis nadpisze zmianę kolegi.
+  const fieldMutation = useMutation({
+    mutationFn: async ({
+      entry,
+      field,
+      value,
+      base,
+    }: {
+      entry: ShortlistEntry;
+      field: ShortlistTextField;
+      value: string;
+      base: FieldServerState;
+    }): Promise<FieldCommitOutcome> => {
+      const same = field === "note" ? sameNote : sameInstant;
+      const save = async (version: number): Promise<FieldCommitOutcome> => {
+        const row = await shortlistApi.update(entry.id, {
+          version,
+          ...fieldPatch(field, value),
+        });
+        void invalidate();
+        return {
+          status: "saved",
+          value: fieldInputValue(row, field),
+          version: row.version,
+        };
+      };
+      const failed = (message: string): FieldCommitOutcome => {
+        showError(message);
+        return { status: "failed" };
+      };
+      const fresh = async (): Promise<ShortlistEntry | null | "error"> => {
+        try {
+          return await fetchFreshEntry(entry.id);
+        } catch {
+          return "error";
+        }
+      };
+
+      try {
+        return await save(base.version);
+      } catch (e) {
+        if (httpStatusOf(e) !== 409) {
+          return failed("Nie udało się zapisać zmiany — Twój tekst został w polu.");
+        }
+      }
+
+      let current = await fresh();
+      if (current === "error" || current === null) {
+        return failed(
+          current === null
+            ? "Tego wpisu nie ma już na shortliście."
+            : "Nie udało się odświeżyć wpisu — Twój tekst został w polu.",
+        );
+      }
+      if (same(fieldInputValue(current, field), base.value)) {
+        // To pole się nie zmieniło — zmiana kolegi dotyczyła innego pola.
+        try {
+          return await save(current.version);
+        } catch (e) {
+          if (httpStatusOf(e) !== 409) {
+            return failed("Nie udało się zapisać zmiany — Twój tekst został w polu.");
+          }
+        }
+        current = await fresh();
+        if (current === "error" || current === null) {
+          return failed(
+            current === null
+              ? "Tego wpisu nie ma już na shortliście."
+              : "Nie udało się odświeżyć wpisu — Twój tekst został w polu.",
+          );
+        }
+        if (same(fieldInputValue(current, field), base.value)) {
+          showError(
+            "Ten wpis zmienia się właśnie równolegle — Twój tekst został w polu. " +
+              "Wyjdź z pola jeszcze raz, żeby go zapisać.",
+          );
+          return {
+            status: "conflict",
+            value: fieldInputValue(current, field),
+            version: current.version,
+          };
+        }
+      }
+      showError(
+        `Ktoś inny zmienił w międzyczasie ${TEXT_FIELD_LABEL[field]} w tym wpisie — ` +
+          "Twój tekst został w polu. Wyjdź z pola jeszcze raz, żeby świadomie " +
+          "zapisać go zamiast tamtej zmiany.",
+      );
+      return {
+        status: "conflict",
+        value: fieldInputValue(current, field),
+        version: current.version,
+      };
     },
   });
 
@@ -232,6 +531,8 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
         const busy =
           (patchMutation.isPending &&
             patchMutation.variables?.entry.id === entry.id) ||
+          (fieldMutation.isPending &&
+            fieldMutation.variables?.entry.id === entry.id) ||
           (promoteMutation.isPending &&
             promoteMutation.variables?.id === entry.id) ||
           (removeMutation.isPending && removeMutation.variables?.id === entry.id);
@@ -387,26 +688,21 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
                 {/* Termin następnej akcji — zapis na blur, nie na każdy krok
                     (datetime-local emituje onChange przy każdej cyfrze/kliknięciu
                     strzałki; kolejne PATCH-e z tą samą `version` dawały 409).
-                    Uncontrolled + porównanie po czasie, żeby identyczna wartość
-                    nie generowała zapisu. (PR #1374 review.) */}
-                <input
+                    Pole zsynchronizowane z serwerem — patrz `ServerSyncedInput`. */}
+                <ServerSyncedInput
                   type="datetime-local"
-                  defaultValue={isoToLocalInput(entry.next_action_at)}
+                  serverValue={isoToLocalInput(entry.next_action_at)}
+                  serverVersion={entry.version}
+                  sameValue={sameInstant}
                   disabled={busy}
-                  onBlur={(e) => {
-                    const nextIso = e.target.value
-                      ? new Date(e.target.value).toISOString()
-                      : null;
-                    const curMs = entry.next_action_at
-                      ? new Date(entry.next_action_at).getTime()
-                      : null;
-                    const nextMs = nextIso ? new Date(nextIso).getTime() : null;
-                    if (curMs === nextMs) return;
-                    patchMutation.mutate({
+                  onCommit={(value, base) =>
+                    fieldMutation.mutateAsync({
                       entry,
-                      patch: { next_action_at: nextIso },
-                    });
-                  }}
+                      field: "next_action_at",
+                      value,
+                      base,
+                    })
+                  }
                   className={
                     "h-8 shrink-0 rounded-lg border bg-card px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 " +
                     (overdue
@@ -416,21 +712,22 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
                   aria-label={`Termin następnej akcji: ${fullName}`}
                 />
 
-                {/* Notatka — zapis na blur, gdy zmieniona (uncontrolled, żeby
-                    refetch innego pola nie kasował wpisywanego tekstu). */}
-                <input
+                {/* Notatka — zapis na blur, wyłącznie gdy UŻYTKOWNIK ją zmienił. */}
+                <ServerSyncedInput
                   type="text"
-                  defaultValue={entry.note ?? ""}
+                  serverValue={entry.note ?? ""}
+                  serverVersion={entry.version}
+                  sameValue={sameNote}
                   disabled={busy}
                   placeholder="Notatka…"
-                  onBlur={(e) => {
-                    const next = e.target.value.trim();
-                    if (next === (entry.note ?? "").trim()) return;
-                    patchMutation.mutate({
+                  onCommit={(value, base) =>
+                    fieldMutation.mutateAsync({
                       entry,
-                      patch: { note: next || null },
-                    });
-                  }}
+                      field: "note",
+                      value,
+                      base,
+                    })
+                  }
                   className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50"
                   aria-label={`Notatka: ${fullName}`}
                 />

@@ -7,10 +7,26 @@ import re
 from app.schemas.matching_requirements import MatchingRequirements, SkillRequirement
 
 _ALTERNATIVE = re.compile(r"\s+(?:lub|albo|or)\s+", re.IGNORECASE)
+# `SkillRequirement` accepts names of at most 100 characters.
+_MAX_NAME_CHARS = 100
 
 
 def alternatives(label: str) -> list[str]:
     return [part.strip() for part in _ALTERNATIVE.split(label) if part.strip()]
+
+
+def contract_names(names) -> list[str]:
+    """Names as a contract group can hold them.
+
+    Must-have columns carry requirements written as prose that run past the
+    100-character limit of `SkillRequirement` (Traffit imports, the job form,
+    and Champion stack entries, which since 09.2026 are kept whole instead of
+    being dropped). One such label used to fail the contract of the whole job —
+    every search on it ended in a validation error. Prose never matches a
+    candidate skill (names are compared whole), so clipping it changes no
+    match: the requirement stays visible as unconfirmed evidence.
+    """
+    return [name[:_MAX_NAME_CHARS].rstrip() for name in names]
 
 
 def requirement_label(group: SkillRequirement) -> str:
@@ -32,7 +48,8 @@ def explicit_contract(must, nice, *, reviewed=False) -> MatchingRequirements:
         for label in canonical_skill_names(names):
             groups.append(
                 SkillRequirement(
-                    any_of=canonical_skill_names(alternatives(label)), level=level
+                    any_of=contract_names(canonical_skill_names(alternatives(label))),
+                    level=level,
                 )
             )
     return MatchingRequirements(reviewed=reviewed, all_of=groups)
@@ -52,7 +69,9 @@ def requirements_for_job(job) -> MatchingRequirements:
         return stored
     labels = job_skill_requirements(job)
     groups = [
-        SkillRequirement(any_of=alternatives(label), level=level, source="request")
+        SkillRequirement(
+            any_of=contract_names(alternatives(label)), level=level, source="request"
+        )
         for level in ("must", "nice", "excluded", "uncertain")
         for label in labels.get(level, [])
     ]

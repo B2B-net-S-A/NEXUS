@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 CANDIDATE = "candidate"
 JOB = "job"
 
+# `desired_hash` of a delete queued by the admin orphan cleanup
+# (`index_cleanup`). It is the ONLY delete the worker re-checks against the
+# database: quarantine deletes the vector of a candidate whose row stays, so a
+# global "row exists → skip delete" rule would undo quarantine. An orphan
+# delete, by contrast, is only valid while the row is still absent — and the
+# queue can sit pending for days while the worker is off.
+ORPHAN_POINT_DELETE = "orphan-point"
+
 # reindex_fn(entity_type, entity_id, operation) -> awaitable[bool]
 ReindexFn = Callable[[str, int, str], Awaitable[bool]]
 
@@ -326,6 +334,25 @@ async def _superseded(db: AsyncSession, ev: IndexOutboxEvent) -> bool:
     return bool(newer)
 
 
+async def _orphan_delete_withdrawn(db: AsyncSession, ev: IndexOutboxEvent) -> bool:
+    """True if an orphan-cleanup delete now points at an existing candidate.
+
+    Never delete the point of a candidate that exists: re-checked here, at
+    processing time, not only when the admin queued the cleanup.
+    """
+    if not (
+        ev.operation == "delete"
+        and ev.entity_type == CANDIDATE
+        and ev.desired_hash == ORPHAN_POINT_DELETE
+    ):
+        return False
+    from app.models.candidate import Candidate
+
+    return (
+        await db.scalar(select(Candidate.id).where(Candidate.id == ev.entity_id))
+    ) is not None
+
+
 async def process_event(
     db: AsyncSession,
     ev: IndexOutboxEvent,
@@ -343,6 +370,12 @@ async def process_event(
     if await _superseded(db, ev):
         ev.status = "done"
         ev.last_error = "superseded by newer revision"
+        await db.flush()
+        return ev.status
+
+    if await _orphan_delete_withdrawn(db, ev):
+        ev.status = "done"
+        ev.last_error = "orphan delete withdrawn: candidate row exists"
         await db.flush()
         return ev.status
 

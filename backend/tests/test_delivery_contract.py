@@ -60,10 +60,13 @@ def test_backend_has_healthcheck_in_the_file_coolify_actually_reads() -> None:
         "nie obowiązuje na produkcji."
     )
     probe = " ".join(str(part) for part in (healthcheck.get("test") or []))
-    assert "/api/health" in probe, (
-        f"sonda backendu nie pyta /api/health: {probe!r}. To jedyny endpoint "
-        "o kontraktowym kształcie (~/.claude/rules/deployment.md) i jedyny, który "
-        "sprawdza bazę — sonda TCP zieleniłaby kontener bez działającej aplikacji."
+    assert "/api/health/live" in probe, (
+        f"sonda backendu nie pyta /api/health/live: {probe!r}. Sonda kontenera "
+        "sprawdza wyłącznie żywotność procesu — /api/health robi kilkanaście "
+        "zapytań z timeoutami i pod ciężkim przeglądem bazy nie mieścił się w 5 s, "
+        "więc Docker oznaczał działający backend jako unhealthy, a Traefik "
+        "odcinał ruch. Sonda TCP też odpada: zieleniłaby kontener przed startem "
+        "uvicorna, czyli w trakcie migracji."
     )
 
 

@@ -166,10 +166,10 @@ describe("buildYoYTable", () => {
   const years = [2024, 2025, 2026];
   const full = (v: number) => Array(12).fill(v);
 
-  it("porównuje niepełny rok z TYMI SAMYMI miesiącami roku poprzedniego", () => {
-    // 2025: dwanaście miesięcy po 10 = 120. 2026: dziewięć miesięcy po 10 = 90.
-    // Porównanie 90 vs 120 dałoby −25%, czyli spadek, którego nie ma — oba lata
-    // biegną w tym samym tempie.
+  it("porównuje niepełny rok z TYMI SAMYMI PEŁNYMI miesiącami roku poprzedniego", () => {
+    // 2025: dwanaście miesięcy po 10 = 120. 2026: dziewięć miesięcy po 10 = 90,
+    // z czego wrzesień jeszcze trwa. Porównanie 90 vs 120 dałoby −25%, czyli
+    // spadek, którego nie ma — oba lata biegną w tym samym tempie.
     const m = metric({
       series: {
         "2024": full(8),
@@ -180,14 +180,86 @@ describe("buildYoYTable", () => {
     const table = buildYoYTable(m, years, MONTHS, { year: 2026, month: 9 });
 
     expect(table.summary.ytd).toBe(true);
-    expect(table.summary.comparedMonths).toBe(9);
+    // Wrzesień trwa, więc porównanie obejmuje styczeń–sierpień obu lat.
+    expect(table.summary.comparedMonths).toBe(8);
+    expect(table.summary.excludesPartialMonth).toBe(true);
     // Komórka nadal pokazuje CAŁY rok — to liczba, którą czytelnik chce widzieć.
     expect(table.summary.values).toEqual([96, 120, 90]);
-    // ...ale ostatnia delta porównuje 90 z 90, czyli „bez zmian".
+    // ...ale ostatnia delta porównuje 80 z 80, czyli „bez zmian".
     expect(table.summary.deltas[1].value).toBe(0);
     expect(table.summary.deltas[1].verdict).toBe("flat");
     // Delta między dwoma PEŁNYMI latami zostaje pełna: 96 → 120 = +25%.
     expect(table.summary.deltas[0].value).toBe(25);
+  });
+
+  it("1 lutego: trwający luty NIE wchodzi do YTD — porównujemy styczeń ze styczniem", () => {
+    // Dokładnie defekt ze zgłoszenia: styczeń 100 + jeden dzień lutego (5)
+    // zestawione z pełnym styczniem i lutym (100 + 100) dawało −47,5%.
+    const m = metric({
+      series: {
+        "2024": full(100),
+        "2025": full(100),
+        "2026": [100, 5, ...Array(10).fill(null)],
+      },
+    });
+    const table = buildYoYTable(m, years, MONTHS, { year: 2026, month: 2 });
+
+    expect(table.summary.comparedMonths).toBe(1);
+    expect(table.summary.ytd).toBe(true);
+    expect(table.summary.deltas[1].value).toBe(0);
+    expect(table.summary.deltas[1].verdict).toBe("flat");
+  });
+
+  it("styczeń w toku: ostatniej delty podsumowania nie ma — „—”, nie −95%", () => {
+    const m = metric({
+      series: {
+        "2024": full(100),
+        "2025": full(100),
+        "2026": [5, ...Array(11).fill(null)],
+      },
+    });
+    const table = buildYoYTable(m, years, MONTHS, { year: 2026, month: 1 });
+
+    expect(table.summary.comparedMonths).toBe(0);
+    expect(table.summary.ytd).toBe(true);
+    expect(table.summary.deltas[1].value).toBe(null);
+    expect(table.summary.deltas[1].verdict).toBe("unknown");
+  });
+
+  it("wiersz „(trwa)” nie ma oceny ani delty wobec roku poprzedniego", () => {
+    const m = metric({
+      series: {
+        "2024": full(100),
+        "2025": full(100),
+        "2026": [100, 5, ...Array(10).fill(null)],
+      },
+    });
+    const table = buildYoYTable(m, years, MONTHS, { year: 2026, month: 2 });
+    const february = table.rows[1];
+
+    expect(february.partial).toBe(true);
+    // Para 25→26 obejmuje trwający miesiąc — wygaszona.
+    expect(february.deltas[1].value).toBe(null);
+    expect(february.deltas[1].verdict).toBe("unknown");
+    // Para 24→25 to dwa PEŁNE miesiące — zostaje policzona.
+    expect(february.deltas[0].verdict).toBe("flat");
+    // Styczeń jest pełny — jego ocena zostaje.
+    expect(table.rows[0].deltas[1].verdict).toBe("flat");
+  });
+
+  it("trwający miesiąc spoza ostatniego roku siatki niczego nie wygasza", () => {
+    // Siatka kończy się na 2025 (parametr `end_year`), a trwa luty 2026.
+    const m = metric({
+      series: { "2023": full(8), "2024": full(10), "2025": full(12) },
+    });
+    const table = buildYoYTable(m, [2023, 2024, 2025], MONTHS, {
+      year: 2026,
+      month: 2,
+    });
+    expect(table.summary.ytd).toBe(false);
+    expect(table.summary.excludesPartialMonth).toBe(false);
+    expect(table.rows.every((r) => !r.partial)).toBe(true);
+    expect(table.summary.deltas[1].value).toBe(20);
   });
 
   it("dwa zamknięte lata porównują się w całości", () => {

@@ -93,8 +93,18 @@ class ChampionSearch(BaseModel):
     )
 
 
+# Storage bound for ONE stack entry. It was 120 until 09.2026, and the intake
+# normaliser dropped everything longer (and everything over 12 words) into
+# `intake.unresolved` — so a Delivery Lead's requirement written as a sentence
+# silently vanished from `jobs.must_skills`. Long entries are now kept and only
+# flagged; this bound exists solely against a whole pasted paragraph being
+# stored as "one requirement" (entries are split on newlines, commas and
+# semicolons first, so a real requirement never gets near it).
+STACK_ITEM_MAX_CHARS = 500
+
+
 class StackItem(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=STACK_ITEM_MAX_CHARS)
 
 
 class ChampionStack(BaseModel):
@@ -420,7 +430,13 @@ class RecommendedSearchDecision(BaseModel):
 class ChampionIntake(BaseModel):
     policy_version: Literal[1] = 1
     template_version: Optional[str] = None
+    # Input that could NOT become a canonical value (the field stays empty and
+    # validation reports an error until someone resolves it).
     unresolved: dict[str, str] = Field(default_factory=dict)
+    # Input that WAS kept, but deserves a second look: a document rate written
+    # as a range next to a kept number, a requirement written as a sentence.
+    # Always a warning — never a reason to empty a field or block anything.
+    advisory: dict[str, str] = Field(default_factory=dict)
     document_context: dict[str, str] = Field(default_factory=dict)
     applied_by: Optional[int] = None
     applied_at: Optional[str] = None

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_justification import CandidateMatchJustification
@@ -32,6 +32,7 @@ from app.services.ai_quota import AIQuotaExceeded
 from app.services.match_justification_service import (
     MatchJustificationLLMError,
     MatchJustificationNotFound,
+    display_fit,
     get_cached,
     get_or_generate,
     notes_gap_warnings_from_extracted,
@@ -55,7 +56,11 @@ class MatchJustificationOut(BaseModel):
     candidate_id: int
     job_id: int
     job_title: Optional[str] = None
-    score: int
+    # Canonical base fit under the viewer's profile — the number C2 and the
+    # kanban ring show for this pair. None = no verified semantic measurement
+    # (see ``score_measurement``); never a substitute number.
+    score: Optional[int] = None
+    score_measurement: str = "measured"
     summary: str
     pros: list[str]
     watchouts: list[str]
@@ -76,12 +81,18 @@ def _serialize(
     row: CandidateMatchJustification,
     job_title: Optional[str],
     notes_warnings: Optional[list[dict]] = None,
+    *,
+    fit: tuple[Optional[int], str],
 ) -> MatchJustificationOut:
+    # `row.score` (the legacy composite the prose was generated from) is
+    # deliberately NOT the displayed number any more — see `display_fit`.
+    score, measurement = fit
     return MatchJustificationOut(
         candidate_id=row.candidate_id,
         job_id=row.job_id,
         job_title=job_title,
-        score=row.score,
+        score=score,
+        score_measurement=measurement,
         summary=row.summary,
         pros=list(row.pros or []),
         watchouts=list(row.watchouts or []),
@@ -134,9 +145,13 @@ async def get_scoring_justification(
 ) -> MatchJustificationOut:
     """AI justification of the (candidate, job) match score. Cached per pair;
     regenerates on ``refresh`` or when the underlying inputs change."""
+    # Read once, up front: the generation path may roll this request's session
+    # back (concurrent first view), which expires every object loaded through
+    # it — `current_user` included.
+    user_id = current_user.id
     try:
         row = await get_or_generate(
-            candidate_id, job_id, db, user_id=current_user.id, force=refresh
+            candidate_id, job_id, db, user_id=user_id, force=refresh
         )
     except MatchJustificationNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -149,15 +164,22 @@ async def get_scoring_justification(
             detail=f"Nie udało się wygenerować uzasadnienia AI: {exc}",
         ) from exc
 
+    # Own session inside, never raises: a failed measurement is a ring without
+    # a number ("ocena niepełna"), not a failed tab.
+    fit = await display_fit(candidate_id, job_id, user_id=user_id)
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
-    return _serialize(row, job_title, warnings)
+    return _serialize(row, job_title, warnings, fit=fit)
 
 
 @router.post(
     "/{candidate_id}/scoring/{job_id}/feedback",
     response_model=MatchJustificationOut,
 )
+# Each response measures canonical fit on demand (query embedding + exact
+# vector lookup), so the thumbs are metered like the other on-demand scoring.
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def rate_scoring_justification(
+    request: Request,
     candidate_id: int,
     job_id: int,
     payload: ScoringFeedbackIn,
@@ -165,6 +187,7 @@ async def rate_scoring_justification(
     db: AsyncSession = Depends(get_db),
 ) -> MatchJustificationOut:
     """Record "Oceń ten scoring" feedback on an existing justification."""
+    user_id = current_user.id
     row = await get_cached(candidate_id, job_id, db)
     if row is None:
         raise HTTPException(
@@ -180,11 +203,14 @@ async def rate_scoring_justification(
     else:
         row.rating = payload.rating
         row.rating_comment = (payload.comment or "").strip() or None
-        row.rated_by = current_user.id
+        row.rated_by = user_id
         row.rated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(row)
 
+    # The response replaces the tab's data, so it carries the same number as
+    # the GET — measured in its own session, never failing the rating.
+    fit = await display_fit(candidate_id, job_id, user_id=user_id)
     job_title, warnings = await _notes_warnings_for(candidate_id, job_id, db)
-    return _serialize(row, job_title, warnings)
+    return _serialize(row, job_title, warnings, fit=fit)

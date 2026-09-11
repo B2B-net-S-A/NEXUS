@@ -103,6 +103,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
       setAddError(null);
       return proposalsBulkApi.add(jobId, {
         candidate_ids: Array.from(selected),
+        source: "quick_add",
       });
     },
     onSuccess: (result: BulkProposalsResponse) => {

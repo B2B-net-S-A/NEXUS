@@ -7192,76 +7192,27 @@ PY
 # 0282: mirror signature policy for installations with an orphaned Alembic
 # bookmark. Reuse the migration only when the schema/policy is missing; a
 # normal restart must never recreate user overrides or increment the revision.
-python - <<'PY_SIGNATURE_POLICY'
-import asyncio
-import importlib.util
-from pathlib import Path
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import text
-from app.core.database import engine
-
-async def prepare_signature_policy():
-    async with engine.begin() as connection:
-        await connection.execute(text("SELECT pg_advisory_xact_lock(734092782)"))
-        await connection.execute(text("SELECT id FROM rbac_policy_state WHERE id = 1 FOR UPDATE"))
-        ready = await connection.scalar(text("""
-            SELECT (
-                SELECT count(*) FROM pg_constraint
-                WHERE conname IN ('ck_rbac_role_action_permissions_action',
-                                  'ck_rbac_user_action_overrides_action')
-                  AND pg_get_constraintdef(oid) LIKE '%b2b_signature_confirmation%'
-            ) = 2 AND EXISTS (
-                SELECT 1 FROM rbac_role_action_permissions
-                WHERE action = 'b2b_signature_confirmation'
-            )
-        """))
-        if not ready:
-            path = Path("/app/alembic/versions/0282_b2b_signature_permission.py")
-            spec = importlib.util.spec_from_file_location("signature_policy_schema", path)
-            migration = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(migration)
-            def upgrade(sync_connection):
-                with Operations.context(MigrationContext.configure(sync_connection)):
-                    migration.upgrade()
-            await connection.run_sync(upgrade)
-    await engine.dispose()
-    print("Signature confirmation policy verified")
-
-asyncio.run(prepare_signature_policy())
-PY_SIGNATURE_POLICY
+#
+# MIĘKKI wyłącznie przy timeoucie zamka (`lock_timeout`, 09.2026): bez
+# polityki aplikacja wstaje i działa, brakuje jedynie osobnego uprawnienia do
+# potwierdzania podpisu — a następny start ponawia naprawę. Każdy INNY błąd
+# (zepsuta migracja, brak tabeli, zerwane połączenie) zatrzymuje start, jak
+# przed 09.2026; logika w module, żeby testy ćwiczyły ją na prawdziwym
+# Postgresie (`test_entrypoint_lock_timeouts.py`).
+python -m app.services.signature_policy_bootstrap
 
 # Availability/allocation must be in place before ORM reads at login or startup.
 # Reuse the exact idempotent migration in one transaction when the historical
 # Alembic bookmark is orphaned; do not maintain a second divergent SQL copy.
-python - <<'PY_ALLOCATION'
-import asyncio
-import importlib.util
-from pathlib import Path
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import text
-from app.core.database import engine
-
-async def prepare_allocation():
-    path = Path("/app/alembic/versions/0277_recruitment_allocation.py")
-    spec = importlib.util.spec_from_file_location("allocation_schema", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    def upgrade(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            migration.upgrade()
-    async with engine.begin() as connection:
-        await connection.execute(text("SELECT pg_advisory_xact_lock(734092771)"))
-        await connection.run_sync(upgrade)
-    await engine.dispose()
-    print("Availability/allocation schema verified")
-
-asyncio.run(prepare_allocation())
-PY_ALLOCATION
+# TWARDY celowo (ORM czyta te kolumny przy logowaniu), ale z `lock_timeout`:
+# upadek po timeoucie zamka tylko wtedy, gdy schematu naprawdę brakuje — przy
+# kompletnym start idzie dalej (szczegóły w docstringu modułu).
+python -m app.services.allocation_schema_bootstrap
 
 # CV schema 0290–0299 must exist before workers or ORM reads start.
 # Fail startup on an incomplete repair; reuse canonical table migrations.
+# Ta sama polityka zamka co wyżej: `lock_timeout`, a timeout jest fatalny
+# wyłącznie przy niekompletnym schemacie (`cv_schema_bootstrap.main`).
 python -m app.services.cv_schema_bootstrap
 
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
@@ -7369,6 +7320,87 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# PFRON 507–509 (0306, 09.2026) — jednorazowe rozdzielenie zamówień, które
+# czyszczenie kolejki maila z 9/10.09 przepisało W MIEJSCU nowym okresem:
+# nowy okres → nowy wiersz, oryginał wraca do stanu z Activity
+# `order_mail_reactivate`. Safety-net dla migracji 0306 (alembic na prodzie
+# bywa osierocony). Jedno źródło SQL-a w `app/services/pfron_renewal_split_repair.py`;
+# marker + advisory lock → drugi start kończy się natychmiast, a zamówienie,
+# którego tożsamość się nie zgadza, zostaje nietknięte z powodem w paragonie.
+# Blok czeka na blokady najwyżej `lock_timeout` (15 s) i bierze blokadę wiersza
+# klienta jak writer maila starego kontenera; po przekroczeniu pada w całości,
+# bez zapisu i bez markera — następny start spróbuje ponownie.
+# Log idzie do Grafany (Loki): wypisujemy WYŁĄCZNIE liczby i powody pominięcia,
+# nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
+echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
+python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
+import asyncio
+import json
+import sys
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.pfron_renewal_split_repair import (
+    PFRON_RENEWAL_SPLIT_MARKER,
+    PFRON_RENEWAL_SPLIT_SQL,
+    summarize_receipt_for_log,
+)
+
+async def repair():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(PFRON_RENEWAL_SPLIT_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": PFRON_RENEWAL_SPLIT_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"pfron renewal split repair failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
+        )
+        sys.exit(1)
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"pfron renewal split repair: {summary}")
+
+asyncio.run(repair())
+PY
+
+# PFRON 507–509 (0306) — krok przychodu kontraktu zaraz po rozdzieleniu: surowy
+# SQL wyżej nie wyzwala synchronizacji kontrakt ↔ zamówienia, więc przywrócony
+# okres nie ma kroku przychodu, a czerwiec–sierpień czytałby stawkę nowego
+# okresu do najbliższego zapisu zamówienia. `app/services/pfron_revenue_resync.py`
+# woła tę samą synchronizację co zwykły zapis zamówienia (tylko przy włączonej
+# 0304); własny marker + advisory lock, jednorazowy. Log: tylko liczby.
+echo "PFRON 507-509: contract revenue schedule resync after the split (one-shot)..."
+python - <<'PY' || echo "pfron revenue resync skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.pfron_revenue_resync import (
+    run_pfron_revenue_resync,
+    summarize_for_log,
+)
+
+async def resync():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pfron_revenue_resync(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"pfron revenue resync failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"pfron revenue resync: {summarize_for_log(summary)}")
+
+asyncio.run(resync())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
@@ -7417,6 +7449,11 @@ python seed.py || echo "seed.py failed (likely pre-existing schema drift from un
 # (a scope archived/edited in the app after import), the command exits 0 and
 # startup continues.  That drift is reported by /api/health/deep as degraded
 # instead of crash-looping the whole backend on every restart.
+#
+# Lock waits are already bounded INSIDE the importer (`lock_timeout` = 15 s,
+# set before its advisory lock — `client_portfolio_import.POSTGRES_LOCK_TIMEOUT`),
+# and the applied-hash path takes no lock that pg_dump's ACCESS SHARE blocks.
+# It stays fail-closed on purpose: a half-known portfolio must not go live.
 echo "Applying client portfolio manifest (transactional apply-once)..."
 python -m app.cli.client_portfolio_import --apply-once
 

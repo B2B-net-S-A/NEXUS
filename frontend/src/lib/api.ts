@@ -1149,8 +1149,15 @@ export interface MatchJustification {
   candidate_id: number;
   job_id: number;
   job_title: string | null;
-  /** Hybrid composite score, 0-100 (same number the kanban ring shows). */
-  score: number;
+  /**
+   * Canonical base fit, 0-100, under the viewer's weight profile — the same
+   * number the kanban ring and every C2 screen show for the pair. `null` when
+   * the pair has no verified semantic measurement (see `score_measurement`);
+   * never replaced by another number.
+   */
+  score: number | null;
+  /** `measured` | `stale` | `missing_index` | `unavailable`. */
+  score_measurement?: string;
   /** "Podsumowanie" — prose verdict. */
   summary: string;
   /** "Może być dobrym wyborem, ponieważ" — positive bullets. */
@@ -1452,12 +1459,34 @@ export interface HiringManagerFeedback {
   veto_recorded: boolean;
   /** Czego brakuje, żeby weto stanęło — po polsku, gotowe do wyświetlenia. */
   veto_blockers: string[];
+  /** Kto zapisał werdykt. */
+  author_id?: number | null;
+  author_name?: string | null;
+  /**
+   * Czy WOŁAJĄCY może nadpisać ten werdykt (autor / Delivery Lead / admin —
+   * reguła `PATCH /api/interview-feedback`). Liczone po stronie serwera.
+   */
+  can_edit?: boolean;
+}
+
+/** Odpowiedź `GET /api/jobs/{id}/hiring-manager-feedback`. */
+export interface HiringManagerFeedbackList {
+  /**
+   * Czy WOŁAJĄCY przejdzie `POST` na tej rekrutacji — liczone TYMI SAMYMI
+   * bramkami co zapis (rola, sekcja pipeline, członkostwo w zespole z
+   * obejściem dla DL, brak trybu podglądu). Formularz edytowalny tylko przy
+   * `true` — inaczej np. Finance na cudzej rekrutacji klikało „Zapisz" w 403.
+   */
+  can_record: boolean;
+  items: HiringManagerFeedback[];
 }
 
 export const hiringManagerFeedbackApi = {
   list: (jobId: number) =>
     api
-      .get<HiringManagerFeedback[]>(`/api/jobs/${jobId}/hiring-manager-feedback`)
+      .get<HiringManagerFeedbackList>(
+        `/api/jobs/${jobId}/hiring-manager-feedback`,
+      )
       .then((r) => r.data),
   record: (jobId: number, payload: HiringManagerFeedbackPayload) =>
     api

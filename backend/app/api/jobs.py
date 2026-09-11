@@ -1117,10 +1117,14 @@ async def create_job(
         payload["salary_max"] = None
 
     if payload.get("champion_profile"):
-        from app.services.champion_intake import user_edit
+        # `JobCreate` carries no profile: the only source is the template copy
+        # above. It is copied AS STORED (`copy_profile`) — re-reading it as a
+        # fresh document re-derived the rate from its stored text and gave the
+        # new recruitment no budget when the grammar could not read that text.
+        from app.services.champion_intake import copy_profile
 
-        payload["champion_profile"] = user_edit(
-            {}, payload["champion_profile"], current_user.id, imported=True
+        payload["champion_profile"] = copy_profile(
+            payload["champion_profile"], current_user.id
         )
 
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
@@ -2028,7 +2032,10 @@ async def _save_champion_profile(
     # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
-    intake_changed = old_profile.get("intake") != new_profile.get("intake")
+    # Normalised on both sides, like the diff above: a stored intake written
+    # before a schema field existed (e.g. `advisory`) must not read as a change
+    # — that would turn every no-op save into a write plus a notification.
+    intake_changed = normalized_old.get("intake") != new_profile.get("intake")
     if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,

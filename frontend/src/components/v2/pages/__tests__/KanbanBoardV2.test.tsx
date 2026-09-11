@@ -9,7 +9,7 @@
  */
 
 import * as React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -294,6 +294,209 @@ describe("KanbanBoardV2 — pending verification card", () => {
     expect(
       screen.queryByRole("button", { name: "Usuń Anna Kowalska z rekrutacji" }),
     ).toBeNull();
+  });
+});
+
+/**
+ * Bramka ruchu doku = lustro `POST /api/pipeline/move` (wspólna funkcja
+ * `moveBlockedReason`) oraz odświeżenie zapytania strony po ruchu. Do 09.2026
+ * dok trzymał własną kopię reguł (weto blokowało „Zweryfikowany", „Pending"
+ * nie blokował niczego), a udany ruch nie unieważniał `["kanban", id]`, więc
+ * KPI i kolejki kroków 05–08 pokazywały stan sprzed ruchu.
+ */
+describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({
+      user: { role: "admin", roles: ["admin"] } as never,
+    });
+    useUiStore.setState({ density: "cozy" } as never);
+  });
+
+  function gateColumns(extra: Record<string, unknown>) {
+    return [
+      {
+        stage: "screening",
+        name: "Screening",
+        category: "internal",
+        stage_def_id: 301,
+        count: 1,
+        items: [
+          {
+            id: 801,
+            candidate_id: 61,
+            name: "Jan",
+            lastname: "Bramka",
+            stage: "screening",
+            days_in_stage: 2,
+            verification_status: "active",
+            ...extra,
+          },
+        ],
+      },
+      {
+        stage: "verified",
+        name: "Zweryfikowany",
+        category: "internal",
+        stage_def_id: 302,
+        count: 0,
+        items: [],
+      },
+      {
+        stage: "cv_sent",
+        name: "CV Wysłane",
+        category: "internal",
+        stage_def_id: 303,
+        count: 0,
+        items: [],
+      },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 304,
+        count: 0,
+        items: [],
+        terminal_type: "rejected",
+      },
+    ] as never;
+  }
+
+  async function openDockPills() {
+    const card = await waitFor(() => {
+      const el = document.querySelector("[data-kanban-card]");
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
+    });
+    fireEvent.click(card);
+    const heading = await screen.findByText("Przenieś na etap");
+    return heading.parentElement as HTMLElement;
+  }
+
+  it("weto HM blokuje w doku „CV Wysłane”, ale NIE „Zweryfikowany” — jak serwer", async () => {
+    renderBoard(
+      gateColumns({
+        hm_veto: {
+          hiring_manager_contact_id: 5,
+          source_job_id: 2,
+          rejected_at: "2026-01-01",
+          rejection_reason_name: "Brak bankowości",
+        },
+      }),
+    );
+    const pills = await openDockPills();
+
+    expect(within(pills).getByRole("button", { name: "Zweryfikowany" })).not.toBeDisabled();
+    const cvSent = within(pills).getByRole("button", { name: "CV Wysłane" });
+    expect(cvSent).toBeDisabled();
+    expect(cvSent.getAttribute("title")).toContain("Brak bankowości");
+    expect(within(pills).getByRole("button", { name: "Odrzucony" })).not.toBeDisabled();
+  });
+
+  /** Fragment „Default B2B": między „Wysłać do Cpro" a „Interview Klient"
+   *  stoją „CV Wysłane" (weto blokuje) i „Preparation Meeting" (nie blokuje). */
+  function vetoRouteColumns(extra: Record<string, unknown>) {
+    return [
+      {
+        stage: "new",
+        name: "Wysłać do Cpro",
+        category: "internal",
+        stage_def_id: 401,
+        count: 1,
+        items: [
+          {
+            id: 811,
+            candidate_id: 71,
+            name: "Ewa",
+            lastname: "Objazd",
+            stage: "new",
+            days_in_stage: 1,
+            verification_status: "active",
+            ...extra,
+          },
+        ],
+      },
+      { stage: "cv_sent", name: "CV Wysłane", category: "internal", stage_def_id: 402, count: 0, items: [] },
+      { stage: "new", name: "Preparation Meeting", category: "external", stage_def_id: 403, count: 0, items: [] },
+      { stage: "client_interview", name: "Interview Klient", category: "external", stage_def_id: 404, count: 0, items: [] },
+      {
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        stage_def_id: 405,
+        count: 0,
+        items: [],
+        terminal_type: "rejected",
+      },
+    ] as never;
+  }
+
+  it("weto HM na drodze naprzód: główna akcja doku nie robi objazdu na „Preparation Meeting”", async () => {
+    renderBoard(
+      vetoRouteColumns({
+        hm_veto: {
+          hiring_manager_contact_id: 5,
+          source_job_id: 2,
+          rejected_at: "2026-01-01",
+          rejection_reason_name: "Brak bankowości",
+        },
+      }),
+    );
+    await openDockPills();
+
+    expect(
+      screen.queryByRole("button", { name: /Przenieś na etap: Preparation Meeting/ }),
+    ).toBeNull();
+    const blocked = screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ });
+    expect(blocked).toBeDisabled();
+    expect(blocked.getAttribute("title")).toContain("Brak bankowości");
+    // Powód widać bez najeżdżania kursorem — pod wyszarzonym krokiem.
+    expect(blocked.parentElement?.textContent).toContain("Brak bankowości");
+  });
+
+  it("karta bez weta dostaje zwykłą akcję naprzód na „CV Wysłane”", async () => {
+    renderBoard(vetoRouteColumns({}));
+    await openDockPills();
+
+    expect(
+      screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ }),
+    ).not.toBeDisabled();
+  });
+
+  it("karta „Pending” w doku: każdy etap i „Odrzuć z powodem” zablokowane z powodem", async () => {
+    renderBoard(gateColumns({ verification_status: "pending" }));
+    const pills = await openDockPills();
+
+    for (const name of ["Zweryfikowany", "CV Wysłane", "Odrzucony"]) {
+      const pill = within(pills).getByRole("button", { name });
+      expect(pill).toBeDisabled();
+      expect(pill.getAttribute("title")).toContain("czeka na akceptację");
+    }
+    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
+    expect(reject).toBeDisabled();
+    expect(reject.getAttribute("title")).toContain("czeka na akceptację");
+  });
+
+  it("akceptacja weryfikacji unieważnia zapytanie strony `[\"kanban\", id]`", async () => {
+    acceptVerification.mockResolvedValue({ data: {} });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={pendingColumns()} jobId={10} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByTitle("Akceptuj weryfikację"));
+    await waitFor(() => expect(acceptVerification).toHaveBeenCalledWith(777));
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "10"] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 10] });
   });
 });
 

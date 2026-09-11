@@ -91,6 +91,8 @@ import {
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
 import {
   ChromeBanner,
   DockActions,
@@ -135,6 +137,19 @@ export interface CvHandoffWorkbenchProps {
 }
 
 const SHARE_DAYS_OPTIONS = [7, 14, 30, 60, 90];
+
+/**
+ * Wynik przekazania w panelu „Utworzone linki do CV". `suffix === null` znaczy
+ * „ruch się wykonał, link NIE powstał" — wiersz niesie wtedy wszystko, czego
+ * potrzeba do ponowienia (etap sprzed ruchu i ważność).
+ */
+interface HandoffLinkResult {
+  stageId: number;
+  candidateName: string;
+  jobTitle: string;
+  suffix: string | null;
+  expiresInDays: number;
+}
 
 const CONTENT_MODE_LABEL: Record<string, string> = {
   rewrite: "Przepisanie",
@@ -250,22 +265,47 @@ export function CvHandoffWorkbench({
   const [clientRateUnit, setClientRateUnit] = useState<RateUnit>("monthly");
   const [shareDays, setShareDays] = useState(14);
   const [createLink, setCreateLink] = useState(true);
-  const [handoffResults, setHandoffResults] = useState<Array<{
-    stageId: number; candidateName: string; jobTitle: string; suffix: string;
-  }>>([]);
+  const [handoffResults, setHandoffResults] = useState<HandoffLinkResult[]>([]);
   const resultsRef = useRef(handoffResults);
-  const actionStageRef = useRef<number | null>(null);
-  const lastShareSuffix = [...handoffResults].reverse().find((r) => r.stageId === selectedStageId)?.suffix ?? null;
-  const rememberLink = (result: (typeof handoffResults)[number]) => {
+  const lastShareSuffix =
+    [...handoffResults]
+      .reverse()
+      .find((r) => r.stageId === selectedStageId && r.suffix != null)?.suffix ?? null;
+  const rememberLink = (result: HandoffLinkResult) => {
     resultsRef.current = [...resultsRef.current, result];
     setHandoffResults(resultsRef.current);
   };
   useEffect(() => {
     setClientRate("");
     setClientRateUnit("monthly");
-    setCreateLink(!resultsRef.current.some((r) => r.stageId === selectedStageId));
+    setCreateLink(
+      !resultsRef.current.some((r) => r.stageId === selectedStageId && r.suffix != null),
+    );
     setDockTab("send");
   }, [selectedStageId]);
+
+  // Link, który padł PO udanym ruchu: kandydat stoi już na „CV Wysłane", a CV
+  // brandowane zostało na etapie sprzed ruchu — profil i dok celują w etap
+  // najnowszy, więc bez tego przycisku nie byłoby jak utworzyć linku do tego
+  // dokumentu. Ponowienie idzie na ZAPAMIĘTANY identyfikator etapu.
+  const retryLinkMut = useMutation({
+    mutationFn: (entry: HandoffLinkResult) =>
+      candidateStageCvApi.share.create(entry.stageId, entry.expiresInDays),
+    onSuccess: (res, entry) => {
+      const suffix = res.data?.share_url_suffix ?? null;
+      if (!suffix) {
+        showError("Serwer nie zwrócił adresu linku — sprawdź zakładkę „Linki i historia”.");
+        return;
+      }
+      resultsRef.current = resultsRef.current.map((r) =>
+        r === entry ? { ...r, suffix } : r,
+      );
+      setHandoffResults(resultsRef.current);
+      showSuccess("Link dla klienta utworzony.");
+    },
+    onError: (e) =>
+      showError(extractErrorMsg(e) || "Nie udało się utworzyć linku dla klienta."),
+  });
 
   const numericClientRate = Number.parseFloat(clientRate.replace(",", "."));
   const clientRateValid =
@@ -307,23 +347,43 @@ export function CvHandoffWorkbench({
       showError(extractErrorMsg(e) || "Nie udało się odwołać linków."),
   });
 
+  // Link do karty Championa niesie sekret zwracany JEDEN raz — adres zostaje
+  // na ekranie (`OneTimeLinkField`), a toast „skopiowany" pada wyłącznie po
+  // UDANYM zapisie do schowka. Do 09.2026 toast szedł zawsze, a adres nigdzie
+  // się nie pokazywał: nieudany zapis zostawiał żywy, 30-dniowy link, którego
+  // nikt nie znał.
+  const [championLink, setChampionLink] = useState<{
+    stageId: number;
+    url: string;
+  } | null>(null);
   const championLinkMut = useMutation({
-    mutationFn: () => screeningApi.createShareToken(stageId!, 30),
-    onSuccess: (res) => {
+    mutationFn: (forStageId: number) => screeningApi.createShareToken(forStageId, 30),
+    onSuccess: async (res, forStageId) => {
       const suffix = res?.data?.share_url_suffix;
-      if (suffix && typeof window !== "undefined") {
-        void navigator.clipboard
-          ?.writeText(`${window.location.origin}${suffix}`)
-          .catch(() => undefined);
+      if (!suffix) {
+        showError("Serwer nie zwrócił adresu linku do karty Championa.");
+        return;
       }
-      showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
+      const url = `${window.location.origin}${suffix}`;
+      setChampionLink({ stageId: forStageId, url });
+      if (await copyTextToClipboard(url)) {
+        showSuccess("Link do karty Championa skopiowany (ważny 30 dni).");
+      } else {
+        showError(
+          "Link do karty Championa utworzony (ważny 30 dni), ale nie udało się go skopiować — skopiuj go z pola w doku.",
+        );
+      }
     },
     onError: (e) =>
       showError(extractErrorMsg(e) || "Nie udało się utworzyć linku."),
   });
 
   const moveBlocked = selected
-    ? (moveBlockedReason({ item: selected.item, readOnly }) ??
+    ? (moveBlockedReason({
+        item: selected.item,
+        readOnly,
+        targetStage: CV_SENT_STAGE,
+      }) ??
       (!cvSentCol
         ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
         : brandedQuery.isLoading
@@ -338,7 +398,10 @@ export function CvHandoffWorkbench({
       if (!selected || !cvSentCol || stageId == null) {
         throw new Error("Brak etapu docelowego.");
       }
-      actionStageRef.current = stageId;
+      // Etap SPRZED ruchu: na nim leży sfinalizowane CV brandowane, więc link
+      // tworzony po ruchu celuje właśnie tutaj, a nie w świeży „CV Wysłane".
+      const sourceStageId = stageId;
+      const expiresInDays = shareDays;
       const plan: CvHandoffPlan = {
         clientRate: canWriteClientRate && clientRateValid
           ? {
@@ -347,7 +410,7 @@ export function CvHandoffWorkbench({
               currency: "PLN",
             }
           : null,
-        shareLink: willCreateLink ? { expiresInDays: shareDays } : null,
+        shareLink: willCreateLink ? { expiresInDays } : null,
       };
       return runCvHandoff(plan, {
         saveClientRate: async (r) => {
@@ -361,14 +424,27 @@ export function CvHandoffWorkbench({
             },
           );
         },
-        createShareLink: async ({ expiresInDays }) => {
-          const res = await candidateStageCvApi.share.create(
-            stageId,
-            expiresInDays,
-          );
-          const suffix = res.data?.share_url_suffix ?? null;
-          if (suffix) rememberLink({ stageId, candidateName: fullName, jobTitle: jobLabel, suffix });
-          return { shareUrlSuffix: suffix };
+        createShareLink: async ({ expiresInDays: days }) => {
+          const base = {
+            stageId: sourceStageId,
+            candidateName: fullName,
+            jobTitle: jobLabel,
+            expiresInDays: days,
+          };
+          try {
+            const res = await candidateStageCvApi.share.create(sourceStageId, days);
+            const suffix = res.data?.share_url_suffix ?? null;
+            if (!suffix) throw new Error("Serwer nie zwrócił adresu linku.");
+            // Sekret wraca RAZ — zapamiętany natychmiast, zanim cokolwiek
+            // odświeży kolejkę i kandydat z niej zniknie.
+            rememberLink({ ...base, suffix });
+            return { shareUrlSuffix: suffix };
+          } catch (e) {
+            // Ruch już się wykonał — zostaw w panelu wiersz z ponowieniem,
+            // bo nigdzie indziej nie da się już utworzyć linku do tego etapu.
+            rememberLink({ ...base, suffix: null });
+            throw e;
+          }
         },
         move: async () => {
           await pipelineApi.move({
@@ -381,21 +457,21 @@ export function CvHandoffWorkbench({
       });
     },
     onSuccess: (result) => {
-      // The one-time link was retained as soon as it was created, before moving.
+      // Link (jeśli powstał) jest już zapamiętany w panelu wyników — wiersz
+      // przeżywa odświeżenie kolejki, w którym kandydat z niej znika.
       const summary = describeCvHandoffSuccess(result, extractErrorMsg);
-      // Stawka pada PO ruchu (jak na tablicy): ruch jest faktem, ale rekruter
-      // musi wiedzieć, że stawki nie ma — stąd ton błędu, nie sukcesu.
+      // Link albo stawka padły PO ruchu (jak na tablicy): ruch jest faktem, ale
+      // rekruter musi wiedzieć, czego brakuje — stąd ton błędu, nie sukcesu.
       if (result.failedAfterMove.length > 0) showError(summary);
       else showSuccess(summary);
       onMoved();
     },
     onError: (e) => {
+      // Ruch idzie pierwszy, więc przy tej porażce nie powstał ani link dla
+      // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
+      // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
+      // więc komunikat każe odświeżyć kartę przed ponowieniem.
       if (e instanceof CvHandoffError) {
-        if (e.shareUrlSuffix) {
-          // Sekret tokenu v2 jest zwracany RAZ — pokazujemy go w doku
-          // i odznaczamy „Utwórz link", żeby ponowienie nie wystawiło drugiego.
-          if (selectedStageId === actionStageRef.current) setCreateLink(false);
-        }
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
       }
@@ -459,25 +535,43 @@ export function CvHandoffWorkbench({
         <section className="space-y-3 rounded-xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-3" aria-label="Utworzone linki do CV">
           <h3 className="text-sm font-semibold">Utworzone linki do CV</h3>
           <p className="text-xs text-muted-foreground">Linki pozostają tutaj po zmianie etapu i wyborze kolejnego kandydata. Ten ekran nie wysyła wiadomości do klienta. Skopiuj link przed opuszczeniem tej strony.</p>
-          {handoffResults.map((result, index) => (
-            <div key={index} className="space-y-2 rounded-lg border border-border p-3">
-              <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
-              <code className="block break-all text-xs">{typeof window !== "undefined" ? window.location.origin : ""}{result.suffix}</code>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={async () => {
-                  try {
-                    if (!navigator.clipboard) throw new Error("clipboard unavailable");
-                    await navigator.clipboard.writeText(`${window.location.origin}${result.suffix}`);
-                    showSuccess("Link skopiowany.");
-                  } catch { showError("Nie udało się skopiować linku. Zaznacz widoczny adres ręcznie."); }
-                }}>Kopiuj link: {result.candidateName}</Button>
-                <a className="inline-flex items-center rounded-lg border border-border px-3 text-xs"
-                  href={`mailto:?subject=${encodeURIComponent(`CV kandydata: ${result.candidateName} — ${result.jobTitle}`)}&body=${encodeURIComponent(`Dzień dobry,\n\nCV kandydata ${result.candidateName}: ${typeof window !== "undefined" ? window.location.origin : ""}${result.suffix}\n`)}`}>
-                  Przygotuj wiadomość
-                </a>
+          {handoffResults.map((result, index) =>
+            result.suffix == null ? (
+              <div key={index} className="space-y-2 rounded-lg border border-warning/30 bg-warning-muted p-3">
+                <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
+                <p className="text-xs text-warning-muted-foreground">
+                  Kandydat jest już na „CV Wysłane”, ale link dla klienta nie powstał. CV brandowane zostało na etapie sprzed ruchu — utwórz link tutaj.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={retryLinkMut.isPending && retryLinkMut.variables === result}
+                  disabled={retryLinkMut.isPending}
+                  onClick={() => retryLinkMut.mutate(result)}
+                >
+                  <Link2 className="h-3.5 w-3.5" /> Utwórz link ponownie: {result.candidateName}
+                </Button>
               </div>
-            </div>
-          ))}
+            ) : (
+              <div key={index} className="space-y-2 rounded-lg border border-border p-3">
+                <p className="text-sm font-medium">{result.candidateName} · {result.jobTitle}</p>
+                <code className="block break-all text-xs">{typeof window !== "undefined" ? window.location.origin : ""}{result.suffix}</code>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => {
+                    if (await copyTextToClipboard(`${window.location.origin}${result.suffix}`)) {
+                      showSuccess("Link skopiowany.");
+                    } else {
+                      showError("Nie udało się skopiować linku. Zaznacz widoczny adres ręcznie.");
+                    }
+                  }}>Kopiuj link: {result.candidateName}</Button>
+                  <a className="inline-flex items-center rounded-lg border border-border px-3 text-xs"
+                    href={`mailto:?subject=${encodeURIComponent(`CV kandydata: ${result.candidateName} — ${result.jobTitle}`)}&body=${encodeURIComponent(`Dzień dobry,\n\nCV kandydata ${result.candidateName}: ${typeof window !== "undefined" ? window.location.origin : ""}${result.suffix}\n`)}`}>
+                    Przygotuj wiadomość
+                  </a>
+                </div>
+              </div>
+            ),
+          )}
         </section>
       )}
       {/* ── Szyna: kolejka + reguły klienta ─────────────────────────────── */}
@@ -1096,7 +1190,7 @@ export function CvHandoffWorkbench({
                             type="button"
                             className="text-primary hover:underline disabled:opacity-60"
                             disabled={championLinkMut.isPending}
-                            onClick={() => championLinkMut.mutate()}
+                            onClick={() => championLinkMut.mutate(stageId)}
                           >
                             Utwórz link (30 dni)
                           </button>
@@ -1104,6 +1198,13 @@ export function CvHandoffWorkbench({
                     },
                   ]}
                 />
+                {championLink && championLink.stageId === stageId && (
+                  <OneTimeLinkField
+                    url={championLink.url}
+                    label="Link do karty Championa"
+                    note="Ważny 30 dni. Adres pokazujemy tylko teraz — serwer nie przechowuje sekretu, więc skopiuj go przed opuszczeniem strony."
+                  />
+                )}
                 <label className="flex cursor-pointer items-start gap-2 text-xs">
                   <input
                     type="checkbox"

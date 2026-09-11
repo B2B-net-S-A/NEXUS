@@ -38,6 +38,19 @@ z kandydatem sam, poza kalendarzem NEXUSA) i dokłada ``rejection_reason_id``.
 Jeden werdykt na parę (kandydat, rekrutacja): powtórne wywołanie NADPISUJE
 wiersz bez spotkania zamiast hodować stos. Werdykty przypięte do konkretnego
 ``CalendarEvent`` zostają nietknięte — te edytuje ``PATCH /api/interview-feedback``.
+
+Nadpisać CUDZY werdykt może wyłącznie autor, Delivery Lead albo admin — ta
+sama reguła co ``PATCH /api/interview-feedback`` (``_can_edit``). Do 09.2026
+upsert po parze podmieniał autora i treść bez pytania, więc drugi rekruter
+kasował werdykt kolegi jednym kliknięciem „Zapisz". Odczyt stoi za
+``ensure_job_read_access`` (Finance ma organizacyjny odczyt rekrutacji —
+decyzja 31.08), zapis za członkostwem w zespole rekrutacji.
+
+Odczyt zwraca ``can_record`` — czy WOŁAJĄCY przejdzie ``POST`` na tej
+rekrutacji, liczone TYMI SAMYMI bramkami (sekcja pipeline z prawem zapisu,
+role ``RecruiterPlus``, członkostwo w zespole z obejściem nadzoru dla DL,
+brak trybu podglądu). Bez tego formularz renderował się każdemu z capability
+zapisu — Finance na cudzej rekrutacji klikało „Zapisz feedback" prosto w 403.
 """
 
 from __future__ import annotations
@@ -45,13 +58,19 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RecruiterPlus
-from app.api.recruitment_access import RecruitmentReadAccess, ensure_job_membership
+from app.api.deps import IMPERSONATION_HEADER, RecruiterPlus
+from app.api.interview_feedback import _can_edit as _can_edit_feedback
+from app.api.recruitment_access import (
+    RECRUITMENT_TRANSITION_ROLES,
+    RecruitmentReadAccess,
+    ensure_job_membership,
+    ensure_job_read_access,
+)
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.contact import Contact
@@ -63,8 +82,14 @@ from app.models.interview_feedback import (
 from app.models.job import Job
 from app.models.pipeline_template import RejectionReason, TerminalType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user import User, UserRole
 from app.services.hiring_manager_verdicts import MANAGER_MET_STAGES
 from app.services.interview_feedback_actions import apply_post_feedback_actions
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +136,66 @@ class HiringManagerFeedbackResponse(BaseModel):
     blocks_future_proposals: bool = False
     veto_recorded: bool = False
     veto_blockers: list[str] = []
+    # Kto zapisał werdykt i czy WOŁAJĄCY może go nadpisać. Liczone po stronie
+    # serwera, żeby UI nie trzymało drugiej kopii reguły „autor / DL / admin".
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    can_edit: bool = False
+
+
+class HiringManagerFeedbackList(BaseModel):
+    """Werdykty rekrutacji + czy wołający może w ogóle zapisać werdykt.
+
+    ``can_record`` dotyczy REKRUTACJI, nie wiersza — formularz dla kandydata
+    bez werdyktu też go potrzebuje, a pusta lista nie ma w czym go nieść.
+    ``can_edit`` w wierszu zostaje osobno: mówi o nadpisaniu CUDZEGO werdyktu.
+    """
+
+    can_record: bool
+    items: list[HiringManagerFeedbackResponse]
+
+
+async def _can_record_verdict(
+    db: AsyncSession, request: Request, user: User, *, job_id: int
+) -> bool:
+    """Czy ``user`` przejdzie ``POST`` na tej rekrutacji — bez rzucania wyjątku.
+
+    Lustro bramek ``record_hiring_manager_feedback`` w tej samej kolejności:
+    tryb podglądu jest tylko do odczytu (``get_authenticated_user``), router
+    wymaga sekcji pipeline z prawem ZAPISU dla metody innej niż odczyt
+    (``PIPELINE_SECTION_DEPENDENCIES``), trasa — ról ``RecruiterPlus``
+    (``RECRUITMENT_TRANSITION_ROLES`` to ich lustro; admin przechodzi zawsze),
+    a handler — ``ensure_job_membership`` z tym samym obejściem nadzoru
+    (admin, HoR, Delivery Lead, TCM). Walidacja kandydata i powodu dotyczy
+    konkretnego zapisu, nie prawa do niego.
+    """
+    if request.headers.get(IMPERSONATION_HEADER):
+        return False
+    if section_access_for_user(user, ProductSection.pipeline) < SectionAccess.write:
+        return False
+    if not (
+        user.has_role(UserRole.admin)
+        or user.has_any_role(*RECRUITMENT_TRANSITION_ROLES)
+    ):
+        return False
+    try:
+        await ensure_job_membership(db, user, job_id)
+    except HTTPException:
+        return False
+    return True
+
+
+def _user_can_overwrite(user: User, feedback: InterviewFeedback) -> bool:
+    """Czy ``user`` może nadpisać ten werdykt — reguła ``PATCH /interview-feedback``.
+
+    ``_can_edit`` przepuszcza autora, Delivery Leada, Head of Recruitment
+    i admina; zapis stoi jednak za ``RecruiterPlus`` (bez HoR), więc rola
+    musi też należeć do zbioru, który w ogóle może zapisać werdykt — inaczej
+    ``can_edit`` obiecywałby HoR przycisk kończący się 403.
+    """
+    return user.has_any_role(*RECRUITMENT_TRANSITION_ROLES) and _can_edit_feedback(
+        user, feedback
+    )
 
 
 def _to_response(
@@ -121,6 +206,8 @@ def _to_response(
     manager_name: Optional[str],
     veto_recorded: bool,
     veto_blockers: list[str],
+    author_name: Optional[str],
+    can_edit: bool,
 ) -> HiringManagerFeedbackResponse:
     return HiringManagerFeedbackResponse(
         id=feedback.id,
@@ -138,6 +225,9 @@ def _to_response(
         blocks_future_proposals=bool(reason and reason.disqualifies_person),
         veto_recorded=veto_recorded,
         veto_blockers=veto_blockers,
+        author_id=feedback.author_id,
+        author_name=author_name,
+        can_edit=can_edit,
     )
 
 
@@ -307,6 +397,22 @@ async def record_hiring_manager_feedback(
             feedback_source=FeedbackSource.client_side,
         )
         db.add(feedback)
+    elif not _user_can_overwrite(current_user, feedback):
+        # Cudzy werdykt: nadpisuje go wyłącznie autor, DL albo admin (lustro
+        # `PATCH /api/interview-feedback`). Imię autora w odpowiedzi, bo bez
+        # niego „brak uprawnień" nie mówi, z kim to uzgodnić.
+        author_name = (
+            await db.scalar(select(User.name).where(User.id == feedback.author_id))
+            if feedback.author_id is not None
+            else None
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"Werdykt dla tego kandydata zapisał(a) {author_name or 'inna osoba'}"
+                " — zmienić go może autor, Delivery Lead albo admin."
+            ),
+        )
 
     feedback.author_id = current_user.id
     feedback.decision = payload.decision
@@ -355,26 +461,30 @@ async def record_hiring_manager_feedback(
         manager_name=manager_name,
         veto_recorded=veto_recorded,
         veto_blockers=veto_blockers,
+        author_name=current_user.name,
+        can_edit=True,
     )
 
 
 @router.get(
     "/jobs/{job_id}/hiring-manager-feedback",
-    response_model=list[HiringManagerFeedbackResponse],
+    response_model=HiringManagerFeedbackList,
 )
 async def list_hiring_manager_feedback(
     job_id: int,
+    request: Request,
     # ODCZYT szerszy niż zapis — parytet z `GET /api/interview-feedback`
     # (`RecruitmentReadAccess`, z head_of_recruitment). `RecruiterPlus` nie
     # obejmuje HoR, a HoR ma zapis w sekcji pipeline i przechodzi membership
     # jako rola nadzoru — panel feedbacku renderował mu 403 na czystym odczycie.
     current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
-) -> list[HiringManagerFeedbackResponse]:
+) -> HiringManagerFeedbackList:
     """Werdykty managera dla całej rekrutacji — po jednym na kandydata.
 
     Karta rozmowy pyta o CAŁĄ rekrutację raz, zamiast o jednego kandydata przy
-    każdym kliknięciu w lewej kolumnie.
+    każdym kliknięciu w lewej kolumnie. ``can_record`` mówi, czy wołający
+    przejdzie ``POST`` (patrz :func:`_can_record_verdict`).
 
     ``_veto_state`` liczy się per wiersz (dwa lekkie ``SELECT ... LIMIT 1``), bo
     zależy od historii etapów KONKRETNEJ pary. Zbiór jest z natury mały —
@@ -387,16 +497,21 @@ async def list_hiring_manager_feedback(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nie znaleziono rekrutacji."
         )
-    await ensure_job_membership(db, current_user, job_id)
+    # ODCZYT, nie polecenie: Finance ma organizacyjny odczyt rekrutacji
+    # (decyzja 31.08) i dostawało tu 403 z bramki członkostwa, którą chronimy
+    # zapisy. `ensure_job_read_access` wpuszcza Finance, resztę kieruje do
+    # tej samej bramki członkostwa co dotąd.
+    await ensure_job_read_access(db, current_user, job_id)
 
     rows = list(
         (
             await db.execute(
-                select(InterviewFeedback, RejectionReason)
+                select(InterviewFeedback, RejectionReason, User.name)
                 .outerjoin(
                     RejectionReason,
                     RejectionReason.id == InterviewFeedback.rejection_reason_id,
                 )
+                .outerjoin(User, User.id == InterviewFeedback.author_id)
                 .where(
                     InterviewFeedback.job_id == job_id,
                     InterviewFeedback.feedback_source == FeedbackSource.client_side,
@@ -414,7 +529,7 @@ async def list_hiring_manager_feedback(
         )
 
     out: list[HiringManagerFeedbackResponse] = []
-    for feedback, reason in rows:
+    for feedback, reason, author_name in rows:
         veto_recorded, veto_blockers = await _veto_state(
             db, job=job, candidate_id=feedback.candidate_id, reason=reason
         )
@@ -426,6 +541,9 @@ async def list_hiring_manager_feedback(
                 manager_name=manager_name,
                 veto_recorded=veto_recorded,
                 veto_blockers=veto_blockers,
+                author_name=author_name,
+                can_edit=_user_can_overwrite(current_user, feedback),
             )
         )
-    return out
+    can_record = await _can_record_verdict(db, request, current_user, job_id=job_id)
+    return HiringManagerFeedbackList(can_record=can_record, items=out)

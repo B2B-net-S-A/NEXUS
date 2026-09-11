@@ -7,12 +7,22 @@ Pipeline for one (candidate, job) pair:
      ``CandidateMatchJustification`` row matches that fingerprint, serve it — no
      LLM call.
   3. On a miss (or ``force``), gate the paid LLM call behind the reserved
-     ``AIFeatureKey.scoring`` toggle/quota, ask Claude to *explain* the score
-     (never to change it), and upsert the prose.
+     ``AIFeatureKey.scoring`` toggle/quota, ask Claude for a qualitative
+     verdict (strengths, gaps, what to confirm), and upsert the prose.
 
 The LLM only produces prose (summary / pros / watch-outs). The number always
 comes from the deterministic engine, so the ring stays consistent with the rest
 of the app and the model can't inflate a match.
+
+Displayed score vs prose input (09.2026): the ring shows the CANONICAL base fit
+under the viewer's active profile (``display_fit``) — the number every C2
+screen shows for the pair since #1428. The prose is still generated from, and
+cached under, the legacy breakdown (steps 1-3 above): switching its input would
+make the cache key depend on the viewer's weight profile. Because the two
+numbers differ, the prompt (``MATCH_JUSTIFICATION`` v2) forbids the prose from
+stating points, scores or percentages at all; ``display_fit`` runs in its own
+session so it can neither poison the request transaction nor leak reviewed
+evidence into the legacy breakdown the prose is hashed from.
 """
 
 from __future__ import annotations
@@ -30,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -257,7 +268,12 @@ def _format_score_breakdown(bd: dict) -> str:
 
 
 def _prompt_inputs(candidate: Candidate, job: Job, breakdown: dict) -> dict:
-    """One canonical payload shared by hashing and rendering."""
+    """One canonical payload shared by hashing and rendering.
+
+    No separate ``score`` field: the prose never states a number (the ring
+    shows the canonical fit, this breakdown is the legacy one). The breakdown
+    still carries its total, so the hash still moves when the score does.
+    """
     return dict(
         job_title=job.title or "(brak tytułu)",
         job_requirements=_job_requirements_text(job),
@@ -266,7 +282,6 @@ def _prompt_inputs(candidate: Candidate, job: Job, breakdown: dict) -> dict:
         candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
         candidate_skills=_skills_to_text(sorted(candidate_skill_names(candidate))),
         candidate_cv=_candidate_cv_text(candidate),
-        score=int(round(breakdown.get("total") or 0)),
         score_breakdown=_format_score_breakdown(breakdown),
     )
 
@@ -441,6 +456,64 @@ async def _compute_breakdown(
         semantic_similarity=similarity,
         allow_cache_write=not provider_outage,
     )
+
+
+async def display_fit(
+    candidate_id: int,
+    job_id: int,
+    *,
+    user_id: Optional[int],
+) -> tuple[Optional[int], str]:
+    """``(score, measurement)`` the tab shows — the number C2 shows for the pair.
+
+    Canonical base fit (``score_candidates``) under the viewer's active
+    profile, exactly like the kanban ring (``/pipeline-scores``), /ai-matches
+    and the shortlist. ``score`` is ``None`` when the pair has no verified
+    semantic measurement (stale/missing vector, provider outage): the ring then
+    says "not measured" instead of showing a number no other screen shows.
+
+    Runs in its OWN short-lived, read-only session, never the request's:
+
+    * a failed query poisons the transaction it ran in, and rolling back the
+      request session expires every object loaded through it — including the
+      authenticated ``current_user`` — so the next attribute read in the route
+      was a ``MissingGreenlet`` 500 instead of a readable justification;
+    * ``score_candidates`` attaches reviewed requirement evidence to the ORM
+      candidate it scores (``_reviewed_requirements``). On the request session
+      that is the SAME identity-mapped instance the legacy prose path scores
+      next, so the legacy breakdown — and with it the prose ``input_hash`` and
+      the stored legacy cache row — flipped depending on whether the ring had
+      been computed first.
+
+    Never raises: the justification must stay readable even if the measurement
+    fails; the ring then says "not measured" (``unavailable``).
+    """
+    from app.services.canonical_fit import display_score, score_candidates
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    try:
+        async with AsyncSessionLocal() as session:
+            candidate = await session.get(Candidate, candidate_id)
+            job = await session.get(Job, job_id)
+            if candidate is None or job is None:
+                return None, "unavailable"
+            profile = await resolve_active_profile(
+                session, user_id=user_id, client_id=job.client_id
+            )
+            fits = await score_candidates(
+                session, build_request_context(job, profile), [candidate]
+            )
+    except Exception as exc:  # noqa: BLE001 — the number is best-effort here
+        logger.warning(
+            "match_justification: canonical fit failed candidate=%s job=%s: %s",
+            candidate_id,
+            job_id,
+            exc,
+        )
+        return None, "unavailable"
+    fit = fits[0]
+    return display_score(fit.fit_score), fit.measurement
 
 
 # ── Orchestration ───────────────────────────────────────────────────────────

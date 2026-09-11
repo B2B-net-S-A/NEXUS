@@ -18,6 +18,9 @@ _QUERY_CACHE_LIMIT = 128
 _QUERY_CACHE_TTL = 300
 _QUERY_VECTOR_VERSION = "chunk-8000-mean-v1"
 _YIELD_EVERY = 32
+# The only payload keys that decide whether a stored vector is a verified
+# measurement of the CURRENT candidate text; nothing else is transferred.
+_PROVENANCE_KEYS = ("content_hash", "embedding_model")
 _query_cache: OrderedDict[tuple[str, str, str], tuple[float, tuple[float, ...]]] = (
     OrderedDict()
 )
@@ -26,6 +29,10 @@ _query_cache: OrderedDict[tuple[str, str, str], tuple[float, tuple[float, ...]]]
 async def _cooperate() -> None:
     """Yield to the event loop between CPU-bound slices of a batch."""
     await asyncio.sleep(0)
+
+
+class _ExactSearchRejected(Exception):
+    """Qdrant refused the scoring request itself (4xx) — not an outage."""
 
 
 @dataclass(frozen=True)
@@ -108,12 +115,127 @@ async def request_vector(text: str) -> list[float] | None:
     return result
 
 
+def _similarity(score) -> float | None:
+    """Qdrant's COSINE score on the scale of :func:`cosine`: finite, [-1, 1]."""
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(score)
+    ):
+        return None
+    return max(-1.0, min(1.0, float(score)))
+
+
+def _exact_search(query_vector, ids):
+    """Blocking: ONE id-filtered exact search; Qdrant computes every cosine.
+
+    Replaces pulling 256 × 1024 floats per batch as JSON and multiplying them
+    in pure Python (the dominant cost of a full-population scan). ``exact``
+    turns off the ANN graph, so every filtered point is scored; quantization is
+    ignored so the original vectors are used, as the retrieve path did. Only
+    the provenance payload travels back — no vectors.
+    """
+    from qdrant_client.http.exceptions import UnexpectedResponse
+    from qdrant_client.models import (
+        Filter,
+        HasIdCondition,
+        QuantizationSearchParams,
+        SearchParams,
+    )
+
+    client = embeddings._get_qdrant_client()
+    if client is None:
+        raise RuntimeError("Vector store unavailable")
+    try:
+        return client.search(
+            collection_name=embeddings._collection(),
+            query_vector=query_vector,
+            query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
+            search_params=SearchParams(
+                exact=True, quantization=QuantizationSearchParams(ignore=True)
+            ),
+            limit=len(ids),
+            with_payload=list(_PROVENANCE_KEYS),
+            with_vectors=False,
+        )
+    except UnexpectedResponse as exc:
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            raise _ExactSearchRejected(exc.status_code) from exc
+        raise
+    finally:
+        client.close()
+
+
 async def measure_candidates(query_vector, candidates) -> dict[int, VectorMeasurement]:
+    """Provenance-checked cosine for every candidate, scored inside Qdrant.
+
+    Semantics are those of :func:`_measure_by_retrieval` (the reference path):
+    absent point → ``missing_index``; payload hash/model not matching the
+    current text → ``stale``; otherwise the cosine, ``unavailable`` when it
+    cannot be computed. Two deliberate delegations keep that true where Qdrant
+    alone cannot: a 4xx (e.g. a query of the wrong dimension) re-runs the batch
+    on the reference path, and an exact 0.0 — which is also what a zero-norm
+    stored vector scores — is re-checked on the vectors, so a malformed vector
+    is never reported as a measured zero.
+    """
     ids = [candidate.id for candidate in candidates]
     if not ids:
         return {}
     if query_vector is None:
         return {cid: VectorMeasurement(None, "unavailable") for cid in ids}
+    try:
+        hits = await embeddings._run_qdrant(lambda: _exact_search(query_vector, ids))
+    except _ExactSearchRejected:
+        return await _measure_by_retrieval(query_vector, candidates)
+    except Exception:
+        return {cid: VectorMeasurement(None, "unavailable") for cid in ids}
+    by_id = {int(hit.id): hit for hit in hits}
+    model = embeddings._voyage_model()
+    results: dict[int, VectorMeasurement] = {}
+    zero_scored = []
+    for index, candidate in enumerate(candidates):
+        # Text build + sha256 per candidate is pure CPU; hand the event loop
+        # back regularly so HTTP requests in this process are not starved by a
+        # full-population scan. Results are unaffected.
+        if index and index % _YIELD_EVERY == 0:
+            await _cooperate()
+        hit = by_id.get(candidate.id)
+        if hit is None:
+            results[candidate.id] = VectorMeasurement(None, "missing_index")
+            continue
+        expected = hashlib.sha256(
+            embeddings._build_candidate_text(candidate).encode()
+        ).hexdigest()
+        payload = hit.payload or {}
+        # Unknown provenance is explicitly stale until reconciliation/reindex;
+        # an old vector is never presented as a verified current measurement.
+        if (
+            payload.get("content_hash") != expected
+            or payload.get("embedding_model") != model
+        ):
+            results[candidate.id] = VectorMeasurement(None, "stale")
+            continue
+        score = _similarity(hit.score)
+        if score == 0.0:
+            zero_scored.append(candidate)
+            continue
+        results[candidate.id] = VectorMeasurement(
+            score, "measured" if score is not None else "unavailable"
+        )
+    if zero_scored:
+        results.update(await _measure_by_retrieval(query_vector, zero_scored))
+    return results
+
+
+async def _measure_by_retrieval(
+    query_vector, candidates
+) -> dict[int, VectorMeasurement]:
+    """Reference path: pull the stored vectors and compute the cosine here.
+
+    Too slow for a whole population (it was the full scan's bottleneck); kept
+    for the cases in which Qdrant's own score cannot stand in for it.
+    """
+    ids = [candidate.id for candidate in candidates]
 
     def retrieve():
         client = embeddings._get_qdrant_client()

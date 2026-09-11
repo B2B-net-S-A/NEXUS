@@ -1,7 +1,12 @@
+# UWAGA: bez `from __future__ import annotations` — `@limiter.limit` na
+# `/candidates/scores` (slowapi #579: PEP 563 zamienia body i `Annotated`
+# guardy w parametry QUERY → 422 na poprawnym żądaniu).
+import hashlib
+import json
 import time
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,12 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
 from app.models.job import Job
-from app.models.match_score import CandidateJobMatchScore
 from app.models.recruitment_pipeline import CandidateStage
 from app.schemas.candidate_search import (
     CandidateSearchItem,
@@ -28,7 +33,6 @@ from app.schemas.candidate_search import (
     SearchMeta,
     WaterfallStage,
 )
-from app.services.match_score_cache import fresh_score_conditions
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
@@ -201,43 +205,105 @@ async def _competence_facets(
 
 
 @router.post("/candidates/scores", response_model=MatchScoresResponse)
+# Every call measures on demand (query embedding + exact vector lookup +
+# scoring); the front end asks per viewport, so this is a ceiling for runaway
+# clients, not a budget normal scrolling ever reaches.
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def candidate_match_scores(
+    request: Request,
     body: MatchScoresRequest,
     current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> MatchScoresResponse:
-    """Read-only cached hybrid match scores (0-100) for candidates against a
-    job (SEARCH-P1-03).
+    """Canonical base fit (0-100) of the VISIBLE search rows against a job.
 
-    Returns only candidates that already have a fresh cached score (computed by
-    recommendations / kanban). This endpoint NEVER computes or writes a score,
-    so it cannot pollute the shared cache with semantic-less values — it just
-    surfaces the same numbers shown elsewhere on job-context search rows.
+    The same number every C2 screen shows for the pair (recommendations,
+    /ai-matches, shortlist, proposals, pipeline badges): ``score_candidates``
+    with the viewer's active profile, measured on demand. Until 09.2026 this
+    read only fresh rows of the legacy composite cache — a cache nothing on the
+    current ranker writes any more, so on production the column was silently
+    empty for every row. Nothing is read from or written to that cache here, so
+    the route stays a read-only POST (``request_semantics``).
+
+    Bounded by the request schema (``MATCH_SCORES_MAX_CANDIDATES`` ids — the
+    front end asks only for rows on screen). Scoped by the SAME guard as the
+    full-search runs, ``/pipeline-scores`` and ``/ai-matches``
+    (``_authorized_job``: pipeline section read + the recruitment exists):
+    a recruiter outside the job team already sees this number on those C2
+    screens, so the column cannot be stricter. A candidate without a verified
+    measurement (stale/missing vector, provider outage) gets no score — never
+    a retrieval score in disguise — and its breakdown says why
+    (``measurement``), so the row can say "not measured" instead of looking
+    unscored. ``profile_key`` names the weight profile the scores were
+    computed under, so a client cache never mixes two profiles on one screen.
     """
     if not body.candidate_ids:
         return MatchScoresResponse(scores={})
 
-    from app.services.scoring_service import DEFAULT_PROFILE  # noqa: PLC0415
-
-    rows = (
-        await db.execute(
-            select(
-                CandidateJobMatchScore.candidate_id,
-                CandidateJobMatchScore.total_score,
-                CandidateJobMatchScore.breakdown,
-            ).where(
-                *fresh_score_conditions(
-                    job_id=body.job_id,
-                    profile_id=DEFAULT_PROFILE.id,
-                    candidate_ids=body.candidate_ids,
-                )
-            )
-        )
-    ).all()
-    return MatchScoresResponse(
-        scores={str(cid): round(total) for cid, total, _ in rows},
-        breakdowns={str(cid): bd for cid, _, bd in rows if bd},
+    from app.analytics.capabilities import (  # noqa: PLC0415
+        AnalyticsCapability,
+        user_has_capability,
     )
+    from app.api.candidate_search import _authorized_job  # noqa: PLC0415
+    from app.api.recommendations import _score_breakdown_payload  # noqa: PLC0415
+    from app.services.canonical_fit import (  # noqa: PLC0415
+        display_score,
+        score_candidates,
+    )
+    from app.services.request_matching_context import (  # noqa: PLC0415
+        build_request_context,
+    )
+    from app.services.scoring_service import resolve_active_profile  # noqa: PLC0415
+
+    job = await _authorized_job(db, current_user, body.job_id)
+    candidate_ids = list(dict.fromkeys(body.candidate_ids))
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(candidate_ids))))
+        .scalars()
+        .all()
+    )
+    if not candidates:
+        return MatchScoresResponse(scores={})
+
+    profile = await resolve_active_profile(
+        db, user_id=current_user.id, client_id=job.client_id
+    )
+    context = build_request_context(job, profile)
+    fits = await score_candidates(db, context, candidates)
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
+    scores: dict[str, int] = {}
+    breakdowns: dict[str, Any] = {}
+    for fit in fits:
+        key = str(fit.breakdown.candidate_id)
+        score = display_score(fit.fit_score)
+        if score is None:
+            breakdowns[key] = {"total": None, "measurement": fit.measurement}
+            continue
+        scores[key] = score
+        breakdowns[key] = {
+            **_score_breakdown_payload(fit.breakdown, include_finance=include_finance),
+            "total": fit.fit_score,
+            "measurement": fit.measurement,
+        }
+    return MatchScoresResponse(
+        scores=scores,
+        breakdowns=breakdowns,
+        profile_key=_profile_key(context.weights),
+    )
+
+
+def _profile_key(weights: dict) -> str:
+    """``<profile id>:<digest>`` of the base-fit weights the fit was computed with.
+
+    The id alone would miss an admin editing a profile's weights in place; the
+    digest alone would be opaque when debugging a response.
+    """
+    digest = hashlib.sha256(
+        json.dumps(weights, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"{weights.get('id')}:{digest[:12]}"
 
 
 async def _diagnostics_count(db: AsyncSession, clauses: list[Any]) -> int:

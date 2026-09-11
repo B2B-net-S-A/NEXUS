@@ -55,7 +55,14 @@ logger = logging.getLogger(__name__)
 # ekstrakcji strukturalnej płaci się za realnie wygenerowane tokeny, więc
 # normalne CV nie drożeją. Mieści się pod capem outputu modelu fallbackowego.
 _DEFAULT_MAX_TOKENS = 16384
-_DEFAULT_MAX_RETRIES = 1
+# 3, jak przed #1476. Tamta zmiana obniżyła domyślkę do 1 razem z wprowadzeniem
+# wspólnego limitu czasu (`CV_B2B_TOTAL_TIMEOUT`), ale to limit — nie liczba
+# prób — pilnuje, żeby etap AI nie przekroczył budżetu: `call_claude` nie
+# zaczyna próby po terminie, skraca timeout ostatniej do pozostałego czasu
+# i odmawia backoffu, który by go przekroczył. Przy jednej ponownej próbie
+# zwykłe, krótkie przeciążenie (529) kończyło generację błędem, choć w
+# budżecie zostawało kilka minut.
+_DEFAULT_MAX_RETRIES = 3
 # Sufit per żądanie. Domyślka SDK to 600 s — o wiele za dużo dla wywołania
 # biegnącego synchronicznie w slocie threadpoola FastAPI.
 _DEFAULT_REQUEST_TIMEOUT = 120.0

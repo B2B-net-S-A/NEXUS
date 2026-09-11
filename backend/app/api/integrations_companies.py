@@ -7,12 +7,22 @@ here is guarded by ``require_scope``, never by a user JWT.
 
 Three relationship buckets, strongest first:
 
-- ``via_us``  — placed there through us (``Contract`` with that client, or a
-  ``current_employment`` conflict flag). The strongest sales signal: it is a
-  reference, not a coincidence.
-- ``current`` — works there now (``linkedin_current_company`` or an
-  ``experience[*]`` entry with ``end IS NULL``).
-- ``past``    — worked there before (any other ``experience[*]`` entry).
+- ``via_us``  — placed there through us: a ``Contract`` with that client that
+  ran (``active``/``ending``/``ended``), or a ``draft`` /
+  ``ready_for_signature`` one that carries a real engagement — an active
+  order or the candidate's current ``hired`` stage in that client's
+  recruitment (``contract_service.placed_contract_clause``, the contractor
+  registry's liveness definition). Hiring creates a draft contract that
+  Delivery completes later, so dropping every draft dropped real placements;
+  a bare draft and a ``void`` contract still do not count — "we placed people
+  there" must be a reference we can back up.
+- ``current`` — works there now (``linkedin_current_company``, an
+  ``experience[*]`` entry whose ``end`` marks a current job — empty or
+  "present"/"obecnie"-like, ``experience_end`` — or an ACTIVE
+  ``current_employment`` conflict flag — that flag says "employed there now",
+  not "placed by us").
+- ``past``    — worked there before (any other ``experience[*]`` entry, or a
+  conflict flag that is no longer active).
 
 Matching is EXACT on the canonical company name, not substring. The UI filters
 in ``app.api.candidates`` use ``LIKE '%value%'`` because a human picks the
@@ -21,6 +31,13 @@ company name, and a false positive surfaces in a sales conversation as
 "we told them we have people there" when we do not. The substring predicates
 are still used as a cheap SQL prefilter — the exact decision happens in
 ``_match_experience`` against ``normalize_company_name``.
+
+The prefilter is BOUNDED: every name handed to ``LIKE`` passes the canonical
+minimum length (a raw alias whose canonical form is "it" used to slip through
+as ``LIKE '%it%'`` and scan — and load — most of the table), every query has a
+row cap, and the whole lookup runs under a transaction-local statement
+timeout. When a cap is hit the answer is flagged ``truncated`` instead of
+pretending to be complete.
 """
 
 # NIE dodawaj tu `from __future__ import annotations`.
@@ -44,7 +61,8 @@ from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -54,15 +72,18 @@ from sqlalchemy.orm import load_only
 from app.api.candidates import (
     _current_company_predicate,
     _past_company_predicate,
-    _worked_at_client_predicate,
 )
 from app.api.oauth_token import ClientPrincipal, require_scope
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.database import get_db
 from app.models.candidate import Candidate
+from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
+from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
+from app.services.contract_service import placed_contract_clause
+from app.services.experience_end import is_current_end
 
 router = APIRouter()
 
@@ -70,6 +91,18 @@ router = APIRouter()
 # match far too much even under exact comparison once a CRM name normalises
 # down to them, and the SQL prefilter would scan the whole candidate table.
 _MIN_NAME_LEN = 3
+
+# Row cap per query. The substring prefilter is deliberately loose (the exact
+# decision happens in Python), so without a cap a short canonical name loads
+# every candidate whose CV mentions it — for "ing" that is most of the table.
+# Well above `_MAX_PEOPLE`, so the exact pass still has room to find a full
+# page; hitting it flags the answer `truncated`.
+_PREFILTER_ROW_CAP = 2000
+
+# Transaction-local ceiling for the whole lookup. The JSONB predicates scan
+# the candidate table; a pathological name must fail fast (503) instead of
+# holding a worker and a connection for minutes.
+_STATEMENT_TIMEOUT_MS = 8000
 
 # Per-name character cap. `max_length` on the list bounds how MANY names arrive,
 # not how long each one is — without this a single 50 000-char name becomes a
@@ -202,11 +235,16 @@ class CompanyPeopleResponse(BaseModel):
             "Matches per bucket BEFORE `limit` is applied — so the caller can "
             "say 'we know 150 people there' while listing 100. When "
             "`truncated` is true, sum(counts) is larger than len(people); "
-            "render the two from the same source or the UI contradicts itself."
+            "render the two from the same source or the UI contradicts itself. "
+            "When a prefilter row cap was hit, counts are LOWER BOUNDS."
         ),
     )
     truncated: bool = Field(
-        False, description="True when more matches exist than `limit` returned."
+        False,
+        description=(
+            "True when more matches exist than `limit` returned, or when a "
+            "prefilter row cap was hit (the scan did not see every candidate)."
+        ),
     )
     people: list[MatchedPerson]
 
@@ -280,8 +318,10 @@ def _match_experience(
             continue
         if normalize_company_name(company) not in canonical_names:
             continue
-        # `end IS NULL` is the canonical current-job marker (see candidates.py).
-        if entry.get("end") in (None, ""):
+        # `end IS NULL` is the canonical current-job marker (see candidates.py);
+        # an empty `end` and "present"/"obecnie"-like words mean the same
+        # (`experience_end` — one rule with the candidate filters).
+        if is_current_end(entry.get("end")):
             return "current", entry
         if fallback is None:
             fallback = entry
@@ -399,11 +439,8 @@ async def company_people(
             detail="names_empty",
         )
 
-    canonical_names = {
-        c
-        for c in (normalize_company_name(n) for n in raw_names)
-        if len(c) >= _MIN_NAME_LEN
-    }
+    canonical_by_raw = {n: normalize_company_name(n) for n in raw_names}
+    canonical_names = {c for c in canonical_by_raw.values() if len(c) >= _MIN_NAME_LEN}
     if not canonical_names:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -414,26 +451,122 @@ async def company_people(
             },
         )
 
-    client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
+    try:
+        return await _lookup_company_people(
+            db,
+            payload=payload,
+            raw_names=raw_names,
+            canonical_by_raw=canonical_by_raw,
+            canonical_names=canonical_names,
+        )
+    except DBAPIError as exc:
+        if not _is_statement_timeout(exc):
+            raise
+        # The aborted transaction must be rolled back before the dependency's
+        # commit — otherwise the 503 turns into a PendingRollbackError 500.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "lookup_timeout",
+                "hint": "Lookup exceeded the time budget — retry with a more specific company name.",
+            },
+        ) from exc
 
-    # ── via_us: authoritative, from contracts — independent of CV text ──────
-    via_us_ids: set[int] = set()
+
+def _is_statement_timeout(exc: DBAPIError) -> bool:
+    """`statement_timeout` fired (SQLSTATE 57014), not some other DB failure."""
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if sqlstate == "57014":
+        return True
+    text_ = f"{type(orig).__name__} {orig}".lower() if orig is not None else ""
+    return "querycanceled" in text_ or "statement timeout" in text_
+
+
+async def _lookup_company_people(
+    db: AsyncSession,
+    *,
+    payload: CompanyPeopleRequest,
+    raw_names: list[str],
+    canonical_by_raw: dict[str, str],
+    canonical_names: set[str],
+) -> CompanyPeopleResponse:
+    """The bounded lookup itself — every query below runs under the timeout."""
+    # Transaction-local: resets on commit/rollback, never leaks to the pool.
+    await db.execute(
+        select(func.set_config("statement_timeout", str(_STATEMENT_TIMEOUT_MS), True))
+    )
+
+    client = await _resolve_client(db, canonical_names, _normalize_nip(payload.nip))
+    capped = False
+
+    # ── via_us: authoritative, from contracts that ran — independent of CV ──
+    via_us: list[Candidate] = []
+    conflict_active: dict[int, bool] = {}
     if client is not None:
-        via_us_rows = (
+        via_us = list(
+            (
+                await db.execute(
+                    select(Candidate)
+                    .options(_candidate_columns())
+                    .where(
+                        select(1)
+                        .where(
+                            and_(
+                                Contract.candidate_id == Candidate.id,
+                                Contract.client_id == client.id,
+                                placed_contract_clause(),
+                            )
+                        )
+                        .exists()
+                    )
+                    .order_by(Candidate.id)
+                    .limit(_PREFILTER_ROW_CAP + 1)
+                )
+            ).scalars()
+        )
+        # One row per candidate here (EXISTS, not a join), so rows == people.
+        if len(via_us) > _PREFILTER_ROW_CAP:
+            via_us, capped = via_us[:_PREFILTER_ROW_CAP], True
+
+        # A `current_employment` flag says "employed there", not "placed by
+        # us" — it belongs to `current` (active) or `past` (lifted), never to
+        # the reference bucket.
+        conflict_rows = (
             await db.execute(
-                select(Candidate)
-                .options(_candidate_columns())
-                .where(_worked_at_client_predicate([client.id]))
+                select(CandidateConflict.candidate_id, CandidateConflict.active)
+                .where(
+                    CandidateConflict.client_id == client.id,
+                    CandidateConflict.type == ConflictType.current_employment,
+                )
+                .order_by(CandidateConflict.candidate_id)
+                .limit(_PREFILTER_ROW_CAP + 1)
             )
-        ).scalars()
-        via_us: list[Candidate] = list(via_us_rows)
-        via_us_ids = {c.id for c in via_us}
-    else:
-        via_us = []
+        ).all()
+        # The cap is on ROWS: a person with several lifted flags has several
+        # rows. Counting distinct people (the dict below) hid a cut — cap+1
+        # rows for fewer than cap people came back as a complete answer.
+        if len(conflict_rows) > _PREFILTER_ROW_CAP:
+            conflict_rows, capped = conflict_rows[:_PREFILTER_ROW_CAP], True
+        for candidate_id, active in conflict_rows:
+            conflict_active[candidate_id] = conflict_active.get(
+                candidate_id, False
+            ) or bool(active)
+    via_us_ids = {c.id for c in via_us}
 
     # ── current / past: SQL prefilter (substring) then exact canonical match ─
-    name_list = list(canonical_names) + raw_names
-    cv_rows = (
+    # Raw aliases stay in the prefilter — SQL `lower()` does not strip Polish
+    # diacritics or punctuation the way `normalize_company_name` does, so
+    # "Żabka" in a CV only matches the raw spelling — but ONLY when their
+    # canonical twin passed the minimum length. Before, a raw alias bypassed
+    # that rule and "IT" went out as `LIKE '%it%'`.
+    name_list = sorted(canonical_names) + [
+        raw
+        for raw, canonical in canonical_by_raw.items()
+        if canonical in canonical_names
+    ]
+    cv_rows = list(
         (
             await db.execute(
                 select(Candidate)
@@ -444,11 +577,15 @@ async def company_people(
                         _past_company_predicate(name_list),
                     )
                 )
+                .order_by(Candidate.id)
+                .limit(_PREFILTER_ROW_CAP + 1)
             )
         )
         .scalars()
         .all()
     )
+    if len(cv_rows) > _PREFILTER_ROW_CAP:
+        cv_rows, capped = cv_rows[:_PREFILTER_ROW_CAP], True
 
     people: list[MatchedPerson] = []
     counts = {"via_us": 0, "current": 0, "past": 0}
@@ -463,19 +600,48 @@ async def company_people(
         people.append(_to_person(candidate, "via_us", entry))
         counts["via_us"] += 1
 
+    reported: set[int] = set(via_us_ids)
     for candidate in cv_rows:
-        if candidate.id in via_us_ids:
+        if candidate.id in reported:
             continue  # already reported under the stronger bucket
         relationship, entry = _match_experience(candidate, canonical_names)
         if relationship is None:
             continue  # substring prefilter hit, canonical comparison rejected
+        if relationship == "past" and conflict_active.get(candidate.id):
+            # The CV lists an older stint, but the client flagged the person
+            # as employed there NOW — the flag is the fresher signal.
+            relationship = "current"
         people.append(_to_person(candidate, relationship, entry))
         counts[relationship] += 1
+        reported.add(candidate.id)
+
+    # Conflict-flagged people whose CV never names the company (or did not
+    # survive the prefilter cap) — reported from the flag alone.
+    missing_flagged = [cid for cid in conflict_active if cid not in reported]
+    if missing_flagged:
+        for candidate in (
+            await db.execute(
+                select(Candidate)
+                .options(_candidate_columns())
+                .where(Candidate.id.in_(missing_flagged))
+                .order_by(Candidate.id)
+            )
+        ).scalars():
+            relationship = "current" if conflict_active[candidate.id] else "past"
+            people.append(
+                _to_person(
+                    candidate,
+                    relationship,
+                    {"company": client.name if client else None},
+                )
+            )
+            counts[relationship] += 1
+            reported.add(candidate.id)
 
     order = {"via_us": 0, "current": 1, "past": 2}
     people.sort(key=lambda p: (order[p.relationship], p.lastname or "", p.name or ""))
 
-    truncated = len(people) > payload.limit
+    truncated = capped or len(people) > payload.limit
     return CompanyPeopleResponse(
         query=raw_names[0],
         canonical=sorted(canonical_names)[0],

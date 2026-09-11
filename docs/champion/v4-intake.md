@@ -13,7 +13,7 @@ Pliki w `backend/tests/fixtures/champion/` zawierają wyłącznie syntetyczne pr
 
 `validation.issues` zawiera kod, ścieżkę pola, komunikat, poziom, fragment źródłowy oraz blokowane operacje (`search`, `handoff`, `cv`). Szkic można zapisać. Uruchomienie zablokowanej operacji zwraca 422 z tym samym wynikiem walidacji. Sam brak budżetu nie blokuje dopasowanego CV.
 
-Wersja reguł (`intake.policy_version=1`), wersja dokumentu (`intake.template_version=4.0`) i wersja parsera (`_parser`) są niezależne. Nierozstrzygnięte wpisy pozostają w `intake.unresolved`, a nie w polach liczbowych. Pola autora i czasu nadaje serwer. Weryfikacja, briefing i historia wyszukiwań mają osobne ścieżki zapisu.
+Wersja reguł (`intake.policy_version=1`), wersja dokumentu (`intake.template_version=4.0`) i wersja parsera (`_parser`) są niezależne. Nierozstrzygnięte wpisy pozostają w `intake.unresolved`, a nie w polach liczbowych. Wpisy zachowane, ale warte sprawdzenia — stawka z dokumentu podana zakresem obok zachowanej liczby, wymaganie MUST/NICE zapisane zdaniem — trafiają do `intake.advisory`: to wyłącznie ostrzeżenia, nigdy nie czyszczą pola ani nie blokują operacji. Zapis normalizuje tylko pola, które zmienił. Limit 14 000 znaków dotyczy wyłącznie odczytu przez AI; formularz Word v4 czytany z tabel go nie ma. Pola autora i czasu nadaje serwer. Weryfikacja, briefing i historia wyszukiwań mają osobne ścieżki zapisu.
 
 ## Stopniowe objęcie profilów regułami
 

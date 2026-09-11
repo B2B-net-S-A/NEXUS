@@ -108,6 +108,8 @@ async def run_traffit_backfill(
         # czyli mrozi watermark bezterminowo. Patrz `_attributed_progress`
         # w `app/tasks/traffit_sync.py`.
         "error_ids": [],
+        # Klasa wyjątku per ID — do próbki błędu fazy w `/sync/status`.
+        "error_types": {},
     }
     if progress is not None:
         progress.update(stats)
@@ -136,13 +138,14 @@ async def run_traffit_backfill(
                 )
             stats["facts_upserted"] += fact_stats.matched
             stats["unmatched_tokens"] += fact_stats.unmatched
-        except Exception:  # noqa: BLE001 — pojedynczy kandydat nie ubija runu
+        except Exception as exc:  # noqa: BLE001 — pojedynczy kandydat nie ubija runu
             stats["errors"] += 1
             # Zatrzymaj ID: faza syncu robi z tego błąd PRZYPISANY do wiersza,
             # więc kwarantanna może zaparkować trwale zepsutego kandydata
             # zamiast mrozić watermark wszystkim pozostałym.
             if len(stats["error_ids"]) < _MAX_ERROR_IDS:
                 stats["error_ids"].append(candidate_id)
+                stats["error_types"][candidate_id] = type(exc).__name__
             logger.exception("cortex traffit backfill failed for id=%s", candidate_id)
 
         stats["processed"] += 1

@@ -34,15 +34,44 @@ CZTERY REGUŁY, KTÓRE TRZYMAJĄ TO BEZPIECZNYM
    w feedzie nie jest dowodem odejścia — może znaczyć „inna domena",
    „konto serwisowe człowieka" albo „COMPASS przysłał niepełną listę".
    Deaktywacja wymaga JAWNEGO ``exited``, nie ciszy.
+
+5. **Osoba ``exited`` nie zachowuje dostępu — chyba że admin JAWNIE przywrócił
+   konto W TYM epizodzie odejścia.** Aktywne konto osoby ``exited`` jest
+   deaktywowane przy każdym przebiegu, z jednym wyjątkiem: ręczne włączenie
+   przez admina (``Activity`` ``active_changed`` z ``to=True`` z
+   ``PUT /api/admin/users/{id}``) NOWSZE niż początek bieżącego epizodu
+   odejścia — np. osoba wróciła na umowę, której COMPASS jeszcze nie
+   odnotował. Włączenia, które takiego śladu nie zostawiają (logowanie SSO
+   z grupą AAD, resync grup AAD przez admina), się nie liczą: następny
+   przebieg wyłącza konto ponownie, bo o odejściach decyduje COMPASS.
+   Późniejsza jawna deaktywacja przez admina (``active_changed`` na ``False``
+   albo ``user_deactivated``) unieważnia wcześniejsze włączenie.
+
+   Początek epizodu to chwila, w której pętla ZOBACZYŁA zmianę statusu na
+   ``exited`` (zapisywana per konto w ``app_settings['compass_lifecycle_state']``).
+   Przy pierwszej obserwacji konta (brak zapisanego stanu) początkiem jest
+   ostatnia deaktywacja tą pętlą (``compass_lifecycle_deactivated``), a gdy
+   takiej nie ma — chwila przebiegu. Pętla sprzed 09.2026 NIE zostawiała
+   żadnego śladu deaktywacji, więc włączenie sprzed wdrożenia tej reguły nie
+   ma się do czego odnieść i nie chroni konta — decyzja admina podjęta po
+   pierwszym przebiegu jest honorowana do końca epizodu. Dzięki temu włączenie z 2025
+   nie chroni przed odejściem w 2026, a flip SSO po deaktywacji nie przywraca
+   dostępu. Każda deaktywacja zostawia wpis ``Activity``
+   (``compass_lifecycle_deactivated``).
 """
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
+from app.models.activity import Activity
+from app.models.app_setting import AppSetting
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -53,6 +82,22 @@ _TIMEOUT_SECONDS = 20.0
 # CELOWO — „wszystko poza active" wciągnęłoby `offboarding`.
 _DEACTIVATING_STATUSES = frozenset({"exited"})
 
+# Stan pętli per konto NEXUSA (klucz: `users.id` jako tekst): ostatnio widziany
+# status COMPASSA i — dla kont `exited` — początek bieżącego epizodu odejścia.
+# Wiersz `app_settings`, bez migracji — to stan pętli, nie konfiguracja.
+_STATE_KEY = "compass_lifecycle_state"
+_STATE_VERSION = 2
+
+# Akcja zapisywana przy każdej deaktywacji — i szukana jako ślad w audycie.
+DEACTIVATION_ACTION = "compass_lifecycle_deactivated"
+
+# Jawne, per-użytkownik decyzje admina o aktywności konta. `active_changed`
+# zapisuje wyłącznie `PUT /api/admin/users/{id}`, `user_deactivated` —
+# `DELETE /api/admin/users/{id}`. Logowanie SSO i resync grup AAD przestawiają
+# `is_active` bez tych wpisów, więc nie są decyzją admina w rozumieniu pętli.
+_ADMIN_REENABLE_ACTION = "active_changed"
+_ADMIN_ACTIVITY_DECISIONS = (_ADMIN_REENABLE_ACTION, "user_deactivated")
+
 
 @dataclass
 class LifecycleSyncResult:
@@ -62,6 +107,13 @@ class LifecycleSyncResult:
     matched_users: int = 0
     deactivated: list[str] = field(default_factory=list)
     already_inactive: int = 0
+    # `exited` w COMPASSIE, a konto aktywne, bo admin włączył je ŚWIADOMIE
+    # w tym epizodzie odejścia — w wyniku z adresem, żeby ktoś mógł to
+    # zweryfikować, ale nie ruszane. Log przebiegu niesie wyłącznie liczbę
+    # i identyfikatory (`skipped_reenabled_user_ids`): te konta wracają
+    # w KAŻDYM przebiegu, a adres e-mail nie ma powodu lądować w logach co 6 h.
+    skipped_reenabled: list[str] = field(default_factory=list)
+    skipped_reenabled_user_ids: list[int] = field(default_factory=list)
     unmatched_compass_emails: list[str] = field(default_factory=list)
     nexus_users_without_compass: list[str] = field(default_factory=list)
     error: str | None = None
@@ -74,10 +126,141 @@ class LifecycleSyncResult:
             # konkretnego przypadku ani sprawdzić, czy deaktywacja była trafna.
             "deactivated": sorted(self.deactivated),
             "already_inactive": self.already_inactive,
+            "skipped_reenabled": sorted(self.skipped_reenabled),
+            "skipped_reenabled_user_ids": sorted(self.skipped_reenabled_user_ids),
             "unmatched_compass_emails": sorted(self.unmatched_compass_emails),
             "nexus_users_without_compass": sorted(self.nexus_users_without_compass),
             "error": self.error,
         }
+
+
+def _parse_timestamp(raw: object) -> Optional[datetime]:
+    """ISO z zapisanego stanu → świadomy strefy `datetime` (albo `None`)."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+async def _load_state(db) -> tuple[dict[str, str], dict[str, datetime]]:
+    """Stan z poprzedniego przebiegu: ostatnie statusy i początki epizodów odejścia.
+
+    Pusty słownik = brak obserwacji. Stan w wersji 1 (sprzed zapisu początku
+    epizodu) nie ma ``exit_since`` — takie konto traktujemy jak pierwszą
+    obserwację (patrz :func:`_exit_episode_start`).
+    """
+    row = await db.get(AppSetting, _STATE_KEY)
+    value = row.value if row is not None and isinstance(row.value, dict) else {}
+    seen = value.get("last_seen")
+    last_seen = (
+        {str(k): str(v) for k, v in seen.items() if v is not None}
+        if isinstance(seen, dict)
+        else {}
+    )
+    raw_since = value.get("exit_since")
+    exit_since: dict[str, datetime] = {}
+    if isinstance(raw_since, dict):
+        for key, raw in raw_since.items():
+            parsed = _parse_timestamp(raw)
+            if parsed is not None:
+                exit_since[str(key)] = parsed
+    return last_seen, exit_since
+
+
+async def _save_state(
+    db, last_seen: dict[str, str], exit_since: dict[str, datetime]
+) -> None:
+    """Zapis stanu jako UPSERT.
+
+    Dwa kontenery nakładające się w trakcie deployu Coolify potrafią przejść
+    przez pętlę jednocześnie — ``SELECT`` + ``INSERT`` dawał wtedy
+    ``IntegrityError`` na kluczu głównym i przebieg padał po deaktywacjach,
+    ale przed commitem. ``ON CONFLICT (key) DO UPDATE`` rozstrzyga to w bazie:
+    wygrywa ostatni zapis, a oba liczyły stan z tego samego feedu.
+    """
+    payload = {
+        "version": _STATE_VERSION,
+        "last_seen": last_seen,
+        "exit_since": {key: ts.isoformat() for key, ts in exit_since.items()},
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+    }
+    stmt = pg_insert(AppSetting).values(key=_STATE_KEY, value=payload)
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={"value": stmt.excluded.value, "updated_at": func.now()},
+        )
+    )
+
+
+async def _latest_lifecycle_deactivation(db, user_id: int) -> Optional[datetime]:
+    """Kiedy ta pętla ostatnio wyłączyła konto (``compass_lifecycle_deactivated``).
+
+    Pętla sprzed 09.2026 ustawiała wyłącznie ``is_active = False`` — bez
+    ``Activity`` ani innego znacznika — więc jej deaktywacje nie mają śladu,
+    do którego dałoby się tu sięgnąć.
+    """
+    return await db.scalar(
+        select(func.max(Activity.created_at)).where(
+            Activity.entity_type == "user",
+            Activity.entity_id == user_id,
+            Activity.action == DEACTIVATION_ACTION,
+        )
+    )
+
+
+async def _exit_episode_start(
+    db,
+    user_id: int,
+    *,
+    previous: Optional[str],
+    stored: Optional[datetime],
+    observed_at: datetime,
+) -> datetime:
+    """Początek bieżącego epizodu odejścia tego konta.
+
+    - COMPASS mówił ``exited`` już poprzednio → epizod trwa od zapisanej chwili;
+    - poprzednio inny status → epizod zaczyna się TERAZ (pętla właśnie
+      zobaczyła zmianę na ``exited``);
+    - pierwsza obserwacja (albo stan bez zapisanego początku) → ostatnia
+      deaktywacja tą pętlą, a gdy jej nie ma — chwila przebiegu.
+    """
+    if previous in _DEACTIVATING_STATUSES and stored is not None:
+        return stored
+    if previous is not None and previous not in _DEACTIVATING_STATUSES:
+        return observed_at
+    return await _latest_lifecycle_deactivation(db, user_id) or observed_at
+
+
+async def _admin_reenabled_since(db, user_id: int, episode_start: datetime) -> bool:
+    """Czy admin JAWNIE włączył to konto po początku bieżącego epizodu odejścia.
+
+    Liczy się wyłącznie OSTATNIA jawna decyzja admina o aktywności konta
+    (``active_changed`` z ``PUT /api/admin/users/{id}`` albo ``user_deactivated``
+    z ``DELETE``): musi być włączeniem (``details.to is True``) i być nowsza niż
+    ``episode_start``. Włączenie sprzed odejścia nie jest decyzją o TYM
+    odejściu, a włączenie odwołane późniejszą deaktywacją admina — nie jest
+    decyzją w ogóle. Flipy bez takiego śladu (SSO, resync AAD) nie liczą się.
+    """
+    latest: Optional[Activity] = await db.scalar(
+        select(Activity)
+        .where(
+            Activity.entity_type == "user",
+            Activity.entity_id == user_id,
+            Activity.action.in_(_ADMIN_ACTIVITY_DECISIONS),
+        )
+        .order_by(Activity.created_at.desc(), Activity.id.desc())
+        .limit(1)
+    )
+    if latest is None or latest.action != _ADMIN_REENABLE_ACTION:
+        return False
+    details = latest.details
+    if not (isinstance(details, dict) and details.get("to") is True):
+        return False
+    return latest.created_at > episode_start
 
 
 async def fetch_roster() -> dict:
@@ -138,35 +321,92 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
         if email not in nexus_emails:
             result.unmatched_compass_emails.append(email)
 
+    # Zegar BAZY, nie aplikacji: z nim porównujemy `Activity.created_at`
+    # (server_default `now()`), więc obie strony porównania biorą czas z tego
+    # samego źródła.
+    observed_at: datetime = await db.scalar(select(func.now()))
+    last_seen, exit_since = await _load_state(db)
     for user in users:
         email = (user.email or "").strip().lower()
         status = by_email.get(email)
         if status is None:
             # Tylko AKTYWNI są raportowani jako „bez odpowiednika" — konto
-            # dawno wyłączone nie jest problemem do rozwiązania.
+            # dawno wyłączone nie jest problemem do rozwiązania. Ostatnia
+            # obserwacja zostaje: nieobecność w feedzie nie jest statusem.
             if user.is_active:
                 result.nexus_users_without_compass.append(email or f"#{user.id}")
             continue
 
         result.matched_users += 1
+        key = str(user.id)
+        previous = last_seen.get(key)
+        last_seen[key] = status
         if status not in _DEACTIVATING_STATUSES:
+            # Epizod odejścia (jeśli był) się skończył — kolejne `exited` będzie
+            # NOWYM odejściem i włączenie admina sprzed niego nie będzie się liczyć.
+            exit_since.pop(key, None)
             continue
+
+        episode_start = await _exit_episode_start(
+            db,
+            user.id,
+            previous=previous,
+            stored=exit_since.get(key),
+            observed_at=observed_at,
+        )
+        exit_since[key] = episode_start
         if not user.is_active:
             result.already_inactive += 1
             continue
+        if await _admin_reenabled_since(db, user.id, episode_start):
+            # Admin włączył konto świadomie PO początku tego odejścia (np. powrót
+            # na umowę, której COMPASS jeszcze nie zna) — zostaje włączone.
+            result.skipped_reenabled.append(email)
+            result.skipped_reenabled_user_ids.append(user.id)
+            continue
 
         user.is_active = False
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action=DEACTIVATION_ACTION,
+                user_id=None,
+                details={
+                    "target_email": email,
+                    "compass_status": status,
+                    "previous_compass_status": previous,
+                    "exit_episode_started_at": episode_start.isoformat(),
+                    "source": "compass_lifecycle_sync",
+                },
+            )
+        )
         result.deactivated.append(email)
 
+    # Stan zapisujemy przy KAŻDYM udanym przebiegu — to on niesie początek
+    # epizodu odejścia, do którego porównujemy włączenia admina.
+    await _save_state(db, last_seen, exit_since)
+    await db.commit()
     if result.deactivated:
-        await db.commit()
         logger.info(
             "compass_lifecycle deactivated=%s emails=%s",
             len(result.deactivated),
             sorted(result.deactivated),
         )
+    if result.skipped_reenabled_user_ids:
+        # Te konta wracają w KAŻDYM przebiegu — tylko liczba i identyfikatory.
+        logger.info(
+            "compass_lifecycle kept_reenabled=%s user_ids=%s",
+            len(result.skipped_reenabled_user_ids),
+            sorted(result.skipped_reenabled_user_ids),
+        )
 
     return result
 
 
-__all__ = ["LifecycleSyncResult", "fetch_roster", "sync_user_lifecycle"]
+__all__ = [
+    "DEACTIVATION_ACTION",
+    "LifecycleSyncResult",
+    "fetch_roster",
+    "sync_user_lifecycle",
+]

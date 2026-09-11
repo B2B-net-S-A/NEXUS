@@ -357,9 +357,15 @@ export function ScreeningWorkbench({
       showError(extractErrorMsg(e) || "Nie udało się zapisać decyzji."),
   });
 
-  // Bramka ruchu — widoczna z powodem, nigdy 409 po kliknięciu.
+  // Bramka ruchu — widoczna z powodem, nigdy 409 po kliknięciu. Cel ruchu
+  // („Zweryfikowany") jest jawny, bo weto HM nie dotyczy tego etapu — blokuje
+  // wyłącznie „CV Wysłane" i „Interview Klient", tak jak serwer.
   const moveBlocked = selected
-    ? (moveBlockedReason({ item: selected.item, readOnly }) ??
+    ? (moveBlockedReason({
+        item: selected.item,
+        readOnly,
+        targetStage: VERIFIED_STAGE,
+      }) ??
       (!verifiedCol
         ? "Szablon tej rekrutacji nie ma kolumny „Zweryfikowany”."
         : !gate.isValid
@@ -368,6 +374,16 @@ export function ScreeningWorkbench({
             ? "Arkusz screeningu ma niezapisane odpowiedzi — zapisz go najpierw (przeniesienie tworzy NOWY etap, ten formularz dotyczy obecnego)."
             : null))
     : "Wybierz kandydata z kolejki.";
+  // Odrzucenie to ruch terminalny: omija weto, ale NIE kartę „Pending" —
+  // serwer odmawia każdego ruchu, dopóki weryfikacja stawki czeka na decyzję.
+  const rejectBlocked = selected
+    ? moveBlockedReason({
+        item: selected.item,
+        readOnly,
+        terminal: true,
+        targetStage: rejectedCol?.stage ?? null,
+      })
+    : null;
 
   // ── Stany widoku ────────────────────────────────────────────────────────
   const viewState = resolveViewState({
@@ -849,11 +865,12 @@ export function ScreeningWorkbench({
                     size="sm"
                     variant="outline"
                     className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={!rejectedCol}
+                    disabled={!rejectedCol || Boolean(rejectBlocked)}
                     title={
-                      rejectedCol
-                        ? "Ten sam modal powodu i ta sama reguła maila co na tablicy"
-                        : "Szablon tej rekrutacji nie ma kolumny „Odrzucony”."
+                      !rejectedCol
+                        ? "Szablon tej rekrutacji nie ma kolumny „Odrzucony”."
+                        : (rejectBlocked ??
+                          "Ten sam modal powodu i ta sama reguła maila co na tablicy")
                     }
                     onClick={() => setRejectOpen(true)}
                   >

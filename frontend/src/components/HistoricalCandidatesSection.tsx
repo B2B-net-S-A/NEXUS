@@ -172,7 +172,10 @@ function CandidateRow({
 
   const addMutation = useMutation({
     mutationFn: () =>
-      proposalsBulkApi.add(jobId, { candidate_ids: [candidate.candidate_id] }),
+      proposalsBulkApi.add(jobId, {
+        candidate_ids: [candidate.candidate_id],
+        source: "historical",
+      }),
     onSuccess: (res) => {
       // Refresh the kanban so a newly-added candidate appears immediately.
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -380,6 +383,7 @@ export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) 
       proposalsBulkApi.add(jobId, {
         candidate_ids: ids,
         note: BULK_REPIN_NOTE,
+        source: "historical",
       }),
     onSuccess: (res) => {
       const okIds = [

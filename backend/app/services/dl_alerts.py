@@ -35,14 +35,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.activity import Activity
 from app.models.client import Client
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_EXHAUSTED,
     ClientOrderGroup,
     ClientOrderGroupEvent,
 )
+from app.models.contract import Contract
 from app.models.dl_alert import (
     ALERT_COST_ORDER_EXHAUSTED,
+    ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_MD_CONSULTANT_ENDED,
     DL_ALERT_STATUS_HANDLED,
     DL_ALERT_STATUS_NEW,
@@ -435,6 +439,125 @@ async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
         except Exception:  # noqa: BLE001
             logger.exception(
                 "backstop wyczerpania: emisja padła dla grupy %d", group.id
+            )
+    return created
+
+
+#: Activity, którą writer zamówień z maila zostawia na PIERWSZYM drafcie nowej
+#: osoby u klienta. Tego draftu nie obejmuje cotygodniowa reguła „bez
+#: zamówienia” (``rule_draft_consultant_unassigned``) — ma jednorazowy alert.
+MAIL_NEW_DRAFT_ACTION = "order_mail_new_draft"
+
+
+async def emit_mail_new_draft(
+    db: AsyncSession,
+    *,
+    client_id: int,
+    order_id: int,
+    consultant: str,
+    user_ids: Optional[Sequence[int]] = None,
+) -> list[DlAlert]:
+    """Jednorazowy alert o pierwszym drafcie z maila (nowa osoba u klienta).
+
+    Jedno źródło treści dla writera (w chwili zapisu) i dla backstopu
+    (po przypisaniu Delivery Leada). Klucz ``mail-draft:<id>`` bez okna —
+    ``ON CONFLICT`` w ``emit`` gwarantuje, że obie ścieżki razem dadzą jeden
+    wiersz na odbiorcę.
+    """
+    client = await db.get(Client, client_id)
+    client_name = (client.display_name or client.name) if client else "Klient"
+    if user_ids is None:
+        user_ids = await dl_user_ids_for_client(db, client_id)
+    return await emit(
+        db,
+        alert_type=ALERT_DRAFT_CONSULTANT_UNASSIGNED,
+        user_ids=user_ids,
+        client_id=client_id,
+        entity_key=f"mail-draft:{order_id}",
+        order_id=order_id,
+        repeat_every_days=None,
+        title=f"Nowy kontraktor {consultant} w {client_name}",
+        message=(
+            f"Nowy kontraktor {consultant} w {client_name} — uzupełnij dane: "
+            "stawka kosztowa."
+        ),
+        # Klucz zakładki z `frontend/src/lib/client-tab.ts` — nieznany klucz
+        # (dawniej „orders") otwierał profil zamiast zakładki ze sprawą.
+        link=f"/clients/{client_id}?tab=zamowienia",
+    )
+
+
+async def reconcile_mail_new_draft_alerts(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Backstop: dostarcz alert o pierwszym drafcie z maila, który przepadł.
+
+    Lustro ``reconcile_exhausted_group_budget_alerts`` (#1394), ci sami
+    odbiorcy: Delivery Leadzi przypisani do klienta. Writer wystawia alert
+    w chwili zapisu draftu; gdy klient nie miał wtedy DL, ``emit`` szedł do
+    PUSTEJ listy, a cotygodniowa reguła „bez zamówienia” takiego draftu
+    świadomie nie obejmuje — więc sprawa nie docierała do nikogo, także po
+    przypisaniu DL. Tu dostarczamy ją raz, po przypisaniu.
+
+    Zbiór jest naturalnie ograniczony: drafty z Activity
+    ``order_mail_new_draft`` bez ANI JEDNEGO wiersza tego alertu. Po
+    dostarczeniu (albo gdy draft przestanie być draftem) zamówienie wypada ze
+    zbioru. Bez ``FOR UPDATE`` na zamówieniach — to drafty, które DL właśnie
+    uzupełnia, a emisja i tak jest idempotentna (klucz + ``ON CONFLICT``).
+    """
+    if not settings.DL_ALERTS_ENABLED:
+        return 0
+    from app.services.client_order_lines import consultant_display_name
+    from sqlalchemy.orm import selectinload
+
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    stmt = (
+        select(ClientOrder)
+        .options(selectinload(ClientOrder.contract).selectinload(Contract.candidate))
+        .where(
+            ClientOrder.status == ClientOrderStatus.draft,
+            select(Activity.id)
+            .where(
+                Activity.entity_type == "client_order",
+                Activity.entity_id == ClientOrder.id,
+                Activity.action == MAIL_NEW_DRAFT_ACTION,
+            )
+            .exists(),
+            ~select(DlAlert.id)
+            .where(
+                DlAlert.order_id == ClientOrder.id,
+                DlAlert.alert_type == ALERT_DRAFT_CONSULTANT_UNASSIGNED,
+            )
+            .exists(),
+        )
+        .order_by(ClientOrder.id.asc())
+    )
+    created = 0
+    for order in (await db.execute(stmt)).scalars().all():
+        user_ids = await dl_user_ids_for_client(
+            db, order.client_id, scope=recipient_scope
+        )
+        if not user_ids:
+            # Nadal brak DL — spróbujemy przy następnym przebiegu.
+            continue
+        name = consultant_display_name(order)
+        try:
+            async with db.begin_nested():
+                alerts = await emit_mail_new_draft(
+                    db,
+                    client_id=order.client_id,
+                    order_id=order.id,
+                    consultant=name if name and name != "—" else "Konsultant",
+                    user_ids=user_ids,
+                )
+                created += len(alerts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "backstop draftu z maila: emisja padła dla zamówienia %d", order.id
             )
     return created
 

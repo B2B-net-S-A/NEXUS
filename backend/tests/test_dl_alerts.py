@@ -408,6 +408,124 @@ async def test_scanner_flags_draft_consultant_without_order(monkeypatch):
         assert rows, "konsultant w Draft nie wygenerował alertu"
 
 
+async def test_mail_new_draft_alert_reaches_dl_assigned_after_the_draft():
+    """Pierwszy draft z maila u klienta BEZ DL nie może przepaść bez śladu.
+
+    Writer wystawia jednorazowy alert w chwili zapisu; bez przypisanego DL
+    ``emit`` szedł do pustej listy, a cotygodniowa reguła „bez zamówienia”
+    takiego draftu świadomie nie obejmuje. Backstop (lustro #1394) dostarcza go
+    po przypisaniu DL — raz, z tym samym kluczem co writer.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.candidate import Candidate
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus
+    from app.models.dl_alert import ALERT_DRAFT_CONSULTANT_UNASSIGNED, DlAlert
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.services.dl_alerts import (
+        emit_mail_new_draft,
+        reconcile_mail_new_draft_alerts,
+    )
+    from app.tasks.dl_alerts_scanner import rule_draft_consultant_unassigned
+    from sqlalchemy import func, select
+
+    client_id = await _seed_client(display_name="PFRON Backstop")
+    dl_id, _, _ = await _seed_user("delivery_lead")  # jeszcze bez przypisania
+    tag = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name="Nowa", lastname=f"Osoba{tag}", email=f"nd-{tag}@t.test")
+        db.add(cand)
+        await db.flush()
+        contract = Contract(
+            candidate_id=cand.id, client_id=client_id, status=ContractStatus.draft
+        )
+        db.add(contract)
+        await db.flush()
+        drafts = [
+            ClientOrder(
+                client_id=client_id,
+                contract_id=contract.id,
+                title=f"Zamówienie z maila {i}",
+                status=ClientOrderStatus.draft,
+            )
+            for i in range(2)
+        ]
+        db.add_all(drafts)
+        await db.flush()
+        for draft in drafts:
+            db.add(
+                Activity(
+                    entity_type="client_order",
+                    entity_id=draft.id,
+                    action="order_mail_new_draft",
+                    details={"document_id": 1},
+                )
+            )
+        # Writer w chwili zapisu: klient bez DL → brak odbiorcy, brak wiersza.
+        assert (
+            await emit_mail_new_draft(
+                db,
+                client_id=client_id,
+                order_id=drafts[0].id,
+                consultant=f"Nowa Osoba{tag}",
+            )
+            == []
+        )
+        # Drugi draft przestaje być draftem, zanim DL się pojawi.
+        drafts[1].status = ClientOrderStatus.active
+        await db.commit()
+        draft_id, active_id = drafts[0].id, drafts[1].id
+
+        async def alerts_for(order_id):
+            return await db.scalar(
+                select(func.count())
+                .select_from(DlAlert)
+                .where(
+                    DlAlert.order_id == order_id,
+                    DlAlert.alert_type == ALERT_DRAFT_CONSULTANT_UNASSIGNED,
+                )
+            )
+
+        # Bez DL backstop też nie ma komu dostarczyć — i niczego nie zmyśla.
+        # Cotygodniowa reguła takiego draftu nie obejmuje (ma alert jednorazowy).
+        await reconcile_mail_new_draft_alerts(db)
+        await rule_draft_consultant_unassigned(db)
+        await db.commit()
+        assert await alerts_for(draft_id) == 0
+
+        db.add(
+            DeliveryLeadClientAssignment(
+                client_id=client_id, delivery_lead_user_id=dl_id
+            )
+        )
+        await db.commit()
+
+        assert await reconcile_mail_new_draft_alerts(db) >= 1
+        await db.commit()
+        alert = await db.scalar(
+            select(DlAlert).where(
+                DlAlert.order_id == draft_id,
+                DlAlert.alert_type == ALERT_DRAFT_CONSULTANT_UNASSIGNED,
+            )
+        )
+        assert alert is not None and alert.user_id == dl_id
+        assert alert.dedupe_key == (
+            f"{ALERT_DRAFT_CONSULTANT_UNASSIGNED}:mail-draft:{draft_id}:{dl_id}:once"
+        )
+        assert alert.title == f"Nowy kontraktor Nowa Osoba{tag} w PFRON Backstop"
+        assert alert.link == f"/clients/{client_id}?tab=zamowienia"
+        assert await alerts_for(active_id) == 0
+
+        # Drugi przebieg i ponowna emisja writera nie dublują sprawy.
+        await reconcile_mail_new_draft_alerts(db)
+        await emit_mail_new_draft(
+            db, client_id=client_id, order_id=draft_id, consultant="ktokolwiek"
+        )
+        await db.commit()
+        assert await alerts_for(draft_id) == 1
+
+
 async def test_scanner_uses_a_single_rule_registry():
     """Dołożenie typu ma być dopisaniem reguły, nie przebudową skanera."""
     from app.models.dl_alert import (

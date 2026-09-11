@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-10
+> **Zgodność z systemem sprawdzona:** 2026-09-11
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -491,7 +491,10 @@ numery kontraktów do ręcznego rozstrzygnięcia. **Brak osoby u klienta tworzy
 nowy draft z numerem, okresem i stawką przychodową z maila.** DL otrzymuje raz
 powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”;
 kliknięcie otwiera zakładkę „Zamówienia” tego klienta.
-Aktualizacje tego draftu nie powtarzają powiadomienia.
+Aktualizacje tego draftu nie powtarzają powiadomienia. Jeśli klient nie miał
+w tej chwili przypisanego Delivery Leada, powiadomienie nie przepada: przychodzi
+raz, przy najbliższym dobowym przebiegu po przypisaniu, o ile zamówienie jest
+nadal draftem.
 
 **Gdy osoby nie ma u klienta, ale w bazie jest dokładnie jedna osoba o tym
 imieniu i nazwisku** (także zapisanym w PDF-ie bez polskich znaków, np.
@@ -677,10 +680,11 @@ Trafiają tu powiadomienia o zbliżającym się końcu:
 Kliknięcie powiadomienia otwiera od razu właściwą zakładkę profilu klienta —
 „Zamówienia” albo „Umowy” (umowy ramowe i aneksy).
 
-Każdy próg przychodzi raz. **Zmiana daty zakończenia w istniejącym zamówieniu
-nie odnawia progów** — jeśli przesuniesz koniec o pół roku, ostrzeżenia 30/14/7
-już się nie odezwą. Nowe ostrzeżenie dostaniesz dopiero wtedy, gdy powstanie
-nowe zamówienie (np. przez „Dodaj przedłużenie").
+Każdy próg przychodzi raz **dla danej daty zakończenia**. **Zmiana daty
+zakończenia w istniejącym zamówieniu odnawia progi** — jeśli przesuniesz koniec
+o pół roku, ostrzeżenia 30/14/7 dni przyjdą ponownie przed nową datą. To samo
+dotyczy przedłużonej umowy ramowej. Ta sama data nie wywoła drugiego
+ostrzeżenia, nawet gdy skaner przejdzie kilka razy w ciągu dnia.
 
 ### Miejsce 2: sekcja „Powiadomienia" na pulpicie Delivery Leada
 
@@ -706,7 +710,10 @@ reakcji. Pięć rodzajów:
 konto, rolę i dostęp do sekcji Delivery oraz być **przypisany do klienta jako
 Delivery Lead** (profil klienta → zakładka „Delivery Lead"). Bez przypisania sprawy
 z pulpitu dla tego klienta **w ogóle nie powstają — dla nikogo**. To pierwsza
-rzecz do sprawdzenia, gdy „system nic nie przysyła". Powiadomienia z dzwonka
+rzecz do sprawdzenia, gdy „system nic nie przysyła". Wyjątkiem są dwa
+jednorazowe powiadomienia — o pierwszym drafcie z maila i o wyczerpaniu
+budżetu: przyjdą raz, przy najbliższym dobowym przebiegu po przypisaniu, jeśli
+sprawa nadal trwa (draft jest wciąż draftem, zamówienie wciąż wyczerpane). Powiadomienia z dzwonka
 (Miejsce 1) administrator dostaje globalnie, a Delivery Lead tylko dla
 przypisanych klientów i przy aktywnym dostępie do sekcji Delivery.
 

@@ -97,7 +97,20 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
 - **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
 - **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).
-- **Compose healthcheck:** backend `curl /api/health` (docker-compose.prod.yml).
+- **Compose healthcheck = `/api/health/live`, NIE `/api/health` (od 11.09.2026).**
+  `/live` odpowiada, że proces obsługuje żądania — bez bazy, puli, locków i sond
+  zewnętrznych. Pełne `/api/health` robi kilkanaście zapytań z timeoutami i przy
+  ciężkim pełnym przeglądzie bazy trzy razy z rzędu nie mieściło się w 5 s: Docker
+  oznaczał DZIAŁAJĄCY backend jako unhealthy, Traefik zdejmował go z ruchu („no
+  available server”). `/api/health` zostaje sondą smoke testu po deployu i
+  uptime-probe. Sonda w `docker-compose.yml` (jedyny plik czytany przez Coolify)
+  i w overlayu prod musi być ta sama.
+- **Naprawy schematu przy starcie mają `lock_timeout` 10 s** (`startup_locks.py`,
+  moduły `allocation_schema_bootstrap`, `cv_schema_bootstrap`,
+  `signature_policy_bootstrap`). Nocny `pg_dump` trzyma locki, a DDL czekający bez
+  limitu wieszał boot. Timeout zatrzymuje start tylko wtedy, gdy schemat NAPRAWDĘ
+  jest niekompletny. Polityka podpisów jest miękka WYŁĄCZNIE przy timeoucie zamka
+  (SQLSTATE 55P03); każdy inny błąd zatrzymuje start jak dawniej.
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
 - **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
 
@@ -492,6 +505,25 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
 - **Zadania z kolejki przeżywają deploy.** `job_snapshot.py` przyjmuje snapshot
   bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
   z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
+- **Wejścia generacji, która nie dała dokumentu, żyją 7 dni** (od 11.09.2026).
+  `retire_unneeded_job_inputs` w pętli `cv_source_cleanup` (co 15 min, paczki
+  `FOR UPDATE SKIP LOCKED`) bierze zadania zakończone porażką/przerwane bez
+  gotowego dokumentu i zakończone podglądy reguł CV: klucz w magazynie zmienia
+  na `purged/<id>`, a stary idzie do rejestru kasowań (to on kasuje plik,
+  z ponowieniami). **Nie rusza** zadań w kolejce i w toku ani wejść pod gotowym
+  dokumentem (przegląd zatwierdzenia i mapa wersji je czytają; ponowny render
+  idzie z `render_payload`). Wyłącznik `CV_JOB_INPUT_RETENTION_ENABLED`, okres
+  `CV_JOB_INPUT_RETENTION_DAYS`. Do 11.09 wgrane CV i notatki z nieudanych
+  generacji leżały bez końca.
+- **Limit 14 000 znaków dotyczy WYŁĄCZNIE miejsc, w których tekst czyta AI:**
+  parser Championa (sprawdzany przed naliczeniem kwoty AI) i sekcja Championa
+  w płatnym prompcie generatora CV (`cap_champion_prompt_section`, obie ścieżki —
+  legacy i v10 — cięcie na granicy linii/słowa z ostrzeżeniem „Profil Championa
+  przycięty…”). Odczyt tabel formularza Word v4 i zapisany profil nie są
+  przycinane, a preflight uploadu podaje prawdziwy powód odmowy zamiast „nie
+  można odczytać pliku DOCX”.
+- **`CV_B2B_MAX_RETRIES` domyślnie 3** — łączny budżet 300 s dalej zatrzymuje
+  nowe próby i backoffy po terminie. Jawna wartość w Coolify wygrywa.
 
 ### Zasada: AI w generatorze to dodatek, nigdy bramka (po 10–11.09.2026)
 
@@ -739,11 +771,46 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   użyciem”) dla profili ostemplowanych `policy_version=1` — a stempel dostaje
   każdy profil przy zapisie zmieniającym treść, klonowaniu oferty, imporcie
   z Traffita i akceptacji draftu AI. 10.09 zablokowało to pracę zespołu, stąd
-  domyślne OFF. **Uwaga:** `prepare_profile` normalizuje profil przy każdym
-  takim zapisie NIEZALEŻNIE od flagi — stawka podana zakresem staje się pusta,
-  a pozycje MUST dłuższe niż 12 słów lub 120 znaków lądują w
-  `intake.unresolved` i znikają z `jobs.must_skills`. Do poprawienia (normalizacja
-  tylko edytowanych pól); nie włączaj bramki, zanim to wejdzie.
+  domyślne OFF.
+- **Zapis profilu normalizuje TYLKO zmienione pola (od 11.09.2026).**
+  `prepare_profile(previous=…)` porównuje z zapisanym profilem; pole, którego
+  użytkownik nie ruszył, zostaje takie, jakie było. Do 11.09 każdy zapis
+  (niezależnie od flagi bramki) zerował stawkę podaną zakresem i wycinał z
+  `jobs.must_skills` pozycje MUST dłuższe niż 12 słów/120 znaków. Teraz:
+  pozycje stacku nigdy nie znikają z powodu długości (tylko flaga), limit
+  pozycji 500 znaków, dłuższa zostaje w `unresolved`.
+  `requirement_contract.contract_names` przycina nazwę do 100 znaków — bez tego
+  must-have dłuższy niż 100 znaków wywalał walidację KAŻDEGO wyszukiwania tej
+  rekrutacji. `jobs.py` porównuje intake po normalizacji, więc zapis bez zmian
+  nie robi zapisu ani powiadomienia.
+- **Stawka: NIEZMIENIONA liczba nigdy nie jest wyliczana ponownie z tekstu**
+  (`prepare_profile(previous=…)` porównuje ją jako liczbę, niezależnie od
+  `rate_raw` w żądaniu): zostaje zapisana wartość, tekst i notatki. Kopia
+  rekrutacji (`from_job_id`) przenosi stawkę tak, jak była zapisana. Bez tego
+  „Uzgodnij profil i pola rekrutacji”, import dokumentu na rekrutację, która ma
+  już stawkę, i kopia rekrutacji kasowały budżet profilom z importu 08.2026
+  („140 zł netto/h” itp.), a przy zaznaczonej synchronizacji także
+  `jobs.rate_budget_hourly` — z którego czytają dealbreaker stawki i scoring
+  (przegląd adwersarialny drugiej rundy, 11.09).
+- **Tekst ŚWIEŻEGO dokumentu jest źródłem prawdy o stawce** (`document_rate`,
+  `pln_hourly_bounds` w `champion_intake.py`; parser AI, komórka formularza
+  Word v4, tekst odesłany przez okno importu przy nietkniętej stawce
+  z dokumentu): jedna wartość PLN/h → budżet; zakres „120–140 zł/h”, „120/140”,
+  „od 120 do 140” albo „do 140” → GÓRNA granica z notatką w `intake.advisory`
+  (pole to „Maksymalna stawka PLN/h”, a dealbreaker czyta je jako sufit —
+  środek zakresu z parsera zaniżał budżet). Gramatyka przyjmuje netto/+VAT/
+  „(netto, B2B)”, „zł/godz.”, „za godzinę”, „PLN 140/h”. Inna waluta, stawka za
+  dzień/MD/miesiąc, brutto, brak jednostki → `unresolved` + `missing_budget`,
+  budżet pusty. Liczba wpisana ręcznie (bez tekstu) jest budżetem bez notatki.
+  Okno importu (`ChampionIntake.tsx`) odsyła `rate_raw` WYŁĄCZNIE przy imporcie
+  dokumentu (`sourceIsDocument`), nigdy przy uzgadnianiu zapisanego szkicu.
+- **Walidacja sprawdza profil tak, jak jest zapisany.** Wymagania odłożone do
+  `intake.unresolved` wracają do stacku wyłącznie przy zapisie, który edytuje
+  ten stack — `validation()` ich nie wskrzesza (wskrzeszanie dawało fałszywy
+  konflikt z kolumnami rekrutacji, który przy włączonej bramce blokował search).
+  Odłożony MUST, którego obecny normalizator nie przyjąłby (np. dłuższy niż
+  limit pozycji), daje OSTRZEŻENIE — nigdy błąd ani blokadę. Konflikt kolumn
+  NICE to ostrzeżenie, nie błąd.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -956,10 +1023,29 @@ dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential
   (offboarding trwa po ostatnim dniu pracy), **pusty roster = awaria, nie masowe
   odejście**. Nie rusza rankingów wypłacających nagrody (`competitions.py:194`
   zostaje). Domyślnie WYŁĄCZONA (`COMPASS_LIFECYCLE_ENABLED=false`).
+  **Ręczne przywrócenie konta przez admina wygrywa — ale tylko w bieżącym
+  epizodzie odejścia** (od 11.09.2026). Aktywne konto osoby `exited` jest
+  deaktywowane, CHYBA ŻE ostatnia jawna decyzja admina to przywrócenie
+  (Activity `active_changed` z `to=True`, `PUT /api/admin/users/{id}`) nowsze
+  niż początek bieżącego epizodu. Początek epizodu = chwila, w której pętla
+  zobaczyła zmianę statusu na `exited` (per osoba w
+  `app_settings['compass_lifecycle_state']`, wersja 2); przy pierwszej
+  obserwacji — ostatnie Activity `compass_lifecycle_deactivated`, a bez niego
+  `now()`. Włączenie konta bez takiego Activity (logowanie SSO z grupą AAD,
+  resync AAD) NIE liczy się — następny bieg wyłącza je znowu; stare,
+  niezwiązane przywrócenie sprzed odejścia też nie. Do 11.09 każdy sync
+  wyłączał wszystkich `exited`, więc przywrócenie przez admina znikało po ≤6 h;
+  pierwsza wersja poprawki („tylko przy zmianie statusu”) zostawiała dostęp na
+  zawsze po takim przywróceniu (przegląd adwersarialny 11.09). Stara pętla nie
+  zostawiała śladu, więc konto przywrócone PRZED wdrożeniem zostanie wyłączone
+  raz. Zapis stanu to upsert (dwa kontenery przy deployu); logi niosą liczby
+  i ID, bez e-maili.
 - **`GET /api/insights/reconciliation/placements`** (`app/api/insights_reconciliation.py`)
   — read-only raport uzgadniający placementy w OBU rodzinach atrybucji (FULL OUTER,
   LEFT JOIN na sieroty). Tłumaczy rozjazd 213/228/317/332, **nie usuwa go**; NIE
-  rusza `VERIFIER_ANCHORED_CTE`.
+  rusza `VERIFIER_ANCHORED_CTE`. Nazwiska kandydatów tylko dla ról z odczytem
+  kandydatów (`user_has_candidate_read`); pozostali dostają `candidate_id`
+  i flagę `candidate_names_redacted`.
 - **Sonda `checks.compass_workdays`** w `/api/health` (0276 `CompassWorkdaysSyncState`) —
   patrz sekcja o D5; `healthy` wymaga `last_status=='ok'`, nie samej świeżości.
 
@@ -1015,6 +1101,16 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 - **Faza `workflows` (szablony pipeline'ów) — zapis wsadowy pod SET-WIDE unique.** `pipeline_stage_defs` ma dwa ograniczenia obejmujące CAŁY szablon (`uq_stage_order_in_template (template_id, "order")` i `uq_stage_name_in_template (template_id, name)`), a wiersze pisane są **po jednym**, kluczem `(external_source, external_id)`. Przepisanie zbioru wiersz po wierszu pod ograniczeniem zbiorowym działa tylko wtedy, gdy żaden stan POŚREDNI nie koliduje — a zamiana kolejności w Traffit gwarantuje kolizję (stan B bierze pozycję 3, którą wciąż trzyma jeszcze nieprzepisany stan A). Cyklicznej zamiany nie da się rozwiązać kolejnością zapisów. Żadne z ograniczeń **nie jest DEFERRABLE** (entrypoint.sh obchodzi tę samą krawędź trikiem z przesunięciem), więc `_rewrite_template_stage_defs` najpierw **parkuje** wszystkie wiersze szablonu na `("order" = -id, name = '~<id>')` — unikalne per wiersz, bo `id` to PK, a ujemne pozycje nigdy nie spotkają docelowego układu (wszystkie ≥ 0) — i dopiero potem kładzie właściwy układ, już w dowolnej kolejności. **Stany, których Traffit przestał wysyłać, NIE są kasowane** (`candidate_stages.stage_def_id` na nie wskazuje — dlatego importer dawno porzucił DELETE+INSERT); dostają pozycje **za** żywymi, z zachowaniem względnej kolejności i nazw, a jeśli żywy stan zabrał nazwę wycofanego — ustępuje wycofany (żywy jest bieżącą prawdą). Każdy workflow siedzi w **SAVEPOINCIE**: stary handler wołał `db.rollback()`, czyli rollback SESJI, a faza commituje raz na końcu — jeden zepsuty workflow kasował wszystkie zapisane wcześniej w tym biegu. Na prodzie `processed: 2, updated: 2, errors: 1` nie znaczyło „1 z 2 padł", tylko „0 z 2 zapisanych", 23 biegi z rzędu.
 - **Nagrobki (`candidates.external_deleted_at`, migracja `0221`).** 404/410 z Traffita było wcześniej wyłącznie **liczone** (`gone_upstream`), a licznik żyje tyle co statystyki biegu — więc informacja „tej osoby już u źródła nie ma" nie docierała nigdzie: rekruter widział zwykły profil, `reconcile` pokazywał rozjazd bez wyjaśnienia, a każdy kolejny sweep pytał o tego samego nieistniejącego kandydata. Trzy rzeczy, których ten mechanizm **celowo nie robi**: (1) **nie kasuje wiersza** — profil w Nexusie ma własną wartość niezależną od Traffita (notatki, etapy, ślady RODO), więc usunięcie u źródła nie jest zgodą na usunięcie NASZYCH danych; (2) **nie stawia nagrobka za brakujący PLIK** — 404 na `/employees/{id}/files` to odpowiedź o osobie, 404 na pobraniu pliku tylko o pliku, a pomylenie tych poziomów oznaczałoby oznaczanie profili jako usunięte z powodu jednego nieudanego załącznika; (3) **nie utrwala pomyłki** — upsert kandydata czyści znacznik, więc powrót w żywym feedzie `/employees/` kasuje nagrobek (bez tego pojedyncze 404 przy chwilowej awarii Traffita zostawiałoby trwałe kłamstwo). Warunek `external_deleted_at IS NULL` w UPDATE sprawia, że znacznik zapamiętuje **pierwszą** obserwację zniknięcia — inaczej data mówiłaby „kiedy ostatnio sprawdzaliśmy", a licznik `tombstoned` rósłby w nieskończoność zamiast odpowiadać, czy zniknęło coś **nowego**.
 - **Health:** `/api/health.checks.traffit` = `unconfigured` (off) / `misconfigured` (brak secretów) / `degraded` (włączony, brak świeżego runu / errors) / `healthy` (ostatni `__daily__` < 36h, status ok). **To sonda ŚWIEŻOŚCI, nie kompletności** — `healthy` nie znaczy, że dane się zgadzają z Traffitem (tak właśnie luka w plikach/CV żyła miesiącami przy zielonym healthu).
+- **Błędy WIERSZY faz wzbogacania są doradcze (od 11.09.2026):**
+  `candidates_enrich_names`, `candidates_cv_fields` i `cortex` — błąd pojedynczego
+  kandydata (`add_error`) nie wstrzymuje już watermarku `__daily__`, ale zostaje
+  widoczny na wierszu fazy i w próbkach `/sync/status` (z klasą wyjątku, np.
+  „backfill failed (ValueError)”). Powód: od 08.09 jeden trwale nieparsowalny
+  kandydat zamroził `__daily__` i health pokazywał `degraded` przez dni, choć
+  import działał. **Wywrotka CAŁEJ fazy (np. padnięty commit) nadal wstrzymuje
+  watermark** — `candidates_cv_fields` nie jest objęta pełnym przebiegiem, więc
+  bez przytrzymania kandydaci z tego biegu nigdy nie dostaliby pól z CV.
+  Fazy importu rdzenia wstrzymują watermark jak dotąd.
 - **DB:** `traffit_sync_state` (PK `phase` + markery `__daily__`/`__full__`) — migracja `0136_traffit_sync_state` (na bazie `0135`).
 
 ## Self-service registration (email/password — alternatywa dla Microsoft SSO)
@@ -1175,6 +1271,149 @@ web — jeden przegląd naraz, ~3 min.
 - **„Przekaż do searchu” liczy must-have podane prozą jako podane**
   (`must_skills or must_skills_ignored` w `job_readiness.py`). Do 10.09 rekrutacja
   z samą prozą dostawała 422, choć dok gotowości pokazywał ✓.
+- **Podobieństwo liczy Qdrant, nie Python (od 11.09.2026).**
+  `full_search_measurement.measure_candidates` robi JEDNO wyszukiwanie dokładne
+  z filtrem po ID (`HasIdCondition`, `SearchParams(exact=True)`, kwantyzacja
+  ignorowana) i ściąga tylko payload pochodzenia (`content_hash`,
+  `embedding_model`). Wcześniej przegląd ściągał 256×1024 liczby na paczkę jako
+  JSON i liczył cosinus w Pythonie (1,48 s → 0,08 s na 3000 kandydatów; parytet
+  do 4e-8). **Odpowiedź 4xx i dokładne 0.0 wracają na ścieżkę referencyjną**
+  `_measure_by_retrieval` — zerowy wektor też punktuje 0.0, a zepsuty wektor nie
+  może udawać zmierzonego zera. Pętle CPU (`canonical_fit`,
+  `full_candidate_scan`, pomiar) oddają pętlę zdarzeń co 32 elementy, bo worker
+  żyje w procesie web.
+- **Konsumenci kanonicznego fitu pytają pulę bez rerankera**
+  (`retrieve_candidate_pool(use_rerank=False)`: `/ai-matches`, rekomendacje,
+  propozycje, digest). Pula = `final_top_k`, więc reranker zmieniał wyłącznie
+  kolejność, którą i tak nadpisuje sortowanie po `fit_score` — był czystym
+  kosztem (wywołanie Voyage i SELECT puli). `None` = `RERANKER_ENABLED`.
+- **Higiena indeksu: `GET/POST /api/admin/index-cleanup`** (admin JWT). GET to
+  plan tylko do odczytu z odciskiem: punkty kandydatów bez wiersza (sieroty)
+  i oferty bez punktu lub stempla `embedding_id`. POST z odciskiem i licznikami
+  kolejkuje DOKŁADNIE ten plan w outboxie indeksu (plan się zmienił → 409).
+  Kasowania sierot niosą `desired_hash="orphan-point"` i worker przy wykonaniu
+  sprawdza, że wiersza kandydata nadal nie ma — tą ścieżką nie da się skasować
+  punktu istniejącego kandydata. Plan czyta najpierw indeks, potem SQL, więc
+  kandydat dodany w trakcie nie wygląda na sierotę. Odcisk obejmuje tylko części
+  wykonawcze (sieroty, oferty do embeddingu) — globalne liczniki są w odpowiedzi,
+  ale nie w odcisku, inaczej każdy niezwiązany embedding między GET a POST
+  dawałby 409.
+- **Kolumna dopasowania w wyszukiwarce ręcznej i pierścień „Dopasowanie” to
+  kanoniczny fit** (ten sam, co na ekranach C2), a nie `CandidateJobMatchScore`
+  — żaden ekran go już nie czyta. `/api/search/candidates/scores` liczy na
+  żądanie najwyżej 20 ID (422 powyżej), limit 60/min **per zalogowany
+  użytkownik** (`user_or_ip_key` — biuro za jednym NAT-em nie dzieli kubełka;
+  ten sam klucz ma ocena opisu „Dopasowanie”), **za tą samą bramką co
+  pełny przegląd (`_authorized_job` z `candidate_search.py`)** — rekruter,
+  sourcer i TAC spoza zespołu widzą ten sam wynik na ekranach C2, więc kolumna
+  nie może być ostrzejsza (pierwsza wersja z `ensure_job_read_access` chowała go
+  im bez słowa); stawki redagowane bez `view_finance`. Front pyta tylko
+  o wiersze na ekranie (`useVisibleMatchScores`, anulowanie AbortControllerem,
+  cache per `profile_key` z odpowiedzi): niezmierzony = „Ocena niepełna”,
+  403 = „brak dostępu”, inny błąd = „nie policzono — ponów” (429 ponawia sam
+  z backoffem — jedna runda dla WSZYSTKICH wierszy czekających na ponowienie,
+  także z kilku równoległych paczek) — nigdy puste pole ani 0. Modal porównania pokazuje błąd
+  z „Ponów”, nie „Brak kryteriów”.
+- **Pierścień „Dopasowanie” liczy się we własnej sesji** (`display_fit`, tylko
+  do odczytu, nigdy nie rzuca): wcześniej wyjątek w nim robił rollback sesji
+  requestu, wygaszał `current_user` i zakładka kończyła się 500
+  (`MissingGreenlet`), a współdzielona instancja kandydata przestawiała stare
+  rozbicie i hash opisu (płatne regeneracje). **Opis AI nie podaje liczby
+  punktów** (`MATCH_JUSTIFICATION` v2 bez `{score}`) — liczbę pokazuje pierścień,
+  a opis tłumaczy mocne strony i luki. Zapisane opisy odświeżają się leniwie
+  przy następnym otwarciu (wersja promptu jest w hashu).
+- **Telemetria jest podpięta.** Strona wyników pełnego przeglądu zapisuje
+  impresje obsłużonych wierszy jednym INSERT-em (`match_impressions`, `run_id`
+  = id przeglądu). Dodanie do pipeline'u (`proposals_bulk`) przypina outcome
+  `add_to_pipeline` WYŁĄCZNIE do przeglądu, który klient zadeklarował (`run_id`
+  + `source`), i tylko gdy to przegląd tej osoby, tej rekrutacji i z impresją
+  tego kandydata — w innym wypadku `run_id` = NULL. Żadnego zgadywania po
+  „ostatnio widzianym” (to zawyżało pozytywy C2 dodaniami z wyszukiwarki
+  ręcznej). `source` (`full_search` | `manual_search` | `historical` |
+  `quick_add` — każdy ekran dodawania wysyła swój) żyje w
+  `match_outcomes.reason_code` (stały słownik, bez migracji). Zapis we własnej sesji po commicie, nigdy nie rzuca, najwyżej 100
+  wierszy. Tabele nie mają FK do kandydatów (celowo: analityka, pseudonimy,
+  rozbicie wyłącznie liczbowe) ani jeszcze retencji — świadomy dług.
+- **Eval: nigdy nie porównuj metryk między scorerami.**
+  `scripts/eval_matching.py --scorer canonical` domyślnie maskuje dowody wymagań
+  zweryfikowane przez rekruterów (wyciek etykiety, jak `champion_fit`);
+  `--include-reviewed-evidence` je przywraca. `weekly_eval` mierzy canonical
+  i porównuje tylko biegi tego samego scorera (bieg bez klucza `scorer` =
+  legacy), więc pierwszy bieg canonical to `baseline: "scorer_changed"`, nie
+  regresja. A/B na prodzie: `coolify-ops.yml` `action=eval-ab-scorer` (legacy to
+  ramię kontrolne, ma odtworzyć baseline 18.08). `--pool full` nie ma sensu:
+  pełny przegląd ukrywa kandydatów już w rekrutacji, czyli wszystkie pozytywy.
+- **Surowy SQL (`text()`) musi przejść `PREPARE`** — `= ANY(:ids)`, nie
+  rozwijane `IN :ids` (strażnik `test_raw_sql_prepares`).
+
+## Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
+
+Poprawki z przeglądu kodu spoza Codexa. Wspólny mianownik: ekran mówił co
+innego niż serwer albo nadpisywał cudzą pracę.
+
+- **Frontendowa bramka ruchu to WYŁĄCZNIE `moveBlockedReason`**
+  (`lib/pipeline-flow.ts`), lustro `/move`: karta „Oczekuje” blokuje każdy ruch,
+  także odrzucenie; weto HM blokuje tylko „CV Wysłane” i „Interview Klient”.
+  Były cztery kopie tej reguły (w tym `InterviewDecisionDock`) i żadna nie
+  zgadzała się z serwerem. Nie dokładaj kopii — przeciąganie, przyciski i doki
+  wołają tę jedną funkcję. **Główny przycisk „dalej” w doku
+  (`primaryForwardMove`) zatrzymuje się na pierwszym etapie objętym wetem** i
+  pokazuje go wyłączonego z powodem — wcześniej przeskakiwał „CV Wysłane” na
+  następny etap (w „Default B2B” to „Preparation Meeting”, spotkanie u klienta,
+  którego serwerowe weto — kluczowane legacy enumem — nie zna).
+- **Przekazanie CV klientowi: ruch → link → stawka.** Odmowa ruchu nie tworzy
+  linku. Link celuje w etap SPRZED ruchu (tam leży brandowane CV); gdy link padnie
+  po udanym ruchu, workbench pokazuje „Utwórz link ponownie”. Brak odpowiedzi
+  albo 5xx przy ruchu to „nie wiadomo, czy ruch się zapisał — odśwież kartę”,
+  nie „nic nie zostało zmienione” (`isDefiniteRefusal` — tylko 4xx jest pewną
+  odmową); ponowienie mogłoby dodać drugi wpis „CV Wysłane”.
+- **Link jednorazowy tylko przez `OneTimeLinkField` + wynik `lib/clipboard.ts`** —
+  URL zostaje na ekranie, a toast „skopiowano” pojawia się tylko po udanym
+  kopiowaniu (link Championa, interview z klientem). Link przeżywa przemontowanie
+  karty po zapisie werdyktu.
+- **Po ruchu kanban unieważnia OBA klucze** (`["kanban", String(id)]`
+  i `["kanban", id]`; przy operacjach zbiorczych raz, po pętli). Zapisy Championa
+  idą przez `invalidateChampionDependents` (`lib/champion-cache.ts`), który
+  odświeża też `["job-readiness", id]`. Edycja samej rekrutacji (tytuł, klient,
+  rubryki) jeszcze tego nie robi — znany dług.
+- **Dok kandydata porównuje stawkę po przeliczeniu na miesięczną**
+  (`normalizeRateToMonthly`); waluta inna niż PLN albo nieznana jednostka =
+  „nie do porównania”, nie fałszywe „powyżej widełek”.
+- **Werdykt HM** (`api/hiring_manager_feedback.py`): odczyt za
+  `ensure_job_read_access` (także Finanse); cudzy werdykt nadpisuje autor,
+  KAŻDY Delivery Lead (DL omija członkostwo w zespole) albo admin — inaczej 403
+  z nazwiskiem autora. GET zwraca `{can_record, items}`: `can_record` liczy
+  DOKŁADNIE te same warunki co POST (impersonacja, zapis sekcji pipeline, role
+  RecruiterPlus, członkostwo z obejściem DL), a formularz renderuje się tylko przy
+  `can_record === true` — Finanse spoza zespołu widzą werdykt tylko do odczytu
+  zamiast przycisku kończącego się 403. Wiersze niosą `author_id`,
+  `author_name`, `can_edit`. HoR ma tu sam odczyt.
+- **Shortlista nie nadpisuje zmiany kolegi i nie gubi wpisanego tekstu:**
+  `ServerSyncedInput` (`JobShortlist.tsx`) — wersja bazowa idzie za serwerem do
+  pierwszej zmiany użytkownika, potem zamarza; brak zapisu przy niezmienionym
+  blur. 409: tekst zostaje w polu; jeśli kolega zmienił INNE pole, zapis ponawia
+  się raz na nowej wersji, a jeśli to samo — toast o konflikcie i przyjęcie nowej
+  wersji, więc następny zapis nadpisuje świadomie. Backend najpierw sprawdza
+  członkostwo w zespole, potem blokuje wiersz (`with_for_update()`) i dopiero
+  wtedy porównuje wersję — dwa równoczesne zapisy nie przejdą oba, a osoba spoza
+  zespołu nie założy blokady na cudzy wpis.
+- **ATLAS — firmy z historii kandydata** (`api/integrations_companies.py`
+  + `_past_company_predicate` w `api/candidates.py`): `via_us` =
+  `placed_contract_clause()` — kontrakty `active`/`ending`/`ended` oraz
+  `draft`/`ready_for_signature` z aktywnym zamówieniem u tego klienta albo
+  z bieżącym etapem „hired” u niego (zatrudnienie i obsada linii MD zakładają
+  kontrakt jako szkic, więc bez tego pracujący konsultant znikał z odpowiedzi).
+  Aktywny konflikt = firma obecna, nieaktywny = przeszła. Data końca
+  „present/current/obecnie/teraz” (`services/experience_end.py`, po przycięciu
+  WSZYSTKICH białych znaków — SQL `btrim(…, E' \t\r\n')` jak Python `.strip()`)
+  = praca OBECNA we wszystkich predykatach (lista kandydatów i ATLAS). Pusty
+  `end` też, z jednym historycznym wyjątkiem: w filtrze „Poprzednia firma” wpis
+  bez daty dalej niż na pierwszej pozycji liczy się jako przeszły. Każde zapytanie ma
+  sufit 2000 WIERSZY (`truncated`) i lokalny timeout 8 s (→ 503
+  `lookup_timeout`). Surowy alias idzie do `LIKE` tylko, gdy jego forma
+  kanoniczna ma co najmniej 3 znaki (koniec z „IT” → `LIKE '%it%'`). Filtr listy
+  `_worked_at_client_predicate` nadal liczy szkice i unieważnione kontrakty —
+  znany dług.
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
@@ -1342,7 +1581,46 @@ nie ma żadnej reguły do utrzymania.
   szukana po nazwisku ze zwiniętymi polskimi znakami po obu stronach. Jeden
   imiennik bez umowy u tego klienta zostaje dopięty tylko przy ręcznym
   „Zastosuj”; automat odsyła dokument do kolejki (samo nazwisko to za mało,
-  żeby dać komuś cudze zamówienie).
+  żeby dać komuś cudze zamówienie). **Blokadę zdejmuje `confirmed_by_human`,
+  nie `actor_user_id`** — „Przelicz plan” podaje klikającego wyłącznie do
+  audytu (`apply_document(actor_user_id=…, confirmed_by_human=False)`), więc
+  imiennik i dopasowanie niedokładne nadal wracają do kolejki, a wyłącznik
+  automatu dalej działa.
+- **Zamówienie nadpisane w miejscu da się odtworzyć z historii.** Activity
+  `order_mail_reactivate` niesie `before` (stan sprzed nadpisania), `message`
+  i `created_at` = chwila nadpisania; `before` NIE zapisuje `rate_unit`.
+  Jednorazowa korekta PFRON 507–509 (migracja `0306_pfron_renewal_split_repair`,
+  SQL w `services/pfron_renewal_split_repair.py`, lustro w `entrypoint.sh`):
+  nowy okres 01.09–30.11 przechodzi do NOWEGO wiersza, oryginał wraca do stanu
+  z `before` (koszt z harmonogramu umowy na ostatni dzień okresu), a konsumpcje,
+  alerty i dokument maila od 09.2026 idą za nowym wierszem. Każde zamówienie
+  jest przypięte tożsamością biznesową i pomijane z powodem, gdy stan produkcji
+  się nie zgadza — w tym gdy po T0 ktoś je edytował (`edited_after_incident`:
+  PATCH/PDF/anulowanie/zakończenie), gdy tytuł albo jednostka różni się od planu
+  z maila, i gdy TA SAMA OSOBA ma u klienta inne zamówienie na którykolwiek
+  z dwóch okresów, także na innej umowie („Nowy kontraktor / zamówienie” zakłada
+  nową umowę). Blok ma `lock_timeout` 15 s i blokuje wiersz klienta jak writer
+  maila; po timeoucie nic nie zapisuje i ponawia przy następnym starcie.
+  Harmonogram przychodu umów domyka krok `pfron_revenue_resync` (entrypoint, tuż
+  po korekcie) przez `resync_contract` — ten sam kod co zwykły zapis zamówienia.
+  **Dwa klucze w `app_settings`:** paragon `0306_pfron_renewal_split_repair`
+  (liczniki, ID, daty, powody — czyta go `coolify-ops` `migration-receipts`,
+  którego log jest PUBLICZNY) i szczegóły `repair_details_0306_…` (migawki,
+  tytuły, stawki, notatki, ścieżki — do ręcznego odwrócenia; kształt klucza
+  sprawia, że workflow ich nie wydrukuje). Wynik weryfikuje Delivery Lead.
+  **Nowy paragon naprawy danych = tylko liczniki i ID pod kluczem `NNNN_…`**;
+  wszystko z kwotą, tytułem albo nazwiskiem idzie pod klucz innego kształtu.
+- **Dedup alertów wygasania = (odbiorca, obiekt, próg, data końca)**
+  (`dl_portal_expiry_scanner.py`, także umowy ramowe). Data pochodzi z treści
+  komunikatu („kończy się/wygasa RRRR-MM-DD”), którą alerty niosą od maja —
+  **nie zmieniaj tego sformułowania bez `_end_phrase`**, bo stare powiadomienia
+  przestaną się deduplikować. Przedłużona umowa z nową datą końca dostaje nowy
+  alert; do 11.09 próg raz wysłany milczał przy każdej kolejnej dacie.
+- **Pierwszy szkic z maila u klienta bez DL** dostaje alert z dziennego
+  backstopu (`dl_alerts.py`), gdy tylko DL zostanie przypisany — ten sam klucz
+  co zapis, więc bez duplikatów. Do adminów świadomie nie idzie (jak #1394).
+- **Migracja uruchamiana przez `text()` nie może zawierać `:słowo`** (SQLAlchemy
+  zrobi z tego parametr) — czas przez `make_timestamptz(...)`, nie literał.
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
@@ -2353,7 +2631,11 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
     a siedem dni danych — jak załamanie wyniku.
   - **Podsumowanie roku niepełnego porównuje się z TYMI SAMYMI miesiącami**
     roku poprzedniego (YTD). To jedyne miejsce, gdzie mianownik porównania jest
-    inny niż liczba w komórce obok — i dlatego wiersz to mówi.
+    inny niż liczba w komórce obok — i dlatego wiersz to mówi. **Trwający
+    miesiąc nie wchodzi do YTD w żadnym z lat** (od 11.09.2026): 1 lutego YTD
+    porównuje jeden pełny miesiąc, w styczniu pokazuje „—”, a wiersz „(trwa)”
+    nie ma delty ani oceny. Wcześniej kilka dni bieżącego miesiąca stawało
+    naprzeciw pełnego miesiąca roku poprzedniego i dawało fałszywy spadek.
   - **Pieniądze liczy `insights_board_money.fold_money`, ta sama funkcja co
     kafle** — wyniesiona z `insights_board.py` w chwili, gdy pojawił się drugi
     konsument. Kopia przechodziłaby każdy test wartości do dnia, w którym ktoś

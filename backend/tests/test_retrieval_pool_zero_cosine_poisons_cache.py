@@ -179,6 +179,9 @@ def test_canonical_consumers_cannot_return_to_legacy_cache():
         "app/api/matching.py",
         "app/tasks/compute_proposals.py",
         "app/tasks/match_digest.py",
+        # Manual search score column (09.2026): read the legacy cache until
+        # then, which nothing on the current ranker writes — an empty column.
+        "app/api/search.py",
     ):
         tree = ast.parse((backend / rel).read_text(encoding="utf-8"))
         calls = {
@@ -191,3 +194,42 @@ def test_canonical_consumers_cannot_return_to_legacy_cache():
         assert not calls.intersection({"bulk_get_or_compute", "get_or_compute"}), (
             f"{rel} must not read/write legacy fit composites"
         )
+
+
+def test_search_score_column_reads_no_legacy_cache():
+    """The job-context search badge must measure canonical fit, not read cache.
+
+    `fresh_score_conditions` is the ONE definition of "a fresh legacy cache
+    row". Reading it here is what left the column empty on production: since
+    #1428 no current-ranker path writes those rows. The display surfaces now
+    measure on demand (bounded to the visible rows), like every C2 screen.
+    """
+    from tests._ast_calls import calls_in
+
+    calls = calls_in("app/api/search.py", "candidate_match_scores")
+    assert "score_candidates" in calls
+    assert not calls.intersection(
+        {
+            "fresh_score_conditions",
+            "bulk_get_or_compute",
+            "get_or_compute",
+            "get_cached_or_compute",
+        }
+    ), "the score column must not read or write legacy fit composites"
+
+
+def test_dopasowanie_tab_displays_the_canonical_number():
+    """The tab's ring must show the number C2 shows for the pair.
+
+    The prose may still be generated from the legacy breakdown (its cache key
+    is unchanged on purpose), but the displayed score comes from
+    `score_candidates` under the viewer's profile.
+    """
+    from tests._ast_calls import calls_in
+
+    calls = calls_in("app/services/match_justification_service.py", "display_fit")
+    assert "score_candidates" in calls
+    assert "resolve_active_profile" in calls
+    assert not calls.intersection(
+        {"get_cached_or_compute", "bulk_get_or_compute", "get_or_compute"}
+    )

@@ -59,6 +59,7 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { invalidateChampionDependents } from "@/lib/champion-cache";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_PROSE_SECTION_IDS,
@@ -159,10 +160,9 @@ export function ChampionProfileEditor({
         return;
       }
       setRemoteChange({ by: detail.updated_by_name || "Ktoś", at: Date.now() });
-      qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
-      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
-      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
-      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
+      // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
+      // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
+      invalidateChampionDependents(qc, jobId);
     };
     window.addEventListener(CHAMPION_PROFILE_CHANGED_EVENT, handler);
     return () =>
@@ -178,10 +178,9 @@ export function ChampionProfileEditor({
   const mutation = useMutation({
     mutationFn: (p: ChampionProfile) => championApi.put(jobId, p),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
-      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
-      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
-      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
+      // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
+      // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
+      invalidateChampionDependents(qc, jobId);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     },
@@ -289,10 +288,10 @@ export function ChampionProfileEditor({
         )}
       </div>
 
-      <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => { qc.invalidateQueries({ queryKey: ["champion-profile", jobId] }); qc.invalidateQueries({ queryKey: ["job", String(jobId)] }); }} />}</div>
+      <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
       <ChampionValidationPanel validation={data?.validation} />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
-      {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => { qc.invalidateQueries({ queryKey: ["champion-profile", jobId] }); qc.invalidateQueries({ queryKey: ["job", String(jobId)] }); }} />}
+      {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">

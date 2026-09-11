@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChampionImportReview } from "../ChampionIntake";
+import { ChampionImportButton, ChampionImportReview } from "../ChampionIntake";
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 
 const post = vi.hoisted(() => vi.fn());
@@ -38,6 +38,75 @@ describe("Champion import review", () => {
     await waitFor(() => expect(onApply).toHaveBeenCalled());
     expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("150");
     expect(post.mock.calls[0][1].profile.intake.unresolved).toEqual({});
+  });
+
+  it("keeps the document's rate text when the imported rate is applied unchanged", async () => {
+    const incoming = profile(140);
+    incoming.basics.rate_raw = "120–140 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} sourceIsDocument onApply={onApply} onClose={() => {}} />);
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    // The server reads the budget (upper bound) and the range warning from it.
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("140");
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBe("120–140 zł/h");
+  });
+
+  it("drops the source text once the rate is edited", async () => {
+    const incoming = profile(140);
+    incoming.basics.rate_raw = "120–140 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} sourceIsDocument onApply={onApply} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Maksymalna stawka PLN/h"), { target: { value: "150" } });
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("150");
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBeNull();
+  });
+
+  it("sends a kept current rate without its text — the server keeps the stored one", async () => {
+    const current = profile(100);
+    current.basics.rate_raw = "do 100 zł netto/h";
+    const incoming = profile(150);
+    incoming.basics.rate_raw = "150 zł/h";
+    const onApply = vi.fn();
+    render(<ChampionImportReview initial={{ champion_profile: incoming }} current={current} jobId={7} fingerprint={"a".repeat(64)} sourceIsDocument onApply={onApply} onClose={() => {}} />);
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(post.mock.calls[0][1].profile.basics.rate_value).toBe("100");
+    // Neither the document's text (for another number) nor the stored one:
+    // re-sending the stored text made the server re-read an unchanged budget.
+    expect(post.mock.calls[0][1].profile.basics.rate_raw).toBeNull();
+  });
+
+  it("the reconcile dialog over the stored draft never re-sends the stored rate text", async () => {
+    const draft = profile(140);
+    draft.basics.rate_raw = "140 zł netto/h";
+    const onApply = vi.fn();
+    // `ChampionProfileEditor` → „Uzgodnij profil i pola rekrutacji”: no `current`,
+    // no document — the dialog is built from the stored draft itself.
+    render(<ChampionImportReview initial={{ champion_profile: draft }} jobId={7} fingerprint={"a".repeat(64)} onApply={onApply} onClose={() => {}} />);
+    fireEvent.click(screen.getByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    for (const [, body] of post.mock.calls) {
+      expect(body.profile.basics.rate_value).toBe("140");
+      expect(body.profile.basics.rate_raw).toBeNull();
+    }
+    expect(post.mock.calls[1][0]).toBe("/api/jobs/7/champion-profile/apply-import");
+  });
+
+  it("the Word/PDF import button marks its preview as a document", async () => {
+    const incoming = profile(140);
+    incoming.basics.rate_raw = "do 140 zł netto/h";
+    post.mockImplementation(async (url, body) => ({ data: url.endsWith("preview") ? { champion_profile: incoming } : { champion_profile: body.profile } }));
+    const onApply = vi.fn();
+    const { container } = render(<ChampionImportButton onApply={onApply} />);
+    const input = container.querySelector("input[type=file]") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["x"], "profil.docx")] } });
+    fireEvent.click(await screen.findByText("Zastosuj / zapisz szkic"));
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    const validate = post.mock.calls.find(([url]) => url.endsWith("validate"))!;
+    expect(validate[1].profile.basics.rate_raw).toBe("do 140 zł netto/h");
   });
 
   it("keeps accepted skills alongside fragments that still need review", async () => {

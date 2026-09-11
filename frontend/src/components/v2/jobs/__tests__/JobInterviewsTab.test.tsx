@@ -45,8 +45,14 @@ vi.mock("@/lib/api", () => ({
   CONTRACT_FIELD_LABELS: {},
 }));
 
+const showSuccess = vi.fn();
+const showError = vi.fn();
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess: vi.fn(), showError: vi.fn() }),
+  useToast: () => ({ showSuccess, showError }),
+}));
+const copyText = vi.fn(async (..._a: unknown[]) => true);
+vi.mock("@/lib/clipboard", () => ({
+  copyTextToClipboard: (...a: unknown[]) => copyText(...a),
 }));
 
 // Arkusz screeningu i modal odrzucenia mają WŁASNE zapytania — zakładka tylko
@@ -66,6 +72,14 @@ vi.mock("@/components/v2/modals/PrepInviteModal", () => ({
 
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { useAuthStore, type UserRole } from "@/store/auth";
+
+function loginAs(role: UserRole) {
+  useAuthStore.setState({
+    user: { id: 7, role, roles: [role] } as never,
+    realUser: null,
+  });
+}
 
 function item(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
@@ -142,7 +156,9 @@ function renderTab(overrides: Partial<Props> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  listFeedback.mockResolvedValue([]);
+  loginAs("recruiter");
+  copyText.mockResolvedValue(true);
+  listFeedback.mockResolvedValue({ can_record: true, items: [] });
   recordFeedback.mockResolvedValue({
     id: 1,
     job_id: 10,
@@ -227,6 +243,7 @@ describe("JobInterviewsTab", () => {
     await screen.findByRole("option", {
       name: "Nie spełnia wymagań technicznych",
     });
+    await editableForm();
     return select;
   }
 
@@ -248,8 +265,16 @@ describe("JobInterviewsTab", () => {
     ).toBeTruthy();
   });
 
+  /** Formularz odblokowuje się dopiero po `can_record` z serwera. */
+  async function editableForm() {
+    await waitFor(() =>
+      expect(screen.getByLabelText("Notatka z feedbacku")).not.toBeDisabled(),
+    );
+  }
+
   it("zapisuje werdykt przez `POST /jobs/{id}/hiring-manager-feedback`", async () => {
     renderTab();
+    await editableForm();
     await userEvent.click(await screen.findByRole("button", { name: "Odrzuca" }));
     await userEvent.selectOptions(await reasonSelect(), "3");
     await userEvent.type(
@@ -281,7 +306,7 @@ describe("JobInterviewsTab", () => {
     expect(pill.getAttribute("title")).toMatch(/stawkę do klienta/);
   });
 
-  it("weto HM wyszarza ruchy nie-terminalne, ale NIE odrzucenie", async () => {
+  it("weto HM blokuje WYŁĄCZNIE „CV Wysłane”/„Interview Klient” — „Akceptacja” i odrzucenie przechodzą, jak na serwerze", async () => {
     const withVeto = columns();
     withVeto[0] = {
       ...withVeto[0],
@@ -300,14 +325,120 @@ describe("JobInterviewsTab", () => {
     };
     renderTab({ columns: withVeto });
 
+    // `puts_candidate_before_client` egzekwuje weto tylko dla cv_sent
+    // i client_interview — do 09.2026 dok wyszarzał każdy ruch, więc
+    // „Akceptacja"/„Zatrudniony" były martwe, choć serwer je przepuszcza.
     const acceptance = await screen.findByRole("button", { name: "Akceptacja" });
-    expect(acceptance).toBeDisabled();
-    expect(acceptance.getAttribute("title")).toMatch(/Hiring manager/);
+    expect(acceptance).not.toBeDisabled();
 
-    // Terminalne ZAWSZE przechodzą — inaczej kandydata z wetem nie dałoby się
-    // domknąć z tej powierzchni.
+    // „CV Wysłane" — powód weta wygrywa z „ten dialog mieszka na tablicy".
+    const cvSent = screen.getByRole("button", { name: "CV Wysłane" });
+    expect(cvSent).toBeDisabled();
+    expect(cvSent.getAttribute("title")).toMatch(/Hiring manager/);
+
+    // Ruch wypisujący przechodzi zawsze — inaczej kandydata z wetem nie
+    // dałoby się domknąć z tej powierzchni.
     const rejected = screen.getByRole("button", { name: "Odrzucony" });
     expect(rejected).not.toBeDisabled();
+  });
+
+  it("karta „Pending” blokuje każdy ruch z powodem — także odrzucenie (serwer odpowiada 409)", async () => {
+    const pending = columns();
+    pending[0] = {
+      ...pending[0],
+      items: [item({ verification_status: "pending" })],
+    };
+    renderTab({ columns: pending });
+
+    const acceptance = await screen.findByRole("button", { name: "Akceptacja" });
+    expect(acceptance).toBeDisabled();
+    expect(acceptance.getAttribute("title")).toMatch(/czeka na akceptację/);
+    const rejected = screen.getByRole("button", { name: "Odrzucony" });
+    expect(rejected).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
+    ).toBeDisabled();
+  });
+
+  it("Head of Recruitment ma podgląd werdyktu, ale nie dostaje „Zapisz” kończącego się 403", async () => {
+    loginAs("head_of_recruitment");
+    listFeedback.mockResolvedValue({ can_record: false, items: [] });
+    renderTab();
+    expect(await screen.findByText(/Twoja rola ma tu podgląd/)).toBeTruthy();
+    expect(screen.getByLabelText("Powód (gdy odrzuca)")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+  });
+
+  it("Finance spoza zespołu rekrutacji dostaje podgląd, nie „Zapisz” kończące się 403 (`can_record=false`)", async () => {
+    // Finance ma capability zapisu (tier RecruiterPlus), ale POST sprawdza też
+    // członkostwo w zespole — o tym mówi wyłącznie serwer polem `can_record`.
+    loginAs("finance");
+    listFeedback.mockResolvedValue({ can_record: false, items: [] });
+    renderTab();
+    expect(await screen.findByText(/nie należysz do niego/)).toBeTruthy();
+    expect(screen.getByLabelText("Notatka z feedbacku")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("zanim serwer powie `can_record`, formularz nie jest edytowalny", async () => {
+    listFeedback.mockReturnValue(new Promise(() => {}));
+    renderTab();
+    expect(await screen.findByLabelText("Notatka z feedbacku")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+  });
+
+  it("cudzy werdykt (can_edit=false) jest zablokowany z imieniem autora — bez cichego nadpisania", async () => {
+    listFeedback.mockResolvedValue({
+      can_record: true,
+      items: [
+      {
+        id: 55,
+        job_id: 10,
+        candidate_id: 42,
+        decision: "advance",
+        rejection_reason_id: null,
+        rejection_reason_name: null,
+        note: "Klient chce drugą rozmowę.",
+        technical_fit: null,
+        soft_fit: null,
+        overall_fit: null,
+        hiring_manager_contact_id: 5,
+        hiring_manager_name: "Anna Nowak",
+        blocks_future_proposals: false,
+        veto_recorded: false,
+        veto_blockers: [],
+        author_id: 99,
+        author_name: "Ewa Kolega",
+        can_edit: false,
+      },
+      ],
+    });
+    renderTab();
+    expect(await screen.findByText(/zapisał\(a\) Ewa Kolega/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+    expect(screen.getByLabelText("Notatka z feedbacku")).toBeDisabled();
+    expect(recordFeedback).not.toHaveBeenCalled();
+  });
+
+  it("link do karty Championa: adres zostaje na karcie, a „skopiowany” pada tylko po udanym kopiowaniu", async () => {
+    copyText.mockResolvedValueOnce(false);
+    createShareToken.mockResolvedValueOnce({
+      data: { token: "t", expires_at: "", share_url_suffix: "/share/champion-card/k07" },
+    });
+    renderTab();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Karta Championa dla klienta/ }),
+    );
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(showError.mock.calls[0][0]).toContain("nie udało się go skopiować");
+    expect(showSuccess).not.toHaveBeenCalledWith(
+      expect.stringContaining("skopiowany"),
+    );
+    const field = await screen.findByLabelText("Link do karty Championa dla klienta");
+    expect((field as HTMLInputElement).value).toBe(
+      `${window.location.origin}/share/champion-card/k07`,
+    );
   });
 
   it("pusty pipeline mówi „nikt nie jest u klienta”, a nie renderuje pustki", async () => {

@@ -268,8 +268,12 @@ def _attributed_progress(
     """
     progress = PhaseProgress(phase=phase)
     error_ids = stats.get("error_ids") or []
+    # Nazwa klasy wyjątku (nie treść — ta bywa cytatem z CV) na końcu próbki.
+    error_types = stats.get("error_types") or {}
     for row_id in error_ids:
-        progress.add_error(f"{verb} {entity} id={row_id}: {detail}")
+        kind = error_types.get(row_id)
+        suffix = f" ({kind})" if kind else ""
+        progress.add_error(f"{verb} {entity} id={row_id}: {detail}{suffix}")
     # Źródło o starym kształcie statystyk (bez ``error_ids``) degraduje się do
     # stanu sprzed poprawki — błędy nieprzypisane, watermark stoi — zamiast
     # wymuszać zmianę kontraktu wszystkich źródeł naraz.
@@ -534,6 +538,29 @@ def _phase_plan(
         # Ostatnia i wyłącznie raportowa — nic nie zapisuje, nic nie blokuje.
         ("reconcile", lambda: _reconcile_phase(importer)),
     ]
+
+
+# Fazy WZBOGACANIA: wyprowadzają dane z tego, co Nexus JUŻ ma (zapisane CV),
+# a nie z okna zmian Traffita wyznaczanego przez `__daily__` — imię z CV,
+# pola strukturalne CV, fakty Cortexa. DORADCZE są wyłącznie ich błędy
+# WIERSZY. Wstrzymany watermark ponawia te fazy — kolejna delta importuje
+# szersze okno, faza `candidates` stempluje `updated_at` tych kandydatów na
+# nowo, więc trafiają ponownie w zakres `files_since` — ale wiersz trwale
+# zepsuty pada przy każdym ponowieniu. Kwarantanna go nie ratuje — pełny bieg
+# przemiata budżetowany wycinek, więc wiersz jest oglądany raz na przebieg,
+# a `_next_quarantine` zapomina go następnej nocy (nieobecny = „zaimportował
+# się") i licznik nigdy nie dobija do limitu. Tak jeden nieparsowalny CV
+# (kandydat 287387) zamroził `__daily__` od 2026-09-08. Błędy wierszy ZOSTAJĄ
+# widoczne — status fazy `errors`, próbki z klasą wyjątku, referencje
+# i kwarantanna w `/sync/status` — tylko nie blokują watermarku.
+#
+# WYWROTKA fazy (wyjątek poza pętlą wierszy, np. nieudany commit) blokuje
+# watermark jak w każdej innej fazie: nie wiadomo, które wiersze przeszły,
+# a dla `candidates_cv_fields` wstrzymany watermark jest JEDYNYM ponowieniem
+# — pełny bieg ją pomija, delta widzi tylko `updated_at >= run_start`.
+ADVISORY_PHASES = frozenset(
+    {"candidates_enrich_names", "candidates_cv_fields", "cortex"}
+)
 
 
 # Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
@@ -826,7 +853,12 @@ async def run_traffit_sync(
                             for ref, n in quarantine.items()
                             if n >= settings.TRAFFIT_MAX_ROW_ATTEMPTS
                         }
-                        if blocking:
+                        if blocking and name in ADVISORY_PHASES:
+                            # Row errors of an enrichment phase: counted and
+                            # shown, but under a key the global gate below does
+                            # not read — see `ADVISORY_PHASES`.
+                            summary["advisory_errors"] = blocking
+                        elif blocking:
                             # Read by the global gate below. Absent when zero so
                             # the stats stay quiet on a clean phase.
                             summary["blocking_errors"] = blocking
@@ -859,6 +891,8 @@ async def run_traffit_sync(
                         raise
                     except Exception as exc:  # noqa: BLE001
                         logger.exception("Traffit phase %s failed", name)
+                        # A crash holds the watermark in EVERY phase, the
+                        # enrichment ones included — see `ADVISORY_PHASES`.
                         results[name] = {"error": repr(exc)}
                         try:
                             await db.rollback()
@@ -949,10 +983,25 @@ async def run_traffit_sync(
                 # is NOT a blocker. Reading `v.get("errors")` here instead would
                 # re-freeze the daily watermark on the very rows the phase just
                 # decided to park, and the whole mechanism would be a no-op.
+                # Row errors of enrichment phases are filed under
+                # `advisory_errors`, so they never gate it; a crash (`error`)
+                # does, in every phase — `ADVISORY_PHASES`.
                 any_error = any(
                     isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
                     for v in results.values()
                 )
+                advisory_failures = sorted(
+                    phase_name
+                    for phase_name, v in results.items()
+                    if isinstance(v, dict) and v.get("advisory_errors")
+                )
+                if advisory_failures:
+                    logger.warning(
+                        "Traffit %s: enrichment phase(s) with row errors, not "
+                        "holding the watermark: %s",
+                        mode,
+                        ", ".join(advisory_failures),
+                    )
                 status = "errors" if any_error else "ok"
 
                 # Advance the delta watermark (``last_synced_at``) ONLY on a
@@ -1019,6 +1068,7 @@ async def run_traffit_sync(
             "since": since.isoformat() if since else None,
             "notes_promoted": notes,
             "phases": results,
+            **({"advisory_failures": advisory_failures} if advisory_failures else {}),
         }
 
 

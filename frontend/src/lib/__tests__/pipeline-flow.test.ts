@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  HM_VETO_ENFORCED_STAGES,
+  PENDING_VERIFICATION_MOVE_BLOCK,
   PIPELINE_GROUP_LABEL,
   countAtClient,
   countContractSent,
@@ -22,12 +24,17 @@ import {
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
+  primaryForwardMove,
   selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
   stageAgeTone,
 } from "@/lib/pipeline-flow";
-import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import {
+  colId,
+  type KanbanColumn,
+  type KanbanItem,
+} from "@/components/v2/pages/kanban-shared";
 
 function item(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
@@ -265,52 +272,206 @@ describe("selektory KPI", () => {
   });
 });
 
+/**
+ * Bramka ruchu = lustro `POST /api/pipeline/move`. Każdy przypadek niżej to
+ * rozjazd, który istniał: UI wyszarzało „Zweryfikowany"/„Zatrudniony" przy
+ * wecie (serwer je przepuszcza), a kartę „Pending" przepuszczało prosto w 409
+ * — w kroku 06 PO utworzeniu żywego linku do CV.
+ */
 describe("moveBlockedReason", () => {
+  const veto = {
+    hiring_manager_contact_id: 5,
+    source_job_id: 2,
+    rejected_at: "2026-01-01",
+    rejection_reason_name: "Brak doświadczenia w bankowości",
+  };
+
   it("brak prawa zapisu blokuje wszystko", () => {
-    expect(moveBlockedReason({ item: item(), readOnly: true })).toContain(
-      "Tylko do odczytu",
-    );
+    expect(
+      moveBlockedReason({ item: item(), readOnly: true, targetStage: "verified" }),
+    ).toContain("Tylko do odczytu");
   });
 
-  it("weto hiring managera blokuje ruch nie-terminalny z powodem", () => {
-    const reason = moveBlockedReason({
-      item: item({
-        hm_veto: {
-          hiring_manager_contact_id: 5,
-          source_job_id: 2,
-          rejected_at: "2026-01-01",
-          rejection_reason_name: "Brak doświadczenia w bankowości",
-        },
-      }),
-      readOnly: false,
-    });
-    expect(reason).toContain("Brak doświadczenia w bankowości");
+  it.each(["cv_sent", "client_interview"])(
+    "weto hiring managera blokuje „%s” — to etapy przed klientem",
+    (targetStage) => {
+      const reason = moveBlockedReason({
+        item: item({ hm_veto: veto }),
+        readOnly: false,
+        targetStage,
+      });
+      expect(reason).toContain("Brak doświadczenia w bankowości");
+    },
+  );
+
+  it.each(["verified", "screening", "acceptance", "hired", "new"])(
+    "weto hiring managera NIE blokuje „%s” — serwer egzekwuje je wyłącznie przed klientem",
+    (targetStage) => {
+      expect(
+        moveBlockedReason({
+          item: item({ hm_veto: veto }),
+          readOnly: false,
+          targetStage,
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it("zbiór etapów weta jest lustrem VETO_ENFORCED_STAGES z backendu", () => {
+    expect([...HM_VETO_ENFORCED_STAGES].sort()).toEqual([
+      "client_interview",
+      "cv_sent",
+    ]);
   });
 
-  it("ruch TERMINALNY przechodzi mimo weta — inaczej kandydat utknąłby w procesie", () => {
+  it("ruch WYPISUJĄCY przechodzi mimo weta — inaczej kandydat utknąłby w procesie", () => {
     expect(
       moveBlockedReason({
-        item: item({
-          hm_veto: {
-            hiring_manager_contact_id: 5,
-            source_job_id: 2,
-            rejected_at: "2026-01-01",
-            rejection_reason_name: "Weto",
-          },
-        }),
+        item: item({ hm_veto: veto }),
         readOnly: false,
         terminal: true,
+        targetStage: "rejected",
       }),
     ).toBeNull();
   });
 
-  it("„pending” NIE jest bramką ruchu — backend też go tak nie traktuje", () => {
+  it("karta „Pending” blokuje KAŻDY ruch — także terminalny, bo serwer odpowiada 409", () => {
+    const pending = item({ verification_status: "pending" });
+    for (const targetStage of ["cv_sent", "verified", "hired"]) {
+      expect(
+        moveBlockedReason({ item: pending, readOnly: false, targetStage }),
+      ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
+    }
     expect(
       moveBlockedReason({
-        item: item({ verification_status: "pending" }),
+        item: pending,
         readOnly: false,
+        terminal: true,
+        targetStage: "rejected",
       }),
+    ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
+  });
+
+  it("powód „Pending” nie każe czytającemu akceptować — robi to wyłącznie administrator", () => {
+    // `accept-verification` / `reject-verification` stoją za `AdminUser`;
+    // rekruter czytający „najpierw zaakceptuj" dostawał polecenie nie do
+    // wykonania. Funkcja nie zna roli, więc zdanie ma być prawdziwe dla KAŻDEGO.
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).toContain("czeka na akceptację");
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).toMatch(/administrator/);
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/najpierw zaakceptuj/i);
+    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/odrzuć weryfikację/i);
+  });
+
+  it("karta bez weta i bez „Pending” przechodzi", () => {
+    expect(
+      moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),
     ).toBeNull();
+  });
+});
+
+/**
+ * Główna akcja „naprzód" doku. Do 09.2026 pętla przeskakiwała etap
+ * zablokowany wetem HM i proponowała pierwszy dalszy — w „Default B2B" karta
+ * z wetem przed „CV Wysłane" dostawała „Przenieś na etap: Preparation
+ * Meeting", czyli objazd weta jednym kliknięciem.
+ */
+describe("primaryForwardMove", () => {
+  const veto = {
+    hiring_manager_contact_id: 5,
+    source_job_id: 2,
+    rejected_at: "2026-01-01",
+    rejection_reason_name: "Brak doświadczenia w bankowości",
+  };
+
+  function at(stageName: string, overrides: Partial<KanbanItem> = {}) {
+    const columns = defaultB2B();
+    const current = columns.find((c) => c.name === stageName);
+    if (!current) throw new Error(`brak etapu ${stageName}`);
+    return {
+      columns,
+      currentColId: colId(current),
+      item: item({ stage: current.stage, ...overrides }),
+    };
+  }
+
+  it("karta z wetem przed „CV Wysłane” NIE dostaje objazdu na „Preparation Meeting”", () => {
+    const { columns, currentColId, item: card } = at("Wysłać do Cpro", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target).toBeNull();
+    expect(move.blocked?.col.name).toBe("CV Wysłane");
+    expect(move.blocked?.reason).toContain("Brak doświadczenia w bankowości");
+  });
+
+  it("karta z wetem przed „Interview Klient” nie przeskakuje do „Akceptacji”", () => {
+    const { columns, currentColId, item: card } = at("Preparation Meeting", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target).toBeNull();
+    expect(move.blocked?.col.name).toBe("Interview Klient");
+  });
+
+  it("weto nie blokuje kroku, przed którym nie stoi etap z wetem", () => {
+    // Już na „CV Wysłane" (np. weto przyszło z innej rekrutacji tego
+    // managera): „Preparation Meeting" jest następnym krokiem, bez objazdu.
+    const { columns, currentColId, item: card } = at("CV Wysłane", {
+      hm_veto: veto,
+    });
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("Preparation Meeting");
+    expect(move.blocked).toBeNull();
+  });
+
+  it("karta bez weta idzie na następny etap — w tym „CV Wysłane”", () => {
+    const { columns, currentColId, item: card } = at("Wysłać do Cpro");
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("CV Wysłane");
+    expect(move.blocked).toBeNull();
+  });
+
+  it("terminal po drodze jest pomijany — „Zatrudniony” nie jest krokiem naprzód z doku", () => {
+    const { columns, currentColId, item: card } = at("Umowa podpisana");
+    const move = primaryForwardMove({
+      item: card,
+      columns,
+      currentColId,
+      readOnly: false,
+    });
+    expect(move.target?.name).toBe("Onboarding");
+  });
+
+  it("karta „Pending” i brak prawa zapisu: żadnej akcji naprzód (jak dotąd)", () => {
+    const pending = at("Wysłać do Cpro", { verification_status: "pending" });
+    expect(
+      primaryForwardMove({ ...pending, readOnly: false }),
+    ).toEqual({ target: null, blocked: null });
+    const readOnly = at("Wysłać do Cpro");
+    expect(primaryForwardMove({ ...readOnly, readOnly: true })).toEqual({
+      target: null,
+      blocked: null,
+    });
   });
 });
 

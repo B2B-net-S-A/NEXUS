@@ -144,6 +144,8 @@ async def compute_proposal_for_job(
                 bm25_query=build_job_bm25_query(job),
                 # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
                 must_groups=build_job_must_groups(job),
+                # Snapshot sortuje kanoniczny fit — reranker byłby czystym kosztem.
+                use_rerank=False,
             )
             candidate_ids = list(dict.fromkeys(h["candidate_id"] for h in hits))
 

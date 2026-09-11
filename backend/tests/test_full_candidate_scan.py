@@ -116,3 +116,37 @@ def test_real_zero_is_measured_but_unknown_is_not():
     unknown = CandidateEvaluation(2, "v1", True, None, "missing_index")
     assert measured.fit_score == 0
     assert unknown.fit_score is None
+
+
+@pytest.mark.asyncio
+async def test_population_snapshot_hands_back_the_event_loop():
+    """~60k rows are built in the web process that creates the run."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from app.services.full_candidate_scan import snapshot_candidate_population
+
+    stamp = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    rows = [(cid, stamp) for cid in range(1, 71)]
+
+    class DB:
+        async def execute(self, _statement):
+            return iter(rows)
+
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)
+    before = ticks
+    population = await snapshot_candidate_population(DB())
+    during = ticks - before
+    task.cancel()
+
+    assert population == [CandidateSnapshot(cid, str(stamp)) for cid, _ in rows]
+    assert during == 2  # after 32 and 64 rows

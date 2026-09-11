@@ -19,16 +19,26 @@ from app.services.cv_generator_b2b.standalone_service import (
 from app.services.cv_generator_b2b.champion_builder import (
     parse_champion_from_docx_bytes,
 )
-from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
+from app.services.cv_generator_b2b.text_extractor import (
+    CVTextExtractionError,
+    extract_text_from_file,
+)
 
 MAX_UPLOAD_BYTES = _MAX_UPLOAD_BYTES
+_CHAMPION_UNREADABLE = (
+    "Profil Championa: nie można odczytać pliku DOCX. Wgraj poprawny dokument."
+)
+
+
+class DocxExpansionLimit(ValueError):
+    """The archive would inflate past the host limit — a size problem, not damage."""
 
 
 def _docx_container(data: bytes) -> None:
     with ZipFile(BytesIO(data)) as archive:
         # Protect the host before python-docx inflates an uploaded archive.
         if sum(info.file_size for info in archive.infolist()) > MAX_UPLOAD_BYTES * 4:
-            raise ValueError("DOCX expansion limit")
+            raise DocxExpansionLimit("DOCX expansion limit")
         if "word/document.xml" not in archive.namelist():
             raise ValueError("DOCX document missing")
 
@@ -64,13 +74,31 @@ def validate_upload_inputs(payload: UploadGenerationInput) -> None:
             allowed_ext=_ALLOWED_CHAMPION_EXT,
             label="Profil Championa",
         )
+        # The reason goes to the recruiter as it is. Until 09.2026 every failure
+        # here — including a (since removed) length limit — was reported as an
+        # unreadable DOCX, so people re-exported healthy files instead of
+        # fixing the actual problem.
         try:
             _docx_container(payload.champion_bytes)
-            champion = parse_champion_from_docx_bytes(payload.champion_bytes, filename)
-        except Exception as error:
+        except DocxExpansionLimit as error:
             raise StandaloneGenerationError(
                 "invalid_input",
-                "Profil Championa: nie można odczytać pliku DOCX. Wgraj poprawny dokument.",
+                "Profil Championa: plik po rozpakowaniu przekracza dopuszczalny "
+                "rozmiar. Usuń z dokumentu obrazy lub osadzone pliki.",
+            ) from error
+        except Exception as error:
+            raise StandaloneGenerationError(
+                "invalid_input", _CHAMPION_UNREADABLE
+            ) from error
+        try:
+            champion = parse_champion_from_docx_bytes(payload.champion_bytes, filename)
+        except CVTextExtractionError as error:
+            raise StandaloneGenerationError(
+                "invalid_input", f"Profil Championa: {error}"
+            ) from error
+        except Exception as error:
+            raise StandaloneGenerationError(
+                "invalid_input", _CHAMPION_UNREADABLE
             ) from error
 
     required = bool(payload.client_rule and payload.client_rule.require_champion)

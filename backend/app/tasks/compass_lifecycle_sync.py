@@ -40,12 +40,13 @@ async def compass_lifecycle_sync_loop() -> None:
                 result = await sync_user_lifecycle(db)
             logger.info(
                 "compass_lifecycle_sync done received=%s matched=%s deactivated=%s "
-                "already_inactive=%s unmatched_compass=%s nexus_without_compass=%s "
-                "error=%s",
+                "already_inactive=%s kept_reenabled=%s unmatched_compass=%s "
+                "nexus_without_compass=%s error=%s",
                 result.people_received,
                 result.matched_users,
                 len(result.deactivated),
                 result.already_inactive,
+                len(result.skipped_reenabled),
                 len(result.unmatched_compass_emails),
                 len(result.nexus_users_without_compass),
                 result.error,

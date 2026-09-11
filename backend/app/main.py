@@ -100,6 +100,7 @@ from app.api import admin_process_adoption
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
+from app.api import admin_index_cleanup
 from app.api import admin_match_score_repair
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
@@ -1012,6 +1013,11 @@ app.include_router(
     tags=["admin-index-coverage"],
 )
 app.include_router(
+    admin_index_cleanup.router,
+    prefix="/api/admin",
+    tags=["admin-index-cleanup"],
+)
+app.include_router(
     admin_candidate_pii_orphans.router,
     prefix="/api/admin",
     tags=["admin-candidate-pii-orphans"],
@@ -1527,6 +1533,23 @@ async def health_check():
     return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}
 
 
+@app.get("/api/health/live")
+async def api_health_live():
+    """Liveness for the container healthcheck: the process serves requests.
+
+    Deliberately touches nothing — no database, no pool, no lock, no external
+    probe. `/api/health` runs a dozen of those with their own timeouts, and
+    under a heavy full candidate search (pool saturated, busy event loop) it
+    could miss the 5 s probe window three times in a row: Docker then marked
+    a WORKING backend unhealthy and Traefik stopped routing to it ("no
+    available server"). Readiness and the deploy smoke test keep using
+    `/api/health`; this answers one question only — is the process alive.
+    """
+    import os
+
+    return {"status": "alive", "version": os.environ.get("GIT_SHA", "unknown")}
+
+
 def _resolve_deployed_at() -> str:
     """Return ISO-8601 deployedAt string.
 
@@ -1673,8 +1696,9 @@ def _probe_qdrant() -> str:
     # „wyszukiwarka nic nie znajduje".
     #
     # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
-    # zmienione razem z siedmioma w `app/services/` — inaczej sonda przestanie
-    # sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    # zmienione razem z ośmioma w `app/services/` (lista w requirements.txt,
+    # w tym pomiar pełnego przeglądu `full_search_measurement._exact_search`) —
+    # inaczej sonda przestanie sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
     try:
         client.search(
             collection_name=collection,
