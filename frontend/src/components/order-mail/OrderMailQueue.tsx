@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Inbox, FileText, Check, X, ExternalLink, Loader2, MailCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Inbox, FileText, Check, X, ExternalLink, Loader2, MailCheck, UserCog } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, PageHeader, QueryStateNotice } from "@/components/ds";
 import {
   ORDER_MAIL_ACTION_LABEL,
   ORDER_MAIL_OUTCOME_LABEL,
+  needsPersonDecision,
   orderMailApi,
+  orderWindowHref,
   type OrderMailDocument,
   type OrderMailOutcome,
   type OrderMailSyncStatus,
@@ -329,6 +333,10 @@ function errorDetail(error: unknown, fallback: string): string {
 
 function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; onRefreshPlan?: () => void; busy: boolean; applyError: string | null }) {
   const ex = doc.extraction;
+  // Osoba nieaktywna/nieznaleziona na zamówieniu MD/kosztowym: decyzja w oknie
+  // zamówienia klienta (ten sam mechanizm co przy ręcznym wgraniu PDF-a).
+  const personDecision = needsPersonDecision(doc);
+  const windowHref = orderWindowHref(doc);
   return (
     <section className="rounded-lg border p-4" data-testid="order-mail-detail">
       <div className="flex items-start justify-between gap-3">
@@ -395,6 +403,23 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
       {doc.error && <div className="mt-3 text-sm text-destructive">Błąd: {doc.error}</div>}
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
 
+      {personDecision && doc.outcome === "needs_review" && (
+        <div role="status" className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" data-testid="person-decision">
+          <div className="font-medium">Osoba do rozstrzygnięcia</div>
+          <p className="mt-1 text-muted-foreground">
+            Na tym zamówieniu jest osoba bez aktywnej współpracy albo nieznaleziona w systemie.
+            Automat jej nie wznowi ani nie założy — w oknie zamówienia klienta zdecydujesz,
+            czy zostawić ją jako zapis historyczny, wznowić współpracę, zastąpić inną osobą
+            czy usunąć z zamówienia. Okno otworzy się z tym PDF-em.
+          </p>
+          {windowHref && doc.can_apply && doc.has_file ? (
+            <Link href={windowHref} className={cn(buttonVariants(), "mt-2")}>
+              <UserCog className="mr-1 h-4 w-4" /> Rozstrzygnij w oknie zamówienia
+            </Link>
+          ) : null}
+        </div>
+      )}
+
       {doc.outcome === "needs_review" && (
         <div className="mt-4 flex flex-wrap gap-2">
           {onRefreshPlan && doc.can_apply && doc.has_file && (
@@ -402,7 +427,17 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
               Przelicz plan
             </Button>
           )}
-          <Button onClick={onApply} disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length)} title={doc.can_apply ? undefined : "Zapis wymaga admina albo przypisanego Delivery Leada"}>
+          <Button
+            onClick={onApply}
+            disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length) || personDecision}
+            title={
+              !doc.can_apply
+                ? "Zapis wymaga admina albo przypisanego Delivery Leada"
+                : personDecision
+                  ? "Osobę z zakończoną współpracą albo nieznalezioną rozstrzygnij w oknie zamówienia"
+                  : undefined
+            }
+          >
             <Check className="mr-1 h-4 w-4" /> Zastosuj
           </Button>
           <Button variant="outline" onClick={onDismiss} disabled={!doc.can_apply || busy}>
@@ -412,6 +447,12 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
       )}
       {doc.applied_order_id && (
         <p className="mt-3 text-sm">Zapisane jako zamówienie #{doc.applied_order_id}{doc.applied_at ? ` (${doc.applied_at.slice(0, 16).replace("T", " ")})` : ""}.</p>
+      )}
+      {doc.proposal?.resolved_in_order && (
+        <p className="mt-3 text-sm">
+          Rozstrzygnięte w oknie zamówienia — zamówienie nr {doc.proposal.resolved_in_order.order_number ?? `#${doc.proposal.resolved_in_order.order_group_id}`}
+          {doc.proposal.resolved_in_order.resolved_at ? ` (${doc.proposal.resolved_in_order.resolved_at.slice(0, 16).replace("T", " ")})` : ""}.
+        </p>
       )}
     </section>
   );

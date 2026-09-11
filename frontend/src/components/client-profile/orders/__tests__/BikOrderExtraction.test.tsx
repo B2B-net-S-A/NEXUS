@@ -240,6 +240,26 @@ describe("BIK — odczyt zamówienia wieloosobowego", () => {
   });
 
   it("uzupełnienie: „bezterminowo” zastępuje wpisaną datę dopiero po zgodzie", async () => {
+    // „Uzupełnij zamówienie" czyta PDF tym samym odczytem co „Nowe zamówienie".
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({
+      data: {
+        order_number: "4500000001",
+        start_date: "2031-01-01",
+        end_date: null,
+        open_ended: true,
+        total_value: null,
+        currency: "PLN",
+        md_total: null,
+        suggested_order_type: "md",
+        client_policy: "BIK",
+        consultant_ref: null,
+        title_needs_review: false,
+        document_incomplete: false,
+        uncertain: false,
+        uncertain_reasons: [],
+        lines: [],
+      },
+    } as never);
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     formModal({ ...GROUP, status: "draft", md_budget_mode_locked: false });
     const end = screen.getByLabelText("Obowiązuje do (puste = bezterminowo)");

@@ -167,6 +167,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
     "frontend/src/lib/order-plan.ts",
+    # Zdanie „[osoba] wykorzystał(a) X zł / Y MD … przed zakończeniem
+    # współpracy" — instrukcja cytuje jego kształt.
+    "frontend/src/lib/order-line-usage.ts",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx",

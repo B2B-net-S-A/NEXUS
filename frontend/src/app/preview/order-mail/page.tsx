@@ -68,6 +68,19 @@ const ITEMS: OrderMailDocument[] = [
       ],
     },
   }),
+  // Ticket B (09.2026): zamówienie kosztowe z osobą, której współpraca się
+  // zakończyła — decyzja w oknie zamówienia, „Zastosuj" wyłączone.
+  doc(4, {
+    client_name: "Operator Telekom S.A.", client_policy: "Operator", subject: "Zlecenie wykonawcze SAP 4500000777", attachment_name: "zlecenie.pdf",
+    gate_reasons: ["„Marian Odchodzący”: „Marian Odchodzący” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 12.02.2031). Zdecyduj: zostaw tę osobę na zamówieniu jako zapis historyczny, wznów współpracę, zastąp ją inną osobą albo usuń z zamówienia"],
+    proposal: {
+      client_id: 4, order_number: "SAP 4500000777", is_group_client: true, blocking: [],
+      rows: [
+        { row_index: 0, row_name: "Ewa Obecna", action: "new", candidate_id: 11, contract_id: 21, target_order_id: null, title: "SAP 4500000777", start_date: "2031-04-01", end_date: null, rate_client: "840.00", rate_unit: "day", md_total: null, order_type: "cost", reasons: [] },
+        { row_index: 1, row_name: "Marian Odchodzący", action: "decide_person", candidate_id: 12, contract_id: 22, target_order_id: null, title: "SAP 4500000777", start_date: "2031-04-01", end_date: null, rate_client: "1280.00", rate_unit: "day", md_total: null, order_type: "cost", reasons: ["„Marian Odchodzący” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 12.02.2031). Zdecyduj: zostaw tę osobę na zamówieniu jako zapis historyczny, wznów współpracę, zastąp ją inną osobą albo usuń z zamówienia"] },
+      ],
+    },
+  }),
   doc(3, {
     client_name: "Ernst & Young", client_policy: null, identification_method: "registry_id", subject: "Work Order EYWO00016165 Rev. 13", attachment_name: "Work Order - Fieldglass.pdf",
     gate_reasons: ["Klient nie ma własnej polityki odczytu", "„Makarewicz, Maciej”: revision — Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"],

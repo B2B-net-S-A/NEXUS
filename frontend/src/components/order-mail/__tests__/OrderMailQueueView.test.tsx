@@ -80,6 +80,28 @@ describe("OrderMailQueueView", () => {
     expect(onApply).toHaveBeenCalledWith(1);
   });
 
+  it("person to decide: the window link replaces a silent apply", () => {
+    const decide = doc({
+      proposal: {
+        client_id: 7, order_number: "SAP 4500000777", is_group_client: true, blocking: [],
+        rows: [{ row_index: 0, row_name: "Marian Odchodzący", action: "decide_person", candidate_id: 5, contract_id: 9, target_order_id: null, title: "SAP 4500000777", start_date: "2031-04-01", end_date: null, rate_client: null, rate_unit: "day", md_total: null, order_type: "cost",
+          reasons: ["„Marian Odchodzący” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 12.02.2031). Zdecyduj: zostaw tę osobę na zamówieniu jako zapis historyczny, wznów współpracę, zastąp ją inną osobą albo usuń z zamówienia"] }],
+      },
+      client_id: 7,
+      id: 42,
+    });
+    render(<OrderMailQueueView {...base} selectedId={42} state="ready" items={[decide]} />);
+    expect(screen.getByTestId("order-mail-detail")).toHaveTextContent("nie ma już aktywnej współpracy");
+    expect(screen.getByTestId("person-decision")).toHaveTextContent("zostawić ją jako zapis historyczny");
+    expect(screen.getByRole("link", { name: /Rozstrzygnij w oknie zamówienia/ })).toHaveAttribute(
+      "href",
+      "/clients/7?tab=zamowienia&orderMailDoc=42",
+    );
+    const apply = screen.getByRole("button", { name: /Zastosuj/ });
+    expect(apply).toBeDisabled();
+    expect(apply).toHaveAttribute("title", expect.stringContaining("w oknie zamówienia"));
+  });
+
   it("mailbox panel shows the last check and the button asks for a new one", () => {
     const onCheckNow = vi.fn();
     render(<OrderMailQueueView {...base} mailbox={{ ...mailbox, onCheckNow }} state="ready" items={[doc()]} />);

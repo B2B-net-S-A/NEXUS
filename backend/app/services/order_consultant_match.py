@@ -344,32 +344,60 @@ def resolve_contract(
             if name_match.level == MATCH_CONFIRM
             else ""
         )
-        ended_on = (
-            f" (kontrakt zakończony {contract.end_date.strftime('%d.%m.%Y')})"
-            if contract.end_date
-            else " (kontrakt zakończony)"
-        )
         return ContractMatch(
             status=MATCH_INACTIVE,
-            reason=(
-                (prefix + "; " if prefix else "")
-                + f"{_display(document_name)} nie ma już aktywnej współpracy u tego "
-                f"klienta{ended_on}. Zdecyduj: zostaw tę osobę na zamówieniu jako "
-                "zapis historyczny, wznów współpracę, zastąp ją inną osobą albo "
-                "usuń z zamówienia"
+            reason=inactive_consultant_reason(
+                document_name, ended_on=contract.end_date, prefix=prefix
             ),
             contract=contract,
             name_match=name_match,
         )
 
     nearest = _nearest(document_name, contracts)
-    reason = (
+    return ContractMatch(
+        status=MATCH_NONE,
+        reason=unknown_consultant_reason(document_name),
+        nearest=nearest,
+    )
+
+
+# ── Komunikaty — JEDNO źródło dla wszystkich ścieżek odczytu ────────────────
+#
+# Ten sam tekst widzi Delivery Lead w oknie „Nowe zamówienie", w „Uzupełnij
+# zamówienie" i w kolejce zamówień z maila (planer ``order_mail_planner``).
+# Ticket 09.2026 wymaga, żeby osoba nieaktywna/nieznaleziona dawała wszędzie
+# ten sam jasny komunikat i ten sam wybór — dwie kopie zdania rozjechałyby
+# się przy pierwszej poprawce jednej z nich.
+
+
+def inactive_consultant_reason(
+    document_name: Optional[str], *, ended_on: Optional[date], prefix: str = ""
+) -> str:
+    """Osoba jest w systemie, ale jej współpraca u klienta się zakończyła."""
+
+    ended_text = (
+        f" (kontrakt zakończony {ended_on.strftime('%d.%m.%Y')})"
+        if ended_on
+        else " (kontrakt zakończony)"
+    )
+    return (
+        (prefix + "; " if prefix else "")
+        + f"{_display(document_name)} nie ma już aktywnej współpracy u tego "
+        f"klienta{ended_text}. Zdecyduj: zostaw tę osobę na zamówieniu jako "
+        "zapis historyczny, wznów współpracę, zastąp ją inną osobą albo "
+        "usuń z zamówienia"
+    )
+
+
+def unknown_consultant_reason(document_name: Optional[str]) -> str:
+    """Osoby z dokumentu nie ma wśród kontraktów klienta."""
+
+    return (
         f"Nie znaleziono {_display(document_name)} w systemie — brak kontraktu "
         "z tym imieniem i nazwiskiem u tego klienta (system nie koryguje "
         "literówek ani nie zgaduje podobieństwa). Wskaż tę osobę ręcznie, "
         "zastąp ją kimś innym albo usuń z zamówienia"
     )
-    return ContractMatch(status=MATCH_NONE, reason=reason, nearest=nearest)
 
 
 def _display(document_name: Optional[str]) -> str:

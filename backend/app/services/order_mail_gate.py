@@ -1,8 +1,11 @@
 """Pure decision: an automatic verdict always goes to the shared writer.
 
 Review reasons describe source ambiguity, incomplete data, conflicting people,
-rate outliers or an actual incompatible order. A missing or ended engagement
-is a normal lifecycle state, not a reason to stop a complete order.
+rate outliers or an actual incompatible order. On a periodic order a missing
+or ended engagement is a normal lifecycle state, not a reason to stop a complete
+order. On MD and cost orders the planner stops such a person at
+``ACTION_DECIDE_PERSON`` (keep as history / resume / replace / remove is the
+Delivery Lead's decision), which lands here as an ordinary non-auto action.
 """
 
 from __future__ import annotations

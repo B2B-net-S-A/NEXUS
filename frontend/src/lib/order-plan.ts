@@ -12,6 +12,7 @@ import type {
   ConsultantOption,
   OrderGroupExtraction,
   OrderLineInput,
+  OrderLineRead,
   OrderPlanContract,
   OrderPlanLine,
   OrderPlanMatchStatus,
@@ -46,6 +47,9 @@ export interface OrderLineDraft {
   positionLabel: string | null;
   match: LineMatch;
   matchReason: string;
+  /** Powód z ODCZYTU (np. „kilka osób o tym imieniu") — do powrotu do listy,
+   *  gdy wybrany z niej kontrakt okazał się zakończony. */
+  planReason: string;
   /** Żółta odznaka wymaga jednego kliknięcia potwierdzenia. */
   confirmed: boolean;
   person: LinePerson | null;
@@ -151,6 +155,7 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
       positionLabel: line.position_label,
       match: line.match_status,
       matchReason: line.match_reason,
+      planReason: line.match_reason,
       confirmed: line.match_status === "auto",
       person: matched && line.contract ? personFromContract(line.contract) : null,
       options: line.options,
@@ -188,6 +193,7 @@ export function emptyDraft(): OrderLineDraft {
     positionLabel: null,
     match: "manual",
     matchReason: "",
+    planReason: "",
     confirmed: true,
     person: null,
     options: [],
@@ -212,19 +218,51 @@ export function emptyDraft(): OrderLineDraft {
   };
 }
 
-/** Kontrakt wybrany z listy przy „dwóch osobach" — decyzja DL, nie systemu. */
+/** Kontrakt wybrany z listy przy „dwóch osobach" — decyzja DL, nie systemu.
+ *
+ *  Lista bywa mieszana: obok żywego kontraktu stoi zakończony (osoba wraca po
+ *  przerwie). Wybór ZAKOŃCZONEGO nie może po cichu wznowić współpracy —
+ *  karta przechodzi w to samo pytanie co odznaka „Zakończył współpracę":
+ *  zostaw jako historię / wznów / zastąp / usuń. */
 export function chooseContract(
   draft: OrderLineDraft,
   contract: OrderPlanContract,
 ): OrderLineDraft {
   // Stawka kosztowa należy do OSOBY — przy zmianie osoby nie przenosimy ani
   // podpowiedzi, ani ręcznego wpisu poprzedniej (jak w „Dodaj konsultanta").
-  return {
+  const base = {
     ...draft,
     ...costFromContract(contract),
-    match: "manual",
-    confirmed: true,
     person: personFromContract(contract),
+    inactiveDecision: null,
+  };
+  if (contract.status === "ended") {
+    return {
+      ...base,
+      match: "inactive",
+      // Tekst z serwera (`order_consultant_match`) — jedno źródło komunikatu.
+      matchReason:
+        contract.inactive_reason ??
+        "Ta osoba nie ma już aktywnej współpracy u tego klienta — zdecyduj, co z nią zrobić",
+      confirmed: false,
+      contractEndDate: contract.end_date ? contract.end_date.slice(0, 10) : null,
+    };
+  }
+  return { ...base, match: "manual", confirmed: true, contractEndDate: null };
+}
+
+/** Powrót do listy kontraktów („kilka osób") po wybraniu nie tej pozycji. */
+export function backToOptions(draft: OrderLineDraft): OrderLineDraft {
+  return {
+    ...draft,
+    rateCost: "",
+    costUnit: "md" as RateUnit,
+    costCurrency: "PLN",
+    costSource: null,
+    match: "ambiguous",
+    matchReason: draft.planReason,
+    confirmed: false,
+    person: null,
     inactiveDecision: null,
     contractEndDate: null,
   };
@@ -442,6 +480,67 @@ export function lineValuePln(draft: OrderLineDraft): number | null {
   if (md === null || rate === null) return null;
   const mdRate = toMdRate(rate, draft.revenueUnit);
   return mdRate === null ? null : md * mdRate;
+}
+
+/** Osoba z PDF-a, która JUŻ jest na uzupełnianym zamówieniu. */
+export interface PersonAlreadyOnOrder {
+  draft: OrderLineDraft;
+  line: Pick<
+    OrderLineRead,
+    | "id"
+    | "consultant_name"
+    | "is_active"
+    | "cooperation_ended_on"
+    | "md_total"
+    | "rate_revenue"
+  >;
+}
+
+/** „Uzupełnij zamówienie": karty tylko dla osób, których na zamówieniu nie ma.
+ *
+ *  Osoba z dokumentu dopasowana do kontraktu, który ma już linię na tym
+ *  zamówieniu, nie dostaje drugiej karty — decyzje wobec niej (np. zakończona
+ *  współpraca) zapadają na karcie zamówienia, przy jej linii. Linia usunięta
+ *  z zamówienia nie liczy się jako obecna: nowy PDF, który znów ją wymienia,
+ *  to nowa decyzja Delivery Leada. Karty bez wskazanej osoby (kilka osób,
+ *  nieznaleziona) zostają zawsze — właśnie o nie ticket pyta. */
+export function splitPlanForGroup(
+  drafts: OrderLineDraft[],
+  lines: Array<
+    Pick<
+      OrderLineRead,
+      | "id"
+      | "contract_id"
+      | "consultant_name"
+      | "is_active"
+      | "cooperation_ended_on"
+      | "removed_from_order"
+      | "md_total"
+      | "rate_revenue"
+    >
+  >,
+): { toAdd: OrderLineDraft[]; onOrder: PersonAlreadyOnOrder[] } {
+  const byContract = new Map<number, (typeof lines)[number]>();
+  for (const line of lines) {
+    if (line.removed_from_order) continue;
+    const current = byContract.get(line.contract_id);
+    // Aktywna linia tej osoby jest ważniejsza niż zakończona sprzed zamiany.
+    if (!current || (!current.is_active && line.is_active)) {
+      byContract.set(line.contract_id, line);
+    }
+  }
+  const toAdd: OrderLineDraft[] = [];
+  const onOrder: PersonAlreadyOnOrder[] = [];
+  for (const draft of drafts) {
+    const contractId = draft.person?.contractId;
+    const line = contractId != null ? byContract.get(contractId) : undefined;
+    if (line) {
+      onOrder.push({ draft, line });
+    } else {
+      toAdd.push(draft);
+    }
+  }
+  return { toAdd, onOrder };
 }
 
 /** Klucze kart wskazujących tę samą osobę/kontrakt — ostrzeżenie, nie blokada. */

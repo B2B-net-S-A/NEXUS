@@ -338,7 +338,12 @@ describe("OrderGroupCard — historia zamówienia", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/PDF\) podpięto także do profilu tej osoby/)).toBeInTheDocument();
     expect(screen.getByText(/Zakończył współpracę 12\.08\.2026/)).toBeInTheDocument();
-    expect(screen.getByText(/ta kwota nie wraca do puli dostępnego budżetu/)).toBeInTheDocument();
+    // Ticket 09.2026: kto, ile i kiedy — wprost przy osobie, która odeszła.
+    expect(
+      screen.getByText(
+        /Marian Odeszły wykorzystał\(a\) 25\s720,00\szł na tym zamówieniu przed zakończeniem współpracy — ta kwota nie wraca do puli/,
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText(/nie ma już aktywnej współpracy/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Zostaw jako historię" }));
