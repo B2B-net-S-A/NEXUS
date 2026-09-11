@@ -48,6 +48,8 @@ from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
     _names_exactly_equivalent,
+    drop_md_absence_reasons,
+    md_scope,
     parse_order_document,
 )
 from app.services.order_policies import (
@@ -174,6 +176,9 @@ class DocumentReading:
     ignores_document_md: bool = False
     #: Brak daty końca jest u klienta poprawnym odczytem (BIK: do wyczerpania MD).
     open_ended: bool = False
+    #: Wariant, w którym dokument podaje liczbę MD (``per_consultant`` /
+    #: ``order``); ``None`` = nie podaje — poprawny odczyt zamówienia kosztowego.
+    md_scope: Optional[str] = None
 
 
 async def extract_all_rows(
@@ -200,6 +205,10 @@ async def extract_all_rows(
         policies,
     )
     extraction = apply_rate_kind(extraction, text, policies)
+    # O tym, czy liczba MD jest potrzebna, decyduje typ zamówienia wybrany
+    # w formularzu (kosztowe / MD per osoba / MD na całe zamówienie), a nie
+    # model czytający PDF bez tej wiedzy — patrz `drop_md_absence_reasons`.
+    extraction = drop_md_absence_reasons(extraction)
     evidence: list[ConsultantOrderRow] = []
     for policy in sorted(policies, key=lambda item: item.order):
         if policy.extract_rows is not None:
@@ -215,7 +224,14 @@ async def extract_all_rows(
         # Reguła Orlenu działa wyłącznie przy wskazanej osobie (requires_target),
         # więc tutaj jej sedno — „MD z PDF-a nigdy" — trzeba zastosować wprost.
         ignores_document_md=any(policy.key == "orlen" for policy in policies),
-        open_ended=open_ended_period(policies),
+        # „Bezterminowo" tylko gdy odczyt faktycznie nie ma daty końca — dokument
+        # innego szablonu u tego klienta (reguła się nie zastosowała) ma swoją.
+        open_ended=open_ended_period(policies) and extraction.end_date is None,
+        md_scope=(
+            None
+            if any(policy.key == "orlen" for policy in policies)
+            else md_scope(extraction)
+        ),
     )
 
 

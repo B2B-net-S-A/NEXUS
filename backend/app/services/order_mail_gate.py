@@ -18,7 +18,10 @@ from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
     _names_exactly_equivalent,
+    MD_SCOPE_ORDER,
     _fold_policy_text,
+    is_md_absence_reason,
+    md_scope,
 )
 
 VERDICT_AUTO = "auto"
@@ -130,6 +133,24 @@ def _unused_total_mapping_reason(reason: str, inp: GateInput) -> bool:
     )
 
 
+def _md_rows(inp: GateInput) -> list:
+    return [row for row in inp.proposal.rows if row.order_type == "md"]
+
+
+def _irrelevant_md_absence_reason(reason: str, inp: GateInput) -> bool:
+    """„Brak liczby MD" od modelu, który nie znał typu zamówienia.
+
+    Zamówienie kosztowe i okresowe liczby MD nie potrzebują w ogóle. Zamówienie
+    MD potrzebuje jej w JEDNYM z dwóch wariantów — przy każdej osobie albo raz
+    na całe zamówienie (plan przenosi liczbę dokumentu na wiersz). Gdy wiersz
+    ma MD w którymkolwiek wariancie, zastrzeżenie modelu jest fałszywym alarmem;
+    gdy nie ma w żadnym, o braku mówi deterministyczny powód z kroku 7b.
+    """
+    if not is_md_absence_reason(reason) or not inp.proposal.rows:
+        return False
+    return all(row.md_total is not None for row in _md_rows(inp))
+
+
 def evaluate(inp: GateInput) -> GateVerdict:
     reasons: list[str] = []
     ex = inp.extraction
@@ -176,7 +197,10 @@ def evaluate(inp: GateInput) -> GateVerdict:
     reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
     if ex.uncertain:
         actionable = [
-            r for r in ex.uncertain_reasons if not _unused_total_mapping_reason(r, inp)
+            r
+            for r in ex.uncertain_reasons
+            if not _unused_total_mapping_reason(r, inp)
+            and not _irrelevant_md_absence_reason(r, inp)
         ]
         reasons.extend(f"Odczyt niepewny: {r}" for r in actionable)
         if not ex.uncertain_reasons:
@@ -206,6 +230,22 @@ def evaluate(inp: GateInput) -> GateVerdict:
                 reasons.append(
                     f"„{row_prop.row_name}”: stawka {rate} odbiega o {deviation:.0%} od obowiązującej {current[0]}"
                 )
+
+    # 7b) zamówienie MD wymaga liczby MD — przy osobie albo na całe zamówienie
+    for row_prop in _md_rows(inp):
+        if row_prop.md_total is None:
+            reasons.append(
+                f"„{row_prop.row_name}”: zamówienie MD bez liczby MD — dokument nie "
+                "podaje jej ani przy osobie, ani na całe zamówienie"
+            )
+    if _md_rows(inp) and md_scope(ex) == MD_SCOPE_ORDER:
+        # Plan przenosi liczbę dokumentu na każdy wiersz, a zapis per osoba
+        # dałby każdemu całą pulę. Wspólną pulę zakłada człowiek w oknie
+        # zamówienia — automat jej nie dzieli.
+        reasons.append(
+            "Dokument podaje jedną liczbę MD na całe zamówienie — załóż wspólny "
+            "budżet MD ręcznie, automat nie dzieli puli między osoby"
+        )
 
     # 8) precondition + addytywność + atomowość + okres z dokumentu
     if prop.blocking:

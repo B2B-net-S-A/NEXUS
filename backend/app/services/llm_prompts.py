@@ -204,7 +204,11 @@ ORDER_EXTRACTION = PromptTemplate(
     # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
     # wdrożeniu wracałyby ze starego cache'u BEZ wierszy osobowych.
     # v5: stawka dokładnie z dokumentu, bez przeliczania VAT przez model.
-    version=5,
+    # v6: brak liczby MD nie jest niepewnością — zamówienie kosztowe (kwota
+    # zlecenia) nie ma MD z definicji, a MD bywa jedną liczbą na całe
+    # zamówienie zamiast przy osobach. v5 zgłaszał wtedy „brak informacji
+    # o liczbie MD" i zerował stawkę wiersza, choć ta była w dokumencie.
+    version=6,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -283,6 +287,12 @@ ORDER_EXTRACTION = PromptTemplate(
         "top-level fields also do not count as missing in this mode. If a person's "
         "row/section cannot be separated from another person's values, keep that "
         "row's financial/MD fields null and explain the ambiguity.\n\n"
+        "MISSING MAN-DAYS: many orders are cost-based (a fixed total amount that "
+        "invoices are drawn from) and state no man-day count at all; others state "
+        "ONE man-day count for the whole order instead of per person. A missing "
+        "md_total — document-level or per row — is NOT a reason for uncertainty, "
+        "is not listed in uncertain_reasons, and never a reason to null a row's "
+        "rate_client.\n\n"
         "PERIOD NOTATION: some clients write the period in the body, e.g. BNP uses "
         '"mc 06-2026_12-2026" meaning months 06/2026 through 12/2026 — output '
         'start_date "2026-06" and end_date "2026-12". Recognise such MM-YYYY ranges '

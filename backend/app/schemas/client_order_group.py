@@ -106,6 +106,28 @@ class OrderLineCreate(BaseModel):
     end_date: Optional[date] = None
     job_id: Optional[int] = None
 
+    historical: bool = False
+    """Osoba zostaje na zamówieniu jako ZAPIS HISTORYCZNY: była w PDF-ie, ale
+    jej współpraca u klienta jest już zakończona (ticket 09.2026). Linia
+    powstaje od razu jako zakończona, z datą końca udziału (``end_date``) —
+    nie wznawia kontraktu, nie liczy się do aktywnej obsady, a jej zużycie
+    kwoty/MD zostaje przypisane do zamówienia."""
+
+    document_name: Optional[str] = Field(None, max_length=255)
+    """Imię i nazwisko DOKŁADNIE tak, jak stoi w PDF-ie zamówienia — linia
+    pochodzi wtedy z dokumentu. Brak = osobę dodał człowiek (ręcznie albo jako
+    zastępstwo). Historia zamówienia pokazuje na tej podstawie, kto i kiedy
+    dopisał osobę spoza oryginalnego dokumentu."""
+
+    replaces_name: Optional[str] = Field(None, max_length=255)
+    """Osoba z dokumentu, za którą ta linia jest zastępstwem (np. konsultant
+    z PDF-a, którego nie ma już w systemie)."""
+
+    replaces_order_id: Optional[int] = Field(None, gt=0)
+    """Linia tego zamówienia, za którą ta osoba jest zastępstwem. Zwykłe
+    dodanie osoby, bez przenoszenia budżetu — pula poprzednika (także jego
+    wykorzystana kwota i MD) zostaje przy nim."""
+
     @field_validator("input_mode")
     @classmethod
     def _mode(cls, v: Optional[str]) -> Optional[str]:
@@ -137,6 +159,29 @@ class OrderLineCreate(BaseModel):
             raise ValueError(
                 "Wskaż osobę dokładnie jednym polem: contract_id albo candidate_id"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _historical_needs_existing_contract_and_end(self) -> "OrderLineCreate":
+        """Zapis historyczny dotyczy osoby, która JUŻ ma kontrakt u klienta.
+
+        Osoba z bazy Nexus bez kontraktu nie ma czego „zostawić" — zapis
+        historyczny założyłby jej szkic umowy, której nigdy nie było. Data
+        końca udziału jest obowiązkowa: bez niej linia nie jest historią, tylko
+        otwartą obsadą.
+        """
+        if self.historical:
+            if self.contract_id is None:
+                raise ValueError(
+                    "Zapis historyczny wymaga istniejącego kontraktu tej osoby "
+                    "u klienta"
+                )
+            if self.end_date is None:
+                raise ValueError("Zapis historyczny wymaga daty końca udziału")
+            if self.end_date < self.start_date:
+                raise ValueError(
+                    "Data końca udziału jest wcześniejsza niż data rozpoczęcia"
+                )
         return self
 
 
@@ -433,6 +478,36 @@ class OrderLineRead(BaseModel):
     offboarding_case: Optional[OrderOffboardingCaseRead] = None
     """Nierozwiązana lub historyczna decyzja po zakończeniu współpracy."""
 
+    # ── Historia osoby na zamówieniu (ticket 09.2026) ──
+    origin: Optional[Literal["document", "manual"]] = None
+    """``document`` — osoba stała w PDF-ie zamówienia; ``manual`` — dopisał ją
+    człowiek (ręcznie albo jako zastępstwo), już po oryginalnym dokumencie.
+    ``None`` — linia sprzed tej ewidencji, pochodzenia nie da się ustalić."""
+
+    added_by_user_id: Optional[int] = None
+    added_by_name: Optional[str] = None
+    added_at: Optional[datetime] = None
+    """Kto i kiedy dodał osobę do zamówienia — żeby przy zastępstwie dało się
+    zapytać tę osobę, dlaczego je dodała."""
+
+    replaces_name: Optional[str] = None
+    """Za kogo ta osoba jest zastępstwem (osoba z PDF-a albo z tego zamówienia)."""
+
+    removed_from_order: bool = False
+    """Usunięta z zamówienia, ale z wykorzystaną kwotą/MD — zostaje widoczna,
+    a jej zużycie nie wraca do puli."""
+
+    cooperation_ended_on: Optional[date] = None
+    """Data zakończenia współpracy tej osoby (kontrakt zakończony), jeśli
+    współpraca się skończyła — nawet gdy linia zostaje na zamówieniu."""
+
+    md_used: Optional[MdValue] = None
+    """Zaraportowane MD tej osoby na tym zamówieniu (operacyjne, bez redakcji)."""
+
+    history_kept_at: Optional[datetime] = None
+    history_kept_by_name: Optional[str] = None
+    """Decyzja „Zostaw jako historię" dla osoby z zakończoną współpracą."""
+
 
 class OrderGroupEventRead(BaseModel):
     model_config = {"from_attributes": True}
@@ -652,7 +727,7 @@ class OrderPlanLineRead(BaseModel):
     end_date: Optional[str] = None
     """Okres WŁASNY pozycji, gdy dokument podaje go per osoba."""
 
-    match_status: Literal["auto", "confirm", "ambiguous", "none"]
+    match_status: Literal["auto", "confirm", "ambiguous", "inactive", "none"]
     match_reason: str
     contract: Optional[OrderPlanContractRead] = None
     options: list[OrderPlanContractRead] = Field(default_factory=list)
@@ -688,6 +763,10 @@ class OrderGroupExtractionResult(BaseModel):
     title_needs_review: bool = False
     open_ended: bool = False
     """Reguła klienta mówi „bezterminowo" (BIK) — brak daty końca to odczyt."""
+    md_scope: Optional[Literal["per_consultant", "order"]] = None
+    """W jakim wariancie dokument podaje liczbę MD: przy każdej osobie albo
+    jedną liczbą na całe zamówienie. ``None`` = dokument MD nie podaje, co dla
+    zamówienia kosztowego jest poprawnym odczytem, a nie brakiem."""
     document_incomplete: bool = False
     """OCR objął tylko część stron — lista osób może być niepełna."""
 

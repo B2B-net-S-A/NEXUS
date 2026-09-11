@@ -2675,6 +2675,87 @@ def enforce_consultant_policy_safety(result: OrderExtraction) -> OrderExtraction
     return result
 
 
+# ── Typ zamówienia a wymagane pola ───────────────────────────────────────────
+#
+# Odczyt dokumentu nie zna typu zamówienia — wybiera go Delivery Lead
+# w formularzu, a poczta bierze typ najczęstszy u klienta. Model czyta ten sam
+# PDF bez tej wiedzy i przy zamówieniu KOSZTOWYM (kwota zlecenia, z której
+# schodzą faktury) zgłasza „brak informacji o liczbie MD", choć liczby MD takie
+# zamówienie nie ma z definicji. Ten sam fałszywy alarm powstaje przy MD
+# podanym jedną liczbą na całe zamówienie, gdy model szukał MD przy osobach.
+#
+# Dlatego powody „brak MD" są oddzielane od reszty: formularz sam wie, czy dla
+# wybranego typu i wariantu MD czegoś brakuje (`lineIssues`, „Podaj wspólny
+# budżet MD"), a bramka poczty rozstrzyga je z typem zamówienia w ręku. Powód,
+# który mówi o stawce, kwocie, dacie, osobie albo sprzeczności, zostaje zawsze.
+
+MD_SCOPE_PER_CONSULTANT = "per_consultant"
+MD_SCOPE_ORDER = "order"
+
+_MD_WORD_RE = re.compile(r"\bmds?\b|osobodni|roboczodni|man[- ]?days?")
+_ABSENCE_RE = re.compile(
+    r"\bbrak|nie\s+(?:znalez|podan|podaj|okresl|wskaz|zawier|ma\b|wynik|odczyt"
+    r"|zostal|jest\b|wystepuj)|nieokresl|niepodan|missing|absent"
+    r"|not\s+(?:stated|found|provided|specified|given)|\bno\s+(?:md|man)"
+)
+# „ani" łączy brak MD z innym brakiem („brak MD ani konsultanta"), a wiersz,
+# pozycja czy dubel mówią o osobie/tabeli — takie powody zostają zawsze.
+_OTHER_CONCERN_RE = re.compile(
+    r"stawk|\brate\b|\bcen[aeyi]?\b|kwot|\bdat[aey]?\b|okres|numer|nazwisk"
+    r"|sprzeczn|rozn|niezgodn|brutto|netto|jednostk|nieczyteln|waluc|walut"
+    r"|\bani\b|wiersz|pozycj|zdubl|duplik|brak\s+(?:\w+\s+)?konsultant"
+    r"|\bnie\s+znaleziono\s+(?:\w+\s+){0,2}konsultant"
+)
+
+
+def is_md_absence_reason(reason: str) -> bool:
+    """Czy powód mówi WYŁĄCZNIE o braku liczby MD w dokumencie."""
+
+    folded = _fold_policy_text(reason)
+    return bool(
+        _MD_WORD_RE.search(folded)
+        and _ABSENCE_RE.search(folded)
+        and not _OTHER_CONCERN_RE.search(folded)
+    )
+
+
+def md_scope(extraction: OrderExtraction) -> Optional[str]:
+    """W jakim wariancie dokument podaje liczbę MD (``None`` = nie podaje).
+
+    * ``per_consultant`` — osobny limit przy osobie (BIK) albo dokument
+      jednoosobowy z jedną liczbą MD;
+    * ``order`` — jedna liczba MD na całe zamówienie przy kilku osobach
+      (wspólna pula, dzielona między przypisanych konsultantów).
+    """
+
+    rows = extraction.consultant_rows
+    if any(row.md_total is not None for row in rows):
+        return MD_SCOPE_PER_CONSULTANT
+    if extraction.md_total is None:
+        return None
+    return MD_SCOPE_ORDER if len(rows) > 1 else MD_SCOPE_PER_CONSULTANT
+
+
+def drop_md_absence_reasons(extraction: OrderExtraction) -> OrderExtraction:
+    """Usuń z odczytu zastrzeżenia „brak MD" — dokumentu i jego wierszy.
+
+    Dla ścieżek, w których o wymaganych polach decyduje formularz z typem
+    zamówienia w ręku. Gdy jedynym zastrzeżeniem był brak MD, odczyt przestaje
+    być niepewny — baner „Sprawdź dane!" bez żadnego powodu nie mówi nic.
+    Wiersz osoby zostaje niepewny, jeśli bez tego powodu nadal nie ma stawki.
+    """
+
+    kept = [r for r in extraction.uncertain_reasons if not is_md_absence_reason(r)]
+    if len(kept) != len(extraction.uncertain_reasons):
+        extraction.uncertain_reasons = kept
+        extraction.uncertain = bool(kept)
+    for row in extraction.consultant_rows:
+        if row.uncertain_reason and is_md_absence_reason(row.uncertain_reason):
+            row.uncertain_reason = None
+            row.uncertain = row.rate_client is None
+    return extraction
+
+
 # ── Publiczne API ───────────────────────────────────────────────────────────
 
 

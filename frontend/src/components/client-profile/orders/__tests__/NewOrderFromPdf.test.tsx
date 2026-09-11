@@ -215,6 +215,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
         input_value: 35,
         start_date: "2026-09-03",
         end_date: null,
+        document_name: "Krzysztof Suwała",
       },
       {
         contract_id: 12,
@@ -226,6 +227,7 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
         input_value: 42,
         start_date: "2026-09-03",
         end_date: null,
+        document_name: "Paweł Łaski",
       },
     ]);
   });
@@ -288,7 +290,10 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     const card = await screen.findByRole("article", { name: "Konsultant: Jan Kowalski" });
     expect(within(card).getByText("Wymaga ręcznego wskazania")).toBeInTheDocument();
     expect(within(card).getByText(/Najbliższy zapis w kontraktach: „Jan Kowalczyk”/)).toBeInTheDocument();
-    expect(within(card).getByText("Wybierz kontraktora ręcznie")).toBeInTheDocument();
+    expect(within(card).getByText("Wskaż tę osobę ręcznie")).toBeInTheDocument();
+    // Ticket 09.2026: czerwona karta daje też jawny wybór — zastąp albo usuń.
+    expect(within(card).getByRole("button", { name: "Zastąp kimś innym" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Usuń z zamówienia" })).toBeInTheDocument();
     expect(within(card).getByLabelText("Stawka kosztowa")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Utwórz zamówienie" })).toBeDisabled();
   });
@@ -359,5 +364,73 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     await readPdf(user);
     await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
     expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("");
+  });
+
+  it("osoba z zakończoną współpracą: komunikat wprost i zapis jako historia", async () => {
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({
+      data: {
+        ...BIK_PLAN,
+        order_number: "SAP 4500987654",
+        start_date: "2026-03-30",
+        lines: [
+          line({
+            document_name: "Odeszły Marian",
+            match_status: "inactive",
+            match_reason:
+              "Odwrotna kolejność; „Odeszły Marian” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 12.08.2026). Zdecyduj: …",
+            contract: contract({
+              contract_id: 77,
+              candidate_id: 707,
+              contractor_name: "Marian Odeszły",
+              status: "ended",
+              end_date: "2026-08-12",
+            }),
+          }),
+        ],
+      },
+    } as never);
+    const user = userEvent.setup();
+    const onSubmit = renderModal();
+
+    await readPdf(user);
+    const card = await screen.findByRole("article", { name: "Konsultant: Odeszły Marian" });
+    expect(within(card).getByText("Zakończył współpracę")).toBeInTheDocument();
+    expect(within(card).getByText(/nie ma już aktywnej współpracy/)).toBeInTheDocument();
+    const create = screen.getByRole("button", { name: "Utwórz zamówienie" });
+    expect(create).toBeDisabled();
+
+    await user.click(within(card).getByRole("button", { name: "Zostaw jako historię" }));
+    expect(within(card).getByText("Zapis historyczny")).toBeInTheDocument();
+    expect(within(card).getByText(/bez wznawiania kontraktu/)).toBeInTheDocument();
+    await user.click(create);
+
+    const [values] = onSubmit.mock.calls[0];
+    expect(values.lines).toEqual([
+      expect.objectContaining({
+        contract_id: 77,
+        historical: true,
+        start_date: "2026-03-30",
+        end_date: "2026-08-12",
+        document_name: "Odeszły Marian",
+      }),
+    ]);
+  });
+
+  it("jedna liczba MD na całe zamówienie ustawia wspólny budżet MD", async () => {
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({
+      data: {
+        ...BIK_PLAN,
+        md_total: 38,
+        md_scope: "order",
+        lines: BIK_PLAN.lines.map((item) => ({ ...item, md_total: null })),
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderModal();
+
+    await readPdf(user);
+    await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
+    expect(screen.getByRole("checkbox", { name: /Budżet MD na całe zamówienie/ })).toBeChecked();
+    expect(screen.getByText(/jedną liczbę MD na całe zamówienie/)).toBeInTheDocument();
   });
 });

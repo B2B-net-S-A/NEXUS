@@ -105,6 +105,8 @@ interface Props {
   onSubmit: (values: LineFormValues) => void;
   /** Ręczna korekta pozostałych MD — tylko w trybie edycji. */
   onAdjustRemaining?: (mdRemaining: number) => void;
+  /** „Zastąp kimś innym" — nowa osoba dołącza obok tej linii (dodanie). */
+  replaces?: OrderLineRead | null;
 }
 
 /**
@@ -180,6 +182,7 @@ export function ConsultantLineModal({
   error,
   onSubmit,
   onAdjustRemaining,
+  replaces = null,
 }: Props) {
   const editing = Boolean(line);
 
@@ -776,7 +779,11 @@ export function ConsultantLineModal({
       onOpenChange={onOpenChange}
       size="lg"
       title={
-        editing ? "Edytuj linię konsultanta" : "Dodaj konsultanta do zamówienia"
+        editing
+          ? "Edytuj linię konsultanta"
+          : replaces
+            ? `Zastąp: ${replaces.consultant_name}`
+            : "Dodaj konsultanta do zamówienia"
       }
       description={group ? `Zamówienie nr ${group.order_number}` : undefined}
       footer={
@@ -803,6 +810,19 @@ export function ConsultantLineModal({
         {error ? (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
+          </p>
+        ) : null}
+
+        {!editing && replaces ? (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+          >
+            Nowa osoba dołączy do zamówienia <strong>obok</strong>{" "}
+            {replaces.consultant_name}. Jego/jej wykorzystana kwota i MD zostają
+            przy nim/niej i nie wracają do puli. Historia zamówienia zapisze, kto
+            i kiedy dodał zastępstwo, a PDF zamówienia zostanie podpięty także do
+            profilu nowej osoby.
           </p>
         ) : null}
 

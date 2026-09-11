@@ -121,3 +121,39 @@ def clear_field(result: OrderExtraction, name: str) -> None:
 def money_after(label: str, text: str) -> Optional[Decimal]:
     """Kwota za etykietą — alias czytelniejszy niż prywatny helper parsera."""
     return _labelled_amount(label, text)
+
+
+# Wartość za „nr": opcjonalny skrót literowy („SAP", „CP", „XYZ-") i JEDEN
+# token z cyfrą, a zaraz za nim ukośnik, „z dnia" albo koniec linii. Świadomie
+# nie „wszystko do ukośnika": „nr SAP 4500 do Umowy nr 12/2020" dawałoby
+# „SAP 4500 do Umowy nr 12". `[^\S\n]` zamiast `\s` — wartość nigdy nie
+# przeskakuje do następnej linii.
+_NUMBER_AFTER_NR = (
+    r"\bnr\.?[^\S\n]*[:#]?[^\S\n]*"
+    r"(?P<number>(?:[^\W\d_]{1,10}[^\S\n]*[.\-]?[^\S\n]*)?\d[\w\-]*)"
+    r"[^\S\n]*(?=/|\bz[^\S\n]+dnia\b|\n|$)"
+)
+
+
+def number_after_nr(text: str, *, label: str) -> Optional[str]:
+    """Numer dokumentu stojący bezpośrednio za „nr" w linii z etykietą.
+
+    Reguła OGÓLNA dla zapisu „skrót + numer / rok" — „ZLECENIE WYKONAWCZE nr
+    SAP 4500123456 / 2031 rok" daje „SAP 4500123456", „… nr CP 1234 / 2026"
+    daje „CP 1234". Skrót nie jest zaszyty (SAP, CP, cokolwiek przed cyframi);
+    część po ukośniku (rok) nie należy do numeru. Białe znaki w środku są
+    zbijane do jednej spacji, bo PDF potrafi rozciągnąć odstęp między skrótem
+    a cyframi, a numer ma się porównywać z zapisem w bazie.
+
+    ``label`` (regex) kotwiczy regułę do nagłówka dokumentu — „nr" pojawia się
+    też przy KRS, umowie ramowej czy rachunku, a stamtąd numeru brać nie wolno.
+    ``None``, gdy za etykietą nie ma wartości z cyfrą.
+    """
+    pattern = re.compile(
+        label + r"[^\S\n]+" + _NUMBER_AFTER_NR, re.IGNORECASE | re.MULTILINE
+    )
+    for match in pattern.finditer(text or ""):
+        value = re.sub(r"\s+", " ", match.group("number")).strip(" .-")
+        if value and any(ch.isdigit() for ch in value) and len(value) <= 64:
+            return value
+    return None

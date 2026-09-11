@@ -68,6 +68,14 @@ export interface OrderLineDraft {
   startDate: string | null;
   endDate: string | null;
   warnings: string[];
+  /** Osoba z PDF-a z ZAKOŃCZONĄ współpracą (`match === "inactive"`): decyzja
+   *  Delivery Leada — zostaje na zamówieniu jako historia albo wraca do pracy.
+   *  `null` = jeszcze nie zdecydowano (karta nie da się zapisać). */
+  inactiveDecision: "history" | "resume" | null;
+  /** Koniec kontraktu tej osoby — data końca udziału w zapisie historycznym. */
+  contractEndDate: string | null;
+  /** Karta jest zastępstwem za tę osobę z dokumentu. */
+  replacesName: string | null;
 }
 
 export interface OrderPlanContext {
@@ -132,7 +140,9 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
     const hasRevenue = line.rate_revenue !== null && line.rate_revenue !== undefined;
     const hasMd = line.md_total !== null && line.md_total !== undefined;
     const matched =
-      (line.match_status === "auto" || line.match_status === "confirm") &&
+      (line.match_status === "auto" ||
+        line.match_status === "confirm" ||
+        line.match_status === "inactive") &&
       line.contract !== null;
     return {
       key: nextKey(),
@@ -159,6 +169,12 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
       startDate: line.start_date ? line.start_date.slice(0, 10) : null,
       endDate: line.end_date ? line.end_date.slice(0, 10) : null,
       warnings: line.warnings,
+      inactiveDecision: null,
+      contractEndDate:
+        line.match_status === "inactive" && line.contract?.end_date
+          ? line.contract.end_date.slice(0, 10)
+          : null,
+      replacesName: null,
     };
   });
 }
@@ -190,6 +206,9 @@ export function emptyDraft(): OrderLineDraft {
     startDate: null,
     endDate: null,
     warnings: [],
+    inactiveDecision: null,
+    contractEndDate: null,
+    replacesName: null,
   };
 }
 
@@ -206,6 +225,8 @@ export function chooseContract(
     match: "manual",
     confirmed: true,
     person: personFromContract(contract),
+    inactiveDecision: null,
+    contractEndDate: null,
   };
 }
 
@@ -246,7 +267,47 @@ export function chooseConsultant(
       status: null,
       startDate: null,
     },
+    inactiveDecision: null,
+    contractEndDate: null,
   };
+}
+
+/** „Zastąp kimś innym" — nowa osoba na miejscu osoby z dokumentu. Karta
+ *  zapamiętuje, za kogo jest zastępstwem; historia zamówienia pokaże to przy
+ *  nowej osobie razem z tym, kto i kiedy ją dodał. */
+export function replaceWith(
+  draft: OrderLineDraft,
+  option: ConsultantOption,
+): OrderLineDraft {
+  return {
+    ...chooseConsultant(draft, option),
+    replacesName: draft.replacesName ?? draft.documentName ?? draft.person?.name ?? null,
+  };
+}
+
+/** „Zostaw jako historię" — osoba z zakończoną współpracą zostaje na
+ *  zamówieniu jako zakończona (nie wznawia kontraktu). */
+export function keepAsHistory(draft: OrderLineDraft): OrderLineDraft {
+  return { ...draft, inactiveDecision: "history", confirmed: true };
+}
+
+/** „Wznów współpracę" — to powrót tej osoby; zapis zamówienia wznowi kontrakt. */
+export function resumeCooperation(draft: OrderLineDraft): OrderLineDraft {
+  return { ...draft, inactiveDecision: "resume", confirmed: true };
+}
+
+/** Cofnięcie decyzji przy osobie z zakończoną współpracą. */
+export function undoInactiveDecision(draft: OrderLineDraft): OrderLineDraft {
+  return { ...draft, inactiveDecision: null, confirmed: false };
+}
+
+/** Czy karta zapisze osobę jako zapis historyczny (zakończona linia). */
+export function isHistorical(draft: OrderLineDraft): boolean {
+  return (
+    draft.match === "inactive" &&
+    draft.inactiveDecision === "history" &&
+    draft.person?.contractId != null
+  );
 }
 
 /** „To nie on" przy żółtej karcie — dopasowanie odrzucone, osoba do wskazania. */
@@ -262,6 +323,8 @@ export function rejectMatch(draft: OrderLineDraft): OrderLineDraft {
       "Odrzucono proponowane dopasowanie — wskaż kontraktora ręcznie",
     confirmed: false,
     person: null,
+    inactiveDecision: null,
+    contractEndDate: null,
   };
 }
 
@@ -273,8 +336,20 @@ export function lineIssues(
   const issues: string[] = [];
   if (!draft.person) {
     issues.push("wskaż kontraktora");
+  } else if (draft.match === "inactive" && !draft.inactiveDecision) {
+    issues.push("zdecyduj: zostaw jako historię, wznów, zastąp albo usuń");
   } else if (!draft.confirmed) {
     issues.push("potwierdź dopasowanie");
+  }
+  if (isHistorical(draft)) {
+    const start = draft.startDate ?? ctx.groupStart;
+    if (!draft.contractEndDate) {
+      issues.push("data zakończenia współpracy");
+    } else if (start && draft.contractEndDate < start) {
+      issues.push(
+        "współpraca skończyła się przed startem zamówienia — wznów albo zastąp",
+      );
+    }
   }
   if (parseDecimalInput(draft.rateCost) === null) {
     issues.push("stawka kosztowa");
@@ -317,6 +392,7 @@ export function toLineInput(
     throw new Error("Nieprawidłowa stawka na karcie konsultanta");
   }
   const md = parseDecimalInput(draft.md);
+  const historical = isHistorical(draft);
   return {
     // Dokładnie jedno z pól — serwer odrzuca oba naraz.
     ...(person.contractId !== null
@@ -330,7 +406,16 @@ export function toLineInput(
       ? { input_mode: "md" as const, input_value: md }
       : {}),
     start_date: draft.startDate ?? ctx.groupStart,
-    end_date: draft.endDate ?? ctx.groupEnd,
+    // Zapis historyczny kończy się z końcem współpracy, nie zamówienia.
+    end_date: historical ? draft.contractEndDate : (draft.endDate ?? ctx.groupEnd),
+    ...(historical ? { historical: true } : {}),
+    // Pochodzenie linii: osoba z PDF-a albo zastępstwo za nią — historia
+    // zamówienia pokazuje przy zastępcy, kto i kiedy go dodał.
+    ...(draft.replacesName
+      ? { replaces_name: draft.replacesName }
+      : draft.documentName
+        ? { document_name: draft.documentName }
+        : {}),
   };
 }
 

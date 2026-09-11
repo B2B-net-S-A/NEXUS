@@ -157,13 +157,21 @@ def _detach_bik_canonical_client(monkeypatch):
 
     from app.services.order_policies import registry
 
-    detached = replace(registry.policy_by_key("bik"), canonical_client_ids=frozenset())
+    # To samo dotyczy Polkomtela (kanoniczne ID 15 — piętnasty klient testowy)
+    # i Cyfrowego Polsatu: ich testy włączają polityki przez env na własnym
+    # kliencie.
+    keys = ("bik", "polkomtel", "cyfrowy_polsat")
+    detached = {
+        key: replace(registry.policy_by_key(key), canonical_client_ids=frozenset())
+        for key in keys
+    }
     monkeypatch.setattr(
         registry,
         "POLICIES",
-        tuple(detached if p.key == "bik" else p for p in registry.POLICIES),
+        tuple(detached.get(p.key, p) for p in registry.POLICIES),
     )
-    monkeypatch.setitem(registry._BY_KEY, "bik", detached)
+    for key, policy in detached.items():
+        monkeypatch.setitem(registry._BY_KEY, key, policy)
 
 
 # ── Synchronizacja kontrakt ↔ zamówienia (0304) ─────────────────────────────

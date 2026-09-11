@@ -1864,8 +1864,11 @@ Tryb edycji istniejącego zamówienia zostaje przy starym „Zczytaj dane z doku
   zapisałoby cudzą stawkę jednym kliknięciem. Reguła z ticketu: rdzeń = od
   przedostatniego wyrazu z wielkiej litery do końca, wcześniej dopisek („Active",
   „UR –", „Projekt 2"); tolerowane tylko dopisek, polskie znaki, wielkość liter,
-  myślnik/spacja. `auto` = identyczne; `confirm` = dopisek / odwrotna kolejność /
-  kontrakt zakończony (jedno kliknięcie DL); `ambiguous` = >1 RÓŻNA osoba w puli
+  myślnik/spacja. `auto` = identyczne; `confirm` = dopisek / odwrotna kolejność
+  (jedno kliknięcie DL); `inactive` = jedyny pasujący kontrakt jest ZAKOŃCZONY —
+  karta mówi to wprost i każe wybrać: zapis historyczny / wznów / zastąp / usuń
+  (od 09.2026; wcześniej był to cichy `confirm`, którego zapis wznawiał kontrakt);
+  `ambiguous` = >1 RÓŻNA osoba w puli
   (także gdy jedna ma kontrakt aktywny, a druga szkic ALBO zakończony — powrót po
   przerwie) albo ta sama osoba z >1 żywym
   kontraktem; `none` = reszta. Pula: żywe + szkice (+ `ready_for_signature`); dopiero
@@ -1955,11 +1958,45 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   (`group_settles_in_month`). Ta sama reguła MUSI być w walidacji po blokadach
   (`md_consumption._ordinary_locked_target_is_valid`) — bez niej cała partia
   kosztowa lub wspólnej puli dostaje 409.
-- **Usunięcie nie kasuje linii z historią** — zdejmuje ją z grupy (`order_group_id=NULL`).
+- **Usunięcie linii Z ZUŻYCIEM (faktury / zaraportowane MD) zostawia ją w grupie jako
+  `completed`** (`_keep_consumed_line_as_history`, od 09.2026) + wpis
+  `zakonczenie_konsultanta` z `payload.reason = "removed_from_order"`, bez kwot
+  w opisie. Do 09.2026 taka linia była odpinana (`order_group_id=NULL`), a
+  `settle_group` liczy faktury po liniach grupy — więc odpięcie ZWRACAŁO do puli
+  kwotę, którą osoba już wykorzystała. `completed`, a nie `cancelled`, bo
+  `contract_order_sync` czyta zakończone zamówienia jako historię stawek (anulowane
+  zabrałyby kontraktowi krok przychodu za rozliczone miesiące); `sync_md_line_status`
+  nie wskrzesza linii z decyzją `removed_from_order`/`keep_history`. Drugie
+  usunięcie nie dubluje wpisu. Linia BEZ zużycia: jak dotąd — szkic bez pliku znika,
+  reszta jest odpinana.
   Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
-  reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
-  i kasuje własny wpis `dodanie_konsultanta`, ale `zamiana_kontraktora` ZOSTAJE — mówi
-  o dwóch osobach naraz.
+  reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie linii bez zużycia **nie
+  zapisuje zdarzenia** i kasuje własny wpis `dodanie_konsultanta`, ale
+  `zamiana_kontraktora` ZOSTAJE — mówi o dwóch osobach naraz.
+- **Historia osoby na zamówieniu** (`_apply_line_history`, jedno zapytanie o dziennik):
+  `origin` (`document` = z PDF-a / `manual`), `added_by_name`/`added_at` (autor
+  zdarzenia `dodanie_konsultanta`/`zamiana_kontraktora`), `replaces_name`,
+  `removed_from_order`, `cooperation_ended_on`, `md_used`, `history_kept_*`.
+  Pochodzenie zapisuje front (`document_name` / `replaces_name` w `OrderLineCreate`);
+  linie sprzed tej ewidencji dodane > 2 min po utworzeniu grupy liczą się jako
+  `manual`, wcześniejsze — `null` (bez odznaki). **Zapis historyczny**
+  (`historical: true`): osoba z ZAKOŃCZONYM kontraktem zostaje na zamówieniu jako
+  linia `completed` z datą końca udziału ≤ dziś, wyłącznie dla kontraktu
+  w statusie `ended` (`terminated_at` przeżywa wznowienie, więc nie wystarcza);
+  nie wznawia kontraktu (`_sync_contract_after_live_group_line` pomija
+  `completed`, `sync_md_line_status` nie wskrzesza linii, której kontrakt jest
+  `ended`) i nie przepisuje go (`skip_sync_for_contract` — bez tego sync
+  przestawiłby zakończonej umowie jednostkę i dopisał krok przychodu po jej końcu).
+  `POST …/lines/{id}/keep-history` = decyzja „Zostaw jako historię" (wpis w dzienniku
+  z autorem; sprawa offboardingu MD `pending` → 409). PDF zamówienia trafia do
+  profilu każdej osoby na zamówieniu przez `_sync_group_pdf_documents` (add_line,
+  swap, upload pliku) — zastępca dodany później też go dostaje.
+- **Wyczerpanie MD (BIK, Polkomtel) pomija osoby z zakończoną współpracą**
+  (rozstrzygnięcie otwartego pytania z ticketu 09.2026): linia `completed`
+  z niewykorzystanym limitem nie trzyma zamówienia otwartego; zamówienie kończy się,
+  gdy ktoś NAPRAWDĘ wyczerpał limit, a nikt na obsadzie nie ma już MD. WYJĄTEK:
+  nierozstrzygnięta sprawa offboardingu MD w grupie trzyma zamówienie otwarte —
+  po zamknięciu „przywróć" i „przenieś" nie miałyby dokąd wrócić.
   **Skutek praktyczny, o który łatwo się potknąć przy danych testowych:** skasowanie
   grupy zostawia jej linie jako OSIEROCONE wiersze `client_orders` (już nie w żadnej
   grupie, więc niewidoczne w zakładce), a `DELETE /orders/{id}` na linii innej niż szkic
@@ -2331,8 +2368,21 @@ fail-closed:
 | Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
 | PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
 | BIK | `BIK_ORDER_CLIENT_IDS` (+ kanoniczne ID 18) | numer/data z „Numer/data zamówienia” (start = data, koniec = bezterminowo); każda „Poz.” = osoba z własnym limitem MD („Ilość zamów.”, SZT) i stawką PLN/MD („Cena jednostk.”); wartości netto tylko do kontroli |
+| Polkomtel | `POLKOMTEL_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 15) | „Zlecenie wykonawcze": numer = skrót + numer po „nr" do ukośnika („SAP 4500123456"); start z „zawarte w dniu …", koniec zawsze bezterminowo; reguły działają WYŁĄCZNIE na dokumencie z nagłówkiem „ZLECENIE WYKONAWCZE nr" (inny szablon = odczyt ogólny + uwaga); tabela „Cena netto 1MD po upuście \| Cena total \| Konsultant" czytana jako STRUMIEŃ KOMÓREK (PDF: wiersz w linii, komórka scalona osobno; DOCX: komórka = linia, scalona powtórzona), kolejność kolumn z nagłówka (kotwicą „Cena netto", nagłówek osoby = całe słowo „Konsultant"); dwie kwoty w wierszu = stawka + kwota osoby TYLKO z dowodem (każdy wiersz ma parę, kwota osoby > stawki, suma = „na kwotę"), inaczej wiersz niepewny — nigdy zgadywanie; odczyt modelu jest drugim, niezależnym czytelnikiem (inna stawka tej osoby albo osoba spoza tabeli → do sprawdzenia); stawka zawsze netto za MD; „na kwotę …"/„Cena total" = kwota CAŁEGO zlecenia; MD: kolumna przy osobie albo jedna liczba („pracochłonność … MD"); brak MD w kosztowym = poprawny odczyt; `closes_on_md_exhaustion` |
+| Cyfrowy Polsat | `CYFROWY_POLSAT_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 38339) | wyłącznie numer tą samą regułą („CP 1234"); okres i stawki — odczyt ogólny (CP ma też zamówienia okresowe) |
 | Alior | `ALIOR_ORDER_EXTRACTION_CLIENT_IDS` | tylko 4 pola: „Zamówienie nr:”, nazwisko z kolumny konsultanta, okres z nawiasu pod nazwiskiem (inaczej „Moment wejścia w życie” / „czas oznaczony”), stawka z „Razem stawka dla Banku” za MD; zawsze netto, jawne „brutto” w tabeli → weryfikacja bez ÷1,23; Roboczodni/Stawka bazowa/Marża/Total ignorowane |
 
+- **„Brak liczby MD" nie jest zastrzeżeniem ODCZYTU — o wymaganych polach decyduje
+  typ zamówienia** (ticket Polkomtel 09.2026). Model czyta PDF bez wiedzy o typie
+  i przy zamówieniu kosztowym zgłaszał „brak informacji o liczbie MD". Trzy warstwy:
+  prompt v6 („MISSING MAN-DAYS" — brak MD nie jest niepewnością i nie zeruje stawki
+  wiersza); `drop_md_absence_reasons` w obu endpointach formularzy (formularz sam wie,
+  czy dla typu i wariantu MD czegoś brakuje; `md_scope` = `per_consultant` / `order`
+  ustawia „Budżet MD na całe zamówienie"); bramka poczty zdejmuje takie powody tylko
+  gdy są nieistotne dla typu, a MD bez liczby w ŻADNYM wariancie oraz wspólna pula
+  przy kilku osobach idą do kolejki (automat nie dzieli puli). `is_md_absence_reason`
+  NIGDY nie łapie powodu, który mówi też o stawce, kwocie, dacie, numerze, nazwisku
+  albo sprzeczności.
 - **BIK: tekst z SAP-a jest SKLEJONY** — pdfplumber oddaje
   „ProfilUR-JanKowalski”, „4500012345/20260903”, a etykieta „Numer/data”
   stoi linię nad adresem, nie nad wartością. Nazwisko jest kotwiczone na linii

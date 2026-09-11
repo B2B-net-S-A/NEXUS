@@ -256,12 +256,14 @@ async def test_delete_group_removes_its_lines(
     assert after.json()["groups"] == []
 
 
-async def test_delete_line_with_history_detaches_instead_of_erasing(
+async def test_delete_line_with_consumption_stays_on_the_order_as_removed(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Linia z rozliczeniem NIE jest kasowana — zamówienie niesie fakty.
+    """Linia z rozliczeniem NIE jest kasowana ani odpinana — zamówienie niesie fakty.
 
-    Kasowanie zabrałoby wpisy konsumpcji, które powstały poza tym ekranem.
+    Kasowanie zabrałoby wpisy konsumpcji, które powstały poza tym ekranem,
+    a odpięcie (stan sprzed 09.2026) wyprowadzało wykorzystane MD/kwotę poza
+    zamówienie — ticket żąda, żeby zostały przy nim i przy tej osobie.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder
@@ -297,7 +299,19 @@ async def test_delete_line_with_history_detaches_instead_of_erasing(
     async with AsyncSessionLocal() as db:
         survived = await db.get(ClientOrder, line_id)
         assert survived is not None, "linia z historią została skasowana"
-        assert survived.order_group_id is None, "linia nadal wisi na zamówieniu"
+        assert survived.order_group_id == group["id"], "zużycie wyszło z zamówienia"
+        # `completed`, nie `cancelled` — synchronizacja kontraktu czyta zakończone
+        # zamówienia jako historię stawek (anulowane by z niej wypadły).
+        assert survived.status.value == "completed"
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    line = next(item for item in body["lines"] if item["id"] == line_id)
+    assert line["removed_from_order"] is True
+    assert line["is_active"] is False
+    assert line["md_used"] == pytest.approx(10.0)
 
 
 # ── Zakończenie i przywrócenie ──────────────────────────────────────────────

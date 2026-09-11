@@ -56,7 +56,10 @@ from app.models.md_consumption import (
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
+    EVENT_CONSULTANT_ENDED,
     EVENT_MD_TRANSFER,
+    LINE_DECISION_KEEP_HISTORY,
+    LINE_DECISION_REMOVED,
     format_md,
     is_multi_consultant_client,
     quantize_md,
@@ -1023,6 +1026,28 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     if order.end_date is not None and order.end_date < business_today():
         return False
     if await _has_successor_line(db, order):
+        return False
+    # Osoba z ZAKOŃCZONĄ współpracą nie wraca na obsadę przez stan budżetu —
+    # także zapis historyczny z niewykorzystanym limitem MD (ticket 09.2026),
+    # którego data końca udziału bywa dzisiejsza. Wznowienie współpracy to
+    # decyzja człowieka (przywrócenie w offboardingu, nowy kontrakt).
+    contract = await db.get(Contract, order.contract_id)
+    if contract is not None and (
+        getattr(contract.status, "value", contract.status) == "ended"
+    ):
+        return False
+    # Osoba świadomie usunięta z zamówienia albo zostawiona jako historia nie
+    # wraca na obsadę przez korektę budżetu — to była decyzja człowieka.
+    decided = await db.scalar(
+        select(func.count(ClientOrderGroupEvent.id)).where(
+            ClientOrderGroupEvent.order_id == order.id,
+            ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_ENDED,
+            ClientOrderGroupEvent.payload["reason"].astext.in_(
+                (LINE_DECISION_REMOVED, LINE_DECISION_KEEP_HISTORY)
+            ),
+        )
+    )
+    if decided:
         return False
     order.status = ClientOrderStatus.active
     return True

@@ -79,6 +79,11 @@ EVENT_MD_OFFBOARDING_TRANSFERRED = "przeniesienie_puli_md"
 # różne operacje na dwóch różnych poziomach — po latach nie dałoby się
 # odpowiedzieć, czy wracało zamówienie, czy jedna osoba.
 EVENT_MD_OFFBOARDING_RESTORED = "przywrocenie_konsultanta"
+# Decyzje o osobie na zamówieniu zapisywane jako `zakonczenie_konsultanta`
+# z `payload.reason` (bez nowego typu w CHECK-u bazy): osoba usunięta
+# z zamówienia z wykorzystaną kwotą/MD oraz „Zostaw jako historię".
+LINE_DECISION_REMOVED = "removed_from_order"
+LINE_DECISION_KEEP_HISTORY = "keep_history"
 EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_CREATED,
     EVENT_CONSULTANT_ADDED,

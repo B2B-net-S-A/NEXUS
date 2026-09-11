@@ -299,6 +299,11 @@ class OrderExtractionResult(BaseModel):
     zamiast zostawiać wpisaną wcześniej datę — samo ``end_date=None`` nie
     odróżnia „bezterminowo" od „nie znaleziono daty"."""
 
+    md_scope: Optional[str] = None
+    """Wariant liczby MD w dokumencie: ``per_consultant`` (przy osobie)
+    albo ``order`` (jedna liczba na całe zamówienie). ``None`` = dokument
+    nie podaje MD — dla zamówienia kosztowego to poprawny odczyt."""
+
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)
     fields_confidence: dict[str, float] = Field(default_factory=dict)

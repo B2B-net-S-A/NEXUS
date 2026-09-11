@@ -17,6 +17,7 @@ from app.services.order_consultant_match import (
     MATCH_AMBIGUOUS,
     MATCH_AUTO,
     MATCH_CONFIRM,
+    MATCH_INACTIVE,
     MATCH_NONE,
     ContractCandidate,
     match_names,
@@ -248,7 +249,12 @@ def test_same_person_with_two_live_contracts_is_ambiguous():
     assert {c.contract_id for c in result.options} == {50, 51}
 
 
-def test_only_ended_contract_is_a_returning_person_to_confirm():
+def test_only_ended_contract_is_an_inactive_person_to_decide():
+    """Zakończona współpraca nie jest cichym „potwierdź i wznów" (ticket 09.2026).
+
+    Karta mówi wprost, że osoba nie ma już aktywnej współpracy, i każe wybrać:
+    zapis historyczny, wznowienie, zastępstwo albo usunięcie z zamówienia.
+    """
     result = resolve_contract(
         "Jan Kowalski",
         [
@@ -268,9 +274,19 @@ def test_only_ended_contract_is_a_returning_person_to_confirm():
             ),
         ],
     )
-    assert result.status == MATCH_CONFIRM
+    assert result.status == MATCH_INACTIVE
     assert result.contract is not None and result.contract.contract_id == 61
-    assert "zakończony" in result.reason
+    assert "„Jan Kowalski” nie ma już aktywnej współpracy" in result.reason
+    assert "kontrakt zakończony 31.03.2026" in result.reason
+    for choice in ("zapis historyczny", "wznów", "zastąp", "usuń z zamówienia"):
+        assert choice in result.reason
+
+
+def test_person_missing_from_the_system_is_named_in_the_message():
+    result = resolve_contract("Adam Nieobecny", [_contract(70, "Jan Kowalski")])
+    assert result.status == MATCH_NONE
+    assert result.reason.startswith("Nie znaleziono „Adam Nieobecny” w systemie")
+    assert "zastąp" in result.reason and "usuń z zamówienia" in result.reason
 
 
 def test_two_people_with_only_ended_contracts_are_ambiguous():

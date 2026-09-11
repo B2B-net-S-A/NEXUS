@@ -231,6 +231,16 @@ System jednym odczytem:
   **budżet w MD**,
 * **rozpoznaje, ilu konsultantów jest w dokumencie, i dla każdego tworzy kartę**.
 
+**System wymaga tylko tych pól, które są potrzebne dla wybranego typu.**
+Zamówienie **kosztowe** rozlicza się kwotą — system szuka **kwoty łącznej**, a nie
+liczby MD, i brak MD w dokumencie **nie jest błędem**. Przy zamówieniu **MD**
+liczba MD bywa podana na dwa sposoby i oba są poprawne: **przy każdej osobie**
+(osobny limit, jak u BIK) albo **jedną liczbą na całe zamówienie**. System
+rozpoznaje wariant z dokumentu i sam ustawia **„Budżet MD na całe zamówienie"**
+(albo budżet per osoba) — pod checkboxem zobaczysz, co przeczytał. O braku MD
+usłyszysz dopiero wtedy, gdy przy typie MD dokument nie podaje ich w żadnym
+z tych dwóch wariantów.
+
 Na każdej karcie stoją trzy wartości, a pod każdą — **skąd pochodzi**:
 
 * **Stawka kosztowa** — **„z kontraktu"** dopasowanej osoby (dokument klienta
@@ -260,9 +270,29 @@ kontraktu u tego klienta i oznacza wynik:
 | Odznaka | Co znaczy | Co robisz |
 |---|---|---|
 | zielona **Dopasowano automatycznie** | zapis identyczny jak w kontrakcie; różnice tylko w polskich znakach („Pawel Laski" = „Paweł Łaski") lub wielkości liter | nic |
-| żółta **Dopasowano — potwierdź** | rdzeń imienia i nazwiska się zgadza, ale w kontrakcie przed nim jest dopisek („Active", „UR –", „Projekt 2"), imię i nazwisko stoją w odwrotnej kolejności albo kontrakt jest zakończony | **To ta osoba — potwierdzam** albo **To nie ta osoba** |
+| żółta **Dopasowano — potwierdź** | rdzeń imienia i nazwiska się zgadza, ale w kontrakcie przed nim jest dopisek („Active", „UR –", „Projekt 2") albo imię i nazwisko stoją w odwrotnej kolejności | **To ta osoba — potwierdzam** albo **To nie ta osoba** |
+| czerwona **Zakończył współpracę** | osoba jest w systemie, ale jej współpraca u tego klienta jest zakończona — karta mówi to wprost, z datą końca kontraktu | wybierasz jedno z czterech: **Zostaw jako historię**, **Wznów współpracę**, **Zastąp kimś innym** albo **Usuń z zamówienia** (patrz niżej) |
 | czerwona **Kilka osób — wybierz ręcznie** | u tego klienta są dwie różne osoby o tym samym imieniu i nazwisku — także gdy jedna z nich ma już tylko zakończony kontrakt — albo ta sama osoba ma dwa aktywne kontrakty | wybierasz właściwy kontrakt po numerze i dacie rozpoczęcia |
-| czerwona **Wymaga ręcznego wskazania** | każda inna różnica w imieniu lub nazwisku albo brak takiej osoby | **Wybierz kontraktora ręcznie** z listy |
+| czerwona **Wymaga ręcznego wskazania** | tej osoby nie ma w systemie („Nie znaleziono … w systemie") albo imię i nazwisko różni się czymś więcej niż polskie znaki | **Wskaż tę osobę ręcznie** z listy, **Zastąp kimś innym** albo **Usuń z zamówienia** |
+
+**Osoba z PDF-a, która zakończyła współpracę.** Zamówienie nie utyka i nie
+wznawia niczego po cichu — decydujesz Ty:
+
+* **Zostaw jako historię** — osoba zostaje na zamówieniu **jako zakończona**
+  (z datą końca kontraktu). Kontrakt się nie wznawia, osoba nie wchodzi do
+  aktywnej obsady, a to, co zdążyła wykorzystać, zostaje przypisane do
+  zamówienia.
+* **Wznów współpracę** — to powrót tej osoby: zapis zamówienia wznowi jej kontrakt.
+* **Zastąp kimś innym** — wybierasz inną osobę; karta zapamiętuje, za kogo jest
+  zastępstwem.
+* **Usuń z zamówienia** — karta znika.
+
+Na zapisanym zamówieniu zobaczysz przy każdej osobie jej **okres udziału,
+wykorzystaną kwotę/MD i status** (aktywna / zakończyła współpracę / usunięta),
+a przy osobie **dodanej ręcznie** — spoza oryginalnego PDF-a, także jako
+zastępstwo — **kto ją dodał i kiedy** (i za kogo), żeby dało się zapytać o powód.
+PDF zamówienia jest podpinany do profilu **każdej** osoby, która kiedykolwiek była
+na zamówieniu, także dodanej później.
 
 **Rdzeń** to dwa ostatnie wyrazy pisane wielką literą w nazwie kontraktora —
 wszystko przed nimi to dopisek. **System nigdy nie poprawia literówek i nie
@@ -342,7 +372,22 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Historia zamówienia** | rozwijana lista zdarzeń z datami i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
-(tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**. Gdy po
+(tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
+
+**Usunięcie nie zwraca zużycia do puli.** Osoba bez żadnych rozliczeń znika
+z zamówienia. Osoba, która ma już zafakturowaną kwotę albo zaraportowane MD,
+**zostaje na zamówieniu jako „usunięta"** — z informacją, ile wykorzystała —
+a jej kwota/MD **nie wraca** do budżetu dostępnego dla innych.
+
+Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
+pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
+**Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
+innym** (otwiera dodawanie konsultanta — nowa osoba dołącza **obok**, a historia
+zapisze, za kogo jest zastępstwem) i **Usuń z zamówienia**. Przy zamówieniu MD
+z czekającą decyzją o pozostałych MD najpierw obowiązuje przycisk „Podejmij
+decyzję" (niżej).
+
+Gdy po
 zakończeniu współpracy czeka decyzja o pozostałych MD, **ikonki znikają, a na ich
 miejscu stoi czerwony przycisk „Podejmij decyzję"**. Dopóki go nie klikniesz,
 zablokowana jest nie tylko ta osoba, ale **całe zamówienie**: nie zadziała ani
@@ -619,10 +664,12 @@ z danego wpisu.
   dopóki nie klikniesz **Zakończ** albo dopóki nie wyczerpie się budżet — więc
   można do niego dopisywać kolejne osoby także po dacie z dokumentu, mimo że
   wcześniej dodani zostali już domknięci.
-* **U BIK kończy zamówienie ostatnia osoba, która wyczerpie swój limit MD.**
-  Zamówienie zostaje „Aktywne", dopóki choć jeden przypisany konsultant ma
-  niewykorzystane dni; gdy wszyscy zejdą do zera, przechodzi na **„Zakończone"**
-  samo (patrz sekcja BIK).
+* **U BIK i Polkomtela kończy zamówienie MD ostatnia osoba, która wyczerpie
+  swój limit MD.** Zamówienie zostaje „Aktywne", dopóki choć jeden konsultant na
+  obsadzie ma niewykorzystane dni; gdy wszyscy zejdą do zera, przechodzi na
+  **„Zakończone"** samo (patrz sekcja BIK). Osoba, która **zakończyła
+  współpracę** i została na zamówieniu jako historia, **jest przy tym pomijana** —
+  jej niewykorzystane dni nie trzymają zamówienia otwartego.
 * **Po każdej zmianie przelicza budżet na nowo**, dzięki czemu powtórny import
   tego samego miesiąca nie odejmuje dni drugi raz. Przy budżecie przypisanym
   osobie możesz mimo to wpisać właściwą pozostałość ręcznie — system potraktuje
@@ -876,8 +923,8 @@ normalne, nie brak w instrukcji.
 
 Reguły odczytu dokumentu włącza administrator osobno dla każdego klienta.
 Jeżeli u Ciebie odczyt zachowuje się inaczej, niż opisano poniżej, **zgłoś to
-administratorowi** zamiast obchodzić regułę ręcznie — z wyjątkiem Orlenu, PFRON
-i BIK, które działają zawsze.
+administratorowi** zamiast obchodzić regułę ręcznie — z wyjątkiem Orlenu, PFRON,
+BIK, Polkomtela i Cyfrowego Polsatu, które działają zawsze.
 
 Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 **30, 14 i 7 dni** przed datą (dzwonek) oraz sprawy **„bez zamówienia"** i
@@ -959,6 +1006,23 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 * **Wszystkie trzy typy są dostępne**; domyślnie podpowiadany jest typ
   najczęstszy w historii klienta.
+* **Polkomtel ma własną regułę odczytu „Zlecenia wykonawczego"** (działa zawsze,
+  także dla poczty zamówień):
+  * **numer** — skrót i numer z linii „ZLECENIE WYKONAWCZE nr …", bez części po
+    ukośniku: „nr SAP 4500123456 / 2026 rok" → **SAP 4500123456**;
+  * **data rozpoczęcia** — z frazy **„zawarte w dniu …"**; **data zakończenia
+    zawsze bezterminowo** — zamówienie kosztowe kończy wyczerpanie kwoty,
+    a zamówienie MD wyczerpanie MD (per osoba albo wspólnej puli);
+  * **tabela konsultantów** — każda osoba z kolumny „Konsultant" dostaje stawkę
+    ze **swojego wiersza** kolumny „Cena netto 1MD po upuście [PLN]", zawsze
+    jako **netto za MD**; kolumna „Cena total [PLN]" i „na kwotę … PLN" to
+    **kwota całego zamówienia**, nie per osoba;
+  * **brak liczby MD w zleceniu kosztowym jest poprawny** i nie jest zgłaszany;
+  * reguła działa **tylko na „Zleceniu wykonawczym"** — inny dokument Polkomtela
+    (np. aneks) czyta odczyt ogólny i dostaje uwagę „sprawdź wszystkie pola";
+  * gdy wiersza tabeli nie da się jednoznacznie odczytać (np. nazwisko złamane
+    na dwie linie), karta tej osoby **nie dostaje stawki** i czeka na Ciebie —
+    system nigdy nie przesuwa stawki na sąsiednią osobę.
 * **System NIE zakłada tu automatycznie zamówienia po zatrudnieniu konsultanta.**
   U pozostałych klientów po przejściu kandydata na „zatrudniony" pojawia się
   szkic zamówienia do uzupełnienia — u Polkomtela musisz założyć zamówienie sam.
@@ -998,7 +1062,10 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * **Wszystkie trzy typy do wyboru** — Okresowe, Kosztowe i MD.
 * Historyczne MD zachowują **wspólną pulę dni**, tak samo jak u Lotte Wedel.
   W nowych MD domyślny jest budżet per osoba, z możliwością wybrania wspólnej puli.
-* Własnej reguły odczytu PDF-a ten klient nie ma.
+* **Reguła odczytu PDF-a obejmuje tylko numer**: z linii „ZLECENIE WYKONAWCZE
+  nr CP 1234 / 2026 rok" system bierze **CP 1234** (ta sama reguła co u
+  Polkomtela). Daty i stawki czyta odczyt ogólny — Cyfrowy Polsat ma też
+  zamówienia okresowe.
 * Zamówienie okresowe zakładasz tu tak jak u każdego innego klienta —
   formularzem „Nowy kontraktor / zamówienie".
 * **Powiadomienia:** standardowe, a poza tym jak u Lotte Wedel: wspólna pula MD

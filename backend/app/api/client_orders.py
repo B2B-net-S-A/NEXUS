@@ -104,7 +104,9 @@ from app.services.order_types import (
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
+    drop_md_absence_reasons,
     enforce_consultant_policy_safety,
+    md_scope,
     parse_order_document,
 )
 from app.services.order_policies import (
@@ -2045,6 +2047,10 @@ async def extract_order_pdf(
     # więc bramka jest tam pominięta świadomie, a nie przez przeoczenie.
     if target_consultant and not plan.single_consultant_document:
         extraction = enforce_consultant_policy_safety(extraction)
+    # „Brak informacji o liczbie MD" nie jest zastrzeżeniem odczytu: czy MD jest
+    # potrzebne, wie formularz z typem zamówienia (kosztowe nie ma go wcale,
+    # MD bywa jedną liczbą na całe zamówienie) — `drop_md_absence_reasons`.
+    extraction = drop_md_absence_reasons(extraction)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
     # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
@@ -2101,7 +2107,8 @@ async def extract_order_pdf(
         # Nazwa reguły klientowej też nie jest kwotą; `None` znaczy „ten klient
         # nie ma jeszcze własnych reguł", a nie „odczyt się nie udał".
         client_policy=" + ".join(applied_policies) or None,
-        open_ended=open_ended_period(applied),
+        open_ended=open_ended_period(applied) and extraction.end_date is None,
+        md_scope=md_scope(extraction),
         source=extraction.source,
     )
     # Only policies with a deterministic person table (Nordea, BIK) expose it;
