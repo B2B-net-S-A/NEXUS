@@ -713,6 +713,27 @@ async def test_app_mode_reads_users_path_without_connection(
 
 
 @pytest.mark.asyncio
+async def test_every_run_replans_outdated_queue_documents_even_without_the_mailbox(
+    db_session, monkeypatch
+):
+    """Przeliczenie po zmianie reguły klienta nie zależy od odczytu skrzynki.
+
+    Wpis sprzed wdrożenia poprawki ma się przeliczyć przy najbliższym biegu —
+    także wtedy, gdy czytnik poczty jest akurat źle skonfigurowany.
+    """
+    from unittest.mock import AsyncMock
+
+    sweep = AsyncMock()
+    monkeypatch.setattr(svc, "replan_outdated_documents", sweep)
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nexus-zamowienia@example.test")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
+    monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: False)
+    stats = await svc.run_order_mail_ingest(reason="test")
+    sweep.assert_awaited_once()
+    assert "app_only_misconfigured" in stats.errors
+
+
+@pytest.mark.asyncio
 async def test_app_mode_without_credentials_records_error(db_session, monkeypatch):
     """Brak poświadczeń client_credentials = jawny błąd stanu, nie cicha pustka."""
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nexus-zamowienia@example.test")

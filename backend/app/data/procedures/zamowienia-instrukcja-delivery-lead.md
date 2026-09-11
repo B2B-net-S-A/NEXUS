@@ -619,6 +619,15 @@ Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
 
+**Po zmianie reguły odczytu klienta wpisy czekające w kolejce przeliczają się
+same** — raz, przy najbliższym sprawdzeniu skrzynki (co godzinę). Dostają
+dokładnie to, co „Przelicz plan": pewny plan zapisuje się automatycznie, plan
+z wątpliwością zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba
+przesyłać zamówienia ponownie — ten sam PDF wysłany drugi raz system i tak
+rozpoznaje jako duplikat i pomija. Jeśli automatyczne przeliczenie się nie
+powiedzie, wpis zostaje z komunikatem „Automatyczne przeliczenie po zmianie
+reguły nie powiodło się…" i można użyć przycisku ręcznie.
+
 ## Co system robi sam
 
 * **Zakłada umowę i szkic zamówienia** po potwierdzeniu obustronnie podpisanej
@@ -1356,10 +1365,12 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   stawka pochodzi wyłącznie z wiersza tej samej osoby.** Podobne nazwisko to
   inna osoba — np. dla „Anna Nowak" wiersz „Anna Nowak-Kowalska" nie daje
   stawki i pole zostaje puste do wpisania.
-* **„Przelicz plan" na wpisie zapisanym przed zmianą reguły:** dokument
-  w starszym układzie tabeli (kwoty z groszami, marża z przecinkiem) zostaje
-  w weryfikacji z powodem „odczyt zapisany przed zmianą reguły Aliora nie
-  potwierdza osób z tabeli" — sprawdź osobę, okres i stawkę i zapisz ręcznie.
+* **Wpisy Aliora czekające w kolejce sprzed zmiany reguły przeliczają się
+  same** przy najbliższym sprawdzeniu skrzynki (patrz „Przelicz plan" wyżej).
+  Dokument w starszym układzie tabeli (kwoty z groszami, marża z przecinkiem)
+  zostaje przy tym w weryfikacji z powodem „odczyt zapisany przed zmianą
+  reguły Aliora nie potwierdza osób z tabeli" — sprawdź osobę, okres i stawkę
+  i zapisz ręcznie.
 * Warto też wiedzieć (to działa u każdego klienta, nie tylko tutaj):
   **stawki godzinowe zapisują się z dokładnością do trzech miejsc po przecinku**
   — np. 164,375 zł/h. System niczego nie zaokrągla, więc wpisuj wartość

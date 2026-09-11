@@ -30,6 +30,7 @@ from app.services.order_policies.registry import (
     prepare_document_text,
     prepare_parser_text,
     reapplies_on_refresh,
+    rule_versions,
 )
 
 __all__ = [
@@ -49,4 +50,5 @@ __all__ = [
     "prepare_document_text",
     "prepare_parser_text",
     "reapplies_on_refresh",
+    "rule_versions",
 ]

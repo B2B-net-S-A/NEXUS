@@ -457,7 +457,6 @@ async def test_refresh_plan_rejects_read_only_roles_and_partially_applied_docume
 async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
     seeded, app_client, monkeypatch
 ):
-    from app.api import order_mail_queue as queue
     from tests.test_order_extract_endpoint import _dl_headers
 
     headers = await _dl_headers(app_client, seeded["client_id"])
@@ -473,7 +472,9 @@ async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
         # gdy użytkownik nie ma prawa do klienta docelowego.
         await db.flush()
 
-    monkeypatch.setattr(queue, "refresh_review_plan", move_plan)
+    # Przycisk i przeliczenie po zmianie reguły idą przez jedną funkcję
+    # (``svc.replan_and_apply``), więc podmiana siedzi w module ingest.
+    monkeypatch.setattr(svc, "refresh_review_plan", move_plan)
     response = await app_client.post(
         f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
     )
@@ -488,7 +489,7 @@ async def test_refresh_rechecks_rights_after_client_change_and_rolls_back(
 async def test_refresh_auto_verdict_applies_without_another_click(
     seeded, app_client, monkeypatch
 ):
-    from app.api import order_mail_queue as queue
+    from app.services import order_mail_apply
     from app.services.order_mail_apply import ApplyResult, AppliedRow
 
     async def certain(db, doc):
@@ -501,8 +502,8 @@ async def test_refresh_auto_verdict_applies_without_another_click(
         calls.append((actor_user_id, confirmed_by_human))
         return ApplyResult(rows=[AppliedRow(row_index=0, action="new")])
 
-    monkeypatch.setattr(queue, "refresh_review_plan", certain)
-    monkeypatch.setattr(queue, "apply_document", write)
+    monkeypatch.setattr(svc, "refresh_review_plan", certain)
+    monkeypatch.setattr(order_mail_apply, "apply_document", write)
     headers = await _headers_for_role(app_client, UserRole.admin)
     me = await app_client.get("/api/auth/me", headers=headers)
     response = await app_client.post(
@@ -525,15 +526,15 @@ async def test_refresh_auto_verdict_waits_in_queue_when_autoapply_is_off(
     """
     from unittest.mock import AsyncMock
 
-    from app.api import order_mail_queue as queue
+    from app.services import order_mail_apply
 
     async def certain(db, doc):
         doc.gate_verdict = "auto"
         doc.gate_reasons = []
 
     write = AsyncMock()
-    monkeypatch.setattr(queue, "refresh_review_plan", certain)
-    monkeypatch.setattr(queue, "apply_document", write)
+    monkeypatch.setattr(svc, "refresh_review_plan", certain)
+    monkeypatch.setattr(order_mail_apply, "apply_document", write)
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
     headers = await _headers_for_role(app_client, UserRole.admin)
     response = await app_client.post(
@@ -548,7 +549,7 @@ async def test_refresh_auto_verdict_waits_in_queue_when_autoapply_is_off(
     write.assert_not_awaited()
 
     # Prawdziwy writer, flaga nadal wyłączona.
-    monkeypatch.setattr(queue, "apply_document", apply_document)
+    monkeypatch.setattr(order_mail_apply, "apply_document", apply_document)
     manual = await app_client.post(
         f"/api/order-mail/queue/{seeded['doc_id']}/apply", headers=headers
     )

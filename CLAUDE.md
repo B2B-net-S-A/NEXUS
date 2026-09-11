@@ -2447,6 +2447,18 @@ fail-closed:
   zostaje przy `ACTION_GROUP` (osobne zamówienie obok linii MD rozdwoiłoby
   współpracę). Szkic wypełniony ręcznie bez pliku nadal jest „pusty” — znane
   ograniczenie, instrukcja każe dołączyć PDF.
+- **Zmieniasz regułę klienta → PODBIJ `rule_version` w rejestrze.** Dokument
+  zapamiętuje wersje reguł, którymi go przeczytano
+  (`document_meta["rule_versions"]`), a każdy bieg skrzynki
+  (`replan_outdated_documents`, przed czytaniem poczty) przelicza RAZ wpisy
+  `needs_review`, których wersja różni się od aktywnej — ta sama funkcja co
+  przycisk „Przelicz plan” (`replan_and_apply`: pewny plan zapisuje się
+  automatem, słucha `ORDER_MAIL_AUTOAPPLY_ENABLED`). Powód (11.09.2026):
+  poprawka Aliora działała tylko dla NOWYCH maili, a wpis sprzed wdrożenia
+  wisiał ze starymi powodami, bo nikt nie kliknął „Przelicz plan” — ponowne
+  wysłanie tego samego PDF-u nic nie daje (duplikat po SHA-256). Znacznik
+  zapisuje się także przy porażce (wpis nie wraca co godzinę). Wersja
+  `None` = bez automatycznego przeliczania.
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
 - **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją

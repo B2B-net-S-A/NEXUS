@@ -1226,6 +1226,242 @@ async def test_mail_order_fills_the_recruitment_draft_and_next_period_is_separat
         await db.rollback()
 
 
+# ── Kolejka po zmianie reguły: wpis sprzed wdrożenia przelicza się sam ───────
+
+
+def old_rule_extraction() -> dict:
+    """Odczyt kolejnego okresu zapisany STARĄ regułą — bez ``model_rows``.
+
+    Kształt wpisu, który po wdrożeniu nowej reguły wisiał w kolejce ze starymi
+    powodami, bo nikt nie kliknął „Przelicz plan" (09.2026).
+    """
+    return ingest.extraction_to_json(
+        OrderExtraction(
+            title="OIT/9992/2026/ITVM",
+            start_date="2026-11-02",
+            end_date="2026-12-31",
+            rate_unit="day",
+            total_value=Decimal("50620"),
+            confidence={"title": 1.0, "start_date": 1.0, "end_date": 1.0},
+            consultant_rows=[
+                person(
+                    "Łucja Próbna",
+                    "1265.5",
+                    start="2026-11-02",
+                    end="2026-12-31",
+                    reason="Nie ustalono, czy stawka jest brutto czy netto",
+                )
+            ],
+            uncertain=True,
+            uncertain_reasons=[
+                "Nie rozpoznano tabeli Konsultantów — wpisz osoby ręcznie",
+                "Nie ustalono, czy każda stawka jest brutto czy netto",
+            ],
+            source="claude",
+        )
+    )
+
+
+async def _alior_with_a_pending_next_period(db, monkeypatch, tmp_path, **doc_fields):
+    """Stan z produkcji: kontrakt aktywny, pierwszy okres zapisany, drugi czeka.
+
+    Pierwsze zamówienie jest AKTYWNE (zapis z maila aktywuje je przy
+    podpisanej umowie), a wpis kolejnego okresu ma odczyt starej reguły i nie
+    ma znacznika wersji — tak wyglądał dokument „nie do przyjęcia".
+    """
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.order_mail import OrderMailDocument
+
+    client = Client(name=f"Alior Bank Spółka Akcyjna {uuid.uuid4().hex[:6]}")
+    candidate = Candidate(name="Łucja", lastname="Próbna")
+    db.add_all([client, candidate])
+    await db.flush()
+    monkeypatch.setenv("ALIOR_ORDER_EXTRACTION_CLIENT_IDS", str(client.id))
+    contract = Contract(
+        client_id=client.id,
+        candidate_id=candidate.id,
+        status=ContractStatus.active,
+        start_date=date(2026, 10, 1),
+        rate_candidate=Decimal("880"),
+        rate_client=Decimal("1265.5"),
+        rate_unit=RateUnit.daily,
+    )
+    db.add(contract)
+    await db.flush()
+    first = ClientOrder(
+        client_id=client.id,
+        contract_id=contract.id,
+        title="OIT/9991/2026/ITVM",
+        status=ClientOrderStatus.active,
+        order_type="periodic",
+        start_date=date(2026, 10, 5),
+        end_date=date(2026, 10, 28),
+        rate_client=Decimal("1265.5"),
+        rate_candidate=Decimal("880"),
+        rate_unit=RateUnit.daily,
+    )
+    storage = tmp_path / f"alior-{uuid.uuid4().hex[:6]}.pdf"
+    storage.write_bytes(b"%PDF-1.4 dummy")
+    fields = dict(
+        internet_message_id=f"<{uuid.uuid4()}@alior.test>",
+        attachment_name="Zamowienie kolejny okres.pdf",
+        sender_email="rozliczenia@b2bnetwork.pl",
+        outcome="needs_review",
+        client_id=client.id,
+        identification_method="registry_id",
+        client_policy="Alior",
+        storage_path=storage.name,
+        extraction=old_rule_extraction(),
+        document_meta={"page_count": 2, "text_chars": 2658},
+        gate_verdict="review",
+        gate_reasons=[
+            "Brak niezależnego potwierdzenia osób i stawek z pól dokumentu PDF",
+            "Odczyt niepewny: Nie rozpoznano tabeli Konsultantów — wpisz osoby ręcznie",
+        ],
+    )
+    fields.update(doc_fields)
+    doc = OrderMailDocument(**fields)
+    db.add_all([first, doc])
+    await db.commit()
+    text = OrderDocumentText(TICKET_NEXT, 2, False, False, None, 0.0)
+    monkeypatch.setattr(ingest, "extract_order_text", lambda *a: text)
+    monkeypatch.setattr(
+        ingest.storage_service,
+        "get_order_mail_attachment_path",
+        lambda p: tmp_path / p,
+    )
+    return first, doc
+
+
+async def test_pending_document_from_before_the_rule_change_is_replanned_by_the_mailbox_run(
+    monkeypatch, tmp_path
+):
+    """Zgłoszenie 09.2026: zamówienie na kolejny okres „nie chciało się przyjąć".
+
+    Reguła czytała PDF poprawnie, ale wpis z kolejki niósł odczyt starej reguły
+    do chwili ręcznego „Przelicz plan". Najbliższy bieg skrzynki przelicza go
+    sam i zapisuje osobne zamówienie na kolejny okres — pierwsze zostaje nietknięte.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    monkeypatch.setattr(
+        ingest,
+        "parse_order_document",
+        AsyncMock(side_effect=AssertionError("przeliczenie nie woła modelu")),
+    )
+    async with AsyncSessionLocal() as db:
+        first, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
+        stats = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, stats)
+        assert (stats.replanned, stats.replanned_auto_applied) == (1, 1), stats.errors
+        await db.refresh(doc)
+        assert doc.outcome == "auto_applied", doc.gate_reasons
+        assert doc.gate_reasons == []
+        assert doc.document_meta["rule_versions"] == {
+            "alior": policy_by_key("alior").rule_version
+        }
+        follow_up = await db.get(ClientOrder, doc.applied_order_id)
+        assert follow_up.id != first.id
+        assert (
+            follow_up.title,
+            follow_up.start_date,
+            follow_up.end_date,
+            follow_up.rate_client,
+        ) == (
+            "OIT/9992/2026/ITVM",
+            date(2026, 11, 2),
+            date(2026, 12, 31),
+            Decimal("1265.5"),
+        )
+        await db.refresh(first)
+        assert (first.title, first.end_date, first.status) == (
+            "OIT/9991/2026/ITVM",
+            date(2026, 10, 28),
+            ClientOrderStatus.active,
+        )
+
+        # Jednorazowo: wpis przeczytany aktualną wersją nie wraca w kolejnym biegu.
+        again = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, again)
+        assert again.replanned == 0
+
+
+async def test_replan_after_a_rule_change_respects_the_autoapply_switch(
+    monkeypatch, tmp_path
+):
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(ingest.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
+    async with AsyncSessionLocal() as db:
+        _, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
+        stats = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, stats)
+        await db.refresh(doc)
+        assert (stats.replanned, stats.replanned_auto_applied) == (1, 0)
+        assert doc.outcome == "needs_review" and doc.applied_order_id is None
+        # Nowy plan jest pewny — czeka już tylko na „Zastosuj".
+        assert doc.gate_reasons == [ingest.AUTOAPPLY_DISABLED_REASON]
+        assert doc.document_meta["rule_versions"] == {
+            "alior": policy_by_key("alior").rule_version
+        }
+
+
+async def test_document_read_with_the_current_rule_is_not_replanned(
+    monkeypatch, tmp_path
+):
+    from app.core.database import AsyncSessionLocal
+
+    current = {"alior": policy_by_key("alior").rule_version}
+    refresh = AsyncMock(side_effect=AssertionError("wpis jest aktualny"))
+    async with AsyncSessionLocal() as db:
+        _, doc = await _alior_with_a_pending_next_period(
+            db, monkeypatch, tmp_path, document_meta={"rule_versions": current}
+        )
+        monkeypatch.setattr(ingest, "refresh_review_plan", refresh)
+        stats = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, stats)
+        await db.refresh(doc)
+        assert stats.replanned == 0 and stats.errors == []
+        assert doc.outcome == "needs_review"
+        refresh.assert_not_awaited()
+
+
+async def test_failed_replan_is_reported_once_and_not_retried_every_run(
+    monkeypatch, tmp_path
+):
+    from app.core.database import AsyncSessionLocal
+
+    refresh = AsyncMock(side_effect=RuntimeError("pdf nieczytelny"))
+    async with AsyncSessionLocal() as db:
+        _, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
+        monkeypatch.setattr(ingest, "refresh_review_plan", refresh)
+        stats = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, stats)
+        await db.refresh(doc)
+        assert stats.replanned == 0
+        assert any(f"replan doc {doc.id}" in e for e in stats.errors)
+        assert doc.outcome == "needs_review"
+        assert doc.error.startswith("Automatyczne przeliczenie po zmianie reguły")
+        assert doc.document_meta["rule_versions"] == {
+            "alior": policy_by_key("alior").rule_version
+        }
+        again = ingest.IngestStats()
+        await ingest.replan_outdated_documents(db, again)
+        assert refresh.await_count == 1 and again.errors == []
+
+
+def test_alior_rule_carries_a_version_so_pending_documents_follow_rule_changes():
+    """Bez wersji poprawka reguły nie dotarłaby do wpisów czekających w kolejce."""
+    from app.services.order_policies import rule_versions
+
+    assert rule_versions(POLICIES) == {"alior": policy_by_key("alior").rule_version}
+    assert policy_by_key("alior").rule_version
+
+
 # ── Endpoint „Zczytaj dane z dokumentu" ──────────────────────────────────────
 
 

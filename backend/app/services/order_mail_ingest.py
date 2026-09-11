@@ -32,7 +32,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select, text
@@ -87,6 +87,7 @@ from app.services.order_policies import (
     prepare_document_text,
     prepare_parser_text,
     reapplies_on_refresh,
+    rule_versions,
 )
 from app.services.order_policies.known_clients import (
     KNOWN_MARKERS,
@@ -189,6 +190,10 @@ class IngestStats:
     needs_review: int = 0
     skipped_existing: int = 0
     failed: int = 0
+    #: Wpisy z kolejki przeliczone same po zmianie reguły klienta
+    #: (``replan_outdated_documents``) i ile z nich zapisało się automatem.
+    replanned: int = 0
+    replanned_auto_applied: int = 0
     max_received_at: Optional[datetime] = None
     errors: list[str] = field(default_factory=list)
 
@@ -365,6 +370,17 @@ def extraction_to_json(extraction: OrderExtraction) -> dict[str, Any]:
     return _jsonable(extraction)
 
 
+def _stamp_rule_versions(row: OrderMailDocument, policies: list) -> None:
+    """Zapamiętaj, którymi wersjami reguł klienta przeczytano dokument.
+
+    Nowy słownik zamiast mutacji: kolumna JSON nie śledzi zmian w miejscu.
+    """
+    row.document_meta = {
+        **(row.document_meta or {}),
+        "rule_versions": rule_versions(policies),
+    }
+
+
 def document_meta_to_json(
     doc: OrderDocumentText, extraction: OrderExtraction
 ) -> dict[str, Any]:
@@ -510,6 +526,7 @@ async def process_pdf_bytes(
     row.client_policy = " + ".join(applied) or None
     row.extraction = extraction_to_json(extraction)
     row.document_meta = document_meta_to_json(doc, extraction)
+    _stamp_rule_versions(row, policies)
     row.outcome = (
         OUTCOME_NEEDS_REVIEW if client_id is not None else OUTCOME_UNRECOGNIZED
     )
@@ -622,6 +639,7 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     extraction = apply_rate_kind(extraction, doc.text, policies)
     row.extraction = extraction_to_json(extraction)
     row.document_meta = document_meta_to_json(doc, extraction)
+    _stamp_rule_versions(row, policies)
     await _plan_and_gate(
         db,
         row,
@@ -632,6 +650,118 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         row.identification_method,
     )
     row.error = None
+
+
+async def replan_and_apply(
+    db: AsyncSession,
+    row: OrderMailDocument,
+    *,
+    actor_user_id: Optional[int],
+    before_apply: Optional[Callable[[], Awaitable[None]]] = None,
+) -> None:
+    """„Przelicz plan": nowy plan z zapisanego odczytu, a pewny plan — zapis.
+
+    Jedno miejsce dla przycisku w kolejce i dla przeliczenia po zmianie reguły
+    klienta (``replan_outdated_documents``). Zapis pewnego planu jest tu
+    AUTOMATYCZNY (nikt nie kliknął „Zastosuj"), więc słucha wyłącznika automatu
+    i nie zdejmuje blokad zarezerwowanych dla zatwierdzenia (imiennik z bazy,
+    dopasowanie niedokładne). ``actor_user_id`` służy wyłącznie atrybucji;
+    ``before_apply`` pozwala sprawdzić uprawnienia do rekordu PO przeliczeniu
+    (PFRON może zmienić klienta), a przed zapisem. Nie commituje.
+    """
+    await refresh_review_plan(db, row)
+    if before_apply is not None:
+        await before_apply()
+    if hold_when_autoapply_disabled(row) or row.gate_verdict != GATE_AUTO:
+        return
+    from app.services.order_mail_apply import apply_document  # cykl importów
+
+    result = await apply_document(
+        db, row, actor_user_id=actor_user_id, confirmed_by_human=False
+    )
+    if result.ok:
+        row.outcome = OUTCOME_AUTO_APPLIED
+        return
+    error = result.error or "; ".join(r.error for r in result.rows if r.error)
+    row.gate_verdict = GATE_REVIEW
+    row.error = error[:2000]
+    row.gate_reasons = ["Nie udało się zapisać zamówienia: " + error]
+
+
+def _replannable(row: OrderMailDocument) -> bool:
+    """Te same warunki co przycisk „Przelicz plan" w kolejce."""
+    if not row.client_id or not row.extraction or not row.storage_path:
+        return False
+    if row.applied_order_id or ((row.proposal or {}).get("apply_result") or {}).get(
+        "rows"
+    ):
+        return False
+    return storage_service.get_order_mail_attachment_path(row.storage_path).is_file()
+
+
+async def replan_outdated_documents(db: AsyncSession, stats: IngestStats) -> None:
+    """Przelicz raz wpisy czekające w kolejce, gdy reguła klienta się zmieniła.
+
+    Poprawka reguły odczytu działała dotąd wyłącznie dla NOWYCH maili: wpis
+    sprzed wdrożenia wisiał w „Do weryfikacji" ze starymi powodami, dopóki ktoś
+    nie kliknął „Przelicz plan" — a nikt nie miał powodu wiedzieć, że trzeba
+    (Alior, 09.2026: zamówienie na kolejny okres „nie chciało się przyjąć").
+    Wpis przeczytany inną wersją reguły niż aktywna u klienta
+    (``document_meta["rule_versions"]``) dostaje dokładnie to, co przycisk:
+    nowy plan z zapisanego odczytu i — gdy jest pewny, a automat włączony —
+    zapis. Znacznik wersji zostaje zapisany także przy porażce, więc wpis nie
+    wraca w każdym biegu; następną szansę daje ręczne „Przelicz plan" albo
+    kolejna zmiana reguły. Każdy wpis to osobna transakcja: porażka jednego
+    nie cofa przeliczeń pozostałych.
+    """
+    ids = list(
+        (
+            await db.scalars(
+                select(OrderMailDocument.id)
+                .where(
+                    OrderMailDocument.outcome == OUTCOME_NEEDS_REVIEW,
+                    OrderMailDocument.client_id.is_not(None),
+                    OrderMailDocument.applied_order_id.is_(None),
+                )
+                .order_by(OrderMailDocument.id)
+            )
+        ).all()
+    )
+    for doc_id in ids:
+        row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+        current = rule_versions(active_policies(row.client_id)) if row else {}
+        if (
+            row is None
+            or row.outcome != OUTCOME_NEEDS_REVIEW
+            or not current
+            or (row.document_meta or {}).get("rule_versions") == current
+            or not _replannable(row)
+        ):
+            await db.commit()  # zwolnij blokadę wiersza
+            continue
+        try:
+            await replan_and_apply(db, row, actor_user_id=None)
+            auto_applied = row.outcome == OUTCOME_AUTO_APPLIED
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — jeden wpis nie może wywrócić biegu
+            logger.exception(
+                "order_mail: replan after rule change failed for doc %s", doc_id
+            )
+            await db.rollback()
+            row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+            row.document_meta = {
+                **(row.document_meta or {}),
+                "rule_versions": current,
+            }
+            row.error = (
+                f"Automatyczne przeliczenie po zmianie reguły nie powiodło się: {exc!r}"
+            )[:2000]
+            await db.commit()
+            stats.errors.append(f"replan doc {doc_id}: {exc!r}"[:300])
+            continue
+        stats.replanned += 1
+        if auto_applied:
+            stats.replanned_auto_applied += 1
 
 
 async def current_proposal(db, extraction, client_id):
@@ -1080,6 +1210,8 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
             "ignored_no_pdf": int(stats.get("ignored_no_pdf") or 0),
             "ignored_sender": int(stats.get("ignored_sender") or 0),
             "failed": int(stats.get("failed") or 0),
+            "replanned": int(stats.get("replanned") or 0),
+            "replanned_auto_applied": int(stats.get("replanned_auto_applied") or 0),
             "errors": list(stats.get("errors") or []),
         }
     return {
@@ -1121,6 +1253,14 @@ async def run_order_mail_ingest(
             await _write_state(
                 db, last_run_started_at=now, last_status="running", last_error=None
             )
+            # Najpierw wpisy, które czekają w kolejce na starej wersji reguły
+            # klienta — lokalnie, bez Graph, więc także przy awarii skrzynki.
+            try:
+                await replan_outdated_documents(db, stats)
+            except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
+                logger.exception("order_mail: replan of outdated documents failed")
+                await db.rollback()
+                stats.errors.append(f"replan: {exc!r}"[:300])
             # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
             # otwiera pulę httpx, więc między nim a `async with` nie może stać
             # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).
