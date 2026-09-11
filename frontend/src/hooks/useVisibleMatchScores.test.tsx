@@ -194,6 +194,62 @@ describe("useVisibleMatchScores", () => {
     expect(result.current.failures).toEqual({});
   });
 
+  it("two requests rate-limited together are retried together — no row stranded", async () => {
+    // 25 rows = two requests in flight (20 + 5). Until 11.09 each 429 replaced
+    // the one retry timer, so only the LAST request was retried and rows 1–20
+    // stayed on "ponów"; the back-off also doubled once per answer.
+    let call = 0;
+    matchScores.mockImplementation((_job: number, ids: number[]) => {
+      call += 1;
+      return call <= 4 ? Promise.reject(httpError(429)) : Promise.resolve(answer(ids));
+    });
+    const items = rows(range(1, 25));
+    const { result } = renderHook(() => useVisibleMatchScores(7, items));
+    act(() => {
+      for (const id of range(1, 25)) result.current.onRowVisible(id);
+    });
+    await settle();
+    expect(matchScores).toHaveBeenCalledTimes(2);
+    expect(Object.keys(result.current.failures)).toHaveLength(25);
+
+    // Round 1: one wait of the base delay, every row of BOTH requests re-asked.
+    await settle(RATE_LIMIT_RETRY_BASE_MS - 500);
+    expect(matchScores).toHaveBeenCalledTimes(2);
+    await settle(1_000);
+    expect(matchScores).toHaveBeenCalledTimes(4);
+    expect(matchScores.mock.calls[2].slice(0, 2)).toEqual([7, range(1, 20)]);
+    expect(matchScores.mock.calls[3].slice(0, 2)).toEqual([7, range(21, 25)]);
+
+    // Both 429 again: round 2 waits twice the base — one doubling per round.
+    await settle(2 * RATE_LIMIT_RETRY_BASE_MS - 1_000);
+    expect(matchScores).toHaveBeenCalledTimes(4);
+    await settle(1_500);
+    expect(matchScores).toHaveBeenCalledTimes(6);
+    expect(result.current.failures).toEqual({});
+    expect(Object.keys(result.current.scores)).toHaveLength(25);
+  });
+
+  it("a row that failed on a 5xx is not swept into a 429 round", async () => {
+    matchScores
+      .mockRejectedValueOnce(httpError(503))
+      .mockRejectedValueOnce(httpError(429))
+      .mockImplementation((_job: number, ids: number[]) => Promise.resolve(answer(ids)));
+    const items = rows(range(1, 25));
+    const { result } = renderHook(() => useVisibleMatchScores(7, items));
+    act(() => {
+      for (const id of range(1, 25)) result.current.onRowVisible(id);
+    });
+    await settle();
+    await settle(RATE_LIMIT_RETRY_BASE_MS + 500);
+
+    // Only the rate-limited request (21–25) is re-asked on its own; the rows
+    // of the 5xx keep "ponów" until the recruiter asks.
+    expect(matchScores).toHaveBeenCalledTimes(3);
+    expect(matchScores.mock.calls[2].slice(0, 2)).toEqual([7, range(21, 25)]);
+    expect(result.current.failures["1"]).toBe("retry");
+    expect(result.current.failures["21"]).toBeUndefined();
+  });
+
   it("a 403 marks the rows 'forbidden' and stops asking for this recruitment", async () => {
     matchScores.mockRejectedValueOnce(httpError(403));
     const items = rows([1, 2, 3]);

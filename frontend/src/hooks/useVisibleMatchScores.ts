@@ -16,9 +16,11 @@ export const MATCH_SCORES_MAX_CANDIDATES = 20;
 const BATCH_WINDOW_MS = 120;
 
 /**
- * A 429 is retried on its own this many times, the delay doubling from
+ * A 429 is retried on its own in this many ROUNDS, the delay doubling from
  * `RATE_LIMIT_RETRY_BASE_MS` (5, 10, 20, 40 s — past the server's one-minute
- * window). After that the row keeps its "ponów" control.
+ * window). One round re-asks every row that got a 429 since the last round,
+ * whichever request it came from. After the last round the row keeps its
+ * "ponów" control.
  */
 export const RATE_LIMIT_MAX_AUTO_RETRIES = 4;
 export const RATE_LIMIT_RETRY_BASE_MS = 5_000;
@@ -91,8 +93,11 @@ interface Book {
   /** Weight profile the held scores were computed under (`profile_key`). */
   profileKey: string | null;
   controllers: Set<AbortController>;
-  /** Consecutive 429 answers — the automatic back-off exponent. */
-  rateLimited: number;
+  /** Rows whose last answer was a 429 — what the next retry round re-asks. */
+  rateLimited: Set<number>;
+  /** Automatic retry rounds since the last answer — the back-off exponent. */
+  retryRounds: number;
+  /** The ONE pending retry round of this result set. */
   retryTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -110,7 +115,8 @@ function newBook(epoch: object): Book {
     forbidden: false,
     profileKey: null,
     controllers: new Set(),
-    rateLimited: 0,
+    rateLimited: new Set(),
+    retryRounds: 0,
     retryTimer: null,
   };
 }
@@ -191,6 +197,7 @@ export function useVisibleMatchScores(
       if (book.current !== current || current.forbidden || ids.length === 0) return;
       for (const id of ids) {
         current.retryable.delete(id);
+        current.rateLimited.delete(id);
         current.requested.delete(id);
         current.pending.add(id);
       }
@@ -216,7 +223,7 @@ export function useVisibleMatchScores(
       .matchScores(jobId, batch, { signal: controller.signal })
       .then((response) => {
         if (controller.signal.aborted || book.current !== current) return;
-        current.rateLimited = 0;
+        current.retryRounds = 0;
         const key = response.profile_key ?? null;
         const switched =
           key !== null && current.profileKey !== null && key !== current.profileKey;
@@ -231,11 +238,15 @@ export function useVisibleMatchScores(
           for (const id of again) {
             current.requested.delete(id);
             current.retryable.delete(id);
+            current.rateLimited.delete(id);
             current.pending.add(id);
           }
           schedule(0);
         }
-        for (const id of batch) current.retryable.delete(id);
+        for (const id of batch) {
+          current.retryable.delete(id);
+          current.rateLimited.delete(id);
+        }
         setState((prev) => {
           const base = prev.epoch === epoch && !switched ? prev : emptyState(epoch);
           const failures = { ...base.failures };
@@ -259,18 +270,24 @@ export function useVisibleMatchScores(
         }
         for (const id of batch) current.retryable.add(id);
         updateFailures(batch, "retry");
-        if (isRateLimited(error) && current.rateLimited < RATE_LIMIT_MAX_AUTO_RETRIES) {
-          const delay = RATE_LIMIT_RETRY_BASE_MS * 2 ** current.rateLimited;
-          current.rateLimited += 1;
-          if (current.retryTimer !== null) clearTimeout(current.retryTimer);
-          current.retryTimer = setTimeout(() => {
-            current.retryTimer = null;
-            requeue(
-              current,
-              batch.filter((id) => current.retryable.has(id)),
-            );
-          }, delay);
-        }
+        if (!isRateLimited(error)) return;
+        for (const id of batch) current.rateLimited.add(id);
+        // ONE pending round per result set, re-asking EVERY row a 429 left
+        // behind. A 429 while a round is pending joins that round — replacing
+        // its timer (as each 429 did until 11.09) dropped the rows of the
+        // earlier request: with two requests in flight rows 1–20 stayed on
+        // "ponów" for good. The back-off advances once per round, not per
+        // answer: two 429s of one round are one wait, not two doublings.
+        if (current.retryTimer !== null) return;
+        if (current.retryRounds >= RATE_LIMIT_MAX_AUTO_RETRIES) return;
+        const delay = RATE_LIMIT_RETRY_BASE_MS * 2 ** current.retryRounds;
+        current.retryRounds += 1;
+        current.retryTimer = setTimeout(() => {
+          current.retryTimer = null;
+          const ids = [...current.rateLimited].filter((id) => current.retryable.has(id));
+          current.rateLimited.clear();
+          requeue(current, ids);
+        }, delay);
       })
       .finally(() => {
         current.controllers.delete(controller);
