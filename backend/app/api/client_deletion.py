@@ -21,6 +21,8 @@ kto nie widzi klientów, nie ma czego usuwać.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -30,6 +32,7 @@ from app.api.deps import require_onboarded_user
 from app.api.section_access import require_section_access_any_read
 from app.core.database import get_db
 from app.models.client import Client
+from app.models.critical_event import CriticalEvent
 from app.models.user import User
 from app.schemas.client_deletion import (
     ClientDeletionCheckResponse,
@@ -71,7 +74,9 @@ async def require_client_deletion_permission(
         else "Brak uprawnienia do usuwania klientów."
     )
     client = await db.scalar(select(Client).where(Client.id == client_id))
-    if client is not None:
+    if client is not None and not await _recently_refused(
+        db, actor_id=current_user.id, client_id=client.id
+    ):
         await record_blocked(
             actor=current_user,
             event_type=EVENT_TYPE,
@@ -86,6 +91,29 @@ async def require_client_deletion_permission(
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 
 
+# Jedna odmowa „brak uprawnienia" na osobę i klienta w tym oknie. Trasa jest
+# dostępna dla każdego z odczytem Delivery, więc bez tego skrypt wołający ją
+# w pętli zapchałby Historię zdarzeń wpisami bez nowej informacji.
+_REFUSAL_DEDUP_WINDOW = timedelta(minutes=10)
+
+
+async def _recently_refused(db: AsyncSession, *, actor_id: int, client_id: int) -> bool:
+    since = datetime.now(timezone.utc) - _REFUSAL_DEDUP_WINDOW
+    existing = await db.scalar(
+        select(CriticalEvent.id)
+        .where(
+            CriticalEvent.event_type == EVENT_TYPE,
+            CriticalEvent.client_id == client_id,
+            CriticalEvent.actor_user_id == actor_id,
+            CriticalEvent.outcome == "blocked",
+            CriticalEvent.reason_code.in_(("no_permission", "impersonation")),
+            CriticalEvent.occurred_at >= since,
+        )
+        .limit(1)
+    )
+    return existing is not None
+
+
 async def _load_deletable_client(db: AsyncSession, client_id: int) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None or not is_client_visible(client):
@@ -96,8 +124,18 @@ async def _load_deletable_client(db: AsyncSession, client_id: int) -> Client:
 
 
 def _blocked_details(assessment: ClientDeletionAssessment) -> dict:
+    """Szczegóły zablokowanej próby BEZ pozycji blokad.
+
+    Pozycje (``items``) niosą imiona i nazwiska kontraktorów — okno pokazuje
+    je na żywo, ale dziennik przeżywa usunięcie osoby (art. 17 RODO), więc
+    zapisujemy wyłącznie rodzaj i liczbę blokad.
+    """
+
     return {
-        "blockers": [blocker.as_dict() for blocker in assessment.blockers],
+        "blockers": [
+            {"code": blocker.code, "label": blocker.label, "count": blocker.count}
+            for blocker in assessment.blockers
+        ],
         "client_status": assessment.status,
     }
 

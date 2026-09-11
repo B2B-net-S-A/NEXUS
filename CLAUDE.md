@@ -2717,7 +2717,11 @@ sekcja **Ustawienia → Historia zdarzeń**. Kod: `api/client_deletion.py`,
   klienta), otwarte zamówienia MD/kosztowe (`draft`/`active`/`scheduled`),
   żywe kontrakty (`active`/`ending`/`ready_for_signature`) i kandydaci
   w niezamkniętych rekrutacjach. Szkic kontraktu bez zamówienia NIE blokuje
-  (to nie pracujący kontraktor). Kliknięcie „Usuń klienta" to już próba —
+  (to nie pracujący kontraktor). **Linie zamówień MD/kosztowych są sprawdzane
+  SAME, niezależnie od statusu grupy** — zamknięcie z datą w przyszłości daje
+  grupę `completed` z liniami nadal `active`, wyczerpanie puli przestawia
+  wyłącznie grupę, a osoba obsadzona z bazy ma kontrakt-szkic, więc blokada
+  kontraktorów by jej nie złapała. Kliknięcie „Usuń klienta" to już próba —
   zablokowana trafia do Historii zdarzeń; wykonanie liczy ocenę od nowa pod
   `FOR UPDATE` na wierszu klienta i przy blokadzie zwraca 409 jako
   `JSONResponse` (NIE `HTTPException` — wyjątek wycofałby sesję razem z wpisem).
@@ -2737,6 +2741,16 @@ sekcja **Ustawienia → Historia zdarzeń**. Kod: `api/client_deletion.py`,
   żądanie. Wykonane operacje idą do sesji operacji (`record_executed`, wspólny
   commit). `audited_deletion` owija istniejące DELETE-y: 403/409/422/423
   z wnętrza bloku = zablokowana próba, 404/5xx = nic.
+- **Wpisy NIE niosą imion i nazwisk kontraktorów/kandydatów** — przeżywają
+  usunięcie osoby (art. 17 RODO), a API nie pozwala ich edytować. Etykiety to
+  numery: `Kontrakt #id`, `Zamówienie #id`, `Konsultant (linia #id) —
+  zamówienie X`, `Umowa B2B {numer}`; zablokowana próba usunięcia klienta
+  zapisuje rodzaj i liczbę blokad bez pozycji (okno pokazuje nazwiska na żywo).
+  Nazwy firm i kont pracowników zostają.
+- **Usunięty klient nie ma profilu ani zapisów:** `get_client`/`profile`,
+  `_assert_client` w zamówieniach, grupach i umowach ramowych oraz lista
+  Pomoc → Klienci odrzucają `deleted_at` — obok list filtrowanych predykatem.
+  Odmowy „brak uprawnienia" są zapisywane raz na 10 min na osobę i klienta.
 - **Na start w Historii:** usunięcie klienta, kandydata/kontraktora
   (`DELETE /api/candidates/{id}` — BEZ imienia i nazwiska, tylko `Kandydat #id`
   + pseudonim `subject_ref`, bo to usunięcie z art. 17), konsultanta

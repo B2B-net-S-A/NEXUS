@@ -3,8 +3,12 @@
 Dwie ścieżki zapisu, bo dwie różne sytuacje transakcyjne:
 
 * **wykonano** — wpis idzie do TEJ SAMEJ sesji co operacja
-  (:func:`record_executed`). Commit jest wspólny: jeśli usunięcie się wycofa,
-  wpis „wykonano" wycofa się razem z nim i nie będzie kłamał.
+  (:func:`record_executed`). Gdy endpoint nie commituje sam, commit jest
+  wspólny: wycofane usunięcie wycofuje też wpis. Endpointy, które commitują
+  w środku (zamówienia, umowy ramowe, B2B), dostają wpis w KOLEJNEJ
+  transakcji, zatwierdzanej przez ``get_db`` — nieudany końcowy commit
+  zostawia wtedy usunięcie bez wpisu. Świadomie fail-open: dziennik jest
+  śladem, nie bramką operacji.
 * **zablokowano** — żądanie kończy się odmową (409/403/422), więc jego sesja
   jest wycofywana. Wpis zapisujemy z OSOBNEJ sesji (:func:`record_blocked`),
   inaczej każda zablokowana próba przepadałaby razem z rollbackiem.

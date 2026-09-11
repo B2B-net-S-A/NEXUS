@@ -49,7 +49,21 @@ Migracja `0307_client_deletion_event_history` (+ lustro w `backend/entrypoint.sh
 | Zmiana uprawnienia do usuwania klientów | Uprawnienia użytkownika | nadanie / odebranie |
 
 Wpisy nie mają kluczy obcych — przeżywają usunięcie obiektu i konta osoby,
-która je wykonała. API nie pozwala ich edytować ani kasować.
+która je wykonała. API nie pozwala ich edytować ani kasować, dlatego **nie
+niosą imion i nazwisk kontraktorów/kandydatów** — obiekty identyfikują numery
+(kontrakt, zamówienie, linia, umowa B2B), a zablokowana próba usunięcia klienta
+zapisuje rodzaj i liczbę blokad (nazwiska widać tylko na żywo w oknie).
+
+## Przegląd adwersarialny — co poprawiono przed wdrożeniem
+
+* Blokada nie widziała konsultanta pracującego na zamówieniu MD zamkniętym
+  z datą w przyszłości / z wyczerpaną pulą (linia `active` pod grupą
+  `completed`/`exhausted`, kontrakt-szkic) — linie są teraz sprawdzane same.
+* Nazwiska kontraktorów w etykietach i szczegółach wpisów — usunięte (RODO).
+* Usunięty klient wisiał w Pomoc → Klienci i był osiągalny przez profil /
+  zapisy zamówień po ewentualnym cofnięciu archiwizacji — odrzucany po
+  `deleted_at`.
+* Odmowy „brak uprawnienia" deduplikowane (10 min na osobę i klienta).
 
 ## Nowe / zmienione endpointy
 

@@ -2433,7 +2433,6 @@ async def delete_generated_contract(
     administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
     liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
     ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
-    _require_generated_contract_management(current_user)
     async with audited_deletion(
         db,
         actor=current_user,
@@ -2441,6 +2440,7 @@ async def delete_generated_contract(
         entity_type="agreement",
         entity_id=generated_id,
     ) as audit:
+        _require_generated_contract_management(current_user)
         row = await db.scalar(
             select(B2BGeneratedContract)
             .where(B2BGeneratedContract.id == generated_id)
@@ -2448,8 +2448,9 @@ async def delete_generated_contract(
         )
         if not row:
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        # Bez nazwy Partnera (to osoba — wpis przeżywa jej usunięcie).
         audit.describe(
-            label=f"Umowa B2B {row.contract_number} — {row.partner_name}",
+            label=f"Umowa B2B {row.contract_number}",
             client_id=row.client_id,
             client_name=row.client_name,
             contract_number=row.contract_number,

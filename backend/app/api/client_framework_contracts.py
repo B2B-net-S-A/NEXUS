@@ -67,8 +67,11 @@ _ALLOWED_EXT_RE = (".pdf", ".docx", ".doc")
 
 
 async def _assert_client(db: AsyncSession, client_id: int) -> None:
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    if not result.scalar_one_or_none():
+    client = (
+        await db.execute(select(Client).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    # Klient usunięty z profilu (0307) nie ma już profilu ani zakładki Umowy.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Client not found")
 
 

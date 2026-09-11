@@ -166,26 +166,39 @@ def _person(name: Optional[str], lastname: Optional[str]) -> Optional[str]:
 
 
 async def _open_orders(db: AsyncSession, client_id: int) -> Optional[DeletionBlocker]:
+    """Otwarte zamówienia: okresowe, MD/kosztowe i ŻYWE linie takich zamówień.
+
+    Linia zamówienia MD/kosztowego jest sprawdzana SAMA, niezależnie od statusu
+    grupy: zamknięcie z datą w przyszłości daje grupę ``completed`` z liniami
+    nadal ``active`` (domykają się dopiero w dniu zamknięcia), a wyczerpanie
+    puli kosztowej przestawia wyłącznie grupę. Konsultant na takiej linii
+    wciąż pracuje — a jego kontrakt bywa szkicem (obsada z bazy), więc blokada
+    kontraktorów go nie złapie.
+    """
+
     client_contracts = select(Contract.id).where(Contract.client_id == client_id)
     rows = (
         await db.execute(
             select(
                 ClientOrder.id,
                 ClientOrder.title,
+                ClientOrder.order_group_id,
+                ClientOrderGroup.order_number,
                 Candidate.name,
                 Candidate.lastname,
             )
             .outerjoin(Contract, Contract.id == ClientOrder.contract_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+            .outerjoin(
+                ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id
+            )
             .where(
                 or_(
                     ClientOrder.client_id == client_id,
                     ClientOrder.contract_id.in_(client_contracts),
+                    ClientOrderGroup.client_id == client_id,
                 ),
                 ClientOrder.status.in_(OPEN_ORDER_STATUSES),
-                # Linie zamówień MD/kosztowych liczy grupa — jedno zamówienie
-                # od klienta to jedna pozycja, nie tyle, ilu jest konsultantów.
-                ClientOrder.order_group_id.is_(None),
             )
             .order_by(ClientOrder.id)
         )
@@ -202,16 +215,31 @@ async def _open_orders(db: AsyncSession, client_id: int) -> Optional[DeletionBlo
     ).all()
     if not rows and not group_rows:
         return None
-    items: list[str] = []
-    for row in group_rows:
-        items.append(f"Zamówienie {row.order_number}")
+
+    # Jedno zamówienie od klienta to jedna pozycja — grupa liczy się raz,
+    # niezależnie od liczby konsultantów na niej.
+    groups: dict[int, str] = {row.id: row.order_number for row in group_rows}
+    group_people: dict[int, list[str]] = {}
+    standalone: list[str] = []
     for row in rows:
         who = _person(row.name, row.lastname)
-        items.append(f"{row.title} — {who}" if who else row.title)
+        if row.order_group_id is not None:
+            groups.setdefault(row.order_group_id, row.order_number or "")
+            if who:
+                group_people.setdefault(row.order_group_id, []).append(who)
+            continue
+        standalone.append(f"{row.title} — {who}" if who else row.title)
+
+    items: list[str] = []
+    for group_id, number in groups.items():
+        people = group_people.get(group_id)
+        label = f"Zamówienie {number}".strip()
+        items.append(f"{label} — {', '.join(people)}" if people else label)
+    items.extend(standalone)
     return DeletionBlocker(
         code="open_orders",
         label="Otwarte zamówienia",
-        count=len(rows) + len(group_rows),
+        count=len(groups) + len(standalone),
         items=_clip_items(items),
     )
 

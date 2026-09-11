@@ -183,7 +183,9 @@ def _assert_allowed_order_type(client_id: int, order_type: OrderType | str) -> N
 
 async def _assert_client(db: AsyncSession, client_id: int) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
-    if client is None:
+    # Klient usunięty z profilu (0307) nie przyjmuje nowych zamówień — jego
+    # historyczne zamówienia zostają w bazie, ale nie ma już profilu.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
     return client
 
@@ -2548,8 +2550,11 @@ async def delete_order(
         )
         if order is None:
             raise HTTPException(404, detail="Order not found")
+        # Numer wiersza, nie tytuł: tytuły zamówień bywają „numer — Imię
+        # Nazwisko", a wpis przeżywa usunięcie osoby (art. 17 RODO).
         audit.describe(
-            label=order.title, status=getattr(order.status, "value", order.status)
+            label=f"Zamówienie #{order.id}",
+            status=getattr(order.status, "value", order.status),
         )
         await _assert_no_pending_group_line_offboarding(db, order)
 

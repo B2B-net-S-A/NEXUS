@@ -28,6 +28,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.critical_event import CriticalEvent
 from app.models.job import Job, JobStatus
@@ -184,9 +185,11 @@ async def test_admin_without_named_permission_is_refused_and_attempt_is_logged(
     assert delete.status_code == 403
     assert await _client_row(client_id) is not None
     events = await _events(client_id)
-    assert [event.outcome for event in events] == ["blocked", "blocked"]
-    assert {event.reason_code for event in events} == {"no_permission"}
-    assert all(event.actor_user_id == actor_id for event in events)
+    # Odmowy „brak uprawnienia" tej samej osoby wobec tego samego klienta są
+    # zapisywane raz na okno — powtórki nie zapychają dziennika.
+    assert [event.outcome for event in events] == ["blocked"]
+    assert events[0].reason_code == "no_permission"
+    assert events[0].actor_user_id == actor_id
 
 
 async def test_me_exposes_the_named_permission(app_client: AsyncClient):
@@ -241,6 +244,55 @@ async def test_open_order_blocks_even_when_client_is_marked_inactive(
     assert "Otwarte zamówienia" in (events[0].reason or "")
     assert "Aktywni kontraktorzy" in (events[0].reason or "")
     assert events[0].details["client_status"] == "inactive"
+    # Okno pokazuje nazwiska na żywo, ale dziennik ich nie przechowuje — wpis
+    # przeżywa usunięcie osoby (art. 17 RODO).
+    assert "Testowy" in str(body["blockers"])
+    assert "Testowy" not in str(events[0].details)
+    assert "Testowy" not in (events[0].reason or "")
+
+
+async def test_working_consultant_on_a_closed_md_order_still_blocks(
+    app_client: AsyncClient,
+):
+    """Zamówienie MD zamknięte z datą w przyszłości: grupa `completed`, linia
+    nadal `active`, a kontrakt osoby dodanej z bazy to szkic."""
+
+    client_id = await _client("md-zamkniete")
+    contract_id, _ = await _contract(client_id, status=ContractStatus.draft)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=_TODAY - timedelta(days=60),
+            status="completed",
+            closure_date=_TODAY + timedelta(days=20),
+            order_type=None,
+            is_md_budget_based=False,
+        )
+        db.add(group)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                order_group_id=group.id,
+                title=f"Zamówienie {group.order_number}",
+                status=ClientOrderStatus.active,
+                start_date=_TODAY - timedelta(days=60),
+                rate_unit=RateUnit.daily,
+            )
+        )
+        await db.commit()
+    _, headers = await _user(app_client, can_delete_clients=True)
+
+    check = await app_client.post(
+        f"/api/clients/{client_id}/deletion-check", headers=headers
+    )
+
+    body = check.json()
+    assert body["mode"] == "blocked"
+    assert [b["code"] for b in body["blockers"]] == ["open_orders"]
+    assert body["blockers"][0]["count"] == 1
 
 
 async def test_candidates_in_open_recruitment_block_deletion(app_client: AsyncClient):

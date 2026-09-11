@@ -457,7 +457,7 @@ async def get_client(
     merged_redirect = _merged_client_redirect(client)
     if merged_redirect is not None:
         return merged_redirect
-    if client.hidden or client.archived_at is not None:
+    if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
     return _serialize_client(client, current_user=current_user)
 
@@ -489,7 +489,7 @@ async def get_client_profile(
     merged_redirect = _merged_client_redirect(client, suffix="/profile")
     if merged_redirect is not None:
         return merged_redirect
-    if client.hidden or client.archived_at is not None:
+    if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
 
     # Zegar firmy, nie zegar kontenera (UTC): przez pierwsze 1–2 godziny

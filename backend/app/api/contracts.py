@@ -3531,25 +3531,13 @@ async def _describe_contract_for_audit(
 ) -> None:
     """Etykieta kontraktu do Historii zdarzeń — czytana PRZED usunięciem.
 
-    Nazwiska przez jawne zapytanie: leniwe doczytanie relacji w sesji async to
-    ``MissingGreenlet`` (500 bez CORS, w przeglądarce „Network Error").
+    Bez imienia i nazwiska kontraktora: wpis przeżywa usunięcie kandydata
+    (art. 17 RODO), a numer kontraktu i klient wystarczają, żeby wiedzieć,
+    czego dotyczył.
     """
 
-    row = (
-        await db.execute(
-            select(Candidate.name, Candidate.lastname).where(
-                Candidate.id == contract.candidate_id
-            )
-        )
-    ).first()
-    person = (
-        " ".join(part for part in (row.name, row.lastname) if part).strip()
-        if row is not None
-        else ""
-    )
-    label = f"Kontrakt #{contract.id}" + (f" — {person}" if person else "")
     audit.describe(
-        label=label,
+        label=f"Kontrakt #{contract.id}",
         client_id=contract.client_id,
         status=getattr(contract.status, "value", contract.status),
     )

@@ -2,8 +2,8 @@
   "reviewed_at": "2026-09-11",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
-    "backend/app/api/client_order_groups.py": "52ed658b9e5f4d173efe529cffc8c55d467b28972faa2cf26cb4b59815a92165",
-    "backend/app/api/client_orders.py": "6396f3451b44f0facb5371c1fc1b9fdef7f1ed94785d95b293dc479548b9153b",
+    "backend/app/api/client_order_groups.py": "cc40aef597c4ce2081b6ff5aa763096211a999e78a9d00d1400e64511b585a38",
+    "backend/app/api/client_orders.py": "33922a81e341e6e31bfbe46930ce5c8ce73ffb4286e7bceaffdfeaab4dc7d161",
     "backend/app/api/md_consumption.py": "8e6adfc1c506115831aec48f7886f7c865d619c84023819cd664e1794f7d43aa",
     "backend/app/api/order_mail_queue.py": "e0f10ba55a191bdc15915f442d39f0a861b3c97bcdb3fa82b71a2c7f5eb35d44",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",

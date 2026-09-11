@@ -294,7 +294,9 @@ async def _canonical_currency_rate(
 
 async def _assert_client(db: AsyncSession, client_id: int) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
-    if client is None:
+    # Klient usunięty z profilu (0307): historia zostaje w bazie, ale nowych
+    # zamówień i zmian przez jego (nieistniejący już) profil nie przyjmujemy.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
     return client
 
@@ -3302,12 +3304,13 @@ async def delete_line(
         )
         if line is None:
             raise HTTPException(404, detail="Ta linia nie należy do tego zamówienia")
+        # Bez imienia i nazwiska konsultanta — wpis przeżywa usunięcie osoby
+        # (art. 17 RODO); numer linii i zamówienia wystarczają.
         audit.describe(
-            label=(
-                f"{consultant_display_name(line)} — zamówienie {group.order_number}"
-            ),
+            label=f"Konsultant (linia #{line.id}) — zamówienie {group.order_number}",
             group_id=group_id,
             order_number=group.order_number,
+            contract_id=line.contract_id,
         )
 
         await _assert_no_pending_offboarding_case(
