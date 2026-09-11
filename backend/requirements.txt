@@ -54,7 +54,7 @@ qdrant-client==1.12.1
 # JUŻ istnieje na PyPI — górna granica `<1.0` była jedyną rzeczą, która trzymała
 # prod przed wskoczeniem w major. Podnoszenie = świadomy PR z lekturą release
 # notes, nie efekt uboczny deployu.
-anthropic==0.125.0
+anthropic==1.4.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
 #   pdfplumber 0.11.4/0.11.5 -> 20231228 | 0.11.6 -> 20250327 | 0.11.7 -> 20250506
