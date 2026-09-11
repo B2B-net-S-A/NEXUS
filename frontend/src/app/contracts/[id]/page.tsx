@@ -36,6 +36,11 @@ import {
   parseDecimalInput,
   sanitizeDecimalInput,
 } from "@/lib/utils";
+import {
+  B2B_END_DATE_HOW,
+  b2bEndDateLocked,
+  b2bExtensionLocked,
+} from "@/lib/contract-end-date";
 import { celebrate } from "@/lib/celebrate";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -681,9 +686,17 @@ export default function ContractDetailPage() {
           r.effectiveFrom !== form.start_date,
       );
 
+    // Umowa B2B bez ręcznego zakończenia jest bezterminowa
+    // (`lib/contract-end-date.ts`) — zapis wysyła `null` zamiast daty.
+    const endDateLocked = b2bEndDateLocked({
+      contract_type: form.contract_type,
+      status: form.status,
+      terminated_at: contract?.terminated_at,
+      termination_reason: contract?.termination_reason,
+    });
     const payload: Record<string, unknown> = {
       start_date: form.start_date || null,
-      end_date: form.end_date || null,
+      end_date: endDateLocked ? null : form.end_date || null,
       client_order_end_date: form.client_order_end_date || null,
       contract_type: form.contract_type,
       status: form.status,
@@ -1164,18 +1177,30 @@ export default function ContractDetailPage() {
               />
             )}
 
-            {/* Termination info — visible only after the contract is ended */}
-            {!editing && contract.status === "ended" && contract.termination_reason && (
+            {/* Zakończenie współpracy — także zaplanowane na przyszłość: umowa
+                wypowiedziana z datą za miesiąc pracuje do tej daty („Aktywny”/
+                „Kończący się”), ale kto i dlaczego zakończył ma być widać od
+                razu, nie dopiero w dniu zakończenia. */}
+            {!editing &&
+              ((contract.status === "ended" && contract.termination_reason) ||
+                // `end_date` odróżnia zakończenie zaplanowane od umowy
+                // przywróconej: wskrzeszenie zostawia `terminated_at`, ale
+                // czyści datę końca (umowa znów bezterminowa).
+                (contract.terminated_at && contract.end_date)) && (
               <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-900 rounded-2xl p-5">
                 <h2 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
-                  Zakończenie współpracy
+                  {contract.status === "ended"
+                    ? "Zakończenie współpracy"
+                    : "Zaplanowane zakończenie współpracy"}
                 </h2>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Powód: </span>
-                  {CONTRACT_TERMINATION_REASONS.find(
-                    (r) => r.value === contract.termination_reason,
-                  )?.label ?? contract.termination_reason}
-                </p>
+                {contract.termination_reason && (
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Powód: </span>
+                    {CONTRACT_TERMINATION_REASONS.find(
+                      (r) => r.value === contract.termination_reason,
+                    )?.label ?? contract.termination_reason}
+                  </p>
+                )}
                 {contract.terminated_at && (
                   <p className="text-sm">
                     <span className="text-muted-foreground">Data: </span>
@@ -1184,7 +1209,9 @@ export default function ContractDetailPage() {
                 )}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
-                    <span className="text-muted-foreground block">Wnioski:</span>
+                    <span className="text-muted-foreground block">
+                      Kto i dlaczego / wnioski:
+                    </span>
                     {contract.termination_lessons}
                   </p>
                 )}
@@ -1277,14 +1304,28 @@ export default function ContractDetailPage() {
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Data zakończenia
                     </label>
-                    <input
-                      type="date"
-                      value={form.end_date}
-                      onChange={(e) =>
-                        setForm((f) => (f ? { ...f, end_date: e.target.value } : f))
-                      }
-                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-                    />
+                    {b2bEndDateLocked({
+                      contract_type: form.contract_type,
+                      status: form.status,
+                      terminated_at: contract.terminated_at,
+                      termination_reason: contract.termination_reason,
+                    }) ? (
+                      <p
+                        className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
+                        data-testid="end-date-b2b-indefinite"
+                      >
+                        Bezterminowo. {B2B_END_DATE_HOW}
+                      </p>
+                    ) : (
+                      <input
+                        type="date"
+                        value={form.end_date}
+                        onChange={(e) =>
+                          setForm((f) => (f ? { ...f, end_date: e.target.value } : f))
+                        }
+                        className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -2060,6 +2101,7 @@ export default function ContractDetailPage() {
           contractId={id}
           clientId={contract.client_id}
           readOnly={!canEditContract}
+          extensionLocked={b2bExtensionLocked(contract)}
         />
       )}
 

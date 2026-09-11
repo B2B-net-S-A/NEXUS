@@ -108,15 +108,19 @@ async def test_amendments_list_shape(app_client: AsyncClient, app_auth_headers: 
 async def test_extension_amendment_moves_end_date(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    contracts = (
-        (
+    # Aneks przedłużający dotyczy umów z terminem — umowę B2B bez ręcznego
+    # zakończenia backend odrzuca (reguła 09.2026, `test_b2b_contract_end_date`).
+    contracts = [
+        item
+        for item in (
             await app_client.get(
-                "/api/contracts?status=active&page_size=1", headers=app_auth_headers
+                "/api/contracts?status=active&page_size=100", headers=app_auth_headers
             )
         )
         .json()
         .get("items", [])
-    )
+        if item.get("contract_type") != "b2b"
+    ]
     if not contracts:
         return
     cid = contracts[0]["id"]
@@ -209,6 +213,8 @@ async def test_extension_syncs_client_order_end_date(
             "start_date": start,
             "end_date": old_end,
             "client_order_end_date": old_end,
+            # Umowa z terminem — B2B jest bezterminowa (reguła 09.2026).
+            "contract_type": "uzlecenie",
             # `status: "active"` jest tu od lipca 2026, gdy ``ContractCreate``
             # statusu nie przyjmował. Odkąd rejestr go honoruje, „Aktywny"
             # znaczy przejście przez ``contract_lifecycle``, więc ładunek musi
@@ -270,6 +276,7 @@ async def test_extension_leaves_untracked_order_end_null(
             "client_id": client_id,
             "start_date": start,
             "end_date": old_end,
+            "contract_type": "uzlecenie",
             # Komplet pól aktywacji — patrz komentarz w teście wyżej.
             "rate_candidate": 15000,
             "rate_client": 20000,

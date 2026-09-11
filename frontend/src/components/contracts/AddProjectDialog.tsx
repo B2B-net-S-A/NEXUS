@@ -60,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 
 type ClientOption = { id: number; name: string };
 type JobOption = { id: number; title: string };
@@ -181,6 +182,12 @@ export function AddProjectDialog({
     [clientsQuery.data, clientId],
   );
 
+  // Nowy projekt B2B rodzi się bezterminowy (`lib/contract-end-date.ts`).
+  const endDateLocked = b2bEndDateLocked({
+    contract_type: contractType,
+    status: statusVal,
+  });
+
   const createMutation = useMutation({
     mutationFn: () => {
       const payload: Record<string, unknown> = {
@@ -188,7 +195,7 @@ export function AddProjectDialog({
         client_id: Number(clientId),
         job_id: jobId ? Number(jobId) : null,
         start_date: startDate,
-        end_date: endDate || null,
+        end_date: endDateLocked ? null : endDate || null,
         contract_type: contractType,
         work_mode: workMode || null,
         status: statusVal,
@@ -482,20 +489,34 @@ export function AddProjectDialog({
           </div>
           <div>
             <Label className="mb-1.5 block">
-              Data zakończenia{" "}
-              <span className="text-xs text-muted-foreground">
-                (puste = bezterminowo)
-              </span>
+              Data zakończenia
+              {!endDateLocked && (
+                <>
+                  {" "}
+                  <span className="text-xs text-muted-foreground">
+                    (puste = bezterminowo)
+                  </span>
+                </>
+              )}
             </Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => {
-                setEndDate(e.target.value);
-                clearField("end_date");
-              }}
-              className={cn(fieldErrors.end_date && "border-destructive")}
-            />
+            {endDateLocked ? (
+              <p
+                className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
+                data-testid="end-date-b2b-indefinite"
+              >
+                Bezterminowo. {B2B_END_DATE_HOW}
+              </p>
+            ) : (
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  clearField("end_date");
+                }}
+                className={cn(fieldErrors.end_date && "border-destructive")}
+              />
+            )}
             {fieldError("end_date")}
           </div>
           <div>

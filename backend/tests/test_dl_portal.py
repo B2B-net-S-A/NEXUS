@@ -260,7 +260,6 @@ async def test_contract_with_order_atomic_create(
                 "candidate_id": cand_id,
                 "title": "Nowy kontraktor — Senior Java Dev",
                 "contract_start_date": "2026-07-01",
-                "contract_end_date": "2027-06-30",
                 "order_start_date": "2026-07-01",
                 "order_end_date": "2026-12-31",
                 "rate_client": 18000,
@@ -281,6 +280,10 @@ async def test_contract_with_order_atomic_create(
             assert order is not None
             assert order.status == ClientOrderStatus.active
             assert order.filled_at is not None
+            # Umowa B2B jest bezterminowa — koniec ZAMÓWIENIA nie trafia do
+            # daty zakończenia umowy (reguła 09.2026).
+            contract = await db.get(Contract, body["contract_id"])
+            assert contract is not None and contract.end_date is None
     finally:
         await _cleanup([client_id], [], [cand_id])
 

@@ -39,6 +39,7 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
+    _reject_b2b_end_date,
 )
 from app.api.deps import DeliveryLeadOrAdmin, require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -2736,6 +2737,12 @@ async def create_contract_with_order(
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
     await _assert_client(db, client_id)
+    # Ten formularz zakłada umowę B2B (typ domyślny kontraktu), a umowa B2B
+    # rodzi się bezterminowa. Pole „Contract end" było tu źródłem dat
+    # przepisywanych z końca ZAMÓWIENIA — tamta data ma swoje pole
+    # (`order_end_date`). Reguła: `app.services.b2b_contract_end_date`.
+    if payload.contract_end_date is not None:
+        _reject_b2b_end_date()
     _assert_allowed_order_type(client_id, payload.order_type)
     if payload.order_type != OrderType.periodic:
         raise HTTPException(
@@ -2795,7 +2802,6 @@ async def create_contract_with_order(
         client_id=client_id,
         job_id=payload.job_id,
         start_date=payload.contract_start_date,
-        end_date=payload.contract_end_date,
         # Flow B collects only a subset of activation fields (it has no
         # contract_type/work_mode at all), so neither Admin nor an operational
         # role may bypass the canonical contract lifecycle. The row is born a

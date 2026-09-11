@@ -30,7 +30,10 @@ class NewContractorOrderRequest(BaseModel):
     contract_start_date: Optional[date] = None
     """Nullable — zamówienie może nie mieć znanej daty "od"."""
     contract_end_date: Optional[date] = None
-    """End date kontraktu (typically dłuższy niż pierwszy Order)."""
+    """Wycofane (09.2026): formularz zakłada umowę B2B, a ta jest bezterminowa.
+    Pole zostaje w schemacie, żeby stara karta przeglądarki dostała czytelne
+    422 zamiast cichego zignorowania daty; wartość inna niż ``null`` jest
+    odrzucana w endpointcie."""
 
     # Order-level
     order_type: OrderType = OrderType.periodic
