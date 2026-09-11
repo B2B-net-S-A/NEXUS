@@ -1343,6 +1343,14 @@ web — jeden przegląd naraz, ~3 min.
   regresja. A/B na prodzie: `coolify-ops.yml` `action=eval-ab-scorer` (legacy to
   ramię kontrolne, ma odtworzyć baseline 18.08). `--pool full` nie ma sensu:
   pełny przegląd ukrywa kandydatów już w rekrutacji, czyli wszystkie pozytywy.
+- **Komenda zadania Coolify ma najwyżej 255 znaków** (`scheduled_tasks.command`
+  = VARCHAR(255) — dłuższa kończy `POST /scheduled-tasks` gołym HTTP 500). Oba
+  kanały A/B wysyłają więc tylko `python -m scripts.eval_ab_run …`, a ramiona,
+  zamrożoną listę ofert i sekcje raportu liczy skrypt; workflow pilnuje długości
+  przed wysłaniem. Do 11.09 komenda A/B miała ~1,6 tys. znaków (dwie listy 50
+  ofert w YAML-u) i żaden bieg nie mógł wystartować. Długie zadanie potrzebuje
+  też jawnego `timeout` (Coolify od 11.2025 ubija po domyślnych 300 s). Każdy
+  nowy kanał operacyjny: logika w `scripts/`, w komendzie tylko argumenty.
 - **Surowy SQL (`text()`) musi przejść `PREPARE`** — `= ANY(:ids)`, nie
   rozwijane `IN :ids` (strażnik `test_raw_sql_prepares`).
 

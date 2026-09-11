@@ -1222,25 +1222,22 @@ jobs:
           echo "zbiór $EVAL_SET: $(echo "$IDS" | tr ',' '\n' | wc -l) ofert, pula $EVAL_POOL, jobs $EVAL_JOBS"
 
           # ── komenda (ZAHARDKODOWANA; operator wnosi tylko liczby wyżej) ─────
+          # Oba ramiona, lista ofert i sekcje raportu żyją w
+          # `backend/scripts/eval_ab_run.py`. Coolify trzyma komendę zadania
+          # w `scheduled_tasks.command` = VARCHAR(255) — poprzednia komenda
+          # (dwie listy 50 ofert + potok head/grep/tail, ~1,6 tys. znaków)
+          # kończyła każde założenie zadania HTTP 500 (11.09.2026).
+          # Ramiona: eval-ab = pula wektorowa vs hybrydowa, ten sam scorer;
+          # eval-ab-scorer = ta sama pula, scorer legacy vs canonical —
+          # kryterium odczytu w komentarzu nad jobem `eval`.
           LOCK="/tmp/nexus-eval-${GITHUB_RUN_ID}"
-          ARGS="--job-ids ${IDS} --jobs ${EVAL_JOBS} --min-gt 3 --pool ${EVAL_POOL}"
-          # Ramiona. eval-ab: pula wektorowa vs hybrydowa, ten sam scorer.
-          # eval-ab-scorer: ta sama pula (wektorowa), scorer legacy vs canonical
-          # — kryterium odczytu w komentarzu nad jobem `eval`.
-          OFF_ENV="HYBRID_POOL_ENABLED=false RERANKER_ENABLED=false"
-          ON_ENV="HYBRID_POOL_ENABLED=true RERANKER_ENABLED=false"
-          OFF_ARGS="${ARGS}"
-          ON_ARGS="${ARGS}"
-          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then
-            ON_ENV="${OFF_ENV}"
-            OFF_ARGS="${ARGS} --scorer legacy"
-            ON_ARGS="${ARGS} --scorer canonical"
+          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then ARMS=scorer; else ARMS=hybrid; fi
+          case "$EVAL_SET" in A|B) ;; *) echo "::error::eval_set musi być A albo B"; exit 1;; esac
+          CMD="cd /app && python -m scripts.eval_ab_run --arms ${ARMS} --set ${EVAL_SET} --jobs ${EVAL_JOBS} --pool ${EVAL_POOL} --lock ${LOCK}"
+          if [ "${#CMD}" -gt 255 ]; then
+            echo "::error::komenda ma ${#CMD} znaków — Coolify trzyma ją w VARCHAR(255) i odpowie 500"
+            exit 1
           fi
-          # Ogon obu logów leci ZAWSZE, nie tylko przy błędzie: gdy harness się
-          # wywróci, raportu nie ma i `head` wypisuje pustkę, więc sekcja OFF/ON
-          # wyglądałaby jak „zero wyników" zamiast jak awaria. Trzy linie ogona
-          # dają traceback (albo ostatni log postępu) i rozstrzygają tę różnicę.
-          CMD="cd /app && mkdir ${LOCK} && { ${OFF_ENV} python -m scripts.eval_matching ${OFF_ARGS} --output ${LOCK}/off.md > ${LOCK}/off.log 2>&1 ; ${ON_ENV} python -m scripts.eval_matching ${ON_ARGS} --output ${LOCK}/on.md > ${LOCK}/on.log 2>&1 ; echo ===NEXUS-EVAL-OFF=== ; head -n 32 ${LOCK}/off.md ; echo ===NEXUS-EVAL-BM25-OFF=== ; grep -c bm25= ${LOCK}/off.log ; grep -m 3 bm25= ${LOCK}/off.log ; echo ===NEXUS-EVAL-TAIL-OFF=== ; tail -n 12 ${LOCK}/off.log ; echo ===NEXUS-EVAL-ON=== ; head -n 32 ${LOCK}/on.md ; echo ===NEXUS-EVAL-BM25-ON=== ; grep -c bm25= ${LOCK}/on.log ; grep -m 3 bm25= ${LOCK}/on.log ; echo ===NEXUS-EVAL-TAIL-ON=== ; tail -n 12 ${LOCK}/on.log ; echo ${SENTINEL} ; }"
           # Guard, nie kosmetyka: apostrof/`$`/backtick zachowują się różnie w
           # zależności od tego, jak Coolify opakuje komendę — a tego nie wiemy.
           case "$CMD" in
@@ -1258,14 +1255,17 @@ jobs:
           fi
 
           # ── utworzenie zadania ─────────────────────────────────────────────
+          # `timeout` JAWNIE: Coolify (od 11.2025) ubija zadanie po domyślnych
+          # 300 s, a dwa ramiona evalu na puli 2000 liczą się dłużej. 9000 s =
+          # okno czekania tego kroku (150 min).
           payload=$(jq -n --arg n "$TASK_NAME" --arg c "$CMD" --arg ct backend \
-            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true}')
+            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true, timeout:9000}')
           code=$(curl -sS -o /tmp/create.json -w "%{http_code}" -X POST "${auth[@]}" \
             -H "Content-Type: application/json" -d "$payload" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks" || echo 000)
           echo "create HTTP $code"
           if [ "$code" = "404" ] || [ "$code" = "405" ] || [ "$code" = "501" ]; then
-            echo "::error::ta wersja Coolify nie wystawia POST na /applications/{uuid}/scheduled-tasks. Załóż zadanie RĘCZNIE w panelu (name=$TASK_NAME, container=backend, frequency=* * * * *, komenda wydrukowana wyżej), poczekaj, potem action=eval-read i na koniec action=eval-stop."
+            echo "::error::ta wersja Coolify nie wystawia POST na /applications/{uuid}/scheduled-tasks. Załóż zadanie RĘCZNIE w panelu (name=$TASK_NAME, container=backend, frequency=* * * * *, timeout=9000, komenda wydrukowana wyżej), poczekaj, potem action=eval-read i na koniec action=eval-stop."
             exit 1
           fi
           if [ "$code" -ge 400 ] 2>/dev/null || [ "$code" = "000" ]; then
