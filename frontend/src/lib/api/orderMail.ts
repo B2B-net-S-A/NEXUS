@@ -50,7 +50,7 @@ export interface OrderMailExtraction {
 export interface OrderMailProposalRow {
   row_index: number;
   row_name: string;
-  action: "fill_draft" | "new_draft" | "reactivate" | "unchanged" | "future" | "new" | "revision" | "overlap" | "group" | "skip";
+  action: "fill_draft" | "new_draft" | "reactivate" | "unchanged" | "future" | "new" | "revision" | "overlap" | "group" | "skip" | "decide_person";
   candidate_id: number | null;
   contract_id: number | null;
   target_order_id: number | null;
@@ -61,6 +61,25 @@ export interface OrderMailProposalRow {
   rate_unit: string | null;
   md_total: string | null;
   reasons: string[];
+  order_type?: string;
+}
+
+/** Dokument rozstrzygnięty w oknie zamówienia klienta (osoba nieaktywna/nieznaleziona). */
+export interface OrderMailResolvedInOrder {
+  order_group_id: number;
+  order_number: string | null;
+  resolved_by_user_id: number | null;
+  resolved_at: string | null;
+}
+
+/** Dokąd prowadzi „Rozstrzygnij w oknie zamówienia". */
+export interface OrderMailOrderTarget {
+  client_id: number;
+  /** Otwarte zamówienie o tym numerze — okno „Uzupełnij zamówienie"; `null` = „Nowe zamówienie". */
+  order_group_id: number | null;
+  order_type: "md" | "cost";
+  order_number: string | null;
+  attachment_name: string | null;
 }
 
 export interface OrderMailProposal {
@@ -70,6 +89,7 @@ export interface OrderMailProposal {
   blocking: string[];
   rows: OrderMailProposalRow[];
   apply_result?: { error: string | null; rows: Array<{ row_index: number; action: string; order_id: number | null; activated: boolean; error: string | null }> };
+  resolved_in_order?: OrderMailResolvedInOrder;
 }
 
 export interface OrderMailDocument {
@@ -150,6 +170,13 @@ export const orderMailApi = {
   dismiss: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/dismiss`),
   refreshPlan: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/refresh-plan`, undefined, { timeout: 120_000 }),
   fileUrl: (id: number) => `/api/order-mail/queue/${id}/file`,
+  orderTarget: (id: number) =>
+    api.get<OrderMailOrderTarget>(`/api/order-mail/queue/${id}/order-target`),
+  /** Zamówienie zapisane w oknie klienta — dokument schodzi z kolejki. */
+  resolvedInOrder: (id: number, orderGroupId: number) =>
+    api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/resolved-in-order`, {
+      order_group_id: orderGroupId,
+    }),
   syncStatus: () => api.get<OrderMailSyncStatus>("/api/order-mail/sync/status"),
   /** Bieg startuje w tle — wynik czyta się z `syncStatus` (patrz `lib/order-mail-sync.ts`). */
   triggerSync: () => api.post<{ status: "started" }>("/api/order-mail/sync"),
@@ -167,7 +194,19 @@ export const ORDER_MAIL_ACTION_LABEL: Record<OrderMailProposalRow["action"], str
   overlap: "Nachodzi na otwarte — sprawdź",
   group: "Linia grupy (zapis ręczny)",
   skip: "Pomijany",
+  // Osoba nieaktywna/nieznaleziona na zamówieniu MD/kosztowym — decyzja DL.
+  decide_person: "Decyzja o osobie — w oknie zamówienia",
 };
+
+/** Czy dokument ma osobę do rozstrzygnięcia (zostaw / wznów / zastąp / usuń). */
+export function needsPersonDecision(doc: Pick<OrderMailDocument, "proposal">): boolean {
+  return (doc.proposal?.rows ?? []).some((row) => row.action === "decide_person");
+}
+
+/** Link do okna zamówienia klienta z PDF-em z tego dokumentu. */
+export function orderWindowHref(doc: Pick<OrderMailDocument, "id" | "client_id">): string | null {
+  return doc.client_id ? `/clients/${doc.client_id}?tab=zamowienia&orderMailDoc=${doc.id}` : null;
+}
 
 export const ORDER_MAIL_OUTCOME_LABEL: Record<OrderMailOutcome, string> = {
   received: "Odebrane",

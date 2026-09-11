@@ -104,6 +104,7 @@ from app.schemas.client_order_group import (
     OrderGroupRead,
     OrderGroupUpdate,
     OrderLineCreate,
+    OrderLinesBatchCreate,
     OrderOffboardingCaseRead,
     OrderOffboardingResolutionRequest,
     OrderLineRead,
@@ -135,6 +136,7 @@ from app.services.cost_orders import (
 )
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.contract_order_sync import skip_sync_for_contract
+from app.services.order_consultant_match import inactive_consultant_reason
 from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
@@ -1425,10 +1427,15 @@ async def _build_line(
     group: ClientOrderGroup,
     payload: OrderLineCreate,
     user: User,
+    forbid_live_duplicate: bool = False,
 ) -> tuple[ClientOrder, str, bool]:
     contract, candidate, contract_created = await _resolve_line_person(
         db, group=group, payload=payload
     )
+    if forbid_live_duplicate:
+        await _assert_not_on_order_yet(
+            db, group=group, contract=contract, candidate=candidate
+        )
     if payload.historical:
         _assert_historical_line_allowed(contract, payload)
         skip_sync_for_contract(db, contract.id)
@@ -1558,6 +1565,52 @@ async def _build_line(
     # SQLAlchemy kończy się to `MissingGreenlet`, czyli 500 bez CORS
     # (w przeglądarce „Network Error" bez żadnej wskazówki).
     return line, who or "konsultant", contract_created
+
+
+async def _assert_not_on_order_yet(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    contract: Contract,
+    candidate: Optional[Candidate],
+) -> None:
+    """„Uzupełnij zamówienie": osoba z PDF-a, która JUŻ pracuje na tym zamówieniu.
+
+    Karta bez dopasowania (np. BNP bez nazwiska, literówka, „kilka osób")
+    pozwala wskazać osobę ręcznie — także taką, która ma już żywą linię na tym
+    zamówieniu. Druga linia tego samego kontraktu to drugi budżet MD tej osoby,
+    więc dopisywanie z dokumentu jej odmawia; zmianę stawki albo MD robi się
+    przy istniejącej linii. Autoflush obejmuje linie dopisane wcześniej w tym
+    samym zapisie, więc to samo chroni przed dwiema kartami jednej osoby.
+    """
+    existing = await db.scalar(
+        select(ClientOrder.id)
+        .where(
+            ClientOrder.order_group_id == group.id,
+            ClientOrder.contract_id == contract.id,
+            ClientOrder.status.in_(
+                (
+                    ClientOrderStatus.active,
+                    ClientOrderStatus.draft,
+                    ClientOrderStatus.paused,
+                )
+            ),
+        )
+        .limit(1)
+    )
+    if existing is not None:
+        who = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else "Ta osoba"
+        ) or "Ta osoba"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"{who} jest już na zamówieniu {group.order_number} — zmień jej "
+                "linię („Edytuj linię”) zamiast dopisywać ją drugi raz"
+            ),
+        )
 
 
 def _assert_historical_line_allowed(
@@ -2052,7 +2105,13 @@ def _plan_contract_read(
     if option is None:
         return None
     rate = option.rate_cost if with_finance else None
+    ended = option.status == ContractStatus.ended.value
     return OrderPlanContractRead(
+        inactive_reason=(
+            inactive_consultant_reason(option.contractor_name, ended_on=option.end_date)
+            if ended
+            else None
+        ),
         contract_id=option.contract_id,
         candidate_id=option.candidate_id,
         contractor_name=option.contractor_name,
@@ -3696,6 +3755,71 @@ async def add_line(
     db: AsyncSession = Depends(get_db),
 ):
     """Dodaje konsultanta do istniejącego zamówienia."""
+    group = await _group_accepting_lines(db, user, client_id, group_id)
+    line = await _add_line_to_group(db, group=group, payload=payload, user=user)
+    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
+    await commit_order_write(db)
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
+
+    # Wspólne `_line_query()`, a nie własna lista loaderów: serializacja linii
+    # schodzi przez poprzednika aż do kandydata (`predecessor_consultant_name`),
+    # więc płaski `selectinload(predecessor)` zostawia tam leniwą relację —
+    # w async SQLAlchemy `MissingGreenlet`, czyli 500 bez nagłówków CORS.
+    # Linia z `add_line` poprzednika nie ma, więc dziś by nie wybuchła; kopia
+    # loaderów obok kanonicznej jest jednak miną dla pierwszej zmiany kształtu
+    # odpowiedzi, a nie oszczędnością.
+    refreshed = await db.scalar(_line_query().where(ClientOrder.id == line.id))
+    return _line_to_read(
+        refreshed,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+@router.post(
+    "/{client_id}/order-groups/{group_id}/lines/batch",
+    response_model=OrderGroupRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_lines_batch(
+    client_id: int,
+    group_id: int,
+    payload: OrderLinesBatchCreate,
+    user: DeliveryLeadOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Uzupełnij zamówienie" z PDF-a — kilku konsultantów w JEDNYM zapisie.
+
+    Osoby z dokumentu, których jeszcze nie ma na zamówieniu (także zapis
+    historyczny osoby z zakończoną współpracą i zastępstwo za nią), wchodzą
+    razem albo wcale. Seria pojedynczych ``POST /lines`` zostawiłaby po
+    awarii w połowie zamówienie z częścią obsady z dokumentu — a ponowny
+    zapis dublowałby tych, którzy weszli.
+    """
+    group = await _group_accepting_lines(db, user, client_id, group_id)
+    for line_payload in payload.lines:
+        await _add_line_to_group(
+            db,
+            group=group,
+            payload=line_payload,
+            user=user,
+            forbid_live_duplicate=True,
+        )
+    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
+    await commit_order_write(db)
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
+    refreshed = await _load_group(db, client_id, group_id)
+    return await _group_to_read(
+        db, refreshed, with_finance=await _can_see_finance(db, user, client_id)
+    )
+
+
+async def _group_accepting_lines(
+    db: AsyncSession, user: User, client_id: int, group_id: int
+) -> ClientOrderGroup:
+    """Grupa, do której wolno dopisać konsultanta — wspólna bramka zapisu."""
+
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
@@ -3719,6 +3843,18 @@ async def add_line(
         )
 
     await _normalize_empty_explicit_md_group(db, group)
+    return group
+
+
+async def _add_line_to_group(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    payload: OrderLineCreate,
+    user: User,
+    forbid_live_duplicate: bool = False,
+) -> ClientOrder:
+    """Jedna linia + wpis w historii; bez commitu i bez synchronizacji PDF-a."""
 
     replaced_name: Optional[str] = None
     if payload.replaces_order_id is not None:
@@ -3738,7 +3874,11 @@ async def add_line(
         replaced_name = consultant_display_name(replaced)
 
     line, who, contract_created = await _build_line(
-        db, group=group, payload=payload, user=user
+        db,
+        group=group,
+        payload=payload,
+        user=user,
+        forbid_live_duplicate=forbid_live_duplicate,
     )
     await db.flush()
     await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
@@ -3766,23 +3906,7 @@ async def add_line(
         },
         user_id=user.id,
     )
-    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
-    await commit_order_write(db)
-    for path in superseded_paths:
-        storage_service.delete_contract_document(path)
-
-    # Wspólne `_line_query()`, a nie własna lista loaderów: serializacja linii
-    # schodzi przez poprzednika aż do kandydata (`predecessor_consultant_name`),
-    # więc płaski `selectinload(predecessor)` zostawia tam leniwą relację —
-    # w async SQLAlchemy `MissingGreenlet`, czyli 500 bez nagłówków CORS.
-    # Linia z `add_line` poprzednika nie ma, więc dziś by nie wybuchła; kopia
-    # loaderów obok kanonicznej jest jednak miną dla pierwszej zmiany kształtu
-    # odpowiedzi, a nie oszczędnością.
-    refreshed = await db.scalar(_line_query().where(ClientOrder.id == line.id))
-    return _line_to_read(
-        refreshed,
-        with_finance=await _can_see_finance(db, user, client_id),
-    )
+    return line
 
 
 @router.patch(

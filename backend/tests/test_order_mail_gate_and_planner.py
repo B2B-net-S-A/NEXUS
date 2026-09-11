@@ -16,6 +16,7 @@ from app.services.order_mail_gate import (
     evaluate,
 )
 from app.services.order_mail_planner import (
+    ACTION_DECIDE_PERSON,
     ACTION_FILL_DRAFT,
     ACTION_FUTURE,
     ACTION_NEW,
@@ -308,6 +309,13 @@ class TestPlanner:
         assert titles_collide("OIT/0189/2031/ITVM", "OIT/0189/2031/ITVM") is True
 
     def test_group_client_and_unresolved_person(self):
+        """Zamówienie MD: osoba nieznaleziona czeka na decyzję DL (ticket 09.2026).
+
+        Do 09.2026 automat zakładał jej po cichu nowego kandydata i szkic
+        kontraktu. Na zamówieniu MD/kosztowym to decyzja Delivery Leada —
+        zostaw / zastąp / usuń — w oknie zamówienia (patrz
+        ``test_inactive_consultant_all_paths``). Okresowe zostaje przy szkicu.
+        """
         rows = [_row("A A"), _row("Nikt Nieznany")]
         resolved = [
             _resolved(0, "A A"),
@@ -321,7 +329,17 @@ class TestPlanner:
             is_group_client=True,
             today=TODAY,
         )
-        assert [r.action for r in p.rows] == [ACTION_NEW, ACTION_NEW_DRAFT]
+        assert [r.action for r in p.rows] == [ACTION_NEW, ACTION_DECIDE_PERSON]
+        periodic = plan_document(
+            client_id=1,
+            extraction=_extraction(rows),
+            resolved=resolved,
+            existing_orders_by_contract={},
+            is_group_client=True,
+            today=TODAY,
+            order_type="periodic",
+        )
+        assert [r.action for r in periodic.rows] == [ACTION_NEW, ACTION_NEW_DRAFT]
 
 
 # ── Bramka ───────────────────────────────────────────────────────────────────

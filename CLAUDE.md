@@ -1874,6 +1874,29 @@ Tryb edycji istniejącego zamówienia zostaje przy starym „Zczytaj dane z doku
   kontraktem; `none` = reszta. Pula: żywe + szkice (+ `ready_for_signature`); dopiero
   bez nich — zakończone (powrót osoby). `nearest_names` (difflib ≥ 0,75) to WYŁĄCZNIE
   podpowiedź tekstowa, nigdy wybór.
+- **Osoba nieaktywna/nieznaleziona — JEDEN mechanizm na trzech ścieżkach (ticket B,
+  09.2026, reguła ogólna dla zamówień MD i kosztowych każdego klienta).** Komunikat
+  ma jedno źródło: `inactive_consultant_reason` / `unknown_consultant_reason`
+  (`order_consultant_match`). Czytają go: karta okna „Nowe zamówienie", ten sam
+  odczyt w „Uzupełnij zamówienie" (tryb edycji `OrderGroupFormModal` od 09.2026
+  czyta PDF przez `/order-groups/extract`, karty tylko dla osób spoza zamówienia —
+  `splitPlanForGroup`, zapis `POST …/lines/batch`, razem albo wcale), planer poczty
+  i kontrakty zakończone na liście „kilka osób" (`OrderPlanContractRead.inactive_reason`
+  — wybór zakończonego kontraktu przechodzi w pytanie zostaw / wznów / zastąp /
+  usuń, a nie w ciche wznowienie). **Poczta: `ACTION_DECIDE_PERSON`** dla wierszy
+  `order_type ∈ {md, cost}`, gdy osoby nie ma u klienta albo jej jedyny kontrakt
+  do zapisu jest `ended` — nieautomatyczna akcja, „Zastosuj" wyłączone. Kolejka
+  prowadzi przyciskiem **„Rozstrzygnij w oknie zamówienia"** do
+  `/clients/{id}?tab=zamowienia&orderMailDoc={doc}`: zakładka pobiera PDF
+  (`GET /order-mail/queue/{id}/order-target` + `/file`), otwiera „Uzupełnij
+  zamówienie" dla otwartej grupy o tym numerze (`titles_collide`) albo „Nowe
+  zamówienie", czyta PDF sama, a po zapisie `POST …/resolved-in-order` zdejmuje
+  dokument z kolejki (`outcome=applied`, `proposal.resolved_in_order`). Świadomie
+  BEZ `applied_order_id`: to pole czyta `complete_signed_mail_drafts`, który
+  aktywuje szkice z maila po podpisie — linii grupy dotykać nie może. PDF z maila
+  przy grupie, która MA już plik, domyślnie służy tylko do odczytu (podmiana
+  pliku = checkbox). **Zamówienie okresowe zostaje przy decyzji z 10.09**: powrót
+  po przerwie = nowe zamówienie, nowa osoba = szkic nowego kontraktora.
 - **Wiersze modelu weryfikowane regułą klienta.** Gdy aktywna polityka ma
   `extract_rows` (deterministyczny regex tabeli), wartość z tabeli wygrywa z modelem
   (`_reconcile_with_evidence`; lustro `order_mail_gate._row_evidence_reasons`),
@@ -1991,6 +2014,10 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   z autorem; sprawa offboardingu MD `pending` → 409). PDF zamówienia trafia do
   profilu każdej osoby na zamówieniu przez `_sync_group_pdf_documents` (add_line,
   swap, upload pliku) — zastępca dodany później też go dostaje.
+  Pod osobą spoza aktywnej obsady karta zamówienia pisze jedno zdanie dla MD
+  i kosztowych: „[osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed
+  zakończeniem współpracy — ta kwota nie wraca do puli" (`lib/order-line-usage.ts`;
+  kwota tylko przy `rate_revenue` z odpowiedzi, czyli z dostępem do finansów).
 - **Wyczerpanie MD (BIK, Polkomtel) pomija osoby z zakończoną współpracą**
   (rozstrzygnięcie otwartego pytania z ticketu 09.2026): linia `completed`
   z niewykorzystanym limitem nie trzyma zamówienia otwartego; zamówienie kończy się,

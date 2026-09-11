@@ -12,12 +12,7 @@ import {
 } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
-import {
-  ExtractedConsultants,
-  type ExtractedConsultantRows,
-} from "@/components/orders/ExtractedConsultants";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
-import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { OrderType } from "@/lib/api/dlPortal";
 import {
   downloadAuthenticatedFile,
@@ -44,9 +39,11 @@ import {
   emptyDraft,
   lineIssues,
   lineValuePln,
+  splitPlanForGroup,
   toLineInput,
   usesLineMd,
   type OrderLineDraft,
+  type PersonAlreadyOnOrder,
 } from "@/lib/order-plan";
 
 import { ExtractionConflictDialog } from "./ExtractionConflictDialog";
@@ -79,10 +76,39 @@ interface Props {
   allowedOrderTypes?: readonly OrderType[];
   /** Plik przeniesiony z formularza, z którego przełączono typ. */
   initialFile?: File | null;
+  /** PDF z kolejki zamówień z maila („Rozstrzygnij w oknie zamówienia"):
+   *  trafia do okna w OBU trybach i jest od razu odczytywany — Delivery Lead
+   *  widzi karty osób, w tym tę nieaktywną/nieznalezioną, bez ręcznego
+   *  pobierania i wgrywania pliku. */
+  autoReadFile?: File | null;
+  /** Informacja, skąd pochodzi PDF (dokument z maila). */
+  sourceNotice?: string | null;
   submitting: boolean;
   error: string | null;
   onSubmit: (values: OrderGroupInput, file: File | null) => void;
   onDeleteFile: () => Promise<void>;
+}
+
+/** Czym wiersz PDF-a różni się od linii na zamówieniu (MD, stawka) — opis albo `null`. */
+function documentDiffers(
+  draft: OrderLineDraft,
+  line: PersonAlreadyOnOrder["line"],
+): string | null {
+  const parts: string[] = [];
+  const md = parseDecimalInput(draft.md);
+  if (md !== null && line.md_total != null && Math.abs(md - line.md_total) > 1e-6) {
+    parts.push("MD");
+  }
+  const rate = parseDecimalInput(draft.rateRevenue);
+  if (
+    rate !== null &&
+    draft.revenueUnit === "md" &&
+    line.rate_revenue != null &&
+    Math.abs(rate - line.rate_revenue) > 0.005
+  ) {
+    parts.push("stawkę");
+  }
+  return parts.length > 0 ? parts.join(" i ") : null;
 }
 
 export function OrderGroupFormModal({
@@ -94,6 +120,8 @@ export function OrderGroupFormModal({
   onOrderTypeChange,
   allowedOrderTypes,
   initialFile = null,
+  autoReadFile = null,
+  sourceNotice = null,
   submitting,
   error,
   onSubmit,
@@ -130,10 +158,13 @@ export function OrderGroupFormModal({
   // nie niosą imienia ani nazwiska. Informacyjnie, do potwierdzenia
   // przez operatora; Nexus nie przechowuje identyfikatorów klienta.
   const [consultantRef, setConsultantRef] = useState<string | null>(null);
-  // Tabela osób z dokumentu (BIK) w trybie EDYCJI — informacyjnie: linie
-  // konsultantów istniejącego zamówienia edytujesz osobno.
-  const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
-  const [extractedOpenEnded, setExtractedOpenEnded] = useState(false);
+  // „Uzupełnij zamówienie": osoby z PDF-a, które JUŻ są na zamówieniu — bez
+  // drugiej karty; decyzje wobec nich zapadają przy ich linii.
+  const [alreadyOnOrder, setAlreadyOnOrder] = useState<PersonAlreadyOnOrder[]>([]);
+  // PDF z maila przy uzupełnianiu zamówienia, które MA już swój PDF: domyślnie
+  // służy tylko do odczytu. Podmiana pliku zamówienia (także w dokumentach
+  // wszystkich konsultantów) to osobna, świadoma decyzja.
+  const [replaceWithMailFile, setReplaceWithMailFile] = useState(false);
   // Wariant liczby MD rozpoznany w dokumencie — przy każdej osobie albo jedna
   // liczba na całe zamówienie. Ustawia tryb budżetu MD, zamiast zgłaszać
   // „brak MD" tam, gdzie dokument podał je w drugim wariancie.
@@ -143,8 +174,10 @@ export function OrderGroupFormModal({
   );
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
-  // Karty konsultantów — tylko w nowym zamówieniu. Edycja istniejącego
-  // zamówienia zostawia linie w ich własnych formularzach.
+  // Karty konsultantów z PDF-a. W nowym zamówieniu — cała obsada; przy
+  // uzupełnianiu — wyłącznie osoby, których na zamówieniu jeszcze nie ma
+  // (ten sam mechanizm dopasowania i te same decyzje wobec osoby nieaktywnej
+  // albo nieznalezionej).
   const [lines, setLines] = useState<OrderLineDraft[]>([]);
   const [planned, setPlanned] = useState(false);
 
@@ -168,15 +201,15 @@ export function OrderGroupFormModal({
     // Nowe zamówienie powstaje od razu z konsultantami, więc domyślnie jest
     // aktywne. Szkic zostaje świadomym wyborem („do uzupełnienia").
     setDraftStatus(group ? (group.status === "draft" ? "draft" : "active") : "active");
-    setFile(group ? null : initialFile);
+    setFile(autoReadFile ?? (group ? null : initialFile));
     setHasExistingFile(Boolean(group?.has_file));
     setFileError(null);
     setExtractError(null);
     setCheckData(false);
     setCheckReasons([]);
     setConsultantRef(null);
-    setExtractedRows([]);
-    setExtractedOpenEnded(false);
+    setAlreadyOnOrder([]);
+    setReplaceWithMailFile(false);
     setMdScope(null);
     setClientPolicy(undefined);
     setConflicts([]);
@@ -188,6 +221,21 @@ export function OrderGroupFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, group]);
 
+  // PDF z maila odczytujemy SAM raz na otwarcie — reszta jak przy ręcznym
+  // „Zczytaj": pytanie o rozbieżność pól nagłówka, karty osób do decyzji.
+  const autoReadDone = useRef<File | null>(null);
+  useEffect(() => {
+    if (!open) {
+      autoReadDone.current = null;
+      return;
+    }
+    if (!autoReadFile || file !== autoReadFile) return;
+    if (autoReadDone.current === autoReadFile) return;
+    autoReadDone.current = autoReadFile;
+    void handleExtractPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, autoReadFile, file]);
+
   const planContext = {
     orderType,
     sharedMd,
@@ -196,8 +244,24 @@ export function OrderGroupFormModal({
   };
   const lineMd = usesLineMd(planContext);
   const duplicated = useMemo(() => duplicatePersonKeys(lines), [lines]);
+  // Przy uzupełnianiu: osoba wskazana ręcznie na karcie może już pracować na
+  // tym zamówieniu (karta bez dopasowania, „kilka osób"). Druga linia tej
+  // samej osoby to drugi budżet MD — karta tego nie zapisze (serwer też nie).
+  const liveContractIds = new Set(
+    (group?.lines ?? [])
+      .filter((line) => !line.removed_from_order && ["active", "draft", "paused"].includes(line.status))
+      .map((line) => line.contract_id),
+  );
   const issuesByKey = new Map(
-    lines.map((line) => [line.key, lineIssues(line, planContext)]),
+    lines.map((line) => [
+      line.key,
+      [
+        ...lineIssues(line, planContext),
+        ...(line.person?.contractId != null && liveContractIds.has(line.person.contractId)
+          ? ["ta osoba jest już na zamówieniu — usuń kartę, stawkę albo MD zmienisz przy jej linii"]
+          : []),
+      ],
+    ]),
   );
   const readyCount = lines.filter(
     (line) => (issuesByKey.get(line.key) ?? []).length === 0,
@@ -211,81 +275,12 @@ export function OrderGroupFormModal({
         }, 0)
       : null;
 
-  /** Tryb edycji — odczyt pól nagłówka zamówienia (bez konsultantów). */
-  async function handleExtractHeader() {
-    if (!file || extracting) return;
-    setExtracting(true);
-    setExtractError(null);
-    try {
-      const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
-      const extractedEnd = extractedEndDate(data);
-      const apply = () => {
-        if (data.title) setOrderNumber(data.title);
-        if (data.start_date) setStartDate(data.start_date.slice(0, 10));
-        if (extractedEnd) setEndDate(extractedEnd.value);
-        if (isCostBased && data.total_value != null) {
-          setBudgetAmount(String(data.total_value));
-        }
-        if (sharedMd && data.md_total != null) {
-          setMdBudgetTotal(String(data.md_total));
-        }
-      };
-      const found = findConflicts([
-        { key: "title", label: "Numer zamówienia", current: orderNumber, incoming: data.title ?? null },
-        {
-          key: "start_date",
-          label: "Obowiązuje od",
-          current: startDate,
-          incoming: data.start_date ? data.start_date.slice(0, 10) : null,
-        },
-        {
-          key: "end_date",
-          label: "Obowiązuje do",
-          current: endDate,
-          incoming: extractedEnd?.display ?? null,
-        },
-        ...(isCostBased
-          ? [
-              {
-                key: "total_value" as const,
-                label: "Kwota zamówienia",
-                current: budgetAmount,
-                incoming: numberToField(data.total_value) || null,
-              },
-            ]
-          : []),
-        ...(sharedMd
-          ? [
-              {
-                key: "md_total" as const,
-                label: "Budżet w MD",
-                current: mdBudgetTotal,
-                incoming: numberToField(data.md_total) || null,
-              },
-            ]
-          : []),
-      ]);
-      setConsultantRef(data.consultant_ref ?? null);
-      setExtractedRows(data.consultant_rows ?? []);
-      setExtractedOpenEnded(Boolean(data.open_ended));
-      setCheckData(Boolean(data.uncertain));
-      setCheckReasons(data.uncertain_reasons ?? []);
-      if (found.length > 0) {
-        setConflicts(found);
-        setPendingApply(() => apply);
-      } else {
-        apply();
-      }
-    } catch (err: unknown) {
-      setExtractError(
-        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
-      );
-    } finally {
-      setExtracting(false);
-    }
-  }
-
-  /** Nowe zamówienie — jeden odczyt: nagłówek + karta dla każdej osoby. */
+  /** Jeden odczyt PDF-a: nagłówek + karta dla każdej osoby z dokumentu.
+   *
+   *  Ten sam odczyt i to samo dopasowanie osób w obu trybach okna. W nowym
+   *  zamówieniu karty to cała obsada; przy uzupełnianiu — osoby, których na
+   *  zamówieniu jeszcze nie ma (osoba nieaktywna/nieznaleziona dostaje ten sam
+   *  komunikat i ten sam wybór: zostaw / wznów / zastąp / usuń). */
   async function handleExtractPlan() {
     if (!file || extracting) return;
     setExtracting(true);
@@ -293,12 +288,22 @@ export function OrderGroupFormModal({
     try {
       const { data } = await orderGroupsApi.extractPlan(clientId, file);
       const current = formRef.current;
-      const drafts = draftsFromPlan(data);
-      const sumMd = drafts.reduce<number | null>((sum, line) => {
+      const allDrafts = draftsFromPlan(data);
+      // Przy uzupełnianiu karta bez nazwiska z dokumentu (BNP: tylko numer ID
+      // konsultanta) nie jest osobą do dopisania — to pola nagłówka.
+      const split = group
+        ? splitPlanForGroup(
+            allDrafts.filter((draft) => draft.documentName !== null),
+            group.lines,
+          )
+        : { toAdd: allDrafts, onOrder: [] };
+      const drafts = split.toAdd;
+      setAlreadyOnOrder(split.onOrder);
+      const sumMd = allDrafts.reduce<number | null>((sum, line) => {
         const md = parseDecimalInput(line.md);
         return sum === null || md === null ? null : sum + md;
       }, 0);
-      const poolMd = data.md_total ?? (drafts.length > 0 ? sumMd : null);
+      const poolMd = data.md_total ?? (allDrafts.length > 0 ? sumMd : null);
       // Karty konsultantów wchodzą zawsze — pytanie o rozbieżność dotyczy
       // wyłącznie pól nagłówka wpisanych wcześniej ręcznie. Karty dodane
       // ręcznie zostają; poprzedni odczyt PDF-a jest zastępowany.
@@ -311,23 +316,35 @@ export function OrderGroupFormModal({
       // zmiana typu po odczycie nie gubi tego, co dokument podał. Kwota
       // w obcej walucie NIE trafia do „Budżet całkowity (PLN)".
       const documentCurrency = (data.currency ?? "PLN").toUpperCase();
-      if (
-        data.total_value != null &&
-        documentCurrency === "PLN" &&
-        !current.budgetAmount.trim()
-      ) {
-        setBudgetAmount(String(data.total_value));
-      }
-      if (poolMd != null && !current.mdBudgetTotal.trim()) {
-        setMdBudgetTotal(String(poolMd));
+      const documentBudget =
+        data.total_value != null && documentCurrency === "PLN"
+          ? String(data.total_value)
+          : null;
+      const documentPool = poolMd != null ? String(poolMd) : null;
+      if (!group) {
+        if (documentBudget !== null && !current.budgetAmount.trim()) {
+          setBudgetAmount(documentBudget);
+        }
+        if (documentPool !== null && !current.mdBudgetTotal.trim()) {
+          setMdBudgetTotal(documentPool);
+        }
       }
       // BIK: brak daty końca to poprawny odczyt („bezterminowo — do
       // wyczerpania MD"), więc pole „do" jest czyszczone jawnie.
       const extractedEnd = extractedEndDate(data);
+      // Przy uzupełnianiu kwota i pula MD istniejącego zamówienia to pola jak
+      // każde inne: nadpisanie wpisanej wartości wymaga zgody (pytanie niżej).
+      const applyBudget = Boolean(group);
       const apply = () => {
         if (data.order_number) setOrderNumber(data.order_number);
         if (data.start_date) setStartDate(data.start_date.slice(0, 10));
         if (extractedEnd) setEndDate(extractedEnd.value);
+        if (applyBudget && isCostBased && documentBudget !== null) {
+          setBudgetAmount(documentBudget);
+        }
+        if (applyBudget && sharedMd && data.md_total != null) {
+          setMdBudgetTotal(String(data.md_total));
+        }
       };
       const found = findConflicts([
         {
@@ -348,11 +365,33 @@ export function OrderGroupFormModal({
           current: current.endDate,
           incoming: extractedEnd?.display ?? null,
         },
+        ...(group && isCostBased
+          ? [
+              {
+                key: "total_value" as const,
+                label: "Kwota zamówienia",
+                current: current.budgetAmount,
+                incoming: documentBudget,
+              },
+            ]
+          : []),
+        ...(group && sharedMd
+          ? [
+              {
+                key: "md_total" as const,
+                label: "Budżet w MD",
+                current: current.mdBudgetTotal,
+                incoming: numberToField(data.md_total) || null,
+              },
+            ]
+          : []),
       ]);
       setConsultantRef(data.consultant_ref ?? null);
       setClientPolicy(data.client_policy);
       setMdScope(data.md_scope ?? null);
-      if (!modeLocked && data.md_scope) {
+      // Tryb budżetu ustawia odczyt tylko przy zakładaniu — przy uzupełnianiu
+      // zmienia go wyłącznie świadomy przełącznik (kasuje podział budżetu).
+      if (!group && !modeLocked && data.md_scope) {
         setSharedChoice(data.md_scope === "order");
       }
       setCheckData(Boolean(data.uncertain));
@@ -376,9 +415,12 @@ export function OrderGroupFormModal({
     (isCostBased && (parseDecimalInput(budgetAmount) ?? 0) <= 0) ||
     (sharedMd && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
   const linesBlocked =
-    !editing &&
-    (readyCount < lines.length ||
-      (isMdOrder && !sharedMd && draftStatus === "active" && lines.length === 0));
+    readyCount < lines.length ||
+    (!editing &&
+      isMdOrder &&
+      !sharedMd &&
+      draftStatus === "active" &&
+      lines.length === 0);
   const canSubmit =
     !submitting &&
     orderNumber.trim() !== "" &&
@@ -415,7 +457,17 @@ export function OrderGroupFormModal({
     setCheckData(false);
     setCheckReasons([]);
     setConsultantRef(null);
+    setAlreadyOnOrder([]);
+    setLines((existing) => existing.filter((line) => line.ordinal === null));
+    setPlanned(false);
   }
+
+  // Plik z maila przy zamówieniu z PDF-em — bez zgody nie podmienia pliku.
+  const mailFileReadOnly =
+    Boolean(group?.has_file) &&
+    autoReadFile !== null &&
+    file === autoReadFile &&
+    !replaceWithMailFile;
 
   function submit() {
     if (!canSubmit) return;
@@ -441,7 +493,11 @@ export function OrderGroupFormModal({
         // się później. Zwykłe MD ma budżet przy liniach, a świadome
         // warianty CP/Lotte wysyłają jedną pulę MD na grupie.
         ...(editing
-          ? {}
+          ? // Uzupełnienie z PDF-a: osoby spoza zamówienia — rodzic dopisuje
+            // je jednym zapisem (`…/lines/batch`), razem albo wcale.
+            lines.length > 0
+            ? { lines: lines.map((line) => toLineInput(line, planContext)) }
+            : {}
           : {
               order_type: orderType,
               ...(sharedMd
@@ -458,7 +514,7 @@ export function OrderGroupFormModal({
           : {}),
         ...(sharedMd ? { md_budget_total: parseDecimalInput(mdBudgetTotal) } : {}),
       },
-      file,
+      mailFileReadOnly ? null : file,
     );
   }
 
@@ -546,7 +602,7 @@ export function OrderGroupFormModal({
           // osób z POPRZEDNIEGO dokumentu: zapisane z nowym plikiem opisywałyby
           // zamówienie, którego ten plik nie dotyczy. Karty dodane ręcznie zostają.
           setFile(picked);
-          setExtractedRows([]);
+          setAlreadyOnOrder([]);
           setLines((existing) => existing.filter((line) => line.ordinal === null));
           setPlanned(false);
           setClientPolicy(undefined);
@@ -570,7 +626,7 @@ export function OrderGroupFormModal({
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
-          onClick={editing ? handleExtractHeader : handleExtractPlan}
+          onClick={handleExtractPlan}
           disabled={!file || extracting}
           className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
@@ -601,24 +657,58 @@ export function OrderGroupFormModal({
           </button>
         ) : null}
       </div>
-      {!editing ? (
-        <p className="mt-1 text-xs text-muted-foreground">
-          Odczytuje numer, datę i wszystkich konsultantów z dokumentu, dopasowuje
-          ich do kontraktów u klienta i uzupełnia stawki oraz MD w tym samym
-          oknie.
-        </p>
-      ) : null}
+      <p className="mt-1 text-xs text-muted-foreground">
+        {editing
+          ? "Odczytuje numer, datę i konsultantów z dokumentu. Osoby, których nie ma jeszcze na zamówieniu, pojawią się niżej do dopisania — w tym te bez aktywnej współpracy albo nieznalezione w systemie, z wyborem, co z nimi zrobić."
+          : "Odczytuje numer, datę i wszystkich konsultantów z dokumentu, dopasowuje ich do kontraktów u klienta i uzupełnia stawki oraz MD w tym samym oknie."}
+      </p>
     </div>
   );
 
-  const linesSection = !editing ? (
+  const onOrderNote =
+    editing && alreadyOnOrder.length > 0 ? (
+      <div
+        role="status"
+        className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+      >
+        <p className="font-medium text-foreground">
+          Już na zamówieniu ({alreadyOnOrder.length}):
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {alreadyOnOrder.map(({ draft, line }) => {
+            const ended =
+              draft.match === "inactive" ||
+              (Boolean(line.cooperation_ended_on) && !line.is_active);
+            const differs = documentDiffers(draft, line);
+            return (
+              <li key={draft.key}>
+                {line.consultant_name}
+                {ended
+                  ? " — nie ma już aktywnej współpracy; zostaw / zastąp / usuń tę osobę przy jej linii na karcie zamówienia (jej wykorzystana kwota i MD nie wrócą do puli)"
+                  : differs
+                    ? ` — dokument podaje inne ${differs} niż linia na zamówieniu; zmień je w „Edytuj linię”`
+                    : " — jest na zamówieniu, nic nie dopisujemy"}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    ) : null;
+
+  const linesSection =
+    !editing || planned || lines.length > 0 ? (
     <section aria-label="Konsultanci na zamówieniu" className="space-y-3">
+      {onOrderNote}
       {planned || lines.length > 0 ? (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="h-px flex-1 bg-border" aria-hidden />
           {lines.length > 0
-            ? `${lines.length} ${lines.length === 1 ? "konsultant" : "konsultantów"} na zamówieniu`
-            : "W dokumencie nie rozpoznano konsultantów — dodaj ich ręcznie"}
+            ? editing
+              ? `${lines.length} ${lines.length === 1 ? "osoba" : "osoby"} z dokumentu do dopisania`
+              : `${lines.length} ${lines.length === 1 ? "konsultant" : "konsultantów"} na zamówieniu`
+            : editing
+              ? "Wszystkie osoby z dokumentu są już na zamówieniu"
+              : "W dokumencie nie rozpoznano konsultantów — dodaj ich ręcznie"}
           <span className="h-px flex-1 bg-border" aria-hidden />
         </div>
       ) : null}
@@ -640,14 +730,16 @@ export function OrderGroupFormModal({
           }
         />
       ))}
-      <button
-        type="button"
-        onClick={() => setLines((current) => [...current, emptyDraft()])}
-        className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-      >
-        <Plus className="h-4 w-4" aria-hidden /> Dodaj konsultanta
-      </button>
-      {lines.length > 0 ? (
+      {!editing ? (
+        <button
+          type="button"
+          onClick={() => setLines((current) => [...current, emptyDraft()])}
+          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+        >
+          <Plus className="h-4 w-4" aria-hidden /> Dodaj konsultanta
+        </button>
+      ) : null}
+      {lines.length > 0 && !editing ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
           <span className="text-muted-foreground">
             {readyCount} z {lines.length} pozycji gotowe do zapisania
@@ -666,11 +758,11 @@ export function OrderGroupFormModal({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      size={editing ? "md" : "lg"}
+      size={editing && lines.length === 0 ? "md" : "lg"}
       title={editing ? "Uzupełnij zamówienie" : "Nowe zamówienie"}
       description={
         editing
-          ? "Numer, okres i budżet. Linie konsultantów edytujesz osobno."
+          ? "Numer, okres i budżet. Z PDF-a dopiszesz osoby, których nie ma jeszcze na zamówieniu; istniejące linie edytujesz osobno."
           : "Wgraj PDF, a Nexus uzupełni całe zamówienie — z konsultantami — w tym oknie."
       }
       footer={
@@ -714,6 +806,27 @@ export function OrderGroupFormModal({
             Podpowiadamy typ najczęstszy u tego klienta. Każdy typ jest dostępny —
             możesz go zmienić w każdej chwili, także po odczycie PDF-a.
           </p>
+        ) : null}
+
+        {sourceNotice ? (
+          <div
+            role="status"
+            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground"
+          >
+            <p>{sourceNotice}</p>
+            {group?.has_file && autoReadFile && file === autoReadFile ? (
+              <label className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={replaceWithMailFile}
+                  onChange={(event) => setReplaceWithMailFile(event.target.checked)}
+                />
+                Zastąp PDF tego zamówienia plikiem z maila (także w dokumentach
+                konsultantów). Bez zaznaczenia plik z maila służy tylko do
+                odczytu.
+              </label>
+            ) : null}
+          </div>
         ) : null}
 
         {!editing ? pdfSection : null}
@@ -789,10 +902,6 @@ export function OrderGroupFormModal({
             Numer ID konsultanta z dokumentu:{" "}
             <span className="font-semibold">{consultantRef}</span>
           </p>
-        ) : null}
-
-        {editing ? (
-          <ExtractedConsultants rows={extractedRows} openEnded={extractedOpenEnded} />
         ) : null}
 
         {checkData ? (
@@ -956,7 +1065,7 @@ export function OrderGroupFormModal({
           </div>
         ) : null}
 
-        {linesSection}
+        {!editing ? linesSection : null}
 
         <div>
           <label htmlFor="group-notes" className={labelClass}>
@@ -972,6 +1081,7 @@ export function OrderGroupFormModal({
         </div>
 
         {editing ? pdfSection : null}
+        {editing ? linesSection : null}
       </div>
 
       <ExtractionConflictDialog

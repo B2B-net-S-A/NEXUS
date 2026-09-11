@@ -7,6 +7,7 @@ import type {
 } from "@/lib/api/orderGroups";
 import type { ConsultantOption } from "@/lib/api/orderGroups";
 import {
+  backToOptions,
   chooseContract,
   draftsFromPlan,
   duplicatePersonKeys,
@@ -19,6 +20,7 @@ import {
   replaceWith,
   resumeCooperation,
   sourceLabel,
+  splitPlanForGroup,
   toLineInput,
   undoInactiveDecision,
   type OrderPlanContext,
@@ -358,5 +360,118 @@ describe("konsultant nieaktywny albo nieznaleziony", () => {
     expect(input).toMatchObject({ contract_id: 55, replaces_name: "Odeszły Marian" });
     expect(input).not.toHaveProperty("document_name");
     expect(input).not.toHaveProperty("historical");
+  });
+});
+
+describe("ta sama decyzja na każdej ścieżce wyboru osoby", () => {
+  const cost: OrderPlanContext = {
+    orderType: "cost",
+    sharedMd: false,
+    groupStart: "2026-03-30",
+    groupEnd: null,
+  };
+  const ambiguous = () =>
+    draftsFromPlan(
+      plan([
+        line({
+          document_name: "Jan Powrotny",
+          match_status: "ambiguous",
+          match_reason: "Znaleziono 2 różne osoby o tym imieniu i nazwisku",
+          contract: null,
+          options: [
+            contract({ contract_id: 21, contractor_name: "Jan Powrotny" }),
+            contract({
+              contract_id: 22,
+              candidate_id: 202,
+              contractor_name: "Jan Powrotny",
+              status: "ended",
+              end_date: "2026-06-30",
+              inactive_reason:
+                "„Jan Powrotny” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 30.06.2026). Zdecyduj: …",
+            }),
+          ],
+        }),
+      ]),
+    )[0];
+
+  it("wybór ZAKOŃCZONEGO kontraktu z listy nie wznawia go po cichu", () => {
+    const options = ambiguous().options;
+    const draft = chooseContract(ambiguous(), options[1]);
+    expect(draft.match).toBe("inactive");
+    expect(draft.matchReason).toContain("nie ma już aktywnej współpracy");
+    expect(draft.contractEndDate).toBe("2026-06-30");
+    expect(lineIssues(draft, cost)).toEqual([
+      "zdecyduj: zostaw jako historię, wznów, zastąp albo usuń",
+    ]);
+    expect(toLineInput(keepAsHistory(draft), cost)).toMatchObject({
+      contract_id: 22,
+      historical: true,
+      end_date: "2026-06-30",
+    });
+  });
+
+  it("wybór żywego kontraktu z listy to zwykłe wskazanie ręczne", () => {
+    const draft = chooseContract(ambiguous(), ambiguous().options[0]);
+    expect(draft.match).toBe("manual");
+    expect(lineIssues(draft, cost)).toEqual([]);
+  });
+
+  it("z pytania o zakończoną współpracę można wrócić do listy osób", () => {
+    const original = ambiguous();
+    const back = backToOptions(chooseContract(original, original.options[1]));
+    expect(back.person).toBeNull();
+    expect(back.match).toBe("ambiguous");
+    expect(back.matchReason).toBe(original.matchReason);
+    expect(back.rateCost).toBe("");
+  });
+});
+
+describe("„Uzupełnij zamówienie” — karty tylko dla osób spoza zamówienia", () => {
+  const drafts = () =>
+    draftsFromPlan(
+      plan([
+        line({ document_name: "Jest Na Zamówieniu", contract: contract({ contract_id: 31 }) }),
+        line({
+          document_name: "Nowa Osoba",
+          contract: contract({ contract_id: 32, candidate_id: 302 }),
+        }),
+        line({ document_name: "Nikt Nieznany", match_status: "none", contract: null }),
+        line({
+          document_name: "Usunięta Wcześniej",
+          contract: contract({ contract_id: 33, candidate_id: 303 }),
+        }),
+      ]),
+    );
+  const orderLines = [
+    {
+      id: 1,
+      contract_id: 31,
+      consultant_name: "Jest Na Zamówieniu",
+      is_active: true,
+      cooperation_ended_on: null,
+      removed_from_order: false,
+      md_total: null,
+      rate_revenue: null,
+    },
+    {
+      id: 2,
+      contract_id: 33,
+      consultant_name: "Usunięta Wcześniej",
+      is_active: false,
+      cooperation_ended_on: null,
+      removed_from_order: true,
+      md_total: null,
+      rate_revenue: null,
+    },
+  ];
+
+  it("osoba już na zamówieniu nie dostaje drugiej karty", () => {
+    const { toAdd, onOrder } = splitPlanForGroup(drafts(), orderLines);
+    expect(onOrder.map((item) => item.line.id)).toEqual([1]);
+    expect(toAdd.map((draft) => draft.documentName)).toEqual([
+      "Nowa Osoba",
+      "Nikt Nieznany",
+      "Usunięta Wcześniej",
+    ]);
   });
 });

@@ -185,6 +185,16 @@ class OrderLineCreate(BaseModel):
         return self
 
 
+class OrderLinesBatchCreate(BaseModel):
+    """Kilka linii dopisywanych do istniejącego zamówienia jednym zapisem.
+
+    „Uzupełnij zamówienie" z PDF-a: osoby z dokumentu, których jeszcze nie ma
+    na zamówieniu — razem albo wcale (patrz ``add_lines_batch``).
+    """
+
+    lines: list[OrderLineCreate] = Field(..., min_length=1, max_length=50)
+
+
 class OrderGroupCreate(BaseModel):
     status: Optional[Literal["draft", "active"]] = None
     md_budget_mode: Optional[Literal["per_person", "shared"]] = None
@@ -700,6 +710,11 @@ class OrderPlanContractRead(BaseModel):
     rate_cost_currency: Optional[str] = None
     rate_cost_rate_to_pln: Optional[FxRateValue] = None
     rate_cost_per_md_pln: Optional[MoneyPLN] = None
+    inactive_reason: Optional[str] = None
+    """Komunikat „nie ma już aktywnej współpracy" dla kontraktu ZAKOŃCZONEGO —
+    ten sam tekst, który dostaje karta z odznaką „Zakończył współpracę".
+    Wybór takiego kontraktu z listy („kilka osób") nie może po cichu wznowić
+    współpracy: karta przechodzi w pytanie zostaw / wznów / zastąp / usuń."""
 
 
 class OrderPlanLineRead(BaseModel):
