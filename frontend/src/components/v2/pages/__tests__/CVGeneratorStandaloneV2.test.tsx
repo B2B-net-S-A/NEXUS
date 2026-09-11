@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -17,12 +17,17 @@ const getMock = vi.fn((..._args: unknown[]): Promise<{data: unknown}> => Promise
 const postMock = vi.fn((..._args: unknown[]) =>
   Promise.resolve<{ data: unknown }>({ data: { id: 1, status: "processing", candidate_name: "x" } }),
 );
+// The AI preview of an uploaded champion; a test may make it fail.
+const previewMock = vi.fn(async (): Promise<{ data: unknown }> => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return { data: { champion_profile: structuredClone(actual.EMPTY_CHAMPION_PROFILE) } };
+});
 vi.mock("@/lib/api", async importOriginal => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   const client = {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => args[0] === "/api/champion/preview"
-      ? Promise.resolve({ data: { champion_profile: structuredClone(actual.EMPTY_CHAMPION_PROFILE) } })
+      ? previewMock()
       : postMock(...args),
     delete: vi.fn(() => Promise.resolve({ data: null })),
   };
@@ -227,6 +232,76 @@ describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
     // Without the reset, a second pick of the SAME file fires no change event
     // at all and the UI appears frozen.
     expect(input.value).toBe("");
+  });
+});
+
+describe("CVGeneratorStandaloneV2 — the AI champion preview is an aid, not a gate", () => {
+  beforeEach(() => {
+    setSourcingAccess("write");
+    getMock.mockClear();
+    postMock.mockClear();
+  });
+  afterEach(() => {
+    previewMock.mockReset();
+    previewMock.mockImplementation(async () => {
+      const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+      return { data: { champion_profile: structuredClone(actual.EMPTY_CHAMPION_PROFILE) } };
+    });
+  });
+
+  it("keeps the champion attached and generates with it when the preview fails", async () => {
+    // 10.09: Haiku returned broken JSON for an older-format champion DOCX and
+    // the whole step read "Profil Championa nie został wczytany" — the file
+    // was never attached, so the CV had no champion. Generation itself never
+    // needed the preview: the backend parses the DOCX deterministically.
+    previewMock.mockRejectedValueOnce(
+      new Error("Nie udało się odczytać profilu: nieparsowalny JSON profilu"),
+    );
+    renderPage();
+    await openUploadMode();
+
+    drop(cvInput(), new File(["x"], "kandydat.pdf"));
+    const champion = new File(["x"], "ProfilChampiona.docx");
+    drop(championInput(), champion);
+
+    expect(
+      await screen.findByText("Profil Championa przypięty bez podglądu"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/nieparsowalny JSON profilu/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Profil Championa nie został wczytany"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Wygenerujesz CV bez Profilu Championa"),
+    ).not.toBeInTheDocument();
+
+    confirmOutsideAssignment();
+    fireEvent.click(screen.getByRole("button", { name: /Generuj CV/i }));
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const [url, body] = postMock.mock.calls[0] as [string, FormData];
+    expect(url).toBe("/api/cv-generator/generate-upload");
+    expect(body.get("champion_file")).toBe(champion);
+    expect(body.get("champion_profile_json")).toBeNull();
+  });
+
+  it("drops the preview notice together with the file", async () => {
+    previewMock.mockRejectedValueOnce(new Error("preview down"));
+    renderPage();
+    await openUploadMode();
+
+    drop(championInput(), new File(["x"], "ProfilChampiona.docx"));
+    await screen.findByText("Profil Championa przypięty bez podglądu");
+
+    // With a file attached the dropzone shows a file card with a remove
+    // control instead of the input — that is the only way to a second pick.
+    fireEvent.click(screen.getByRole("button", { name: "Usuń plik" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Profil Championa przypięty bez podglądu"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(championInput()).toBeInTheDocument();
   });
 });
 

@@ -198,6 +198,12 @@ export function CVGeneratorStandaloneV2({
   // champion file was rejected saw no trace of it and generated a CV with no
   // champion at all — reported as "the generator does not work with a champion".
   const [championError, setChampionError] = useState<string | null>(null);
+  // The AI preview (`/api/champion/preview`, #1477) is an aid for reviewing the
+  // parsed fields, never a gate: generation reads the attached DOCX itself,
+  // deterministically (`parse_champion_from_docx_bytes`), exactly as before the
+  // preview existed. A model returning broken JSON therefore costs the review
+  // step, not the champion — a soft notice, separate from `championError`.
+  const [championPreviewNotice, setChampionPreviewNotice] = useState<string | null>(null);
   const [screeningNotes, setScreeningNotes] = useState("");
   // Ręczne wymagania na kafelki interaktywnego CV (upload nie ma joba).
   // Puste + brak pliku championa = link pokaże sam widok klasyczny.
@@ -684,15 +690,29 @@ export function CVGeneratorStandaloneV2({
   }
 
   async function handleChampionFile(f: File | null) {
-    if (!f) { setChampionFile(null); setChampionProfile(null); setChampionValidation(undefined); return; }
+    if (!f) {
+      setChampionFile(null); setChampionProfile(null); setChampionValidation(undefined);
+      setChampionPreviewNotice(null);
+      return;
+    }
     const err = fileValidationError(f, CHAMPION_ACCEPT);
     if (err) { setChampionError(err); toast.showError(`Profil Championa: ${err}`); return; }
     setChampionError(null);
+    setChampionPreviewNotice(null);
+    // Attach first. The file is what the generator actually uses; the preview
+    // below only offers a chance to review/correct the parsed fields.
+    setChampionFile(f);
+    setChampionProfile(null);
+    setChampionValidation(undefined);
     try {
       const form = new FormData(); form.append("file", f);
       const { data } = await api.post<ChampionPreview>("/api/champion/preview", form, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120_000 });
       setChampionPreview({ file: f, data });
-    } catch (e) { setChampionError(extractErrorMsg(e)); }
+    } catch (e) {
+      setChampionPreviewNotice(
+        `Podgląd AI profilu nie powiódł się (${extractErrorMsg(e)}). Plik został przypięty — generator odczyta sekcje MUST-HAVE / NICE-TO-HAVE bezpośrednio z dokumentu.`,
+      );
+    }
   }
 
   function handleChampionEmptyDrop() {
@@ -791,6 +811,7 @@ export function CVGeneratorStandaloneV2({
           cvFile={cvFile}
           championFile={championFile}
           championError={championError}
+          championPreviewNotice={championPreviewNotice}
           screeningNotes={screeningNotes}
           mustRequirements={mustRequirements}
           niceRequirements={niceRequirements}
@@ -1517,6 +1538,7 @@ type OldModeFormProps = {
   cvFile: File | null;
   championFile: File | null;
   championError: string | null;
+  championPreviewNotice: string | null;
   screeningNotes: string;
   mustRequirements: string;
   niceRequirements: string;
@@ -1532,6 +1554,7 @@ function OldModeForm({
   cvFile,
   championFile,
   championError,
+  championPreviewNotice,
   screeningNotes,
   mustRequirements,
   niceRequirements,
@@ -1588,6 +1611,14 @@ function OldModeForm({
               className="mt-3"
               title="Profil Championa nie został wczytany"
               description={championError}
+            />
+          )}
+          {!championError && championPreviewNotice && (
+            <Alert
+              variant="info"
+              className="mt-3"
+              title="Profil Championa przypięty bez podglądu"
+              description={championPreviewNotice}
             />
           )}
         </CardContent>
