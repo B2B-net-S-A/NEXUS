@@ -151,6 +151,82 @@ const CASES: Array<{
     }),
   },
   {
+    title: "Pełna historia osób na zamówieniu (zlecenie kosztowe)",
+    why:
+      "Aktywna osoba, osoba z zakończoną współpracą (wykorzystanie zostaje przy niej, " +
+      "trzy decyzje), zastępca dodany ręcznie (kto, kiedy, za kogo, PDF podpięty) " +
+      "i osoba usunięta z zamówienia z wykorzystaną kwotą.",
+    group: group({
+      id: 17,
+      order_number: "SAP 4500987654",
+      start_date: "2026-03-30",
+      is_cost_based: true,
+      budget_amount: 40000,
+      budget_used: 40000,
+      budget_remaining: 0,
+      has_file: true,
+      lines: [
+        line({
+          id: 30,
+          consultant_name: "Ewa Nowak-Testowa",
+          start_date: "2026-03-30",
+          md_total: null,
+          md_remaining: null,
+          rate_revenue: 840,
+          invoiced_total: 14280,
+          unsettled_total: 0,
+          origin: "document",
+        }),
+        line({
+          id: 31,
+          consultant_name: "Marian Odeszły",
+          status: "completed",
+          is_active: false,
+          start_date: "2026-03-30",
+          end_date: "2026-08-12",
+          md_total: null,
+          md_remaining: null,
+          rate_revenue: 1280,
+          invoiced_total: 25720,
+          unsettled_total: 0,
+          origin: "document",
+          cooperation_ended_on: "2026-08-12",
+        }),
+        line({
+          id: 32,
+          consultant_name: "Tadeusz Zastępca",
+          start_date: "2026-08-13",
+          md_total: null,
+          md_remaining: null,
+          rate_revenue: 1280,
+          invoiced_total: 0,
+          unsettled_total: 0,
+          origin: "manual",
+          added_by_name: "Anna Przykładowa",
+          added_at: "2026-08-13T09:00:00Z",
+          replaces_name: "Marian Odeszły",
+        }),
+        line({
+          id: 33,
+          consultant_name: "Olga Usunięta",
+          status: "completed",
+          is_active: false,
+          start_date: "2026-04-01",
+          end_date: "2026-05-31",
+          md_total: null,
+          md_remaining: null,
+          invoiced_total: 3000,
+          unsettled_total: 0,
+          origin: "manual",
+          added_by_name: "Anna Przykładowa",
+          added_at: "2026-04-01T10:00:00Z",
+          removed_from_order: true,
+        }),
+      ],
+      active_consultants: 2,
+    }),
+  },
+  {
     title: "Budżet wyczerpany + niepełne rozliczenie",
     why: "Zamówienie blokuje dodawanie konsultantów, a przy osobie widać, ILE zabrakło.",
     group: group({
@@ -345,6 +421,8 @@ export default function OrderLifecyclePreview() {
               onSwapLine={noop}
               onDeleteLine={noop}
               onResolveOffboarding={noop}
+              onKeepHistory={noop}
+              onReplaceLine={noop}
               onDeleteGroup={noop}
               onCloseGroup={noop}
               onReopenGroup={noop}

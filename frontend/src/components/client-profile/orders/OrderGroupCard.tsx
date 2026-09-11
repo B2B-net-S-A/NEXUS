@@ -265,6 +265,18 @@ interface OrderLineRowProps {
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onKeepHistory?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
+}
+
+/** Ile osoba wykorzystała na zamówieniu — kwota (kosztowe) albo MD. */
+function usedLabel(group: OrderGroupRead, line: OrderLineRead): string | null {
+  if (group.is_cost_based) {
+    return line.invoiced_total != null && line.invoiced_total > 0
+      ? formatPLN(line.invoiced_total)
+      : null;
+  }
+  return line.md_used != null && line.md_used > 0 ? `${formatMd(line.md_used)} MD` : null;
 }
 
 /** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
@@ -280,16 +292,34 @@ function OrderLineRow({
   onSwapLine,
   onDeleteLine,
   onResolveOffboarding,
+  onKeepHistory,
+  onReplaceLine,
 }: OrderLineRowProps) {
   const pendingOffboarding = line.offboarding_case?.status === "pending";
   const completedCostLine = group.is_cost_based && !line.is_active;
   const sharedMd = usesSharedMdPool(group);
+  const removed = Boolean(line.removed_from_order);
+  const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
+  const used = usedLabel(group, line);
+  // Osoba z zakończoną współpracą, która została na zamówieniu, a nikt jeszcze
+  // o niej nie zdecydował (zamówienie MD z czekającą sprawą ma swój formularz).
+  const needsDecision =
+    endedCooperation &&
+    !removed &&
+    !line.history_kept_at &&
+    !line.offboarding_case &&
+    (canManage || canManageLifecycle);
+  const hasHistoryNotes =
+    (line.origin === "manual" && Boolean(line.added_at)) ||
+    (!line.is_active && Boolean(used) && !group.is_cost_based) ||
+    Boolean(line.history_kept_at) ||
+    needsDecision;
 
   return (
     <li
       className={cn(
         "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
-        !line.is_active && !pendingOffboarding && "opacity-60",
+        !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
         searchQuery.trim() &&
           consultantMatchesQuery(line.consultant_name, searchQuery) &&
           "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
@@ -316,14 +346,41 @@ function OrderLineRow({
                 Zakończenie współpracy
               </span>
             ) : null}
+            {removed ? (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Usunięty z zamówienia
+              </span>
+            ) : endedCooperation && !pendingOffboarding ? (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Zakończył współpracę
+              </span>
+            ) : null}
+            {line.origin === "manual" ? (
+              <span className="rounded bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
+                Dodany ręcznie
+              </span>
+            ) : null}
           </p>
-          <p className="truncate text-xs text-muted-foreground">
+          <p
+            className={cn(
+              "text-xs text-muted-foreground",
+              line.is_active && "truncate",
+            )}
+          >
             {pendingOffboarding
               ? "Współpraca zakończona"
-              : line.is_active
-                ? "Konsultant"
-                : "Zakończony"}
-            {line.start_date ? ` · od ${formatDate(line.start_date)}` : ""}
+              : removed
+                ? "Usunięty z zamówienia"
+                : endedCooperation
+                  ? `Zakończył współpracę ${formatDate(line.cooperation_ended_on)}`
+                  : line.is_active
+                    ? "Konsultant"
+                    : "Zakończony"}
+            {line.start_date
+              ? line.is_active
+                ? ` · od ${formatDate(line.start_date)}`
+                : ` · był na zamówieniu od ${formatDate(line.start_date)}`
+              : ""}
             {!line.is_active && line.end_date
               ? ` do ${formatDate(line.end_date)}`
               : ""}
@@ -345,6 +402,7 @@ function OrderLineRow({
                 : line.invoiced_total === 0
                   ? "brak faktur"
                   : formatPLN(line.invoiced_total)}
+              {used ? " — ta kwota nie wraca do puli dostępnego budżetu" : ""}
             </p>
           ) : null}
           {line.predecessor_consultant_name ? (
@@ -435,7 +493,7 @@ function OrderLineRow({
             </span>
           )}
         </div>
-      ) : canManage || canManageLifecycle ? (
+      ) : (canManage || canManageLifecycle) && !removed ? (
         <div className="flex items-center gap-1">
           {canManage ? (
             <>
@@ -474,6 +532,74 @@ function OrderLineRow({
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             </button>
+          ) : null}
+        </div>
+      ) : null}
+      {hasHistoryNotes ? (
+        <div className="basis-full space-y-1 pl-11">
+          {line.origin === "manual" && line.added_at ? (
+            <p className="text-xs text-muted-foreground">
+              Dodany ręcznie {formatDate(line.added_at)}
+              {line.added_by_name ? ` przez ${line.added_by_name}` : ""}
+              {line.replaces_name ? ` jako zastępstwo za ${line.replaces_name}` : ""}.
+              {group.has_file
+                ? " Dokument zamówienia (PDF) podpięto także do profilu tej osoby."
+                : ""}
+            </p>
+          ) : null}
+          {!line.is_active && used && !group.is_cost_based ? (
+            <p className="text-xs text-muted-foreground">
+              Wykorzystał(a) na tym zamówieniu{" "}
+              <span className="font-medium text-foreground">{used}</span> — ta
+              kwota nie wraca do puli dostępnego budżetu.
+            </p>
+          ) : null}
+          {line.history_kept_at ? (
+            <p className="text-xs text-muted-foreground">
+              Zostawiono jako historię {formatDate(line.history_kept_at)}
+              {line.history_kept_by_name ? ` — ${line.history_kept_by_name}` : ""}.
+            </p>
+          ) : null}
+          {needsDecision ? (
+            <div
+              role="status"
+              className="mt-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground"
+            >
+              <p>
+                Ta osoba nie ma już aktywnej współpracy. Pozostaje widoczna na
+                zamówieniu wraz z historią wykorzystania — jej kwota nie wraca do
+                puli dostępnego budżetu.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {onKeepHistory ? (
+                  <button
+                    type="button"
+                    onClick={() => onKeepHistory(group, line)}
+                    className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-muted"
+                  >
+                    Zostaw jako historię
+                  </button>
+                ) : null}
+                {canManage && onReplaceLine && group.can_add_consultant ? (
+                  <button
+                    type="button"
+                    onClick={() => onReplaceLine(group, line)}
+                    className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-muted"
+                  >
+                    Zastąp kimś innym
+                  </button>
+                ) : null}
+                {canManageLifecycle ? (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteLine(group, line)}
+                    className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    Usuń z zamówienia
+                  </button>
+                ) : null}
+              </div>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -654,6 +780,10 @@ interface Props {
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
+  /** „Zostaw jako historię" — osoba z zakończoną współpracą zostaje. */
+  onKeepHistory?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  /** „Zastąp kimś innym" — nowa osoba dołącza obok tej linii. */
+  onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteGroup: (group: OrderGroupRead) => void;
   onCloseGroup: (group: OrderGroupRead) => void;
   onReopenGroup: (group: OrderGroupRead) => void;
@@ -677,6 +807,8 @@ export function OrderGroupCard({
   onSwapLine,
   onDeleteLine,
   onResolveOffboarding,
+  onKeepHistory,
+  onReplaceLine,
   onDeleteGroup,
   onCloseGroup,
   onReopenGroup,
@@ -880,6 +1012,8 @@ export function OrderGroupCard({
                         onSwapLine={onSwapLine}
                         onDeleteLine={onDeleteLine}
                         onResolveOffboarding={onResolveOffboarding}
+                        onKeepHistory={onKeepHistory}
+                        onReplaceLine={onReplaceLine}
                       />
                     ))}
                   </ul>
@@ -910,6 +1044,8 @@ export function OrderGroupCard({
                         onSwapLine={onSwapLine}
                         onDeleteLine={onDeleteLine}
                         onResolveOffboarding={onResolveOffboarding}
+                        onKeepHistory={onKeepHistory}
+                        onReplaceLine={onReplaceLine}
                       />
                     ))}
                   </ul>

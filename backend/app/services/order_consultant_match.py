@@ -21,8 +21,12 @@ Wynik (odznaka w oknie):
 
 * ``auto`` (zielona) — zapis identyczny, bez dopisków;
 * ``confirm`` (żółta) — rdzeń się zgadza, ale był dopisek (albo odwrotna
-  kolejność imienia i nazwiska, albo kontrakt jest zakończony) — jedno
-  kliknięcie potwierdzenia;
+  kolejność imienia i nazwiska) — jedno kliknięcie potwierdzenia;
+* ``inactive`` — osoba jest w systemie, ale jej współpraca u tego klienta jest
+  ZAKOŃCZONA (jedyny kontrakt jest zakończony). Nie jest to zgoda na
+  wznowienie: Delivery Lead wybiera jawnie — zostawić ją na zamówieniu jako
+  zapis historyczny, wznowić współpracę, zastąpić inną osobą albo usunąć
+  z zamówienia (ticket 09.2026: zamówienie nie może „utknąć" bez informacji);
 * ``ambiguous`` — u klienta pasuje więcej niż jedna osoba (1 kontrakt = 1 osoba
   u danego klienta) albo ta sama osoba ma kilka aktywnych kontraktów — system
   nie wybiera żadnego;
@@ -41,6 +45,7 @@ from typing import Optional
 MATCH_AUTO = "auto"
 MATCH_CONFIRM = "confirm"
 MATCH_AMBIGUOUS = "ambiguous"
+MATCH_INACTIVE = "inactive"
 MATCH_NONE = "none"
 
 _LIVE_STATUSES = frozenset({"active", "ending"})
@@ -332,13 +337,26 @@ def resolve_contract(
 
     if ended:
         contract, name_match = max(ended, key=lambda item: _recency(item[0]))
-        prefix = name_match.reason if name_match.level == MATCH_CONFIRM else ""
+        # Różnica zapisu (dopisek, kolejność) jest informacją, nie pytaniem —
+        # decyzję i tak podejmuje się przyciskami karty, więc bez „potwierdź".
+        prefix = (
+            name_match.reason.removesuffix(" — potwierdź, że to ta sama osoba")
+            if name_match.level == MATCH_CONFIRM
+            else ""
+        )
+        ended_on = (
+            f" (kontrakt zakończony {contract.end_date.strftime('%d.%m.%Y')})"
+            if contract.end_date
+            else " (kontrakt zakończony)"
+        )
         return ContractMatch(
-            status=MATCH_CONFIRM,
+            status=MATCH_INACTIVE,
             reason=(
                 (prefix + "; " if prefix else "")
-                + "Kontrakt tej osoby jest zakończony — zapis zamówienia go "
-                "wznowi; potwierdź, że to powrót tej samej osoby"
+                + f"{_display(document_name)} nie ma już aktywnej współpracy u tego "
+                f"klienta{ended_on}. Zdecyduj: zostaw tę osobę na zamówieniu jako "
+                "zapis historyczny, wznów współpracę, zastąp ją inną osobą albo "
+                "usuń z zamówienia"
             ),
             contract=contract,
             name_match=name_match,
@@ -346,7 +364,16 @@ def resolve_contract(
 
     nearest = _nearest(document_name, contracts)
     reason = (
-        "Brak kontraktu z tym imieniem i nazwiskiem u tego klienta — "
-        "system nie koryguje literówek ani nie zgaduje podobieństwa"
+        f"Nie znaleziono {_display(document_name)} w systemie — brak kontraktu "
+        "z tym imieniem i nazwiskiem u tego klienta (system nie koryguje "
+        "literówek ani nie zgaduje podobieństwa). Wskaż tę osobę ręcznie, "
+        "zastąp ją kimś innym albo usuń z zamówienia"
     )
     return ContractMatch(status=MATCH_NONE, reason=reason, nearest=nearest)
+
+
+def _display(document_name: Optional[str]) -> str:
+    """Nazwa osoby z dokumentu do komunikatu — dokładnie tak, jak w PDF-ie."""
+
+    name = " ".join(raw_words(document_name))
+    return f"„{name}”" if name else "tej osoby"

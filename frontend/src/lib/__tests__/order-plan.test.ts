@@ -5,16 +5,22 @@ import type {
   OrderPlanContract,
   OrderPlanLine,
 } from "@/lib/api/orderGroups";
+import type { ConsultantOption } from "@/lib/api/orderGroups";
 import {
   chooseContract,
   draftsFromPlan,
   duplicatePersonKeys,
   emptyDraft,
+  isHistorical,
+  keepAsHistory,
   lineIssues,
   lineValuePln,
   rejectMatch,
+  replaceWith,
+  resumeCooperation,
   sourceLabel,
   toLineInput,
+  undoInactiveDecision,
   type OrderPlanContext,
 } from "@/lib/order-plan";
 
@@ -175,6 +181,9 @@ describe("karty konsultantów z odczytu PDF-a", () => {
       input_value: 35,
       start_date: "2026-09-03",
       end_date: null,
+      // Pochodzenie linii — historia zamówienia odróżnia osoby z PDF-a od
+      // dopisanych ręcznie.
+      document_name: "Krzysztof Suwała",
     });
   });
 
@@ -260,5 +269,94 @@ describe("karty konsultantów z odczytu PDF-a", () => {
 
     expect(chooseContract(typed, options[0]).rateCost).toBe("130");
     expect(rejectMatch(typed).rateCost).toBe("");
+  });
+});
+
+// ── Osoba z PDF-a z zakończoną współpracą (ticket 09.2026) ────────────────────
+
+describe("konsultant nieaktywny albo nieznaleziony", () => {
+  const cost: OrderPlanContext = {
+    orderType: "cost",
+    sharedMd: false,
+    groupStart: "2026-03-30",
+    groupEnd: null,
+  };
+  const ended = () =>
+    draftsFromPlan(
+      plan([
+        line({
+          document_name: "Odeszły Marian",
+          match_status: "inactive",
+          match_reason: "„Odeszły Marian” nie ma już aktywnej współpracy u tego klienta",
+          md_total: null,
+          rate_revenue: 1280,
+          contract: contract({
+            contract_id: 77,
+            contractor_name: "Marian Odeszły",
+            status: "ended",
+            end_date: "2026-08-12",
+          }),
+        }),
+      ]),
+    )[0];
+
+  it("karta mówi wprost o zakończonej współpracy i czeka na decyzję", () => {
+    const draft = ended();
+    expect(draft.person?.contractId).toBe(77);
+    expect(draft.confirmed).toBe(false);
+    expect(draft.contractEndDate).toBe("2026-08-12");
+    expect(lineIssues(draft, cost)).toEqual([
+      "zdecyduj: zostaw jako historię, wznów, zastąp albo usuń",
+    ]);
+  });
+
+  it("„Zostaw jako historię” zapisuje zakończoną linię do końca współpracy", () => {
+    const draft = keepAsHistory(ended());
+    expect(isHistorical(draft)).toBe(true);
+    expect(lineIssues(draft, cost)).toEqual([]);
+    expect(toLineInput(draft, cost)).toMatchObject({
+      contract_id: 77,
+      historical: true,
+      start_date: "2026-03-30",
+      end_date: "2026-08-12",
+      document_name: "Odeszły Marian",
+    });
+  });
+
+  it("„Wznów współpracę” to zwykła linia na okres zamówienia", () => {
+    const input = toLineInput(resumeCooperation(ended()), cost);
+    expect(input).not.toHaveProperty("historical");
+    expect(input.end_date).toBeNull();
+    expect(lineIssues(undoInactiveDecision(resumeCooperation(ended())), cost)).toHaveLength(1);
+  });
+
+  it("zapis historyczny sprzed startu zamówienia nie przejdzie", () => {
+    const draft = keepAsHistory(ended());
+    expect(lineIssues(draft, { ...cost, groupStart: "2026-09-01" })).toEqual([
+      "współpraca skończyła się przed startem zamówienia — wznów albo zastąp",
+    ]);
+  });
+
+  it("„Zastąp kimś innym” zapisuje zastępcę z nazwą osoby z dokumentu", () => {
+    const option: ConsultantOption = {
+      candidate_id: 505,
+      contract_id: 55,
+      full_name: "Tadeusz Zastępca",
+      first_name: "Tadeusz",
+      last_name: "Zastępca",
+      source: "client_recruitment",
+      source_label: "Rekrutacja u klienta",
+      job_title: null,
+      suggested_rate_cost: 900,
+      has_different_client_contract_rates: false,
+    };
+    const draft = replaceWith(ended(), option);
+    expect(draft.match).toBe("manual");
+    expect(draft.replacesName).toBe("Odeszły Marian");
+    expect(isHistorical(draft)).toBe(false);
+    const input = toLineInput(draft, cost);
+    expect(input).toMatchObject({ contract_id: 55, replaces_name: "Odeszły Marian" });
+    expect(input).not.toHaveProperty("document_name");
+    expect(input).not.toHaveProperty("historical");
   });
 });

@@ -46,6 +46,7 @@ from app.services.order_policies import (
     mleasing,
     nordea,
     pko_bp,
+    polkomtel,
     velobank,
 )
 
@@ -221,6 +222,19 @@ def _alior(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
     )
 
 
+def _polkomtel(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return polkomtel.apply_polkomtel_order_policy(
+        result,
+        ctx.document_text,
+        target_consultant=ctx.target_consultant,
+        target_given_names=ctx.target_given_names,
+    )
+
+
+def _cyfrowy_polsat(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return polkomtel.apply_cyfrowy_polsat_order_number(result, ctx.document_text)
+
+
 def _nordea_rate_rules(result: OrderExtraction, text: str) -> OrderExtraction:
     return nordea.apply_rate_rules(result)
 
@@ -379,6 +393,34 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         closes_on_md_exhaustion=True,
         exposes_consultant_rows=True,
         rate_rules=bik.apply_rate_rules,
+    ),
+    # Kanoniczne ID 15 = Polkomtel (``finance_order_matching.POLKOMTEL_CLIENT_ID``).
+    # Zamówienie kosztowe albo MD, zawsze bezterminowe: koniec wyznacza
+    # wyczerpanie kwoty (kosztowe) albo MD (per osoba lub wspólnej puli).
+    OrderClientPolicy(
+        key="polkomtel",
+        display_name="Polkomtel",
+        env_var=polkomtel.CLIENT_IDS_ENV,
+        apply=_polkomtel,
+        order=180,
+        canonical_client_ids=polkomtel.CANONICAL_CLIENT_IDS,
+        rate_unit_default="day",
+        extract_rows=polkomtel.extract_rows,
+        open_ended_period=True,
+        closes_on_md_exhaustion=True,
+        exposes_consultant_rows=True,
+        rate_rules=polkomtel.apply_rate_rules,
+    ),
+    # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
+    # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki
+    # zostają przy odczycie ogólnym.
+    OrderClientPolicy(
+        key="cyfrowy_polsat",
+        display_name="Cyfrowy Polsat",
+        env_var=polkomtel.CYFROWY_POLSAT_CLIENT_IDS_ENV,
+        apply=_cyfrowy_polsat,
+        order=190,
+        canonical_client_ids=polkomtel.CYFROWY_POLSAT_CANONICAL_CLIENT_IDS,
     ),
 )
 

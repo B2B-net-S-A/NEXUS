@@ -25,6 +25,7 @@ import {
 } from "@/lib/authenticated-files";
 import {
   orderGroupsApi,
+  type OrderGroupExtraction,
   type OrderGroupInput,
   type OrderGroupRead,
 } from "@/lib/api/orderGroups";
@@ -133,6 +134,10 @@ export function OrderGroupFormModal({
   // konsultantów istniejącego zamówienia edytujesz osobno.
   const [extractedRows, setExtractedRows] = useState<ExtractedConsultantRows>([]);
   const [extractedOpenEnded, setExtractedOpenEnded] = useState(false);
+  // Wariant liczby MD rozpoznany w dokumencie — przy każdej osobie albo jedna
+  // liczba na całe zamówienie. Ustawia tryb budżetu MD, zamiast zgłaszać
+  // „brak MD" tam, gdzie dokument podał je w drugim wariancie.
+  const [mdScope, setMdScope] = useState<OrderGroupExtraction["md_scope"]>(null);
   const [clientPolicy, setClientPolicy] = useState<string | null | undefined>(
     undefined,
   );
@@ -172,6 +177,7 @@ export function OrderGroupFormModal({
     setConsultantRef(null);
     setExtractedRows([]);
     setExtractedOpenEnded(false);
+    setMdScope(null);
     setClientPolicy(undefined);
     setConflicts([]);
     setPendingApply(null);
@@ -345,6 +351,10 @@ export function OrderGroupFormModal({
       ]);
       setConsultantRef(data.consultant_ref ?? null);
       setClientPolicy(data.client_policy);
+      setMdScope(data.md_scope ?? null);
+      if (!modeLocked && data.md_scope) {
+        setSharedChoice(data.md_scope === "order");
+      }
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       if (found.length > 0) {
@@ -727,6 +737,13 @@ export function OrderGroupFormModal({
               />
               Budżet MD na całe zamówienie
             </label>
+            {!editing && mdScope ? (
+              <p className="text-xs text-muted-foreground">
+                {mdScope === "order"
+                  ? "Dokument podaje jedną liczbę MD na całe zamówienie — ustawiono wspólny budżet MD dzielony między konsultantów."
+                  : "Dokument podaje limit MD przy każdej osobie — budżet MD jest per konsultant."}
+              </p>
+            ) : null}
             {modeLocked ? (
               <p className="text-xs text-muted-foreground">
                 Tryb budżetu jest zablokowany po aktywacji lub pierwszym wpisie

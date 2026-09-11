@@ -8,8 +8,12 @@ import type { ConsultantOption, OrderPlanContract } from "@/lib/api/orderGroups"
 import {
   chooseConsultant,
   chooseContract,
+  keepAsHistory,
   rejectMatch,
+  replaceWith,
+  resumeCooperation,
   sourceLabel,
+  undoInactiveDecision,
   type LineSource,
   type OrderLineDraft,
 } from "@/lib/order-plan";
@@ -43,7 +47,20 @@ function formatDate(value: string | null): string {
 /** Odznaka wyniku dopasowania — trzy stany z ticketu + wybór ręczny. */
 export function MatchBadge({ draft }: { draft: OrderLineDraft }) {
   if (draft.match === "manual" && draft.person) {
-    return <Badge variant="info">Wskazano ręcznie</Badge>;
+    return draft.replacesName ? (
+      <Badge variant="info">Zastępstwo</Badge>
+    ) : (
+      <Badge variant="info">Wskazano ręcznie</Badge>
+    );
+  }
+  if (draft.match === "inactive") {
+    if (draft.inactiveDecision === "history") {
+      return <Badge variant="neutral">Zapis historyczny</Badge>;
+    }
+    if (draft.inactiveDecision === "resume") {
+      return <Badge variant="success">Wznowienie współpracy</Badge>;
+    }
+    return <Badge variant="danger">Zakończył współpracę</Badge>;
   }
   if (draft.match === "auto") {
     return <Badge variant="success">Dopasowano automatycznie</Badge>;
@@ -151,8 +168,14 @@ export function OrderPlanLineCard({
   issues,
 }: Props) {
   const [picking, setPicking] = useState(false);
+  // „Zastąp kimś innym": wybrana osoba zapisze się jako zastępstwo za osobę
+  // z dokumentu (historia zamówienia pokaże to przy niej).
+  const [replacing, setReplacing] = useState(false);
   const needsPerson = !draft.person;
-  const showPicker = picking || (needsPerson && draft.options.length === 0);
+  const showPicker =
+    picking || replacing || (needsPerson && draft.options.length === 0);
+  const inactivePending = draft.match === "inactive" && !draft.inactiveDecision;
+  const heldName = draft.documentName ?? draft.person?.name ?? "Ta osoba";
 
   const edit = (patch: Partial<OrderLineDraft>) => onChange({ ...draft, ...patch });
   const manual: LineSource = "manual";
@@ -267,6 +290,80 @@ export function OrderPlanLineCard({
         </p>
       ) : null}
 
+      {draft.match === "inactive" && draft.person && inactivePending ? (
+        <div
+          role="alert"
+          className="mt-3 rounded-md border border-destructive/30 bg-destructive-muted px-3 py-2 text-xs text-destructive-muted-foreground"
+        >
+          <p className="font-medium">{draft.matchReason}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onChange(keepAsHistory(draft))}
+              className="rounded-md bg-foreground px-2.5 py-1 font-medium text-background"
+            >
+              Zostaw jako historię
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(resumeCooperation(draft))}
+              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+            >
+              Wznów współpracę
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setReplacing(true);
+                setPicking(false);
+              }}
+              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+            >
+              Zastąp kimś innym
+            </button>
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive"
+            >
+              Usuń z zamówienia
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {draft.match === "inactive" && draft.inactiveDecision ? (
+        <div
+          role="status"
+          className="mt-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <p>
+            {draft.inactiveDecision === "history"
+              ? `${heldName} zostanie na zamówieniu jako zakończona współpraca` +
+                (draft.contractEndDate
+                  ? ` (udział do ${formatDate(draft.contractEndDate)})`
+                  : "") +
+                " — bez wznawiania kontraktu. Jej wykorzystana kwota i MD nie wrócą do puli."
+              : `Zapis zamówienia wznowi współpracę: ${heldName} wraca na aktywną obsadę.`}
+          </p>
+          <button
+            type="button"
+            onClick={() => onChange(undoInactiveDecision(draft))}
+            className="mt-1 font-medium text-primary underline-offset-2 hover:underline"
+          >
+            Zmień decyzję
+          </button>
+        </div>
+      ) : null}
+
+      {draft.replacesName && draft.person ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Zastępstwo za: <span className="font-medium">{draft.replacesName}</span>{" "}
+          — historia zamówienia zapisze, kto i kiedy dodał tę osobę, a PDF
+          zamówienia zostanie podpięty także do jej profilu.
+        </p>
+      ) : null}
+
       {draft.match === "confirm" && !draft.confirmed && draft.person ? (
         <div
           role="status"
@@ -333,25 +430,64 @@ export function OrderPlanLineCard({
               nie przypisuje go sam.
             </p>
           ) : null}
+          {draft.documentName ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReplacing(true);
+                  setPicking(false);
+                }}
+                className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+              >
+                Zastąp kimś innym
+              </button>
+              <button
+                type="button"
+                onClick={onRemove}
+                className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive"
+              >
+                Usuń z zamówienia
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {showPicker ? (
         <div className="mt-3">
           <span className="mb-1 block text-xs font-semibold text-muted-foreground">
-            Wybierz kontraktora ręcznie
+            {replacing
+              ? `Kto zastępuje: ${heldName}`
+              : draft.documentName && needsPerson
+                ? "Wskaż tę osobę ręcznie"
+                : "Wybierz kontraktora ręcznie"}
           </span>
           <ConsultantPicker
             clientId={clientId}
             value={null}
             onChange={(option: ConsultantOption | null) => {
               if (!option) return;
-              onChange(chooseConsultant(draft, option));
+              onChange(
+                replacing ? replaceWith(draft, option) : chooseConsultant(draft, option),
+              );
               setPicking(false);
+              setReplacing(false);
             }}
           />
+          {replacing ? (
+            <button
+              type="button"
+              onClick={() => setReplacing(false)}
+              className="mt-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Anuluj zastępstwo
+            </button>
+          ) : null}
         </div>
-      ) : draft.person && !(draft.match === "confirm" && !draft.confirmed) ? (
+      ) : draft.person &&
+        !(draft.match === "confirm" && !draft.confirmed) &&
+        !inactivePending ? (
         <button
           type="button"
           onClick={() => setPicking(true)}

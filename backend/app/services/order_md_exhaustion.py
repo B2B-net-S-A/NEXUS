@@ -9,7 +9,10 @@ bez ani jednej aktywnej osoby. U klientów z polityką
   limit MD (albo limitu jeszcze nie ma — osoby bez budżetu nie „wyczerpały"
   niczego);
 * przechodzi na **zakończone** (``completed``, „Zakończone"), gdy WSZYSTKIE
-  osoby wyczerpią swój limit — ostatnia osoba kończy całe zamówienie.
+  osoby wyczerpią swój limit — ostatnia osoba kończy całe zamówienie. Osoba
+  z zakończoną współpracą, pozostawiona na zamówieniu jako historia, jest
+  przy tej ocenie POMIJANA (rozstrzygnięcie otwartego pytania z ticketu
+  09.2026): jej niewykorzystany limit nie trzyma zamówienia otwartego.
 
 Zużycie przychodzi z istniejącego importu Finansów: to on przelicza
 ``md_remaining`` (``recompute_remaining``), a ta funkcja jest wołana stamtąd,
@@ -36,6 +39,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_offboarding import (
+    OFFBOARDING_STATUS_PENDING,
+    ClientOrderOffboardingCase,
+)
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_COMPLETED,
@@ -103,9 +110,33 @@ async def sync_md_group_exhaustion(
         if line.status != ClientOrderStatus.cancelled
     ]
     if group.status == GROUP_STATUS_ACTIVE:
-        if not lines or any(
-            line.md_total is None or _remaining(line) > _ZERO for line in lines
+        # Osoba z ZAKOŃCZONĄ współpracą (linia ``completed`` z niewykorzystanym
+        # limitem — zapis historyczny albo zakończenie kontraktu) nie trzyma
+        # zamówienia otwartego: jej MD i tak nikt już nie wykorzysta. Decydują
+        # osoby na obsadzie. Zamówienie kończy się jednak dopiero wtedy, gdy
+        # ktoś NAPRAWDĘ wyczerpał limit — same odejścia to nie „wyczerpanie MD".
+        on_staff = [
+            line for line in lines if line.status != ClientOrderStatus.completed
+        ]
+        exhausted_any = any(
+            line.md_total is not None and _remaining(line) <= _ZERO for line in lines
+        )
+        if not exhausted_any or any(
+            line.md_total is None or _remaining(line) > _ZERO for line in on_staff
         ):
+            return False
+        # Nierozstrzygnięta decyzja o pozostałej puli MD (offboarding) trzyma
+        # zamówienie otwarte: po zamknięciu „przywróć" i „przenieś" nie
+        # miałyby już dokąd wrócić — zostałoby tylko „usuń".
+        pending_case = await db.scalar(
+            select(ClientOrderOffboardingCase.id)
+            .where(
+                ClientOrderOffboardingCase.order_group_id == group.id,
+                ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+            )
+            .limit(1)
+        )
+        if pending_case is not None:
             return False
         closure_day = today or business_today()
         group.status = GROUP_STATUS_COMPLETED

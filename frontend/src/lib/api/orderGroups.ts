@@ -109,6 +109,24 @@ export interface OrderLineRead {
   /** Decyzja po zakończeniu współpracy na zamówieniu MD. `pending` oznacza,
    *  że linia zostaje oznaczona alarmowo do czasu decyzji Delivery Leada. */
   offboarding_case?: OrderOffboardingCaseRead | null;
+  /** `document` — osoba z PDF-a zamówienia; `manual` — dopisana przez
+   *  człowieka (ręcznie albo jako zastępstwo); `null` — sprzed ewidencji. */
+  origin?: "document" | "manual" | null;
+  added_by_user_id?: number | null;
+  added_by_name?: string | null;
+  added_at?: string | null;
+  /** Za kogo ta osoba jest zastępstwem. */
+  replaces_name?: string | null;
+  /** Usunięta z zamówienia, ale z wykorzystaniem — zostaje widoczna, a jej
+   *  zużycie nie wraca do puli. */
+  removed_from_order?: boolean;
+  /** Data zakończenia współpracy, gdy się skończyła (linia zostaje). */
+  cooperation_ended_on?: string | null;
+  /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). */
+  md_used?: number | null;
+  /** Decyzja „Zostaw jako historię". */
+  history_kept_at?: string | null;
+  history_kept_by_name?: string | null;
 }
 
 export type OrderGroupStatus =
@@ -267,7 +285,13 @@ export interface OrderPlanContract {
 }
 
 /** Wynik dopasowania osoby z dokumentu do kontraktu (odznaka karty). */
-export type OrderPlanMatchStatus = "auto" | "confirm" | "ambiguous" | "none";
+export type OrderPlanMatchStatus =
+  | "auto"
+  | "confirm"
+  | "ambiguous"
+  /** Osoba jest w systemie, ale jej współpraca u klienta jest zakończona. */
+  | "inactive"
+  | "none";
 
 /** Jedna pozycja osobowa z PDF-a — karta konsultanta w oknie. */
 export interface OrderPlanLine {
@@ -304,6 +328,9 @@ export interface OrderGroupExtraction {
   /** Reguła klienta mówi „bezterminowo" (BIK) — brak daty końca to odczyt,
    *  nie jego brak; formularz czyści pole „do". */
   open_ended?: boolean;
+  /** Wariant liczby MD w dokumencie: przy każdej osobie albo jedna liczba na
+   *  całe zamówienie. `null` = dokument MD nie podaje (zamówienie kosztowe). */
+  md_scope?: "per_consultant" | "order" | null;
   document_incomplete: boolean;
   uncertain: boolean;
   uncertain_reasons: string[];
@@ -325,6 +352,15 @@ export interface OrderLineInput {
   start_date: string;
   end_date?: string | null;
   job_id?: number | null;
+  /** Osoba z zakończoną współpracą zostaje na zamówieniu jako historia —
+   *  linia powstaje zakończona, z datą końca udziału w `end_date`. */
+  historical?: boolean;
+  /** Imię i nazwisko tak, jak w PDF-ie — linia pochodzi z dokumentu. */
+  document_name?: string | null;
+  /** Osoba z dokumentu, za którą ta linia jest zastępstwem. */
+  replaces_name?: string | null;
+  /** Linia tego zamówienia, za którą ta osoba jest zastępstwem. */
+  replaces_order_id?: number | null;
 }
 
 export interface OrderGroupInput {
@@ -570,6 +606,13 @@ export const orderGroupsApi = {
     api.post<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines`,
       payload,
+    ),
+
+  /** „Zostaw jako historię" — osoba z zakończoną współpracą zostaje
+   *  na zamówieniu; zapis kto i kiedy zdecydował. */
+  keepLineHistory: (clientId: number, groupId: number, lineId: number) =>
+    api.post<void>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/keep-history`,
     ),
 
   updateLine: (

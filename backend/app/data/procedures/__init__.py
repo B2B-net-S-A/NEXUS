@@ -99,6 +99,7 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/order_policies/mleasing.py",
     "backend/app/services/order_policies/nordea.py",
     "backend/app/services/order_policies/pko_bp.py",
+    "backend/app/services/order_policies/polkomtel.py",
     "backend/app/services/order_policies/velobank.py",
     "backend/app/services/order_policies/known_clients.py",
     # Rozpoznanie klienta z treści PDF i tekst zamówienia z metadanymi

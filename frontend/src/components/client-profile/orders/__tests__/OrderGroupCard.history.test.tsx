@@ -271,4 +271,81 @@ describe("OrderGroupCard — historia zamówienia", () => {
       scrollSpy.mockRestore();
     }
   });
+
+  it("osoba dodana ręcznie i osoba z zakończoną współpracą mają swoją historię", async () => {
+    const onKeepHistory = vi.fn();
+    const onReplaceLine = vi.fn();
+    const onDeleteLine = vi.fn();
+    const ended = line({
+      id: 7,
+      consultant_name: "Marian Odeszły",
+      status: "completed",
+      is_active: false,
+      start_date: "2026-03-30",
+      end_date: "2026-08-12",
+      cooperation_ended_on: "2026-08-12",
+      invoiced_total: 25720,
+      md_total: null,
+      md_remaining: null,
+      origin: "document",
+    });
+    const substitute = line({
+      id: 8,
+      consultant_name: "Tadeusz Zastępca",
+      origin: "manual",
+      added_by_name: "Anna Przykładowa",
+      added_at: "2026-08-13T09:00:00Z",
+      replaces_name: "Marian Odeszły",
+      md_total: null,
+      md_remaining: null,
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OrderGroupCard
+          clientId={15}
+          group={group({
+            is_cost_based: true,
+            budget_amount: 40000,
+            budget_used: 40000,
+            budget_remaining: 0,
+            has_file: true,
+            lines: [ended, substitute],
+          })}
+          canManage
+          canManageLifecycle
+          onAddConsultant={noop}
+          onEditGroup={noop}
+          onEditLine={noop}
+          onSwapLine={noop}
+          onDeleteLine={onDeleteLine}
+          onResolveOffboarding={noop}
+          onKeepHistory={onKeepHistory}
+          onReplaceLine={onReplaceLine}
+          onDeleteGroup={noop}
+          onCloseGroup={noop}
+          onReopenGroup={noop}
+          onExtendGroup={noop}
+          onFocusGroup={noop}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Dodany ręcznie")).toBeInTheDocument();
+    expect(
+      screen.getByText(/przez Anna Przykładowa jako zastępstwo za Marian Odeszły/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/PDF\) podpięto także do profilu tej osoby/)).toBeInTheDocument();
+    expect(screen.getByText(/Zakończył współpracę 12\.08\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/ta kwota nie wraca do puli dostępnego budżetu/)).toBeInTheDocument();
+    expect(screen.getByText(/nie ma już aktywnej współpracy/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Zostaw jako historię" }));
+    expect(onKeepHistory).toHaveBeenCalledWith(expect.anything(), ended);
+    await user.click(screen.getByRole("button", { name: "Zastąp kimś innym" }));
+    expect(onReplaceLine).toHaveBeenCalledWith(expect.anything(), ended);
+    await user.click(screen.getByRole("button", { name: "Usuń z zamówienia" }));
+    expect(onDeleteLine).toHaveBeenCalledWith(expect.anything(), ended);
+  });
 });

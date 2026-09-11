@@ -23,7 +23,7 @@ per MD i dotyczą wyłącznie tej powierzchni.
 from __future__ import annotations
 
 import io
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Optional
 
@@ -134,6 +134,7 @@ from app.services.cost_orders import (
     settle_group,
 )
 from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_order_sync import skip_sync_for_contract
 from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
@@ -147,6 +148,7 @@ from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
     EVENT_BUDGET_EXHAUSTED,
     EVENT_CONSULTANT_ADDED,
+    EVENT_CONSULTANT_ENDED,
     EVENT_CONSULTANT_SWAPPED,
     EVENT_MANUAL_EDIT,
     EVENT_MD_TRANSFER,
@@ -160,6 +162,8 @@ from app.services.multi_consultant_orders import (
     EVENT_TYPE_LABELS,
     INPUT_MODE_AMOUNT,
     INPUT_MODE_MD,
+    LINE_DECISION_KEEP_HISTORY,
+    LINE_DECISION_REMOVED,
     compute_md_total,
     format_md,
     is_multi_consultant_client,
@@ -1083,6 +1087,7 @@ async def _group_to_read(
         if item.job_id:
             item.job_title = job_titles.get(item.job_id)
         reads.append(item)
+    await _apply_line_history(db, group, lines, reads)
     reads.sort(
         key=lambda item: (
             normalize_person_name_part(item.consultant_name),
@@ -1173,6 +1178,133 @@ async def _group_to_read(
         active_consultants=sum(1 for r in reads if r.is_active),
         event_count=event_count,
     )
+
+
+#: Linia dodana później niż tyle po utworzeniu zamówienia to dopisek człowieka,
+#: a nie osoba z oryginalnego PDF-a — reguła dla wpisów sprzed pola ``origin``.
+_LATE_ADDITION = timedelta(minutes=2)
+_KEEP_HISTORY_REASON = LINE_DECISION_KEEP_HISTORY
+_REMOVED_REASON = LINE_DECISION_REMOVED
+
+
+async def _has_line_decision(db: AsyncSession, order_id: int, reason: str) -> bool:
+    return bool(
+        await db.scalar(
+            select(func.count(ClientOrderGroupEvent.id)).where(
+                ClientOrderGroupEvent.order_id == order_id,
+                ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_ENDED,
+                ClientOrderGroupEvent.payload["reason"].astext == reason,
+            )
+        )
+    )
+
+
+def _added_later(group_created: Optional[datetime], added: Optional[datetime]) -> bool:
+    if group_created is None or added is None:
+        return False
+    try:
+        return added - group_created > _LATE_ADDITION
+    except TypeError:  # jedna z dat bez strefy — nie zgadujemy pochodzenia
+        return False
+
+
+async def _apply_line_history(
+    db: AsyncSession,
+    group: ClientOrderGroup,
+    lines: list[ClientOrder],
+    reads: list[OrderLineRead],
+) -> None:
+    """Uzupełnij linie o historię: pochodzenie, autora, zastępstwo, koniec udziału.
+
+    Wszystko z JEDNEGO zapytania o dziennik zamówienia — karta pokazuje
+    wszystkie osoby naraz. Źródłem jest dziennik (``client_order_group_events``),
+    a nie nowe kolumny: zdarzenie „dodanie konsultanta" od zawsze niesie autora
+    i czas, a od 09.2026 także pochodzenie linii (PDF / ręcznie / zastępstwo).
+    """
+    if not lines:
+        return
+    by_id = {line.id: line for line in lines}
+    rows = await db.execute(
+        select(ClientOrderGroupEvent, User.name)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
+        .where(
+            ClientOrderGroupEvent.order_id.in_(list(by_id)),
+            ClientOrderGroupEvent.event_type.in_(
+                (
+                    EVENT_CONSULTANT_ADDED,
+                    EVENT_CONSULTANT_SWAPPED,
+                    EVENT_CONSULTANT_ENDED,
+                )
+            ),
+        )
+        .order_by(
+            ClientOrderGroupEvent.created_at.asc(), ClientOrderGroupEvent.id.asc()
+        )
+    )
+    added: dict[int, tuple[ClientOrderGroupEvent, Optional[str]]] = {}
+    ended: dict[int, list[tuple[ClientOrderGroupEvent, Optional[str]]]] = {}
+    for event, author in rows.all():
+        if event.event_type == EVENT_CONSULTANT_ENDED:
+            ended.setdefault(event.order_id, []).append((event, author))
+        else:
+            added.setdefault(event.order_id, (event, author))
+
+    for item in reads:
+        line = by_id.get(item.id)
+        if line is None:
+            continue
+        item.removed_from_order = line.status == ClientOrderStatus.cancelled or any(
+            (event.payload or {}).get("reason") == _REMOVED_REASON
+            for event, _ in ended.get(line.id, [])
+        )
+        if line.md_total is not None or line.md_consumptions:
+            item.md_used = quantize_md(
+                sum(
+                    (Decimal(str(c.md_reported)) for c in line.md_consumptions),
+                    Decimal("0"),
+                )
+            )
+
+        entry = added.get(line.id)
+        if entry is not None:
+            event, author = entry
+            payload = event.payload or {}
+            item.added_by_user_id = event.created_by_user_id
+            item.added_by_name = author
+            item.added_at = event.created_at
+            if event.event_type == EVENT_CONSULTANT_SWAPPED:
+                item.origin = "manual"
+                item.replaces_name = item.predecessor_consultant_name
+            else:
+                origin = payload.get("origin")
+                if origin in ("document", "manual"):
+                    item.origin = origin
+                elif _added_later(group.created_at, event.created_at):
+                    item.origin = "manual"
+                item.replaces_name = payload.get("replaces") or None
+
+        for event, author in ended.get(line.id, []):
+            payload = event.payload or {}
+            if payload.get("reason") == _KEEP_HISTORY_REASON:
+                item.history_kept_at = event.created_at
+                item.history_kept_by_name = author
+            effective = payload.get("effective_date")
+            if effective and item.cooperation_ended_on is None:
+                try:
+                    item.cooperation_ended_on = date.fromisoformat(effective)
+                except ValueError:
+                    pass
+
+        if item.cooperation_ended_on is None and item.offboarding_case is not None:
+            item.cooperation_ended_on = item.offboarding_case.effective_date
+        contract = line.contract
+        if item.cooperation_ended_on is None and contract is not None:
+            status_value = getattr(contract.status, "value", contract.status)
+            if status_value == ContractStatus.ended.value or contract.terminated_at:
+                item.cooperation_ended_on = contract.terminated_at or contract.end_date
+        if line.status == ClientOrderStatus.active and item.offboarding_case is None:
+            # Aktywna linia z wznowionym kontraktem nie jest „zakończoną współpracą".
+            item.cooperation_ended_on = None
 
 
 async def _normalize_empty_explicit_md_group(
@@ -1297,6 +1429,9 @@ async def _build_line(
     contract, candidate, contract_created = await _resolve_line_person(
         db, group=group, payload=payload
     )
+    if payload.historical:
+        _assert_historical_line_allowed(contract, payload)
+        skip_sync_for_contract(db, contract.id)
     # Osoba wchodzi na linię grupy — pusty szkic-zaślepka po hooku zatrudnienia
     # przestaje być „do uzupełnienia" i staje się DRUGIM zapisem tej samej
     # współpracy. Zostawiony na kontrakcie sprawiał, że wypowiedzenie z karty
@@ -1376,11 +1511,15 @@ async def _build_line(
         else ""
     )
     now = datetime.now(timezone.utc)
-    line_status = (
-        ClientOrderStatus.draft
-        if group.status in (GROUP_STATUS_SCHEDULED, "draft")
-        else ClientOrderStatus.active
-    )
+    if payload.historical:
+        # Zapis historyczny: osoba była na zamówieniu, ale współpraca już się
+        # skończyła. Linia jest od razu zakończona, więc nie wchodzi do
+        # aktywnej obsady, nie budzi skanera wygasania i nie wznawia kontraktu.
+        line_status = ClientOrderStatus.completed
+    elif group.status in (GROUP_STATUS_SCHEDULED, "draft"):
+        line_status = ClientOrderStatus.draft
+    else:
+        line_status = ClientOrderStatus.active
     line = ClientOrder(
         client_id=group.client_id,
         contract_id=contract.id,
@@ -1391,7 +1530,11 @@ async def _build_line(
         status=line_status,
         start_date=payload.start_date,
         end_date=payload.end_date or group.end_date,
-        filled_at=now if line_status == ClientOrderStatus.active else None,
+        filled_at=(
+            now
+            if line_status in (ClientOrderStatus.active, ClientOrderStatus.completed)
+            else None
+        ),
         md_rate_cost=canonical_cost,
         md_rate_revenue=canonical_revenue,
         rate_candidate=payload.rate_cost,
@@ -1417,12 +1560,84 @@ async def _build_line(
     return line, who or "konsultant", contract_created
 
 
+def _assert_historical_line_allowed(
+    contract: Contract, payload: OrderLineCreate
+) -> None:
+    """Zapis historyczny tylko dla osoby, której współpraca już się zakończyła.
+
+    Aktywny kontrakt oznacza osobę, która pracuje — jej miejsce jest w aktywnej
+    obsadzie, a „historia" ukryłaby ją przed skanerem wygasania i MRR. Data
+    końca udziału w przyszłości zamieniłaby zakończoną linię w obsadę, która
+    jeszcze trwa, tylko bez niczyjego nadzoru.
+    """
+    # Wyłącznie status `ended`: `terminated_at` przeżywa wznowienie kontraktu
+    # (`reopen_contract` go nie czyści), więc nie dowodzi, że osoba nie pracuje.
+    status_value = getattr(contract.status, "value", contract.status)
+    if status_value != ContractStatus.ended.value:
+        raise HTTPException(
+            422,
+            detail=(
+                "Zapis historyczny dotyczy osoby z zakończoną współpracą — ten "
+                "kontrakt jest nadal aktywny, dodaj osobę jako zwykłą linię"
+            ),
+        )
+    if payload.end_date is not None and payload.end_date > business_today():
+        raise HTTPException(
+            422,
+            detail=(
+                "Data końca udziału w zapisie historycznym nie może być w przyszłości"
+            ),
+        )
+
+
+def _line_origin_payload(
+    payload: OrderLineCreate,
+    *,
+    replaced_name: Optional[str] = None,
+    replaced_order_id: Optional[int] = None,
+) -> dict:
+    """Skąd linia pochodzi — z PDF-a zamówienia czy od człowieka.
+
+    Zapisywane w zdarzeniu „dodanie konsultanta" (autor i czas niesie samo
+    zdarzenie), żeby karta zamówienia umiała powiedzieć, kto i kiedy dopisał
+    osobę spoza oryginalnego dokumentu — i za kogo była zastępstwem.
+    """
+    document_name = (payload.document_name or "").strip() or None
+    replaces = (replaced_name or payload.replaces_name or "").strip() or None
+    return {
+        "origin": "document" if document_name and not replaces else "manual",
+        "document_name": document_name,
+        "replaces": replaces,
+        # Tylko identyfikator ZWERYFIKOWANY przez handler (linia tej grupy).
+        "replaces_order_id": replaced_order_id,
+        "historical": payload.historical,
+    }
+
+
+def _origin_suffix(payload: OrderLineCreate, origin: dict) -> str:
+    parts: list[str] = []
+    if payload.historical and payload.end_date is not None:
+        parts.append(
+            "zapis historyczny — współpraca zakończona "
+            f"{payload.end_date.strftime('%d.%m.%Y')}"
+        )
+    if origin.get("replaces"):
+        parts.append(f"zastępstwo za {origin['replaces']}")
+    return f" ({'; '.join(parts)})" if parts else ""
+
+
 async def _sync_contract_after_live_group_line(
     db: AsyncSession, line: ClientOrder, *, actor_id: Optional[int]
 ) -> bool:
     """Apply the Contract↔live-order invariant to a freshly active group line."""
 
-    if line.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
+    if line.status in (
+        ClientOrderStatus.draft,
+        ClientOrderStatus.cancelled,
+        # Zapis historyczny opisuje współpracę, która się SKOŃCZYŁA — nie może
+        # wznowić kontraktu tylko dlatego, że osoba stoi w PDF-ie zamówienia.
+        ClientOrderStatus.completed,
+    ):
         return False
     contract = await db.get(Contract, line.contract_id)
     if contract is None:
@@ -1930,6 +2145,7 @@ async def extract_order_group_pdf(
         consultant_ref=extraction.consultant_ref,
         title_needs_review=extraction.title_needs_review,
         open_ended=reading.open_ended,
+        md_scope=reading.md_scope,
         document_incomplete=document.ocr_capped,
         uncertain=extraction.uncertain or document.ocr_capped,
         uncertain_reasons=reasons,
@@ -2350,11 +2566,20 @@ async def create_order_group(
     )
 
     for line_payload in payload.lines:
+        if line_payload.replaces_order_id is not None:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Nowe zamówienie nie ma jeszcze linii, za którą można dodać "
+                    "zastępstwo — podaj osobę z dokumentu w replaces_name"
+                ),
+            )
         line, who, contract_created = await _build_line(
             db, group=group, payload=line_payload, user=user
         )
         await db.flush()
         await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
+        origin = _line_origin_payload(line_payload)
         record_event(
             db,
             group_id=group.id,
@@ -2362,7 +2587,8 @@ async def create_order_group(
             event_type=EVENT_CONSULTANT_ADDED,
             description=_describe_line(
                 line, who, group=group, contract_created=contract_created
-            ),
+            )
+            + _origin_suffix(line_payload, origin),
             payload={
                 "consultant": who,
                 "rate_cost": str(line.md_rate_cost),
@@ -2371,6 +2597,7 @@ async def create_order_group(
                 "input_mode": line.md_input_mode,
                 "input_value": str(line.md_input_value),
                 "contract_created": contract_created,
+                **origin,
             },
             user_id=user.id,
         )
@@ -2836,6 +3063,91 @@ async def _assert_group_is_disposable(
     )
 
 
+async def _line_consumption(
+    db: AsyncSession, line: ClientOrder
+) -> tuple[Decimal, Decimal, bool]:
+    """Wykorzystanie linii: ``(zafakturowana kwota, zaraportowane MD, czy cokolwiek)``."""
+
+    invoiced, invoice_rows = (
+        await db.execute(
+            select(
+                func.coalesce(
+                    func.sum(ClientOrderInvoiceConsumption.invoice_amount), 0
+                ),
+                func.count(ClientOrderInvoiceConsumption.id),
+            ).where(ClientOrderInvoiceConsumption.order_id == line.id)
+        )
+    ).one()
+    md_used, md_rows = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(ClientOrderMdConsumption.md_reported), 0),
+                func.count(ClientOrderMdConsumption.id),
+            ).where(ClientOrderMdConsumption.order_id == line.id)
+        )
+    ).one()
+    return (
+        quantize_money(invoiced or 0),
+        quantize_md(md_used or 0),
+        bool(invoice_rows or md_rows),
+    )
+
+
+async def _keep_consumed_line_as_history(
+    db: AsyncSession, *, group: ClientOrderGroup, line: ClientOrder, user: User
+) -> bool:
+    """Osoba z wykorzystaną kwotą/MD zostaje na zamówieniu jako „usunięta".
+
+    Do 09.2026 usunięcie linii z historią ODPINAŁO ją od zamówienia
+    (``order_group_id = NULL``). Rozliczenie zamówienia kosztowego liczy
+    faktury po liniach grupy, więc odpięcie zwracało do puli pieniądze, które
+    ta osoba już wykorzystała — a karta zamówienia traciła informację, ile
+    kto zużył. Ticket żąda odwrotnie: wykorzystana kwota/MD nie wraca do puli
+    i pozostaje widoczna przy tej osobie, także gdy nie jest już aktywna.
+
+    Linia zostaje w grupie ze statusem ``cancelled`` (skanery, MRR i import
+    zejść jej nie widzą; rozliczenie puli nadal liczy jej faktury), a dziennik
+    dostaje wpis — bez kwot w opisie, bo opis widzą też role bez finansów.
+    Zwraca ``False``, gdy linia nie ma zużycia (wtedy obowiązuje dotychczasowa
+    reguła: szkic znika, reszta jest odpinana).
+    """
+
+    invoiced, md_used, has_consumption = await _line_consumption(db, line)
+    if not has_consumption:
+        return False
+    if await _has_line_decision(db, line.id, _REMOVED_REASON):
+        return True  # już usunięta — drugi klik nie dubluje wpisu
+    today = business_today()
+    if line.end_date is None or line.end_date > today:
+        line.end_date = max(today, line.start_date) if line.start_date else today
+    # `completed`, nie `cancelled`: synchronizacja kontrakt ↔ zamówienia czyta
+    # zakończone zamówienia jako historię stawek i okresu. Anulowane wypadłyby
+    # z niej, a kontrakt straciłby krok przychodu za miesiące już rozliczone.
+    # O „usunięciu" mówi wpis w dzienniku (`_REMOVED_REASON`), a
+    # `sync_md_line_status` takiej linii nie wskrzesza.
+    if line.status != ClientOrderStatus.cancelled:
+        line.status = ClientOrderStatus.completed
+    who = consultant_display_name(line)
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_CONSULTANT_ENDED,
+        description=(
+            f"{who} — usunięty z zamówienia. Wykorzystana dotąd kwota i MD "
+            "zostają przypisane do zamówienia i nie wracają do puli"
+        ),
+        payload={
+            "reason": _REMOVED_REASON,
+            "invoiced": str(invoiced),
+            "md_used": str(md_used),
+            "end_date": line.end_date.isoformat() if line.end_date else None,
+        },
+        user_id=user.id,
+    )
+    return True
+
+
 async def _detach_or_delete_line(db: AsyncSession, line: ClientOrder) -> bool:
     """Usuń linię z zamówienia. Zwraca ``True``, gdy została ODPIĘTA, nie skasowana.
 
@@ -2900,8 +3212,11 @@ async def delete_line(
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
+    # `_line_query()`, nie goły select: zapis historii czyta nazwisko osoby
+    # (`consultant_display_name`), a leniwe doczytanie relacji w async to
+    # `MissingGreenlet` — 500 bez CORS, w przeglądarce „Network Error".
     line = await db.scalar(
-        select(ClientOrder)
+        _line_query()
         .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
         .with_for_update()
     )
@@ -2910,7 +3225,10 @@ async def delete_line(
 
     await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
 
-    detached = await _detach_or_delete_line(db, line)
+    kept_as_history = await _keep_consumed_line_as_history(
+        db, group=group, line=line, user=user
+    )
+    detached = False if kept_as_history else await _detach_or_delete_line(db, line)
     if group.is_cost_based:
         # Kasowanie linii zabiera też jej faktury (CASCADE), więc pula musi
         # zostać przeliczona — inaczej zamówienie zostaje „wyczerpane" kwotami,
@@ -2927,8 +3245,80 @@ async def delete_line(
                 "group_id": group_id,
                 "order_id": line_id,
                 "detached": detached,
+                "kept_as_history": kept_as_history,
             },
         )
+    )
+    await commit_order_write(db)
+
+
+@router.post(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/keep-history",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def keep_line_as_history(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    user: OrderLifecycleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Zostaw jako historię" — osoba z zakończoną współpracą zostaje na zamówieniu.
+
+    Decyzja Delivery Leada wobec konsultanta, który zakończył współpracę, a jest
+    na zamówieniu (ticket 09.2026: zostaw / zastąp / usuń). Nic nie zmienia
+    w danych rozliczeniowych — wykorzystana kwota i MD tej osoby i tak nie
+    wracają do puli — ale zapisuje w historii, KTO i KIEDY podjął decyzję,
+    i gasi pytanie na karcie zamówienia.
+
+    Linię z nierozstrzygniętą sprawą offboardingu MD rozstrzyga wyłącznie jej
+    własny formularz (usuń / przenieś / przywróć pulę) — tu 409, żeby nie dało
+    się zgasić alertu Delivery Leada bokiem.
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    line = await db.scalar(
+        _line_query()
+        .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
+        .with_for_update()
+    )
+    if line is None:
+        raise HTTPException(404, detail="Ta linia nie należy do tego zamówienia")
+    if line.status not in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
+        raise HTTPException(
+            409,
+            detail=(
+                "Ta osoba jest nadal na aktywnej obsadzie — zapis historyczny "
+                "dotyczy zakończonej współpracy"
+            ),
+        )
+    contract_status = getattr(
+        getattr(line.contract, "status", None), "value", None
+    ) or getattr(line.contract, "status", None)
+    if contract_status != ContractStatus.ended.value:
+        raise HTTPException(
+            409,
+            detail=(
+                "Współpraca tej osoby nie jest zakończona — „Zostaw jako historię” "
+                "dotyczy osoby z zakończonym kontraktem"
+            ),
+        )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
+    if await _has_line_decision(db, line.id, _KEEP_HISTORY_REASON):
+        return
+    who = consultant_display_name(line)
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_CONSULTANT_ENDED,
+        description=(
+            f"{who} — zostawiony na zamówieniu jako zapis historyczny "
+            "(zakończona współpraca). Wykorzystana kwota i MD nie wracają do puli"
+        ),
+        payload={"reason": _KEEP_HISTORY_REASON},
+        user_id=user.id,
     )
     await commit_order_write(db)
 
@@ -3238,10 +3628,19 @@ async def extend_order_group(
         )
 
     for line_payload in payload.lines:
+        if line_payload.replaces_order_id is not None:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Zastępstwo za osobę wskazuje się w jej zamówieniu, nie "
+                    "w przedłużeniu"
+                ),
+            )
         line, who, contract_created = await _build_line(
             db, group=group, payload=line_payload, user=user
         )
         await db.flush()
+        origin = _line_origin_payload(line_payload)
         record_event(
             db,
             group_id=group.id,
@@ -3249,13 +3648,15 @@ async def extend_order_group(
             event_type=EVENT_CONSULTANT_ADDED,
             description=_describe_line(
                 line, who, group=group, contract_created=contract_created
-            ),
+            )
+            + _origin_suffix(line_payload, origin),
             payload={
                 "consultant": who,
                 "rate_cost": str(line.md_rate_cost),
                 "rate_revenue": str(line.md_rate_revenue),
                 "md_total": str(line.md_total),
                 "contract_created": contract_created,
+                **origin,
             },
             user_id=user.id,
         )
@@ -3319,11 +3720,33 @@ async def add_line(
 
     await _normalize_empty_explicit_md_group(db, group)
 
+    replaced_name: Optional[str] = None
+    if payload.replaces_order_id is not None:
+        # Zastępstwo za osobę z TEGO zamówienia. Nie przenosi budżetu: jej
+        # wykorzystana kwota i MD zostają przy niej (ticket 09.2026), a pula
+        # wspólna liczy się dalej z faktur i zejść wszystkich osób.
+        replaced = await db.scalar(
+            _line_query().where(
+                ClientOrder.id == payload.replaces_order_id,
+                ClientOrder.order_group_id == group.id,
+            )
+        )
+        if replaced is None:
+            raise HTTPException(
+                422, detail="Zastępowana osoba nie należy do tego zamówienia"
+            )
+        replaced_name = consultant_display_name(replaced)
+
     line, who, contract_created = await _build_line(
         db, group=group, payload=payload, user=user
     )
     await db.flush()
     await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
+    origin = _line_origin_payload(
+        payload,
+        replaced_name=replaced_name,
+        replaced_order_id=payload.replaces_order_id if replaced_name else None,
+    )
     record_event(
         db,
         group_id=group.id,
@@ -3331,13 +3754,15 @@ async def add_line(
         event_type=EVENT_CONSULTANT_ADDED,
         description=_describe_line(
             line, who, group=group, contract_created=contract_created
-        ),
+        )
+        + _origin_suffix(payload, origin),
         payload={
             "consultant": who,
             "rate_cost": str(line.md_rate_cost),
             "rate_revenue": str(line.md_rate_revenue),
             "md_total": str(line.md_total),
             "contract_created": contract_created,
+            **origin,
         },
         user_id=user.id,
     )

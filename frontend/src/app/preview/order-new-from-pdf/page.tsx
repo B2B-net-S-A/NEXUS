@@ -157,6 +157,52 @@ const VARIANTS = extraction([
   }),
 ]);
 
+// Zlecenie wykonawcze kosztowe (kształt dokumentu Polkomtela, dane zmyślone):
+// stawki z wierszy tabeli, bez liczby MD; osoba z zakończoną współpracą i osoba,
+// której nie ma w systemie — obie z jawnym wyborem zamiast cichego błędu.
+const COST_ORDER: OrderGroupExtraction = {
+  ...extraction([
+    line({
+      ordinal: 1,
+      document_name: "Nowak-Testowa Ewa",
+      rate_revenue: 840,
+      md_total: null,
+      match_status: "confirm",
+      match_reason:
+        "Imię i nazwisko zapisano w odwrotnej kolejności — potwierdź, że to ta sama osoba",
+      contract: contract({ contract_id: 41, candidate_id: 401, contractor_name: "Ewa Nowak-Testowa" }),
+    }),
+    line({
+      ordinal: 2,
+      document_name: "Odeszły Marian",
+      rate_revenue: 1280,
+      md_total: null,
+      match_status: "inactive",
+      match_reason:
+        "Imię i nazwisko zapisano w odwrotnej kolejności; „Odeszły Marian” nie ma już aktywnej współpracy u tego klienta (kontrakt zakończony 12.08.2026). Zdecyduj: zostaw tę osobę na zamówieniu jako zapis historyczny, wznów współpracę, zastąp ją inną osobą albo usuń z zamówienia",
+      contract: contract({
+        contract_id: 42,
+        candidate_id: 402,
+        contractor_name: "Marian Odeszły",
+        status: "ended",
+        end_date: "2026-08-12",
+      }),
+    }),
+    line({
+      ordinal: 3,
+      document_name: "Nieobecny Zenon",
+      rate_revenue: 1100,
+      md_total: null,
+      match_status: "none",
+      match_reason:
+        "Nie znaleziono „Nieobecny Zenon” w systemie — brak kontraktu z tym imieniem i nazwiskiem u tego klienta (system nie koryguje literówek ani nie zgaduje podobieństwa). Wskaż tę osobę ręcznie, zastąp ją kimś innym albo usuń z zamówienia",
+    }),
+  ]),
+  order_number: "SAP 4500987654",
+  start_date: "2026-03-30",
+  total_value: 40000,
+};
+
 const CONTEXT: OrderPlanContext = {
   orderType: "md",
   sharedMd: false,
@@ -164,10 +210,25 @@ const CONTEXT: OrderPlanContext = {
   groupEnd: null,
 };
 
-function Cards({ plan, title }: { plan: OrderGroupExtraction; title: string }) {
+const COST_CONTEXT: OrderPlanContext = {
+  orderType: "cost",
+  sharedMd: false,
+  groupStart: "2026-03-30",
+  groupEnd: null,
+};
+
+function Cards({
+  plan,
+  title,
+  context = CONTEXT,
+}: {
+  plan: OrderGroupExtraction;
+  title: string;
+  context?: OrderPlanContext;
+}) {
   const [lines, setLines] = useState<OrderLineDraft[]>(() => draftsFromPlan(plan));
   const duplicated = duplicatePersonKeys(lines);
-  const ready = lines.filter((item) => lineIssues(item, CONTEXT).length === 0).length;
+  const ready = lines.filter((item) => lineIssues(item, context).length === 0).length;
   return (
     <section className="space-y-3 rounded-xl border border-border bg-background p-4 shadow-sm">
       <h2 className="text-sm font-semibold text-foreground">{title}</h2>
@@ -176,9 +237,9 @@ function Cards({ plan, title }: { plan: OrderGroupExtraction; title: string }) {
           key={item.key}
           clientId={CLIENT_ID}
           draft={item}
-          showMd
+          showMd={context.orderType === "md" && !context.sharedMd}
           duplicated={duplicated.has(item.key)}
-          issues={lineIssues(item, CONTEXT)}
+          issues={lineIssues(item, context)}
           onChange={(next) =>
             setLines((current) => current.map((row) => (row.key === item.key ? next : row)))
           }
@@ -249,6 +310,11 @@ export default function OrderNewFromPdfPreview() {
         />
         <Cards plan={BIK} title="Zamówienie BIK 4500030845 — dwie pozycje z PDF-a" />
         <Cards plan={VARIANTS} title="Warianty dopasowania" />
+        <Cards
+          plan={COST_ORDER}
+          context={COST_CONTEXT}
+          title="Zlecenie wykonawcze SAP 4500987654 — kosztowe, kwota 40 000 zł, bez MD"
+        />
       </main>
     </QueryClientProvider>
   );

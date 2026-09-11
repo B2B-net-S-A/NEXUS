@@ -157,7 +157,9 @@ export function MultiConsultantOrdersTab({
     open: boolean;
     group: OrderGroupRead | null;
     line: OrderLineRead | null;
-  }>({ open: false, group: null, line: null });
+    /** „Zastąp kimś innym" — nowa osoba dołączy obok tej linii. */
+    replaces?: OrderLineRead | null;
+  }>({ open: false, group: null, line: null, replaces: null });
   const [swapModal, setSwapModal] = useState<{
     open: boolean;
     group: OrderGroupRead | null;
@@ -354,10 +356,15 @@ export function MultiConsultantOrdersTab({
           )
         ).data;
       }
-      return (await orderGroupsApi.addLine(clientId, group.id, values)).data;
+      return (
+        await orderGroupsApi.addLine(clientId, group.id, {
+          ...values,
+          ...(lineModal.replaces ? { replaces_order_id: lineModal.replaces.id } : {}),
+        })
+      ).data;
     },
     onSuccess: () => {
-      setLineModal({ open: false, group: null, line: null });
+      setLineModal({ open: false, group: null, line: null, replaces: null });
       setFormError(null);
       invalidate();
       showToast("Zapisano linię konsultanta", "success");
@@ -449,6 +456,17 @@ export function MultiConsultantOrdersTab({
     },
     onError: (err) =>
       showToast(apiError(err, "Nie udało się usunąć konsultanta."), "error"),
+  });
+
+  const keepHistory = useMutation({
+    mutationFn: ({ groupId, lineId }: { groupId: number; lineId: number }) =>
+      orderGroupsApi.keepLineHistory(clientId, groupId, lineId),
+    onSuccess: () => {
+      invalidate();
+      showToast("Zostawiono konsultanta na zamówieniu jako historię", "success");
+    },
+    onError: (err) =>
+      showToast(apiError(err, "Nie udało się zapisać decyzji."), "error"),
   });
 
   const removeGroup = useMutation({
@@ -659,15 +677,22 @@ export function MultiConsultantOrdersTab({
         canManageLifecycle={canLifecycle}
         onAddConsultant={(selected) => {
           setFormError(null);
-          setLineModal({ open: true, group: selected, line: null });
+          setLineModal({ open: true, group: selected, line: null, replaces: null });
         }}
+        onReplaceLine={(selected, line) => {
+          setFormError(null);
+          setLineModal({ open: true, group: selected, line: null, replaces: line });
+        }}
+        onKeepHistory={(selected, line) =>
+          keepHistory.mutate({ groupId: selected.id, lineId: line.id })
+        }
         onEditGroup={(selected) => {
           setFormError(null);
           setGroupModal({ open: true, group: selected });
         }}
         onEditLine={(selected, line) => {
           setFormError(null);
-          setLineModal({ open: true, group: selected, line });
+          setLineModal({ open: true, group: selected, line, replaces: null });
         }}
         onSwapLine={(selected, line) => {
           setFormError(null);
@@ -681,7 +706,9 @@ export function MultiConsultantOrdersTab({
           if (
             !window.confirm(
               `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
-                `z zamówienia nr ${selected.order_number}? Tej operacji nie można cofnąć.`,
+                `z zamówienia nr ${selected.order_number}? Jeśli ta osoba ma już ` +
+                `wykorzystaną kwotę lub MD, zostanie na zamówieniu jako „usunięta” — ` +
+                `jej zużycie nie wróci do puli.`,
             )
           ) {
             return;
@@ -925,6 +952,7 @@ export function MultiConsultantOrdersTab({
         clientId={clientId}
         group={lineModal.group}
         line={lineModal.line}
+        replaces={lineModal.replaces ?? null}
         submitting={saveLine.isPending || adjustRemaining.isPending}
         error={formError}
         onSubmit={(values) => saveLine.mutate(values)}

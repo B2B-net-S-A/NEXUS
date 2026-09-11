@@ -112,6 +112,20 @@ COST_TARGET_ORDER_STATUSES = frozenset(
 
 _MONEY_2 = Decimal("0.01")
 _PENDING_KEY = "contract_order_sync.pending_contract_ids"
+_SKIP_KEY = "contract_order_sync.skip_contract_ids"
+
+
+def skip_sync_for_contract(db: AsyncSession, contract_id: int) -> None:
+    """Nie synchronizuj tego kontraktu przy najbliższym zapisie zamówień.
+
+    Zapis historyczny na zamówieniu (osoba z ZAKOŃCZONĄ współpracą, ticket
+    09.2026) opisuje przeszłość — nie może przestawić zakończonemu kontraktowi
+    jednostki, dopisać mu kroku przychodu po dacie zakończenia ani okresu
+    zamówienia późniejszego niż umowa.
+    """
+    db.info.setdefault(_SKIP_KEY, set()).add(contract_id)
+
+
 _SCHEDULES = (
     "candidate_rate_schedule",
     "client_rate_schedule",
@@ -767,6 +781,7 @@ async def sync_pending_order_contracts(
     """
     await db.flush()
     pending: set[int] = db.info.pop(_PENDING_KEY, None) or set()
+    pending -= db.info.pop(_SKIP_KEY, None) or set()
     if not pending or not await sync_enabled(db):
         return []
     outcomes: list[ContractSyncOutcome] = []
