@@ -786,7 +786,7 @@ export function CVGeneratorStandaloneV2({
       ) : (
         <>
         <ChampionTemplateDownload />
-        {championPreview && <ChampionImportReview initial={championPreview.data} current={championProfile ?? undefined} onClose={() => setChampionPreview(null)} onApply={(cp, result) => { setChampionProfile(cp); setChampionFile(championPreview.file); setChampionValidation(result); }} />}
+        {championPreview && <ChampionImportReview initial={championPreview.data} current={championProfile ?? undefined} sourceIsDocument onClose={() => setChampionPreview(null)} onApply={(cp, result) => { setChampionProfile(cp); setChampionFile(championPreview.file); setChampionValidation(result); }} />}
         <OldModeForm
           cvFile={cvFile}
           championFile={championFile}

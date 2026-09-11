@@ -225,6 +225,27 @@ def test_a_requirement_longer_than_a_skill_name_does_not_break_the_contract() ->
     assert skill_groups(["Java 17", LONG]) == skill_groups(["java 17", LONG.upper()])
 
 
+def test_template_copy_keeps_the_profile_as_stored() -> None:
+    """`copy_profile`: the source is its own `previous` — nothing re-derived."""
+    from app.services.champion_intake import copy_profile
+
+    stored = prepare_profile(legacy_profile())
+    stored["basics"]["rate_raw"] = "do 140 zł netto/h"
+    stored["intake"]["advisory"]["basics.rate_value"] = "do 140 zł netto/h"
+    stored["intake"]["unresolved"]["stack.must"] = VERY_LONG.strip()
+    stored["basics"]["start_date"] = "01.10.2026"
+
+    copy = copy_profile(stored, 42)
+
+    assert copy["basics"]["rate_value"] == 140.0
+    assert copy["basics"]["rate_raw"] == "do 140 zł netto/h"
+    assert copy["intake"]["advisory"]["basics.rate_value"] == "do 140 zł netto/h"
+    assert copy["intake"]["unresolved"]["stack.must"] == VERY_LONG.strip()
+    assert copy["basics"]["start_date"] == "01.10.2026"
+    assert names(copy) == names(stored)
+    assert copy["intake"]["applied_by"] == 42
+
+
 def test_no_op_edit_keeps_the_stored_intake() -> None:
     stored = prepare_profile(legacy_profile())
     before = deepcopy(stored)

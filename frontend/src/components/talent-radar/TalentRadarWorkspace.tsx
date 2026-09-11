@@ -107,6 +107,9 @@ function AdHocTalentRadarWorkspace() {
     nice: string[];
   } | null>(null);
   const [intakePreview, setIntakePreview] = useState<ChampionPreview | null>(null);
+  // A parsed document and "Popraw profil" (the current profile) share one
+  // review dialog; only the document may send its rate text back.
+  const [intakeFromDocument, setIntakeFromDocument] = useState(false);
   const [intakeValidation, setIntakeValidation] = useState<ChampionValidation>();
   const importedValues = useRef<Record<string, string>>({});
   const currentForImport = (): ChampionProfile | undefined => {
@@ -271,6 +274,7 @@ function AdHocTalentRadarWorkspace() {
     setParsingChampion(true);
     try {
       const res = await talentRadarApi.parseChampion(f);
+      setIntakeFromDocument(true);
       setIntakePreview({ champion_profile: res.champion_profile as unknown as ChampionProfile, validation: res.validation });
     } catch (error: unknown) {
       showError(extractErrorMsg(error));
@@ -283,8 +287,8 @@ function AdHocTalentRadarWorkspace() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex gap-2"><ChampionTemplateDownload />{hasProfile && <><Button variant="outline" size="sm" onClick={() => setIntakePreview({ champion_profile: currentForImport()!, validation: intakeValidation })}>Popraw profil</Button><ChampionImportButton current={currentForImport()} onApply={applyIntake} /></>}</div>
-      {intakePreview && <ChampionImportReview initial={intakePreview} current={currentForImport()} onApply={applyIntake} onClose={() => setIntakePreview(null)} />}
+      <div className="flex gap-2"><ChampionTemplateDownload />{hasProfile && <><Button variant="outline" size="sm" onClick={() => { setIntakeFromDocument(false); setIntakePreview({ champion_profile: currentForImport()!, validation: intakeValidation }); }}>Popraw profil</Button><ChampionImportButton current={currentForImport()} onApply={applyIntake} /></>}</div>
+      {intakePreview && <ChampionImportReview initial={intakePreview} current={currentForImport()} sourceIsDocument={intakeFromDocument} onApply={applyIntake} onClose={() => setIntakePreview(null)} />}
       <ChampionValidationPanel validation={intakeValidation} />
       <PageHeader
         eyebrow="Sourcing"

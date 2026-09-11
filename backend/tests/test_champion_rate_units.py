@@ -1,4 +1,4 @@
-"""A rate read by the AI parser is kept only when the document says PLN per hour.
+"""A document rate becomes a budget only when the document says PLN per hour.
 
 #1477's retention fix kept the parser's `rate_value` whenever the document
 text in `rate_raw` did not parse as one PLN/h number. That was meant for a
@@ -6,10 +6,14 @@ PLN/h range ("120–140 zł/h"), but it equally kept "45 EUR/h", "1200 PLN/MD"
 and "20 000 PLN/mies. brutto" as a PLN/h budget — and
 `fill_job_columns_from_champion` copied the number into an empty
 `jobs.rate_budget_hourly`, where scoring and the rate dealbreaker read it as
-the candidate's maximum hourly rate. The number is now kept only when the text
-is PLN-per-hour shaped AND the number lies inside the range written there.
-Everything else is unresolved and reported as a missing budget, exactly as
-before the retention fix — and an import must not undo that.
+the candidate's maximum hourly rate.
+
+The text is the source of truth: a PLN-per-hour text gives the budget — one
+value, or the UPPER bound of a range / "do X" (the field is the candidate's
+maximum and the dealbreaker reads it as a ceiling; the parser's midpoint
+understated it), noted as a warning. Everything else is unresolved and
+reported as a missing budget, whatever number the model put next to it — and
+an import must not undo that.
 """
 
 import uuid
@@ -94,36 +98,40 @@ def test_a_rate_in_another_unit_is_unresolved_not_kept(raw, number) -> None:
 @pytest.mark.parametrize(
     "raw,number",
     [
-        ("120–140 zł/h", 130.0),
-        ("120-140 PLN/h", 120.0),  # both ends are inside
+        ("120–140 zł/h", 130.0),  # the parser's midpoint
+        ("120-140 PLN/h", 120.0),
         ("120 - 140 zł/h netto", 140.0),
         ("120 zł/h – 140 zł/h", 125.0),
         ("do 140 PLN/h", 140.0),
         ("do 140 PLN/h netto", 110.0),
         ("max. 140 zł/godz. + VAT", 135.0),
+        # The model's number does not matter — even outside the range.
+        ("120–140 zł/h", 200.0),
+        ("120–140 zł/h", 119.99),
+        ("do 140 PLN/h", 150.0),
+        ("120/140 zł/h", None),
+        ("do 140 zł netto/h", None),
     ],
 )
-def test_a_number_inside_a_pln_per_hour_range_is_kept_with_an_advisory(
+def test_a_pln_per_hour_range_or_bound_gives_its_upper_bound_with_an_advisory(
     raw, number
 ) -> None:
     cp = ai_preview(number, raw)
 
-    assert cp["basics"]["rate_value"] == number
+    assert cp["basics"]["rate_value"] == 140.0
     assert cp["basics"]["rate_raw"] == raw
     assert cp["intake"]["advisory"][RATE] == raw
     assert RATE not in cp["intake"]["unresolved"]
     issues = {i["code"]: i for i in validation(cp)["issues"]}
     assert issues["rate_source_ambiguous"]["severity"] == "warning"
     assert issues["rate_source_ambiguous"]["blocked_operations"] == []
+    assert "górną granicę" in issues["rate_source_ambiguous"]["message"]
     assert "missing_budget" not in issues
 
 
 @pytest.mark.parametrize(
     "raw,number",
     [
-        ("120–140 zł/h", 200.0),
-        ("120–140 zł/h", 119.99),
-        ("do 140 PLN/h", 150.0),
         ("120–140 EUR/h", 130.0),
         ("120–140 zł/h brutto", 130.0),
         ("120–140 zł", 130.0),  # no unit: per hour is a guess
@@ -139,13 +147,45 @@ def test_a_number_the_document_text_does_not_back_is_unresolved(raw, number) -> 
     assert ("missing_budget", RATE) in codes(cp)
 
 
-def test_a_single_pln_per_hour_rate_still_wins_over_the_parser_number() -> None:
-    cp = ai_preview(999.0, "140 zł/h")
+@pytest.mark.parametrize(
+    "raw,number",
+    [
+        ("140 zł/h", 999.0),
+        ("140 zł/h", 150.0),
+        ("140 zł netto/h", 150.0),
+        ("140 zł/h (netto, B2B)", None),
+        ("Stawka: 140 zł/h", 130.0),
+    ],
+)
+def test_a_single_pln_per_hour_rate_wins_over_the_parser_number(raw, number) -> None:
+    cp = ai_preview(number, raw)
 
     assert cp["basics"]["rate_value"] == 140.0
-    assert cp["basics"]["rate_raw"] == "140 zł/h"
+    assert cp["basics"]["rate_raw"] == raw
+    assert RATE not in cp["intake"]["unresolved"]
+    # One value, not a range: nothing to warn about.
+    assert RATE not in cp["intake"]["advisory"]
+
+
+def test_a_parser_number_without_a_document_text_is_kept() -> None:
+    cp = ai_preview(135.0, None)
+
+    assert cp["basics"]["rate_value"] == 135.0
+    assert cp["basics"]["rate_raw"] is None
     assert RATE not in cp["intake"]["unresolved"]
     assert RATE not in cp["intake"]["advisory"]
+
+
+def test_the_word_form_rate_cell_is_read_as_document_text() -> None:
+    """The v4 table puts the cell text into `raw_fields`, not `rate_raw`."""
+    stored = filled()
+    profile = {**stored, "basics": {**stored["basics"], "rate_value": "140 zł/h netto"}}
+
+    cp = prepare_profile(profile, raw_fields={RATE: "140 zł/h netto"})
+
+    assert cp["basics"]["rate_value"] == 140.0
+    assert cp["basics"]["rate_raw"] == "140 zł/h netto"
+    assert RATE not in cp["intake"]["unresolved"]
 
 
 # ── The import branch of `user_edit` must not undo it ────────────────────────
@@ -160,10 +200,21 @@ def stale_preview(number, raw) -> dict:
     return cp
 
 
+def stored_with_budget(value: float = 99.0) -> dict:
+    """A stored v4 profile whose budget no row of the tables above carries.
+
+    An import whose number EQUALS the stored budget keeps the stored budget
+    whole (see `test_an_import_that_keeps_the_stored_number_keeps_its_text`).
+    """
+    cp = filled()
+    cp["basics"].update(rate_value=value, rate_raw=f"{value:g} zł/h")
+    return cp
+
+
 @pytest.mark.parametrize("old", [{}, "filled"])
 @pytest.mark.parametrize("raw,number", NOT_PLN_PER_HOUR)
 def test_import_does_not_turn_a_foreign_unit_into_a_budget(old, raw, number) -> None:
-    stored = filled() if old == "filled" else {}
+    stored = stored_with_budget() if old == "filled" else {}
 
     for preview in (ai_preview(number, raw), stale_preview(number, raw)):
         imported = user_edit(stored, preview, 7, imported=True)
@@ -176,15 +227,73 @@ def test_import_does_not_turn_a_foreign_unit_into_a_budget(old, raw, number) -> 
 
 
 @pytest.mark.parametrize("old", [{}, "filled"])
-def test_import_keeps_a_range_warning_next_to_the_kept_number(old) -> None:
-    stored = filled() if old == "filled" else {}
+def test_import_keeps_a_range_warning_next_to_the_upper_bound(old) -> None:
+    stored = stored_with_budget() if old == "filled" else {}
 
     imported = user_edit(stored, ai_preview(130.0, "120–140 zł/h"), 7, imported=True)
 
-    assert imported["basics"]["rate_value"] == 130.0
+    assert imported["basics"]["rate_value"] == 140.0
     assert imported["basics"]["rate_raw"] == "120–140 zł/h"
     assert imported["intake"]["advisory"][RATE] == "120–140 zł/h"
     assert "rate_source_ambiguous" in {code for code, _ in codes(imported)}
+
+
+@pytest.mark.parametrize(
+    "incoming_raw", [None, "140", "1200 PLN/MD", "120–150 zł/h", "45 EUR/h"]
+)
+def test_an_import_that_keeps_the_stored_number_keeps_its_text(incoming_raw) -> None:
+    """An unchanged budget is never re-derived — whatever text comes with it."""
+    stored = stored_with_budget(140.0)
+    stored["basics"]["rate_raw"] = "do 140 zł netto/h"
+    stored["intake"]["advisory"][RATE] = "do 140 zł netto/h"
+
+    imported = user_edit(
+        stored,
+        {"basics": {"rate_value": "140", "rate_raw": incoming_raw}, "intake": {}},
+        7,
+        imported=True,
+    )
+
+    assert imported["basics"]["rate_value"] == 140.0
+    assert imported["basics"]["rate_raw"] == "do 140 zł netto/h"
+    assert imported["intake"]["advisory"][RATE] == "do 140 zł netto/h"
+    assert RATE not in imported["intake"]["unresolved"]
+
+
+def test_a_changed_number_without_text_is_a_typed_budget() -> None:
+    stored = stored_with_budget(140.0)
+    stored["intake"]["advisory"][RATE] = "140 zł/h"
+
+    imported = user_edit(
+        stored, {"basics": {"rate_value": "150", "rate_raw": None}}, 7, imported=True
+    )
+
+    assert imported["basics"]["rate_value"] == 150.0
+    assert imported["basics"]["rate_raw"] is None
+    assert RATE not in imported["intake"]["advisory"]
+    assert RATE not in imported["intake"]["unresolved"]
+
+
+def test_validation_reads_the_stored_budget_not_a_re_read_of_its_text() -> None:
+    """A parser midpoint stored before the upper-bound rule, synced to the job.
+
+    Re-reading "120–140 zł/h" gives 140 now; comparing THAT with the column
+    (130, synced from the stored 130) reported a conflict between two equal
+    values in the database — with the gate on, a blocked search.
+    """
+    from tests.test_champion_intake_v4 import job
+
+    cp = filled()
+    cp["basics"].update(rate_value=130.0, rate_raw="120–140 zł/h")
+    draft = job(cp)
+    draft.rate_budget_hourly = 130
+
+    issues = {i["code"]: i for i in validation(cp, draft)["issues"]}
+
+    assert "column_conflict" not in issues
+    assert "missing_budget" not in issues
+    # The text is still re-read for its warning.
+    assert issues["rate_source_ambiguous"]["severity"] == "warning"
 
 
 def test_a_typed_number_still_replaces_the_document_text_in_the_editor() -> None:
@@ -352,7 +461,7 @@ async def test_editor_import_flow_keeps_the_unresolved_text(
     assert (await _job(job_id)).rate_budget_hourly is None
 
 
-async def test_apply_import_keeps_a_rate_inside_a_pln_per_hour_range(
+async def test_apply_import_of_a_pln_per_hour_range_budgets_its_upper_bound(
     app_client, app_auth_headers, ai_document
 ):
     ai_document.update(raw="120–140 zł/h", number=130.0)
@@ -362,10 +471,10 @@ async def test_apply_import_keeps_a_rate_inside_a_pln_per_hour_range(
     applied = await _apply(app_client, app_auth_headers, job_id, preview)
 
     profile = applied["champion_profile"]
-    assert profile["basics"]["rate_value"] == 130.0
+    assert profile["basics"]["rate_value"] == 140.0
     assert profile["basics"]["rate_raw"] == "120–140 zł/h"
     assert profile["intake"]["advisory"][RATE] == "120–140 zł/h"
     issue_codes = {i["code"] for i in applied["validation"]["issues"]}
     assert "rate_source_ambiguous" in issue_codes
     assert "missing_budget" not in issue_codes
-    assert float((await _job(job_id)).rate_budget_hourly) == 130.0
+    assert float((await _job(job_id)).rate_budget_hourly) == 140.0

@@ -1117,10 +1117,14 @@ async def create_job(
         payload["salary_max"] = None
 
     if payload.get("champion_profile"):
-        from app.services.champion_intake import user_edit
+        # `JobCreate` carries no profile: the only source is the template copy
+        # above. It is copied AS STORED (`copy_profile`) — re-reading it as a
+        # fresh document re-derived the rate from its stored text and gave the
+        # new recruitment no budget when the grammar could not read that text.
+        from app.services.champion_intake import copy_profile
 
-        payload["champion_profile"] = user_edit(
-            {}, payload["champion_profile"], current_user.id, imported=True
+        payload["champion_profile"] = copy_profile(
+            payload["champion_profile"], current_user.id
         )
 
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
