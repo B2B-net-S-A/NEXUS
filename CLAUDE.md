@@ -493,6 +493,26 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
   z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
 
+### Zasada: AI w generatorze to dodatek, nigdy bramka (po 10–11.09.2026)
+
+Trzy awarie w dwa dni miały jeden wspólny mechanizm: w ścieżkę, która działała
+deterministycznie, wstawiono wywołanie modelu jako **warunek** wykonania
+(#1444 — kontrola źródeł; #1477 — podgląd AI Championa w Kroku 2 generatora
+i ponownie serwerowo w `generate-upload` dla trybu `tailored`). Model odpowiada
+nierównomiernie, więc każda taka bramka to losowe „generator nie działa”.
+
+- **Wgrany DOCX Championa jest przypinany PRZED podglądem AI** (#1490).
+  Nieudany `/api/champion/preview` daje notkę informacyjną
+  (`championPreviewNotice`, osobny stan od `championError`), a generacja czyta
+  plik sama, deterministycznie (`parse_champion_from_docx_bytes`).
+  W `generate-upload` 422/503 z `read_preview` = „brak zrecenzowanego profilu”,
+  nie błąd. Regresja: `CVGeneratorStandaloneV2.test.tsx` („the AI champion
+  preview is an aid, not a gate”).
+- **Dokładając wywołanie AI do generatora, zaprojektuj jego awarię:** wynik
+  modelu może wzbogacić dokument, podgląd albo audyt — ale ścieżka bez tego
+  wyniku musi nadal oddać CV. Jeśli musi blokować (RODO, pieniądze), stoi za
+  flagą domyślnie OFF (`CV_SOURCE_EVIDENCE_ENFORCED`, `CHAMPION_INTAKE_GATE_ENABLED`).
+
 ## Reguły CV per klient — pełna recepta Delivery Leada
 
 `/settings/cv-rules` jest JEDYNYM ekranem polityki CV klienta (od 09.2026).
