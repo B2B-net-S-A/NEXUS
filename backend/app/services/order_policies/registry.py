@@ -126,6 +126,15 @@ class OrderClientPolicy:
     #: weryfikacja; BIK: netto z nagłówka tabeli). Reguła może oddać decyzję
     #: (``None``) — wtedy, jak u klienta bez reguły, rozstrzyga oznaczenie w PDF-ie.
     rate_rules: Optional[RateRulesFn] = None
+    #: Wersja reguły odczytu. Dokument zapamiętuje wersje, którymi go przeczytano
+    #: (``document_meta["rule_versions"]``); po jej zmianie dokumenty klienta
+    #: czekające w kolejce przeliczają się SAME, raz, przy najbliższym biegu
+    #: skrzynki (``order_mail_ingest.replan_outdated_documents``). Bez tego
+    #: poprawka reguły działała wyłącznie dla nowych maili, a wpis sprzed
+    #: wdrożenia wisiał ze starymi powodami do ręcznego „Przelicz plan" (Alior,
+    #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić
+    #: werdykt dokumentu; ``None`` = bez automatycznego przeliczania.
+    rule_version: Optional[str] = None
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -367,6 +376,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         extract_rows=alior.extract_rows,
         table_authoritative=True,
         rate_rules=alior.apply_rate_rules,
+        # 09.2026: cztery pola z PDF, netto z definicji, zapisany odczyt modelu.
+        rule_version="2026-09-10",
     ),
     OrderClientPolicy(
         key="cardif",
@@ -535,6 +546,11 @@ def apply_rate_kind(
 def reapplies_on_refresh(policies: list[OrderClientPolicy]) -> bool:
     """Czy „Przelicz plan" stosuje reguły klienta ponownie na zapisanym odczycie."""
     return any(p.table_authoritative for p in policies)
+
+
+def rule_versions(policies: list[OrderClientPolicy]) -> dict[str, str]:
+    """Wersje reguł odczytu aktywnych u klienta — znacznik zapisywany na dokumencie."""
+    return {p.key: p.rule_version for p in policies if p.rule_version}
 
 
 def closes_on_md_exhaustion(client_id: Optional[int]) -> bool:

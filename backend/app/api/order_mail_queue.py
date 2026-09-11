@@ -38,7 +38,6 @@ from app.models.client_order_group import (
 )
 from app.models.order_mail import (
     OUTCOME_APPLIED,
-    OUTCOME_AUTO_APPLIED,
     OUTCOME_DISMISSED,
     OUTCOME_NEEDS_REVIEW,
     OUTCOMES,
@@ -49,10 +48,9 @@ from app.services import storage_service
 from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.order_mail_apply import apply_document
 from app.services.order_mail_ingest import (
-    hold_when_autoapply_disabled,
     ingest_is_running,
     read_state,
-    refresh_review_plan,
+    replan_and_apply,
     start_ingest_task,
     sync_snapshot,
 )
@@ -449,30 +447,21 @@ async def refresh_queue_plan(
         ).is_file()
     ):
         raise HTTPException(status_code=404, detail="Brak zapisanego pliku PDF")
+    # Zapis pewnego planu jest tu AUTOMATYCZNY (człowiek kliknął „Przelicz”,
+    # nie „Zastosuj”) — ta sama funkcja co przeliczenie po zmianie reguły
+    # klienta w biegu skrzynki. Aktor idzie wyłącznie do atrybucji: historia
+    # i zamówienie mają wskazywać osobę, która zapis uruchomiła.
     try:
-        await refresh_review_plan(db, doc)
+        await replan_and_apply(
+            db,
+            doc,
+            actor_user_id=user.id,
+            # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje
+            # prawa do nowego rekordu ani jego danych finansowych.
+            before_apply=lambda: _require_apply_rights(db, doc, user),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    # PFRON może zmienić klienta. Prawo do starego duplikatu nie daje prawa
-    # do nowego rekordu ani jego danych finansowych.
-    await _require_apply_rights(db, doc, user)
-    # Zapis pewnego planu jest tu AUTOMATYCZNY (człowiek kliknął „Przelicz”,
-    # nie „Zastosuj”), więc słucha wyłącznika ``ORDER_MAIL_AUTOAPPLY_ENABLED``
-    # i nie zdejmuje blokad zarezerwowanych dla zatwierdzenia (imiennik z bazy,
-    # dopasowanie niedokładne). Aktor idzie wyłącznie do atrybucji: historia
-    # i zamówienie mają wskazywać osobę, która zapis uruchomiła.
-    if not hold_when_autoapply_disabled(doc) and doc.gate_verdict == "auto":
-        result = await apply_document(
-            db, doc, actor_user_id=user.id, confirmed_by_human=False
-        )
-        if result.ok:
-            doc.outcome = OUTCOME_AUTO_APPLIED
-        else:
-            doc.gate_verdict = "review"
-            doc.error = result.error or "; ".join(
-                r.error for r in result.rows if r.error
-            )
-            doc.gate_reasons = ["Nie udało się zapisać zamówienia: " + doc.error]
     await db.commit()
     await db.refresh(doc)
     return await _serialize(db, doc, user)
