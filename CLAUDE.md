@@ -783,22 +783,34 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   must-have dłuższy niż 100 znaków wywalał walidację KAŻDEGO wyszukiwania tej
   rekrutacji. `jobs.py` porównuje intake po normalizacji, więc zapis bez zmian
   nie robi zapisu ani powiadomienia.
-- **Liczba stawki z parsera zostaje TYLKO, gdy dokument mówi PLN za godzinę**
-  (`pln_hourly_bounds` w `champion_intake.py`): jedna wartość, zakres albo
-  „do X”, opcjonalnie netto/+VAT — i liczba mieści się w tym zakresie. Wtedy
-  tekst trafia do `intake.advisory` (ostrzeżenie, nic nie blokuje). Inna waluta,
-  stawka za dzień/MD/miesiąc, brutto, brak jednostki → `unresolved`
-  + `missing_budget`, liczba odrzucona, `jobs.rate_budget_hourly` puste.
-  Pierwsza wersja poprawki (przegląd adwersarialny 11.09) zostawiała liczbę
-  przy każdej jednostce: „45 EUR/h” lądowało w budżecie jako 45 zł/h,
-  a „Zastosuj import” kasowało ostrzeżenie. Import (`user_edit`
-  z `imported=True`) i okno importu (`ChampionIntake.tsx`) zachowują tekst
-  stawki z dokumentu; tylko EDYTOWANA stawka go gubi.
+- **Stawka: NIEZMIENIONA liczba nigdy nie jest wyliczana ponownie z tekstu**
+  (`prepare_profile(previous=…)` porównuje ją jako liczbę, niezależnie od
+  `rate_raw` w żądaniu): zostaje zapisana wartość, tekst i notatki. Kopia
+  rekrutacji (`from_job_id`) przenosi stawkę tak, jak była zapisana. Bez tego
+  „Uzgodnij profil i pola rekrutacji”, import dokumentu na rekrutację, która ma
+  już stawkę, i kopia rekrutacji kasowały budżet profilom z importu 08.2026
+  („140 zł netto/h” itp.), a przy zaznaczonej synchronizacji także
+  `jobs.rate_budget_hourly` — z którego czytają dealbreaker stawki i scoring
+  (przegląd adwersarialny drugiej rundy, 11.09).
+- **Tekst ŚWIEŻEGO dokumentu jest źródłem prawdy o stawce** (`document_rate`,
+  `pln_hourly_bounds` w `champion_intake.py`; parser AI, komórka formularza
+  Word v4, tekst odesłany przez okno importu przy nietkniętej stawce
+  z dokumentu): jedna wartość PLN/h → budżet; zakres „120–140 zł/h”, „120/140”,
+  „od 120 do 140” albo „do 140” → GÓRNA granica z notatką w `intake.advisory`
+  (pole to „Maksymalna stawka PLN/h”, a dealbreaker czyta je jako sufit —
+  środek zakresu z parsera zaniżał budżet). Gramatyka przyjmuje netto/+VAT/
+  „(netto, B2B)”, „zł/godz.”, „za godzinę”, „PLN 140/h”. Inna waluta, stawka za
+  dzień/MD/miesiąc, brutto, brak jednostki → `unresolved` + `missing_budget`,
+  budżet pusty. Liczba wpisana ręcznie (bez tekstu) jest budżetem bez notatki.
+  Okno importu (`ChampionIntake.tsx`) odsyła `rate_raw` WYŁĄCZNIE przy imporcie
+  dokumentu (`sourceIsDocument`), nigdy przy uzgadnianiu zapisanego szkicu.
 - **Walidacja sprawdza profil tak, jak jest zapisany.** Wymagania odłożone do
   `intake.unresolved` wracają do stacku wyłącznie przy zapisie, który edytuje
   ten stack — `validation()` ich nie wskrzesza (wskrzeszanie dawało fałszywy
   konflikt z kolumnami rekrutacji, który przy włączonej bramce blokował search).
-  Konflikt kolumn NICE to ostrzeżenie, nie błąd.
+  Odłożony MUST, którego obecny normalizator nie przyjąłby (np. dłuższy niż
+  limit pozycji), daje OSTRZEŻENIE — nigdy błąd ani blokadę. Konflikt kolumn
+  NICE to ostrzeżenie, nie błąd.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1289,7 +1301,9 @@ web — jeden przegląd naraz, ~3 min.
 - **Kolumna dopasowania w wyszukiwarce ręcznej i pierścień „Dopasowanie” to
   kanoniczny fit** (ten sam, co na ekranach C2), a nie `CandidateJobMatchScore`
   — żaden ekran go już nie czyta. `/api/search/candidates/scores` liczy na
-  żądanie najwyżej 20 ID (422 powyżej), limit 60/min, **za tą samą bramką co
+  żądanie najwyżej 20 ID (422 powyżej), limit 60/min **per zalogowany
+  użytkownik** (`user_or_ip_key` — biuro za jednym NAT-em nie dzieli kubełka;
+  ten sam klucz ma ocena opisu „Dopasowanie”), **za tą samą bramką co
   pełny przegląd (`_authorized_job` z `candidate_search.py`)** — rekruter,
   sourcer i TAC spoza zespołu widzą ten sam wynik na ekranach C2, więc kolumna
   nie może być ostrzejsza (pierwsza wersja z `ensure_job_read_access` chowała go
@@ -1297,7 +1311,8 @@ web — jeden przegląd naraz, ~3 min.
   o wiersze na ekranie (`useVisibleMatchScores`, anulowanie AbortControllerem,
   cache per `profile_key` z odpowiedzi): niezmierzony = „Ocena niepełna”,
   403 = „brak dostępu”, inny błąd = „nie policzono — ponów” (429 ponawia sam
-  z backoffem) — nigdy puste pole ani 0. Modal porównania pokazuje błąd
+  z backoffem — jedna runda dla WSZYSTKICH wierszy czekających na ponowienie,
+  także z kilku równoległych paczek) — nigdy puste pole ani 0. Modal porównania pokazuje błąd
   z „Ponów”, nie „Brak kryteriów”.
 - **Pierścień „Dopasowanie” liczy się we własnej sesji** (`display_fit`, tylko
   do odczytu, nigdy nie rzuca): wcześniej wyjątek w nim robił rollback sesji
@@ -1314,8 +1329,9 @@ web — jeden przegląd naraz, ~3 min.
   + `source`), i tylko gdy to przegląd tej osoby, tej rekrutacji i z impresją
   tego kandydata — w innym wypadku `run_id` = NULL. Żadnego zgadywania po
   „ostatnio widzianym” (to zawyżało pozytywy C2 dodaniami z wyszukiwarki
-  ręcznej). `source` żyje w `match_outcomes.reason_code` (stały słownik, bez
-  migracji). Zapis we własnej sesji po commicie, nigdy nie rzuca, najwyżej 100
+  ręcznej). `source` (`full_search` | `manual_search` | `historical` |
+  `quick_add` — każdy ekran dodawania wysyła swój) żyje w
+  `match_outcomes.reason_code` (stały słownik, bez migracji). Zapis we własnej sesji po commicie, nigdy nie rzuca, najwyżej 100
   wierszy. Tabele nie mają FK do kandydatów (celowo: analityka, pseudonimy,
   rozbicie wyłącznie liczbowe) ani jeszcze retencji — świadomy dług.
 - **Eval: nigdy nie porównuj metryk między scorerami.**
@@ -1377,9 +1393,10 @@ innego niż serwer albo nadpisywał cudzą pracę.
   pierwszej zmiany użytkownika, potem zamarza; brak zapisu przy niezmienionym
   blur. 409: tekst zostaje w polu; jeśli kolega zmienił INNE pole, zapis ponawia
   się raz na nowej wersji, a jeśli to samo — toast o konflikcie i przyjęcie nowej
-  wersji, więc następny zapis nadpisuje świadomie. Backend blokuje wiersz
-  (`with_for_update()`) przed porównaniem wersji — dwa równoczesne zapisy nie
-  przejdą oba.
+  wersji, więc następny zapis nadpisuje świadomie. Backend najpierw sprawdza
+  członkostwo w zespole, potem blokuje wiersz (`with_for_update()`) i dopiero
+  wtedy porównuje wersję — dwa równoczesne zapisy nie przejdą oba, a osoba spoza
+  zespołu nie założy blokady na cudzy wpis.
 - **ATLAS — firmy z historii kandydata** (`api/integrations_companies.py`
   + `_past_company_predicate` w `api/candidates.py`): `via_us` =
   `placed_contract_clause()` — kontrakty `active`/`ending`/`ended` oraz
@@ -1387,8 +1404,11 @@ innego niż serwer albo nadpisywał cudzą pracę.
   z bieżącym etapem „hired” u niego (zatrudnienie i obsada linii MD zakładają
   kontrakt jako szkic, więc bez tego pracujący konsultant znikał z odpowiedzi).
   Aktywny konflikt = firma obecna, nieaktywny = przeszła. Data końca
-  „present/current/obecnie/teraz” (`services/experience_end.py`) i pusta = praca
-  OBECNA we wszystkich predykatach (lista kandydatów i ATLAS). Każde zapytanie ma
+  „present/current/obecnie/teraz” (`services/experience_end.py`, po przycięciu
+  WSZYSTKICH białych znaków — SQL `btrim(…, E' \t\r\n')` jak Python `.strip()`)
+  = praca OBECNA we wszystkich predykatach (lista kandydatów i ATLAS). Pusty
+  `end` też, z jednym historycznym wyjątkiem: w filtrze „Poprzednia firma” wpis
+  bez daty dalej niż na pierwszej pozycji liczy się jako przeszły. Każde zapytanie ma
   sufit 2000 WIERSZY (`truncated`) i lokalny timeout 8 s (→ 503
   `lookup_timeout`). Surowy alias idzie do `LIKE` tylko, gdy jego forma
   kanoniczna ma co najmniej 3 znaki (koniec z „IT” → `LIKE '%it%'`). Filtr listy
