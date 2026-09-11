@@ -37,6 +37,10 @@ def visible_client_predicates(model: type[Client] = Client) -> tuple[Any, ...]:
         model.hidden.is_(False),
         model.archived_at.is_(None),
         model.merged_into_client_id.is_(None),
+        # Ręczne usunięcie klienta z historią (0307) ustawia też
+        # ``archived_at``, ale import portfela potrafi archiwizację cofnąć —
+        # usunięcie ma tego nie przeżyć.
+        model.deleted_at.is_(None),
     )
 
 
@@ -47,6 +51,7 @@ def is_client_visible(client: Client) -> bool:
         not client.hidden
         and client.archived_at is None
         and client.merged_into_client_id is None
+        and client.deleted_at is None
     )
 
 

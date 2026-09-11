@@ -100,6 +100,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import storage_service
+from app.services.critical_events import DeletionAudit, audited_deletion
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
     assert_transition,
@@ -3508,13 +3509,50 @@ async def delete_contract(
     przez drugi, jawnie potwierdzany endpoint; zwykły DELETE nigdy tego nie
     obchodzi.
     """
-    result = await db.execute(select(Contract).where(Contract.id == contract_id))
-    contract = result.scalar_one_or_none()
-    if not contract:
-        raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    async with audited_deletion(
+        db,
+        actor=current_user,
+        event_type="contract.delete",
+        entity_type="contract",
+        entity_id=contract_id,
+    ) as audit:
+        result = await db.execute(select(Contract).where(Contract.id == contract_id))
+        contract = result.scalar_one_or_none()
+        if not contract:
+            raise HTTPException(status_code=404, detail="Contract not found")
+        await _describe_contract_for_audit(db, contract, audit)
+        await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
-    await hard_delete_contract(db, contract, actor_id=current_user.id)
+        await hard_delete_contract(db, contract, actor_id=current_user.id)
+
+
+async def _describe_contract_for_audit(
+    db: AsyncSession, contract: Contract, audit: DeletionAudit
+) -> None:
+    """Etykieta kontraktu do Historii zdarzeń — czytana PRZED usunięciem.
+
+    Nazwiska przez jawne zapytanie: leniwe doczytanie relacji w sesji async to
+    ``MissingGreenlet`` (500 bez CORS, w przeglądarce „Network Error").
+    """
+
+    row = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname).where(
+                Candidate.id == contract.candidate_id
+            )
+        )
+    ).first()
+    person = (
+        " ".join(part for part in (row.name, row.lastname) if part).strip()
+        if row is not None
+        else ""
+    )
+    label = f"Kontrakt #{contract.id}" + (f" — {person}" if person else "")
+    audit.describe(
+        label=label,
+        client_id=contract.client_id,
+        status=getattr(contract.status, "value", contract.status),
+    )
 
 
 @router.post(
@@ -3536,16 +3574,24 @@ async def force_delete_signed_contract(
     intentionally not overridable because deleting the contract would cascade
     away their proof.
     """
-    contract = await db.get(Contract, contract_id)
-    if contract is None:
-        raise HTTPException(status_code=404, detail="Contract not found")
-
-    await hard_delete_contract(
+    async with audited_deletion(
         db,
-        contract,
-        actor_id=current_user.id,
-        force_signed_confirmation=data.confirmation,
-    )
+        actor=current_user,
+        event_type="contract.force_delete_signed",
+        entity_type="contract",
+        entity_id=contract_id,
+    ) as audit:
+        contract = await db.get(Contract, contract_id)
+        if contract is None:
+            raise HTTPException(status_code=404, detail="Contract not found")
+        await _describe_contract_for_audit(db, contract, audit)
+
+        await hard_delete_contract(
+            db,
+            contract,
+            actor_id=current_user.id,
+            force_signed_confirmation=data.confirmation,
+        )
 
 
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────

@@ -46,6 +46,7 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
     role: initialPrimary,
     roles: initialRoles,
     recruiter_role: initial?.recruiter_role ?? "",
+    can_delete_clients: initial?.can_delete_clients ?? false,
   });
 
   const set = <K extends keyof UserFormData>(field: K, value: UserFormData[K]) =>
@@ -199,6 +200,25 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
               dodatkowa.
             </p>
           </div>
+
+          {isEdit && (
+            <div className="border border-border rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.can_delete_clients}
+                  onChange={(e) => set("can_delete_clients", e.target.checked)}
+                  className="rounded border-border"
+                />
+                Może usuwać klientów
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Uprawnienie imienne — nie wynika z roli (także administrator go
+                nie ma bez zaznaczenia). Nadanie i odebranie trafia do Historii
+                zdarzeń.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna (legacy)</label>

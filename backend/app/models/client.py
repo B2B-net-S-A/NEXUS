@@ -110,6 +110,18 @@ class Client(Base, TimestampMixin):
     archived_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Ręczne usunięcie klienta Z HISTORIĄ (0307). Wiersz zostaje, bo wskazują
+    # na niego zakończone kontrakty, zamówienia i umowy — usunięcie fizyczne
+    # skasowałoby je kaskadą. ``deleted_at`` ukrywa klienta wszędzie
+    # (``visible_client_predicates``) i odróżnia usunięcie od archiwizacji
+    # duplikatu po scaleniu. Klient PUSTY jest usuwany trwale (nagrobek
+    # w ``purged_clients``) i tej kolumny nie potrzebuje.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     jobs = relationship("Job", back_populates="client")

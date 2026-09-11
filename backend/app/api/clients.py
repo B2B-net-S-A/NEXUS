@@ -963,20 +963,7 @@ async def merge_client_into(
     return _serialize_client(source, current_user=current_user)
 
 
-@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_client(
-    client_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    client = result.scalar_one_or_none()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    db.add(
-        Activity(
-            entity_type="client",
-            entity_id=client_id,
-            action="deleted",
-            user_id=current_user.id,
-        )
-    )
-    await db.delete(client)
+# Usuwanie klienta: ``app/api/client_deletion.py`` (imienne uprawnienie,
+# blokady, potwierdzenie „0" i Historia zdarzeń). Dawny ``DELETE`` stąd kasował
+# klienta jednym żądaniem administratora — bez nagrobka dla syncu Traffita,
+# bez znacznika w manifeście portfela i razem z historią współpracy (kaskada).

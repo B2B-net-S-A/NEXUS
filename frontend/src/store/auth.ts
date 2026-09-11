@@ -137,6 +137,10 @@ export interface User {
   default_dashboard_preset?: DashboardPreset | null
   /** Wersja polityki autoryzacji, przydatna do invalidacji cache. */
   authorization_version?: number
+  /** Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
+   *  z roli — nadaje je administrator konkretnej osobie. Steruje wyłącznie
+   *  widocznością przycisku; bramką jest backend. */
+  can_delete_clients?: boolean
   /**
    * Efektywny dostęp do głównych sekcji produktu, już po połączeniu ról i
    * zastosowaniu indywidualnych wyjątków. Backend jest źródłem prawdy; brak

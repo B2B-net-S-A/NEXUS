@@ -130,3 +130,34 @@ describe("UserModal — exclusive personas", () => {
     );
   });
 });
+
+describe("UserModal — imienne uprawnienie do usuwania klientów", () => {
+  it("pozwala nadać uprawnienie przy edycji konta", () => {
+    const onSave = vi.fn();
+    render(
+      <UserModal
+        initial={{ id: 5, role: "finance", roles: ["finance"], can_delete_clients: false }}
+        onClose={vi.fn()}
+        onSave={onSave}
+        loading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Może usuwać klientów" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ can_delete_clients: true }),
+    );
+  });
+
+  it("nie pokazuje uprawnienia przy zakładaniu konta", () => {
+    render(
+      <UserModal initial={null} onClose={vi.fn()} onSave={vi.fn()} loading={false} />,
+    );
+
+    expect(
+      screen.queryByRole("checkbox", { name: "Może usuwać klientów" }),
+    ).not.toBeInTheDocument();
+  });
+});

@@ -35,6 +35,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   UserSquare2,
+  Trash2,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -52,6 +53,7 @@ import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/Mul
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
+import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -791,6 +793,12 @@ export default function ClientDetailPage() {
   // PATCH /api/clients/{id} → TacPlus. Bez bramki nie-TAC widział "Edytuj"
   // i dostawał 403 dopiero na zapisie (czytało się jak "zapis nie działa").
   const canUpdateClient = useCapability("client.update");
+  // Imienne uprawnienie (0307) — nie wynika z roli. W trybie podglądu jako
+  // inny użytkownik backend i tak odmówi, więc przycisku też nie pokazujemy.
+  const realUser = useAuthStore((state) => state.realUser);
+  const canDeleteClient = !!user?.can_delete_clients && !realUser;
+  const [showDelete, setShowDelete] = useState(false);
+  const closeTab = useTabsStore((s) => s.closeTab);
 
   useEffect(() => {
     if (isReadOnlyTcm && activeTab === "umowy-ramowe") {
@@ -904,6 +912,16 @@ export default function ClientDetailPage() {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       Edytuj
+                    </button>
+                  )}
+                  {canDeleteClient && (
+                    <button
+                      onClick={() => setShowDelete(true)}
+                      title="Usuń klienta"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Usuń klienta
                     </button>
                   )}
                 </div>
@@ -1059,6 +1077,28 @@ export default function ClientDetailPage() {
           )}
         </div>
       </div>
+
+      {canDeleteClient && (
+        <DeleteClientDialog
+          clientId={client.id}
+          clientName={client.name}
+          open={showDelete}
+          onOpenChange={setShowDelete}
+          onDeleted={(result) => {
+            setShowDelete(false);
+            showSuccess(
+              result.result === "purged"
+                ? `Klient „${result.client_name}" został usunięty trwale.`
+                : `Klient „${result.client_name}" został usunięty — dane historyczne zostały zachowane.`,
+            );
+            closeTab(`client-${client.id}`);
+            queryClient.removeQueries({ queryKey: ["client", id] });
+            queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+            queryClient.invalidateQueries({ queryKey: ["clients"] });
+            router.push("/clients");
+          }}
+        />
+      )}
 
       {showEdit && (
         <EditClientModal

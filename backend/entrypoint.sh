@@ -4124,6 +4124,42 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS matching_requirements JSONB NULL",
     """ALTER TABLE jobs
         ADD COLUMN IF NOT EXISTS requirements_reviewed BOOLEAN NOT NULL DEFAULT false""",
+    # 0307: ręczne usuwanie klienta + Historia zdarzeń. `users.can_delete_clients`
+    # i `clients.deleted_at` MUSZĄ istnieć przed startem aplikacji — model
+    # `User` i `Client` deklaruje je, więc bez nich pada KAŻDE logowanie
+    # i każdy odczyt klienta (UndefinedColumnError). `critical_events` celowo
+    # bez FK: wpis ma przeżyć usunięcie obiektu i konta.
+    """ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS can_delete_clients BOOLEAN NOT NULL DEFAULT false""",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE purged_clients ALTER COLUMN run_id DROP NOT NULL",
+    """CREATE TABLE IF NOT EXISTS critical_events (
+        id SERIAL PRIMARY KEY,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        event_type VARCHAR(64) NOT NULL,
+        entity_type VARCHAR(32) NOT NULL,
+        entity_id INTEGER,
+        entity_label VARCHAR(500),
+        outcome VARCHAR(16) NOT NULL,
+        reason_code VARCHAR(64),
+        reason TEXT,
+        actor_user_id INTEGER,
+        actor_name VARCHAR(255),
+        actor_email VARCHAR(255),
+        client_id INTEGER,
+        client_name VARCHAR(255),
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        CONSTRAINT ck_critical_events_outcome
+            CHECK (outcome IN ('executed', 'blocked'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_critical_events_occurred_at "
+    "ON critical_events (occurred_at)",
+    "CREATE INDEX IF NOT EXISTS ix_critical_events_entity "
+    "ON critical_events (entity_type, entity_id)",
+    "CREATE INDEX IF NOT EXISTS ix_critical_events_client_id "
+    "ON critical_events (client_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

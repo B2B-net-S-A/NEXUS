@@ -30,6 +30,7 @@ import {
   BarChart3,
   Network,
   MessageSquare,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -61,6 +62,14 @@ const AdminUsersTab = dynamic(
   }
 );
 
+const EventHistoryTab = dynamic(
+  () => import("@/components/settings/EventHistoryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
 const PipelineTemplatesTab = dynamic(
   () => import("@/components/settings/PipelineTemplatesTab"),
   {
@@ -77,6 +86,7 @@ type Tab =
   | "coaching"
   | "procesy"
   | "administracja"
+  | "historia"
   | "zaawansowane"
   | "pomoc";
 
@@ -108,12 +118,20 @@ const TABS: TabConfig[] = [
     icon: <Shield className="w-4 h-4" />,
     roles: ["admin"],
   },
+  // Ogólnosystemowy dziennik krytycznych operacji (usunięcia i zablokowane
+  // próby). Wyłącznie Admin i Finanse — backend pilnuje tego samego.
+  {
+    id: "historia",
+    label: "Historia zdarzeń",
+    icon: <History className="w-4 h-4" />,
+    roles: ["admin", "finance"],
+  },
   { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
   { id: "pomoc", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
 ];
 
 // Taby które wymagają szerszego kontenera (tabele, dnd, grid).
-const WIDE_TABS: Tab[] = ["procesy", "administracja"];
+const WIDE_TABS: Tab[] = ["procesy", "administracja", "historia"];
 
 // Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
 const ADVANCED_LINKS: Array<{
@@ -261,7 +279,7 @@ const ADVANCED_LINKS: Array<{
 
 // Finance gets operational read surfaces only. Integration sync, templates,
 // scoring, AI, diagnostics and configuration editors remain unavailable.
-const FINANCE_READ_ONLY_TABS = new Set<Tab>(["zaawansowane", "pomoc"]);
+const FINANCE_READ_ONLY_TABS = new Set<Tab>(["historia", "zaawansowane", "pomoc"]);
 const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/rate-benchmarks",
   "/settings/contract-templates",
@@ -551,6 +569,8 @@ export default function SettingsPage() {
       {visibleActiveTab === "procesy" && <PipelineTemplatesTab />}
 
       {visibleActiveTab === "administracja" && <AdminUsersTab />}
+
+      {visibleActiveTab === "historia" && <EventHistoryTab />}
 
       {visibleActiveTab === "zaawansowane" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

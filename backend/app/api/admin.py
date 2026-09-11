@@ -41,6 +41,7 @@ from app.services.onboarding_access import (
     onboarding_persona_for_roles,
 )
 from app.services.admin_membership import protect_active_admin_membership
+from app.services.critical_events import record_executed
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.user_response import build_user_response
@@ -59,6 +60,8 @@ class AdminUserResponse(BaseModel):
     # ``role`` stays as the primary; admin UI shows all in ``roles``.
     roles: list[UserRole] = []
     is_active: bool
+    # Imienne uprawnienie do usuwania klientów (0307).
+    can_delete_clients: bool = False
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
@@ -84,6 +87,9 @@ class AdminUserUpdate(BaseModel):
     # it to ``roles`` if missing.
     roles: Optional[list[UserRole]] = None
     is_active: Optional[bool] = None
+    # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
+    # z żadnej roli — nadaje się je konkretnej osobie.
+    can_delete_clients: Optional[bool] = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -168,6 +174,7 @@ async def list_users(
             role=u.role,
             roles=[UserRole(r) for r in (u.roles or []) if r in UserRole.__members__],
             is_active=u.is_active,
+            can_delete_clients=bool(u.can_delete_clients),
             activity_count=activity_map.get(u.id, {}).get("count", 0),
             last_activity=activity_map.get(u.id, {}).get("last"),
             created_at=u.created_at,
@@ -235,6 +242,7 @@ async def update_user(
     original_active = user.is_active
     original_name = user.name
     original_allowed_sections = list(user.allowed_sections or [])
+    original_can_delete_clients = bool(user.can_delete_clients)
 
     if data.name is not None:
         user.name = data.name
@@ -289,6 +297,8 @@ async def update_user(
         user.profile_completed_at = None
     if data.is_active is not None:
         user.is_active = data.is_active
+    if data.can_delete_clients is not None:
+        user.can_delete_clients = data.can_delete_clients
 
     authorization_changed = (
         user.role != original_role
@@ -375,6 +385,30 @@ async def update_user(
                     "target_email": user.email,
                 },
             )
+        )
+    if (
+        data.can_delete_clients is not None
+        and data.can_delete_clients != original_can_delete_clients
+    ):
+        # Kto może usuwać klientów, jest częścią Historii zdarzeń — nadanie
+        # uprawnienia to decyzja tej samej wagi co samo usunięcie.
+        await record_executed(
+            db,
+            actor=_admin,
+            event_type="user.client_delete_permission",
+            entity_type="user",
+            entity_id=user.id,
+            entity_label=f"{user.name} ({user.email})",
+            reason_code="granted" if data.can_delete_clients else "revoked",
+            reason=(
+                "Nadano uprawnienie do usuwania klientów."
+                if data.can_delete_clients
+                else "Odebrano uprawnienie do usuwania klientów."
+            ),
+            details={
+                "from": original_can_delete_clients,
+                "to": data.can_delete_clients,
+            },
         )
 
     await db.flush()
