@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { useClientTab, type ClientTab } from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -773,6 +773,17 @@ export default function ClientDetailPage() {
   // czego nie robił.
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useClientTab(searchParams.get("tab"));
+  const router = useRouter();
+  const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
+  const orderMailDocId =
+    Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
+      ? orderMailDocParam
+      : null;
+  // Dokument z maila obsłużony albo porzucony — parametr znika z adresu, żeby
+  // odświeżenie strony nie otwierało okna zamówienia drugi raz.
+  const clearOrderMailDoc = useCallback(() => {
+    router.replace(`/clients/${id}?tab=zamowienia`, { scroll: false });
+  }, [router, id]);
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
@@ -1022,6 +1033,9 @@ export default function ClientDetailPage() {
               legacyNullOrderType={
                 client?.legacy_null_order_type === "md" ? "md" : "periodic"
               }
+              // „Rozstrzygnij w oknie zamówienia" z kolejki zamówień z maila.
+              orderMailDocId={orderMailDocId}
+              onOrderMailDocDone={clearOrderMailDoc}
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}

@@ -41,6 +41,7 @@ import {
 import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
+import { consultantUsageSentence } from "@/lib/order-line-usage";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { OrderTypeBadge } from "./OrderTypeBadge";
 
@@ -269,16 +270,6 @@ interface OrderLineRowProps {
   onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
 }
 
-/** Ile osoba wykorzystała na zamówieniu — kwota (kosztowe) albo MD. */
-function usedLabel(group: OrderGroupRead, line: OrderLineRead): string | null {
-  if (group.is_cost_based) {
-    return line.invoiced_total != null && line.invoiced_total > 0
-      ? formatPLN(line.invoiced_total)
-      : null;
-  }
-  return line.md_used != null && line.md_used > 0 ? `${formatMd(line.md_used)} MD` : null;
-}
-
 /** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
  *  zwykłe akcje są wtedy ukryte, żeby nie dało się usunąć linii bokiem i
  *  pozostawić alertu Delivery Leada bez rozstrzygnięcia. */
@@ -300,7 +291,9 @@ function OrderLineRow({
   const sharedMd = usesSharedMdPool(group);
   const removed = Boolean(line.removed_from_order);
   const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
-  const used = usedLabel(group, line);
+  // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
+  // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
+  const usageSentence = consultantUsageSentence(group, line);
   // Osoba z zakończoną współpracą, która została na zamówieniu, a nikt jeszcze
   // o niej nie zdecydował (zamówienie MD z czekającą sprawą ma swój formularz).
   const needsDecision =
@@ -311,7 +304,7 @@ function OrderLineRow({
     (canManage || canManageLifecycle);
   const hasHistoryNotes =
     (line.origin === "manual" && Boolean(line.added_at)) ||
-    (!line.is_active && Boolean(used) && !group.is_cost_based) ||
+    Boolean(usageSentence) ||
     Boolean(line.history_kept_at) ||
     needsDecision;
 
@@ -402,7 +395,6 @@ function OrderLineRow({
                 : line.invoiced_total === 0
                   ? "brak faktur"
                   : formatPLN(line.invoiced_total)}
-              {used ? " — ta kwota nie wraca do puli dostępnego budżetu" : ""}
             </p>
           ) : null}
           {line.predecessor_consultant_name ? (
@@ -547,12 +539,8 @@ function OrderLineRow({
                 : ""}
             </p>
           ) : null}
-          {!line.is_active && used && !group.is_cost_based ? (
-            <p className="text-xs text-muted-foreground">
-              Wykorzystał(a) na tym zamówieniu{" "}
-              <span className="font-medium text-foreground">{used}</span> — ta
-              kwota nie wraca do puli dostępnego budżetu.
-            </p>
+          {usageSentence ? (
+            <p className="text-xs font-medium text-foreground">{usageSentence}</p>
           ) : null}
           {line.history_kept_at ? (
             <p className="text-xs text-muted-foreground">

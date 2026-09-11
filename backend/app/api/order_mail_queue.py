@@ -16,6 +16,7 @@ from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,13 @@ from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.activity import Activity
 from app.models.client import Client
+from app.models.client_order_group import (
+    GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_SCHEDULED,
+    ClientOrderGroup,
+)
 from app.models.order_mail import (
     OUTCOME_APPLIED,
     OUTCOME_DISMISSED,
@@ -47,8 +54,12 @@ from app.services.order_mail_ingest import (
     start_ingest_task,
     sync_snapshot,
 )
+from app.services.order_mail_planner import DECIDE_PERSON_ORDER_TYPES, titles_collide
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+
+#: Grupy przyjmujące nowych konsultantów — lustro bramki ``add_line``.
+_GROUP_STATUSES_ACCEPTING_LINES = (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED, "draft")
 
 # Bramka klasy roli jako ZALEŻNOŚĆ (widoczna w grafie FastAPI i w kontrakcie
 # `test_route_authz_contract`), lustro sidebara/middleware `/order-mail`.
@@ -171,13 +182,22 @@ def _redact_extraction(
     return out
 
 
-def _redact_proposal(proposal: Optional[dict], *, show_finance: bool) -> Optional[dict]:
-    if proposal is None or show_finance:
+def _redact_proposal(
+    proposal: Optional[dict], *, show_finance: bool, read_only_tcm: bool = False
+) -> Optional[dict]:
+    if proposal is None or (show_finance and not read_only_tcm):
         return proposal
-    return {
-        **proposal,
-        "rows": [{**r, "rate_client": None} for r in (proposal.get("rows") or [])],
-    }
+    rows = []
+    for r in proposal.get("rows") or []:
+        row = {**r}
+        if not show_finance:
+            row["rate_client"] = None
+        if read_only_tcm and row.get("reasons"):
+            # Lustro `gate_reasons` dla TCM: powody planu cytują szczegóły
+            # (np. datę końca kontraktu), a TCM ma tu bezpieczną projekcję.
+            row["reasons"] = ["Sprawdź odczytane dane przed zapisem."]
+        rows.append(row)
+    return {**proposal, "rows": rows}
 
 
 async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str, Any]:
@@ -220,7 +240,9 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         ),
         "document_meta": doc.document_meta,
         "extraction": _redact_extraction(doc.extraction, show_finance=show_finance),
-        "proposal": _redact_proposal(doc.proposal, show_finance=show_finance),
+        "proposal": _redact_proposal(
+            doc.proposal, show_finance=show_finance, read_only_tcm=read_only_tcm
+        ),
         "applied_order_id": doc.applied_order_id,
         "applied_at": doc.applied_at.isoformat() if doc.applied_at else None,
         "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
@@ -477,6 +499,135 @@ async def apply_queue_item(
         "result": result.as_dict(),
         "document": await _serialize(db, doc, user),
     }
+
+
+def _order_type_of(doc: OrderMailDocument) -> str:
+    """Typ zamówienia z planu dokumentu — MD albo kosztowe (okno grup)."""
+
+    for row in (doc.proposal or {}).get("rows") or []:
+        if row.get("order_type") in DECIDE_PERSON_ORDER_TYPES:
+            return row["order_type"]
+    return "md"
+
+
+@router.get("/queue/{doc_id}/order-target")
+async def queue_order_target(
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Dokąd prowadzi „Rozstrzygnij w oknie zamówienia".
+
+    Zamówienie MD/kosztowe z osobą nieaktywną albo nieznalezioną nie może być
+    zapisane automatem (``ACTION_DECIDE_PERSON``) — decyzję zostaw / wznów /
+    zastąp / usuń podejmuje Delivery Lead w oknie zamówienia klienta, tym samym
+    co przy ręcznym wgraniu PDF-a. Jeżeli u klienta jest już otwarte zamówienie
+    o tym numerze, okno otwiera się w trybie „Uzupełnij zamówienie" (dopisanie
+    osób), inaczej jako „Nowe zamówienie".
+    """
+    doc = await _load_visible(db, doc_id, user)
+    await _require_apply_rights(db, doc, user)
+    if doc.outcome != OUTCOME_NEEDS_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Dokument nie czeka na weryfikację (stan: {doc.outcome})",
+        )
+    if not doc.client_id or not doc.storage_path:
+        raise HTTPException(
+            status_code=422, detail="Brak rozpoznanego klienta albo pliku PDF"
+        )
+    number = (doc.proposal or {}).get("order_number") or (doc.extraction or {}).get(
+        "title"
+    )
+    group_id: Optional[int] = None
+    if number:
+        groups = (
+            await db.execute(
+                select(ClientOrderGroup.id, ClientOrderGroup.order_number)
+                .where(
+                    ClientOrderGroup.client_id == doc.client_id,
+                    ClientOrderGroup.status.in_(_GROUP_STATUSES_ACCEPTING_LINES),
+                )
+                .order_by(ClientOrderGroup.id.desc())
+            )
+        ).all()
+        group_id = next(
+            (gid for gid, gnum in groups if titles_collide(gnum, number)), None
+        )
+    return {
+        "client_id": doc.client_id,
+        "order_group_id": group_id,
+        "order_type": _order_type_of(doc),
+        "order_number": number,
+        "attachment_name": doc.attachment_name,
+    }
+
+
+class ResolvedInOrderRequest(BaseModel):
+    order_group_id: int = Field(..., gt=0)
+
+
+@router.post("/queue/{doc_id}/resolved-in-order")
+async def mark_queue_item_resolved_in_order(
+    doc_id: int,
+    body: ResolvedInOrderRequest,
+    user: OrderMailUser,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Dokument z maila rozstrzygnięty w oknie zamówienia — zdejmij z kolejki.
+
+    Zapis zamówienia zrobiło już okno (``POST /order-groups`` albo
+    ``…/lines/batch``). Tu wyłącznie łączymy dokument z tym zamówieniem, żeby
+    kolejka nie czekała w nieskończoność na „Zastosuj", którego plan
+    z ``decide_person`` i tak by nie wykonał. ``applied_order_id`` zostaje
+    pusty: wskazuje zamówienie zapisane PRZEZ AUTOMAT maila (m.in. aktywacja
+    szkicu po podpisie umowy, ``complete_signed_mail_drafts``), a linii grupy
+    ten mechanizm dotykać nie może.
+    """
+    doc = await _load_visible(db, doc_id, user, for_update=True)
+    await _require_apply_rights(db, doc, user)
+    if doc.outcome != OUTCOME_NEEDS_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Dokument nie czeka na weryfikację (stan: {doc.outcome})",
+        )
+    group = await db.scalar(
+        select(ClientOrderGroup).where(
+            ClientOrderGroup.id == body.order_group_id,
+            ClientOrderGroup.client_id == doc.client_id,
+        )
+    )
+    if group is None:
+        raise HTTPException(
+            status_code=422,
+            detail="To zamówienie nie należy do klienta z dokumentu",
+        )
+    now = datetime.now(timezone.utc)
+    doc.outcome = OUTCOME_APPLIED
+    doc.error = None
+    doc.reviewed_by_user_id = user.id
+    doc.reviewed_at = now
+    doc.applied_by_user_id = user.id
+    doc.applied_at = now
+    doc.proposal = {
+        **(doc.proposal or {}),
+        "resolved_in_order": {
+            "order_group_id": group.id,
+            "order_number": group.order_number,
+            "resolved_by_user_id": user.id,
+            "resolved_at": now.isoformat(),
+        },
+    }
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=doc.client_id,
+            action="order_mail_resolved_in_order",
+            user_id=user.id,
+            details={"document_id": doc.id, "order_group_id": group.id},
+        )
+    )
+    await db.commit()
+    await db.refresh(doc)
+    return await _serialize(db, doc, user)
 
 
 @router.post("/queue/{doc_id}/dismiss")

@@ -282,6 +282,10 @@ export interface OrderPlanContract {
   rate_cost_currency: string | null;
   rate_cost_rate_to_pln: number | null;
   rate_cost_per_md_pln: number | null;
+  /** Kontrakt ZAKOŃCZONY: komunikat „nie ma już aktywnej współpracy" (ten sam
+   *  co przy odznace „Zakończył współpracę"). Wybór takiego kontraktu z listy
+   *  prowadzi do pytania zostaw / wznów / zastąp / usuń, nie do cichego wznowienia. */
+  inactive_reason?: string | null;
 }
 
 /** Wynik dopasowania osoby z dokumentu do kontraktu (odznaka karty). */
@@ -606,6 +610,13 @@ export const orderGroupsApi = {
     api.post<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines`,
       payload,
+    ),
+
+  /** „Uzupełnij zamówienie" z PDF-a — osoby z dokumentu razem albo wcale. */
+  addLines: (clientId: number, groupId: number, lines: OrderLineInput[]) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/batch`,
+      { lines },
     ),
 
   /** „Zostaw jako historię" — osoba z zakończoną współpracą zostaje

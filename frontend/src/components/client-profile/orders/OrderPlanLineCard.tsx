@@ -6,6 +6,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { ConsultantOption, OrderPlanContract } from "@/lib/api/orderGroups";
 import {
+  backToOptions,
   chooseConsultant,
   chooseContract,
   keepAsHistory,
@@ -328,6 +329,15 @@ export function OrderPlanLineCard({
             >
               Usuń z zamówienia
             </button>
+            {draft.options.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onChange(backToOptions(draft))}
+                className="rounded-md px-2.5 py-1 font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Wybierz inną pozycję z listy
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}

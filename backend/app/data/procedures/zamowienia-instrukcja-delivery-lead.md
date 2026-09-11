@@ -272,7 +272,7 @@ kontraktu u tego klienta i oznacza wynik:
 | zielona **Dopasowano automatycznie** | zapis identyczny jak w kontrakcie; różnice tylko w polskich znakach („Pawel Laski" = „Paweł Łaski") lub wielkości liter | nic |
 | żółta **Dopasowano — potwierdź** | rdzeń imienia i nazwiska się zgadza, ale w kontrakcie przed nim jest dopisek („Active", „UR –", „Projekt 2") albo imię i nazwisko stoją w odwrotnej kolejności | **To ta osoba — potwierdzam** albo **To nie ta osoba** |
 | czerwona **Zakończył współpracę** | osoba jest w systemie, ale jej współpraca u tego klienta jest zakończona — karta mówi to wprost, z datą końca kontraktu | wybierasz jedno z czterech: **Zostaw jako historię**, **Wznów współpracę**, **Zastąp kimś innym** albo **Usuń z zamówienia** (patrz niżej) |
-| czerwona **Kilka osób — wybierz ręcznie** | u tego klienta są dwie różne osoby o tym samym imieniu i nazwisku — także gdy jedna z nich ma już tylko zakończony kontrakt — albo ta sama osoba ma dwa aktywne kontrakty | wybierasz właściwy kontrakt po numerze i dacie rozpoczęcia |
+| czerwona **Kilka osób — wybierz ręcznie** | u tego klienta są dwie różne osoby o tym samym imieniu i nazwisku — także gdy jedna z nich ma już tylko zakończony kontrakt — albo ta sama osoba ma dwa aktywne kontrakty | wybierasz właściwy kontrakt po numerze i dacie rozpoczęcia. Wybór kontraktu **zakończonego** nie wznawia go po cichu: karta przechodzi w to samo pytanie co przy „Zakończył współpracę" (z niego wrócisz do listy przyciskiem **Wybierz inną pozycję z listy**) |
 | czerwona **Wymaga ręcznego wskazania** | tej osoby nie ma w systemie („Nie znaleziono … w systemie") albo imię i nazwisko różni się czymś więcej niż polskie znaki | **Wskaż tę osobę ręcznie** z listy, **Zastąp kimś innym** albo **Usuń z zamówienia** |
 
 **Osoba z PDF-a, która zakończyła współpracę.** Zamówienie nie utyka i nie
@@ -286,6 +286,11 @@ wznawia niczego po cichu — decydujesz Ty:
 * **Zastąp kimś innym** — wybierasz inną osobę; karta zapamiętuje, za kogo jest
   zastępstwem.
 * **Usuń z zamówienia** — karta znika.
+
+**Ta sama reguła obowiązuje u każdego klienta rozliczanego w MD albo kwotą
+budżetową i na każdej ścieżce odczytu PDF-a** — w oknie **Nowe zamówienie**,
+w **Uzupełnij zamówienie** i przy zamówieniu, które przyszło **mailem** (patrz
+„Zamówienia ze skrzynki"). Wszędzie widzisz ten sam komunikat i ten sam wybór.
 
 Na zapisanym zamówieniu zobaczysz przy każdej osobie jej **okres udziału,
 wykorzystaną kwotę/MD i status** (aktywna / zakończyła współpracę / usunięta),
@@ -364,7 +369,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 
 | Przycisk | Co robi |
 |---|---|
-| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie |
+| **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie. **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
@@ -374,10 +379,16 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
 
-**Usunięcie nie zwraca zużycia do puli.** Osoba bez żadnych rozliczeń znika
-z zamówienia. Osoba, która ma już zafakturowaną kwotę albo zaraportowane MD,
-**zostaje na zamówieniu jako „usunięta"** — z informacją, ile wykorzystała —
-a jej kwota/MD **nie wraca** do budżetu dostępnego dla innych.
+**Usunięcie i zastąpienie nie zwracają zużycia do puli — u każdego klienta.**
+Osoba bez żadnych rozliczeń znika z zamówienia. Osoba, która ma już
+zafakturowaną kwotę albo zaraportowane MD, **zostaje na zamówieniu jako
+„usunięta"**, a jej kwota/MD **nie wraca** do budżetu dostępnego dla innych.
+Pod osobą, która nie jest już na aktywnej obsadzie, stoi zdanie w rodzaju
+**„Jan Kowalski wykorzystał(a) 12 000,00 zł / 12 MD na tym zamówieniu przed
+zakończeniem współpracy — ta kwota nie wraca do puli dostępnej dla innych
+konsultantów"** (na zamówieniu kosztowym — kwota faktur; na zamówieniu MD —
+liczba MD, a przy dostępie do kwot także ich wartość). Zastępca dostaje własny
+budżet — MD i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
 
 Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
 pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
@@ -532,8 +543,23 @@ kwot bez potwierdzenia nazwiska nie wystarcza do automatycznego zapisu.
 Na przykład „Konrada Korcza" może zostać powiązany z „Konrad Korcz".
 Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
 osób, system pokazuje ich imiona i nazwiska, identyfikatory rekordów oraz
-numery kontraktów do ręcznego rozstrzygnięcia. **Brak osoby u klienta tworzy
-nowy draft z numerem, okresem i stawką przychodową z maila.** DL otrzymuje raz
+numery kontraktów do ręcznego rozstrzygnięcia.
+
+**Zamówienie MD albo kosztowe z osobą bez aktywnej współpracy albo nieznalezioną
+w systemie nie zapisze się samo** — u żadnego klienta. Automat nie wznowi
+zakończonego kontraktu i nie założy nowej osoby: plan pokazuje przy niej
+**„Decyzja o osobie — w oknie zamówienia"** z tym samym komunikatem co karta
+w oknie zamówienia („… nie ma już aktywnej współpracy …" albo „Nie znaleziono …
+w systemie"), a **„Zastosuj" jest wtedy wyłączone**. Kliknij **Rozstrzygnij
+w oknie zamówienia**: otworzy się zakładka „Zamówienia" klienta z PDF-em z maila,
+już odczytanym — jako **Uzupełnij zamówienie**, gdy zamówienie o tym numerze
+już jest, inaczej jako **Nowe zamówienie**. Tam decydujesz o osobie (zostaw jako
+historię / wznów / zastąp / usuń) i zapisujesz. **Po zapisie dokument sam schodzi
+z kolejki** (zakładka „Zapisane ręcznie", z numerem zamówienia). Zamknięcie okna
+bez zapisu zostawia dokument w kolejce.
+
+**Na zamówieniu okresowym brak osoby u klienta tworzy nowy draft z numerem,
+okresem i stawką przychodową z maila.** DL otrzymuje raz
 powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”;
 kliknięcie otwiera zakładkę „Zamówienia” tego klienta.
 Aktualizacje tego draftu nie powtarzają powiadomienia. Jeśli klient nie miał
@@ -551,7 +577,7 @@ drugiej. Kilka takich osób w bazie nadal wymaga wskazania właściwej.
 
 System uzupełnia istniejący draft, także opisany nazwą rekrutacji. Aktywne lub
 kończące się zamówienie ma pierwszeństwo przed draftem: kolejny okres tworzy
-przedłużenie przy dotychczasowym kontrakcie. **Powrót po przerwie** (poprzednie
+przedłużenie przy dotychczasowym kontrakcie. Na zamówieniu okresowym **powrót po przerwie** (poprzednie
 zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny

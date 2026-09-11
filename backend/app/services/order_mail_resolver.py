@@ -76,6 +76,9 @@ class ResolvedConsultant:
     candidate_id: Optional[int] = None
     contract_id: Optional[int] = None
     contract_status: Optional[str] = None
+    #: Data końca wybranego kontraktu (ISO) — do komunikatu o zakończonej
+    #: współpracy. Tekst, nie ``date``: rekord trafia do JSONB dokumentu.
+    contract_end_date: Optional[str] = None
     #: ID kandydatów, które pasowały (>1 = niejednoznaczne).
     candidate_ids: tuple[int, ...] = ()
     #: Kontrakty kandydata u klienta (>1 żywy = niejednoznaczne dla automatu).
@@ -281,6 +284,11 @@ def resolve_rows(
                 candidate_id=person.candidate_id,
                 contract_id=contract.contract_id if contract else None,
                 contract_status=contract.status if contract else None,
+                contract_end_date=(
+                    contract.end_date.isoformat()
+                    if contract and contract.end_date
+                    else None
+                ),
                 candidate_ids=(person.candidate_id,),
                 live_contract_ids=live_ids,
                 reason=(

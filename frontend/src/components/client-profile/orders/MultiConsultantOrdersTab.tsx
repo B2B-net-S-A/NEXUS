@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
@@ -10,6 +10,7 @@ import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { orderMailApi } from "@/lib/api/orderMail";
 import {
   orderGroupsApi,
   type OrderGroupExtendInput,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/client-order-list";
 import {
   downloadBlob,
+  fetchAuthenticatedBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import {
@@ -89,7 +91,20 @@ function apiError(err: unknown, fallback: string): string {
  *  `fileError` niepuste znaczy: zamówienie JEST zapisane, plik nie wszedł.
  *  Rozdzielenie tych dwóch faktów jest tu istotne, bo mylenie ich prowadzi
  *  wprost do duplikatu zamówienia (patrz `attachFile`). */
-type GroupSaveResult = { saved: OrderGroupRead; fileError: string | null };
+type GroupSaveResult = {
+  saved: OrderGroupRead;
+  fileError: string | null;
+  /** Osoby dopisane, ale aktywacja szkicu nie weszła — zamówienie jest zapisane. */
+  activationError?: string | null;
+};
+
+/** Komunikat złożony przez nas (etap zapisu) — nie mylić z błędem axiosa bez
+ *  odpowiedzi (sieć, timeout), który też jest `Error`, ale po angielsku. */
+class SaveStepError extends Error {}
+
+function saveErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof SaveStepError ? err.message : apiError(err, fallback);
+}
 
 const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
   { key: "all", label: "Wszystkie" },
@@ -108,6 +123,18 @@ interface Props {
    *  SERWER (`legacy_null_order_type` klienta). U klientów rozliczanych w MD
    *  (BNP, BIK, Polkomtel, Wedel) to „md", u pozostałych „periodic". */
   legacyNullOrderType?: LegacyClientOrderType;
+  /** Dokument z kolejki zamówień z maila (`?orderMailDoc=`) — osoba
+   *  nieaktywna/nieznaleziona do rozstrzygnięcia w oknie zamówienia. */
+  orderMailDocId?: number | null;
+  /** Wywoływane, gdy dokument z maila jest obsłużony albo porzucony
+   *  (strona zdejmuje wtedy parametr z adresu). */
+  onOrderMailDocDone?: () => void;
+}
+
+/** PDF dokumentu z maila otwarty w oknie zamówienia. */
+interface MailSource {
+  docId: number;
+  file: File;
 }
 
 /** Od 09.2026 każdy klient ma wszystkie trzy typy — bez blokady per klient.
@@ -123,6 +150,8 @@ export function MultiConsultantOrdersTab({
   clientId,
   clientName = "",
   legacyNullOrderType = "periodic",
+  orderMailDocId = null,
+  onOrderMailDocDone,
 }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -182,6 +211,7 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead | null;
   }>({ open: false, group: null });
   const [formError, setFormError] = useState<string | null>(null);
+  const [mailSource, setMailSource] = useState<MailSource | null>(null);
   // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
   // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
   // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
@@ -235,6 +265,94 @@ export function MultiConsultantOrdersTab({
     // Dashboard ma od razu odczytać ten stan, bez czekania na staleTime.
     queryClient.invalidateQueries({ queryKey: ["dl-alerts"] });
   };
+
+  /** Dokument z maila zostaje w kolejce — okno zamknięte bez zapisu. */
+  function releaseMailSource() {
+    if (!mailSource) return;
+    setMailSource(null);
+    onOrderMailDocDone?.();
+  }
+
+  // „Rozstrzygnij w oknie zamówienia" z kolejki maila: pobierz PDF dokumentu
+  // i otwórz TO SAMO okno co przy ręcznym wgraniu pliku — „Uzupełnij
+  // zamówienie", gdy u klienta jest otwarte zamówienie o tym numerze, inaczej
+  // „Nowe zamówienie". Karta osoby nieaktywnej/nieznalezionej daje tam wybór
+  // zostaw / wznów / zastąp / usuń. Raz na dokument (ref), bo odświeżenie listy
+  // nie może otwierać okna drugi raz.
+  const mailDocHandled = useRef<number | null>(null);
+  useEffect(() => {
+    if (!orderMailDocId || !query.isSuccess || !canManage) return;
+    if (mailDocHandled.current === orderMailDocId) return;
+    mailDocHandled.current = orderMailDocId;
+    const docId = orderMailDocId;
+    const knownGroups = query.data?.groups ?? [];
+    void (async () => {
+      try {
+        const { data: target } = await orderMailApi.orderTarget(docId);
+        if (target.client_id !== clientId) {
+          throw new SaveStepError("Dokument z maila dotyczy innego klienta.");
+        }
+        const blob = await fetchAuthenticatedBlob(orderMailApi.fileUrl(docId));
+        const file = new File([blob], target.attachment_name || "zamowienie.pdf", {
+          type: "application/pdf",
+        });
+        const group =
+          target.order_group_id !== null
+            ? (knownGroups.find((item) => item.id === target.order_group_id) ?? null)
+            : null;
+        if (target.order_group_id !== null && group === null) {
+          // Zamówienie o tym numerze istnieje, ale nie ma go na tej liście —
+          // „Nowe zamówienie" założyłoby drugie o tym samym numerze.
+          throw new SaveStepError(
+            `Zamówienie nr ${target.order_number ?? target.order_group_id} już ` +
+              "istnieje, ale nie ma go na liście zamówień tego klienta — " +
+              "rozstrzygnij dokument z maila ręcznie.",
+          );
+        }
+        setFormError(null);
+        setCarriedFile(null);
+        setMailSource({ docId, file });
+        setStandardOrderModalOpen(false);
+        setNewOrderType(target.order_type);
+        setGroupModal({ open: true, group });
+      } catch (err) {
+        showToast(
+          saveErrorMessage(err, "Nie udało się otworzyć PDF-a z maila zamówień."),
+          "error",
+        );
+        onOrderMailDocDone?.();
+      }
+    })();
+  }, [
+    orderMailDocId,
+    query.isSuccess,
+    query.data,
+    canManage,
+    clientId,
+    showToast,
+    onOrderMailDocDone,
+  ]);
+
+  /** Zamówienie z okna zapisane — dokument z maila schodzi z kolejki. */
+  async function settleMailSource(saved: OrderGroupRead) {
+    const source = mailSource;
+    if (!source) return;
+    setMailSource(null);
+    try {
+      await orderMailApi.resolvedInOrder(source.docId, saved.id);
+      queryClient.invalidateQueries({ queryKey: ["order-mail"] });
+      showToast("Dokument z maila zamówień oznaczono jako rozstrzygnięty", "success");
+    } catch (err) {
+      showToast(
+        `Zamówienie jest zapisane, ale dokument #${source.docId} nadal czeka w ` +
+          `kolejce zamówień z maila (${apiError(err, "błąd zapisu")}). Oznacz go ` +
+          "tam jako odrzucony — NIE zapisuj zamówienia drugi raz.",
+        "error",
+      );
+    } finally {
+      onOrderMailDocDone?.();
+    }
+  }
 
   /** Dogrywa PDF do zamówienia, które JUŻ jest w bazie.
    *
@@ -290,9 +408,19 @@ export function MultiConsultantOrdersTab({
       file: File | null;
     }): Promise<GroupSaveResult> => {
       let saved: OrderGroupRead;
+      let activationError: string | null = null;
       if (groupModal.group) {
+        const groupId = groupModal.group.id;
+        const newLines = values.lines ?? [];
+        // Aktywacja pustego szkicu razem z osobami z PDF-a: serwer odmawia
+        // aktywacji bez konsultantów, więc kolejność to nagłówek (jeszcze jako
+        // szkic) → osoby → aktywacja, a nie aktywacja przed dopisaniem osób.
+        const activateAfterLines =
+          newLines.length > 0 &&
+          values.status === "active" &&
+          groupModal.group.status === "draft";
         saved = (
-          await orderGroupsApi.update(clientId, groupModal.group.id, {
+          await orderGroupsApi.update(clientId, groupId, {
             order_number: values.order_number,
             start_date: values.start_date,
             end_date: values.end_date,
@@ -306,7 +434,7 @@ export function MultiConsultantOrdersTab({
             ...(values.md_budget_mode != null
               ? { md_budget_mode: values.md_budget_mode }
               : {}),
-            ...(values.status ? { status: values.status } : {}),
+            ...(values.status && !activateAfterLines ? { status: values.status } : {}),
             ...(values.budget_amount != null
               ? { budget_amount: values.budget_amount }
               : {}),
@@ -315,10 +443,35 @@ export function MultiConsultantOrdersTab({
               : {}),
           })
         ).data;
+        // Osoby z PDF-a spoza zamówienia — jednym zapisem, razem albo wcale.
+        // Nagłówek jest już zapisany: ponowienie po błędzie powtarza ten sam
+        // PATCH (bez skutków ubocznych) i dopiero wtedy dopisuje osoby.
+        if (newLines.length > 0) {
+          try {
+            saved = (await orderGroupsApi.addLines(clientId, groupId, newLines)).data;
+          } catch (err) {
+            throw new SaveStepError(
+              "Numer, okres i budżet zamówienia są zapisane, ale osób z dokumentu " +
+                `nie dopisano: ${apiError(err, "błąd zapisu")} Popraw karty i ` +
+                "zapisz ponownie.",
+            );
+          }
+        }
+        if (activateAfterLines) {
+          // Osoby już są na zamówieniu — ponowienie całego zapisu dopisałoby
+          // je drugi raz, więc awarię aktywacji zgłaszamy jako częściowy sukces.
+          try {
+            saved = (
+              await orderGroupsApi.update(clientId, groupId, { status: "active" })
+            ).data;
+          } catch (err) {
+            activationError = apiError(err, "błąd zapisu");
+          }
+        }
       } else {
         saved = (await orderGroupsApi.create(clientId, values)).data;
       }
-      return attachFile(saved, file);
+      return { ...(await attachFile(saved, file)), activationError };
     },
     onSuccess: (result) => {
       if (!groupModal.group || groupModal.group.status === "draft") {
@@ -328,8 +481,18 @@ export function MultiConsultantOrdersTab({
       setFormError(null);
       invalidate();
       announceSaved(result, "Zapisano zamówienie");
+      if (result.activationError) {
+        showToast(
+          "Zamówienie i osoby z dokumentu są zapisane, ale zamówienie zostało " +
+            `szkicem — aktywacja nie weszła: ${result.activationError} Aktywuj je ` +
+            "przez „Uzupełnij zamówienie” (bez ponownego dopisywania osób).",
+          "error",
+        );
+      }
+      void settleMailSource(result.saved);
     },
-    onError: (err) => setFormError(apiError(err, "Nie udało się zapisać zamówienia.")),
+    onError: (err) =>
+      setFormError(saveErrorMessage(err, "Nie udało się zapisać zamówienia.")),
   });
 
   const saveLine = useMutation({
@@ -899,7 +1062,12 @@ export function MultiConsultantOrdersTab({
 
       <OrderGroupFormModal
         open={groupModal.open}
-        onOpenChange={(open) => setGroupModal((s) => ({ ...s, open }))}
+        onOpenChange={(open) => {
+          setGroupModal((s) => ({ ...s, open }));
+          // W trakcie zapisu dokument z maila czeka na wynik (`settleMailSource`)
+          // — zamknięcie okna Esc-em nie może go wtedy odpiąć.
+          if (!open && !saveGroup.isPending) releaseMailSource();
+        }}
         group={groupModal.group}
         clientId={clientId}
         orderType={
@@ -912,9 +1080,20 @@ export function MultiConsultantOrdersTab({
               ? "cost"
               : newOrderType
         }
-        onOrderTypeChange={(orderType, file) => openNewOrderForm(orderType, file)}
+        onOrderTypeChange={(orderType, file) => {
+          // Okno okresowe nie zna dokumentów z maila — dokument zostaje w kolejce.
+          if (orderType === "periodic") releaseMailSource();
+          openNewOrderForm(orderType, file);
+        }}
         allowedOrderTypes={allowedOrderTypes}
         initialFile={carriedFile}
+        autoReadFile={mailSource?.file ?? null}
+        sourceNotice={
+          mailSource
+            ? `PDF z kolejki zamówień z maila (dokument #${mailSource.docId}). ` +
+              "Po zapisaniu zamówienia dokument zejdzie z kolejki."
+            : null
+        }
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values, file) => saveGroup.mutate({ values, file })}

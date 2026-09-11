@@ -6,7 +6,9 @@ next to the completed one — a completed order is never rewritten (decision of
 2026-09-10): invoices were settled against it. A draft written from another
 mail document for a disjoint period counts as a planned order, not an empty
 draft (same number or overlapping period = its correction). Actual period
-overlaps, ambiguous targets and revisions require review.
+overlaps, ambiguous targets and revisions require review. On MD and cost
+orders a person whose engagement ended, or who is not in the system, waits for
+a human decision (``ACTION_DECIDE_PERSON``) instead of being revived or created.
 """
 
 from __future__ import annotations
@@ -17,6 +19,10 @@ from decimal import Decimal
 import re
 from typing import Optional
 
+from app.services.order_consultant_match import (
+    inactive_consultant_reason,
+    unknown_consultant_reason,
+)
 from app.services.order_mail_resolver import ResolvedConsultant
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 
@@ -34,6 +40,18 @@ ACTION_REVISION = "revision"
 ACTION_OVERLAP = "overlap"
 ACTION_GROUP = "group"
 ACTION_SKIP = "skip"
+#: Zamówienie MD/kosztowe z osobą, której współpraca u klienta się zakończyła
+#: albo której nie ma w systemie (ticket 09.2026, reguła ogólna dla wszystkich
+#: klientów rozliczanych w MD lub budżetem). Automat NIE zgaduje: wznowienie
+#: kontraktu, zapis historyczny, zastępstwo albo pominięcie osoby to decyzja
+#: Delivery Leada. Podejmuje ją w oknie zamówienia (ten sam mechanizm co
+#: „Nowe zamówienie" i „Uzupełnij zamówienie"), do którego kolejka prowadzi
+#: z tym PDF-em.
+ACTION_DECIDE_PERSON = "decide_person"
+#: Typy zamówień, dla których osoba nieaktywna/nieznaleziona czeka na decyzję.
+#: Zamówienie okresowe zostaje przy decyzji z 10.09.2026: powrót po przerwie
+#: to nowe zamówienie, nowa osoba — szkic nowego kontraktora.
+DECIDE_PERSON_ORDER_TYPES = frozenset({"md", "cost"})
 AUTO_ACTIONS = frozenset(
     {
         ACTION_FILL_DRAFT,
@@ -187,6 +205,26 @@ def _rate_for_row(
     return rate, unit, md
 
 
+def _person_decision_reason(rp: RowProposal, res: ResolvedConsultant) -> Optional[str]:
+    """Komunikat „nie ma już aktywnej współpracy / nie znaleziono" albo ``None``.
+
+    Tylko dla zamówień MD i kosztowych. Tekst pochodzi z tego samego źródła co
+    karta w oknie zamówienia (``order_consultant_match``), więc Delivery Lead
+    widzi w kolejce dokładnie to zdanie, które zobaczy po otwarciu okna.
+    """
+
+    if rp.order_type not in DECIDE_PERSON_ORDER_TYPES:
+        return None
+    if res.match_kind == "none":
+        return unknown_consultant_reason(rp.row_name)
+    if res.is_unique_person and res.contract_status == "ended":
+        ended_on = (
+            date.fromisoformat(res.contract_end_date) if res.contract_end_date else None
+        )
+        return inactive_consultant_reason(rp.row_name, ended_on=ended_on)
+    return None
+
+
 def plan_document(
     *,
     client_id: int,
@@ -230,6 +268,12 @@ def plan_document(
             if extraction.total_value is not None
             else None,
         )
+        decision = _person_decision_reason(rp, res)
+        if decision is not None:
+            rp.action = ACTION_DECIDE_PERSON
+            rp.reasons.append(decision)
+            proposal.rows.append(rp)
+            continue
         if res.match_kind == "none":
             rp.action = ACTION_NEW_DRAFT
             proposal.rows.append(rp)
