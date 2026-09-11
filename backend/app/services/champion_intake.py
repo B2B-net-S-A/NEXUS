@@ -292,6 +292,24 @@ def split_skills(value, restored=()):
     return items, placeholders, long_items, unstorable
 
 
+def _set_aside_requirements_lost(stored_meta, meta, path="stack.must"):
+    """Stored set-aside MUST entries the current normaliser cannot restore.
+
+    A normalisation without `previous` (validation) drops the stored
+    `intake.unresolved` note of a non-empty stack and does not pull the
+    entries back (see `prepare_profile`). That is silent on purpose for the
+    entries the current normaliser accepts — they rejoin the list on the next
+    stack edit. An entry it would reject (longer than `STACK_ITEM_MAX_CHARS`)
+    never rejoins: it is reported, as a warning only.
+    """
+    stored_note = str((stored_meta.get("unresolved") or {}).get(path) or "")
+    lines = [line.strip() for line in stored_note.splitlines() if meaningful(line)]
+    _, _, _, unstorable = split_skills([], lines)
+    current_note = str((meta.get("unresolved") or {}).get(path) or "")
+    still_noted = set(current_note.splitlines())
+    return [line for line in unstorable if line not in still_noted]
+
+
 def _value_at(profile, path):
     section, _, key = path.partition(".")
     value = (profile or {}).get(section)
@@ -644,6 +662,17 @@ def validation(profile, job=None, *, enforce=False):
             path, ("advisory_value", "Sprawdź ten wpis.")
         )
         add(code, path, message, source=source, warning=True)
+    lost = _set_aside_requirements_lost(stored_meta, meta) if active else []
+    if lost:
+        add(
+            "unstorable_requirement",
+            "stack.must",
+            "Wymaganie odłożone przy wcześniejszym zapisie jest za długie na "
+            f"jedną pozycję listy MUST (limit {STACK_ITEM_MAX_CHARS} znaków) i nie "
+            "trafi do wymagań rekrutacji. Skróć je albo podziel i dodaj ponownie.",
+            source="\n".join(lost),
+            warning=True,
+        )
     if not meaningful(basics.get("role_name") or getattr(job, "title", None)):
         add("missing_role", "basics.role_name", "Uzupełnij nazwę roli.")
     if not any(meaningful(cp["project"].get(k)) for k in ("about", "responsibilities")):

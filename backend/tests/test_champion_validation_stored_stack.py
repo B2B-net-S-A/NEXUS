@@ -133,6 +133,44 @@ def test_a_nice_entry_set_aside_does_not_resurrect_either() -> None:
     assert result["issues"] == []
 
 
+# Longer than `STACK_ITEM_MAX_CHARS` (500): the current normaliser cannot store
+# it as one entry either, so no stack edit will ever bring it back.
+UNSTORABLE = ("wymaganie " * 60).strip()
+
+
+@pytest.mark.parametrize("gate", ["false", "true"])
+def test_a_set_aside_entry_too_long_to_store_is_a_warning(monkeypatch, gate) -> None:
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", gate)
+    cp = stored_profile()
+    cp["intake"]["unresolved"]["stack.must"] = f"{SET_ASIDE}\n{UNSTORABLE}"
+
+    result = validation(cp, job(cp))
+
+    (issue,) = [i for i in result["issues"] if i["code"] == "unstorable_requirement"]
+    assert issue["path"] == "stack.must"
+    assert issue["severity"] == "warning"
+    assert issue["blocked_operations"] == []
+    # Only the entry that can never rejoin — the 13-word one stays silent.
+    assert issue["source"] == UNSTORABLE
+    assert [i["code"] for i in result["issues"]] == ["unstorable_requirement"]
+    assert result["status"] == "ready"
+    assert result["blocked_operations"] == []
+    # Still read-only: nothing is resurrected into the stored stack.
+    assert names(cp) == ["Java 17"]
+
+
+def test_an_empty_stack_reports_the_note_itself_not_twice() -> None:
+    cp = stored_profile()
+    cp["stack"]["must"] = []
+    cp["intake"]["unresolved"]["stack.must"] = UNSTORABLE
+
+    result = validation(cp, job(cp, must_skills=None))
+
+    codes = [i["code"] for i in result["issues"] if i["path"] == "stack.must"]
+    assert "unresolved_value" in codes
+    assert "unstorable_requirement" not in codes
+
+
 def test_editing_the_must_stack_brings_the_set_aside_entry_back() -> None:
     edited = user_edit(
         stored_profile(),
