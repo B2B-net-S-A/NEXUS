@@ -592,7 +592,14 @@ async def client_playbooks_overview(
             select(ClientPlaybook, _CLIENT_DISPLAY_NAME, editor.name)
             .join(Client, Client.id == ClientPlaybook.client_id)
             .outerjoin(editor, editor.id == ClientPlaybook.updated_by)
-            .where(Client.hidden.is_(False), Client.merged_into_client_id.is_(None))
+            .where(
+                Client.hidden.is_(False),
+                Client.merged_into_client_id.is_(None),
+                # Klient usunięty z profilu (0307) ma kartę, więc zawsze idzie
+                # ścieżką „z historią" — bez tego wisiałby w Pomocy z linkiem
+                # do profilu, który zwraca 404.
+                Client.deleted_at.is_(None),
+            )
             .order_by(func.lower(_CLIENT_DISPLAY_NAME), ClientPlaybook.id)
         )
     ).all()

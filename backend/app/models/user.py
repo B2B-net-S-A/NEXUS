@@ -119,6 +119,14 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # Ręczne usuwanie klientów z profilu (0307). Uprawnienie IMIENNE: nie
+    # wynika z żadnej roli — także administrator go nie ma, dopóki ktoś mu go
+    # jawnie nie nada w edycji użytkownika. Każda zmiana ląduje w Historii
+    # zdarzeń (``critical_events``).
+    can_delete_clients: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # First-login onboarding gate.
     # `delivery_lead` and `recruiter` must complete a role-specific onboarding
     # flow (see backend/app/api/onboarding.py) before accessing the app.

@@ -115,6 +115,7 @@ from app.schemas.client_order_group import (
 )
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_identity import client_display_name
+from app.services.critical_events import audited_deletion
 from app.services.client_order_lines import (
     CLIENT_CONTRACT_STATUSES,
     _line_query,
@@ -293,7 +294,9 @@ async def _canonical_currency_rate(
 
 async def _assert_client(db: AsyncSession, client_id: int) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
-    if client is None:
+    # Klient usunięty z profilu (0307): historia zostaje w bazie, ale nowych
+    # zamówień i zmian przez jego (nieistniejący już) profil nie przyjmujemy.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
     return client
 
@@ -3009,47 +3012,59 @@ async def delete_order_group(
     jest ODPINANA od zamówienia, nie kasowana.
 
     **Usunięcie nie zostawia wpisu w historii** (wymóg ticketu) — dziennik
-    zamówienia znika razem z nim (``ON DELETE CASCADE``).
+    zamówienia znika razem z nim (``ON DELETE CASCADE``). Ogólnosystemowa
+    Historia zdarzeń w Ustawieniach (0307) to osobny dziennik bez FK — tam
+    usunięcie (i zablokowana próba) zostaje odnotowane.
     """
-    await _require_order_lifecycle(db, user, client_id)
-    _assert_multi_client(client_id)
-    group = await _load_group(db, client_id, group_id)
-    master_path = group.file_path
+    async with audited_deletion(
+        db,
+        actor=user,
+        event_type="order_group.delete",
+        entity_type="order",
+        entity_id=group_id,
+        client_id=client_id,
+    ) as audit:
+        await _require_order_lifecycle(db, user, client_id)
+        _assert_multi_client(client_id)
+        group = await _load_group(db, client_id, group_id)
+        master_path = group.file_path
+        audit.describe(label=f"Zamówienie {group.order_number}", status=group.status)
 
-    lines_result = await db.execute(
-        _line_query()
-        .where(ClientOrder.order_group_id == group.id)
-        .order_by(ClientOrder.id.asc())
-        .with_for_update()
-    )
-    lines = list(lines_result.scalars().unique().all())
-    await _assert_no_pending_offboarding_case(db, group_id=group.id)
-    await _assert_group_is_disposable(db, group, lines)
-    detached = 0
-    for line in lines:
-        if await _detach_or_delete_line(db, line):
-            detached += 1
-
-    await db.flush()
-    await db.delete(group)
-    db.add(
-        Activity(
-            entity_type="client",
-            entity_id=client_id,
-            action="order_group_deleted",
-            details={
-                "group_id": group_id,
-                "lines_removed": len(lines),
-                "lines_detached": detached,
-            },
+        lines_result = await db.execute(
+            _line_query()
+            .where(ClientOrder.order_group_id == group.id)
+            .order_by(ClientOrder.id.asc())
+            .with_for_update()
         )
-    )
-    await commit_order_write(db)
-    # Automatyczne kopie na kontraktach są osobnymi plikami i pozostają jako
-    # zapis historyczny (FK źródła przechodzi na NULL). Master należący do
-    # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
-    if master_path:
-        storage_service.delete_client_order_group_po(master_path)
+        lines = list(lines_result.scalars().unique().all())
+        await _assert_no_pending_offboarding_case(db, group_id=group.id)
+        await _assert_group_is_disposable(db, group, lines)
+        detached = 0
+        for line in lines:
+            if await _detach_or_delete_line(db, line):
+                detached += 1
+        audit.describe(lines_removed=len(lines), lines_detached=detached)
+
+        await db.flush()
+        await db.delete(group)
+        db.add(
+            Activity(
+                entity_type="client",
+                entity_id=client_id,
+                action="order_group_deleted",
+                details={
+                    "group_id": group_id,
+                    "lines_removed": len(lines),
+                    "lines_detached": detached,
+                },
+            )
+        )
+        await commit_order_write(db)
+        # Automatyczne kopie na kontraktach są osobnymi plikami i pozostają jako
+        # zapis historyczny (FK źródła przechodzi na NULL). Master należący do
+        # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
+        if master_path:
+            storage_service.delete_client_order_group_po(master_path)
 
 
 async def _assert_group_is_disposable(
@@ -3267,48 +3282,72 @@ async def delete_line(
     jako oddzielnych opcji właśnie dlatego, że jedno zamówienie obejmuje
     kilku konsultantów.
     """
-    await _require_order_lifecycle(db, user, client_id)
-    _assert_multi_client(client_id)
-    group = await _load_group(db, client_id, group_id)
+    async with audited_deletion(
+        db,
+        actor=user,
+        event_type="order_line.delete",
+        entity_type="contractor",
+        entity_id=line_id,
+        client_id=client_id,
+    ) as audit:
+        await _require_order_lifecycle(db, user, client_id)
+        _assert_multi_client(client_id)
+        group = await _load_group(db, client_id, group_id)
 
-    # `_line_query()`, nie goły select: zapis historii czyta nazwisko osoby
-    # (`consultant_display_name`), a leniwe doczytanie relacji w async to
-    # `MissingGreenlet` — 500 bez CORS, w przeglądarce „Network Error".
-    line = await db.scalar(
-        _line_query()
-        .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
-        .with_for_update()
-    )
-    if line is None:
-        raise HTTPException(404, detail="Ta linia nie należy do tego zamówienia")
-
-    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
-
-    kept_as_history = await _keep_consumed_line_as_history(
-        db, group=group, line=line, user=user
-    )
-    detached = False if kept_as_history else await _detach_or_delete_line(db, line)
-    if group.is_cost_based:
-        # Kasowanie linii zabiera też jej faktury (CASCADE), więc pula musi
-        # zostać przeliczona — inaczej zamówienie zostaje „wyczerpane" kwotami,
-        # których już w bazie nie ma.
-        await db.flush()
-        await settle_group(db, group)
-
-    db.add(
-        Activity(
-            entity_type="client",
-            entity_id=client_id,
-            action="order_group_line_deleted",
-            details={
-                "group_id": group_id,
-                "order_id": line_id,
-                "detached": detached,
-                "kept_as_history": kept_as_history,
-            },
+        # `_line_query()`, nie goły select: zapis historii czyta nazwisko osoby
+        # (`consultant_display_name`), a leniwe doczytanie relacji w async to
+        # `MissingGreenlet` — 500 bez CORS, w przeglądarce „Network Error".
+        line = await db.scalar(
+            _line_query()
+            .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
+            .with_for_update()
         )
-    )
-    await commit_order_write(db)
+        if line is None:
+            raise HTTPException(404, detail="Ta linia nie należy do tego zamówienia")
+        # Bez imienia i nazwiska konsultanta — wpis przeżywa usunięcie osoby
+        # (art. 17 RODO); numer linii i zamówienia wystarczają.
+        audit.describe(
+            label=f"Konsultant (linia #{line.id}) — zamówienie {group.order_number}",
+            group_id=group_id,
+            order_number=group.order_number,
+            contract_id=line.contract_id,
+        )
+
+        await _assert_no_pending_offboarding_case(
+            db, group_id=group.id, order_id=line.id
+        )
+
+        kept_as_history = await _keep_consumed_line_as_history(
+            db, group=group, line=line, user=user
+        )
+        detached = False if kept_as_history else await _detach_or_delete_line(db, line)
+        audit.describe(detached=detached, kept_as_history=kept_as_history)
+        if kept_as_history:
+            audit.result_note = (
+                "Konsultant miał rozliczenia — zostaje na zamówieniu jako historia "
+                "(status: zakończony)."
+            )
+        if group.is_cost_based:
+            # Kasowanie linii zabiera też jej faktury (CASCADE), więc pula musi
+            # zostać przeliczona — inaczej zamówienie zostaje „wyczerpane" kwotami,
+            # których już w bazie nie ma.
+            await db.flush()
+            await settle_group(db, group)
+
+        db.add(
+            Activity(
+                entity_type="client",
+                entity_id=client_id,
+                action="order_group_line_deleted",
+                details={
+                    "group_id": group_id,
+                    "order_id": line_id,
+                    "detached": detached,
+                    "kept_as_history": kept_as_history,
+                },
+            )
+        )
+        await commit_order_write(db)
 
 
 @router.post(

@@ -95,14 +95,20 @@ async def _snapshot(db: AsyncSession, client_id: int) -> dict[str, Any]:
     }
 
 
-async def _purge_client(
+async def purge_client(
     db: AsyncSession,
     evaluation: ClientEvaluation,
     *,
-    run: ClientCleanupRun,
+    run: Optional[ClientCleanupRun],
     actor: User,
     purged_at: datetime,
+    activity_action: str = "purged_inactive_cleanup",
 ) -> None:
+    """Trwale usuń klienta z nagrobkiem. Commit należy do wołającego.
+
+    Wspólne dla jednorazowego czyszczenia (``run`` podany) i ręcznego
+    usunięcia pustego klienta z profilu (``run=None``).
+    """
     client_id = evaluation.client_id
     snapshot = await _snapshot(db, client_id)
 
@@ -124,7 +130,7 @@ async def _purge_client(
     )
     db.add(
         PurgedClient(
-            run_id=run.id,
+            run_id=run.id if run is not None else None,
             client_id=client_id,
             name=evaluation.source_name,
             display_name=(
@@ -152,9 +158,12 @@ async def _purge_client(
         Activity(
             entity_type="client",
             entity_id=client_id,
-            action="purged_inactive_cleanup",
+            action=activity_action,
             user_id=actor.id,
-            details={"run_id": run.id, "name": evaluation.name},
+            details={
+                **({"run_id": run.id} if run is not None else {}),
+                "name": evaluation.name,
+            },
         )
     )
     await db.flush()
@@ -253,7 +262,7 @@ async def execute_inactive_client_cleanup(
     for evaluation in to_delete:
         try:
             async with db.begin_nested():
-                await _purge_client(
+                await purge_client(
                     db, evaluation, run=run, actor=actor, purged_at=purged_at
                 )
         except Exception as exc:  # noqa: BLE001 — jeden klient nie wywraca reszty

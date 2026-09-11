@@ -954,7 +954,20 @@ async def test_finance_passes_organization_report_read_guards(endpoint):
 
 
 def test_destructive_client_management_is_admin_only():
-    assert _current_user_annotation(clients.delete_client) == AdminUser
+    # Usuwanie klienta przeniesione do `client_deletion` (0307): bramką jest
+    # IMIENNE uprawnienie `users.can_delete_clients`, nie rola — rola Finanse
+    # bez tej flagi nie usunie klienta, tak jak administrator bez niej.
+    from app.api import client_deletion
+
+    assert not hasattr(clients, "delete_client")
+    assert (
+        _parameter_dependency(client_deletion.delete_client)
+        is client_deletion.require_client_deletion_permission
+    )
+    assert (
+        _parameter_dependency(client_deletion.check_client_deletion)
+        is client_deletion.require_client_deletion_permission
+    )
 
 
 def test_finance_notification_allowlist_contains_only_account_security_types():

@@ -34,6 +34,7 @@ from app.api.deps import (
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import deny, resolve_client_access
+from app.services.critical_events import audited_deletion
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -66,8 +67,11 @@ _ALLOWED_EXT_RE = (".pdf", ".docx", ".doc")
 
 
 async def _assert_client(db: AsyncSession, client_id: int) -> None:
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    if not result.scalar_one_or_none():
+    client = (
+        await db.execute(select(Client).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    # Klient usunięty z profilu (0307) nie ma już profilu ani zakładki Umowy.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Client not found")
 
 
@@ -335,34 +339,50 @@ async def delete_framework_contract(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete: status → `superseded`. Hard delete tylko gdy `draft`."""
-    await _assert_client(db, client_id)
-    fc = await db.scalar(
-        select(ClientFrameworkContract).where(
-            ClientFrameworkContract.id == fc_id,
-            ClientFrameworkContract.client_id == client_id,
-        )
-    )
-    if fc is None:
-        raise HTTPException(404, detail="Framework contract not found")
+    """Soft-delete: status → `superseded`. Hard delete tylko gdy `draft`.
 
-    if fc.status == FrameworkContractStatus.draft:
-        if fc.file_path:
-            storage_service.delete_client_framework_contract(fc.file_path)
-        await db.delete(fc)
-    else:
-        fc.status = FrameworkContractStatus.superseded
-
-    db.add(
-        Activity(
-            entity_type="client",
-            entity_id=client_id,
-            action="framework_contract_deleted",
-            user_id=user.id,
-            details={"fc_id": fc_id, "hard_delete": fc.status.value == "draft"},
+    Każda próba — wykonana i zablokowana — trafia do Historii zdarzeń.
+    """
+    async with audited_deletion(
+        db,
+        actor=user,
+        event_type="framework_contract.delete",
+        entity_type="agreement",
+        entity_id=fc_id,
+        client_id=client_id,
+    ) as audit:
+        await _assert_client(db, client_id)
+        fc = await db.scalar(
+            select(ClientFrameworkContract).where(
+                ClientFrameworkContract.id == fc_id,
+                ClientFrameworkContract.client_id == client_id,
+            )
         )
-    )
-    await db.commit()
+        if fc is None:
+            raise HTTPException(404, detail="Framework contract not found")
+        audit.describe(label=fc.name, status=fc.status.value)
+
+        if fc.status == FrameworkContractStatus.draft:
+            if fc.file_path:
+                storage_service.delete_client_framework_contract(fc.file_path)
+            await db.delete(fc)
+            audit.result_note = "Szkic umowy ramowej usunięty trwale."
+        else:
+            fc.status = FrameworkContractStatus.superseded
+            audit.result_note = (
+                "Umowa ramowa oznaczona jako zastąpiona — rekord zostaje w historii."
+            )
+
+        db.add(
+            Activity(
+                entity_type="client",
+                entity_id=client_id,
+                action="framework_contract_deleted",
+                user_id=user.id,
+                details={"fc_id": fc_id, "hard_delete": fc.status.value == "draft"},
+            )
+        )
+        await db.commit()
 
 
 # ── File upload (replace) + download ────────────────────────────────────────

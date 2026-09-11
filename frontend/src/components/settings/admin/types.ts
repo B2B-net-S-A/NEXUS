@@ -7,6 +7,8 @@ export interface AdminUser {
   roles?: string[];
   recruiter_role: string | null;
   is_active: boolean;
+  /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
+  can_delete_clients?: boolean;
   activity_count: number;
   last_activity: string | null;
   created_at: string;
@@ -20,6 +22,8 @@ export interface UserFormData {
   /** Multi-role (migracja 0110). Lista ról secondary + primary. */
   roles: string[];
   recruiter_role: string;
+  /** Imienne uprawnienie do usuwania klientów (tylko edycja istniejącego konta). */
+  can_delete_clients: boolean;
 }
 
 // Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).

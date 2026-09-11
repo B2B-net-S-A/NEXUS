@@ -75,6 +75,9 @@ class UserResponse(BaseModel):
     profile_completed: bool = False
     profile_completed_at: Optional[datetime] = None
     authorization_version: int = 1
+    # Imienne uprawnienie do usuwania klientów (0307) — steruje widocznością
+    # przycisku „Usuń klienta". Bramką jest backend (``client_deletion``).
+    can_delete_clients: bool = False
     # Force-change-password gate (migracja 0078). Po admin-resecie hasła
     # ustawiamy True; frontend redirectuje do /profile dopóki nie zmieni.
     force_password_change: bool = False

@@ -68,9 +68,12 @@ class PurgedClient(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_id: Mapped[int] = mapped_column(
+    # NULL = ręczne usunięcie klienta z profilu (0307) — nie należy do żadnego
+    # przebiegu czyszczenia, a nagrobek dla syncu Traffita jest mu potrzebny
+    # tak samo.
+    run_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_cleanup_runs.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     # Id usuniętego klienta — bez FK, bo wiersza ``clients`` już nie ma.

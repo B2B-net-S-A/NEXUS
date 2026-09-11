@@ -390,6 +390,12 @@ konsultantów"** (na zamówieniu kosztowym — kwota faktur; na zamówieniu MD �
 liczba MD, a przy dostępie do kwot także ich wartość). Zastępca dostaje własny
 budżet — MD i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
 
+**Każde usunięcie trafia do Historii zdarzeń.** Usunięcie całego zamówienia,
+konsultanta z zamówienia albo zamówienia okresowego — a także próba, której
+system odmówił — jest zapisywane w **Ustawienia → Historia zdarzeń** (widok dla
+Admina i Finansów): kto, kiedy, czego dotyczyło i z jakim wynikiem. Ten zapis
+zostaje także wtedy, gdy historia samego zamówienia znika razem z nim.
+
 Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
 pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
 **Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
