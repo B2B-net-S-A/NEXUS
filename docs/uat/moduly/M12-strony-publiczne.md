@@ -25,7 +25,7 @@
 ## NIE KLIKAJ
 
 „Wyślij link” do kogokolwiek, tworzenie linku podpisu i engagementu (oba wysyłają mail),
-formularz `/apply` z PRAWDZIWYMI danymi (użyj fikcyjnych z `example.invalid`), „Zarejestruj” z prawdziwym adresem.
+formularz `/apply` z PRAWDZIWYMI danymi (użyj fikcyjnych z `example.com`), „Zarejestruj” z prawdziwym adresem.
 
 ## Scenariusze — negatywne (bez linków)
 
@@ -62,7 +62,7 @@ formularz `/apply` z PRAWDZIWYMI danymi (użyj fikcyjnych z `example.invalid`), 
 | ID | Kroki | Oczekiwane | Prio |
 |---|---|---|---|
 | S16 | admin: D3 → link do zgłoszeń (jeśli funkcja istnieje; inaczej SKIP) | link | P2 |
-| S17 | incognito: `/apply/{token}` → wypełnij fikcyjnie („Test Zgłoszenie”, `zgloszenie@example.invalid`, `+48 000 000 099`, CV `cv-04-piotr-wzorcowy.pdf`) → Wyślij | potwierdzenie PL; w NEXUS: `/applications` nowy wpis; kandydat utworzony z kategorią kompetencji (auto-CC); **zapisz ID do sprzątania** | P1 |
+| S17 | incognito: `/apply/{token}` → wypełnij fikcyjnie („Test Zgłoszenie”, `zgloszenie@example.com`, `+48 000 000 099`, CV `cv-04-piotr-wzorcowy.pdf`) → Wyślij | potwierdzenie PL; w NEXUS: `/applications` nowy wpis; kandydat utworzony z kategorią kompetencji (auto-CC); **zapisz ID do sprzątania** | P1 |
 | S18 | incognito: to samo zgłoszenie drugi raz (ten sam e-mail) | dedup / komunikat „zgłoszenie już istnieje” — bez duplikatu kandydata | P2 |
 | S19 | incognito: formularz z pustymi polami / błędnym e-mailem | walidacja PL; bez 500 | P2 |
 
@@ -71,7 +71,7 @@ formularz `/apply` z PRAWDZIWYMI danymi (użyj fikcyjnych z `example.invalid`), 
 | ID | Kroki | Oczekiwane | Prio |
 |---|---|---|---|
 | S20 | incognito: `/register` | jeśli `SELF_REGISTRATION_ENABLED=false` → „rejestracja wyłączona” (503 w API); jeśli true → formularz | P2 |
-| S21 | incognito (jeśli włączona): domena spoza `SSO_ALLOWED_DOMAINS` (`ktos@example.invalid`) | zawsze generyczne 201/„sprawdź skrzynkę” (anty-enumeracja) — NIGDY 409/„domena niedozwolona” z rozróżnieniem | P0 |
+| S21 | incognito (jeśli włączona): domena spoza `SSO_ALLOWED_DOMAINS` (`ktos@example.com`) | zawsze generyczne 201/„sprawdź skrzynkę” (anty-enumeracja) — NIGDY 409/„domena niedozwolona” z rozróżnieniem | P0 |
 | S22 | incognito: `/register/verify?token=abc` | „link nieprawidłowy/wygasł” | P2 |
 
 ## Kontrole API (incognito, bez tokena)
