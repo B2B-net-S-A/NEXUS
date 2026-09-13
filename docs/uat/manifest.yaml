@@ -1,0 +1,336 @@
+# UAT NEXUS — manifest maszynowy.
+# Ten sam plan, co w README.md, w formie do odczytu przez orkiestratora (Workflow / skrypt / człowiek).
+# Każdy wpis `card` to ścieżka względem docs/uat/. Wykonawca MUSI najpierw przeczytać `always_read`.
+
+version: 1
+created: 2026-09-11
+tested_sha: null        # wpisz 7 znaków przy starcie Fali 1 (Fala 0 §2.5)
+final_sha: null         # wpisz po Fali 3
+app_url: https://nexus.dynaminds.pl
+api_url: https://api.nexus.dynaminds.pl
+
+always_read:
+  - 00-zasady-dla-agenta.md
+  - 03-macierz-rol.md
+  - 05-szablon-zgloszenia.md
+
+decisions:               # uzupełnia człowiek w Fali 0 (README → „Decyzje otwarte”)
+  first_users: null      # np. ["recruiter", "delivery_lead", "finance"]
+  dynareporter: null     # "test" | "sunset"
+  traffit_transition: null   # "cut" | "parallel:<weeks>" | "writeback"
+  finance_depth: null    # "full" | "overview"
+
+ai_budget:               # limity na całe UAT; Fala 0 §5 zapisuje stan wyjściowy
+  cv_generator: 10
+  candidate_search_runs: 3
+  champion_parse: 2
+  order_pdf_extract: 8
+  candidate_summary: 5
+  cv_interactive_chat: 3
+
+personas:                # ID uzupełnia Fala 0 §3 → wyniki/F0/persony.md (plik lokalny, poza repo)
+  - admin
+  - head_of_recruitment
+  - delivery_lead          # z przypisanym klientem D1, NIE D2
+  - delivery_lead_other    # DL nieprzypisany do D1/D2
+  - talent_community_manager
+  - finance
+  - tac
+  - recruiter              # w zespole rekrutacji D3
+  - sourcer
+  - user                   # legacy; jeśli brak aktywnego konta → skip
+
+fixtures:                # 02-dane-testowe.md; ID → wyniki/F0/dane-testowe.json
+  clients: [D1, D2]
+  jobs: [D3, D4]
+  candidates: [D5, D6, D7, D8, D9]
+  champion: D10
+  playbook: D11
+  cv_rule: D12
+
+waves:
+  - id: 0
+    name: przygotowanie
+    card: 01-fala-0-przygotowanie.md
+    mode: setup
+    parallel: false
+    blocking: true
+
+  - id: 1
+    name: moduły + kontrole przekrojowe (tylko odczyt)
+    parallel: true
+    max_parallel: 6
+    ai_cards_sequential: true     # karty z ai_actions=true NIE równolegle ze sobą
+    requires: [0]
+
+  - id: 2
+    name: przepływy z zapisem
+    parallel: false               # ZAWSZE sekwencyjnie, LOCK w wyniki/
+    requires: [1]
+    human_gate: true              # człowiek mówi „start Fali 2”
+
+  - id: 3
+    name: poprawki i regresja
+    card: 06-fala-3-poprawki-i-regresja.md
+    requires: [2]
+
+  - id: 4
+    name: pilotaż
+    card: 07-fala-4-pilotaz.md
+    requires: [3]
+
+modules:
+  - id: M00
+    name: Wejście i powłoka
+    card: moduly/M00-wejscie-i-powloka.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: false
+    personas: [admin, head_of_recruitment, delivery_lead, talent_community_manager, finance, tac, recruiter, sourcer, user]
+    routes: ["/login", "/dashboard", "/dashboard/recruiter", "/dashboard/delivery-lead", "/dashboard/head-of-recruitment", "/profile", "/help", "/403"]
+    est_minutes: 90
+    human_steps: [S01, S02, S03]
+
+  - id: M01
+    name: Kandydaci
+    card: moduly/M01-kandydaci.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: false
+    personas: [recruiter, sourcer, tac, talent_community_manager, finance, admin]
+    routes: ["/candidates", "/candidates/[id]", "/candidates/compare", "/candidates/bulk-import", "/candidates/contact-queue", "/applications", "/talents", "/sourcing/marketplace"]
+    est_minutes: 180
+
+  - id: M02
+    name: Wyszukiwanie i dopasowanie
+    card: moduly/M02-wyszukiwanie-i-dopasowanie.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: true
+    ai_budget_use: { candidate_search_runs: 3 }
+    personas: [recruiter, tac, delivery_lead, admin]
+    routes: ["/talent-radar", "/candidates/search", "/jobs/[id]"]
+    est_minutes: 150
+
+  - id: M03
+    name: Rekrutacje i pipeline
+    card: moduly/M03-rekrutacje-i-pipeline.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: false
+    personas: [recruiter, tac, delivery_lead, head_of_recruitment, finance, admin]
+    routes: ["/jobs", "/jobs/[id]", "/jobs/[id]/prep/[candidateId]", "/calendar", "/pending-verifications"]
+    est_minutes: 180
+    prefer_after: [P1]
+
+  - id: M04
+    name: Profil Championa
+    card: moduly/M04-profil-championa.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: true
+    ai_budget_use: { champion_parse: 2 }
+    personas: [delivery_lead, recruiter, admin]
+    routes: ["/jobs/[id]"]
+    est_minutes: 90
+
+  - id: M05
+    name: Generator CV
+    card: moduly/M05-generator-cv.md
+    wave: 1
+    mode: R+technical_write
+    depth: full
+    ai_actions: true
+    ai_budget_use: { cv_generator: 8 }
+    personas: [admin, recruiter, finance]
+    routes: ["/cv-generator", "/settings/cv-rules"]
+    est_minutes: 180
+    requires_modules: [M04]
+
+  - id: M06
+    name: Klienci
+    card: moduly/M06-klienci.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: false
+    personas: [delivery_lead, delivery_lead_other, tac, head_of_recruitment, finance, talent_community_manager, admin]
+    routes: ["/clients", "/clients/[id]", "/my-clients", "/my-relationships", "/settings/clients-overview"]
+    est_minutes: 180
+    prefer_after: [P2]
+
+  - id: M07
+    name: Zamówienia
+    card: moduly/M07-zamowienia.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: true
+    ai_budget_use: { order_pdf_extract: 4 }
+    personas: [delivery_lead, delivery_lead_other, finance, head_of_recruitment, tac, talent_community_manager, admin]
+    routes: ["/clients/[id]?tab=zamowienia", "/order-mail", "/finance?view=md"]
+    est_minutes: 210
+    prefer_after: [P3]
+
+  - id: M08
+    name: Kontrakty i umowy B2B
+    card: moduly/M08-kontrakty-i-umowy-b2b.md
+    wave: 1
+    mode: R+technical_write
+    depth: full
+    ai_actions: false
+    personas: [delivery_lead, finance, talent_community_manager, head_of_recruitment, recruiter, admin]
+    routes: ["/contracts", "/contracts/[id]", "/contracts/new", "/contracts/analytics", "/contractors", "/contracts/b2b-generator"]
+    est_minutes: 180
+    prefer_after: [P2]
+
+  - id: M09
+    name: Finanse
+    card: moduly/M09-finanse.md
+    wave: 1
+    mode: R
+    depth: decision:finance_depth
+    ai_actions: false
+    personas: [finance, admin, delivery_lead, head_of_recruitment, recruiter]
+    routes: ["/finance", "/finance?view=archive", "/finance?view=md", "/settings/rate-benchmarks", "/settings/chats"]
+    est_minutes: 120
+
+  - id: M10
+    name: Insights, Cortex, dashboardy, DynaReporter
+    card: moduly/M10-insights-i-dashboardy.md
+    wave: 1
+    mode: R
+    depth: overview
+    ai_actions: false
+    personas: [recruiter, delivery_lead, head_of_recruitment, finance, sourcer, admin]
+    routes: ["/insights", "/cortex", "/dynareporter/*"]
+    est_minutes: 150
+    conditional: { dynareporter: "test" }   # sekcja DR tylko przy tej decyzji
+
+  - id: M11
+    name: Administracja
+    card: moduly/M11-administracja.md
+    wave: 1
+    mode: R
+    depth: overview
+    ai_actions: false
+    personas: [admin, finance, delivery_lead, recruiter]
+    routes: ["/settings", "/settings/*"]
+    est_minutes: 150
+    produces: [wyniki/M11/section-permissions.json]   # wejście karty A
+
+  - id: M12
+    name: Strony publiczne
+    card: moduly/M12-strony-publiczne.md
+    wave: 1
+    mode: R+technical_write
+    depth: full
+    ai_actions: true
+    ai_budget_use: { cv_interactive_chat: 3 }
+    personas: [admin]
+    routes: ["/cv/[token]", "/cv/i/[token]", "/share/champion-card/[token]", "/apply/[token]", "/sign/[token]", "/register", "/preview/*"]
+    est_minutes: 120
+    requires_modules: [M05]
+
+  - id: M13
+    name: Automaty w tle
+    card: moduly/M13-automaty-w-tle.md
+    wave: 1
+    mode: R
+    depth: full
+    ai_actions: false
+    personas: [admin]
+    routes: []            # API + GitHub Actions
+    est_minutes: 120
+    spans_days: 2
+
+cross_checks:
+  - id: A
+    name: Macierz ról
+    card: przekrojowe/A-macierz-rol.md
+    wave: 1
+    mode: R
+    personas: all
+    est_minutes: 240
+    requires_modules: [M11]
+
+  - id: B
+    name: Spójność liczb
+    card: przekrojowe/B-spojnosc-liczb.md
+    wave: 1
+    mode: R
+    personas: [admin, finance]
+    est_minutes: 180
+    prefer_after: [P2, P3]
+    rerun_in_wave: 3
+
+  - id: C
+    name: Sentry / logi / konsola
+    card: przekrojowe/C-sentry.md
+    wave: 1
+    mode: R
+    continuous: true      # działa przez całą Falę 1 i 2
+    est_minutes: 30
+
+flows:
+  - id: P1
+    name: Kandydat z CV → werdykt HM
+    card: przeplywy/P1-kandydat-do-werdyktu-hm.md
+    wave: 2
+    order: 1
+    mode: W
+    must: true
+    ai_budget_use: { cv_generator: 1 }
+    est_minutes: 150
+    human_steps: [12]
+
+  - id: P2
+    name: Zatrudnienie → umowa B2B → kontrakt → zamówienie
+    card: przeplywy/P2-zatrudnienie-umowa-kontrakt.md
+    wave: 2
+    order: 2
+    mode: W
+    must: true
+    requires_flows: [P1]
+    ai_budget_use: { order_pdf_extract: 1 }
+    est_minutes: 150
+    human_gate_step: 8
+
+  - id: P3
+    name: Zamówienia MD i kosztowe → import → zakończenie → eksport
+    card: przeplywy/P3-zamowienia-md-i-kosztowe.md
+    wave: 2
+    order: 3
+    mode: W
+    must: decision:first_users includes delivery_lead
+    requires_flows: [P2]
+    ai_budget_use: { order_pdf_extract: 2 }
+    est_minutes: 180
+
+  - id: P4
+    name: Wypowiedzenie → raporty → sprzątanie
+    card: przeplywy/P4-wypowiedzenie-i-raporty.md
+    wave: 2
+    order: 4
+    mode: W
+    must: true
+    requires_flows: [P2, P3]
+    spans_days: 2
+    est_minutes: 150
+    human_steps: [12]
+    cleanup: true         # sprząta po CAŁYM UAT
+
+exit_criteria:            # README → „Kryteria startu produkcyjnego”
+  - no_open_p0_p1
+  - must_flows_green_for_pilot_roles
+  - backup_drill_green
+  - health_no_degraded
+  - deep_health_green
+  - nightly_playwright_green_3_nights_with_must_flows
+  - traffit_transition_decided
+  - pilots_confirm_numbers

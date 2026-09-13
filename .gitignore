@@ -69,3 +69,6 @@ frontend/playwright-report/
 frontend/test-results/
 frontend/e2e/.auth/
 .claude/
+
+# UAT: wyniki i zgłoszenia zostają lokalnie — repo jest publiczne
+docs/uat/wyniki/
