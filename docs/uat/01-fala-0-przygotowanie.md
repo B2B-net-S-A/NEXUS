@@ -173,8 +173,9 @@ maszynami — zsynchronizuj katalog prywatnym kanałem (dysk firmowy), nie przez
 D9 `502840` (bez CV), karta klienta D11 (D1, v1), reguła CV D12 (D1, zatwierdzona, `CV_{IMIE_NAZWISKO}`).
 
 **Obserwacje z Fali 0 (wejście do Fali 1, nie zgłoszenia):**
-1. Wszystkich 9 Delivery Leadów ma przypisanych wszystkich klientów → w praktyce każdy DL widzi kwoty
-   każdego klienta. Decyzja produktowa, czy tak ma zostać.
+1. ~~Wszystkich 9 Delivery Leadów ma przypisanych wszystkich klientów~~ — **błąd odczytu w Fali 0**:
+   `allowed_client_ids` (165) to zakres operacyjny, organizacyjny z założenia. Zakres kwot to
+   `finance_client_ids` i jest wąski (DL 30: 16 klientów, DL 86: 2). Poprawione przez kartę M00 w Fali 1.
 2. Rola HoR nie ma sekcji Delivery, choć kod zamówień przewiduje dla niej akcje cyklu życia
    (`_ORDER_LIFECYCLE_ROLES`) — karta M07 S09 to weryfikuje.
 3. Wgranie CV do kandydata o innym nazwisku kończy się decyzją `inconclusive` i profil po cichu
