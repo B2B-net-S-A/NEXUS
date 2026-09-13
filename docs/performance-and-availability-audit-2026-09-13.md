@@ -4,7 +4,7 @@
 
 **Zakres:** audyt kodu i istniejących wdrożeń, odczyty produkcji oraz rzeczywiste otwarcie aplikacji w Chrome. Bez zmian kodu aplikacji, konfiguracji i danych produkcyjnych; bez restartów, deployu i testu przeciążeniowego. Raport jest rekomendacją do wdrożenia, nie potwierdzeniem wykonania napraw.
 
-**Analizowany kod:** `origin/main` oraz wersja wskazywana przez API: `ab10c8bba7e06e79a146f4dc48e6e70e168cf7f1`. Kod odczytano z osobnego worktree; istniejące lokalne prace pozostawiono bez zmian. Źródła kodowe poniżej prowadzą do tego konkretnego commitu, ponieważ lokalny główny checkout jest starszy.
+**Analizowany kod:** `origin/main` oraz wersja wskazywana przez API: `ab10c8bb` (pełny SHA w linkach źródłowych poniżej). Kod odczytano z osobnego worktree; istniejące lokalne prace pozostawiono bez zmian. Źródła kodowe poniżej prowadzą do tego konkretnego commitu, ponieważ lokalny główny checkout jest starszy.
 
 ## 1. Werdykt i najważniejsza decyzja
 
