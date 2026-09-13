@@ -40,7 +40,7 @@ z harmonogramem stawek (≥ 2 kroki) i jeden `ending` (tylko ID) — do S06–S0
 | S02 | delivery_lead | filtr pojedynczy: Aktywne / Kończące się / Zakończone / Szkic; `status=all` | wyniki i licznik zmieniają się; URL niesie filtr | P2 |
 | S03 | delivery_lead | wyszukaj „Testowa” | kontrakt D5 (po P2) | P1 |
 | S04 | finance | kolumny stawek | widoczne (view_finance) | P1 |
-| S05 | head_of_recruitment / tac / tcm | kolumny stawek | „—” | P1 |
+| S05 | talent_community_manager | kolumny stawek | „—” (HoR i TAC: odmowa całego modułu — brak sekcji Delivery) | P1 |
 | S06 | admin | prawdziwy kontrakt z ≥ 2 krokami harmonogramu → szczegóły | stawka „obecna” = krok obowiązujący dziś; przyszły krok pokazany jako zaplanowany z datą | P1 |
 | S07 | admin | prawdziwy kontrakt `ending` | data końca w przyszłości (≤ 30 dni); status „Kończący się”; w rejestrze domyślnym OBECNY | P1 |
 | S08 | admin | eksport Excel rejestru | plik; kolumny zgodne z widocznymi; kwoty tylko dla ról z finansami (sprawdź eksport w podglądzie HoR → brak kolumn kwot albo 403) | P1 |
@@ -69,7 +69,7 @@ z harmonogramem stawek (≥ 2 kroki) i jeden `ending` (tylko ID) — do S06–S0
 | ID | Persona | Kroki | Oczekiwane | Prio |
 |---|---|---|---|---|
 | S18 | delivery_lead | `/contractors` | lista osób; D5 (po P2); dopisek „Brak aktywnego zamówienia” dla osób bez zamówienia obejmującego dziś; filtr statusu | P1 |
-| S19 | head_of_recruitment | `/contractors` | nazwiska tak, kwoty „—” | P1 |
+| S19 | head_of_recruitment | `/contractors` | odmowa (brak sekcji Delivery) | P1 |
 
 ## Scenariusze — Generator Umów B2B
 

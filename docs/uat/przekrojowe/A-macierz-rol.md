@@ -38,10 +38,10 @@ Karty modułów testują funkcje; ta karta testuje granice. Wynik jest tabelą, 
 | 11 | `/jobs/{{D3}}` | jw.; TAC spoza zespołu: odczyt, ruch zablokowany z powodem |
 | 12 | `/calendar` | role sekcji pipeline |
 | 13 | `/clients` | role sekcji delivery; REC/SRC → odmowa |
-| 14 | `/clients/{{D1}}` (DL przypisany) | DL: pełny z kwotami; HoR/TAC/TCM: bez kwot; FIN/ADM: z kwotami |
-| 15 | `/clients/{{D2}}` (DL NIEprzypisany do D2) | DL: 403 z powodem; reszta jak 14 |
-| 16 | `/clients/{{D1}}?tab=zamowienia` | jak 14; stawki linii MD tylko ADM + DL przypisany |
-| 17 | `/my-clients` | DL: portfel; HoR/FIN: wszyscy; REC → odmowa |
+| 14 | `/clients/{{D1}}` (przypisany DL 30) | DL 30: pełny z kwotami; TCM: bez kwot; FIN/ADM: z kwotami; HoR/TAC/REC/SRC: odmowa |
+| 15 | `/clients/{{D2}}` (bez przypisań DL) | DL: profil OK, kwoty „—”; reszta jak 14 |
+| 16 | `/clients/{{D1}}?tab=zamowienia` | jak 14; stawki linii MD tylko ADM + DL przypisany do klienta |
+| 17 | `/my-clients` | DL/FIN/TCM: wszyscy klienci; HoR/TAC/REC → odmowa |
 | 18 | `/my-relationships` | role sekcji delivery |
 | 19 | `/order-mail` | role sekcji delivery; TCM bez treści błędów i bez „Pobierz”; REC → odmowa |
 | 20 | `/contracts` | role sekcji delivery; kwoty tylko `view_finance` (ADM, FIN) |
@@ -70,7 +70,7 @@ Karty modułów testują funkcje; ta karta testuje granice. Wynik jest tabelą, 
 3. Mutacja w podglądzie (raz per rola): `POST /api/notes` `{ "content": "[QA-E2E] A-test", "candidate_id": {{D5}} }`
    z `X-Impersonate-User-Id` → oczekiwane 403 read-only. Inny wynik → **P0**.
 4. Trzy trasy „nie moje” wpisane ręcznie (dobierz do roli: REC → `/finance`, `/settings/ai`, `/clients/{{D1}}`;
-   FIN → `/settings/ai`, `/cortex` kuratela, `/dynareporter/admin-dashboard`; DL → `/finance`, `/settings/ai`, `/clients/{{D2}}`).
+   FIN → `/settings/ai`, `/cortex` kuratela, `/dynareporter/admin-dashboard`; DL → `/finance`, `/settings/ai`; HoR/TAC → `/clients`, `/contracts`).
 
 ## Wynik — `wyniki/A/macierz.md`
 

@@ -36,7 +36,7 @@ zapisz tylko ID) — do testu wydajności zakładek; nie zapisuj o nim nic poza 
 |---|---|---|---|---|
 | S01 | recruiter | otwórz listę | ładuje się < 5 s; licznik łączny > 0; pierwszy ekran wierszy widoczny bez scrolla | P1 |
 | S02 | recruiter | wyszukaj „Testowa”, „testowa”, „TESTOWA”, „Probny” | wszystkie znajdują odpowiednich kandydatów D5/D6 (bez rozróżnienia wielkości i diakrytyków) | P1 |
-| S03 | recruiter | wyszukaj po e-mailu `anna.testowa@example.invalid` i po telefonie `000000001` | znajduje D5; telefon działa po ostatnich 9 cyfrach | P1 |
+| S03 | recruiter | wyszukaj po e-mailu `anna.testowa@example.com` i po telefonie `000000001` | znajduje D5; telefon działa po ostatnich 9 cyfrach | P1 |
 | S04 | recruiter | filtr „Status i dostępność” → każda wartość po kolei | wyniki się zmieniają; licznik = liczba wierszy; URL zawiera filtr; F5 odtwarza | P1 |
 | S05 | recruiter | filtr etapu / rekrutacji → wybierz D3 | tylko kandydaci w D3 (po P1 będzie ≥ 1; przed — pusta lista z komunikatem „brak kandydatów spełniających filtry”, nie „brak kandydatów”) | P1 |
 | S06 | recruiter | filtr „Kategoria kompetencji” → `software_development` | wyniki zawężone; chip filtra widoczny; „×” na chipie zdejmuje filtr | P2 |
@@ -80,6 +80,7 @@ zapisz tylko ID) — do testu wydajności zakładek; nie zapisuj o nim nic poza 
 | S34 | recruiter | `/sourcing/marketplace` → zakładki (w tym `?tab=seeking`) | obie zakładki ładują się; brak „no available server” (jeśli jest — infra, zapisz czas, sprawdź health) | P1 |
 | S35 | recruiter | `/candidates/bulk-import` | formularz z opisem formatu CSV i przykładem; **nie wgrywaj** | P3 |
 | S36 | recruiter | `/candidates/search` | patrz M02 (tu tylko: ładuje się) | P2 |
+| S37 | recruiter | profil kandydata, któremu wgrano CV innej osoby (albo z innym nazwiskiem) — w Fali 0 tak było z D5 przed poprawą nazwiska | użytkownik WIDZI, że CV nie zasiliło profilu (komunikat, znacznik weryfikacji tożsamości) — nie ma cichego „CV wgrane”, a profil pusty. Brak sygnału = P2 | P2 |
 
 ## Kontrole API
 

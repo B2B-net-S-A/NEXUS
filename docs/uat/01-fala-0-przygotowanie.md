@@ -27,7 +27,8 @@ Oczekiwane: `status: healthy`, w `checks` żadne `degraded`/`unhealthy`/`misconf
 Dozwolone: `unconfigured`/`disabled`/`unknown` dla `autenti`, `priority_work`,
 `recruitment_allocation`, `workforce_availability`, `reranker`, `voyage`.
 
-**Stan 2026-09-11:** `traffit = degraded`. Sprawdź powód:
+**Stan 2026-09-13:** wszystkie pozycje zdrowe (Traffit wrócił do `healthy` po zmianie z 11.09 —
+błędy wierszy faz wzbogacania są doradcze). Jeśli `traffit = degraded` wróci, sprawdź powód:
 `GET /api/admin/traffit/sync/status` (admin, Bearer) → pole `last_status`, `errors`,
 `phases`. Typowe przyczyny: watermark `__daily__` wstrzymany błędem fazy; brak świeżego
 biegu > 36 h. Decyzja: naprawić przed Falą 1 albo zapisać jako znany stan z powodem.
@@ -44,9 +45,11 @@ Oczekiwane: `healthy`, pusta lista niezdrowych.
 gh run list --workflow backup-drill.yml --limit 4 --json conclusion,createdAt --jq '.[] | "\(.createdAt[0:10]) \(.conclusion)"'
 ```
 
-Stan 2026-09-11: `failure` × 3 (24.08, 31.08, 07.09). Powód z logu: drill nie ma
-dostępu do kopii off-site ani klucza `age` do odszyfrowania (brak secrets
-`BACKUP_S3_*`/`BACKUP_AGE_*` w repo). Do zrobienia przez człowieka:
+Stan 2026-09-13: `failure` co tydzień od co najmniej 17.08. Powód z logu: krok „Not configured —
+drill cannot run”. Zmienne repo `BACKUP_S3_BUCKET/ENDPOINT/REGION/PREFIX/PROVIDER` SĄ ustawione
+(27.07), ale **brakuje trzech sekretów**: `BACKUP_AGE_PRIVATE_KEY` (osobny klucz „drill”, NIE klucz
+główny), `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY` (klucz aplikacyjny Backblaze B2 z prawem
+odczytu bucketu `dynaminds-nexus-offsite`). Agent tego nie zrobi — to poświadczenia. Do zrobienia przez człowieka:
 
 1. Sprawdź, czy kontener `backup` na serwerze w ogóle wysyła kopie (`BACKUP_ENABLED`,
    `BACKUP_S3_BUCKET` w env Coolify — przez workflow „Coolify set env”, nie panel).
@@ -68,7 +71,18 @@ Issue już obecne w baseline nie są „znalezione przez UAT”, ale idą do Fal
 gh run list --workflow e2e.yml --limit 5 --json conclusion,createdAt --jq '.[] | "\(.createdAt[0:10]) \(.conclusion)"'
 ```
 
-Oczekiwane: `success`. Stan 2026-09-11: zielony 6 nocy z rzędu.
+Oczekiwane: `success` **i pełny zakres**. Stan 2026-09-13: „zielony” każdej nocy, ale log mówi
+„E2E CZĘŚCIOWE — 13 z 83 przypadków (1 z 14 plików)”: brak sekretów `E2E_USER_EMAIL`/`E2E_USER_PASSWORD`,
+więc projekt `setup` się pomija i nic po zalogowaniu nie jest sprawdzane. **Zielony wynik nie jest
+dowodem.** Sprawdzaj zakres komendą:
+
+```bash
+RID=$(gh run list --workflow e2e.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run view "$RID" --log | grep -E 'E2E CZĘŚCIOWE|[0-9]+ passed'
+```
+
+Do zrobienia przez człowieka: dedykowane konto testowe z hasłem (w `PASSWORD_LOGIN_BREAK_GLASS_EMAILS`,
+jeśli logowanie hasłem jest wyłączone) + sekrety repo `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`.
 
 ### 2.5 Zamrożenie SHA
 
@@ -126,7 +140,7 @@ maszynami — zsynchronizuj katalog prywatnym kanałem (dysk firmowy), nie przez
 ## 7. Lista „gotowe do Fali 1”
 
 - [ ] §1 decyzje wpisane do `manifest.yaml`
-- [ ] `/api/health` bez `degraded` **albo** `traffit = degraded` z zapisanym powodem i decyzją
+- [ ] `/api/health` bez `degraded` (2026-09-13: ✅)
 - [ ] `/api/health/deep` zielony
 - [ ] backup drill zielony **albo** zapisany jako blocker startu produkcyjnego z właścicielem i terminem
 - [ ] Sentry baseline zapisany
@@ -134,3 +148,44 @@ maszynami — zsynchronizuj katalog prywatnym kanałem (dysk firmowy), nie przez
 - [ ] `state.json` zapisany, lista person gotowa
 - [ ] dane testowe założone, klient testowy w `MULTI_CONSULTANT_ORDER_CLIENT_IDS`
 - [ ] `ai-przed.json` zapisany
+
+## 8. Wynik wykonania — 2026-09-13 (agent, sesja admina)
+
+| Punkt | Wynik |
+|---|---|
+| §2.1 `/api/health` | ✅ `healthy`, SHA `ab10c8b`, żadnej pozycji `degraded` |
+| §2.1 `/api/health/deep` | ✅ `healthy`, zero niezdrowych checków |
+| §2.2 backup drill | ❌ **BLOCKER** — brak 3 sekretów (patrz §2.2); do zrobienia przez człowieka |
+| §2.3 Sentry baseline | ⏸ nie wykonano — brak narzędzia Sentry w sesji agenta; `sentry-daily-monitor.yml` zielony |
+| §2.4 nocny Playwright | ⚠️ zielony, ale 13/83 przypadków — brak sekretów E2E; do zrobienia przez człowieka |
+| §2.5 SHA | `ab10c8b` na prodzie = `origin/main` (przed merge planu UAT) — **zamrożenie niewprowadzone**, wymaga komunikatu do zespołu |
+| Traffit | ✅ `__daily__` i `__full__` `ok` (13.09 04:01 UTC), kwarantanna 0; faza `candidates_enrich_names`: 1 błąd wiersza (doradczy) |
+| Poczta zamówień | ✅ włączona, co 60 min, auto-zapis włączony, brak biegu w toku |
+| Workflowy | ✅ uptime-probe, disk-alert, sentry-daily-monitor, deploy; ⚠️ `coolify-queue-maintenance.yml` czerwony od 16.07 (nieużywany? do sprawdzenia) |
+| Uprawnienia sekcji | odczytane (`revision 4`) — różnią się od pierwotnej wersji macierzy; `03-macierz-rol.md` poprawiony |
+| Limity AI | wszystkie funkcje włączone, `monthly_limit = 0` (bez limitu) — budżet UAT pilnuje wyłącznie dyscyplina kart, nie system |
+| Persony | wybrane konta z jedną rolą (ID w `wyniki/F0/persony.md`, lokalnie); **brak aktywnego konta roli `user`** — scenariusze USR = SKIP |
+| Dane testowe | ✅ D1–D12 założone (poniżej); ⏸ `MULTI_CONSULTANT_ORDER_CLIENT_IDS` nieustawione — przed P3 wg `02-dane-testowe.md` |
+
+**Dane testowe (fikcyjne, bezpieczne do publikacji):** klient D1 `64636` (DL 30 przypisany), klient D2
+`64637` (bez DL), rekrutacja D3 `603652` (u D1, Champion D10 zapisany, must Python/PostgreSQL/Docker,
+160 PLN/h), rekrutacja D4 `603653` (u D2), kandydaci D5 `502836`, D6 `502837`, D7 `502838`, D8 `502839`,
+D9 `502840` (bez CV), karta klienta D11 (D1, v1), reguła CV D12 (D1, zatwierdzona, `CV_{IMIE_NAZWISKO}`).
+
+**Obserwacje z Fali 0 (wejście do Fali 1, nie zgłoszenia):**
+1. Wszystkich 9 Delivery Leadów ma przypisanych wszystkich klientów → w praktyce każdy DL widzi kwoty
+   każdego klienta. Decyzja produktowa, czy tak ma zostać.
+2. Rola HoR nie ma sekcji Delivery, choć kod zamówień przewiduje dla niej akcje cyklu życia
+   (`_ORDER_LIFECYCLE_ROLES`) — karta M07 S09 to weryfikuje.
+3. Wgranie CV do kandydata o innym nazwisku kończy się decyzją `inconclusive` i profil po cichu
+   się nie uzupełnia; nadpisanie decyzji zwraca 409 („no confirmed identity mismatch to override”).
+   Karta M01 powinna sprawdzić, czy użytkownik widzi, że CV nie zasiliło profilu.
+4. **Do odtworzenia w Fali 1 (M01, możliwy błąd P1/P2):** po poprawieniu nazwiska wgrano nową wersję
+   CV (inny SHA) kandydatom D5 `502836` (dokument `109439`) i D7 `502838` (dokument `109440`). Decyzja
+   tożsamości zapisała się jako `confirmed_match`, ale profil NIE został uzupełniony (brak umiejętności
+   i doświadczenia, `cv_extracted_data` puste, `updated_at` bez zmian) — także po 15 minutach. Te same
+   pliki z tego samego generatora u D6 i D8 zasiliły profile w ~40 s. Ścieżka w kodzie, która
+   zapisuje recenzję i kończy bez aktualizacji, to gałąź „nowszy dokument główny”
+   (`_enrich_candidate_from_document_task`); bez logów nie da się rozstrzygnąć, czy to ona.
+   Skutek dla danych testowych: D5 i D7 nie mają umiejętności, więc scenariusze M02 oczekujące
+   D5 w rankingu dla D3 opierają się na D6/D8, dopóki ten punkt nie zostanie wyjaśniony.
