@@ -98,6 +98,19 @@ docs/uat/
 Fala 3 jest warunkiem sensu całości: wyniki Fali 1–2 dezaktualizują się po tygodniu
 normalnych deployów.
 
+## Stan wykonania
+
+| Fala | Stan | Szczegóły |
+|---|---|---|
+| 0 | ✅ 13.09.2026 | `01-fala-0-przygotowanie.md` §8 |
+| 1 | ✅ 13–14.09.2026, SHA `f76f132`→`6504fef`, 15 kart + weryfikacja P0/P1 (workflow `wf_26061a56-b5c`, 28 agentów) | 111 zgłoszeń: P0 1 (backup drill), P1 6, P2 50, P3 52, odrzucone 2. Pełna lista z dowodami: `wyniki/INDEX.md` (lokalnie, poza gitem — zawiera ID i kwoty produkcyjne) |
+| 2 | ⏸ czeka na decyzje z README i ustawienie `MULTI_CONSULTANT_ORDER_CLIENT_IDS` dla D2 | — |
+| 3 | ⏸ | — |
+| 4 | ⏸ | — |
+
+Nieobjęte Falą 1: karta C (Sentry — brak dostępu agentów), M13 S20–S25 („po nocy”), UI w szerokości 1366 px
+(wspólne okno przeglądarki), rola `user` (brak aktywnego konta).
+
 ## Kryteria startu produkcyjnego (definition of done całego UAT)
 
 - [ ] Zero otwartych zgłoszeń P0 i P1 (definicje priorytetów w `00-zasady-dla-agenta.md`).

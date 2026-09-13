@@ -45,8 +45,9 @@ dają im odmowę. Scenariusze kart M06–M08 dla tych ról sprawdzają więc CZY
 **Delivery Lead: dostęp operacyjny do klientów jest ORGANIZACYJNY** (`resolve_delivery_lead_client_ids`
 zwraca wszystkich klientów — decyzja w kodzie, nie błąd). Przypisanie DL do klienta
 (`/api/team-structure/dl-clients`) steruje TYLKO wąskimi wyjątkami: kwoty na profilu klienta i w Analityce,
-stawki linii MD, pliki ze stawkami, akcje prawne. Na produkcji wszystkich 9 DL ma przypisanych
-wszystkich klientów — w praktyce każdy DL widzi kwoty każdego klienta (obserwacja do decyzji produktowej).
+stawki linii MD, pliki ze stawkami, akcje prawne. `data_scope.allowed_client_ids` w `/api/auth/me` to zakres
+OPERACYJNY (wszyscy klienci); zakres kwot to `data_scope.finance_client_ids` (na 13.09: DL 30 — 16 klientów,
+DL 86 — 2 klientów). Nie myl tych dwóch pól.
 Do testów granicy użyj klienta testowego D1 (przypisany DL 30) i D2 (bez przypisań).
 
 Jeśli konfiguracja zmieni się w trakcie UAT — **konfiguracja jest źródłem prawdy**
