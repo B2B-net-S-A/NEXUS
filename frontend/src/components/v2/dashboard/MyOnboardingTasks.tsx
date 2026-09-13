@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { allocationApi } from "@/lib/recruitment-allocation-api"
+import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { Button } from "@/components/ui/button"
 
 export function MyOnboardingTasks() {
@@ -19,7 +20,12 @@ export function MyOnboardingTasks() {
       }
       return items
     },
-    refetchInterval: 30_000,
+    // Każdy tick to N sekwencyjnych żądań (wszystkie strony kursora), więc
+    // 30 s było najdroższym pollingiem dashboardu. Zapisy w tej sekcji
+    // inwalidują klucz same (`complete` niżej).
+    staleTime: 60_000,
+    refetchInterval: DASHBOARD_SECTION_POLL_MS,
+    refetchOnWindowFocus: true,
   })
   const complete = useMutation({
     mutationFn: allocationApi.complete,

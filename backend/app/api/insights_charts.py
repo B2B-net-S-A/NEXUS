@@ -39,7 +39,7 @@ from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_perio
 from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -203,88 +203,90 @@ async def insights_yearly_stats(
         f"insights:charts:yearly:v1:{resolved.cache_suffix}"
         f":{reference.year}-{reference.month:02d}"
     )
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                    SELECT date_trunc(
-                               'month',
-                               fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
-                           )::date AS month,
-                           fm.stage::text AS stage,
-                           count(*) AS cnt
-                    FROM analytics_first_milestones fm
-                    WHERE fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                      AND fm.stage::text = ANY(:stages)
-                    GROUP BY 1, 2
-                    """
-                ),
-                {
-                    "start": resolved.start,
-                    "end": resolved.end,
-                    "stages": _SERIES_STAGES,
-                },
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT date_trunc(
+                                   'month',
+                                   fm.first_reached_at AT TIME ZONE 'Europe/Warsaw'
+                               )::date AS month,
+                               fm.stage::text AS stage,
+                               count(*) AS cnt
+                        FROM analytics_first_milestones fm
+                        WHERE fm.first_reached_at >= :start
+                          AND fm.first_reached_at < :end
+                          AND fm.stage::text = ANY(:stages)
+                        GROUP BY 1, 2
+                        """
+                    ),
+                    {
+                        "start": resolved.start,
+                        "end": resolved.end,
+                        "stages": _SERIES_STAGES,
+                    },
+                )
             )
+            .mappings()
+            .all()
         )
-        .mappings()
-        .all()
-    )
 
-    by_month: dict[date, dict[str, int]] = {}
-    for r in rows:
-        bucket = by_month.setdefault(r["month"], {})
-        bucket[str(r["stage"])] = int(r["cnt"])
+        by_month: dict[date, dict[str, int]] = {}
+        for r in rows:
+            bucket = by_month.setdefault(r["month"], {})
+            bucket[str(r["stage"])] = int(r["cnt"])
 
-    current_month_start = reference.date().replace(day=1)
-    months: list[dict] = []
-    totals = {s["key"]: 0 for s in YEARLY_SERIES}
+        current_month_start = reference.date().replace(day=1)
+        months: list[dict] = []
+        totals = {s["key"]: 0 for s in YEARLY_SERIES}
 
-    for month_start in _month_starts(resolved.start, resolved.end):
-        # Miesiąc, który się jeszcze nie zaczął, NIE dostaje wiersza (punkt 4
-        # docstringu modułu). Zero za przyszłość to nie obserwacja.
-        if month_start > current_month_start:
-            continue
-        counts = by_month.get(month_start, {})
-        row: dict = {
-            "month": month_start.isoformat(),
-            "label": MONTH_LABEL_PL[month_start.month - 1],
-            "is_partial": month_start == current_month_start,
+        for month_start in _month_starts(resolved.start, resolved.end):
+            # Miesiąc, który się jeszcze nie zaczął, NIE dostaje wiersza (punkt 4
+            # docstringu modułu). Zero za przyszłość to nie obserwacja.
+            if month_start > current_month_start:
+                continue
+            counts = by_month.get(month_start, {})
+            row: dict = {
+                "month": month_start.isoformat(),
+                "label": MONTH_LABEL_PL[month_start.month - 1],
+                "is_partial": month_start == current_month_start,
+            }
+            for s in YEARLY_SERIES:
+                value = int(counts.get(s["stage"], 0))
+                row[s["key"]] = value
+                totals[s["key"]] += value
+            for c in YEARLY_CONVERSIONS:
+                row[f"conv_{c['key']}"] = _ratio(
+                    int(counts.get(c["numerator"], 0)),
+                    int(counts.get(c["denominator"], 0)),
+                )
+            months.append(row)
+
+        result = {
+            "period": resolved.as_payload(),
+            "year": target_year,
+            "months": months,
+            # Metadane serii jadą z serwera razem z danymi: etykieta i przypisanie
+            # osi to część definicji metryki, nie ozdoba. Rozjazd nazw między
+            # legendą a liczbą jest niewykrywalny wzrokiem.
+            "series": [
+                {"key": s["key"], "label": s["label"], "axis": s["axis"]}
+                for s in YEARLY_SERIES
+            ],
+            "conversion_series": [
+                {"key": f"conv_{c['key']}", "label": c["label"]}
+                for c in YEARLY_CONVERSIONS
+            ],
+            "totals": totals,
         }
-        for s in YEARLY_SERIES:
-            value = int(counts.get(s["stage"], 0))
-            row[s["key"]] = value
-            totals[s["key"]] += value
-        for c in YEARLY_CONVERSIONS:
-            row[f"conv_{c['key']}"] = _ratio(
-                int(counts.get(c["numerator"], 0)),
-                int(counts.get(c["denominator"], 0)),
-            )
-        months.append(row)
-
-    result = {
-        "period": resolved.as_payload(),
-        "year": target_year,
-        "months": months,
-        # Metadane serii jadą z serwera razem z danymi: etykieta i przypisanie
-        # osi to część definicji metryki, nie ozdoba. Rozjazd nazw między
-        # legendą a liczbą jest niewykrywalny wzrokiem.
-        "series": [
-            {"key": s["key"], "label": s["label"], "axis": s["axis"]}
-            for s in YEARLY_SERIES
-        ],
-        "conversion_series": [
-            {"key": f"conv_{c['key']}", "label": c["label"]} for c in YEARLY_CONVERSIONS
-        ],
-        "totals": totals,
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/placement-analysis")
@@ -306,139 +308,140 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     cache_key = f"insights:charts:placements:v1:{resolved.cache_suffix}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    params = {"start": resolved.start, "end": resolved.end}
+        params = {"start": resolved.start, "end": resolved.end}
 
-    people_rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                    SELECT fm.first_moved_by AS user_id,
-                           u.name AS user_name,
-                           count(*) AS cnt
-                    FROM analytics_first_milestones fm
-                    LEFT JOIN users u ON u.id = fm.first_moved_by
-                    WHERE fm.stage = 'hired'
-                      AND fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                    GROUP BY 1, 2
-                    ORDER BY count(*) DESC, 2 NULLS LAST
-                    """
-                ),
-                params,
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    # LEFT JOIN, nie INNER: kamień milowy pary, której oferta zniknęła z bazy,
-    # nadal jest placementem. INNER wyciąłby go z donuta, ale nie z kafla
-    # „Suma placementów" — donut przestałby sumować się do liczby nad sobą,
-    # co czyta się jak błąd zaokrąglenia, a jest utratą wiersza.
-    client_rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                    SELECT c.id AS client_id,
-                           c.name AS client_name,
-                           (j.id IS NULL) AS job_missing,
-                           count(*) AS cnt
-                    FROM analytics_first_milestones fm
-                    LEFT JOIN jobs j ON j.id = fm.job_id
-                    LEFT JOIN clients c ON c.id = j.client_id
-                    WHERE fm.stage = 'hired'
-                      AND fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                    GROUP BY 1, 2, 3
-                    ORDER BY count(*) DESC, 2 NULLS LAST
-                    """
-                ),
-                params,
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    total = sum(int(r["cnt"]) for r in people_rows)
-
-    by_person = [
-        {
-            "user_id": r["user_id"],
-            # Konto skasowane z `users` zostawia atrybucję bez nazwiska.
-            # Pusty podpis w legendzie czyta się jak błąd wykresu, więc
-            # nazywamy to wprost.
-            "name": (
-                (r["user_name"] or "").strip()
-                or (
-                    UNATTRIBUTED_LABEL
-                    if r["user_id"] is None
-                    else f"Użytkownik #{r['user_id']}"
+        people_rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT fm.first_moved_by AS user_id,
+                               u.name AS user_name,
+                               count(*) AS cnt
+                        FROM analytics_first_milestones fm
+                        LEFT JOIN users u ON u.id = fm.first_moved_by
+                        WHERE fm.stage = 'hired'
+                          AND fm.first_reached_at >= :start
+                          AND fm.first_reached_at < :end
+                        GROUP BY 1, 2
+                        ORDER BY count(*) DESC, 2 NULLS LAST
+                        """
+                    ),
+                    params,
                 )
-            ),
-            "placements": int(r["cnt"]),
-            "share_pct": _ratio(int(r["cnt"]), total),
-            "attributed": r["user_id"] is not None,
-        }
-        for r in people_rows
-    ]
-
-    # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
-    # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
-    # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
-    by_client_acc: dict[int | None, dict] = {}
-    placements_without_job = 0
-    for r in client_rows:
-        if r["job_missing"]:
-            placements_without_job += int(r["cnt"])
-        key = r["client_id"]
-        entry = by_client_acc.setdefault(
-            key,
-            {
-                "client_id": key,
-                "name": (r["client_name"] or "").strip() or NO_CLIENT_LABEL,
-                "placements": 0,
-            },
+            )
+            .mappings()
+            .all()
         )
-        entry["placements"] += int(r["cnt"])
 
-    by_client = sorted(
-        (
+        # LEFT JOIN, nie INNER: kamień milowy pary, której oferta zniknęła z bazy,
+        # nadal jest placementem. INNER wyciąłby go z donuta, ale nie z kafla
+        # „Suma placementów" — donut przestałby sumować się do liczby nad sobą,
+        # co czyta się jak błąd zaokrąglenia, a jest utratą wiersza.
+        client_rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT c.id AS client_id,
+                               c.name AS client_name,
+                               (j.id IS NULL) AS job_missing,
+                               count(*) AS cnt
+                        FROM analytics_first_milestones fm
+                        LEFT JOIN jobs j ON j.id = fm.job_id
+                        LEFT JOIN clients c ON c.id = j.client_id
+                        WHERE fm.stage = 'hired'
+                          AND fm.first_reached_at >= :start
+                          AND fm.first_reached_at < :end
+                        GROUP BY 1, 2, 3
+                        ORDER BY count(*) DESC, 2 NULLS LAST
+                        """
+                    ),
+                    params,
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+        total = sum(int(r["cnt"]) for r in people_rows)
+
+        by_person = [
             {
-                **entry,
-                "share_pct": _ratio(entry["placements"], total),
-                "attributed": entry["client_id"] is not None,
+                "user_id": r["user_id"],
+                # Konto skasowane z `users` zostawia atrybucję bez nazwiska.
+                # Pusty podpis w legendzie czyta się jak błąd wykresu, więc
+                # nazywamy to wprost.
+                "name": (
+                    (r["user_name"] or "").strip()
+                    or (
+                        UNATTRIBUTED_LABEL
+                        if r["user_id"] is None
+                        else f"Użytkownik #{r['user_id']}"
+                    )
+                ),
+                "placements": int(r["cnt"]),
+                "share_pct": _ratio(int(r["cnt"]), total),
+                "attributed": r["user_id"] is not None,
             }
-            for entry in by_client_acc.values()
-        ),
-        key=lambda e: (-e["placements"], e["name"]),
-    )
+            for r in people_rows
+        ]
 
-    result = {
-        "period": resolved.as_payload(),
-        "totals": {
-            # Kafel „Osoby z placementami" liczy WYŁĄCZNIE atrybuowane wiersze:
-            # „(nieprzypisane)" to nie jest osoba i doliczenie go zawyżałoby
-            # zespół o jeden fantom.
-            "people": sum(1 for p in by_person if p["attributed"]),
-            "placements": total,
-            "clients": sum(1 for c in by_client if c["attributed"]),
-            "unattributed_placements": sum(
-                p["placements"] for p in by_person if not p["attributed"]
+        # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
+        # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
+        # żeby dało się odróżnić lukę w danych od oferty bez przypisanego klienta.
+        by_client_acc: dict[int | None, dict] = {}
+        placements_without_job = 0
+        for r in client_rows:
+            if r["job_missing"]:
+                placements_without_job += int(r["cnt"])
+            key = r["client_id"]
+            entry = by_client_acc.setdefault(
+                key,
+                {
+                    "client_id": key,
+                    "name": (r["client_name"] or "").strip() or NO_CLIENT_LABEL,
+                    "placements": 0,
+                },
+            )
+            entry["placements"] += int(r["cnt"])
+
+        by_client = sorted(
+            (
+                {
+                    **entry,
+                    "share_pct": _ratio(entry["placements"], total),
+                    "attributed": entry["client_id"] is not None,
+                }
+                for entry in by_client_acc.values()
             ),
-            "placements_without_job": placements_without_job,
-        },
-        "by_person": by_person,
-        "by_client": by_client,
-        # Kod definicji — ta sama konwencja co `/api/insights/board`, żeby front
-        # nie zgadywał, którą z trzech definicji placementu ogląda.
-        "placements_definition": FIRST_HIRED_PER_CANDIDATE_JOB,
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+            key=lambda e: (-e["placements"], e["name"]),
+        )
+
+        result = {
+            "period": resolved.as_payload(),
+            "totals": {
+                # Kafel „Osoby z placementami" liczy WYŁĄCZNIE atrybuowane wiersze:
+                # „(nieprzypisane)" to nie jest osoba i doliczenie go zawyżałoby
+                # zespół o jeden fantom.
+                "people": sum(1 for p in by_person if p["attributed"]),
+                "placements": total,
+                "clients": sum(1 for c in by_client if c["attributed"]),
+                "unattributed_placements": sum(
+                    p["placements"] for p in by_person if not p["attributed"]
+                ),
+                "placements_without_job": placements_without_job,
+            },
+            "by_person": by_person,
+            "by_client": by_client,
+            # Kod definicji — ta sama konwencja co `/api/insights/board`, żeby front
+            # nie zgadywał, którą z trzech definicji placementu ogląda.
+            "placements_definition": FIRST_HIRED_PER_CANDIDATE_JOB,
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result

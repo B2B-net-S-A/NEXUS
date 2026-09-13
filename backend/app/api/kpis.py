@@ -23,7 +23,7 @@ from app.api.deps import (
     OperationalUser,
     RecruiterPlus,
 )
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.kpi_nudge_log import KpiNudgeType
@@ -287,14 +287,15 @@ async def get_team_panel(
     kp = _PERIOD_MAP.get(period, KpiPeriod.week)
     cache_key = f"kpis:team:panel:{kp.value}"
 
-    cached = await cache_get(cache_key)
-    if cached:
-        return TeamPanelSchema(**cached)
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached:
+            return TeamPanelSchema(**cached)
 
-    result = await compute_team_panel(db, period=kp)
-    schema = _team_to_schema(result)
-    await cache_set(cache_key, schema.model_dump(), ttl_seconds=120)
-    return schema
+        result = await compute_team_panel(db, period=kp)
+        schema = _team_to_schema(result)
+        await cache_set(cache_key, schema.model_dump(), ttl_seconds=120)
+        return schema
 
 
 @router.get("/users/{user_id}/today", response_model=List[KpiResultSchema])

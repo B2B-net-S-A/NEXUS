@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.periods import PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -124,121 +124,124 @@ async def insights_team_table(
     # okresu wyszłyby pod etykietą drugiego — obie wyglądają wiarygodnie,
     # więc nikt by się nie dowiedział.
     cache_key = f"insights:team:table:v1:{resolved.cache_suffix}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                SELECT fm.first_moved_by AS user_id,
-                       fm.stage::text     AS stage,
-                       count(*)           AS cnt
-                FROM analytics_first_milestones fm
-                WHERE fm.first_reached_at >= :start
-                  AND fm.first_reached_at <  :end
-                  AND fm.stage::text = ANY(:stages)
-                GROUP BY fm.first_moved_by, fm.stage
-                """
-                ),
-                {
-                    "start": resolved.start,
-                    "end": resolved.end,
-                    "stages": list(_STAGE_TO_KEY.keys()),
-                },
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    per_user: dict[int, dict[str, int]] = {}
-    unattributed = _empty_counts()
-    for r in rows:
-        column = _STAGE_TO_KEY.get(str(r["stage"]))
-        if column is None:  # pragma: no cover — filtr SQL już to odsiał
-            continue
-        cnt = int(r["cnt"] or 0)
-        raw_uid = r["user_id"]
-        if raw_uid is None:
-            unattributed[column] += cnt
-            continue
-        per_user.setdefault(int(raw_uid), _empty_counts())[column] += cnt
-
-    users: dict[int, dict] = {}
-    if per_user:
-        user_rows = (
+        rows = (
             (
                 await db.execute(
                     text(
                         """
-                    SELECT id, name, role::text AS role, is_active
-                    FROM users
-                    WHERE id = ANY(:ids)
+                    SELECT fm.first_moved_by AS user_id,
+                           fm.stage::text     AS stage,
+                           count(*)           AS cnt
+                    FROM analytics_first_milestones fm
+                    WHERE fm.first_reached_at >= :start
+                      AND fm.first_reached_at <  :end
+                      AND fm.stage::text = ANY(:stages)
+                    GROUP BY fm.first_moved_by, fm.stage
                     """
                     ),
-                    {"ids": list(per_user.keys())},
+                    {
+                        "start": resolved.start,
+                        "end": resolved.end,
+                        "stages": list(_STAGE_TO_KEY.keys()),
+                    },
                 )
             )
             .mappings()
             .all()
         )
-        users = {int(u["id"]): dict(u) for u in user_rows}
 
-    entries = []
-    for user_id, counts in per_user.items():
-        user = users.get(user_id)
-        role = str(user["role"]) if user and user["role"] is not None else None
-        entries.append(
-            {
-                "user_id": user_id,
-                # `None`, nie zmyślona etykieta: konto zniknęło, ale jego
-                # dorobek został i musi wejść w sumę kolumny. UI renderuje
-                # „Nieznany użytkownik (#id)" — atrybucja jest znana, tylko
-                # osoby już nie potrafimy nazwać. Zwinięcie tego wiersza do
-                # `unattributed` byłoby kłamstwem w drugą stronę.
-                "name": (user["name"] if user else None),
-                "role": role,
-                "role_label": ROLE_LABELS.get(role or "", role),
-                # `None` = nie wiemy (brak konta). `False` = były pracownik.
-                # Chip „były pracownik" wolno postawić WYŁĄCZNIE przy `False`.
-                "is_active": (bool(user["is_active"]) if user else None),
-                **counts,
-                "total": sum(counts.values()),
-            }
-        )
+        per_user: dict[int, dict[str, int]] = {}
+        unattributed = _empty_counts()
+        for r in rows:
+            column = _STAGE_TO_KEY.get(str(r["stage"]))
+            if column is None:  # pragma: no cover — filtr SQL już to odsiał
+                continue
+            cnt = int(r["cnt"] or 0)
+            raw_uid = r["user_id"]
+            if raw_uid is None:
+                unattributed[column] += cnt
+                continue
+            per_user.setdefault(int(raw_uid), _empty_counts())[column] += cnt
 
-    # Domyślny porządek: weryfikacje malejąco, remis rozstrzyga nazwisko —
-    # ten sam, od którego zaczyna DynaReporter. UI sortuje po swojemu po
-    # kliknięciu nagłówka, więc `rank` świadomie NIE wychodzi z serwera:
-    # dwa źródła prawdy dla tej samej pozycji rozjeżdżają się przy pierwszym
-    # przesortowaniu, a medal usiadłby wtedy na złym wierszu.
-    entries.sort(key=lambda e: (-e["verifications"], (e["name"] or "").lower()))
+        users: dict[int, dict] = {}
+        if per_user:
+            user_rows = (
+                (
+                    await db.execute(
+                        text(
+                            """
+                        SELECT id, name, role::text AS role, is_active
+                        FROM users
+                        WHERE id = ANY(:ids)
+                        """
+                        ),
+                        {"ids": list(per_user.keys())},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            users = {int(u["id"]): dict(u) for u in user_rows}
 
-    attributed = _empty_counts()
-    for e in entries:
-        for key in _COLUMN_KEYS:
-            attributed[key] += e[key]
+        entries = []
+        for user_id, counts in per_user.items():
+            user = users.get(user_id)
+            role = str(user["role"]) if user and user["role"] is not None else None
+            entries.append(
+                {
+                    "user_id": user_id,
+                    # `None`, nie zmyślona etykieta: konto zniknęło, ale jego
+                    # dorobek został i musi wejść w sumę kolumny. UI renderuje
+                    # „Nieznany użytkownik (#id)" — atrybucja jest znana, tylko
+                    # osoby już nie potrafimy nazwać. Zwinięcie tego wiersza do
+                    # `unattributed` byłoby kłamstwem w drugą stronę.
+                    "name": (user["name"] if user else None),
+                    "role": role,
+                    "role_label": ROLE_LABELS.get(role or "", role),
+                    # `None` = nie wiemy (brak konta). `False` = były pracownik.
+                    # Chip „były pracownik" wolno postawić WYŁĄCZNIE przy `False`.
+                    "is_active": (bool(user["is_active"]) if user else None),
+                    **counts,
+                    "total": sum(counts.values()),
+                }
+            )
 
-    result = {
-        "period": resolved.as_payload(),
-        "columns": [
-            {"key": c["key"], "label": c["label"], "stage": c["stage"]}
-            for c in STAGE_COLUMNS
-        ],
-        "rows": entries,
-        "totals": {
-            # Suma widocznych wierszy…
-            "attributed": attributed,
-            # …to, czego nie da się przypisać nikomu…
-            "unattributed": unattributed,
-            # …i suma obu, która MUSI zgadzać się z lejkiem org-level.
-            "all": {key: attributed[key] + unattributed[key] for key in _COLUMN_KEYS},
-            "users": len(entries),
-            "former_employees": sum(1 for e in entries if e["is_active"] is False),
-        },
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        # Domyślny porządek: weryfikacje malejąco, remis rozstrzyga nazwisko —
+        # ten sam, od którego zaczyna DynaReporter. UI sortuje po swojemu po
+        # kliknięciu nagłówka, więc `rank` świadomie NIE wychodzi z serwera:
+        # dwa źródła prawdy dla tej samej pozycji rozjeżdżają się przy pierwszym
+        # przesortowaniu, a medal usiadłby wtedy na złym wierszu.
+        entries.sort(key=lambda e: (-e["verifications"], (e["name"] or "").lower()))
+
+        attributed = _empty_counts()
+        for e in entries:
+            for key in _COLUMN_KEYS:
+                attributed[key] += e[key]
+
+        result = {
+            "period": resolved.as_payload(),
+            "columns": [
+                {"key": c["key"], "label": c["label"], "stage": c["stage"]}
+                for c in STAGE_COLUMNS
+            ],
+            "rows": entries,
+            "totals": {
+                # Suma widocznych wierszy…
+                "attributed": attributed,
+                # …to, czego nie da się przypisać nikomu…
+                "unattributed": unattributed,
+                # …i suma obu, która MUSI zgadzać się z lejkiem org-level.
+                "all": {
+                    key: attributed[key] + unattributed[key] for key in _COLUMN_KEYS
+                },
+                "users": len(entries),
+                "former_employees": sum(1 for e in entries if e["is_active"] is False),
+            },
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result

@@ -397,6 +397,22 @@ async def load_user_kpis(
     return await metrics.user_kpis(db, period, user_id)
 
 
+async def load_team_kpis(
+    user_ids: frozenset[int], db: AsyncSession, period: Period
+) -> list[dict[str, Any]]:
+    """KPI całego rosteru JEDNYM przejściem (4 zapytania), nie N × `user_kpis`.
+
+    Te same definicje co `user_kpis` (`metrics.team_kpis` gwarantuje parytet
+    sum), wiersz z zerami dla każdej osoby z `user_ids`. Pusty zbiór = pusta
+    lista bez zapytania — `metrics.team_kpis(user_ids=frozenset())` zwróciłby
+    wiersze dla NIKOGO, ale zapłaciłby za 4 zapytania.
+    """
+    if not user_ids:
+        return []
+    result = await metrics.team_kpis(db, period, user_ids=user_ids)
+    return list(result["rows"])
+
+
 def cloudtalk_calls_available() -> bool:
     return settings.CLOUDTALK_ENABLED
 

@@ -5,7 +5,9 @@ No external dependencies required — uses plain dict + timestamps.
 
 import time
 import asyncio
-from typing import Any, Callable, Dict, Optional, Tuple
+import random
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Callable, Dict, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,10 +38,62 @@ async def cache_get(key: str) -> Optional[Any]:
         return value
 
 
-async def cache_set(key: str, value: Any, ttl_seconds: int):
-    """Store value in cache with TTL."""
+async def cache_set(
+    key: str, value: Any, ttl_seconds: int, *, jitter_seconds: float = 0.0
+):
+    """Store value in cache with TTL.
+
+    ``jitter_seconds`` rozmywa moment wygaśnięcia (TTL + U(0, jitter)), żeby
+    klucze napełnione w tej samej sekundzie (start dnia, 50 osób na dashboardzie)
+    nie wygasały w tej samej sekundzie i nie wracały jako jedna fala przeliczeń.
+    """
+    ttl = ttl_seconds + (random.uniform(0.0, jitter_seconds) if jitter_seconds else 0.0)
     async with _lock:
-        _cache[key] = (value, time.monotonic() + ttl_seconds)
+        _cache[key] = (value, time.monotonic() + ttl)
+
+
+# ── Single-flight ────────────────────────────────────────────────────────────
+#
+# `_lock` chroni SŁOWNIK, nie obliczenie między `cache_get` a `cache_set`.
+# Po wygaśnięciu TTL każde równoległe żądanie tego samego klucza widziało
+# pustkę i liczyło ten sam ciężki snapshot od nowa (N razy `VERIFIER_ANCHORED_CTE`
+# przy 50 osobach wchodzących na dashboard w tej samej sekundzie). Blokada per
+# klucz sprawia, że liczy JEDNO żądanie, a reszta czeka i czyta gotowy wynik.
+#
+# Wzorzec użycia (podwójne sprawdzenie w środku jest częścią kontraktu):
+#
+#     async with cache_single_flight(cache_key):
+#         cached = await cache_get(cache_key)
+#         if cached is not None:
+#             return cached
+#         result = await expensive()
+#         await cache_set(cache_key, result, ttl_seconds=120)
+#         return result
+#
+# Wyjątek w środku zwalnia blokadę i NIE zapisuje nic — następne żądanie liczy
+# samo. Blokady są lokalne procesu, jak sam cache.
+_inflight: Dict[str, asyncio.Lock] = {}
+_inflight_refs: Dict[str, int] = {}
+
+
+@asynccontextmanager
+async def cache_single_flight(key: str) -> AsyncIterator[None]:
+    """Serialize computation of one cache key across concurrent requests."""
+    lock = _inflight.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _inflight[key] = lock
+    _inflight_refs[key] = _inflight_refs.get(key, 0) + 1
+    try:
+        async with lock:
+            yield
+    finally:
+        remaining = _inflight_refs.get(key, 1) - 1
+        if remaining <= 0:
+            _inflight.pop(key, None)
+            _inflight_refs.pop(key, None)
+        else:
+            _inflight_refs[key] = remaining
 
 
 async def cache_invalidate(prefix: str):

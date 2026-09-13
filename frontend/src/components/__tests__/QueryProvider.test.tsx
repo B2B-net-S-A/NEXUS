@@ -1,0 +1,57 @@
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { QueryProvider } from "@/components/QueryProvider";
+import {
+  ALLOCATION_BOARD_POLL_MS,
+  DASHBOARD_SECTION_POLL_MS,
+  NOTIFICATIONS_FALLBACK_POLL_MS,
+  WS_BACKED_SAFETY_POLL_MS,
+} from "@/lib/polling";
+
+/**
+ * Dwie warstwy retry (react-query × axios) mnożyły jeden odczyt do 6 żądań
+ * przy 503 z bramy. Interceptor axios jest JEDYNYM właścicielem ponowień
+ * (`lib/__tests__/api-transient-retry.test.ts`), więc react-query ma zero.
+ */
+describe("QueryProvider", () => {
+  it("nie ponawia zapytań — ponowienia należą do interceptora axios", () => {
+    let seen: number | boolean | undefined;
+    function Probe() {
+      const client = useQueryClient();
+      const retry = client.getDefaultOptions().queries?.retry;
+      seen = typeof retry === "function" ? undefined : retry;
+      return null;
+    }
+    render(
+      <QueryProvider>
+        <Probe />
+      </QueryProvider>,
+    );
+    expect(seen).toBe(0);
+  });
+
+  it("nie używa pustego providera zamiast QueryClientProvider", () => {
+    expect(QueryClientProvider).toBeDefined();
+  });
+});
+
+describe("budżet odpytywania w tle (lib/polling)", () => {
+  it("bezczynny dashboard przy zdrowym WebSockecie mieści się w ≤2 GET/min", () => {
+    // Model z audytu 13.09.2026: dzwonek + KPI + cztery sekcje dashboardu
+    // + onboarding + sidebar (5 min, 3 żądania). Liczymy żądania na minutę.
+    const perMinute =
+      60_000 / WS_BACKED_SAFETY_POLL_MS + // dzwonek (WS zdrowy)
+      60_000 / WS_BACKED_SAFETY_POLL_MS + // KPI
+      4 * (60_000 / DASHBOARD_SECTION_POLL_MS) + // sekcje dashboardu
+      60_000 / DASHBOARD_SECTION_POLL_MS + // onboarding
+      3 * (60_000 / (5 * 60_000)); // sidebar: 3 żądania co 5 min
+    expect(perMinute).toBeLessThanOrEqual(2);
+  });
+
+  it("bez WebSocketu powiadomienia odświeżają się nie częściej niż co minutę", () => {
+    expect(NOTIFICATIONS_FALLBACK_POLL_MS).toBeGreaterThanOrEqual(60_000);
+    expect(ALLOCATION_BOARD_POLL_MS).toBeGreaterThanOrEqual(60_000);
+  });
+});

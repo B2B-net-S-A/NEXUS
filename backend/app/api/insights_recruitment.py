@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_invite_links import (
@@ -228,143 +228,144 @@ async def insights_recruitment_funnel(
     # Klucz cache'u NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod
     # etykietą drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
     cache_key = f"insights:recruitment:funnel:v1:{resolved.cache_suffix}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    params = {"start": resolved.start, "end": resolved.end}
+        params = {"start": resolved.start, "end": resolved.end}
 
-    # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
-    # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
-    # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
-    rows = (
-        (
-            await db.execute(
-                text(
+        # Półotwarte [start, end) — ta sama semantyka co w periods.py. Brak górnej
+        # granicy (jak w legacy `_period_start`) sprawiał, że „poprzedni miesiąc"
+        # oznaczał w praktyce „od poprzedniego miesiąca do dziś".
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                    SELECT fm.stage AS stage, count(*) AS cnt
+                    FROM analytics_first_milestones fm
+                    WHERE fm.first_reached_at >= :start
+                      AND fm.first_reached_at < :end
+                    GROUP BY fm.stage
                     """
-                SELECT fm.stage AS stage, count(*) AS cnt
-                FROM analytics_first_milestones fm
-                WHERE fm.first_reached_at >= :start
-                  AND fm.first_reached_at < :end
-                GROUP BY fm.stage
-                """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
+            .mappings()
+            .all()
         )
-        .mappings()
-        .all()
-    )
-    counts = {r["stage"]: int(r["cnt"]) for r in rows}
+        counts = {r["stage"]: int(r["cnt"]) for r in rows}
 
-    # Zrodlo 2 — reszta lejka wprost z `candidate_stages`, DEDUPLIKOWANA TAK
-    # SAMO jak widok: pierwsze wystapienie per (kandydat, oferta, etap). Bez
-    # tego gora lejka liczylaby surowe wiersze, a srodek — pary, i dwie czesci
-    # tego samego wykresu nie dalyby sie porownac. Import Traffita dopisuje
-    # wiersz na kazde zdarzenie, wiec ponowne wejscie liczyloby sie wielokrotnie.
-    log_rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                    SELECT stage, count(*) AS cnt
-                    FROM (
-                        SELECT DISTINCT ON (cs.candidate_id, cs.job_id, cs.stage)
-                               cs.stage AS stage, cs.moved_at AS moved_at
-                        FROM candidate_stages cs
-                        WHERE cs.stage::text = ANY(:stages)
-                        ORDER BY cs.candidate_id, cs.job_id, cs.stage,
-                                 cs.moved_at, cs.id
-                    ) firsts
-                    WHERE firsts.moved_at >= :start AND firsts.moved_at < :end
-                    GROUP BY stage
-                    """
-                ),
-                {**params, "stages": _STAGE_LOG_STAGES},
+        # Zrodlo 2 — reszta lejka wprost z `candidate_stages`, DEDUPLIKOWANA TAK
+        # SAMO jak widok: pierwsze wystapienie per (kandydat, oferta, etap). Bez
+        # tego gora lejka liczylaby surowe wiersze, a srodek — pary, i dwie czesci
+        # tego samego wykresu nie dalyby sie porownac. Import Traffita dopisuje
+        # wiersz na kazde zdarzenie, wiec ponowne wejscie liczyloby sie wielokrotnie.
+        log_rows = (
+            (
+                await db.execute(
+                    text(
+                        """
+                        SELECT stage, count(*) AS cnt
+                        FROM (
+                            SELECT DISTINCT ON (cs.candidate_id, cs.job_id, cs.stage)
+                                   cs.stage AS stage, cs.moved_at AS moved_at
+                            FROM candidate_stages cs
+                            WHERE cs.stage::text = ANY(:stages)
+                            ORDER BY cs.candidate_id, cs.job_id, cs.stage,
+                                     cs.moved_at, cs.id
+                        ) firsts
+                        WHERE firsts.moved_at >= :start AND firsts.moved_at < :end
+                        GROUP BY stage
+                        """
+                    ),
+                    {**params, "stages": _STAGE_LOG_STAGES},
+                )
             )
+            .mappings()
+            .all()
         )
-        .mappings()
-        .all()
-    )
-    for lr in log_rows:
-        counts[str(lr["stage"])] = int(lr["cnt"])
+        for lr in log_rows:
+            counts[str(lr["stage"])] = int(lr["cnt"])
 
-    # Pokrycie: ile ruchu w tym oknie powstało W NEXUSIE, a ile przyszło
-    # z importu. Dyskryminator to `external_source = 'manual'`, NIE `IS NULL`
-    # (kolumna ma ORM-owy default 'manual', a importer wpisuje 'traffit').
-    coverage_row = (
-        (
-            await db.execute(
-                text(
+        # Pokrycie: ile ruchu w tym oknie powstało W NEXUSIE, a ile przyszło
+        # z importu. Dyskryminator to `external_source = 'manual'`, NIE `IS NULL`
+        # (kolumna ma ORM-owy default 'manual', a importer wpisuje 'traffit').
+        coverage_row = (
+            (
+                await db.execute(
+                    text(
+                        """
+                    SELECT
+                      count(*) AS total,
+                      count(*) FILTER (WHERE cs.external_source = 'manual') AS manual,
+                      count(*) FILTER (WHERE cs.moved_by IS NULL) AS unattributed
+                    FROM candidate_stages cs
+                    WHERE cs.moved_at >= :start AND cs.moved_at < :end
                     """
-                SELECT
-                  count(*) AS total,
-                  count(*) FILTER (WHERE cs.external_source = 'manual') AS manual,
-                  count(*) FILTER (WHERE cs.moved_by IS NULL) AS unattributed
-                FROM candidate_stages cs
-                WHERE cs.moved_at >= :start AND cs.moved_at < :end
-                """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
+            .mappings()
+            .first()
         )
-        .mappings()
-        .first()
-    )
 
-    total_moves = int(coverage_row["total"] or 0) if coverage_row else 0
-    manual_moves = int(coverage_row["manual"] or 0) if coverage_row else 0
-    unattributed = int(coverage_row["unattributed"] or 0) if coverage_row else 0
+        total_moves = int(coverage_row["total"] or 0) if coverage_row else 0
+        manual_moves = int(coverage_row["manual"] or 0) if coverage_row else 0
+        unattributed = int(coverage_row["unattributed"] or 0) if coverage_row else 0
 
-    max_count = max([counts.get(s["stage"], 0) for s in FUNNEL_STAGES] + [0])
+        max_count = max([counts.get(s["stage"], 0) for s in FUNNEL_STAGES] + [0])
 
-    stages = [
-        {
-            "stage": s["stage"],
-            "label": s["label"],
-            "count": counts.get(s["stage"], 0),
-            "mapped_from_traffit": s["mapped_from_traffit"],
-            # Skad przyszla liczba — zeby konsument nie zsumowal dwoch zrodel
-            # pod jednym naglowkiem, nie wiedzac o tym.
-            "source": "milestones" if s["in_milestones"] else "stage_log",
-            # Udział względem najliczniejszego etapu — do szerokości paska.
-            "share_pct": _ratio(counts.get(s["stage"], 0), max_count),
+        stages = [
+            {
+                "stage": s["stage"],
+                "label": s["label"],
+                "count": counts.get(s["stage"], 0),
+                "mapped_from_traffit": s["mapped_from_traffit"],
+                # Skad przyszla liczba — zeby konsument nie zsumowal dwoch zrodel
+                # pod jednym naglowkiem, nie wiedzac o tym.
+                "source": "milestones" if s["in_milestones"] else "stage_log",
+                # Udział względem najliczniejszego etapu — do szerokości paska.
+                "share_pct": _ratio(counts.get(s["stage"], 0), max_count),
+            }
+            for s in FUNNEL_STAGES
+        ]
+
+        conversions = [
+            {
+                "key": c["key"],
+                "label": c["label"],
+                "numerator": counts.get(c["numerator"], 0),
+                "denominator": counts.get(c["denominator"], 0),
+                "pct": _ratio(
+                    counts.get(c["numerator"], 0), counts.get(c["denominator"], 0)
+                ),
+            }
+            for c in CONVERSIONS
+        ]
+
+        result = {
+            "period": resolved.as_payload(),
+            "stages": stages,
+            "conversions": conversions,
+            "coverage": {
+                "stage_moves_total": total_moves,
+                "stage_moves_manual": manual_moves,
+                "manual_pct": _ratio(manual_moves, total_moves),
+                "unattributed_moves": unattributed,
+                # Etapy, których import Traffita w ogóle nie zna. Konsument MUSI
+                # to pokazać przy zerach, inaczej brak ewidencji przeczyta się
+                # jako brak zjawiska.
+                "stages_not_mapped_from_traffit": [
+                    s["stage"] for s in FUNNEL_STAGES if not s["mapped_from_traffit"]
+                ],
+            },
         }
-        for s in FUNNEL_STAGES
-    ]
-
-    conversions = [
-        {
-            "key": c["key"],
-            "label": c["label"],
-            "numerator": counts.get(c["numerator"], 0),
-            "denominator": counts.get(c["denominator"], 0),
-            "pct": _ratio(
-                counts.get(c["numerator"], 0), counts.get(c["denominator"], 0)
-            ),
-        }
-        for c in CONVERSIONS
-    ]
-
-    result = {
-        "period": resolved.as_payload(),
-        "stages": stages,
-        "conversions": conversions,
-        "coverage": {
-            "stage_moves_total": total_moves,
-            "stage_moves_manual": manual_moves,
-            "manual_pct": _ratio(manual_moves, total_moves),
-            "unattributed_moves": unattributed,
-            # Etapy, których import Traffita w ogóle nie zna. Konsument MUSI
-            # to pokazać przy zerach, inaczej brak ewidencji przeczyta się
-            # jako brak zjawiska.
-            "stages_not_mapped_from_traffit": [
-                s["stage"] for s in FUNNEL_STAGES if not s["mapped_from_traffit"]
-            ],
-        },
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/available-periods")
@@ -438,123 +439,124 @@ async def insights_time_to_hire(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
     cache_key = f"insights:recruitment:tth:v1:{resolved.cache_suffix}:{min_hires}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = (
-        (
-            await db.execute(
-                text(
-                    """
-                WITH hired AS (
-                    -- Kanoniczny placement (D2): PIERWSZE 'hired' dla pary
-                    -- (kandydat, oferta). candidate_stages nie ma unikalnosci
-                    -- na (candidate_id, job_id, stage), a import Traffita
-                    -- dopisuje wiersz na kazde zdarzenie — liczenie surowych
-                    -- wierszy dublowaloby ponowne wejscia na etap.
-                    SELECT fm.candidate_id, fm.job_id, fm.first_reached_at,
-                           fm.first_moved_by
-                    FROM analytics_first_milestones fm
-                    WHERE fm.stage = 'hired'
-                      AND fm.first_reached_at >= :start
-                      AND fm.first_reached_at < :end
-                ),
-                started AS (
-                    -- Poczatek procesu z CALEJ historii pary, bez ograniczenia
-                    -- oknem. To jest ta poprawka.
-                    SELECT cs.candidate_id, cs.job_id, min(cs.moved_at) AS started_at
-                    FROM candidate_stages cs
-                    JOIN hired h
-                      ON h.candidate_id = cs.candidate_id
-                     AND h.job_id IS NOT DISTINCT FROM cs.job_id
-                    GROUP BY cs.candidate_id, cs.job_id
-                ),
-                spans AS (
-                    SELECT h.first_moved_by AS user_id,
-                           GREATEST(
-                               0,
-                               EXTRACT(EPOCH FROM (h.first_reached_at - s.started_at))
-                               / 86400.0
-                           ) AS days
-                    FROM hired h
-                    JOIN started s
-                      ON s.candidate_id = h.candidate_id
-                     AND s.job_id IS NOT DISTINCT FROM h.job_id
-                )
-                SELECT user_id,
-                       count(*) AS hires,
-                       percentile_cont(0.5) WITHIN GROUP (ORDER BY days) AS median_days,
-                       percentile_cont(0.9) WITHIN GROUP (ORDER BY days) AS p90_days
-                FROM spans
-                GROUP BY user_id
-                """
-                ),
-                {"start": resolved.start, "end": resolved.end},
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    user_ids = [int(r["user_id"]) for r in rows if r["user_id"] is not None]
-    names: dict[int, str] = {}
-    if user_ids:
-        name_rows = (
+        rows = (
             (
                 await db.execute(
-                    text("SELECT id, name FROM users WHERE id = ANY(:ids)"),
-                    {"ids": user_ids},
+                    text(
+                        """
+                    WITH hired AS (
+                        -- Kanoniczny placement (D2): PIERWSZE 'hired' dla pary
+                        -- (kandydat, oferta). candidate_stages nie ma unikalnosci
+                        -- na (candidate_id, job_id, stage), a import Traffita
+                        -- dopisuje wiersz na kazde zdarzenie — liczenie surowych
+                        -- wierszy dublowaloby ponowne wejscia na etap.
+                        SELECT fm.candidate_id, fm.job_id, fm.first_reached_at,
+                               fm.first_moved_by
+                        FROM analytics_first_milestones fm
+                        WHERE fm.stage = 'hired'
+                          AND fm.first_reached_at >= :start
+                          AND fm.first_reached_at < :end
+                    ),
+                    started AS (
+                        -- Poczatek procesu z CALEJ historii pary, bez ograniczenia
+                        -- oknem. To jest ta poprawka.
+                        SELECT cs.candidate_id, cs.job_id, min(cs.moved_at) AS started_at
+                        FROM candidate_stages cs
+                        JOIN hired h
+                          ON h.candidate_id = cs.candidate_id
+                         AND h.job_id IS NOT DISTINCT FROM cs.job_id
+                        GROUP BY cs.candidate_id, cs.job_id
+                    ),
+                    spans AS (
+                        SELECT h.first_moved_by AS user_id,
+                               GREATEST(
+                                   0,
+                                   EXTRACT(EPOCH FROM (h.first_reached_at - s.started_at))
+                                   / 86400.0
+                               ) AS days
+                        FROM hired h
+                        JOIN started s
+                          ON s.candidate_id = h.candidate_id
+                         AND s.job_id IS NOT DISTINCT FROM h.job_id
+                    )
+                    SELECT user_id,
+                           count(*) AS hires,
+                           percentile_cont(0.5) WITHIN GROUP (ORDER BY days) AS median_days,
+                           percentile_cont(0.9) WITHIN GROUP (ORDER BY days) AS p90_days
+                    FROM spans
+                    GROUP BY user_id
+                    """
+                    ),
+                    {"start": resolved.start, "end": resolved.end},
                 )
             )
             .mappings()
             .all()
         )
-        names = {int(r["id"]): r["name"] for r in name_rows}
 
-    entries = []
-    unattributed_hires = 0
-    for r in rows:
-        hires = int(r["hires"])
-        if r["user_id"] is None:
-            # Kamien, ktorego nie da sie przypisac nikomu — operator Traffita
-            # bez dopasowania po e-mailu. NIE wolno go po cichu wyciac: suma
-            # kolumny przestalaby sie zgadzac z lejkiem, a tabela wygladalaby
-            # na zepsuta. Raportujemy osobno.
-            unattributed_hires += hires
-            continue
-        if hires < min_hires:
-            continue
-        entries.append(
-            {
-                "user_id": int(r["user_id"]),
-                "name": names.get(int(r["user_id"]), "—"),
-                "hires": hires,
-                "median_days": round(float(r["median_days"]), 1)
-                if r["median_days"] is not None
-                else None,
-                "p90_days": round(float(r["p90_days"]), 1)
-                if r["p90_days"] is not None
-                else None,
-            }
-        )
-    entries.sort(key=lambda e: (-e["hires"], e["name"]))
+        user_ids = [int(r["user_id"]) for r in rows if r["user_id"] is not None]
+        names: dict[int, str] = {}
+        if user_ids:
+            name_rows = (
+                (
+                    await db.execute(
+                        text("SELECT id, name FROM users WHERE id = ANY(:ids)"),
+                        {"ids": user_ids},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            names = {int(r["id"]): r["name"] for r in name_rows}
 
-    total_hires = sum(e["hires"] for e in entries) + unattributed_hires
-    result = {
-        "period": resolved.as_payload(),
-        "entries": entries,
-        "totals": {
-            "hires": total_hires,
-            "attributed_hires": total_hires - unattributed_hires,
-            # Ta liczba MUSI byc wyrenderowana obok sumy kolumny. Bez niej
-            # tabela per osoba nie zgadza sie z lejkiem i czyta sie jak blad.
-            "unattributed_hires": unattributed_hires,
-        },
-        "min_hires": min_hires,
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        entries = []
+        unattributed_hires = 0
+        for r in rows:
+            hires = int(r["hires"])
+            if r["user_id"] is None:
+                # Kamien, ktorego nie da sie przypisac nikomu — operator Traffita
+                # bez dopasowania po e-mailu. NIE wolno go po cichu wyciac: suma
+                # kolumny przestalaby sie zgadzac z lejkiem, a tabela wygladalaby
+                # na zepsuta. Raportujemy osobno.
+                unattributed_hires += hires
+                continue
+            if hires < min_hires:
+                continue
+            entries.append(
+                {
+                    "user_id": int(r["user_id"]),
+                    "name": names.get(int(r["user_id"]), "—"),
+                    "hires": hires,
+                    "median_days": round(float(r["median_days"]), 1)
+                    if r["median_days"] is not None
+                    else None,
+                    "p90_days": round(float(r["p90_days"]), 1)
+                    if r["p90_days"] is not None
+                    else None,
+                }
+            )
+        entries.sort(key=lambda e: (-e["hires"], e["name"]))
+
+        total_hires = sum(e["hires"] for e in entries) + unattributed_hires
+        result = {
+            "period": resolved.as_payload(),
+            "entries": entries,
+            "totals": {
+                "hires": total_hires,
+                "attributed_hires": total_hires - unattributed_hires,
+                # Ta liczba MUSI byc wyrenderowana obok sumy kolumny. Bez niej
+                # tabela per osoba nie zgadza sie z lejkiem i czyta sie jak blad.
+                "unattributed_hires": unattributed_hires,
+            },
+            "min_hires": min_hires,
+        }
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/team-activity")
@@ -589,61 +591,62 @@ async def insights_team_activity(
     # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
     # liczby jednego zapytania pod etykietą drugiego.
     cache_key = f"insights:recruitment:team-activity:v1:{resolved.cache_suffix}:{limit}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = await compute_team_activity(
-        db, since=resolved.start, until=resolved.end, limit=limit
-    )
+        rows = await compute_team_activity(
+            db, since=resolved.start, until=resolved.end, limit=limit
+        )
 
-    # Mianownik paska: najaktywniejsza osoba w oknie. Pusty ranking daje zero,
-    # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
-    # nie zero aktywności.
-    max_actions = max([r.total_actions for r in rows] + [0])
+        # Mianownik paska: najaktywniejsza osoba w oknie. Pusty ranking daje zero,
+        # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
+        # nie zero aktywności.
+        max_actions = max([r.total_actions for r in rows] + [0])
 
-    entries = [
-        {
-            "rank": rank,
-            "user_id": r.user_id,
-            "name": r.user_name,
-            "candidates_added": r.candidates_added,
-            "screenings": r.screenings,
-            "interviews": r.interviews,
-            "placements": r.placements,
-            "calls": r.calls,
-            "total_actions": r.total_actions,
-            "share_pct": _ratio(r.total_actions, max_actions),
+        entries = [
+            {
+                "rank": rank,
+                "user_id": r.user_id,
+                "name": r.user_name,
+                "candidates_added": r.candidates_added,
+                "screenings": r.screenings,
+                "interviews": r.interviews,
+                "placements": r.placements,
+                "calls": r.calls,
+                "total_actions": r.total_actions,
+                "share_pct": _ratio(r.total_actions, max_actions),
+            }
+            for rank, r in enumerate(rows, start=1)
+        ]
+
+        result = {
+            "period": resolved.as_payload(),
+            "limit": limit,
+            "entries": entries,
+            "totals": {
+                "users": len(entries),
+                # Suma WIDOCZNYCH wierszy, nie całej tabeli `user_activities` —
+                # kafel liczony z innego zbioru niż lista pod nim nie daje się
+                # sprawdzić wzrokiem.
+                "actions": sum(e["total_actions"] for e in entries),
+            },
+            "coverage": {
+                "source": "user_activities",
+                # Bez tego zdania pusty ranking czyta się jako „zespół nic nie
+                # robił". `user_activities` zapisuje wyłącznie czynności wykonane
+                # W NEXUSIE — import z Traffita nie tworzy tam ani jednego wiersza.
+                "note": (
+                    "Liczone są wyłącznie czynności wykonane w NEXUSIE. "
+                    "Ruch zaimportowany z Traffita nie zasila tej tabeli, więc "
+                    "zero przy osobie znaczy „nie pracowała w NEXUSIE”, "
+                    "a nie „nie pracowała”."
+                ),
+            },
         }
-        for rank, r in enumerate(rows, start=1)
-    ]
-
-    result = {
-        "period": resolved.as_payload(),
-        "limit": limit,
-        "entries": entries,
-        "totals": {
-            "users": len(entries),
-            # Suma WIDOCZNYCH wierszy, nie całej tabeli `user_activities` —
-            # kafel liczony z innego zbioru niż lista pod nim nie daje się
-            # sprawdzić wzrokiem.
-            "actions": sum(e["total_actions"] for e in entries),
-        },
-        "coverage": {
-            "source": "user_activities",
-            # Bez tego zdania pusty ranking czyta się jako „zespół nic nie
-            # robił". `user_activities` zapisuje wyłącznie czynności wykonane
-            # W NEXUSIE — import z Traffita nie tworzy tam ani jednego wiersza.
-            "note": (
-                "Liczone są wyłącznie czynności wykonane w NEXUSIE. "
-                "Ruch zaimportowany z Traffita nie zasila tej tabeli, więc "
-                "zero przy osobie znaczy „nie pracowała w NEXUSIE”, "
-                "a nie „nie pracowała”."
-            ),
-        },
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/invite-links")
@@ -677,64 +680,65 @@ async def insights_invite_links(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     cache_key = f"insights:recruitment:invite-links:v1:{resolved.cache_suffix}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = await compute_invite_link_channels(
-        db, since=resolved.start, until=resolved.end
-    )
-    candidates = await count_invite_link_candidates(
-        db, since=resolved.start, until=resolved.end
-    )
+        rows = await compute_invite_link_channels(
+            db, since=resolved.start, until=resolved.end
+        )
+        candidates = await count_invite_link_candidates(
+            db, since=resolved.start, until=resolved.end
+        )
 
-    channels = [
-        {
-            # Etykieta do wyświetlenia ORAZ flaga, bo etykieta „Bez etykiety"
-            # jest legalną nazwą kanału i sam string nie pozwoliłby odróżnić
-            # kubełka linków nieopisanych od kanału tak nazwanego.
-            "channel": r.channel or "Bez etykiety",
-            "unlabelled": r.channel is None,
-            "links_count": r.links_count,
-            "applications": r.applications,
-            "conversion_pct": _ratio(r.applications, r.links_count),
-            "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+        channels = [
+            {
+                # Etykieta do wyświetlenia ORAZ flaga, bo etykieta „Bez etykiety"
+                # jest legalną nazwą kanału i sam string nie pozwoliłby odróżnić
+                # kubełka linków nieopisanych od kanału tak nazwanego.
+                "channel": r.channel or "Bez etykiety",
+                "unlabelled": r.channel is None,
+                "links_count": r.links_count,
+                "applications": r.applications,
+                "conversion_pct": _ratio(r.applications, r.links_count),
+                "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+            }
+            for r in rows
+        ]
+
+        total_links = sum(c["links_count"] for c in channels)
+        total_applications = sum(c["applications"] for c in channels)
+
+        result = {
+            "period": resolved.as_payload(),
+            "channels": channels,
+            # Kafle to FOLD po tej samej liście, którą niesie `channels` — kafel
+            # będący sumą innych liczb niż widoczne pod nim nie daje się
+            # zweryfikować wzrokiem.
+            "totals": {
+                "links": total_links,
+                "applications": total_applications,
+                "candidates": candidates,
+                "conversion_pct": _ratio(total_applications, total_links),
+            },
+            "window_scope": {
+                "channels": "link_created_at",
+                "candidates": "candidate_created_at",
+                # `use_count` jest licznikiem NA LINKU, kumulatywnym od jego
+                # powstania — nie da się go pociąć oknem bez tabeli zdarzeń.
+                "applications_are_lifetime_per_link": True,
+                "note": (
+                    "Okno filtruje LINKI po dacie utworzenia. Licznik aplikacji "
+                    "jest kumulatywny na linku, więc link założony w tym oknie "
+                    "wnosi wszystkie swoje aplikacje — także sprzed granicy okna. "
+                    "Oknem przycięta uczciwie jest wyłącznie liczba unikalnych "
+                    "kandydatów."
+                ),
+            },
         }
-        for r in rows
-    ]
-
-    total_links = sum(c["links_count"] for c in channels)
-    total_applications = sum(c["applications"] for c in channels)
-
-    result = {
-        "period": resolved.as_payload(),
-        "channels": channels,
-        # Kafle to FOLD po tej samej liście, którą niesie `channels` — kafel
-        # będący sumą innych liczb niż widoczne pod nim nie daje się
-        # zweryfikować wzrokiem.
-        "totals": {
-            "links": total_links,
-            "applications": total_applications,
-            "candidates": candidates,
-            "conversion_pct": _ratio(total_applications, total_links),
-        },
-        "window_scope": {
-            "channels": "link_created_at",
-            "candidates": "candidate_created_at",
-            # `use_count` jest licznikiem NA LINKU, kumulatywnym od jego
-            # powstania — nie da się go pociąć oknem bez tabeli zdarzeń.
-            "applications_are_lifetime_per_link": True,
-            "note": (
-                "Okno filtruje LINKI po dacie utworzenia. Licznik aplikacji "
-                "jest kumulatywny na linku, więc link założony w tym oknie "
-                "wnosi wszystkie swoje aplikacje — także sprzed granicy okna. "
-                "Oknem przycięta uczciwie jest wyłącznie liczba unikalnych "
-                "kandydatów."
-            ),
-        },
-    }
-    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
-    return result
+        await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
 
 
 @router.get("/seniority")

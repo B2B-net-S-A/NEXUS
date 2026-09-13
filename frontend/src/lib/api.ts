@@ -239,6 +239,25 @@ const NEVER_REACHED_APP_STATUSES = new Set([502, 503]);
 const IDEMPOTENT_METHODS = new Set(["get", "head", "options"]);
 const TRANSIENT_RETRY_MAX = 2;
 const TRANSIENT_RETRY_BASE_MS = 1500;
+/** Losowy dodatek, żeby 100 kart po jednym 503 nie wróciło w tej samej ms. */
+const TRANSIENT_RETRY_JITTER_MS = 500;
+/** Sufit dla `Retry-After` z bramy — dłużej nie trzymamy użytkownika w niepewności. */
+const TRANSIENT_RETRY_AFTER_MAX_MS = 10_000;
+
+/**
+ * Opóźnienie kolejnej próby: `Retry-After` (sekundy) z odpowiedzi, gdy brama
+ * je podała, inaczej wykładniczy backoff. Zawsze z jitterem — zsynchronizowana
+ * lawina ponowień po deployu wygląda dla proxy jak drugi incydent.
+ */
+function transientRetryDelayMs(err: AxiosError, attempts: number): number {
+  const jitter = Math.random() * TRANSIENT_RETRY_JITTER_MS;
+  const header = err.response?.headers?.["retry-after"];
+  const seconds = typeof header === "string" ? Number(header) : Number.NaN;
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, TRANSIENT_RETRY_AFTER_MAX_MS) + jitter;
+  }
+  return TRANSIENT_RETRY_BASE_MS * Math.pow(2, attempts) + jitter;
+}
 
 type RetryableConfig = { _transientRetryCount?: number };
 
@@ -275,7 +294,7 @@ api.interceptors.response.use(
     }
 
     config._transientRetryCount = attempts + 1;
-    const delay = TRANSIENT_RETRY_BASE_MS * Math.pow(2, attempts);
+    const delay = transientRetryDelayMs(err, attempts);
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
   }

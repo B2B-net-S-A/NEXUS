@@ -321,9 +321,11 @@ async def test_structural_partial_keeps_the_full_cache_ttl(
     captured: dict[str, object] = {}
     original = dash.cache_set
 
-    async def _spy(key, value, ttl_seconds=None):
+    async def _spy(key, value, ttl_seconds=None, **kwargs):
+        # `jitter_seconds` rozmywa moment wygaśnięcia, ale bazowy TTL (120/30)
+        # jest tym, co ten test sprawdza — spy przepuszcza resztę bez zmian.
         captured["ttl"] = ttl_seconds
-        return await original(key, value, ttl_seconds=ttl_seconds)
+        return await original(key, value, ttl_seconds=ttl_seconds, **kwargs)
 
     monkeypatch.setattr(dash, "cache_set", _spy)
     headers = await _headers(rs_client, UserRole.admin)

@@ -26,6 +26,7 @@ import {
   InsightsSection,
   InsightsSectionNav,
 } from "@/components/insights/InsightsSectionNav";
+import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import {
   readPeriodFromParams,
   writePeriodToParams,
@@ -118,6 +119,13 @@ export function RekrutacjaPanel() {
 
       <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Rekrutacji" />
 
+      {/* Sekcje poniżej pierwszej montują się dopiero blisko viewportu
+          (`DeferUntilVisible`). Do 09.2026 wejście na zakładkę odpalało
+          ~15 zapytań analitycznych naraz, także dla sekcji, których nikt
+          nie przewinął — 50 równoczesnych wejść to 750 żądań. Kotwica `id`
+          zostaje na zewnątrz, więc pasek sekcji i `#hash` działają jak dotąd;
+          `minHeight` trzyma układ, dopóki sekcja się nie wczyta. */}
+
       {/* Cztery liczby, od których zaczyna się rozmowa o rekrutacji —
           nad lejkiem, jak w DynaReporterze. Ta sama koperta co lejek
           i konwersje (jeden klucz react-query), więc kafel nie ma jak
@@ -127,11 +135,13 @@ export function RekrutacjaPanel() {
       </InsightsSection>
 
       <InsightsSection id="lejek" className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <RecruitmentFunnel period={period} />
-          <RecruitmentConversions period={period} />
-        </div>
-        <InsightsTimeToHire period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <RecruitmentFunnel period={period} />
+            <RecruitmentConversions period={period} />
+          </div>
+          <InsightsTimeToHire period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* „Performance per osoba" — serce zakładki w oryginale, więc stoi
@@ -152,8 +162,10 @@ export function RekrutacjaPanel() {
           w dodatku przyjmuje TO SAMO okno co reszta zakładki — legacy liczył
           okno kroczące i ignorował `PeriodPicker`. */}
       <InsightsSection id="zespol" className="space-y-6">
-        <InsightsTeamPerformance period={period} />
-        <InsightsTeamActivity period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsTeamPerformance period={period} />
+          <InsightsTeamActivity period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Liga Mistrzów PRZENIESIONA tu z dawnej zakładki „Zarząd" (układ
@@ -164,24 +176,30 @@ export function RekrutacjaPanel() {
           podpięcie go pod dowolne okno obiecywałoby wynik, którego regulamin
           nie zna. */}
       <InsightsSection id="liga" className="space-y-6">
-        <ChampionsSection />
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <InsightsRaces />
-          <InsightsHallOfFame />
-        </div>
+        <DeferUntilVisible minHeight={240}>
+          <ChampionsSection />
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <InsightsRaces />
+            <InsightsHallOfFame />
+          </div>
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Wykresy roczne. Świadomie POZA `PeriodPicker`em: to widok
           dwunastu miesięcy roku, a przycięcie go oknem miesiąca zostawiłoby
           jeden punkt i wykres bez sensu. Rok domyślny bierze SERWER. */}
       <InsightsSection id="trendy">
-        <InsightsYearlyStats />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsYearlyStats />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Analiza placementów — kto i u kogo. Ta sekcja PRZYJMUJE okno z paska:
           pytanie „kto dowiózł w tym miesiącu" ma sens tylko z okresem. */}
       <InsightsSection id="placementy">
-        <InsightsPlacementAnalysis period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsPlacementAnalysis period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Power Calling ma własny wybór TYGODNIA (endpoint zna wyłącznie
@@ -189,10 +207,12 @@ export function RekrutacjaPanel() {
           są tu opisane w swoich plikach i celowo nie udają, że słuchają
           `PeriodPicker`a. */}
       <InsightsSection id="aktywnosc">
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <InsightsPowerCalling />
-          <InsightsLinkedIn />
-        </div>
+        <DeferUntilVisible minHeight={240}>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <InsightsPowerCalling />
+            <InsightsLinkedIn />
+          </div>
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Ścieżka rozwoju (D6) — poziom z liczby placementów, liczony przy
@@ -200,15 +220,19 @@ export function RekrutacjaPanel() {
           funkcją CAŁEJ historii, a przycięcie jej oknem `PeriodPicker`a
           zamieniłoby zapadkę awansu w licznik, który spada. */}
       <InsightsSection id="sciezka-rozwoju">
-        <InsightsSeniority />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsSeniority />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Źródła kandydatów. Linki aplikacyjne PRZENIESIONE tu z dawnej
           zakładki „Zarząd": to pytanie „skąd przyszli kandydaci", czyli ta
           sama rozmowa co lejek źródeł obok, a nie temat kokpitu Rady. */}
       <InsightsSection id="zrodla" className="space-y-6">
-        <SourcesFunnelSection />
-        <InsightsInviteLinks period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <SourcesFunnelSection />
+          <InsightsInviteLinks period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
     </div>
   );

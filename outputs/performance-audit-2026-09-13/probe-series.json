@@ -1,0 +1,194 @@
+[
+  {
+    "round": 1,
+    "utc": "2026-09-13T18:28:20.909627+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.1689
+  },
+  {
+    "round": 1,
+    "utc": "2026-09-13T18:28:21.078520+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1348
+  },
+  {
+    "round": 2,
+    "utc": "2026-09-13T18:28:31.218775+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0885
+  },
+  {
+    "round": 2,
+    "utc": "2026-09-13T18:28:31.307273+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1411
+  },
+  {
+    "round": 3,
+    "utc": "2026-09-13T18:28:41.455415+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0889
+  },
+  {
+    "round": 3,
+    "utc": "2026-09-13T18:28:41.544326+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1406
+  },
+  {
+    "round": 4,
+    "utc": "2026-09-13T18:28:51.690354+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.1665
+  },
+  {
+    "round": 4,
+    "utc": "2026-09-13T18:28:51.856812+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1412
+  },
+  {
+    "round": 5,
+    "utc": "2026-09-13T18:29:02.000614+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0785
+  },
+  {
+    "round": 5,
+    "utc": "2026-09-13T18:29:02.079097+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1418
+  },
+  {
+    "round": 6,
+    "utc": "2026-09-13T18:29:12.331796+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 1.5433
+  },
+  {
+    "round": 6,
+    "utc": "2026-09-13T18:29:13.875157+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.5748
+  },
+  {
+    "round": 7,
+    "utc": "2026-09-13T18:29:24.456161+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0851
+  },
+  {
+    "round": 7,
+    "utc": "2026-09-13T18:29:24.541269+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.2225
+  },
+  {
+    "round": 8,
+    "utc": "2026-09-13T18:29:34.765185+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0961
+  },
+  {
+    "round": 8,
+    "utc": "2026-09-13T18:29:34.861303+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1462
+  },
+  {
+    "round": 9,
+    "utc": "2026-09-13T18:29:45.013466+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.1003
+  },
+  {
+    "round": 9,
+    "utc": "2026-09-13T18:29:45.113773+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1487
+  },
+  {
+    "round": 10,
+    "utc": "2026-09-13T18:29:55.265597+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.082
+  },
+  {
+    "round": 10,
+    "utc": "2026-09-13T18:29:55.347619+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1372
+  },
+  {
+    "round": 11,
+    "utc": "2026-09-13T18:30:05.490753+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.1196
+  },
+  {
+    "round": 11,
+    "utc": "2026-09-13T18:30:05.610410+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.2155
+  },
+  {
+    "round": 12,
+    "utc": "2026-09-13T18:30:15.835394+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "bytes": 32438,
+    "elapsed_s": 0.0836
+  },
+  {
+    "round": 12,
+    "utc": "2026-09-13T18:30:15.918922+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "bytes": 71,
+    "elapsed_s": 0.1677
+  }
+]
