@@ -50,9 +50,9 @@ zamówienia” → Zapisz), „Importuj” w `/finance?view=md`. Natywne `window
 | S06 | delivery_lead (D2) | „Nowe zamówienie” → przełącz typ na „Okresowe” po wgraniu PDF | plik przenosi się do `NewContractorOrderDialog` (`initialFile`) i z powrotem | P2 |
 | S07 | delivery_lead (D2) | „Nowe zamówienie” MD → status domyślny | „Aktywne” (nie Draft); walidacja: każda linia z `input_value > 0` (sprawdź komunikat przy 0 — **bez zapisu**) | P2 |
 | S08 | finance | `/clients/{{D2}}?tab=zamowienia` | odczyt; liczby MD (operacyjne) widoczne; stawki linii MD **„—”** (zarządza admin + DL przypisany), pasek zużycia widoczny | P1 |
-| S09 | head_of_recruitment | jw. | odczyt; akcje cyklu życia WIDOCZNE (HoR w `_ORDER_LIFECYCLE_ROLES`), stawki „—”; **nie klikaj** | P1 |
-| S10 | tac / talent_community_manager | jw. | odczyt; brak akcji cyklu życia; stawki „—” | P1 |
-| S11 | delivery_lead NIEprzypisany do D2 | jw. | 403 z powodem (klient poza portfelem) | P1 |
+| S09 | head_of_recruitment | jw. | odmowa (brak sekcji Delivery na produkcji) — mimo że kod ma HoR w `_ORDER_LIFECYCLE_ROLES`; zapisz rozjazd jako obserwację | P1 |
+| S10 | talent_community_manager (tac: odmowa) | jw. | TCM: odczyt, stawki „—”; zapisz, które akcje cyklu życia są widoczne | P1 |
+| S11 | delivery_lead bez przypisania do D2 | jw. | widok ładuje się; stawki linii MD „—” (tylko przypisany DL i admin je widzą i ustawiają) | P1 |
 
 ## Scenariusze — widok jednoosobowy (D1)
 

@@ -3,7 +3,7 @@
 | Pole | Wartość |
 |---|---|
 | Tryb | **R** |
-| Persony | delivery_lead PRZYPISANY do D1 (nie do D2), delivery_lead NIEprzypisany, tac, head_of_recruitment, finance, talent_community_manager (podgląd); admin |
+| Persony | delivery_lead 30 (przypisany do D1, nie do D2), inny delivery_lead (bez przypisania do D1/D2), finance, talent_community_manager (podgląd); head_of_recruitment i tac tylko do scenariuszy odmowy; admin |
 | Zależności | Fala 0 (D1 z DL, D2, D11, D12); najlepiej po P2 (wtedy D1 ma konsultanta i kontrakt) |
 | Czas | ~3 h |
 | Głębokość | pełna (kwoty per portfel — najczęstsze źródło błędów RBAC) |
@@ -36,7 +36,7 @@ aktywnymi konsultantami (tylko ID) — do S10–S13 na prawdziwych liczbach.
 | S01 | delivery_lead (D1) | `/clients` | lista; filtr „Tylko moi klienci” = filtr, nie granica (widzi też innych); wyszukiwanie „QA-E2E” → D1, D2 | P1 |
 | S02 | delivery_lead | zakładka „Nieaktywni klienci” | lista; przycisk „Czyszczenie listy” widoczny TYLKO adminowi; **nie klikaj** | P1 |
 | S03 | recruiter | `/clients` ręcznie | odmowa (`/403` lub komunikat) — sekcja delivery | P1 |
-| S04 | talent_community_manager | `/clients` | odczyt globalny; brak przycisków mutacji (Dodaj, Edytuj) | P2 |
+| S04 | talent_community_manager | `/clients` | odczyt globalny; sekcja ma zapis (konfiguracja), ale guardy domenowe mogą blokować mutacje — zapisz, które przyciski są widoczne i czy zapis (w podglądzie: 403 read-only) byłby dopuszczony | P3 |
 | S05 | admin | `/settings/clients-overview` | przegląd z kwotami; finance też widzi; HoR — odmowa | P1 |
 
 ## Scenariusze — profil D1 (DL przypisany)
@@ -58,13 +58,13 @@ aktywnymi konsultantami (tylko ID) — do S10–S13 na prawdziwych liczbach.
 
 | ID | Persona | Kroki | Oczekiwane | Prio |
 |---|---|---|---|---|
-| S16 | delivery_lead NIEprzypisany | `/clients/{{D1}}` | 403 z powodem („klient poza portfelem”) — NIE pusta strona, NIE profil bez kwot | P1 |
-| S17 | head_of_recruitment | Profil → Konsultanci + kafle + Analityka | tabela z nazwiskami, ale WSZYSTKIE 3 kolumny kwot „—”; kafle finansowe „—”/ukryte; Analityka BEZ kafli finansowych. Redakcja całościowa: jeśli kafel ma liczbę, a kolumna „—” → P1 | P1 |
-| S18 | tac (w zespole D1) | jw. | jak HoR: nazwiska tak, kwoty „—” | P1 |
-| S19 | talent_community_manager | jw. | jak HoR | P1 |
+| S16 | delivery_lead bez przypisania do D1 | `/clients/{{D1}}` | profil się ładuje (dostęp organizacyjny); WSZYSTKIE kwoty „—”, kafle finansowe w Analityce się nie renderują | P1 |
+| S17 | head_of_recruitment | `/clients`, `/clients/{{D1}}` | odmowa (brak sekcji Delivery) — `/403` albo komunikat PL; NIE pusta lista, NIE biały ekran | P1 |
+| S18 | tac | jw. | jak HoR: odmowa (brak sekcji Delivery) | P1 |
+| S19 | talent_community_manager | Profil D1 → Konsultanci + kafle + Analityka | nazwiska tak, WSZYSTKIE kwoty „—”, kafle finansowe ukryte. Redakcja całościowa: kafel z liczbą + kolumna „—” → P1 | P1 |
 | S20 | finance | jw. | kwoty WIDOCZNE (pełny odczyt biznesowy) | P1 |
 | S21 | admin | jw. | kwoty widoczne | P2 |
-| S22 | delivery_lead (D1) | `/clients/{{D2}}` (nieprzypisany do D2) | 403 z powodem | P1 |
+| S22 | delivery_lead 30 | `/clients/{{D2}}` (bez przypisań) | profil OK, kwoty „—” (brak przypisania) | P1 |
 | S23 | delivery_lead z ROLĄ HoR jednocześnie (jeśli istnieje takie konto — inaczej SKIP) | `/clients/{{D1}}` | kwoty „—” (hybryda HoR+DL = nadzór nieoskopowany, bez finansów) | P1 |
 
 ## Scenariusze — prawdziwy klient (tylko odczyt, tylko ID w raporcie)
@@ -80,8 +80,8 @@ aktywnymi konsultantami (tylko ID) — do S10–S13 na prawdziwych liczbach.
 
 | ID | Persona | Kroki | Oczekiwane | Prio |
 |---|---|---|---|---|
-| S28 | delivery_lead (D1) | `/my-clients` | tylko klienci portfela (D1, nie D2); karta → link do Analityki | P1 |
-| S29 | head_of_recruitment | `/my-clients` | wszyscy klienci (gałąź organizacyjna); BEZ kwot | P1 |
+| S28 | delivery_lead 30 | `/my-clients` | wszyscy klienci (dostęp organizacyjny) — D1 i D2 obecne; karta → link do Analityki | P2 |
+| S29 | head_of_recruitment | `/my-clients` | odmowa (brak sekcji Delivery) | P1 |
 | S30 | finance | `/my-clients` | wszyscy klienci; kwoty w API (`total_revenue_all_time`) — UI ich dziś nie pokazuje; zapisz jako obserwację | P3 |
 | S31 | delivery_lead | `/my-relationships` | relacje persony; brak 500 | P2 |
 | S32 | admin | `/clients/{{D1}}?tab=orders` i `?tab=framework-contracts` (NIEISTNIEJĄCE klucze) | ląduje na Profilu (fallback), nie 500; zapisz — to znany błąd sprzed 10.09 w linkach alertów | P3 |

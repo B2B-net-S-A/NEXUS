@@ -32,7 +32,7 @@ personas:                # ID uzupełnia Fala 0 §3 → wyniki/F0/persony.md (pl
   - admin
   - head_of_recruitment
   - delivery_lead          # z przypisanym klientem D1, NIE D2
-  - delivery_lead_other    # DL nieprzypisany do D1/D2
+  - delivery_lead_other    # DL bez przypisania do D1/D2 (dostęp organizacyjny, bez kwot)
   - talent_community_manager
   - finance
   - tac

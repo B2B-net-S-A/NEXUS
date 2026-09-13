@@ -33,7 +33,7 @@ w powiadomieniach prowadzącej do czatu (patrz stop-lista).
 |---|---|---|---|---|
 | S01 | CZŁOWIEK | `/login`, hasło błędne, potem poprawne | błędne: komunikat PL, pole hasła wyczyszczone, e-mail zostaje; poprawne: przekierowanie na `/dashboard` lub `/onboarding` (jeśli profil nieukończony) | P1 |
 | S02 | CZŁOWIEK | `/login` → „Zaloguj przez Microsoft” → 2FA | powrót na `/dashboard`; rola zgodna z grupą AAD; brak pętli przekierowań | P1 |
-| S03 | CZŁOWIEK | `/login/forgot-password` z adresem `nikt@example.invalid` | zawsze ten sam komunikat „jeśli konto istnieje, wysłaliśmy…” (anty-enumeracja); brak 404/409 | P0 |
+| S03 | CZŁOWIEK | `/login/forgot-password` z adresem `nikt@example.com` | zawsze ten sam komunikat „jeśli konto istnieje, wysłaliśmy…” (anty-enumeracja); brak 404/409 | P0 |
 | S04 | admin | wylogowany: wejdź w `/candidates`, `/clients/1`, `/settings/ai` | przekierowanie na `/login` (z `next=`), nie biały ekran, nie 403 | P1 |
 | S05 | admin | po zalogowaniu wróć na `/login` | przekierowanie na `/dashboard` (nie pokazuje formularza) | P2 |
 | S06 | każda rola | zrzut sidebaru w podglądzie | zgodny z [03-macierz-rol.md §3](../03-macierz-rol.md); sekcje zwinięte/rozwinięte konsekwentnie; badge „Rekrutacje” pokazuje liczbę ≥ 0 | P1 |
