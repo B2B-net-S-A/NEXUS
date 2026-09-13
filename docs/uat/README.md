@@ -103,11 +103,12 @@ normalnych deployów.
 - [ ] Zero otwartych zgłoszeń P0 i P1 (definicje priorytetów w `00-zasady-dla-agenta.md`).
 - [ ] Każdy przepływ oznaczony MUST w `manifest.yaml` jest zielony dla każdej roli z pilotażu.
 - [ ] Cotygodniowy test odtwarzania backupu (`.github/workflows/backup-drill.yml`) jest **zielony**.
-  Stan 2026-09-11: czerwony trzy tygodnie z rzędu (24.08, 31.08, 07.09), bo drill nie ma
-  dostępu do kopii off-site ani klucza do jej odszyfrowania. To blocker startu.
-- [ ] `/api/health` bez pozycji `degraded`/`unhealthy` (stan 2026-09-11: `traffit = degraded`).
+  Stan 2026-09-13: czerwony co tydzień — brak sekretów `BACKUP_AGE_PRIVATE_KEY`,
+  `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`. To blocker startu.
+- [ ] `/api/health` bez pozycji `degraded`/`unhealthy` (stan 2026-09-13: ✅).
 - [ ] `/api/health/deep` zielony.
-- [ ] Nocny bieg Playwright (`e2e.yml`) zielony 3 noce z rzędu i obejmuje przepływy MUST.
+- [ ] Nocny bieg Playwright (`e2e.yml`) zielony 3 noce z rzędu **w pełnym zakresie** (nie „E2E CZĘŚCIOWE”)
+  i obejmuje przepływy MUST. Stan 2026-09-13: zielony, ale 13/83 przypadków — brak sekretów `E2E_USER_*`.
 - [ ] Decyzja o okresie przejściowym z Traffitem zapisana (patrz niżej).
 - [ ] Osoby z pilotażu potwierdzają na piśmie, że kwoty (MRR, marże, MD) zgadzają się z tym, co znają.
 

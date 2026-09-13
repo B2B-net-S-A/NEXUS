@@ -21,21 +21,36 @@
 | `sourcer` | sourcing + ogłoszenia | SRC |
 | `user` | legacy viewer, wycofywany; brak nowych kont | USR |
 
-## 2. Sekcje produktu → domyślny dostęp
+## 2. Sekcje produktu → dostęp NA PRODUKCJI (odczytane 2026-09-13, `revision 4`)
 
 | Sekcja | ADM | HoR | DL | TCM | FIN | TAC | REC | SRC | USR |
 |---|---|---|---|---|---|---|---|---|---|
-| sourcing (Kandydaci, CV, Talenty, Targ, Zgłoszenia) | W | W | W | W | R | W | W | W | R |
-| pipeline (Rekrutacje, Kalendarz) | W | W | W | R | R | W | W | W | — |
-| delivery (Klienci, Kontrakty, Zamówienia, Panel klientów) | W | R* | W (portfel) | R | R | W (zespół) | — | — | — |
-| insights (Insights, Cortex) | W | R | R | R | R | R | R | R | R |
+| sourcing (Kandydaci, CV, Talenty, Targ, Zgłoszenia) | W | W | W | W | W | W | W | W | R |
+| pipeline (Rekrutacje, Kalendarz) | W | W | W | W | W | W | W | W | R |
+| delivery (Klienci, Kontrakty, Zamówienia, Panel klientów) | W | **—** | W | **W** | W | **—** | — | — | — |
+| insights (Insights, Cortex) | W | W | R | R | R | R | R | R | R |
 | finance (`/finance`) | W | — | — | — | W | — | — | — | — |
 | system_admin (Ustawienia → Administracja) | W | — | — | — | — | — | — | — | — |
 
 `W` = odczyt i zapis, `R` = tylko odczyt, `—` = brak (link ukryty, trasa → odmowa).
-`R*` HoR przechodzi guardy klienta globalnie, ale bez finansów. Jeśli konfiguracja
-na prodzie różni się od tej tabeli — **to konfiguracja jest źródłem prawdy**; zapisz
-różnicę w raporcie F0 i testuj według niej.
+
+**Różnice względem wartości domyślnych w kodzie** (`frontend/src/lib/section-access.ts`) — zmienione
+w panelu uprawnień: TCM delivery `read` → **`write`**. Zapis sekcji to górna granica; guardy domenowe
+mogą dalej ograniczać TCM (CLAUDE.md: „bez mutacji delivery”, wyjątki: status kontraktu i potwierdzenie
+podpisu). Rozjazd „sekcja pozwala, a przycisk/endpoint odmawia” zapisuj jako obserwację P3, nie P1.
+
+**HoR i TAC nie mają sekcji Delivery** — `/clients`, `/contracts`, `/order-mail`, `/my-clients`
+dają im odmowę. Scenariusze kart M06–M08 dla tych ról sprawdzają więc CZYTELNĄ ODMOWĘ, nie redakcję kwot.
+
+**Delivery Lead: dostęp operacyjny do klientów jest ORGANIZACYJNY** (`resolve_delivery_lead_client_ids`
+zwraca wszystkich klientów — decyzja w kodzie, nie błąd). Przypisanie DL do klienta
+(`/api/team-structure/dl-clients`) steruje TYLKO wąskimi wyjątkami: kwoty na profilu klienta i w Analityce,
+stawki linii MD, pliki ze stawkami, akcje prawne. Na produkcji wszystkich 9 DL ma przypisanych
+wszystkich klientów — w praktyce każdy DL widzi kwoty każdego klienta (obserwacja do decyzji produktowej).
+Do testów granicy użyj klienta testowego D1 (przypisany DL 30) i D2 (bez przypisań).
+
+Jeśli konfiguracja zmieni się w trakcie UAT — **konfiguracja jest źródłem prawdy**
+(`GET /api/admin/section-permissions`); zapisz różnicę w raporcie i testuj według niej.
 
 ## 3. Pozycje menu → role (z `SidebarV2.tsx`)
 
@@ -71,8 +86,8 @@ różnicę w raporcie F0 i testuj według niej.
 
 | Powierzchnia | Widzi kwoty | Widzi „—” |
 |---|---|---|
-| Profil klienta → Konsultanci / Archiwum (stawki, marża, MRR) | ADM, FIN, **DL tylko swojego klienta** | HoR, TAC, TCM, DL obcego klienta |
-| Profil klienta → Analityka (przychód, marża/mc) | ADM, FIN, DL swojego | reszta (kafle finansowe w ogóle się nie renderują) |
+| Profil klienta → Konsultanci / Archiwum (stawki, marża, MRR) | ADM, FIN, **DL tylko u klienta z przypisaniem** | TCM, DL bez przypisania (HoR/TAC: brak dostępu do sekcji) |
+| Profil klienta → Analityka (przychód, marża/mc) | ADM, FIN, DL z przypisaniem | TCM, DL bez przypisania (kafle finansowe się nie renderują) |
 | Lista `/my-clients` (przychody) | ADM, FIN, DL (swoje) | — |
 | Zamówienia → stawki linii MD | ADM, DL przypisany | reszta (pasek MD widoczny, stawka „—”) |
 | Kontrakty → stawki | role z `view_finance` (ADM, FIN) | reszta |
@@ -87,9 +102,9 @@ widzi kafel „Aktywne MRR” z liczbą, a kolumnę „Marża” jako „—” 
 | Rola | Może czytać | Nie może zapisać (oczekiwane 403 lub brak przycisku) |
 |---|---|---|
 | FIN | wszystko biznesowe | użytkownicy/role/konfiguracja; kuratela Cortexa; sekcja `admin` DynaReportera; ruch kandydatów (zostaje prawo sprzed 31.08) |
-| HoR | klienci, kontrakty, zamówienia | stawki linii MD; zmiany w Ustawieniach → Administracja |
+| HoR | kandydaci, rekrutacje, Insights (zapis) | cała sekcja Delivery (odmowa); Ustawienia → Administracja |
 | TCM | delivery globalnie | jakakolwiek mutacja delivery; `confirm-fully-signed` (wyjątek: TCM ma zmianę statusu kontraktu i potwierdzenie podpisu wg decyzji 10.09 — sprawdź w karcie M08) |
-| DL | swój portfel | klienci spoza portfela (403 z nazwą powodu, nie pusta lista) |
+| DL | wszyscy klienci (operacyjnie) | kwoty i stawki MD u klientów bez przypisania („—”, nie 403) |
 | REC/SRC | kandydaci, rekrutacje | kontrakty, klienci, zamówienia (link ukryty; trasa `/clients` → odmowa) |
 | każdy w podglądzie admina | wszystko, co widzi persona | **nic** — każda mutacja 403 |
 
@@ -103,7 +118,7 @@ Dla każdej roli z §1, w podglądzie:
 3. Wejdź RĘCZNIE w 3 trasy, których rola nie powinna widzieć (np. REC → `/clients`,
    `/finance`, `/settings/ai`). Oczekiwane: przekierowanie na `/403` albo czytelna odmowa
    po polsku. Pusta lista lub biały ekran = P1. Załadowane dane = P0.
-4. Sprawdź kwoty według §4 na: profilu klienta testowego D1 (DL przypisany) i D2 (DL nieprzypisany),
+4. Sprawdź kwoty według §4 na: profilu klienta testowego D1 (przypisany DL 30) i D2 (bez przypisań DL),
    `/contracts`, `/my-clients`.
 5. Wykonaj jedną mutację przez API w podglądzie (np. `POST /api/notes` z treścią
    `[QA-E2E] test`) — oczekiwane 403 „Podgląd jako użytkownik jest tylko do odczytu”.
