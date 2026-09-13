@@ -591,7 +591,7 @@ async def test_failed_team_roster_never_becomes_zero_placements(
         _failed_team,
     )
     monkeypatch.setattr(dashboard_v2_sources, "load_contact_oversight", _contact)
-    monkeypatch.setattr(dashboard_v2_sources, "load_user_kpis", _kpis)
+    monkeypatch.setattr(dashboard_v2_sources, "load_team_kpis", _kpis)
 
     response = await build_head_of_recruitment_dashboard(
         leader,
@@ -642,7 +642,7 @@ async def test_malformed_team_roster_never_becomes_complete_zeroes(
         _malformed_team,
     )
     monkeypatch.setattr(dashboard_v2_sources, "load_contact_oversight", _contact)
-    monkeypatch.setattr(dashboard_v2_sources, "load_user_kpis", _kpis)
+    monkeypatch.setattr(dashboard_v2_sources, "load_team_kpis", _kpis)
 
     response = await build_head_of_recruitment_dashboard(
         leader,

@@ -9,13 +9,16 @@
 // plan quota (5k events/mc). Tuning żeby zmieścić się:
 //   - tracesSampleRate 0.1 → 0.01 (10x mniej performance traces; errory
 //     wciąż zawsze łapane, traces są nice-to-have).
-//   - beforeSend filter: drop axios cancel + network errors (np. user
-//     close tab w trakcie request) — to znormalna noise.
+//   - beforeSend filter: drop axios cancel; bezcielesne błędy sieci są od
+//     09.2026 PRÓBKOWANE (10%), nie wyrzucane — patrz komentarz niżej.
 //   - ignoreErrors: common browser noise (ResizeObserver, ChunkLoadError
 //     z service workera) — nie błędy aplikacji, generują dużo events.
 import * as Sentry from '@sentry/nextjs'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
+
+/** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
+const NETWORK_ERROR_SAMPLE_RATE = 0.1
 
 if (dsn) {
     Sentry.init({
@@ -46,8 +49,8 @@ if (dsn) {
             // Axios cancel — user navigated away before request returned
             'CanceledError',
             'AbortError',
-            // Network unreachable — usually offline/wifi blip, not app issue
-            'Network Error',
+            // 'Network Error' CELOWO nie jest tu ignorowany — patrz
+            // `beforeSend`: próbkujemy go, zamiast wyrzucać w całości.
         ],
         beforeSend(event, hint) {
             const exc = hint?.originalException as
@@ -66,6 +69,22 @@ if (dsn) {
             // Drop expected axios timeout (ECONNABORTED) — user can retry.
             if (exc?.code === 'ECONNABORTED' || exc?.name === 'TimeoutError') {
                 return null
+            }
+
+            // Bezcielesny błąd sieci (axios `ERR_NETWORK`) — PRÓBKOWANY, nie
+            // wyrzucany. Do 09.2026 leciał na `ignoreErrors`, a to jest
+            // dokładnie kształt, jaki w przeglądarce ma 503 „no available
+            // server" z Traefika i backendowe 500 bez nagłówków CORS —
+            // obie klasy incydentów były w Sentry niewidoczne. 10% wystarcza,
+            // żeby fala była widoczna na wykresie, a nie zjadła darmowego
+            // limitu 5k zdarzeń; jeden fingerprint zbiera je w jeden issue.
+            if (exc?.code === 'ERR_NETWORK') {
+                if (Math.random() >= NETWORK_ERROR_SAMPLE_RATE) {
+                    return null
+                }
+                event.fingerprint = ['network-error']
+                event.tags = { ...event.tags, network_error: 'sampled' }
+                return event
             }
 
             return event

@@ -52,6 +52,36 @@ function anchorIds(source: string): string[] {
   ].map((m) => m[1]);
 }
 
+/**
+ * Sekcje POZA pierwszą montują się leniwie (`DeferUntilVisible`), bo każda
+ * odpala własne zapytania na mount — wejście na zakładkę bez tego to ~15
+ * żądań naraz na osobę. Test liczy, że każda kotwica poza pierwszą zawiera
+ * wrapper, a pierwsza (kafle nad lejkiem) świadomie nie: to ona ma się
+ * pojawić od razu.
+ */
+function sectionsWithDefer(source: string): { id: string; deferred: boolean }[] {
+  const blocks = [
+    ...source.matchAll(
+      /<InsightsSection\b[^>]*?\sid="([^"]+)"[^>]*>([\s\S]*?)<\/InsightsSection>/g,
+    ),
+  ];
+  return blocks.map((m) => ({
+    id: m[1],
+    deferred: m[2].includes("<DeferUntilVisible"),
+  }));
+}
+
+describe.each(PANELS)("sekcje leniwe — %s", (file) => {
+  const sections = sectionsWithDefer(readPanel(file));
+
+  it("pierwsza sekcja montuje się od razu, każda następna po dojechaniu", () => {
+    expect(sections.length).toBeGreaterThan(1);
+    expect(sections[0].deferred).toBe(false);
+    const eager = sections.slice(1).filter((s) => !s.deferred).map((s) => s.id);
+    expect(eager).toEqual([]);
+  });
+});
+
 describe.each(PANELS)("pasek sekcji ↔ kotwice — %s", (file) => {
   const source = readPanel(file);
   const nav = navIds(source);

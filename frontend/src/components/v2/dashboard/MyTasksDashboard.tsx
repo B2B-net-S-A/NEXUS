@@ -28,6 +28,7 @@ import {
   type NotificationResponse,
 } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
 
 function warsawDay(): string {
@@ -233,15 +234,18 @@ export function MyTasksDashboard() {
         })
         .then((response) => response.data as CalendarEventResponse[]),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: DASHBOARD_SECTION_POLL_MS,
+    refetchOnWindowFocus: true,
   })
   const notificationsQuery = useQuery({
     // The shell bell uses the same key and limit, so the dashboard reuses its
     // fresh response instead of polling the same feed a second time.
+    // Bez własnego `refetchInterval`: react-query bierze NAJKRÓTSZY interwał
+    // spośród obserwatorów klucza, więc 30 s tutaj nadpisywało politykę
+    // dzwonka (rzadko przy zdrowym WS, minuta bez niego).
     queryKey: ["notifications", scopeCacheKey, 20],
     queryFn: () => notificationsApi.list(20).then((response) => response.data),
     staleTime: 15_000,
-    refetchInterval: 30_000,
   })
   const deadlines =
     calendarQuery.data?.filter((event) => event.event_type === "deadline") ?? []

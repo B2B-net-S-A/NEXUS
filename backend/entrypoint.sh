@@ -4918,11 +4918,16 @@ _DATA_STATEMENTS = [
     "AND name IN ('Brak doświadczenia', 'Nie spełnia wymagań technicznych', "
     "'Nie pasuje kulturowo') "
     "AND EXISTS (SELECT 1 FROM marker)",
+    # Guard `IS DISTINCT FROM 'cv'` jest load-bearing: bez niego ten UPDATE
+    # przepisywał ~136 tys. wierszy przy KAŻDYM starcie kontenera (Postgres
+    # pisze krotkę także wtedy, gdy wartość się nie zmienia) — WAL, martwe
+    # krotki dla autovacuum i dłuższy start na każdym deployu (audyt 13.09.2026).
     """UPDATE candidate_documents AS document
        SET document_kind = 'cv'
        FROM candidates AS candidate
        WHERE document.candidate_id = candidate.id
          AND document.source_deleted_at IS NULL
+         AND document.document_kind IS DISTINCT FROM 'cv'
          AND (
              document.is_primary IS TRUE
              OR document.external_source = 'apply_submission'

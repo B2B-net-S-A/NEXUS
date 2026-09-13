@@ -9,13 +9,14 @@ import {
 } from "@/lib/recruitment-allocation-api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { ALLOCATION_BOARD_POLL_MS } from "@/lib/polling"
 
 export function AllocationWorkloadBoard() {
   const client = useQueryClient()
   const query = useQuery({
     queryKey: ["allocation-team"],
     queryFn: allocationApi.team,
-    refetchInterval: 30_000,
+    refetchInterval: ALLOCATION_BOARD_POLL_MS,
   })
   const change = useMutation({
     mutationFn: (mode: AllocationMode) => allocationApi.mode(mode),
@@ -207,7 +208,7 @@ export function JobAllocationSummary({ jobId }: { jobId: number }) {
   const query = useQuery({
     queryKey: ["job-allocation", jobId],
     queryFn: () => allocationApi.job(jobId),
-    refetchInterval: 30_000,
+    refetchInterval: ALLOCATION_BOARD_POLL_MS,
     retry: false,
   })
   if (!query.data) return null

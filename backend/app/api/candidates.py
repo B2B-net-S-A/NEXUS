@@ -2194,7 +2194,13 @@ async def export_candidates(
     location: Optional[str] = None,
     limit: int = Query(10000, ge=1, le=50000),
 ):
-    """Stream candidates as CSV or Excel file respecting the same filters as list."""
+    """Stream candidates as CSV or Excel file respecting the same filters as list.
+
+    Legacy surface (no frontend consumer since the POST export landed) kept for
+    API compatibility. It shares the streaming/threaded helpers of the POST
+    route: until 09.2026 it loaded up to 50k full ORM rows into memory and
+    built the workbook on the event loop.
+    """
     _reject_retired_candidate_query(request)
     query = select(Candidate)
     if status_:
@@ -2210,8 +2216,10 @@ async def export_candidates(
             )
         )
     query = query.order_by(Candidate.id).limit(limit)
-    result = await db.execute(query)
-    rows = list(result.scalars().all())
+    row_count = int(
+        (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
+        or 0
+    )
 
     # Immutable audit — no PII (filters carried as booleans, not values).
     candidate_audit.record_candidate_audit(
@@ -2221,7 +2229,7 @@ async def export_candidates(
         details={
             "endpoint": "GET /api/candidates/export",
             "format": format,
-            "row_count": len(rows),
+            "row_count": row_count,
             "limit": limit,
             "filtered_by_status": status_ is not None,
             "filtered_by_query": bool(q),
@@ -2233,39 +2241,16 @@ async def export_candidates(
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     if format == "xlsx":
-        from io import BytesIO
-        from openpyxl import Workbook
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Candidates"
-        ws.append(_EXPORT_COLUMNS)
-        for c in rows:
-            ws.append(_row_for_export(c))
-
-        buf = BytesIO()
-        wb.save(buf)
-        buf.seek(0)
         filename = f"candidates_{ts}.xlsx"
         return StreamingResponse(
-            buf,
+            await _candidate_xlsx(db, query),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    # CSV (default)
-    import csv
-    from io import StringIO
-
-    buf = StringIO()
-    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(_EXPORT_COLUMNS)
-    for c in rows:
-        writer.writerow(_row_for_export(c))
-    buf.seek(0)
     filename = f"candidates_{ts}.csv"
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        _stream_candidate_csv(db, query),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -2290,21 +2275,39 @@ async def _stream_candidate_csv(db: AsyncSession, query):
         yield buffer.getvalue()
 
 
-async def _candidate_xlsx(db: AsyncSession, query) -> io.BytesIO:
-    """Build an XLSX with openpyxl's constant-memory write-only worksheets."""
+def _build_xlsx_bytes(rows: list[list[Any]]) -> io.BytesIO:
+    """Serialize export rows to XLSX — CPU-bound, MUST run off the event loop.
+
+    openpyxl's write-only workbook keeps memory flat, but `save()` still
+    zips and XML-encodes every row synchronously. Called via
+    `asyncio.to_thread` so a 50k-row export does not freeze `/api/health/live`
+    and every other request for the seconds it takes.
+    """
     from openpyxl import Workbook
 
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet(title="Candidates")
     sheet.append(_EXPORT_COLUMNS)
-    stream = await db.stream_scalars(query.execution_options(yield_per=500))
-    async for candidate in stream:
-        sheet.append(_row_for_export(candidate))
-
+    for row in rows:
+        sheet.append(row)
     buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+async def _candidate_xlsx(db: AsyncSession, query) -> io.BytesIO:
+    """Stream candidates from Postgres into plain rows, then build XLSX in a thread.
+
+    Rows are small lists (16 scalars each), not ORM instances — the async part
+    only holds what the sheet needs, and the blocking part never touches the
+    session.
+    """
+    rows: list[list[Any]] = []
+    stream = await db.stream_scalars(query.execution_options(yield_per=500))
+    async for candidate in stream:
+        rows.append(_row_for_export(candidate))
+    return await asyncio.to_thread(_build_xlsx_bytes, rows)
 
 
 @router.post("/export")
@@ -5351,29 +5354,46 @@ async def create_candidate_from_cv(
 
     # 1 — persist the upload and extract text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    safe_name = (file.filename or "upload.pdf").replace("/", "_")
-    # Temporary path — we rename once we know the candidate id.
-    tmp_path = os.path.join(settings.UPLOAD_DIR, f"from_cv_tmp_{safe_name}")
-    async with aiofiles.open(tmp_path, "wb") as f:
-        content = await file.read()
-        await f.write(content)
+    safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
+    content = await file.read()
+    # Size gate BEFORE any disk write or extraction — the same limit every
+    # other CV upload route enforces (`upload_cv`, `upload_candidate_document`).
+    _validate_upload_size(content, label="CV file")
+
+    # Scratch file for the extractor (it only reads from a path). The name is
+    # random on purpose: it used to be `from_cv_tmp_<client filename>`, so two
+    # recruiters uploading `CV.pdf` in the same second shared ONE path — the
+    # second write overwrote the first mid-extraction and the first request's
+    # `os.remove` deleted the second one's file. Each request now owns its file
+    # and drops it right after extraction; the permanent copy is written later
+    # from the in-memory bytes, so nothing is renamed across requests.
+    ext = os.path.splitext(safe_name)[1].lower() or ".bin"
+    with tempfile.NamedTemporaryFile(
+        prefix="nexus_from_cv_", suffix=ext, dir=settings.UPLOAD_DIR, delete=False
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
 
     raw_text: Optional[str] = None
     try:
-        raw_text = await asyncio.to_thread(
-            cv_text_extractor.extract_text, tmp_path, file.filename or ""
-        )
-    except cv_text_extractor.UnsupportedCvFormat as e:
-        os.remove(tmp_path)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported CV format: {e}",
-        ) from e
-    except Exception as e:
-        logger.warning("[from-cv] text extraction failed: %s", e)
+        try:
+            raw_text = await asyncio.to_thread(
+                cv_text_extractor.extract_text, tmp_path, file.filename or ""
+            )
+        except cv_text_extractor.UnsupportedCvFormat as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported CV format: {e}",
+            ) from e
+        except Exception as e:
+            logger.warning("[from-cv] text extraction failed: %s", e)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
     if not raw_text or not raw_text.strip():
-        os.remove(tmp_path)
         raise HTTPException(
             status_code=400,
             detail="Could not extract any text from the uploaded CV file.",
@@ -5403,7 +5423,6 @@ async def create_candidate_from_cv(
         for row in dup_rows
     ]
     if duplicates and not force:
-        os.remove(tmp_path)
         top = duplicates[0]
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -5421,22 +5440,23 @@ async def create_candidate_from_cv(
         name=first_name[:100],
         lastname=last_name[:100],
         raw_cv_text=raw_text,
-        cv_filename=file.filename,
+        cv_filename=safe_name,
         source="cv_upload",
         created_by=current_user.id,
     )
     db.add(candidate)
-    await db.flush()  # allocate id so we can rename the file
+    await db.flush()  # allocate id so the file can carry it in its name
 
-    # Rename tmp upload to the permanent, candidate-scoped name.
+    # Permanent, candidate-scoped copy written from the bytes we already hold
+    # (legacy `/cv-download` path); no rename of a shared scratch file.
     final_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate.id}_{safe_name}"
     )
     try:
-        os.replace(tmp_path, final_path)
+        async with aiofiles.open(final_path, "wb") as f:
+            await f.write(content)
     except OSError as e:
-        logger.warning("[from-cv] rename failed: %s", e)
-    candidate.cv_filename = safe_name
+        logger.warning("[from-cv] writing %s failed: %s", final_path, e)
 
     document = await _store_candidate_cv_document(
         db,

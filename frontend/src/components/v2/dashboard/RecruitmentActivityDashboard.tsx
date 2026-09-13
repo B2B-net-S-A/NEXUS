@@ -35,6 +35,7 @@ import {
   type RecruitmentActivityWindow,
 } from "@/lib/recruitment-activity-api"
 import { cn } from "@/lib/utils"
+import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
 
 const TEAM_SCOPE = "team"
@@ -446,7 +447,8 @@ export function RecruitmentActivityDashboard() {
         teamScope,
       }),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: DASHBOARD_SECTION_POLL_MS,
+    refetchOnWindowFocus: true,
   })
 
   const metricsByKey = useMemo(

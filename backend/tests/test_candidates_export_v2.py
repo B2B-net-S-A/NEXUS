@@ -406,3 +406,100 @@ async def test_legacy_get_export_remains_available(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert response.text.splitlines()[0].startswith("id,name,lastname,email")
+
+
+def _xlsx_ids(response) -> set[int]:
+    """Read the first sheet without depending on openpyxl's read-side API."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(response.content), read_only=True)
+    sheet = workbook.worksheets[0]
+    rows = list(sheet.iter_rows(values_only=True))
+    assert rows[0] == tuple(_expected_export_header())
+    return {int(row[0]) for row in rows[1:]}
+
+
+def _expected_export_header() -> list[str]:
+    from app.api.candidates import _EXPORT_COLUMNS
+
+    return list(_EXPORT_COLUMNS)
+
+
+@pytest.mark.asyncio
+async def test_xlsx_export_is_built_off_the_event_loop_on_both_routes(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """GET i POST budują arkusz przez `asyncio.to_thread`, ten sam pomocnik.
+
+    Do 09.2026 `GET /api/candidates/export` ładował do 50k pełnych wierszy ORM
+    i wołał `Workbook().save()` na pętli zdarzeń; POST miał `write_only`, ale
+    `save()` też blokował pętlę. Test zlicza wywołania `to_thread` z naszym
+    builderem i sprawdza, że obie trasy oddają identyczny zbiór wierszy.
+    """
+    import asyncio as _asyncio
+
+    from app.api import candidates as candidates_api
+
+    threaded: list[str] = []
+    original_to_thread = _asyncio.to_thread
+
+    async def _spy(func, /, *args, **kwargs):
+        if func is candidates_api._build_xlsx_bytes:
+            threaded.append(func.__name__)
+        return await original_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(candidates_api.asyncio, "to_thread", _spy)
+
+    cohort = f"ExportXlsx{uuid.uuid4().hex[:12]}"
+    first = await _seed_candidate(cohort, suffix="One")
+    second = await _seed_candidate(cohort, suffix="Two")
+    try:
+        posted = await app_client.post(
+            "/api/candidates/export",
+            json={
+                "format": "xlsx",
+                "scope": "filtered",
+                "filters": {"q": cohort},
+                "candidate_ids": [],
+                "limit": 100_000,
+            },
+            headers=app_auth_headers,
+        )
+        assert posted.status_code == 200, posted.text
+        assert posted.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert _xlsx_ids(posted) == {first, second}
+
+        legacy = await app_client.get(
+            "/api/candidates/export",
+            params={"format": "xlsx", "q": cohort},
+            headers=app_auth_headers,
+        )
+        assert legacy.status_code == 200, legacy.text
+        assert _xlsx_ids(legacy) == {first, second}
+        assert 'filename="candidates_' in legacy.headers["content-disposition"]
+
+        assert threaded == ["_build_xlsx_bytes", "_build_xlsx_bytes"]
+    finally:
+        await _cleanup([first, second])
+
+
+@pytest.mark.asyncio
+async def test_legacy_get_csv_export_streams_the_same_rows_as_post(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    cohort = f"ExportGetCsv{uuid.uuid4().hex[:12]}"
+    first = await _seed_candidate(cohort, suffix="One")
+    second = await _seed_candidate(cohort, suffix="Two")
+    try:
+        legacy = await app_client.get(
+            "/api/candidates/export",
+            params={"format": "csv", "q": cohort, "limit": 100},
+            headers=app_auth_headers,
+        )
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.headers["content-type"].startswith("text/csv")
+        assert _csv_ids(legacy) == {first, second}
+    finally:
+        await _cleanup([first, second])

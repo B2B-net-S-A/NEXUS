@@ -18,7 +18,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import Period
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.models.user import User
 from app.schemas.dashboard_v2 import (
     AdminOpsBoardRow,
@@ -795,10 +795,11 @@ async def build_head_of_recruitment_dashboard(
         members = [row for row in members if int(row.get("user_id", -1)) in allowed]
 
     async def _team_kpis() -> list[dict[str, Any]]:
-        return [
-            await sources.load_user_kpis(int(member["user_id"]), db, period)
-            for member in members
-        ]
+        # Jedno źródło dla całego rosteru. Do 09.2026 leciało tu
+        # `load_user_kpis` per osoba (3 SQL każde): roster 50 osób = 150
+        # zapytań na jedno wejście HoR na dashboard, 100 osób = 300.
+        member_ids = frozenset(int(member["user_id"]) for member in members)
+        return await sources.load_team_kpis(member_ids, db, period)
 
     if not team_shape_complete:
         team_kpis = None
@@ -1686,6 +1687,25 @@ async def build_recruitment_stats_dashboard(
         # Scope odzwierciedla BIEŻĄCEGO widza, nie tego, kto napełnił cache.
         return response.model_copy(update={"scope": scope.payload})
 
+    # Jeden wykonawca na klucz: po wygaśnięciu TTL każde równoległe wejście
+    # na stronę główną liczyło ciężkie CTE od nowa.
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached:
+            response = RecruitmentStatsDashboardResponse.model_validate(cached)
+            return response.model_copy(update={"scope": scope.payload})
+        response = await _compute_recruitment_stats_dashboard(
+            db, period, scope, cache_key
+        )
+    return response
+
+
+async def _compute_recruitment_stats_dashboard(
+    db: AsyncSession,
+    period: Period,
+    scope: sources.ResolvedDashboardScope,
+    cache_key: str,
+) -> RecruitmentStatsDashboardResponse:
     quality = _Quality()
 
     team = await _capture(
@@ -2005,5 +2025,10 @@ async def build_recruitment_stats_dashboard(
         if name not in _STRUCTURAL_QUALITY_SECTIONS
     )
     ttl = 30 if degraded_transiently else 120
-    await cache_set(cache_key, response.model_dump(mode="json"), ttl_seconds=ttl)
+    await cache_set(
+        cache_key,
+        response.model_dump(mode="json"),
+        ttl_seconds=ttl,
+        jitter_seconds=0 if degraded_transiently else 20,
+    )
     return response

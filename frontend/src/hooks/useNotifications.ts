@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
 import { useAuthStore } from "@/store/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -72,7 +73,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
     if (pollingIntervalRef.current) return;
     pollingIntervalRef.current = setInterval(async () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    }, 30_000);
+    }, NOTIFICATIONS_FALLBACK_POLL_MS);
   }, [queryClient]);
 
   const stopPolling = useCallback(() => {

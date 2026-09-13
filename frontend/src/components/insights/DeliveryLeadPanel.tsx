@@ -8,6 +8,7 @@ import {
   InsightsSection,
   InsightsSectionNav,
 } from "@/components/insights/InsightsSectionNav";
+import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import {
   readPeriodFromParams,
   writePeriodToParams,
@@ -104,11 +105,15 @@ export function DeliveryLeadPanel() {
       </InsightsSection>
 
       <InsightsSection id="placementy">
-        <InsightsPlacementsByClient period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsPlacementsByClient period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       <InsightsSection id="hit-ratio">
-        <InsightsClientsHitRatio period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsClientsHitRatio period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Ma już odpowiednik w `/api/insights/*`. Legacy
@@ -121,7 +126,9 @@ export function DeliveryLeadPanel() {
           Dodatkowo legacy nie znał okresu w ogóle — liczył całą historię pod
           etykietą wybranego okna. */}
       <InsightsSection id="hiring-managerowie">
-        <InsightsHiringManagers period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsHiringManagers period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
     </div>
   );

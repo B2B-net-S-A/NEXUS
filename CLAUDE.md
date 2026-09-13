@@ -79,7 +79,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 
 ## Deploy
 
-- **Hosting:** Coolify v4 self-hosted on Hetzner CAX21 ARM (91.99.199.112).
+- **Hosting:** Coolify v4 self-hosted on Hetzner **CCX33 x86** (8 vCPU / 32 GB, 91.99.199.112). Zweryfikowane w konsoli Hetznera 20.07.2026 — wcześniejszy wpis „CAX21 ARM" był błędny i wysłał audyt 13.09 w niepotrzebne zastrzeżenia o typie hosta.
 - **Coolify panel:** `https://coolify-nexus.dynaminds.pl` (HTTPS+LE, public via Traefik route — od 2026-05-04).
 - **App UUID (Coolify):** `ocgkwcbovpve9wvf9smxl0kx`.
 - **Registry:** **brak GHCR** — Coolify buduje obrazy lokalnie z compose `build:` block (jednolite z Compass + LeadGen).
@@ -197,6 +197,38 @@ Zobacz `~/.claude/rules/observability.md` dla pełnego standardu (Sentry + Grafa
 - **Compose `logging:`** — `json-file 10MB×5 + tag` na 4 services (postgres, qdrant, backend, frontend) przez YAML anchor (`x-logging`).
 - **Alloy sidecar:** profile-gated (`profiles: [observability]`). Bez `COMPOSE_PROFILES=observability` w Coolify nie startuje. Po dodaniu Grafana creds → `{app="nexus"}` zwraca logi z 4 services + structured fields (FastAPI JSON logging od PR #108).
 - **Cloudflare:** `api.nexus.dynaminds.pl` — proxy ON, Full strict TLS, OWASP CRS PL2, rate limit `/api/auth/*` 10 req/min/IP. Backend ma już `slowapi` rate limiter — Cloudflare to pierwsza linia, slowapi druga.
+
+## Stabilizacja pod obciążeniem — reguły po audycie 13.09.2026
+
+Audyt `docs/performance-and-availability-audit-2026-09-13.md` (12 ustaleń, wszystkie
+potwierdzone w kodzie) i PR „stabilizacja bez zmiany architektury” ustaliły cztery
+reguły, które łatwo cofnąć „przy okazji”:
+
+- **Ponowienia HTTP należą do interceptora axios (`lib/api.ts`), nie do react-query.**
+  `QueryProvider` ma `retry: 0`. Druga warstwa mnożyła jeden odczyt do 6 żądań przy
+  503 z bramy. Zapisy ponawiane są WYŁĄCZNIE na 502/503 z realną odpowiedzią — tej
+  logiki nie ujednolicaj z odczytami (test `api-transient-retry.test.ts`).
+- **Interwały odpytywania w tle są stałymi w `frontend/src/lib/polling.ts`.** Dzwonek,
+  KPI i sekcje dashboardu to siatka bezpieczeństwa pod WebSocketem (5 min), nie źródło
+  świeżości. Do 09.2026 sam otwarty dashboard robił ~9,5 GET/min na kartę bez klikania.
+  Nowy `refetchInterval` w komponencie shellu/dashboardu = import stałej stamtąd.
+- **Sekcje Insights poza pierwszą montują się przez `DeferUntilVisible`** — kotwica
+  `<InsightsSection id>` zostaje na zewnątrz wrappera (pasek sekcji i `#hash` działają).
+  Pilnuje tego `InsightsSectionNavContract.test.ts`.
+- **Drogi snapshot pod jednym kluczem cache liczy jeden wykonawca:** `cache_single_flight`
+  z `app/core/cache.py` (podwójne sprawdzenie w środku) + `jitter_seconds` w `cache_set`.
+  `_lock` w tym module chroni słownik, nie obliczenie.
+- **Eksport XLSX buduje `_build_xlsx_bytes` w `asyncio.to_thread`**, na małych wierszach,
+  nie na ORM; `GET /api/candidates/export` jest legacy bez konsumenta i dzieli pomocniki
+  z `POST`. `UPDATE candidate_documents … document_kind='cv'` w `entrypoint.sh` MUSI mieć
+  `IS DISTINCT FROM 'cv'` — bez tego przepisuje ~136 tys. wierszy na każdy deploy.
+- **Pliki robocze uploadów: `tempfile.NamedTemporaryFile`, nigdy nazwa z przeglądarki.**
+  `from-cv` do 09.2026 dzielił jedną ścieżkę między równoległymi żądaniami o tej samej
+  nazwie pliku (kolizja treści CV). Limit rozmiaru (`_validate_upload_size`) PRZED zapisem.
+
+Świadomie poza tym PR-em (wymagają decyzji i pracy w Coolify): wydzielenie workera
+(4 moduły pętli piszą na WS przez in-process manager), deploy bez przerwy (compose build
+pack Coolify nie ma rolling update), budżet pul przy drugim procesie.
 
 ## Generator Umów B2B — trzy zakładki cyklu życia umowy
 

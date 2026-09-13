@@ -26,6 +26,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
+import {
+  NOTIFICATIONS_FALLBACK_POLL_MS,
+  WS_BACKED_SAFETY_POLL_MS,
+} from "@/lib/polling";
 import { cn } from "@/lib/utils";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
@@ -211,15 +215,24 @@ export function NotificationsDropdown() {
     setTimeout(() => setToastNotif(null), 5000);
   }, []);
 
-  const { unreadCount: wsUnreadDelta, clearUnread } = useNotifications({
+  const {
+    unreadCount: wsUnreadDelta,
+    clearUnread,
+    wsConnected,
+  } = useNotifications({
     onNotification: handleWsNotification,
   });
 
   const { data } = useQuery({
     queryKey: ["notifications", scopeCacheKey, 20],
     queryFn: () => notificationsApi.list(20).then((r) => r.data),
-    // WS invalidates cache on new events. 30s poll is safety net + fallback.
-    refetchInterval: 30_000,
+    // WS inwaliduje ten klucz na każdym zdarzeniu, więc przy zdrowym gnieździe
+    // odpytywanie jest tylko siatką bezpieczeństwa. Bez gniazda `useNotifications`
+    // i tak inwaliduje co minutę — tu interwał minutowy jest lustrem, żeby
+    // klucz nie zależał od kolejności montowania hooków.
+    refetchInterval: wsConnected
+      ? WS_BACKED_SAFETY_POLL_MS
+      : NOTIFICATIONS_FALLBACK_POLL_MS,
   });
 
   const notifications: Notification[] = data?.items || [];

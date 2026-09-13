@@ -1,0 +1,117 @@
+[
+  {
+    "time_utc": "2026-09-13T18:27:03.476062+00:00",
+    "url": "https://nexus.dynaminds.pl/",
+    "status": 200,
+    "seconds": 0.364,
+    "bytes": 5430,
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "s-maxage=31536000",
+      "x-nextjs-cache": "HIT",
+      "Content-Encoding": "gzip",
+      "Server": "cloudflare"
+    }
+  },
+  {
+    "time_utc": "2026-09-13T18:27:03.557007+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "seconds": 0.081,
+    "bytes": 5429,
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "s-maxage=31536000",
+      "x-nextjs-cache": "HIT",
+      "Content-Encoding": "gzip",
+      "Server": "cloudflare"
+    }
+  },
+  {
+    "time_utc": "2026-09-13T18:27:03.697193+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "seconds": 0.14,
+    "bytes": 71,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "ab10c8bba7e06e79a146f4dc48e6e70e168cf7f1"
+    }
+  },
+  {
+    "time_utc": "2026-09-13T18:27:03.874172+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health",
+    "status": 200,
+    "seconds": 0.177,
+    "bytes": 628,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "healthy",
+      "version": "ab10c8bba7e06e79a146f4dc48e6e70e168cf7f1",
+      "deployedAt": "2026-09-11T16:25:27Z",
+      "diskPercent": 27,
+      "checks": {
+        "database": "healthy",
+        "m365": "healthy",
+        "m365_encryption": "healthy",
+        "autenti": "unconfigured",
+        "traffit": "healthy",
+        "order_mail": "healthy",
+        "compass_workdays": "healthy",
+        "cortex": "healthy",
+        "qdrant": "healthy",
+        "priority_work": "disabled",
+        "workforce_availability": "disabled",
+        "recruitment_allocation": "disabled",
+        "anthropic": "configured",
+        "voyage": "healthy",
+        "reranker": "unknown",
+        "ai_features": "healthy: powiadomienia NEXUS; Slack nieustawiony",
+        "fx": "healthy",
+        "background_tasks": "healthy",
+        "disk": "healthy"
+      }
+    }
+  },
+  {
+    "time_utc": "2026-09-13T18:27:05.226728+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/deep",
+    "status": 200,
+    "seconds": 1.353,
+    "bytes": 1096,
+    "headers": {
+      "Content-Encoding": "gzip",
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body_recording_note": "First probe reader did not decode gzip. A subsequent decoded response is preserved separately in deep-health.json."
+  },
+  {
+    "time_utc": "2026-09-13T18:27:05.472434+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/alembic",
+    "status": 200,
+    "seconds": 0.246,
+    "bytes": 140,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "db_versions": [
+        "0307_client_deletion_event_history"
+      ],
+      "code_heads": [
+        "0307_client_deletion_event_history"
+      ],
+      "orphaned": [],
+      "reconcilable": true
+    }
+  }
+]

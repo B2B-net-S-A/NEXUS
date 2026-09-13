@@ -8,6 +8,7 @@ import {
   InsightsSection,
   InsightsSectionNav,
 } from "@/components/insights/InsightsSectionNav";
+import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import {
   readPeriodFromParams,
   writePeriodToParams,
@@ -96,7 +97,9 @@ export function RadaNadzorczaPanel() {
           wpuszczenie tu `period` dałoby siatkę „ostatnie 12 miesięcy" podpisaną
           nazwami miesięcy, czyli dwie różne rzeczy pod jedną etykietą. */}
       <InsightsSection id="rok-do-roku">
-        <InsightsBoardYoY />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsBoardYoY />
+        </DeferUntilVisible>
       </InsightsSection>
 
       {/* Ranking klientów i MRR PRZENIESIONE tu z dawnej zakładki „Klienci
@@ -105,7 +108,9 @@ export function RadaNadzorczaPanel() {
           prowadzi Delivery Lead. Sekcja przyjmuje okno Rady (kwartał), więc
           wycena kafli i tabeli jest tą samą wyceną co w KPI powyżej. */}
       <InsightsSection id="klienci">
-        <InsightsClientsRanking period={period} />
+        <DeferUntilVisible minHeight={240}>
+          <InsightsClientsRanking period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
     </div>
   );

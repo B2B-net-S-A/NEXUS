@@ -12,7 +12,7 @@ from app.analytics.capabilities import (
 )
 from app.api.deps import OperationalUser, require_roles
 from app.api.financial_access import has_financial_access, redact_feed_activity
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -69,94 +69,95 @@ async def get_kpis(
         "dashboard:kpis:v2-contractor-headcount:"
         f"{'ranking' if include_ranking else 'aggregates'}"
     )
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
+    async with cache_single_flight(cache_key):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-    # ATS stats
-    active_contract_rows = list(
-        (
+        # ATS stats
+        active_contract_rows = list(
+            (
+                await db.execute(
+                    select(Contract)
+                    .where(Contract.status == ContractStatus.active)
+                    .options(selectinload(Contract.candidate))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        active_headcount = summarize_active_contracts(active_contract_rows)
+
+        first_of_month = date.today().replace(day=1)
+        # PR 4: pierwsze osiągnięcia `hired` (kanoniczny view) zamiast liczenia
+        # każdego ruchu na etap hired (multi-count przy cofnięciach).
+        placements_this_month = (
             await db.execute(
-                select(Contract)
-                .where(Contract.status == ContractStatus.active)
-                .options(selectinload(Contract.candidate))
+                text(
+                    "SELECT COUNT(*) FROM analytics_first_milestones "
+                    "WHERE stage = 'hired' AND first_reached_at >= :start"
+                ),
+                {"start": first_of_month},
             )
-        )
-        .scalars()
-        .all()
-    )
-    active_headcount = summarize_active_contracts(active_contract_rows)
+        ).scalar()
 
-    first_of_month = date.today().replace(day=1)
-    # PR 4: pierwsze osiągnięcia `hired` (kanoniczny view) zamiast liczenia
-    # każdego ruchu na etap hired (multi-count przy cofnięciach).
-    placements_this_month = (
-        await db.execute(
-            text(
-                "SELECT COUNT(*) FROM analytics_first_milestones "
-                "WHERE stage = 'hired' AND first_reached_at >= :start"
-            ),
-            {"start": first_of_month},
-        )
-    ).scalar()
-
-    # PR 4: kanonicznie z tabeli candidates (created_by/created_at) —
-    # UserActivity to log pomocniczy, nie źródło metryk (plan §4.1).
-    candidates_added_this_month = (
-        await db.execute(
-            select(func.count(Candidate.id)).where(
-                Candidate.created_at >= first_of_month,
-                Candidate.created_by.isnot(None),
+        # PR 4: kanonicznie z tabeli candidates (created_by/created_at) —
+        # UserActivity to log pomocniczy, nie źródło metryk (plan §4.1).
+        candidates_added_this_month = (
+            await db.execute(
+                select(func.count(Candidate.id)).where(
+                    Candidate.created_at >= first_of_month,
+                    Candidate.created_by.isnot(None),
+                )
             )
-        )
-    ).scalar()
+        ).scalar()
 
-    top_recruiters: list[dict] = []
-    if include_ranking:
-        # PR 4 (plan analytics): ranking z kanonicznej atrybucji
-        # (VERIFIER_ANCHORED_CTE / view analytics_first_milestones) —
-        # te same liczby co panel „Moje KPI" i panel zespołu.
-        from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+        top_recruiters: list[dict] = []
+        if include_ranking:
+            # PR 4 (plan analytics): ranking z kanonicznej atrybucji
+            # (VERIFIER_ANCHORED_CTE / view analytics_first_milestones) —
+            # te same liczby co panel „Moje KPI" i panel zespołu.
+            from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
-        leaderboard_result = await db.execute(
-            text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                SELECT u.id, u.name,
-                       count(*) AS total_milestones,
-                       count(*) FILTER (WHERE c.stage = 'hired') AS placements
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.reached_at >= :month_start
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name
-                ORDER BY placements DESC, total_milestones DESC
-                LIMIT 5
-                """
-            ),
-            {"month_start": first_of_month},
-        )
-        top_recruiters = [
-            {
-                "user_id": row.id,
-                "user_name": row.name,
-                "total_actions": row.total_milestones,
-                "placements": row.placements,
-            }
-            for row in leaderboard_result.all()
-        ]
+            leaderboard_result = await db.execute(
+                text(
+                    VERIFIER_ANCHORED_CTE
+                    + """
+                    SELECT u.id, u.name,
+                           count(*) AS total_milestones,
+                           count(*) FILTER (WHERE c.stage = 'hired') AS placements
+                    FROM credited c
+                    JOIN users u ON u.id = c.credit_user
+                    WHERE c.reached_at >= :month_start
+                      AND u.is_active IS TRUE
+                    GROUP BY u.id, u.name
+                    ORDER BY placements DESC, total_milestones DESC
+                    LIMIT 5
+                    """
+                ),
+                {"month_start": first_of_month},
+            )
+            top_recruiters = [
+                {
+                    "user_id": row.id,
+                    "user_name": row.name,
+                    "total_actions": row.total_milestones,
+                    "placements": row.placements,
+                }
+                for row in leaderboard_result.all()
+            ]
 
-    result_data = {
-        "ats": {
-            "active_consultants": active_headcount.contractors,
-            "active_contracts": active_headcount.active_contracts,
-            "placements_this_month": placements_this_month,
-            "candidates_added_this_month": candidates_added_this_month,
-            "top_recruiters": top_recruiters,
-        },
-    }
-    await cache_set(cache_key, result_data, ttl_seconds=120)  # cache 2 min
-    return result_data
+        result_data = {
+            "ats": {
+                "active_consultants": active_headcount.contractors,
+                "active_contracts": active_headcount.active_contracts,
+                "placements_this_month": placements_this_month,
+                "candidates_added_this_month": candidates_added_this_month,
+                "top_recruiters": top_recruiters,
+            },
+        }
+        await cache_set(cache_key, result_data, ttl_seconds=120)  # cache 2 min
+        return result_data
 
 
 @router.get("/recent-activity")
