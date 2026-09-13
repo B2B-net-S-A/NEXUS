@@ -35,6 +35,8 @@ from app.api import (
     clients,
     client_directory,
     client_inactive_cleanup,
+    client_deletion,
+    event_history,
     clients_team,
     pipeline,
     notes,
@@ -912,7 +914,16 @@ app.include_router(
     prefix="/api/clients",
     tags=["client-directory"],
 )
+# Ręczne usuwanie klienta z profilu (imienne uprawnienie + Historia zdarzeń).
+# Przed `clients.router`: niesie `DELETE /{client_id}`, którego tam już nie ma.
+app.include_router(
+    client_deletion.router,
+    prefix="/api/clients",
+    tags=["client-deletion"],
+)
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
+# Ustawienia → Historia zdarzeń (Admin + Finanse, tylko odczyt).
+app.include_router(event_history.router, prefix="/api/settings", tags=["event-history"])
 # Trasy niosą pełne ścieżki (/clients/{id}/cv-rule oraz /settings/cv-rules),
 # bo ten sam router obsługuje dwa wejścia do tej samej reguły.
 app.include_router(client_cv_rules_api.router, prefix="/api", tags=["client-cv-rules"])
@@ -2372,6 +2383,7 @@ async def api_health_deep_check():
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
+    from app.models.critical_event import CriticalEvent
     from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
@@ -2494,6 +2506,9 @@ async def api_health_deep_check():
         # i nagrobki czytane co noc przez fazę `clients` syncu Traffita.
         ("client_cleanup_runs", ClientCleanupRun),
         ("purged_clients", PurgedClient),
+        # 0307: Historia zdarzeń (usunięcia i zablokowane próby). Brak tabeli
+        # oznaczałby usunięcia bez śladu — sonda jest dowodem, że ślad powstaje.
+        ("critical_events", CriticalEvent),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

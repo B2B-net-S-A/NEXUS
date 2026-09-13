@@ -608,6 +608,57 @@ async def _fill_name_references(
             )
 
 
+async def load_client_candidates(
+    db: AsyncSession, client_ids: Collection[int]
+) -> list[_Candidate]:
+    """Wskazani klienci niezależnie od zakładki katalogu (usuwanie z profilu).
+
+    Zakresy portfela w KAŻDEJ zakładce są tu wpisem w katalogu, a nie
+    powiązaniem — usunięcie z profilu dotyczy klienta z dowolnej zakładki,
+    więc ``other_categories`` zostaje puste.
+    """
+
+    ids = sorted({int(client_id) for client_id in client_ids})
+    if not ids:
+        return []
+    rows = (
+        await db.execute(
+            select(
+                Client.id,
+                client_display_name_expression().label("display_name"),
+                Client.name,
+                Client.legal_name,
+                Client.nip,
+                cast(Client.status, Text).label("status"),
+                Client.notes,
+                Client.nda_signed,
+                Client.external_source,
+                Client.external_id,
+                Client.created_at,
+            )
+            .where(Client.id.in_(ids))
+            .order_by(Client.id)
+        )
+    ).all()
+    return [
+        _Candidate(
+            client_id=row.id,
+            name=row.display_name or row.name,
+            source_name=row.name,
+            legal_name=row.legal_name,
+            nip=row.nip,
+            status=row.status,
+            notes=row.notes,
+            nda_signed=bool(row.nda_signed),
+            external_source=row.external_source,
+            external_id=row.external_id,
+            created_at=row.created_at,
+            other_categories=(),
+        )
+        for row in rows
+    ]
+
+
 async def evaluate_inactive_clients(
     db: AsyncSession,
     *,
@@ -617,6 +668,17 @@ async def evaluate_inactive_clients(
     """Oceń każdego klienta z zakładki „Nieaktywni". Tylko odczyt."""
 
     candidates = await load_inactive_candidates(db, restrict_ids)
+    return await evaluate_candidates(db, candidates, environ=environ)
+
+
+async def evaluate_candidates(
+    db: AsyncSession,
+    candidates: list[_Candidate],
+    *,
+    environ: Optional[dict[str, str]] = None,
+) -> CleanupPlan:
+    """Werdykt keep/hold/delete dla podanych klientów. Tylko odczyt."""
+
     evaluated_at = datetime.now(timezone.utc)
     if not candidates:
         return CleanupPlan(evaluated_at, (), (), ())

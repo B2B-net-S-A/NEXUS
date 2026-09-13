@@ -166,6 +166,7 @@ export function AdminUsersTab() {
           role: data.role,
           roles: data.roles,
           recruiter_role: data.recruiter_role,
+          can_delete_clients: data.can_delete_clients,
         },
       });
     }
@@ -288,6 +289,14 @@ export function AdminUsersTab() {
                               {ROLE_LABELS[r] ?? r}
                             </span>
                           ))}
+                        {u.can_delete_clients && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive"
+                            title="Imienne uprawnienie do usuwania klientów"
+                          >
+                            Usuwa klientów
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">

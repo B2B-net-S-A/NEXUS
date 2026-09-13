@@ -2297,6 +2297,53 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
+## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
+
+Data zakończenia umów B2B była przepisywana z końca ZAMÓWIENIA (pole
+„Contract end" w oknie „Nowy kontraktor / zamówienie", aneks „Przedłuż",
+scalanie duplikatów), a nocny cron kończył potem umowę, choć współpraca
+trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
+(front: `lib/contract-end-date.ts`).
+
+- **Umowa B2B w statusie innym niż „Zakończony"/„Anulowany" nie ma daty
+  zakończenia, chyba że ktoś ją ręcznie zakończył** — `/terminate`
+  („Zakończ współpracę": `terminated_at` + `termination_reason`, data także
+  przyszła) albo aneksem `early_termination`. Umowy zlecenie i o pracę bez
+  zmian — tam data końca jest częścią umowy.
+- **API odmawia 422 (`reason: b2b_end_date_requires_termination`), nie
+  zeruje po cichu:** tworzenie (`POST /contracts` — datę niesie tylko wpis
+  umowy już zakończonej), edycja (`PATCH` — sprawdzana wyłącznie ZMIANA daty
+  albo typu, więc zapis innego pola z nieruszaną datą przechodzi; status
+  liczony wynikowy), aneks `extension`, `contract-with-order`
+  (`contract_end_date` wycofane z formularza). `/bulk-extend` pomija takie
+  umowy. Wyczyszczenie daty jest zawsze dozwolone.
+- **Przywrócenie umowy B2B z „Zakończony"/„Kończący się" na „Aktywny"
+  w rejestrze czyści datę** (jak wskrzeszenie zamówieniem) — ze starą datą
+  cron kończyłby ją następnej nocy.
+- **Scalanie duplikatów** (`contract_merge.merge_field_plan`) zostawia żywą
+  umowę B2B bez wypowiedzenia bezterminową zamiast brać „najpóźniejszą datę".
+- **„Kto i dlaczego" żyje w `termination_lessons`** (pole tekstowe dialogu
+  „Zakończ współpracę", format „[Kto] — [Powód]"); `termination_reason` to
+  słownik analityki odejść (inicjatywa konsultanta = rezygnacja). Karta
+  „Zaplanowane zakończenie współpracy" na szczegółach kontraktu pokazuje je
+  od chwili wypowiedzenia, nie dopiero w dniu końca (dyskryminator: umowa
+  przywrócona ma `terminated_at`, ale `end_date IS NULL`).
+- **Zakończenie z datą przyszłą NIE daje dziś statusu „Zakończony"** (P0.7):
+  umowa pracuje do tej daty („Aktywny", w oknie 30 dni „Kończący się"),
+  cron domyka ją dzień po dacie — inaczej osoba znikałaby z MRR przed czasem.
+- **Jednorazowa korekta:** `app/services/b2b_end_date_repair.py`, blok
+  w `entrypoint.sh`, marker `0307_b2b_indefinite_end_date` (paragon: liczby,
+  ID, daty) + `repair_details_0307_…` (treść wpisów, poprzednie wartości —
+  klucz innego kształtu, publiczny workflow `migration-receipts` go nie
+  drukuje). Najpierw zakończenia osób ze zgłoszenia — **po trójkach
+  ID (kontrakt, kandydat, klient), bez nazwisk w repo**; niezgodna trójka =
+  pominięcie z kodem powodu. Potem każda umowa B2B „Aktywny"/„Kończący się"
+  z datą i bez ręcznego zakończenia → bezterminowa („Kończący się" →
+  „Aktywny"). Szkice świadomie poza korektą (wyczyszczona data wpuściłaby
+  martwy szkic do MRR przy najbliższej aktywacji). Test
+  `test_ticket_lists_all_sixteen_people…` trzyma CI na czerwono, dopóki
+  lista nie jest kompletna — marker jest jednorazowy.
+
 ## Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 
 Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
@@ -2688,6 +2735,80 @@ wykonanie i raport: `services/inactive_client_cleanup_run.py`. Pełny opis:
 - **Nowy manifest (nowy digest) odtworzyłby usuniętych klientów**, jeśli
   nadal ich wymienia — first-apply dopasowuje po nazwie i nie czyta nagrobków.
   Świadomie poza zakresem (to decyzja przy przygotowaniu nowego pliku).
+
+## Usuwanie klienta z profilu + Historia zdarzeń (migracja 0307)
+
+Przycisk **„Usuń klienta"** w profilu klienta (dowolny status) i ogólnosystemowa
+sekcja **Ustawienia → Historia zdarzeń**. Kod: `api/client_deletion.py`,
+`services/client_deletion.py`, `services/critical_events.py`,
+`api/event_history.py`; front: `components/client-profile/DeleteClientDialog.tsx`,
+`components/settings/EventHistoryTab.tsx`. Pełny opis:
+`docs/client-deletion-event-history-completion-report.md`.
+
+- **Uprawnienie jest IMIENNE, nie rolowe:** `users.can_delete_clients`
+  (domyślnie `false` dla wszystkich). Macierz akcji RBAC daje administratorowi
+  każdą akcję automatycznie, więc nie da się nią wyrazić „tylko te cztery
+  osoby" z ticketu — dlatego osobna flaga, której **admin też nie ma**, dopóki
+  ktoś jej nie zaznaczy w edycji użytkownika („Może usuwać klientów").
+  Nadanie i odebranie trafia do Historii zdarzeń. Osoby z ticketu NIE są
+  zaszyte w kodzie ani migracji (repo jest publiczne) — flagę nadaje admin
+  w Ustawieniach → Administracja. W trybie „podgląd jako" usuwanie jest
+  zablokowane (403), a przycisk ukryty.
+- **Router bez bramki ZAPISU Delivery** (`DELIVERY_SECTION_DEPENDENCIES`),
+  tylko odczyt Delivery: flagę może dostać np. osoba z Finansów, a Finanse
+  mają Delivery do odczytu. Stary `DELETE /api/clients/{id}` z `clients.py`
+  (admin, jedno żądanie, kaskada, bez nagrobka) usunięty — trasa żyje teraz
+  w `client_deletion.py` i wymaga `?confirmation=0`.
+- **Blokada twarda patrzy na FAKTY, nie na `clients.status`:** otwarte
+  zamówienia okresowe (`draft`/`active`/`paused`, także przez kontrakt
+  klienta), otwarte zamówienia MD/kosztowe (`draft`/`active`/`scheduled`),
+  żywe kontrakty (`active`/`ending`/`ready_for_signature`) i kandydaci
+  w niezamkniętych rekrutacjach. Szkic kontraktu bez zamówienia NIE blokuje
+  (to nie pracujący kontraktor). **Linie zamówień MD/kosztowych są sprawdzane
+  SAME, niezależnie od statusu grupy** — zamknięcie z datą w przyszłości daje
+  grupę `completed` z liniami nadal `active`, wyczerpanie puli przestawia
+  wyłącznie grupę, a osoba obsadzona z bazy ma kontrakt-szkic, więc blokada
+  kontraktorów by jej nie złapała. Kliknięcie „Usuń klienta" to już próba —
+  zablokowana trafia do Historii zdarzeń; wykonanie liczy ocenę od nowa pod
+  `FOR UPDATE` na wierszu klienta i przy blokadzie zwraca 409 jako
+  `JSONResponse` (NIE `HTTPException` — wyjątek wycofałby sesję razem z wpisem).
+- **Pusty vs z historią = ta sama ocena co czyszczenie 0303**
+  (`evaluate_candidates` + `load_client_candidates` — dowolna zakładka, zakres
+  portfela w KAŻDEJ kategorii to wpis katalogu). Werdykt `delete` → trwale,
+  przez `purge_client(run=None)` z nagrobkiem (`purged_clients.run_id` jest od
+  0307 NULL-owalne), znacznikiem w manifeście portfela i wszystkimi pułapkami
+  z 0303. Każdy inny → **usunięcie z zachowaniem historii**: `deleted_at` +
+  `archived_at`, wiersz zostaje (kontrakty, zamówienia, umowy nadal na niego
+  wskazują). `visible_client_predicates` dostało `deleted_at IS NULL`, bo import
+  portfela potrafi cofnąć `archived_at`. Zakresów portfela NIE archiwizujemy —
+  inwariant manifestu liczy żywe zakresy.
+- **`critical_events` nie ma żadnego FK** — wpis przeżywa usunięcie obiektu
+  i konta (nazwy zdenormalizowane), a zapis zablokowanej próby z OSOBNEJ sesji
+  (`record_blocked`) nigdy nie czeka na blokady trzymane przez odmawiające
+  żądanie. Wykonane operacje idą do sesji operacji (`record_executed`, wspólny
+  commit). `audited_deletion` owija istniejące DELETE-y: 403/409/422/423
+  z wnętrza bloku = zablokowana próba, 404/5xx = nic.
+- **Wpisy NIE niosą imion i nazwisk kontraktorów/kandydatów** — przeżywają
+  usunięcie osoby (art. 17 RODO), a API nie pozwala ich edytować. Etykiety to
+  numery: `Kontrakt #id`, `Zamówienie #id`, `Konsultant (linia #id) —
+  zamówienie X`, `Umowa B2B {numer}`; zablokowana próba usunięcia klienta
+  zapisuje rodzaj i liczbę blokad bez pozycji (okno pokazuje nazwiska na żywo).
+  Nazwy firm i kont pracowników zostają.
+- **Usunięty klient nie ma profilu ani zapisów:** `get_client`/`profile`,
+  `_assert_client` w zamówieniach, grupach i umowach ramowych oraz lista
+  Pomoc → Klienci odrzucają `deleted_at` — obok list filtrowanych predykatem.
+  Odmowy „brak uprawnienia" są zapisywane raz na 10 min na osobę i klienta.
+- **Na start w Historii:** usunięcie klienta, kandydata/kontraktora
+  (`DELETE /api/candidates/{id}` — BEZ imienia i nazwiska, tylko `Kandydat #id`
+  + pseudonim `subject_ref`, bo to usunięcie z art. 17), konsultanta
+  z zamówienia MD/kosztowego, kontraktu (także wymuszone przy podpisanej B2B),
+  umowy ramowej, wygenerowanej umowy B2B, zamówienia okresowego (anulowanie =
+  wpis z opisem) i zamówienia MD/kosztowego, plus zmiany uprawnienia do
+  usuwania. Nowa krytyczna operacja = `audited_deletion` / `record_executed` +
+  etykieta w `EVENT_TYPE_LABELS`.
+- **Odczyt:** `GET /api/settings/event-history` (`FinanceModuleUser` = Admin
+  + Finanse), filtry obiekt/wynik/tekst/daty, stronicowanie. Brak API do
+  edycji i kasowania wpisów — świadomie.
 
 ## Insights (`/insights`) — parytet z DynaReporterem na danych NEXUSA
 

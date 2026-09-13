@@ -124,3 +124,53 @@ describe("SettingsPage — linki zależne od Insights", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("SettingsPage — Historia zdarzeń", () => {
+  function renderSettings() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsPage />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockImplementation(async (url: string) => ({
+      data: url.includes("transcripts") ? [] : {},
+    }));
+  });
+
+  it.each([
+    ["admin", { system_admin: "write" }],
+    ["finance", { finance: "write" }],
+  ])("pokazuje zakładkę roli %s", (role, access) => {
+    mocks.user = { role, roles: [role], effective_section_access: access };
+
+    renderSettings();
+
+    expect(
+      screen.getByRole("button", { name: "Historia zdarzeń" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["delivery_lead", "recruiter", "head_of_recruitment", "tac"])(
+    "nie pokazuje zakładki roli %s",
+    (role) => {
+      mocks.user = {
+        role,
+        roles: [role],
+        effective_section_access: { pipeline: "write", delivery: "write" },
+      };
+
+      renderSettings();
+
+      expect(
+        screen.queryByRole("button", { name: "Historia zdarzeń" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+});

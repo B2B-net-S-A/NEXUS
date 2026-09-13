@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
+import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
 import {
   canManageCandidateFinance,
   canViewClientFinance,
@@ -77,10 +78,14 @@ export function ContractAmendmentsTab({
   contractId,
   clientId,
   readOnly = false,
+  extensionLocked = false,
 }: {
   contractId: number;
   clientId: number;
   readOnly?: boolean;
+  /** Umowa B2B bez ręcznego zakończenia — aneks przedłużający jest odrzucany
+   *  przez backend, więc przycisk go nie oferuje (`b2bExtensionLocked`). */
+  extensionLocked?: boolean;
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -161,7 +166,9 @@ export function ContractAmendmentsTab({
                 setForm({ ...EMPTY, amendment_type: "extension" });
                 setShowForm(true);
               }}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
+              disabled={extensionLocked}
+              title={extensionLocked ? B2B_EXTENSION_HINT : undefined}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:hover:bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium"
             >
               <CalendarPlus className="w-4 h-4" /> Przedłuż
             </button>
@@ -194,6 +201,11 @@ export function ContractAmendmentsTab({
             >
               <StopIcon className="w-4 h-4" /> Zakończ wcześniej
             </button>
+            {extensionLocked && (
+              <p className="basis-full text-xs text-muted-foreground">
+                {B2B_EXTENSION_HINT}
+              </p>
+            )}
             </div>
           )}
         </RequireRole>

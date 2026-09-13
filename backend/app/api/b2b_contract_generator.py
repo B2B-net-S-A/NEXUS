@@ -64,6 +64,7 @@ from app.services.action_permissions import (
     action_access_for_user,
 )
 from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
+from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
@@ -2432,45 +2433,63 @@ async def delete_generated_contract(
     administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
     liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
     ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
-    _require_generated_contract_management(current_user)
-    row = await db.scalar(
-        select(B2BGeneratedContract)
-        .where(B2BGeneratedContract.id == generated_id)
-        .with_for_update()
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    await _assert_generator_client_access(
+    async with audited_deletion(
         db,
-        current_user,
-        row.client_id,
-        write=True,
-    )
-    if row.signature_status == "signed_both":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Podpisana umowa jest częścią historii zatrudnienia i nie może "
-                "być usunięta."
-            ),
+        actor=current_user,
+        event_type="b2b_agreement.delete",
+        entity_type="agreement",
+        entity_id=generated_id,
+    ) as audit:
+        _require_generated_contract_management(current_user)
+        row = await db.scalar(
+            select(B2BGeneratedContract)
+            .where(B2BGeneratedContract.id == generated_id)
+            .with_for_update()
         )
-    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+        if not row:
+            raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        # Bez nazwy Partnera (to osoba — wpis przeżywa jej usunięcie).
+        audit.describe(
+            label=f"Umowa B2B {row.contract_number}",
+            client_id=row.client_id,
+            client_name=row.client_name,
+            contract_number=row.contract_number,
+            signature_status=row.signature_status,
         )
-    number, partner, rid = row.contract_number, row.partner_name, row.id
-    await db.delete(row)
-    db.add(
-        Activity(
-            entity_type="b2b_generated_contract",
-            entity_id=rid,
-            action="deleted",
-            user_id=current_user.id,
-            details={"contract_number": number, "partner_name": partner},
+        await _assert_generator_client_access(
+            db,
+            current_user,
+            row.client_id,
+            write=True,
         )
-    )
-    await db.commit()
+        if row.signature_status == "signed_both":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Podpisana umowa jest częścią historii zatrudnienia i nie może "
+                    "być usunięta."
+                ),
+            )
+        if (
+            not current_user.has_role(UserRole.admin)
+            and row.created_by != current_user.id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+            )
+        number, partner, rid = row.contract_number, row.partner_name, row.id
+        await db.delete(row)
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=rid,
+                action="deleted",
+                user_id=current_user.id,
+                details={"contract_number": number, "partner_name": partner},
+            )
+        )
+        await db.commit()
 
 
 @router.post("/check-uop", response_model=B2BUopCheckResponse)

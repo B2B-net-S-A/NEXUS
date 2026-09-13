@@ -90,13 +90,13 @@ export function TerminateContractModal({
 
       <div>
         <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
-          Lessons learned (TAC-only)
+          Kto zdecydował i dlaczego / wnioski (TAC-only)
         </label>
         <textarea
           rows={3}
           value={lessons}
           onChange={(e) => setLessons(e.target.value)}
-          placeholder="Co zrobilibyśmy inaczej następnym razem..."
+          placeholder="Np.: Klient — brak budżetu. Co zrobilibyśmy inaczej następnym razem…"
           className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500 resize-none"
         />
       </div>

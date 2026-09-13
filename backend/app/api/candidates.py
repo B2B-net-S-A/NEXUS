@@ -106,6 +106,7 @@ from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
+from app.services.critical_events import record_executed
 from app.services.candidate_contact_hooks import (
     has_active_contact_trigger,
     load_contact_case_summaries,
@@ -4703,6 +4704,27 @@ async def delete_candidate(
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
             **search_erasure,
+        },
+    )
+    # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie
+    # imienia i nazwiska — to byłoby zachowanie danych osoby, którą właśnie
+    # usuwamy (art. 17 RODO). Identyfikuje ją pseudonim, ten sam co na
+    # odpiętych umowach i w audycie kandydata.
+    await record_executed(
+        db,
+        actor=current_user,
+        event_type="candidate.delete",
+        entity_type="contractor",
+        entity_id=candidate_id,
+        entity_label=f"Kandydat #{candidate_id}",
+        reason=(
+            "Profil usunięty trwale (RODO). Dziennik nie przechowuje danych "
+            "osobowych — osobę identyfikuje pseudonim na odpiętych umowach."
+        ),
+        details={
+            "subject_ref": subject_ref,
+            "contracts_detached": contracts_detached,
+            "storage_objects": len(storage_keys),
         },
     )
 

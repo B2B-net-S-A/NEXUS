@@ -352,6 +352,46 @@ describe("NewContractorOrderDialog — domyślna jednostka klienta", () => {
   });
 });
 
+describe("NewContractorOrderDialog — umowa B2B bezterminowa", () => {
+  it("nie oferuje daty końca umowy i nie wysyła jej w ładunku", async () => {
+    // Pole „Contract end" było źródłem dat przepisywanych z końca zamówienia
+    // (korekta 09.2026). Formularz zakłada umowę B2B, a ta jest bezterminowa;
+    // koniec ZAMÓWIENIA ma własne pole.
+    const user = userEvent.setup({ delay: null });
+    mockApi(() =>
+      Promise.resolve({
+        data: {
+          items: [{ id: 42, name: "Jan", lastname: "Kowalski", email: "jan@example.com" }],
+        },
+      }),
+    );
+    renderDialog({ canManageFinance: false });
+
+    expect(screen.getByTestId("contract-end-indefinite")).toHaveTextContent(
+      "Bezterminowo",
+    );
+    expect(screen.queryByLabelText(/Contract end/i)).toBeNull();
+
+    await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "Jan");
+    await user.click(
+      await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
+    );
+    await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
+    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+    await user.type(screen.getByLabelText(/Order end/i), "2026-12-31");
+    await user.click(
+      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+    );
+
+    await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
+    const payload = createContractWithOrder.mock.calls[0]?.[1];
+    expect(payload).not.toHaveProperty("contract_end_date");
+    expect(payload).toEqual(
+      expect.objectContaining({ order_end_date: "2026-12-31" }),
+    );
+  });
+});
+
 describe("NewContractorOrderDialog — PDF od klienta", () => {
   it("dropzone jest widoczna od razu, dla każdego klienta", () => {
     mockApi(() => Promise.resolve({ data: [] }));

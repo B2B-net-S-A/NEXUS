@@ -337,7 +337,7 @@ async def test_activate_draft_happy_path(
         f"/api/contracts/{draft['id']}",
         json={
             "start_date": date.today().isoformat(),
-            "end_date": (date.today() + timedelta(days=90)).isoformat(),
+            # Bez daty końca: umowa B2B jest bezterminowa (reguła 09.2026).
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",

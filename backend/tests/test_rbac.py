@@ -185,9 +185,9 @@ DELIVERY_LEAD_PLUS_ENDPOINTS = [
 ADMIN_ONLY_ENDPOINTS = [
     ("GET", "/api/admin/users"),
     ("GET", "/api/admin/system"),
-    # Client deletion is an organization-wide destructive operation. Delivery
-    # Delivery Lead may update clients operationally, but cannot delete them.
-    ("DELETE", "/api/clients/99999"),
+    # Client deletion (0307) is gated by the NAMED permission
+    # `users.can_delete_clients`, not by the admin role — see
+    # `test_client_deletion_requires_the_named_permission_for_every_role`.
     # Candidate-specific rate data carries recruitment PII; Finance uses
     # person-free financial endpoints and Delivery Lead stays operational-only.
     ("POST", "/api/candidates/99999/rate-history"),
@@ -376,6 +376,23 @@ async def test_admin_only_endpoints_reject_non_admins(
             "5xx nie jest akceptowalną odpowiedzią (R0)"
         )
     else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_client_deletion_requires_the_named_permission_for_every_role(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+):
+    """Usuwanie klienta: 403 dla KAŻDEJ roli, także admina, bez flagi imiennej."""
+    role, headers = role_headers
+    for method, path in (
+        ("POST", "/api/clients/99999/deletion-check"),
+        ("DELETE", "/api/clients/99999?confirmation=0"),
+    ):
+        resp = await rbac_client.request(method, path, headers=headers)
         assert resp.status_code == 403, (
             f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
         )

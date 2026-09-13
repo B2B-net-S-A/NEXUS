@@ -23,6 +23,11 @@ export interface RegisterContractRow {
   hours_pool_usage_pct?: number | null;
   prolongation_status: ProlongationStatus;
   status?: string | null;
+  // Reguła „umowa B2B bezterminowa" (`lib/contract-end-date.ts`) — pola
+  // z `ContractResponse`, które rejestr i tak dostaje z `/api/contracts`.
+  contract_type?: string | null;
+  terminated_at?: string | null;
+  termination_reason?: string | null;
 }
 
 type BadgeVariant = "neutral" | "soft" | "success" | "warning" | "danger";

@@ -862,7 +862,31 @@ def merge_field_plan(
             )
         elif _is_empty(survivor.get(field)) and populated:
             updates[field] = populated[0][1]
+    _keep_live_b2b_survivor_indefinite(survivor, updates)
     return updates, conflicts
+
+
+def _keep_live_b2b_survivor_indefinite(
+    survivor: Mapping[str, Any], updates: dict[str, Any]
+) -> None:
+    """Scalony żywy kontrakt B2B bez wypowiedzenia zostaje bezterminowy.
+
+    „Najpóźniejsza data końca" z duplikatów dawała żywej umowie B2B datę
+    duplikatu zakończonego albo przepisanego z zamówienia — dokładnie ten
+    stan, który czyści korekta 09.2026 (``app.services.b2b_contract_end_date``).
+    """
+    merged = {**survivor, **updates}
+    if (
+        _enum_text(merged.get("contract_type")) != "b2b"
+        or _enum_text(survivor.get("status")) in {"ended", "void"}
+        or not _is_empty(merged.get("terminated_at"))
+        or not _is_empty(merged.get("termination_reason"))
+    ):
+        return
+    if _is_empty(survivor.get("end_date")):
+        updates.pop("end_date", None)
+    else:
+        updates["end_date"] = None
 
 
 def _rate_snapshot(

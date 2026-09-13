@@ -44,7 +44,7 @@ export function ContractsBulkActionsBarV2({
  const skipped = res.skipped_no_end_date?.length ?? 0;
  onDone(
  `Przedłużono ${res.extended} kontraktów o ${months} mies.${
- skipped > 0 ? ` (pominięto ${skipped} bez daty końca)` :""
+ skipped > 0 ? ` (pominięto ${skipped} bezterminowych — w tym umowy B2B bez zakończenia)` :""
  }.`
  );
  } finally {

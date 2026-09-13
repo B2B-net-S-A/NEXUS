@@ -31,10 +31,18 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
         `/api/contracts/bulk-extend?ids=${contractId}&months=${months}`,
         {}
       ),
-    onSuccess: (_data, months) => {
+    onSuccess: (response, months) => {
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
       queryClient.invalidateQueries({ queryKey: ["client-contracts", clientId] });
-      showSuccess(`Kontrakt przedłużony o ${months} mc`);
+      // Backend pomija umowy bezterminowe (w tym każdą umowę B2B bez ręcznego
+      // zakończenia) — „przedłużono" byłoby wtedy nieprawdą.
+      if ((response?.data?.extended ?? 0) === 0) {
+        showError(
+          "Umowa jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta.",
+        );
+      } else {
+        showSuccess(`Kontrakt przedłużony o ${months} mc`);
+      }
       setOpen(false);
     },
     onError: () => showError("Nie udało się przedłużyć kontraktu"),

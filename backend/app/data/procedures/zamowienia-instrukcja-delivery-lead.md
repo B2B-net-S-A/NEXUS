@@ -139,7 +139,10 @@ zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 * **Kandydat \*** — wyszukiwarka po imieniu, e-mailu, umiejętności
 * **Rekrutacja (opcjonalnie)**
 * **Numer zamówienia \*** — np. 45767
-* **Contract start \*** / **Contract end** — okres umowy z konsultantem
+* **Contract start \*** — początek umowy z konsultantem. **Daty końca umowy
+  tu nie ma:** umowa B2B jest bezterminowa, dopóki ktoś jej nie zakończy
+  przyciskiem **„Zakończ współpracę"** (powód i data, także przyszła). Koniec
+  zamówienia klienta wpisujesz w **Order end** — to on uruchamia ostrzeżenia
 * **Order start (PDF od klienta)** / **Order end** — okres zamówienia
 * **Jednostka stawki** — Godzinowa / MD / Miesięczna
 * **Klient płaci \*** — stawka przychodowa
@@ -389,6 +392,12 @@ zakończeniem współpracy — ta kwota nie wraca do puli dostępnej dla innych
 konsultantów"** (na zamówieniu kosztowym — kwota faktur; na zamówieniu MD —
 liczba MD, a przy dostępie do kwot także ich wartość). Zastępca dostaje własny
 budżet — MD i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
+
+**Każde usunięcie trafia do Historii zdarzeń.** Usunięcie całego zamówienia,
+konsultanta z zamówienia albo zamówienia okresowego — a także próba, której
+system odmówił — jest zapisywane w **Ustawienia → Historia zdarzeń** (widok dla
+Admina i Finansów): kto, kiedy, czego dotyczyło i z jakim wynikiem. Ten zapis
+zostaje także wtedy, gdy historia samego zamówienia znika razem z nim.
 
 Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
 pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
@@ -756,7 +765,7 @@ Trafiają tu powiadomienia o zbliżającym się końcu:
 |---|---|
 | **Zamówienie [nazwisko] kończy się za N dni** | 30, 14 i 7 dni przed datą zakończenia aktywnego zamówienia |
 | **Umowa ramowa wygasa za N dni** | 30, 14 i 7 dni przed końcem umowy ramowej z klientem |
-| Zbliżający się koniec umowy z konsultantem | 90, 60, 30, 14 i 7 dni przed końcem |
+| Zbliżający się koniec umowy z konsultantem | 90, 60, 30, 14 i 7 dni przed końcem — umowa B2B ma datę końca dopiero po „Zakończ współpracę" |
 | **Nowy draft kontraktu + zamówienia** | w chwili zatrudnienia kandydata — z prośbą o uzupełnienie stawek, dat i wgranie PDF-a |
 
 Kliknięcie powiadomienia otwiera od razu właściwą zakładkę profilu klienta —

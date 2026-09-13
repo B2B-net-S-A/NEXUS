@@ -39,10 +39,12 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
+    _reject_b2b_end_date,
 )
 from app.api.deps import DeliveryLeadOrAdmin, require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.critical_events import audited_deletion
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -182,7 +184,9 @@ def _assert_allowed_order_type(client_id: int, order_type: OrderType | str) -> N
 
 async def _assert_client(db: AsyncSession, client_id: int) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
-    if client is None:
+    # Klient usunięty z profilu (0307) nie przyjmuje nowych zamówień — jego
+    # historyczne zamówienia zostają w bazie, ale nie ma już profilu.
+    if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
     return client
 
@@ -2527,34 +2531,55 @@ async def delete_order(
     user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft."""
-    await _assert_client(db, client_id)
-    order = await db.scalar(
-        select(ClientOrder)
-        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
-        .with_for_update()
-    )
-    if order is None:
-        raise HTTPException(404, detail="Order not found")
-    await _assert_no_pending_group_line_offboarding(db, order)
+    """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft.
 
-    if order.status == ClientOrderStatus.draft:
-        if order.file_path:
-            storage_service.delete_client_order_po(order.file_path)
-        await db.delete(order)
-    else:
-        order.status = ClientOrderStatus.cancelled
-
-    db.add(
-        Activity(
-            entity_type="client",
-            entity_id=client_id,
-            action="order_cancelled",
-            user_id=user.id,
-            details={"order_id": order_id},
+    Każda próba — wykonana i zablokowana — trafia do Historii zdarzeń.
+    """
+    async with audited_deletion(
+        db,
+        actor=user,
+        event_type="order.delete",
+        entity_type="order",
+        entity_id=order_id,
+        client_id=client_id,
+    ) as audit:
+        await _assert_client(db, client_id)
+        order = await db.scalar(
+            select(ClientOrder)
+            .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+            .with_for_update()
         )
-    )
-    await commit_order_write(db)
+        if order is None:
+            raise HTTPException(404, detail="Order not found")
+        # Numer wiersza, nie tytuł: tytuły zamówień bywają „numer — Imię
+        # Nazwisko", a wpis przeżywa usunięcie osoby (art. 17 RODO).
+        audit.describe(
+            label=f"Zamówienie #{order.id}",
+            status=getattr(order.status, "value", order.status),
+        )
+        await _assert_no_pending_group_line_offboarding(db, order)
+
+        if order.status == ClientOrderStatus.draft:
+            if order.file_path:
+                storage_service.delete_client_order_po(order.file_path)
+            await db.delete(order)
+            audit.result_note = "Szkic zamówienia usunięty trwale."
+        else:
+            order.status = ClientOrderStatus.cancelled
+            audit.result_note = (
+                "Zamówienie anulowane — rekord zostaje w historii (status: anulowane)."
+            )
+
+        db.add(
+            Activity(
+                entity_type="client",
+                entity_id=client_id,
+                action="order_cancelled",
+                user_id=user.id,
+                details={"order_id": order_id},
+            )
+        )
+        await commit_order_write(db)
 
 
 # ── PO file ─────────────────────────────────────────────────────────────────
@@ -2712,6 +2737,12 @@ async def create_contract_with_order(
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
     await _assert_client(db, client_id)
+    # Ten formularz zakłada umowę B2B (typ domyślny kontraktu), a umowa B2B
+    # rodzi się bezterminowa. Pole „Contract end" było tu źródłem dat
+    # przepisywanych z końca ZAMÓWIENIA — tamta data ma swoje pole
+    # (`order_end_date`). Reguła: `app.services.b2b_contract_end_date`.
+    if payload.contract_end_date is not None:
+        _reject_b2b_end_date()
     _assert_allowed_order_type(client_id, payload.order_type)
     if payload.order_type != OrderType.periodic:
         raise HTTPException(
@@ -2771,7 +2802,6 @@ async def create_contract_with_order(
         client_id=client_id,
         job_id=payload.job_id,
         start_date=payload.contract_start_date,
-        end_date=payload.contract_end_date,
         # Flow B collects only a subset of activation fields (it has no
         # contract_type/work_mode at all), so neither Admin nor an operational
         # role may bypass the canonical contract lifecycle. The row is born a
