@@ -34,3 +34,10 @@ Brak nowych zdarzeń nie dowodzi poprawności: kontrolować accepted/filtered/in
 ## Status konfiguracji
 
 Kod i ta instrukcja nie są dowodem konfiguracji panelu. Odbiór wymaga osobnego potwierdzenia: Teams workflow, sekrety, mapowanie GitHub, ownership, filtry, reguły alertów, dostarczenie e-mail oraz rzeczywista symbolikacja zdarzenia. Niewyjaśnione Invalid badać według outcome reason; nie zakładać duplikatów lub błędu SDK.
+
+Odczyt `stats_v2` z 14.09.2026 dla `nexus-be` (projekt 4511350854647888,
+`category=error`, `outcome=invalid`, grupowanie po `reason`, okno
+31.08 00:00 UTC–15.09 00:00 UTC) wykazał 12 odrzuceń, wszystkie
+`too_large:event`. To dowód przekroczenia rozmiaru zdarzenia, nie błędu
+transportu. Wyłączenie zmiennych lokalnych i ograniczenie treści payloadu
+wymaga odbioru przez ponowny odczyt nowych odrzuceń po wdrożeniu.
