@@ -12,12 +12,16 @@ Lata w datach: 2031+ (wolny zakres w bazie testowej, patrz CLAUDE.md).
 
 from decimal import Decimal
 
-from app.services.order_pdf_parser import OrderExtraction
+from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 from app.services.order_policies import (
     PolicyContext,
     active_policies,
     apply_policies,
+    apply_rate_kind,
+    parse_plan,
     policy_by_key,
+    reapplies_on_refresh,
+    rule_versions,
 )
 from app.services.order_policies import (
     alior,
@@ -90,6 +94,159 @@ class TestPkoBp:
         text = "Numer SSGW\nJan Testowy\nProjektant\n2031-01-01\n2031-03-31\n40\n1 000,00\nWarszawa\nŁączna wartość"
         rows = pko_bp.extract_rows(text)
         assert [r.consultant_name for r in rows] == ["Jan Testowy"]
+
+    def test_cell_per_line_rate_with_negotiated_asterisk(self):
+        text = "Numer SSGW\nJan Testowy\nTester Middle\n2031-01-01\n2031-03-31\n63\n880,00*\nWarszawa\nŁączna wartość"
+        rows = pko_bp.extract_rows(text)
+        assert [(r.consultant_name, r.md_total, r.rate_client) for r in rows] == [
+            ("Jan Testowy", Decimal("63"), Decimal("880.00"))
+        ]
+
+
+# Profil jednoliniowy: pdfplumber stawia go w linii wiersza, między nazwiskiem
+# a datami (zgłoszenie 09.2026 — „… Tester Middle" doklejone do nazwiska).
+PKO_INLINE_PROFILE = """PKO Bank Polski SA
+Warszawa, 2031-09-04
+Zamówienie nr 1893/2031
+Zgodnie z postanowieniem Umowy ramowej numer DIT-2031-0005 o świadczeniu usług z dnia 2031-08-19, PKO BP SA zleca firmie
+1. Wykonawcy, Profile, Terminy, Stawki:
+Imię i nazwisko Początek Planowany Koniec Stawka
+Profil Liczba MD Lokalizacja Numer SSGW
+Wykonawców Zaangażowania Zaangażowania PLN/MD netto
+Jan Przykładowy Tester Middle 2031-10-01 2031-12-31 63 880,00* Warszawa 104214-1
+* stawka negocjowana
+Łączna wartość zamówienia wynosi: 55 440,00 PLN netto i 68 191,20 PLN brutto.
+Akceptuję koszt w wysokości: 68 191,20 PLN brutto
+"""
+
+
+class TestPkoBpInlineProfile:
+    def test_name_excludes_profile_column(self):
+        rows = pko_bp.extract_rows(PKO_INLINE_PROFILE)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.consultant_name == "Jan Przykładowy"
+        assert r.uncertain is False and r.uncertain_reason is None
+        assert (r.start_date, r.end_date) == ("2031-10-01", "2031-12-31")
+        assert (r.md_total, r.rate_client, r.rate_unit) == (
+            Decimal("63"),
+            Decimal("880.00"),
+            "day",
+        )
+
+    def test_policy_reads_number_period_and_rate(self):
+        r = _run("pko_bp", PKO_INLINE_PROFILE)
+        assert r.title == "1893/2031"
+        assert (r.start_date, r.end_date) == ("2031-10-01", "2031-12-31")
+        assert (r.rate_client, r.rate_unit, r.md_total) == (
+            Decimal("880.00"),
+            "day",
+            Decimal("63"),
+        )
+        assert [row.consultant_name for row in r.consultant_rows] == ["Jan Przykładowy"]
+        assert r.uncertain is False
+
+    def test_multi_word_profile_and_hyphenated_surname(self):
+        name, reason = pko_bp.split_name_and_profile(
+            "Anna Nowak-Kowalska Analityk Biznesowy Senior"
+        )
+        assert (name, reason) == ("Anna Nowak-Kowalska", None)
+
+    def test_unknown_profile_keeps_segment_and_flags_row(self):
+        name, reason = pko_bp.split_name_and_profile("Jan Przykładowy Skrummaster")
+        assert name == "Jan Przykładowy Skrummaster"
+        assert reason and "sprawdź osobę" in reason
+
+    def test_profile_word_found_later_is_uncertain(self):
+        name, reason = pko_bp.split_name_and_profile(
+            "Jan Przykładowy Skrummaster Senior"
+        )
+        assert name == "Jan Przykładowy Skrummaster"
+        assert reason is not None
+
+    def test_line_starting_with_profile_is_not_a_confident_name(self):
+        # Nazwisko zawinięte na dwie linie — w linii wiersza został sam profil.
+        name, reason = pko_bp.split_name_and_profile("Tester Middle")
+        assert reason is not None
+
+    def test_uncertain_boundary_reaches_document_reasons(self):
+        text = PKO_INLINE_PROFILE.replace("Tester Middle", "Skrummaster")
+        r = _run("pko_bp", text)
+        assert r.uncertain is True
+        assert any("sprawdź osobę" in reason for reason in r.uncertain_reasons)
+
+    def test_model_or_stored_glued_name_is_reconciled_with_table(self):
+        stored = OrderExtraction(source="regex")
+        stored.consultant_rows = [
+            ConsultantOrderRow(
+                consultant_name="Jan Przykładowy Tester Middle",
+                rate_client=Decimal("880.00"),
+                rate_unit="day",
+                uncertain=False,
+            )
+        ]
+        result, _ = apply_policies(
+            stored,
+            PolicyContext(document_text=PKO_INLINE_PROFILE, reapplied=True),
+            [policy_by_key("pko_bp")],
+        )
+        assert [row.consultant_name for row in result.consultant_rows] == [
+            "Jan Przykładowy"
+        ]
+
+    def test_different_person_is_not_renamed(self):
+        stored = OrderExtraction(source="claude")
+        stored.consultant_rows = [
+            ConsultantOrderRow(consultant_name="Jan Przykładowy Nowak", uncertain=False)
+        ]
+        result, _ = apply_policies(
+            stored,
+            PolicyContext(document_text=PKO_INLINE_PROFILE),
+            [policy_by_key("pko_bp")],
+        )
+        assert result.consultant_rows[0].consultant_name == "Jan Przykładowy Nowak"
+
+    def test_rate_is_always_net_without_gross_net_doubt(self):
+        policies = [policy_by_key("pko_bp")]
+        result = OrderExtraction(source="regex")
+        result, _ = apply_policies(
+            result, PolicyContext(document_text=PKO_INLINE_PROFILE), policies
+        )
+        result = apply_rate_kind(result, PKO_INLINE_PROFILE, policies)
+        assert result.rate_client == Decimal("880.00")
+        assert result.rate_client_gross is None
+        assert all(row.rate_client_gross is None for row in result.consultant_rows)
+        assert not any("brutto" in r for r in result.uncertain_reasons)
+        assert result.uncertain is False
+
+    def test_rate_rules_undo_earlier_gross_conversion(self):
+        result = OrderExtraction(source="claude")
+        result.rate_client = Decimal("715.45")
+        result.rate_client_gross = Decimal("880.00")
+        result.uncertain_reasons = [
+            "Nie ustalono, czy każda stawka jest brutto czy netto"
+        ]
+        result.uncertain = True
+        ruled = pko_bp.apply_rate_rules(result, PKO_INLINE_PROFILE)
+        assert (ruled.rate_client, ruled.rate_client_gross) == (Decimal("880.00"), None)
+        assert ruled.uncertain_reasons == [] and ruled.uncertain is False
+
+    def test_gross_rate_column_header_goes_to_review(self):
+        text = PKO_INLINE_PROFILE.replace("PLN/MD netto", "PLN/MD brutto")
+        policies = [policy_by_key("pko_bp")]
+        result, _ = apply_policies(
+            OrderExtraction(source="claude"),
+            PolicyContext(document_text=text),
+            policies,
+        )
+        result = apply_rate_kind(result, text, policies)
+        assert pko_bp.REASON_GROSS_HEADER in result.uncertain_reasons
+
+    def test_rule_reapplies_on_refresh_with_version(self):
+        policies = [policy_by_key("pko_bp")]
+        assert reapplies_on_refresh(policies) is True
+        assert "pko_bp" in rule_versions(policies)
+        assert parse_plan(policies).all_rows is False
 
 
 # ── KIR ──────────────────────────────────────────────────────────────────────
