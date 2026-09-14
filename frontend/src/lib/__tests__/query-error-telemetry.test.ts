@@ -86,3 +86,19 @@ it("raportuje różne zapisy bez losowania, deduplikuje ten sam błąd operacji"
   expect(random).not.toHaveBeenCalled();
   expect(capture.mock.calls[0][1].tags.terminal).toBe('true');
 });
+
+it("raportuje nieoczekiwany błąd mutacji spoza axios bez prywatnej wiadomości", () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture, random: () => 0.99 });
+  const mutation = {};
+  report(new TypeError('private CV content'), mutation);
+  report(new TypeError('private CV content'), mutation);
+  report(new TypeError('private CV content'), {});
+  expect(capture).toHaveBeenCalledTimes(2);
+  expect(capture.mock.calls[0][0].message).not.toContain('private');
+});
+
+it("redacts capability paths even for short or URL-encoded tokens", () => {
+  expect(normalizeApiPath("/api/public/cv/short/chat")).toBe("/api/public/cv/:token/chat");
+  expect(normalizeApiPath("/api/generated/share-token/a%40b")).toBe("/api/generated/share-token/:token");
+});

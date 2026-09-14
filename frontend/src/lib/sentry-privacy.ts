@@ -1,7 +1,16 @@
-import type { Event } from '@sentry/nextjs'
+import type { Event, Stacktrace } from '@sentry/nextjs'
 
 const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job'])
 const safeIdentifier = /^[a-zA-Z0-9_./:{} -]{1,180}$/
+
+function scrubStack(stack?: Stacktrace): void {
+  for (const frame of stack?.frames ?? []) {
+    delete frame.vars
+    delete frame.pre_context
+    delete frame.context_line
+    delete frame.post_context
+  }
+}
 
 /** Free-form error/request data is private. Preserve source locations and trace IDs. */
 export function scrubSentryEvent<T extends Event>(event: T): T {
@@ -22,12 +31,10 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     if (value.mechanism) {
       delete value.mechanism.data
     }
-    for (const frame of value.stacktrace?.frames ?? []) {
-      delete frame.vars
-      delete frame.pre_context
-      delete frame.context_line
-      delete frame.post_context
-    }
+    scrubStack(value.stacktrace)
+  }
+  if ('threads' in event) {
+    for (const thread of event.threads?.values ?? []) scrubStack(thread.stacktrace)
   }
   event.breadcrumbs = event.breadcrumbs?.map(({ timestamp, category, level, type }) => ({ timestamp, category, level, type }))
   if ('spans' in event) {

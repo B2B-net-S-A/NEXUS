@@ -48,6 +48,7 @@ export function normalizeApiPath(url: string | undefined): string {
   } catch {
     path = url.split("?")[0] ?? url;
   }
+  path = path.replace(/(\/(?:public\/(?:cv-i|cv|champion-card|apply|engagement-declaration)|share-token|sign)\/)[^/]+/g, "$1:token");
   return (
     path
       .split("/")
@@ -93,15 +94,19 @@ export function createQueryFailureReporter({
   capture: CaptureFn;
   random?: () => number;
   now?: () => number;
-}): (error: unknown) => void {
+}): (error: unknown, mutationIdentity?: object) => void {
   const lastReported = new Map<string, number>();
   const reportedWrites = new WeakSet<object>();
-  return (error: unknown) => {
-    const failure = classifyQueryError(error);
+  return (error: unknown, mutationIdentity?: object) => {
+    const failure = classifyQueryError(error) ?? (
+      mutationIdentity && error instanceof Error && !(error as AxiosLikeError).isAxiosError
+        ? { kind: "server" as const, status: null, method: "MUTATION", path: "unknown" }
+        : null
+    );
     if (!failure) return;
     const err = error as AxiosLikeError;
-    const write = !["GET", "HEAD", "OPTIONS"].includes(failure.method);
-    const identity = err.config ?? err;
+    const write = !!mutationIdentity || !["GET", "HEAD", "OPTIONS"].includes(failure.method);
+    const identity = mutationIdentity ?? err.config ?? err;
     if (write && reportedWrites.has(identity)) return;
     const key = `${failure.kind}|${failure.status ?? ""}|${failure.method}|${failure.path}`;
     const at = now();

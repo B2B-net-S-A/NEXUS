@@ -40,6 +40,8 @@ class SentryPrivacyTests(unittest.TestCase):
                     }
                 ]
             },
+            "stacktrace": {"frames": [{"filename": "logger.py", "lineno": 5, "context_line": secret}]},
+            "threads": {"values": [{"stacktrace": {"frames": [{"filename": "worker.py", "lineno": 9, "vars": {"cv": secret}, "pre_context": [secret]}]}}]},
             "breadcrumbs": {
                 "values": [
                     {"message": secret, "data": {"body": secret}, "category": "http"}

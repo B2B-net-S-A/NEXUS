@@ -14,7 +14,6 @@ const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 /** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
 const NETWORK_ERROR_SAMPLE_RATE = 0.1
-/** Ułamek błędów ładowania chunków JS raportowanych do Sentry (patrz beforeSend). */
 const HYDRATION_ERROR_RE = /hydration|Hydration|Minified React error #(418|423|425)/
 const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
@@ -45,7 +44,7 @@ if (dsn) {
             'ResizeObserver loop completed with undelivered notifications',
             'Non-Error promise rejection captured',
             // ChunkLoadError CELOWO nie jest tu ignorowany — patrz `beforeSend`
-            // (próbkowany: to bezpośredni ślad deployu widziany przez starą kartę).
+            // (pierwsze wystąpienie danej sygnatury w sesji).
             // Axios cancel — user navigated away before request returned
             'CanceledError',
             'AbortError',
@@ -76,7 +75,7 @@ if (dsn) {
             // Błąd ładowania chunku = stara karta po deployu sięga po plik JS,
             // którego już nie ma. Przy ~8 przebudowach dziennie to bezpośredni
             // pomiar wpływu deployów na użytkowników (reaudyt 14.09.2026, R07),
-            // więc próbkujemy zamiast wyrzucać; jeden fingerprint = jeden issue.
+            // więc raportujemy pierwszą sygnaturę w sesji.
             const chunkText = `${exc?.name ?? ''} ${exc?.message ?? ''} ${
                 event.exception?.values?.[0]?.type ?? ''
             } ${event.exception?.values?.[0]?.value ?? ''}`
@@ -96,8 +95,7 @@ if (dsn) {
             // dokładnie kształt, jaki w przeglądarce ma 503 „no available
             // server" z Traefika i backendowe 500 bez nagłówków CORS —
             // obie klasy incydentów były w Sentry niewidoczne. 10% wystarcza,
-            // żeby fala była widoczna na wykresie, a nie zjadła darmowego
-            // limitu 5k zdarzeń; jeden fingerprint zbiera je w jeden issue.
+            // żeby fala była widoczna bez nadmiernego zużycia limitu Team.
             if (exc?.code === 'ERR_NETWORK') {
                 if (Math.random() >= NETWORK_ERROR_SAMPLE_RATE) {
                     return null

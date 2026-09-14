@@ -8,6 +8,7 @@ it('removes private content while retaining source locations', () => {
     message: secret, request: { url: '/public/cv/secret-value', data: secret },
     user: { email: secret }, extra: { prompt: secret },
     exception: { values: [{ type: 'Error', value: secret, stacktrace: { frames: [{ filename: 'page.tsx', lineno: 42, vars: { cv: secret } }] } }] },
+    threads: { values: [{ stacktrace: { frames: [{ filename: 'logger.ts', lineno: 5, vars: { cv: secret }, context_line: secret }] } }] },
     breadcrumbs: [{ message: secret, data: { body: secret } }],
     contexts: { ai: { prompt: secret } },
   }

@@ -19,6 +19,12 @@ _TRACE = {"trace_id", "span_id", "parent_span_id", "op", "status", "origin"}
 _IDS = re.compile(r"^[a-fA-F0-9-]{16,36}$")
 
 
+def _scrub_stack(stack: dict) -> None:
+    for frame in stack.get("frames", []):
+        for key in ("vars", "pre_context", "context_line", "post_context"):
+            frame.pop(key, None)
+
+
 def scrub_event(event: dict, hint=None) -> dict:
     """Keep stack locations, SDK grouping and explicit diagnostics; omit free text."""
     event.pop("user", None)
@@ -59,9 +65,10 @@ def scrub_event(event: dict, hint=None) -> dict:
                 "source",
             }
         }
-        for frame in (value.get("stacktrace") or {}).get("frames", []):
-            for key in ("vars", "pre_context", "context_line", "post_context"):
-                frame.pop(key, None)
+        _scrub_stack(value.get("stacktrace") or {})
+    _scrub_stack(event.get("stacktrace") or {})
+    for thread in (event.get("threads") or {}).get("values", []):
+        _scrub_stack(thread.get("stacktrace") or {})
     breadcrumbs = event.get("breadcrumbs") or {}
     if isinstance(breadcrumbs, dict):
         breadcrumbs["values"] = [
