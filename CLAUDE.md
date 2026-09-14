@@ -560,16 +560,19 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
 (nazwisko / tag CC / **rekrutacja**) · `Start date` · `Stawka kosztowa [godz.]` ·
 `Stawka przychodowa [godz.]` · `Marża [mc]` (+ `End date` tylko w Archiwum, + `Akcje` w obu).
 
-- **Obie stawki są GODZINOWE, marża MIESIĘCZNA (ticket 09.2026).** Kolumny czytają
-  `hourly_rate_candidate`/`hourly_rate_client` (`clients._hourly_rate` →
-  `order_rate_snapshots.convert_order_rate`), nie `monthly_rate_*`. Źródłem jest
-  jednostka KONTRAKTU, która trzyma się jednostki najnowszego zamówienia
-  (`contract_order_sync`): godzinowa bez przeliczenia, MD ÷ 8, legacy kontrakt
-  miesięczny ÷ `billing_hours_per_month`. To wyłącznie warstwa wyświetlania —
-  zamówienia i kontrakty zostają w swojej jednostce. Typ `GroszePLN` (grosze,
-  `float`), NIE `WholePLN`: 1340 zł/MD ÷ 8 = 167,50. Marża i kafel „Aktywne MRR"
-  zostają miesięczne (kafel = suma kolumny „Marża [mc]") — decyzja Artura.
-  Pola godzinowe są redagowane razem z miesięcznymi (active, planned, archiwum).
+- **Obie stawki są GODZINOWE i idą Z ZAMÓWIENIA, marża MIESIĘCZNA (ticket 09.2026).**
+  Kolumny czytają `hourly_rate_candidate`/`hourly_rate_client` (`clients._order_hourly_leg`
+  na `_representative_order` — tym samym, z którego idzie rekrutacja i część umowy;
+  w Archiwum na dzień zakończenia). Lustro zakładki „Zamówienia": linia MD/kosztowa
+  → `md_rate_*` PLN/MD (waluta obca → `rate_*` linii), zamówienie okresowe → `rate_*`
+  w `rate_unit` zamówienia; godzinowa bez przeliczenia, MD ÷ 8. **Nie czytaj tu stawek
+  kontraktu jako pierwszych:** na prodzie (14.09.2026, Polkomtel) linie MD nie
+  zsynchronizowały stawek do kontraktu (kontrakt 800, zamówienie 750 zł/MD) i profil
+  rozjeżdżał się z zakładką Zamówienia. Kontrakt jest wyłącznie zapasem (brak
+  zamówienia albo stawki na nim). Typ `GroszePLN` (grosze, `float`), NIE `WholePLN`.
+  Marża i kafel „Aktywne MRR" zostają miesięczne z kontraktu (kafel = suma kolumny
+  „Marża [mc]") — decyzja Artura; przy rozjechanym kontrakcie marża w wierszu nie
+  wynika więc z dwóch stawek obok. Pola godzinowe redagowane razem z miesięcznymi.
 
 - **Stawki idą z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.** Kolumna niesie
   wartość zapisaną przy ostatnim ZAPISIE kontraktu, więc stawka progresywna albo
