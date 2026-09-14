@@ -451,3 +451,134 @@ async def test_missing_fingerprint_key_is_503_with_a_reason_not_a_bare_500(
 
     # Kandydat i umowa przeżywają zablokowaną próbę.
     assert await _count(Candidate, id=candidate_id) == 1
+
+
+# ── F04 (audyt 14.09.2026): pliki storage idą do trwałego rejestru kasowań ───
+
+
+async def _seed_candidate_with_files() -> tuple[int, list[str]]:
+    """Kandydat z kluczem CV na wierszu i dokumentem w object storage."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    unique = uuid.uuid4().hex[:8]
+    cv_key = f"cv/{unique}-cv.pdf"
+    doc_key = f"cv/{unique}-doc.pdf"
+    async with AsyncSessionLocal() as db:
+        c = Candidate(
+            name="Del",
+            lastname=f"Files-{unique}",
+            email=f"del-files-{unique}@example.com",
+            cv_storage_key=cv_key,
+        )
+        db.add(c)
+        await db.flush()
+        db.add(
+            CandidateDocument(
+                candidate_id=c.id,
+                filename="dokument.pdf",
+                storage_key=doc_key,
+                document_kind=CandidateDocumentKind.other,
+            )
+        )
+        await db.commit()
+        return c.id, sorted([cv_key, doc_key])
+
+
+async def test_hard_delete_hands_storage_keys_to_the_cleanup_ledger(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„Usunięcie wycofane w całości" nie obejmowało plików.
+
+    Do 09.2026 handler kasował obiekty pętlą PRZED commitem, a błąd w jej
+    środku dawał 503 i rollback — który nie przywraca obiektów skasowanych
+    wcześniej w tej samej pętli. Teraz w żądaniu storage nie jest wołany
+    wcale: klucze lądują w `cv_source_cleanup` w TEJ SAMEJ transakcji co
+    usunięcie wiersza, a obiekty kasuje pętla tła z ponowieniami. Niedostępny
+    storage (`is_available() == False`) nie blokuje już usunięcia.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.cv_source_cleanup import CvSourceCleanup
+    from app.services import cv_source_cleanup, object_storage
+
+    candidate_id, keys = await _seed_candidate_with_files()
+
+    def _never(_key: str) -> None:
+        raise AssertionError("storage nie może być wołany w żądaniu DELETE")
+
+    monkeypatch.setattr(object_storage, "delete_cv", _never)
+    monkeypatch.setattr(object_storage, "is_available", lambda: False)
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 204, r.text
+    assert await _count(Candidate, id=candidate_id) == 0
+
+    async with AsyncSessionLocal() as db:
+        ledger = sorted(
+            (
+                await db.scalars(
+                    select(CvSourceCleanup.storage_key).where(
+                        CvSourceCleanup.storage_key.in_(keys)
+                    )
+                )
+            ).all()
+        )
+    assert ledger == keys, "każdy klucz kandydata musi mieć wiersz w rejestrze"
+
+    # Pętla tła zdejmuje wiersze i dopiero ONA woła storage.
+    deleted: list[str] = []
+
+    async def _fake_run(fn, key):
+        assert fn is object_storage.delete_cv
+        deleted.append(key)
+
+    monkeypatch.setattr(cv_source_cleanup, "run_in_threadpool", _fake_run)
+    async with AsyncSessionLocal() as db:
+        await cv_source_cleanup.clean_pending_sources(db, limit=200)
+
+    assert set(keys) <= set(deleted)
+    async with AsyncSessionLocal() as db:
+        left = (
+            await db.scalars(
+                select(CvSourceCleanup.storage_key).where(
+                    CvSourceCleanup.storage_key.in_(keys)
+                )
+            )
+        ).all()
+    assert left == [], "po skasowaniu obiektów wiersze rejestru znikają"
+
+
+async def test_ledger_rows_roll_back_with_a_failed_delete(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Rejestr żyje w transakcji usunięcia: odmowa (503 za brak klucza
+    pseudonimizacji) nie może zostawić intencji kasowania plików żyjącego
+    kandydata — pętla tła skasowałaby jego CV mimo że profil został."""
+    from app.core.config import settings
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.cv_source_cleanup import CvSourceCleanup
+
+    candidate_id, keys = await _seed_candidate_with_files()
+    await _seed_contract(candidate_id)
+    monkeypatch.setattr(settings, "CANDIDATE_IDENTITY_FINGERPRINT_KEY", "")
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 503, r.text
+    assert await _count(Candidate, id=candidate_id) == 1
+
+    async with AsyncSessionLocal() as db:
+        ledger = (
+            await db.scalars(
+                select(CvSourceCleanup.storage_key).where(
+                    CvSourceCleanup.storage_key.in_(keys)
+                )
+            )
+        ).all()
+    assert ledger == [], "odmowa nie może zakolejkować kasowania plików"

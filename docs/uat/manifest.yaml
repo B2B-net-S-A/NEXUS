@@ -73,6 +73,8 @@ waves:
     name: poprawki i regresja
     card: 06-fala-3-poprawki-i-regresja.md
     requires: [2]
+    external_inputs:
+      - 08-audyty-codex-2026-09-14.md   # audyty Codexa 13–14.09: 104 ustalenia, 3 PR-y
 
   - id: 4
     name: pilotaż

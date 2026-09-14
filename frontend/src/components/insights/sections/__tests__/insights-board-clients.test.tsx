@@ -429,7 +429,7 @@ describe("InsightsClientsRanking", () => {
     renderSection(<InsightsClientsRanking period={PERIOD} />);
 
     const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent(/Suma jest zaniżona, nie równa zeru/);
+    expect(notice).toHaveTextContent(/jest zaniżony, nie równy zeru/);
   });
 
   it("przy 403 nie renderuje pustej tabeli", async () => {

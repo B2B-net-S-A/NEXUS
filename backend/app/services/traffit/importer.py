@@ -36,6 +36,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
 from app.models.client import Client
 from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
@@ -44,6 +45,7 @@ from app.services.candidate_contact_hooks import (
 from app.services.inactive_client_cleanup_run import purged_external_ids
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
+    _parse_traffit_datetime,
     select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
@@ -73,6 +75,67 @@ logger = logging.getLogger(__name__)
 
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
+
+# ── Faza 5b: źródła Traffita → zdarzenia raportu źródeł ─────────────────────
+#
+# Raport `/api/reports/sources` i widok `analytics_candidate_first_sources`
+# czytają WYŁĄCZNIE `candidate_source_events`; tag `traffit_source` w
+# `candidates.tags` był dla nich niewidoczny (audyt statystyk 14.09.2026, A05).
+#
+# Kolumna `channel` to ENUM Postgresa `sourcechannel` o siedmiu wartościach —
+# kanał „traffit:<slug>" nie wchodzi w grę bez migracji. Nazwę źródła Traffita
+# sprowadzamy do kanału po słowach kluczowych (pierwsza reguła wygrywa;
+# nierozpoznane źródło = „Import danych"), a oryginalna nazwa zostaje w `note`
+# obok klucza zewnętrznego. Tabela nie ma kolumny na klucz zewnętrzny ani
+# unikalności, więc tożsamość wiersza to prefiks `note`:
+# ``traffit:source:<id>`` — sprawdzany przed INSERT-em.
+TRAFFIT_SOURCE_REF_PREFIX = "traffit:source:"
+TRAFFIT_SOURCE_NO_DATE_MARK = "(bez daty w Traffit — data importu)"
+
+_TRAFFIT_SOURCE_CHANNEL_RULES: tuple[tuple[tuple[str, ...], SourceChannel], ...] = (
+    (("polecen", "referral", "rekomend"), SourceChannel.referral),
+    (("linkedin",), SourceChannel.aktywny_search),
+    (
+        (
+            "pracuj",
+            "justjoin",
+            "jjit",
+            "nofluff",
+            "bulldog",
+            "ogłosz",
+            "oglosz",
+            "posting",
+            "aplikac",
+            "formularz",
+            "career",
+            "karier",
+        ),
+        SourceChannel.posting,
+    ),
+    (("e-mail", "email", "mail"), SourceChannel.email),
+    (("upload", "załączn", "zalaczn", "plik"), SourceChannel.cv_upload),
+    (("manual", "ręczn", "reczn", "dodany"), SourceChannel.manual),
+)
+
+
+def traffit_source_channel(value: Any, domain: Any = None) -> SourceChannel:
+    """Kanał `sourcechannel` dla nazwy (i domeny) źródła Traffita."""
+    haystack = " ".join(str(part) for part in (value, domain) if part).casefold()
+    for needles, channel in _TRAFFIT_SOURCE_CHANNEL_RULES:
+        if any(needle in haystack for needle in needles):
+            return channel
+    return SourceChannel.import_csv
+
+
+def traffit_source_ref(source_id: Any) -> str:
+    return f"{TRAFFIT_SOURCE_REF_PREFIX}{source_id}"
+
+
+def _source_ref_from_note(note: str) -> str:
+    """Klucz zewnętrzny z `note` — pierwszy token, reszta to nazwa źródła."""
+    return note.split(" ", 1)[0]
+
+
 _CV_FILENAME_RE = re.compile(
     r"(^|[^a-z])(cv|resume|curriculum)([^a-z]|$)",
     re.IGNORECASE,
@@ -4145,6 +4208,9 @@ class TraffitImporter:
         # Aggregate per candidate w pamięci — przy 75k records to OK
         # (każdy record ~200B → ~15MB max).
         per_candidate: dict[int, list[dict[str, Any]]] = {}
+        # Data zdarzenia per `source_id` (`created_at` Traffita; None = brak —
+        # zdarzenie dostaje wtedy datę importu, oznaczoną w `note`).
+        source_dates: dict[Any, Optional[datetime]] = {}
 
         # /sources/ endpoint na tenant b2bnetwork ma server-side bug w paginacji:
         # losowe HTTP 500 na specyficznych stronach (np. p6, p8, p11 przy size=10),
@@ -4190,6 +4256,9 @@ class TraffitImporter:
                 progress.skipped += 1
                 continue
             per_candidate.setdefault(mapped["candidate_id"], []).append(mapped["tag"])
+            source_dates[mapped["tag"]["source_id"]] = _parse_traffit_datetime(
+                raw.get("created_at") or raw.get("date")
+            )
 
         if self.dry_run:
             progress.inserted = sum(len(v) for v in per_candidate.values())
@@ -4199,6 +4268,7 @@ class TraffitImporter:
         # Apply: read existing tags, dedup po (type, source_id), write back
         for candidate_id, new_tags in per_candidate.items():
             added = 0
+            events_added = 0
             try:
                 # SAVEPOINT per kandydata, jak w `import_workflows` /
                 # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
@@ -4234,6 +4304,15 @@ class TraffitImporter:
                             ),
                             {"tags": json.dumps(existing), "id": candidate_id},
                         )
+                    # NIEZALEŻNIE od dedupu tagów: tag zapisany przed tą
+                    # poprawką dostaje zdarzenie przy najbliższym pełnym
+                    # przebiegu, a ponowny import nie dubluje.
+                    events_added = await self._record_source_events(
+                        candidate_id,
+                        new_tags,
+                        source_dates,
+                        imported_at=progress.started_at or datetime.now(timezone.utc),
+                    )
             except Exception as e:  # noqa: BLE001
                 progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
@@ -4242,8 +4321,10 @@ class TraffitImporter:
                     await self.db.rollback()
                 continue
             # Liczone po utrzymaniu się savepointu, nie w jego środku.
-            if added > 0:
+            # `inserted` = tagi (jak dotąd), `updated` = zdarzenia źródeł.
+            if added > 0 or events_added > 0:
                 progress.inserted += added
+                progress.updated += events_added
             else:
                 progress.skipped += 1
 
@@ -4254,3 +4335,57 @@ class TraffitImporter:
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _record_source_events(
+        self,
+        candidate_id: int,
+        tags: list[dict[str, Any]],
+        source_dates: dict[Any, Optional[datetime]],
+        *,
+        imported_at: datetime,
+    ) -> int:
+        """Zdarzenia `candidate_source_events` dla źródeł Traffita (idempotentnie).
+
+        Wołane wewnątrz savepointu kandydata. Tożsamość wiersza to prefiks
+        ``traffit:source:<id>`` w `note` (tabela nie ma klucza zewnętrznego ani
+        unikalności — patrz komentarz przy `TRAFFIT_SOURCE_REF_PREFIX`), więc
+        istniejące odwołania kandydata czytamy RAZ i pomijamy znane. Bez daty
+        u źródła `captured_at` = początek importu, a `note` mówi o tym wprost.
+        Zwraca liczbę dodanych zdarzeń.
+        """
+        rows = await self.db.execute(
+            select(CandidateSourceEvent.note).where(
+                CandidateSourceEvent.candidate_id == candidate_id,
+                CandidateSourceEvent.note.like(f"{TRAFFIT_SOURCE_REF_PREFIX}%"),
+            )
+        )
+        existing_refs = {
+            _source_ref_from_note(note) for note in rows.scalars().all() if note
+        }
+        added = 0
+        for tag in tags:
+            source_id = tag.get("source_id")
+            if source_id is None:
+                continue
+            ref = traffit_source_ref(source_id)
+            if ref in existing_refs:
+                continue
+            value = tag.get("value")
+            note = f"{ref} — {value}" if value else ref
+            captured_at = source_dates.get(source_id)
+            if captured_at is None:
+                captured_at = imported_at
+                note = f"{note} {TRAFFIT_SOURCE_NO_DATE_MARK}"
+            self.db.add(
+                CandidateSourceEvent(
+                    candidate_id=candidate_id,
+                    channel=traffit_source_channel(value, tag.get("domain")),
+                    note=note[:500],
+                    captured_at=captured_at,
+                )
+            )
+            existing_refs.add(ref)
+            added += 1
+        if added:
+            await self.db.flush()
+        return added

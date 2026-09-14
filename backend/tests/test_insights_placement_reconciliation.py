@@ -4,9 +4,11 @@ Cała wartość tego endpointu siedzi w wierszach, które są w jednej rodzinie
 atrybucji i nie ma ich w drugiej. Test zasila obie rodziny tak, żeby powstały
 wszystkie trzy kubełki, i sprawdza, że raport je rozróżnia.
 
-Rok fixture'ów (2036) jest CELOWO nieużywany przez inne pliki: baza testowa
-jest wspólna dla przebiegu i nie jest czyszczona, więc rok zajęty przez sąsiada
-wraca jako „regresja" w kodzie, którego nikt nie ruszał.
+Rok fixture'ów (2036, okno czerwiec–lipiec): baza testowa jest wspólna dla
+przebiegu i nie jest czyszczona, więc rok zajęty przez sąsiada wraca jako
+„regresja" w kodzie, którego nikt nie ruszał. `test_kanban_offer_response`
+i `test_hiring_manager_feedback` też stoją na 2036 (kwiecień/maj) — okna się
+nie nakładają, a testy wielu prób asertują RÓŻNICE, nie wartości bezwzględne.
 """
 
 from __future__ import annotations
@@ -31,6 +33,10 @@ from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 
 T0 = datetime(2036, 6, 1, 9, 0, tzinfo=timezone.utc)
+# Osobne okno (lipiec 2036) dla testów wielu prób — totale raportu są liczone
+# z CAŁEGO okna, więc placementy z pozostałych testów nie mogą się do nich
+# dosumować.
+T_ATTEMPTS = datetime(2036, 7, 1, 9, 0, tzinfo=timezone.utc)
 
 
 async def _seed_placement(db, *, kpi_eligible: bool, tag: str):
@@ -95,13 +101,107 @@ async def _seed_placement(db, *, kpi_eligible: bool, tag: str):
     return {"candidate_id": cand.id, "job_id": job.id, "mover_id": mover.id}
 
 
-async def _report(app_client, headers) -> dict:
+async def _seed_two_attempts(db, *, tag: str):
+    """Jedna para (kandydat, oferta) z DWIEMA sklasyfikowanymi próbami.
+
+    Każda próba ma własny proces (`attempt_no` 1 i 2), własną kotwicę
+    `verified` i własne `hired` wewnątrz okna procesu, więc `credited`
+    (UNION ALL po `process_id`) niesie dla tej pary DWA wiersze `hired`.
+    Widok `analytics_first_milestones` ma dla niej dokładnie JEDEN wiersz.
+    To jest kształt, który do 09.2026 mnożył wiersze raportu.
+    """
+    u = f"{tag}-{uuid.uuid4().hex[:8]}"
+    mover = User(
+        email=f"recon-{u}@example.com",
+        password_hash=hash_password("x"),
+        name=f"Mover {u}",
+        role=UserRole.recruiter,
+        is_active=True,
+    )
+    client = Client(name=f"Recon Client {u}")
+    db.add_all([mover, client])
+    await db.flush()
+
+    job = Job(title=f"Recon Job {u}", client_id=client.id)
+    cand = Candidate(name="Rekon", lastname=f"CIL-{u}")
+    db.add_all([job, cand])
+    await db.flush()
+
+    t_attempt2 = T_ATTEMPTS + timedelta(days=10)
+    db.add_all(
+        [
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.verified,
+                moved_at=T_ATTEMPTS + timedelta(days=1),
+                moved_by=mover.id,
+                verification_status=VerificationStatus.active,
+            ),
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.hired,
+                moved_at=T_ATTEMPTS + timedelta(days=4),
+                moved_by=mover.id,
+            ),
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.verified,
+                moved_at=t_attempt2 + timedelta(days=1),
+                moved_by=mover.id,
+                verification_status=VerificationStatus.active,
+            ),
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.hired,
+                moved_at=t_attempt2 + timedelta(days=4),
+                moved_by=mover.id,
+            ),
+        ]
+    )
+    # Najwyżej jeden OTWARTY proces pary (`ux_process_one_open`): pierwsza
+    # próba jest zamknięta, druga otwarta. CTE wyklucza wyłącznie `voided`.
+    for attempt_no, opened_at, proc_status in (
+        (1, T_ATTEMPTS, ProcessStatus.closed),
+        (2, t_attempt2, ProcessStatus.open),
+    ):
+        db.add(
+            RecruitmentProcess(
+                candidate_id=cand.id,
+                job_id=job.id,
+                client_id=client.id,
+                attempt_no=attempt_no,
+                status=proc_status,
+                origin_kind=PriorityOriginKind.assigned,
+                opened_at=opened_at,
+                kpi_eligible=True,
+                credit_user_id=mover.id,
+            )
+        )
+    await db.commit()
+    return {
+        "candidate_id": cand.id,
+        "job_id": job.id,
+        "first_hired_at": T_ATTEMPTS + timedelta(days=4),
+    }
+
+
+async def _report(
+    app_client,
+    headers,
+    *,
+    date_from: str = "2036-06-01",
+    date_to: str = "2036-06-30",
+) -> dict:
     r = await app_client.get(
         "/api/insights/reconciliation/placements",
         params={
             "period": "custom",
-            "date_from": "2036-06-01",
-            "date_to": "2036-06-30",
+            "date_from": date_from,
+            "date_to": date_to,
         },
         headers=headers,
     )
@@ -242,3 +342,94 @@ async def test_rejects_a_broken_period_instead_of_guessing(
         headers=app_auth_headers,
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_repeated_attempt_is_one_row_with_attempt_count(
+    app_client, app_auth_headers
+):
+    """Para z dwiema próbami = JEDEN wiersz raportu, nie dwa.
+
+    `credited` niesie po wierszu `hired` na każdy proces pary, a widok ma
+    jeden. Do 09.2026 złączenie mnożyło wiersz widoku przez każdą próbę,
+    więc nagłówek `first_hired` twierdził, że pierwszych zatrudnień było
+    tyle, ile prób. Liczba prób nie ginie — jedzie w `attempts`.
+    """
+    window = {"date_from": "2036-07-01", "date_to": "2036-07-31"}
+    # Totale liczą CAŁE okno, a baza testowa nie jest czyszczona między
+    # biegami — dlatego sprawdzamy PRZYROST po zasianiu, nie wartość bezwzględną.
+    before = (await _report(app_client, app_auth_headers, **window))["totals"]
+
+    async with AsyncSessionLocal() as db:
+        pair = await _seed_two_attempts(db, tag="attempts")
+
+    body = await _report(app_client, app_auth_headers, **window)
+    rows = [
+        i
+        for i in body["items"]
+        if (i["candidate_id"], i["job_id"]) == (pair["candidate_id"], pair["job_id"])
+    ]
+    assert len(rows) == 1, f"para z 2 próbami dała {len(rows)} wiersze"
+    row = rows[0]
+    assert row["in_first_hired"] is True
+    assert row["in_verifier_anchored"] is True
+    assert row["verifier_anchored"]["attempts"] == 2
+    # Wiersz niesie NAJWCZEŚNIEJSZĄ próbę — tę samą datę, którą ma widok.
+    assert row["verifier_anchored"]["reached_at"] == row["first_hired"]["reached_at"]
+
+    t = body["totals"]
+    delta = {key: t[key] - before[key] for key in t}
+    assert delta["first_hired"] == 1, delta
+    assert delta["verifier_anchored"] == 1, delta
+    assert delta["in_both"] == 1, delta
+    assert delta["only_first_hired"] == 0, delta
+    assert delta["only_verifier_anchored"] == 0, delta
+    # Surowe wiersze `credited` — liczba, którą sumują kafle — zostają widoczne.
+    assert delta["verifier_anchored_attempts"] == 2, delta
+
+
+@pytest.mark.asyncio
+async def test_totals_come_from_the_whole_window_not_the_row_list(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Nagłówek liczy okno, nie obciętą listę.
+
+    Sufit listy zbity do 1: druga para w tym samym oknie nie mieści się na
+    liście, ale totale nadal ją liczą, a `truncated` mówi, że lista jest
+    niepełna. Nagłówek liczony z listy mówiłby o raporcie, nie o oknie.
+    """
+    from app.api import insights_reconciliation as mod
+
+    async with AsyncSessionLocal() as db:
+        await _seed_two_attempts(db, tag="cap-a")
+        await _seed_two_attempts(db, tag="cap-b")
+
+    monkeypatch.setattr(mod, "_MAX_ROWS", 1)
+    body = await _report(
+        app_client,
+        app_auth_headers,
+        date_from="2036-07-01",
+        date_to="2036-07-31",
+    )
+    assert len(body["items"]) == 1
+    assert body["truncated"] is True
+    t = body["totals"]
+    assert t["first_hired"] >= 2
+    assert t["verifier_anchored"] >= 2
+    assert t["first_hired"] == t["in_both"] + t["only_first_hired"]
+    assert t["verifier_anchored"] == t["in_both"] + t["only_verifier_anchored"]
+
+
+def test_join_keys_tolerate_null_job_id():
+    """Klucz `job_id` złączenia rodzin jest odporny na NULL po obu stronach.
+
+    `NULL = NULL` nie łączy, więc para bez oferty rozpadałaby się na wiersz
+    „tylko widok" i wiersz „tylko CTE". Dziś `candidate_stages.job_id` jest
+    NOT NULL, więc takiej pary nie da się zasiać — test pilnuje kształtu
+    złączenia, bo dane nie mogą. (`IS NOT DISTINCT FROM` odpada: Postgres nie
+    zrobi po nim FULL JOIN.)
+    """
+    from app.api.insights_reconciliation import _FAMILIES_CTE
+
+    assert "COALESCE(va.job_id, 0) = COALESCE(fh.job_id, 0)" in _FAMILIES_CTE
+    assert "va.job_id       = fh.job_id" not in _FAMILIES_CTE
