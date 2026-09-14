@@ -122,6 +122,10 @@ class NotificationType(str, enum.Enum):
     job_deadline_7d = "job_deadline_7d"
     job_deadline_3d = "job_deadline_3d"
     job_deadline_1d = "job_deadline_1d"
+    # 0308: zamówienie zakończyło się wczoraj, a osoba nie ma u klienta
+    # następnego zamówienia. Emitowane przez `services/order_gaps.py` do DL
+    # przypisanych do klienta; dedup po (typ, related_entity=(order_gap, id)).
+    order_missing_successor = "order_missing_successor"
 
 
 class Notification(Base, TimestampMixin):

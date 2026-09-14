@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import status as http_status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -48,7 +48,13 @@ from app.schemas.finance import (
     FinanceRowUpdate,
     FinanceTotals,
 )
+from app.schemas.finance_order_changes import OrderChangesResponse
 from app.services import storage_service
+from app.services.finance_order_changes import (
+    build_order_changes,
+    build_order_changes_workbook,
+    order_changes_filename,
+)
 from app.services.finance_import import (
     FinanceHeaderError,
     FinanceWorkbookError,
@@ -738,3 +744,58 @@ async def restore_import(
     creator = await db.scalar(select(User).where(User.id == run.created_by))
     run.creator = creator
     return _run_to_read(run)
+
+
+# ── Zmiany w zamówieniach ───────────────────────────────────────────────────
+
+
+def _order_changes_period(year: Optional[int], month: Optional[int]) -> tuple[int, int]:
+    """Domyślnie bieżący miesiąc — rozliczenia przygotowuje się w jego trakcie."""
+
+    from app.core.scheduling import business_today
+
+    today = business_today()
+    resolved_year = year if year is not None else today.year
+    resolved_month = month if month is not None else today.month
+    _validate_period(resolved_year, resolved_month)
+    return resolved_year, resolved_month
+
+
+@router.get("/order-changes", response_model=OrderChangesResponse)
+async def get_order_changes(
+    _user: FinanceSectionUser,
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Zmiany · Wejścia · Zejścia · Braki w zamówieniach dla jednego miesiąca.
+
+    Liczone przy odczycie z bieżącego stanu zamówień i dziennika zmian, więc
+    zamówienie dodane minutę temu jest już w odpowiedzi.
+    """
+
+    resolved_year, resolved_month = _order_changes_period(year, month)
+    return await build_order_changes(db, resolved_year, resolved_month)
+
+
+@router.get("/order-changes/export")
+async def export_order_changes(
+    _user: FinanceSectionUser,
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ten sam widok jako XLSX — cztery arkusze, liczniki w nazwach arkuszy."""
+
+    resolved_year, resolved_month = _order_changes_period(year, month)
+    data = await build_order_changes(db, resolved_year, resolved_month)
+    content = await run_in_threadpool(build_order_changes_workbook, data)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{order_changes_filename(resolved_year, resolved_month)}"'
+            )
+        },
+    )

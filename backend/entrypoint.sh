@@ -558,6 +558,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_1d'",
     # AI metering 0280: optional Slack no longer disables in-app budget alerts.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'ai_spend_alert'",
+    # 0308: brak kolejnego zamówienia po zakończonym zamówieniu (dzwonek DL).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'order_missing_successor'",
     # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
     # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
@@ -3938,7 +3940,8 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
             'cost_order_exhausted', 'draft_consultant_unassigned',
             'md_budget_low', 'missing_revenue_rate',
-            'md_consultant_ended', 'order_mail_review')),
+            'md_consultant_ended', 'order_mail_review',
+            'order_missing_successor')),
         CONSTRAINT ck_dl_alerts_status CHECK (status IN ('new', 'handled')),
         CONSTRAINT ck_dl_alerts_handled_coherence
             CHECK (status <> 'handled' OR handled_at IS NOT NULL)
@@ -4185,6 +4188,59 @@ _COLUMN_STATEMENTS = [
     "ON critical_events (entity_type, entity_id)",
     "CREATE INDEX IF NOT EXISTS ix_critical_events_client_id "
     "ON critical_events (client_id)",
+    # 0308: Finanse → Zmiany w zamówieniach. `order_change_events` zapisuje
+    # listener `before_flush` przy KAŻDEJ zmianie zamówienia — bez tabeli
+    # pada każdy zapis zamówienia (UndefinedTableError w środku flusha).
+    # Obie tabele celowo bez FK (wpis przeżywa usunięcie zamówienia).
+    """CREATE TABLE IF NOT EXISTS order_change_events (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER,
+        order_group_id INTEGER,
+        contract_id INTEGER,
+        client_id INTEGER,
+        field VARCHAR(16) NOT NULL,
+        old_amount NUMERIC(16, 6),
+        new_amount NUMERIC(16, 6),
+        old_unit VARCHAR(16),
+        new_unit VARCHAR(16),
+        currency VARCHAR(3),
+        old_date DATE,
+        new_date DATE,
+        source VARCHAR(16) NOT NULL DEFAULT 'system',
+        created_by_user_id INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_order_change_events_field
+            CHECK (field IN ('rate_cost', 'rate_revenue', 'end_date')),
+        CONSTRAINT ck_order_change_events_source
+            CHECK (source IN ('user', 'system'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_events_created_at "
+    "ON order_change_events (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_events_order "
+    "ON order_change_events (order_id, created_at)",
+    """CREATE TABLE IF NOT EXISTS order_gaps (
+        id SERIAL PRIMARY KEY,
+        order_id INTEGER NOT NULL,
+        order_group_id INTEGER,
+        contract_id INTEGER NOT NULL,
+        client_id INTEGER NOT NULL,
+        order_number VARCHAR(255),
+        ended_on DATE NOT NULL,
+        detected_on DATE NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'open',
+        resolved_order_id INTEGER,
+        resolved_order_number VARCHAR(255),
+        resolved_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_order_gaps_order_id UNIQUE (order_id),
+        CONSTRAINT ck_order_gaps_status CHECK (status IN ('open', 'filled_late')),
+        CONSTRAINT ck_order_gaps_resolved_coherence
+            CHECK (status <> 'filled_late' OR resolved_at IS NOT NULL)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_gaps_detected_on "
+    "ON order_gaps (detected_on)",
+    "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
+    "ON order_gaps (contract_id, status)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6044,7 +6100,8 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
                 'cost_order_exhausted', 'draft_consultant_unassigned',
                 'md_budget_low', 'missing_revenue_rate',
-                'md_consultant_ended', 'order_mail_review'
+                'md_consultant_ended', 'order_mail_review',
+                'order_missing_successor'
             ));
     END $$""",
     # Detect the FK structurally rather than by name: metadata.create_all may
