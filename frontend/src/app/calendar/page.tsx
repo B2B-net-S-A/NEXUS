@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Plus,
   X,
   Clock,
@@ -22,12 +25,25 @@ import {
   AlertCircle,
   Download,
   Loader2,
+  Search,
 } from "lucide-react";
 import api, { calendarApi, candidatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { layoutOverlappingEvents } from "@/lib/calendar-overlap";
 
@@ -161,12 +177,86 @@ function getEventHeight(start: Date, end: Date | null): number {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+/** Dodatnia liczba całkowita z `?event=` albo `null` — śmieci w adresie nie odpalają zapytania. */
+function parseEventIdParam(raw: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 export default function CalendarPage() {
+  // `useSearchParams` wymaga granicy Suspense na prerenderze (jak `/jobs`) —
+  // bez niej `next build` wywala się, mimo że strona renderuje się tylko po
+  // stronie klienta.
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-muted-foreground">Ładowanie kalendarza...</div>
+      }
+    >
+      <CalendarPageInner />
+    </Suspense>
+  );
+}
+
+function CalendarPageInner() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentMonday, setCurrentMonday] = useState<Date>(() => getMonday(new Date()));
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [prefilledStart, setPrefilledStart] = useState<string>("");
+  // Formularz feedbacku otwierany wprost z linku powiadomienia
+  // (`/calendar?event=<id>&action=feedback`, `notification_triggers.py`).
+  const [feedbackEventId, setFeedbackEventId] = useState<number | null>(null);
+  const [deepLinkFailedId, setDeepLinkFailedId] = useState<number | null>(null);
+
+  // ?event=<id> — link z pulpitu („Moje zadania → Spotkania") i z dzwonka
+  // otwiera SZCZEGÓŁY wskazanego wydarzenia i przewija tydzień na jego datę.
+  // Do 09.2026 strona parametru nie czytała: adres się zmieniał, a widoczna
+  // była wyłącznie siatka bieżącego tygodnia (audyt B39). Efekt zależy od
+  // WARTOŚCI parametrów, nie od tożsamości `searchParams` — miękka nawigacja
+  // App Routera nie odmontowuje strony (patrz `lib/client-tab.ts`).
+  const eventParam = searchParams.get("event");
+  const actionParam = searchParams.get("action");
+  const requestedEventId = parseEventIdParam(eventParam);
+  useEffect(() => {
+    if (requestedEventId == null) return;
+    let cancelled = false;
+    setDeepLinkFailedId(null);
+    calendarApi
+      .getEvent(requestedEventId)
+      .then((r) => {
+        if (cancelled) return;
+        const event = r.data as CalendarEvent;
+        setCurrentMonday(getMonday(new Date(event.start_time)));
+        if (actionParam === "feedback") {
+          setFeedbackEventId(event.id);
+        } else {
+          setSelectedEvent(event);
+        }
+      })
+      .catch(() => {
+        // Awaria ≠ pustka: sama siatka po nieudanym linku wyglądałaby jak
+        // „wydarzenia nie ma", a ono może istnieć i tylko chwilowo nie wróciło.
+        if (cancelled) return;
+        setDeepLinkFailedId(requestedEventId);
+        // Zdejmij parametr z adresu: F5 ma wrócić do zwykłego kalendarza,
+        // a nie ponawiać nieudany link (komunikat wyżej zostaje na ekranie).
+        router.replace("/calendar");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedEventId, actionParam]);
+
+  // Zamknięcie okna otwartego z linku zdejmuje parametr z adresu — inaczej
+  // F5 otwierałoby je z powrotem, a ponowny klik w TEN SAM link nie zmieniałby
+  // wartości parametru i efekt wyżej nie wchodził.
+  const clearEventParam = () => {
+    if (eventParam != null) router.replace("/calendar");
+  };
 
   const weekDays = getWeekDays(currentMonday);
   const today = new Date();
@@ -342,6 +432,17 @@ export default function CalendarPage() {
             Gdy padnie, siatka renderuje się bez żadnego znacznika konfliktu —
             czyli wygląda tak samo jak tydzień bez kolizji. Rekruter mógłby
             zostać w ten sposób doprowadzony do umówienia zajętego slotu. */}
+        {deepLinkFailedId != null && (
+          <div
+            role="alert"
+            className="shrink-0 px-5 py-2 text-xs text-destructive border-b border-destructive/30 bg-destructive/10"
+          >
+            Nie udało się otworzyć wydarzenia #{deepLinkFailedId} z linku — może
+            zostało usunięte albo nie masz do niego dostępu. Siatka poniżej go nie
+            wyróżnia.
+          </div>
+        )}
+
         {!calendarFailed && conflictsFailed && (
           <div
             role="alert"
@@ -400,11 +501,28 @@ export default function CalendarPage() {
       {selectedEvent && (
         <EventDetailModal
           event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
+          onClose={() => {
+            setSelectedEvent(null);
+            clearEventParam();
+          }}
           onDeleted={() => {
             queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
             setSelectedEvent(null);
+            clearEventParam();
           }}
+        />
+      )}
+
+      {/* ── Feedback z linku `?event=<id>&action=feedback` ── */}
+      {feedbackEventId != null && (
+        <InterviewFeedbackModal
+          open
+          onOpenChange={(open) => {
+            if (open) return;
+            setFeedbackEventId(null);
+            clearEventParam();
+          }}
+          calendarEventId={feedbackEventId}
         />
       )}
     </div>
@@ -762,9 +880,21 @@ function CreateEventModal({
 
   const [error, setError] = useState<string | null>(null);
 
-  const { data: candidates = [] } = useQuery({
-    queryKey: ["candidates-mini"],
-    queryFn: () => candidatesApi.list({ page_size: 100 }).then((r) => r.data?.items || []),
+  // Kandydat: wyszukiwanie po stronie serwera, nie lista „100 ostatnich".
+  // Zwykły `<select>` z `page_size: 100` pokazywał setną część bazy bez
+  // szukania — starszej osoby nie dało się wskazać wcale (audyt B07). Ten sam
+  // endpoint i ta sama bramka co dotąd (`/api/candidates?q=`), tylko z frazą.
+  const [candidateOpen, setCandidateOpen] = useState(false);
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [candidate, setCandidate] = useState<{ id: number; label: string } | null>(null);
+  const debouncedCandidateQuery = useDebouncedValue(candidateQuery.trim(), 300);
+  const candidatesQuery = useQuery({
+    queryKey: ["calendar-candidate-search", debouncedCandidateQuery],
+    queryFn: () =>
+      candidatesApi
+        .list({ q: debouncedCandidateQuery || undefined, page_size: 20 })
+        .then((r) => (r.data?.items || []) as Array<{ id: number; name?: string; lastname?: string; email?: string | null }>),
+    enabled: candidateOpen,
   });
 
   const mutation = useMutation({
@@ -889,19 +1019,95 @@ function CreateEventModal({
 
           {/* Candidate */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Kandydat (opcjonalnie)</label>
-            <select
-              value={form.candidate_id}
-              onChange={(e) => setForm({ ...form, candidate_id: e.target.value })}
-              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+            <label
+              id="calendar-candidate-label"
+              className="text-xs font-semibold text-muted-foreground block mb-1"
             >
-              <option value="">— Wybierz kandydata —</option>
-              {candidates.map((c: any) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} {c.lastname}
-                </option>
-              ))}
-            </select>
+              Kandydat (opcjonalnie)
+            </label>
+            <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  role="combobox"
+                  aria-expanded={candidateOpen}
+                  aria-labelledby="calendar-candidate-label"
+                  className="w-full flex items-center justify-between gap-2 border border-border rounded-lg px-3 py-2 text-sm text-left focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <Search className="h-4 w-4 shrink-0 opacity-60" />
+                    <span className={cn("truncate", !candidate && "text-muted-foreground")}>
+                      {candidate ? candidate.label : "Szukaj kandydata…"}
+                    </span>
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Szukaj kandydata…"
+                    value={candidateQuery}
+                    onValueChange={setCandidateQuery}
+                  />
+                  <CommandList>
+                    {candidatesQuery.isLoading ? (
+                      <div className="p-3 text-sm text-muted-foreground">Szukam…</div>
+                    ) : candidatesQuery.isError ? (
+                      // Awaria ≠ „nikogo nie ma": pusta lista czytałaby się
+                      // jak brak kandydata w bazie.
+                      <div className="p-3 text-sm text-destructive" role="alert">
+                        Nie udało się wyszukać kandydatów.
+                      </div>
+                    ) : (
+                      <CommandEmpty>Brak wyników.</CommandEmpty>
+                    )}
+                    <CommandGroup>
+                      {candidate ? (
+                        <CommandItem
+                          value="__none__"
+                          onSelect={() => {
+                            setCandidate(null);
+                            setForm({ ...form, candidate_id: "" });
+                            setCandidateOpen(false);
+                          }}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          Bez kandydata
+                        </CommandItem>
+                      ) : null}
+                      {(candidatesQuery.data ?? []).map((c) => {
+                        const label = `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`;
+                        return (
+                          <CommandItem
+                            key={c.id}
+                            value={String(c.id)}
+                            onSelect={() => {
+                              setCandidate({ id: c.id, label });
+                              setForm({ ...form, candidate_id: String(c.id) });
+                              setCandidateOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                candidate?.id === c.id ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <span className="truncate">
+                              {label}
+                              {c.email ? (
+                                <span className="ml-1 text-xs text-muted-foreground">{c.email}</span>
+                              ) : null}
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Location */}
@@ -1020,26 +1226,25 @@ function EventDetailModal({
   const start = new Date(event.start_time);
   const end = event.end_time ? new Date(event.end_time) : null;
 
-  // Escape zamyka podgląd jak każde okno w aplikacji — do UAT (M03-B11)
-  // zamykał go wyłącznie przycisk „Zamknij”.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
+  // Radix `Dialog` (jak każde okno w aplikacji): `role="dialog"`,
+  // `aria-modal`, Escape (UAT M03-B11), a od audytu B34 także pułapka fokusu
+  // i fokus początkowy — własny `div` przepuszczał Tab do strony pod oknem.
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div
-        role="dialog"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        size="sm"
+        hideClose
         aria-modal="true"
-        aria-labelledby="calendar-event-detail-title"
-        className="bg-card rounded-2xl shadow-2xl w-full max-w-md"
+        aria-describedby={undefined}
+        className="p-0 gap-0 rounded-2xl"
       >
         {/* Header stripe */}
-        <div className={cn("h-1.5 rounded-t-2xl", cfg.dotColor.replace("bg-", "bg-"))} />
+        <div className={cn("h-1.5 rounded-t-2xl", cfg.dotColor)} />
 
         <div className="p-6">
           {/* Title + close */}
@@ -1055,12 +1260,11 @@ function EventDetailModal({
                 <div className={cn("w-1.5 h-1.5 rounded-full", cfg.dotColor)} />
                 {cfg.label}
               </div>
-              <h2
-                id="calendar-event-detail-title"
-                className="text-lg font-bold text-foreground"
-              >
+              {/* Bez własnego `id`: Radix wiąże `aria-labelledby` okna
+                  z WYGENEROWANYM id tytułu, a nadpisanie go odcinało nazwę. */}
+              <DialogTitle className="text-lg font-bold text-foreground">
                 {event.title}
-              </h2>
+              </DialogTitle>
             </div>
             <button
               onClick={onClose}
@@ -1193,8 +1397,8 @@ function EventDetailModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

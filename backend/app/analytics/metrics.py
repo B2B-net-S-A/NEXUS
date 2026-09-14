@@ -750,18 +750,26 @@ def _month_starts_back(n: int, *, today: date | None = None) -> list[date]:
 
 
 async def finance_trend(
-    db: AsyncSession, *, months: int = 12
+    db: AsyncSession, *, months: int = 12, end: date | None = None
 ) -> tuple[dict[str, Any], list[str], "QualityFlag"]:
     """Miesięczny trend MRR/marży: date-effective na 1. dzień każdego
-    miesiąca, FX po kursie raportowym z tej daty."""
-    month_starts = _month_starts_back(months)
+    miesiąca, FX po kursie raportowym z tej daty.
+
+    ``end`` = ostatni dzień objęty serią (domyślnie dziś, nigdy w przyszłości):
+    seria kończy się miesiącem, w którym leży ``end``, i liczy ``months``
+    miesięcy wstecz. Do 09.2026 okres z żądania trafiał wyłącznie do koperty,
+    a punkty zawsze liczyły się od dziś — koperta opisywała inne okno niż
+    dane (audyt statystyk A09).
+    """
+    anchor = min(end or date.today(), date.today())
+    month_starts = _month_starts_back(months, today=anchor)
     earliest = month_starts[0]
     stmt = (
         select(Contract)
         .where(
             Contract.status.in_(REVENUE_BEARING_STATUSES),
             Contract.start_date.isnot(None),
-            Contract.start_date <= date.today(),
+            Contract.start_date <= anchor,
             (Contract.end_date.is_(None)) | (Contract.end_date >= earliest),
         )
         .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
@@ -797,24 +805,36 @@ async def finance_trend(
                     {
                         "month": label,
                         "source": "legacy",
+                        "basis": "legacy_monthly_report",
                         "mrr": None,
+                        "monthly_revenue": None,
                         "monthly_margin": None,
+                        "result_after_other_costs": None,
                         "active_contracts": None,
                         "active_consultants": None,
                     }
                 )
                 continue
             revenue = Decimal(snap.get("revenue", "0"))
-            costs = Decimal(snap.get("consultant_costs", "0")) + Decimal(
-                snap.get("other_costs", "0")
-            )
+            consultant_costs = Decimal(snap.get("consultant_costs", "0"))
+            other_costs = Decimal(snap.get("other_costs", "0"))
+            # Audyt statystyk A07: legacy i live NIE lądują w tych samych
+            # polach pod różnymi definicjami. MRR to wycena kontraktów na
+            # 1. dzień miesiąca — raport legacy niesie sumaryczny przychód
+            # miesiąca, czyli inną miarę (osobne pole). Marża w obu źródłach
+            # znaczy to samo (przychód − koszt konsultantów); wynik po
+            # pozostałych kosztach zna wyłącznie legacy, więc ma własne pole.
             points.append(
                 {
                     "month": label,
                     "source": "legacy",
-                    # Miesięczny przychód traktujemy jak MRR (kontrakt board).
-                    "mrr": _dec(revenue),
-                    "monthly_margin": _dec(revenue - costs),
+                    "basis": "legacy_monthly_report",
+                    "mrr": None,
+                    "monthly_revenue": _dec(revenue),
+                    "monthly_margin": _dec(revenue - consultant_costs),
+                    "result_after_other_costs": _dec(
+                        revenue - consultant_costs - other_costs
+                    ),
                     # Legacy carried one ambiguous headcount only.  It is
                     # usable as the historical people series, but cannot prove
                     # how many simultaneous contract records produced it.
@@ -838,8 +858,13 @@ async def finance_trend(
             {
                 "month": label,
                 "source": "live",
+                "basis": "contracts",
                 "mrr": data["mrr"],
+                "monthly_revenue": None,
                 "monthly_margin": data["monthly_margin"],
+                # NEXUS nie zna pozostałych kosztów — pole istnieje tylko
+                # w legacy; tu jawnie puste, nie zero.
+                "result_after_other_costs": None,
                 "active_contracts": data["active_contracts"],
                 "active_consultants": data["active_consultants"],
             }
@@ -847,7 +872,26 @@ async def finance_trend(
         for w in warnings:
             if w not in all_warnings:
                 all_warnings.append(w)
-    return {"months": points, "currency": "PLN"}, all_warnings, worst
+    first_live = next((p["month"] for p in points if p["source"] == "live"), None)
+    if first_live is not None and any(p["source"] == "legacy" for p in points):
+        # Konsument ma wiedzieć, że seria zmienia źródło i podstawę pomiaru
+        # w środku okna — bez tego zmiana definicji czyta się jak trend.
+        all_warnings.append(
+            f"Seria łączy dwa źródła: miesiące przed {first_live} to raporty "
+            "legacy (przychód miesięczny, wynik po pozostałych kosztach), od "
+            f"{first_live} wycena kontraktów w NEXUSIE (MRR). Marża jest w obu "
+            "liczona tak samo (przychód − koszt konsultantów); MRR i przychodu "
+            "miesięcznego nie porównuj między źródłami."
+        )
+    return (
+        {
+            "months": points,
+            "currency": "PLN",
+            "window": {"from": points[0]["month"], "to": points[-1]["month"]},
+        },
+        all_warnings,
+        worst,
+    )
 
 
 async def finance_clients(

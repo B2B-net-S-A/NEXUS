@@ -88,7 +88,12 @@ def test_stage_cv_gets_opt_into_read_access_and_commands_do_not():
         candidate_stage_cv.render_branded_cv_for_print,
         candidate_stage_cv.list_cv_share_tokens,
     ):
-        assert "read_access=True" in getsource(endpoint)
+        # Odczyt idzie przez bramkę ODCZYTU rekrutacji: albo flagą helpera
+        # (`_load_csv_for_stage(..., read_access=True)`), albo wprost przez
+        # `ensure_job_read_access` (metadane snapshotu po B19 nie używają
+        # helpera — brak wiersza to stan, nie 404).
+        src = getsource(endpoint)
+        assert "read_access=True" in src or "ensure_job_read_access(" in src
 
     for endpoint in (
         candidate_stage_cv.update_branded_cv,
@@ -96,7 +101,9 @@ def test_stage_cv_gets_opt_into_read_access_and_commands_do_not():
         candidate_stage_cv.create_cv_share_token,
         candidate_stage_cv.revoke_all_cv_share_tokens,
     ):
-        assert "read_access=True" not in getsource(endpoint)
+        src = getsource(endpoint)
+        assert "read_access=True" not in src
+        assert "ensure_job_read_access(" not in src
 
     assert "ensure_job_membership" in getsource(
         candidate_stage_cv.revoke_cv_share_token

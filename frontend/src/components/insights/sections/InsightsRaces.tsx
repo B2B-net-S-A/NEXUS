@@ -116,6 +116,17 @@ const RACE_COPY: Record<
   },
 };
 
+/**
+ * Próg kwalifikacji Wyścigu Rekomendacji jest WSPÓLNY i KALENDARZOWY:
+ * `competitions.py` liczy `4 × dni robocze, które upłynęły w miesiącu`
+ * (Pon–Pt minus święta) — bez indywidualnych urlopów. Plakietka „X/dzień"
+ * obok ma mianownik indywidualny z COMPASSA, więc bez tego zdania ekran
+ * obiecywał regułę, której backend nie stosuje (audyt B44). Decyzja
+ * o progu per osoba jest produktowa i leży poza tym ekranem.
+ */
+const RACE_THRESHOLD_TOOLTIP =
+  "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów ani dni roboczych z COMPASSA — te wpływają tylko na plakietkę „/dzień”.";
+
 /** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
 function daysPl(n: number): string {
   return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
@@ -143,7 +154,7 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-dashed border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik jest indywidualny (urlop też) i pochodzi z COMPASSA — nie zastępujemy go stałą liczbą dni.`}
+        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik jest indywidualny (urlop też) i pochodzi z COMPASSA — nie zastępujemy go stałą liczbą dni. Ta plakietka nie decyduje o kwalifikacji: próg „wymaganych weryfikacji” obok jest wspólny i kalendarzowy.`}
       >
         <span className="font-semibold">—</span>
         <span>/dzień</span>
@@ -235,8 +246,14 @@ function RaceRow({
             // który backend naprawdę stosuje, a nie nasza rekonstrukcja.
             <>
               {" · "}
-              {count(entry.verifications)} /{" "}
-              {count(entry.required_verifications)} wymaganych weryfikacji
+              <span
+                title={RACE_THRESHOLD_TOOLTIP}
+                className="underline decoration-dotted underline-offset-2"
+                data-testid="race-threshold"
+              >
+                {count(entry.verifications)} /{" "}
+                {count(entry.required_verifications)} wymaganych weryfikacji
+              </span>
             </>
           ) : null}
         </p>

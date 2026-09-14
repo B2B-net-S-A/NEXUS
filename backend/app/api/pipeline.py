@@ -725,6 +725,8 @@ async def move_candidate(
         budget_max_at_move=budget_max_snapshot,
         # Phase 17 (migracja 0068) — kandydata reakcja na ofertę po akcepcie.
         candidate_offer_response=data.candidate_offer_response,
+        # F05: wersja procesu widziana przez klienta — rozjazd = 409.
+        expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
     if is_terminal_target:

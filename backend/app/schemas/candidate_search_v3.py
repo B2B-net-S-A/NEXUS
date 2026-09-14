@@ -36,8 +36,10 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.schemas.candidate_search import (
+    EXPERIENCE_RANGE_REVERSED_MSG,
     CandidateSearchRequest,
     LanguageRequirement,
+    raise_if_range_reversed,
 )
 from app.services.candidate_monthly_rate_retirement import (
     reject_retired_candidate_rate,
@@ -121,6 +123,17 @@ class HardFilters(BaseModel):
     tags: list[str] = Field(default_factory=list)
     attributes: AttributeFlags = Field(default_factory=AttributeFlags)
     exclude_blacklisted: bool = False
+
+    @model_validator(mode="after")
+    def experience_range_is_ordered(self) -> "HardFilters":
+        # Lustro walidatora legacy (`CandidateSearchRequest.ranges_are_ordered`):
+        # odwrócony przedział lat = 422, a nie „0 osób ze stażem" (UAT B28).
+        raise_if_range_reversed(
+            self.experience_years_min,
+            self.experience_years_max,
+            EXPERIENCE_RANGE_REVERSED_MSG,
+        )
+        return self
 
 
 class SoftPreference(BaseModel):

@@ -82,8 +82,15 @@ i scalenie), QA-06 (burn-down 12 plików testów z listy `_FAILING`), QA-07 (mac
 
 | PR | Gałąź | Stan |
 |---|---|---|
-| 1 | `fix/audit-p1` | w toku |
-| 2 | `fix/audit-ui-p2-p3` | po PR 1 |
+| 1 | `fix/audit-p1` | scalony 14.09 (#1512, prod `75a1b8b3`) |
+| 2 | `fix/audit-ui-p2-p3` | PR otwarty 14.09 |
 | 3 | `chore/audit-ops` | po PR 2 |
+
+Poprawki z przeglądu adwersarialnego PR 2 poza tabelą: redakcja kwot także dla
+„Planowanych" na profilu; jedna reguła „obecnego" kontraktu na czterech
+powierzchniach (profil, Analityka, Rada, admin); reset przeniesionego numeru
+zamówienia na ścieżce z kolejki maila; `?event=` zdejmowany po nieudanym linku.
+Poza PR 2 (osobny krok): front nie wysyła jeszcze `expected_state_version`
+w ruchu pipeline'u (F05 działa po stronie serwera, kompatybilnie wstecz).
 
 Retesty na produkcji: `wyniki/codex-2026-09-14/retest-<sha>.md` (poza gitem).

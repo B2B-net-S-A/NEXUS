@@ -177,6 +177,9 @@ export function MultiConsultantOrdersTab({
   // PDF wgrany w jednym formularzu przechodzi do drugiego przy zmianie typu
   // (MD/kosztowe ↔ okresowe) — bez ponownego wgrywania.
   const [carriedFile, setCarriedFile] = useState<File | null>(null);
+  // Numer zamówienia wpisany przed zmianą typu — jedzie za użytkownikiem do
+  // drugiego formularza tak jak plik; do 09.2026 przepadał (UAT B03).
+  const [carriedOrderNumber, setCarriedOrderNumber] = useState("");
   const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
   const [groupModal, setGroupModal] = useState<{
     open: boolean;
@@ -234,12 +237,17 @@ export function MultiConsultantOrdersTab({
     ? serverSuggestedOrderType
     : allowedOrderTypes[0];
 
-  function openNewOrderForm(orderType: OrderType, file: File | null = null) {
+  function openNewOrderForm(
+    orderType: OrderType,
+    file: File | null = null,
+    orderNumber = "",
+  ) {
     const allowedType = allowedOrderTypes.includes(orderType)
       ? orderType
       : allowedOrderTypes[0];
     setFormError(null);
     setCarriedFile(file);
+    setCarriedOrderNumber(orderNumber);
     setNewOrderType(allowedType);
     if (allowedType === "periodic") {
       setGroupModal({ open: false, group: null });
@@ -311,6 +319,9 @@ export function MultiConsultantOrdersTab({
         }
         setFormError(null);
         setCarriedFile(null);
+        // Numer przeniesiony przy zmianie typu w porzuconym formularzu nie może
+        // wjechać do okna otwartego z kolejki maila — tam numer czyta PDF.
+        setCarriedOrderNumber("");
         setMailSource({ docId, file });
         setStandardOrderModalOpen(false);
         setNewOrderType(target.order_type);
@@ -1080,13 +1091,14 @@ export function MultiConsultantOrdersTab({
               ? "cost"
               : newOrderType
         }
-        onOrderTypeChange={(orderType, file) => {
+        onOrderTypeChange={(orderType, file, orderNumber) => {
           // Okno okresowe nie zna dokumentów z maila — dokument zostaje w kolejce.
           if (orderType === "periodic") releaseMailSource();
-          openNewOrderForm(orderType, file);
+          openNewOrderForm(orderType, file, orderNumber);
         }}
         allowedOrderTypes={allowedOrderTypes}
         initialFile={carriedFile}
+        initialOrderNumber={carriedOrderNumber}
         autoReadFile={mailSource?.file ?? null}
         sourceNotice={
           mailSource
@@ -1117,6 +1129,7 @@ export function MultiConsultantOrdersTab({
           onOrderTypeChange={openNewOrderForm}
           allowedOrderTypes={allowedOrderTypes}
           initialFile={carriedFile}
+          initialOrderNumber={carriedOrderNumber}
           onClose={() => setStandardOrderModalOpen(false)}
           onCreated={() => {
             setStandardOrderModalOpen(false);

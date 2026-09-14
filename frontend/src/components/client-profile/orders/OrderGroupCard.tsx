@@ -39,6 +39,7 @@ import {
   usesSharedMdPool,
 } from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
+import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
 import { consultantUsageSentence } from "@/lib/order-line-usage";
@@ -1164,8 +1165,18 @@ export function OrderGroupCard({
                       const EventIcon = EVENT_ICON[ev.event_type] ?? History;
                       return (
                         <li key={ev.id} className="flex gap-3 text-xs">
-                          <span className="w-28 shrink-0 tabular-nums text-muted-foreground">
-                            {formatDate(ev.created_at)}
+                          <span className="w-32 shrink-0 tabular-nums text-muted-foreground">
+                            {formatDateTimePl(ev.created_at)}
+                          </span>
+                          {/* KTO — bez tego nie dało się ustalić, kto zmienił
+                              budżet (UAT B50). Pusty autor to zdarzenie
+                              automatyczne, nie brak danych: każdy handler
+                              z użytkownikiem stempluje `created_by_user_id`. */}
+                          <span
+                            className="w-32 shrink-0 truncate text-muted-foreground"
+                            title={eventAuthor(ev)}
+                          >
+                            {eventAuthor(ev)}
                           </span>
                           <span className="flex w-36 shrink-0 items-center gap-1.5 font-medium text-foreground">
                             <EventIcon
@@ -1189,4 +1200,11 @@ export function OrderGroupCard({
       ) : null}
     </section>
   );
+}
+
+/** Wykonawca wpisu historii: nazwa, sam identyfikator (konto usunięte) albo system. */
+function eventAuthor(ev: OrderGroupEvent): string {
+  if (ev.created_by_name) return ev.created_by_name;
+  if (ev.created_by_user_id != null) return `Użytkownik #${ev.created_by_user_id}`;
+  return "Automatycznie (system)";
 }

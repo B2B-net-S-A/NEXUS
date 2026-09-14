@@ -529,6 +529,12 @@ class OrderGroupEventRead(BaseModel):
     order_id: Optional[int] = None
     payload: Optional[dict[str, Any]] = None
     created_by_user_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    """Wykonawca operacji (UAT B50). ``None`` przy ``created_by_user_id``
+    pustym = zdarzenie automatyczne (skaner, wyczerpanie puli) — każdy handler
+    z użytkownikiem stempluje autora, więc pusty autor to system, nie brak
+    danych. ``None`` przy WYPEŁNIONYM id = konto usunięte; front pokazuje
+    wtedy sam identyfikator, bez zgadywania nazwiska."""
     created_at: datetime
 
     related_group_id: Optional[int] = None

@@ -77,7 +77,7 @@ function ClientsTable() {
             <th className="text-left px-3 py-2 font-medium">Klient</th>
             <th className="text-left px-3 py-2 font-medium">Head DL</th>
             <th className="text-right px-3 py-2 font-medium">Przychód łącznie (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Przychód aktywny (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Wartość aktywnych zamówień (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Marża/mc (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Zamówienia aktywne</th>
             <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>
@@ -179,7 +179,7 @@ function DlLeaderboard() {
             <th className="text-right px-3 py-2 font-medium">Klienci</th>
             <th className="text-right px-3 py-2 font-medium">Klienci jako Head DL</th>
             <th className="text-right px-3 py-2 font-medium">Przychód łącznie (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Przychód aktywny (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Wartość aktywnych zamówień (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Marża/mc (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Zamówienia aktywne</th>
             <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>

@@ -184,3 +184,47 @@ describe("FinancialRatesCard", () => {
     expect(orderRow).toHaveTextContent("(aktualna)");
   });
 });
+
+// UAT B53: „Historia stawek" odsyła do kroków harmonogramu w tej karcie, a karta
+// renderowała harmonogram dopiero od DWÓCH kroków — przy jednym kroku
+// z zamówienia wskazówka prowadziła do pustego miejsca.
+describe("FinancialRatesCard — harmonogram z jednym krokiem (UAT B53)", () => {
+  it("pokazuje datę i pochodzenie już przy jednym kroku stawki klienta", () => {
+    render(
+      <FinancialRatesCard
+        contract={{
+          ...BASE_CONTRACT,
+          currency: "PLN",
+          rate_client: 130,
+          client_rate_schedule: [
+            { id: 11, rate: 130, effective_from: "2026-07-01", source_order_id: 77 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("client-rate-schedule-11-source")).toHaveTextContent("z zamówienia");
+    expect(screen.getByText(/od 1\.07\.2026/)).toBeInTheDocument();
+  });
+
+  it("pokazuje jeden krok stawki kandydata, a bez kroków nic nie dorysowuje", () => {
+    const { rerender } = render(
+      <FinancialRatesCard
+        contract={{
+          ...BASE_CONTRACT,
+          currency: "PLN",
+          rate_candidate: 100,
+          candidate_rate_schedule: [{ id: 5, rate: 100, effective_from: "2026-03-01" }],
+        }}
+      />,
+    );
+    expect(screen.getByText(/od 1\.03\.2026/)).toBeInTheDocument();
+
+    rerender(
+      <FinancialRatesCard
+        contract={{ ...BASE_CONTRACT, currency: "PLN", rate_candidate: 100 }}
+      />,
+    );
+    expect(screen.queryByText(/^od /)).not.toBeInTheDocument();
+  });
+});

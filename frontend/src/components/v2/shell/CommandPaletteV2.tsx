@@ -404,7 +404,7 @@ export function CommandPaletteV2({
                   <CommandShortcut>J</CommandShortcut>
                 </CommandItem>
               )}
-              <CommandItem onSelect={() => go("/settings")}>
+              <CommandItem onSelect={() => go("/settings?tab=szablony")}>
                 <Mail className="h-4 w-4" />
                 Szablony email
               </CommandItem>

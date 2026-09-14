@@ -1519,6 +1519,12 @@ async def seeking_contractors(
         ),
     ),
     page_size: int = Query(50, ge=1, le=200),
+    # Przesunięcie w uporządkowanej puli (UAT B06). Do 09.2026 lista była
+    # obcinana do `page_size` bez żadnej drogi do reszty: przy 2 890
+    # konsultantach 2 840 osób nie dało się obejrzeć inaczej niż zgadując
+    # filtry. Porządek jest deterministyczny (`seeking_priority`), więc kolejne
+    # okna nie nakładają się na siebie ani nie gubią nikogo między sobą.
+    offset: int = Query(0, ge=0, description="Offset in the ordered pool."),
     current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1620,14 +1626,18 @@ async def seeking_contractors(
     # powtarzalny między requestami.
     candidate_ids = sorted(
         pool_ids, key=lambda cid: seeking_priority(cid, ending_meta)
-    )[:page_size]
+    )[offset : offset + page_size]
+    # „Zostało coś ZA tym oknem" — liczone od końca okna, nie od jego
+    # początku; inaczej ostatnia strona zawsze twierdziłaby, że jest przycięta.
+    truncated = total_available > offset + len(candidate_ids)
 
     if not candidate_ids:
         return {
             "horizon_days": horizon_days,
-            "total": 0,
+            "total": total_available,
             "returned": 0,
-            "truncated": False,
+            "truncated": truncated,
+            "offset": offset,
             "items": [],
             # `meta` jest w KAŻDEJ gałęzi, także tam, gdzie wyszukiwanie się nie
             # odbyło. Konsument czytający `body.meta.degraded` dostawał tu
@@ -1658,7 +1668,8 @@ async def seeking_contractors(
             "horizon_days": horizon_days,
             "total": total_available,
             "returned": len(candidate_ids),
-            "truncated": total_available > len(candidate_ids),
+            "truncated": truncated,
+            "offset": offset,
             "items": [
                 {
                     "candidate": _shape_seek_candidate(c),
@@ -1793,7 +1804,8 @@ async def seeking_contractors(
         # cicho, a UI pokazywał tę drugą jako pierwszą.
         "total": total_available,
         "returned": len(items),
-        "truncated": total_available > len(items),
+        "truncated": truncated,
+        "offset": offset,
         "items": items,
         # Jeśli dla CHOĆ JEDNEGO kandydata wyszukiwanie nie odpowiedziało,
         # kokpit jest niepełny — i musi to powiedzieć. Bez tego pusty wiersz

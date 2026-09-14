@@ -116,15 +116,28 @@ async def list_notifications(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
 ):
-    """List notifications for current user — unread first."""
+    """List notifications for current user — unread first.
+
+    ``offset`` (B51): dzwonek pokazywał wyłącznie pierwsze ``limit`` pozycji
+    bez drogi do starszych; z przesunięciem klient może doładować kolejne.
+    Kolejność „nieprzeczytane najpierw" jest stała między stronami, dopóki
+    nic nie zostanie oznaczone jako przeczytane — po takiej zmianie klient
+    powinien czytać od zera, nie kontynuować przesunięcia.
+    """
     result = await db.execute(
         select(Notification)
         .where(
             _notification_owner(current_user),
             _notification_visibility(current_user),
         )
-        .order_by(Notification.is_read.asc(), Notification.created_at.desc())
+        .order_by(
+            Notification.is_read.asc(),
+            Notification.created_at.desc(),
+            Notification.id.desc(),
+        )
+        .offset(offset)
         .limit(limit)
     )
     notifications = result.scalars().all()

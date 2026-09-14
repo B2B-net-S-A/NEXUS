@@ -104,7 +104,14 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
                     </th>
                   ))}
                   <th className="text-right font-medium py-2 px-2">Razem</th>
-                  <th className="text-left font-medium py-2 w-32">Udział</th>
+                  {/* Mianownik paska to LIDER okna (decyzja, nie udział w sumie
+                      — wartości nie sumują się do 100%; UAT B26). */}
+                  <th
+                    className="text-left font-medium py-2 w-32"
+                    title="Aktywność osoby jako procent aktywności lidera w tym okresie (lider = 100%). To nie jest udział w sumie akcji zespołu."
+                  >
+                    vs lider
+                  </th>
                 </tr>
               </thead>
               <tbody>

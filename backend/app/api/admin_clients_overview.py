@@ -29,7 +29,10 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
 from app.schemas.admin_clients_overview import DlKpiRow, OverviewRow
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
-from app.services.contractor_identity import summarize_active_contracts
+from app.services.contractor_identity import (
+    current_contracts,
+    summarize_active_contracts,
+)
 from app.services.insights_clients import (
     LIVE_CONTRACT_STATUSES,
     compute_client_ranking,
@@ -173,8 +176,10 @@ async def kpi_by_dl(
                 )
             ).scalars()
         )
-        active_headcount = summarize_active_contracts(margin_rows_dl)
         today = date.today()
+        # Tylko kontrakty OBECNE — ta sama reguła co profil i ranking (B46).
+        margin_rows_dl = current_contracts(margin_rows_dl, today)
+        active_headcount = summarize_active_contracts(margin_rows_dl)
         # Kontrakt bez jednej nogi stawki (``unpriced``) nie zdejmuje kwoty
         # z wiersza DL — suma jest częściowa, jak kafel na profilu klienta;
         # kwotę kasuje wyłącznie brak kursu NBP (``incomplete``).

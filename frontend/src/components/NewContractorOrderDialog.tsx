@@ -33,10 +33,17 @@ import {
 interface NewContractorOrderDialogProps {
   clientId: number;
   orderType?: OrderType;
-  /** Zmiana typu przekazuje wgrany plik do formularza zamówienia MD/kosztowego. */
-  onOrderTypeChange?: (orderType: OrderType, file: File | null) => void;
+  /** Zmiana typu przekazuje wgrany plik i wpisany numer do formularza
+   *  zamówienia MD/kosztowego (UAT B03). */
+  onOrderTypeChange?: (
+    orderType: OrderType,
+    file: File | null,
+    orderNumber: string,
+  ) => void;
   /** Plik przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
   initialFile?: File | null;
+  /** Numer zamówienia przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
+  initialOrderNumber?: string;
   allowedOrderTypes?: readonly OrderType[];
   canManageFinance?: boolean;
   /**
@@ -89,6 +96,7 @@ export function NewContractorOrderDialog({
   onOrderTypeChange,
   allowedOrderTypes,
   initialFile = null,
+  initialOrderNumber = "",
   canManageFinance: serverCanManageFinance,
   defaultRateUnit,
   onClose,
@@ -106,7 +114,8 @@ export function NewContractorOrderDialog({
     useState<CandidateSearchItem | null>(null);
 
   const [jobId, setJobId] = useState<string>(""); // "" = brak
-  const [title, setTitle] = useState("");
+  // „Numer zamówienia" — przy zmianie typu przejmowany z drugiego formularza.
+  const [title, setTitle] = useState(initialOrderNumber);
   const [contractStart, setContractStart] = useState("");
   const [orderStart, setOrderStart] = useState("");
   const [orderEnd, setOrderEnd] = useState("");
@@ -453,7 +462,7 @@ export function NewContractorOrderDialog({
         {onOrderTypeChange ? (
           <OrderTypeSwitch
             value={orderType}
-            onChange={(next) => onOrderTypeChange(next, file)}
+            onChange={(next) => onOrderTypeChange(next, file, title)}
             allowedTypes={allowedOrderTypes}
           />
         ) : null}

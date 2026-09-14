@@ -41,7 +41,10 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
-from app.services.contractor_identity import summarize_active_contracts
+from app.services.contractor_identity import (
+    current_contracts as current_contracts_for,
+    summarize_active_contracts,
+)
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
     amount_to_pln_with_rate,
@@ -564,6 +567,14 @@ async def get_client_profile(
         .order_by(Contract.start_date.desc())
     )
     active_contracts = list((await db.execute(active_stmt)).scalars().all())
+    # „Obecny" = kontrakt, który JUŻ obowiązuje: data startu wpisana i nie
+    # późniejsza niż dziś — ta sama reguła co licznik w katalogu klientów
+    # (`client_directory.py`). Kontrakt z przyszłym startem albo bez daty
+    # startu jedzie OSOBNO jako planowany: nie wchodzi do „Aktywnego MRR" ani
+    # do liczby obecnych, ale nie znika z profilu (UAT B46). Statusu nie
+    # ruszamy — o zakończeniu decyduje umowa (patrz „Zakończeni" w CLAUDE.md).
+    current_contracts = current_contracts_for(active_contracts, today)
+    current_contract_ids = {c.id for c in current_contracts}
 
     # Stawki liczone z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.
     # Kolumna niesie wartość zapisaną przy ostatnim zapisie kontraktu, więc
@@ -587,12 +598,16 @@ async def get_client_profile(
     }
 
     active_consultants: list[ActiveConsultantItem] = []
+    planned_consultants: list[ActiveConsultantItem] = []
     for c in active_contracts:
         if c.candidate is None:
             continue
         rates = active_rates_pln[c.id]
         job_id, job_title, job_from_order = _resolve_job(c)
-        active_consultants.append(
+        bucket = (
+            active_consultants if c.id in current_contract_ids else planned_consultants
+        )
+        bucket.append(
             ActiveConsultantItem(
                 contract_id=c.id,
                 candidate=_candidate_brief(c.candidate),
@@ -739,8 +754,9 @@ async def get_client_profile(
     # (zmierzone na prodzie: Alior 59 211 vs 59 212). Kafel ma być sumą tego,
     # co użytkownik WIDZI pod nim.
     active_mrr_complete = not any(
-        rates["client_missing_fx"] or rates["candidate_missing_fx"]
-        for rates in active_rates_pln.values()
+        active_rates_pln[c.id]["client_missing_fx"]
+        or active_rates_pln[c.id]["candidate_missing_fx"]
+        for c in current_contracts
     )
     # Kontrakt bez stawki (marża `None`) NIE jest zerem: do sumy wchodzą
     # wyłącznie wiersze z policzoną marżą, a liczba pominiętych jedzie osobno
@@ -748,15 +764,18 @@ async def get_client_profile(
     # kwoty jako pełnej. Gdy żaden aktywny kontrakt nie ma marży, kafel
     # dostaje „—" — ta sama reguła co ranking klientów w Radzie (brak
     # wycenionego kontraktu = brak kwoty, nie 0,00 zł).
+    # Wyłącznie kontrakty OBECNE — planowany (przyszły start) niósł tu marżę,
+    # której nikt jeszcze nie zarabia, i kafel „bieżącej" marży rósł o
+    # kontrakty z października (UAT B46).
     priced_margins = [
         active_rates_pln[c.id]["monthly_margin"]
-        for c in active_contracts
+        for c in current_contracts
         if active_rates_pln[c.id]["monthly_margin"] is not None
     ]
-    active_mrr_unpriced = len(active_contracts) - len(priced_margins)
+    active_mrr_unpriced = len(current_contracts) - len(priced_margins)
     active_mrr = (
         sum(to_whole_pln(margin) for margin in priced_margins)
-        if active_mrr_complete and (priced_margins or not active_contracts)
+        if active_mrr_complete and (priced_margins or not current_contracts)
         else None
     )
 
@@ -808,8 +827,11 @@ async def get_client_profile(
         fill_days.append(delta)
     avg_ttf = (sum(fill_days) / len(fill_days)) if fill_days else None
 
-    total_placements = len(active_consultants) + len(placements)
-    active_headcount = summarize_active_contracts(active_contracts)
+    # Placement to osoba zatrudniona — także ta, która dopiero wystartuje.
+    total_placements = (
+        len(active_consultants) + len(planned_consultants) + len(placements)
+    )
+    active_headcount = summarize_active_contracts(current_contracts)
 
     summary = ClientProfileSummary(
         open_jobs=len(open_jobs),
@@ -830,6 +852,7 @@ async def get_client_profile(
         summary=summary,
         open_jobs=open_jobs,
         active_consultants=active_consultants,
+        planned_consultants=planned_consultants,
         historical=ClientProfileHistory(placements=placements, lost_jobs=lost_jobs),
     )
 
@@ -854,6 +877,12 @@ async def get_client_profile(
             job.salary_min = None
             job.salary_max = None
         for consultant in response.active_consultants:
+            consultant.monthly_rate_client = None
+            consultant.monthly_rate_candidate = None
+            consultant.monthly_margin = None
+        # „Planowani" niosą ten sam kształt (`ActiveConsultantItem`) i te same
+        # trzy kwoty — redakcja obejmuje ich tak samo jak obecnych.
+        for consultant in response.planned_consultants:
             consultant.monthly_rate_client = None
             consultant.monthly_rate_candidate = None
             consultant.monthly_margin = None
