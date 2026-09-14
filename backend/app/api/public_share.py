@@ -9,6 +9,7 @@ exposed on these endpoints.
 import asyncio
 import logging
 import os
+import pathlib
 import hashlib
 import re
 from datetime import datetime, timezone
@@ -727,7 +728,11 @@ async def _persist_cv(
     product (download, enrichment, embedding) keeps working.
     """
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    filename = upload.filename or "cv.pdf"
+    # Nazwa z przeglądarki bez komponentów katalogu — jak
+    # `candidates._sanitize_upload_filename`. Wynik trafia do `cv_filename`,
+    # które ścieżki pobrania doklejają do `UPLOAD_DIR`; nazwa z `/` kończyła
+    # się tu `FileNotFoundError` (500 po utworzeniu kandydata).
+    filename = pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
     file_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate_id}_{filename}"
     )
