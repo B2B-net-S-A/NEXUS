@@ -111,6 +111,13 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   limitu wieszał boot. Timeout zatrzymuje start tylko wtedy, gdy schemat NAPRAWDĘ
   jest niekompletny. Polityka podpisów jest miękka WYŁĄCZNIE przy timeoucie zamka
   (SQLSTATE 55P03); każdy inny błąd zatrzymuje start jak dawniej.
+- **`checks.m365` (`services/m365_health.py`, od 09.2026) nie patrzy na wiek
+  `last_sync_at`** — każda nieudana próba go odświeża, a pętla ponawia co 30 min,
+  więc skrzynka w błędzie od tygodni wyglądała na świeżą. `degraded` = brak
+  aktywnego połączenia ALBO aktywna skrzynka, której ostatnia próba padła, ALBO
+  połączenie wyłączone przez awarię (`is_active=False`) u aktywnego pracownika.
+  Odłączenie przez użytkownika kasuje wiersz, więc nieaktywny wiersz to zawsze
+  awaria. Sonda jest informacyjna — nie daje `unhealthy`.
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
 - **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
 
@@ -2921,6 +2928,11 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
     poprawi jedną z nich; wtedy kafel „Marża / mc" i komórka „Marża" w tabeli
     obok pokazują dwie różne kwoty pod jedną nazwą, na jednym ekranie.
     Pilnuje tego test TOŻSAMOŚCI obiektu funkcji, nie zachowania.
+    **Kwoty kontraktu są zaokrąglane do pełnych złotych PRZED sumowaniem**
+    (`to_whole_pln`, UAT M06-B04) — tak samo w rankingu klientów, profilu,
+    portalu DL i przeglądzie admina; suma zaokrągleń ≠ zaokrąglenie sumy,
+    a różnica wychodzi między kaflem a rankingiem na jednej zakładce.
+    Pilnuje `test_margin_rounding_parity.py`.
   - **Rezygnacje to PODZBIÓR zejść** (`consultant_resigned`, `better_offer`,
     `personal_reasons`); `poached_by_client` świadomie poza — to klient zabiera
     człowieka, inne zjawisko i inny wniosek. Data zejścia to

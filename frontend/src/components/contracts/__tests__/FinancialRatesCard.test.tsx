@@ -159,4 +159,28 @@ describe("FinancialRatesCard", () => {
     expect(screen.queryByText(/20[,.]00/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("eur-pln-rate-note")).not.toBeInTheDocument();
   });
+  it("odróżnia krok z zamówienia od ręcznego i oznacza krok zastąpiony tą samą datą (UAT M08-B03)", () => {
+    render(
+      <FinancialRatesCard
+        contract={{
+          ...BASE_CONTRACT,
+          currency: "PLN",
+          rate_client: 130,
+          client_rate_schedule: [
+            { id: 1, rate: 120, effective_from: "2026-01-01", source_order_id: null },
+            { id: 2, rate: 130, effective_from: "2026-07-01", source_order_id: null },
+            { id: 3, rate: 130, effective_from: "2026-07-01", source_order_id: 77 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("client-rate-schedule-2-source")).toHaveTextContent("ręcznie / aneks");
+    expect(screen.getByTestId("client-rate-schedule-3-source")).toHaveTextContent("z zamówienia");
+    const manualRow = screen.getByTestId("client-rate-schedule-2-source").parentElement!;
+    expect(manualRow).toHaveTextContent("nieobowiązująca");
+    const orderRow = screen.getByTestId("client-rate-schedule-3-source").parentElement!;
+    expect(orderRow).not.toHaveTextContent("nieobowiązująca");
+    expect(orderRow).toHaveTextContent("(aktualna)");
+  });
 });

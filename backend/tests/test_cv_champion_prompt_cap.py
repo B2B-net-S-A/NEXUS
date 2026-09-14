@@ -10,6 +10,7 @@ Word v4 table read and the stored profile themselves stay uncapped.
 """
 
 import time
+from datetime import date
 
 from app.services.champion_intake import MAX_TEXT
 from app.services.cv_generator_b2b import standalone_service as svc
@@ -20,6 +21,7 @@ from app.services.cv_generator_b2b.champion_builder import (
     build_screening_notes_section,
     cap_champion_prompt_section,
 )
+from app.services.cv_generator_b2b.legacy_v7 import pipeline as legacy_pipeline
 from app.services.cv_generator_b2b.legacy_v7.champion import (
     build_champion_section as build_legacy_champion_section,
 )
@@ -113,7 +115,10 @@ def test_legacy_prompt_is_byte_identical_for_a_normal_champion(defaults) -> None
     assert defaults["calls"][0]["user"] == (
         f"<cv>\n{LEGACY_CV_TEXT.strip()}\n</cv>\n\n"
         f"<screening_notes>\n{notes}\n</screening_notes>\n\n"
-        f"<champion_profile>\n{section}\n</champion_profile>"
+        f"<champion_profile>\n{section}\n</champion_profile>\n\n"
+        # M05-B01: dzisiejsza data dla liczenia „obecnie" (poza cache'owanym
+        # promptem systemowym).
+        + legacy_pipeline.build_generation_date_block("pl", date.today())
     )
     assert CHAMPION_PROMPT_CAP_WARNING not in result.warnings
 

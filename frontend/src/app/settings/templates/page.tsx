@@ -12,7 +12,6 @@ import {
   X,
   Loader2,
   AlertCircle,
-  Send,
   CheckCircle2,
   FileText,
   Star,
@@ -208,7 +207,6 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
     is_default: template?.is_default ?? false,
   });
   const [error, setError] = useState("");
-  const [sendTestSuccess, setSendTestSuccess] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -241,14 +239,6 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
     },
     onError: () => {
       setError("Błąd zapisywania szablonu. Spróbuj ponownie.");
-    },
-  });
-
-  const sendTestMutation = useMutation({
-    mutationFn: () => api.post(`/api/email-templates/${template!.id}/send`),
-    onSuccess: () => {
-      setSendTestSuccess(true);
-      setTimeout(() => setSendTestSuccess(false), 3000);
     },
   });
 
@@ -322,26 +312,8 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
           </h2>
         </div>
         <div className="flex items-center gap-2">
-          {isEdit && (
-            <button
-              type="button"
-              onClick={() => sendTestMutation.mutate()}
-              disabled={sendTestMutation.isPending}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border",
-                sendTestSuccess
-                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
-                  : "bg-card dark:bg-muted text-muted-foreground dark:text-muted-foreground border-border dark:border-border hover:bg-muted dark:hover:bg-gray-600"
-              )}
-              title="Wyślij testowy email na swój adres"
-            >
-              {sendTestSuccess ? (
-                <><CheckCircle2 className="w-3.5 h-3.5" /> Wysłano!</>
-              ) : (
-                <><Send className="w-3.5 h-3.5" /> Wyślij test</>
-              )}
-            </button>
-          )}
+          {/* UAT M11-B05: „Wyślij test" wołał wyłączony endpoint (410) i nic
+              nie wysyłał — przycisk zdjęty; treść sprawdza „Podgląd". */}
           <button
             type="button"
             onClick={handlePreview}
@@ -623,7 +595,7 @@ export default function EmailTemplatesPage() {
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex items-start gap-3 shrink-0">
         <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          <strong>Tryb symulacji:</strong> Wysyłka emaili jest rejestrowana w konsoli serwera — wiadomości nie są faktycznie wysyłane. Integracja SMTP zostanie dodana w kolejnej wersji.
+          <strong>Jak działają szablony:</strong> wypełniają okno „Wyślij e-mail” na profilu kandydata. NEXUS nie wysyła tych wiadomości sam — otwiera gotowy szkic w Twoim programie pocztowym. Wysyłki testowej nie ma; treść sprawdzisz przyciskiem „Podgląd”.
         </p>
       </div>
 

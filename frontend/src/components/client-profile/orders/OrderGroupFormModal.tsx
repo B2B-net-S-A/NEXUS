@@ -29,6 +29,8 @@ import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   extractedEndDate,
   extractionErrorMessage,
+  typedByUser,
+  type DocumentFieldValues,
   findConflicts,
   numberToField,
   type ExtractionConflict,
@@ -186,6 +188,11 @@ export function OrderGroupFormModal({
   // wpisać, a taka zmiana musi przejść przez pytanie o rozbieżność.
   const formRef = useRef({ orderNumber, startDate, endDate, budgetAmount, mdBudgetTotal });
   formRef.current = { orderNumber, startDate, endDate, budgetAmount, mdBudgetTotal };
+  // Wartości pól wpisane przez POPRZEDNI odczyt dokumentu. Pole, które nadal
+  // je trzyma, nie jest „wpisane ręcznie": kolejny odczyt innego PDF-a może je
+  // nadpisać bez pytania (a pytanie nie podpisuje ich jako „wpisano"). Bez
+  // tego kwota z pierwszego PDF-a zostawała po odczycie drugiego (UAT M07-B02).
+  const documentValuesRef = useRef<DocumentFieldValues>({});
 
   useEffect(() => {
     if (!open) return;
@@ -216,6 +223,7 @@ export function OrderGroupFormModal({
     setPendingApply(null);
     setLines([]);
     setPlanned(false);
+    documentValuesRef.current = {};
     // `initialFile` celowo poza zależnościami: plik przejmujemy raz, przy
     // otwarciu — późniejsza zmiana w rodzicu nie może nadpisać wyboru tutaj.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -321,14 +329,29 @@ export function OrderGroupFormModal({
           ? String(data.total_value)
           : null;
       const documentPool = poolMd != null ? String(poolMd) : null;
+      const previousDocument = documentValuesRef.current;
+      const typed = {
+        title: typedByUser(current.orderNumber, previousDocument.title),
+        start_date: typedByUser(current.startDate, previousDocument.start_date),
+        end_date: typedByUser(current.endDate, previousDocument.end_date),
+        total_value: typedByUser(current.budgetAmount, previousDocument.total_value),
+        md_total: typedByUser(current.mdBudgetTotal, previousDocument.md_total),
+      };
+      const nextDocument: DocumentFieldValues = { ...previousDocument };
       if (!group) {
-        if (documentBudget !== null && !current.budgetAmount.trim()) {
-          setBudgetAmount(documentBudget);
+        // Pole puste albo z poprzedniego dokumentu → bierze wartość z TEGO
+        // dokumentu (także brak — stara kwota z innego PDF-a nie zostaje).
+        // Kwota wpisana ręcznie → pytanie o rozbieżność niżej.
+        if (!typed.total_value) {
+          setBudgetAmount(documentBudget ?? "");
+          nextDocument.total_value = documentBudget ?? "";
         }
-        if (documentPool !== null && !current.mdBudgetTotal.trim()) {
-          setMdBudgetTotal(documentPool);
+        if (!typed.md_total) {
+          setMdBudgetTotal(documentPool ?? "");
+          nextDocument.md_total = documentPool ?? "";
         }
       }
+      documentValuesRef.current = nextDocument;
       // BIK: brak daty końca to poprawny odczyt („bezterminowo — do
       // wyczerpania MD"), więc pole „do" jest czyszczone jawnie.
       const extractedEnd = extractedEndDate(data);
@@ -336,41 +359,57 @@ export function OrderGroupFormModal({
       // każde inne: nadpisanie wpisanej wartości wymaga zgody (pytanie niżej).
       const applyBudget = Boolean(group);
       const apply = () => {
-        if (data.order_number) setOrderNumber(data.order_number);
-        if (data.start_date) setStartDate(data.start_date.slice(0, 10));
-        if (extractedEnd) setEndDate(extractedEnd.value);
-        if (applyBudget && isCostBased && documentBudget !== null) {
+        const applied: DocumentFieldValues = { ...documentValuesRef.current };
+        if (data.order_number) {
+          setOrderNumber(data.order_number);
+          applied.title = data.order_number;
+        }
+        if (data.start_date) {
+          setStartDate(data.start_date.slice(0, 10));
+          applied.start_date = data.start_date.slice(0, 10);
+        }
+        if (extractedEnd) {
+          setEndDate(extractedEnd.value);
+          applied.end_date = extractedEnd.value;
+        }
+        if ((applyBudget ? isCostBased : true) && documentBudget !== null) {
           setBudgetAmount(documentBudget);
+          applied.total_value = documentBudget;
         }
         if (applyBudget && sharedMd && data.md_total != null) {
           setMdBudgetTotal(String(data.md_total));
+          applied.md_total = String(data.md_total);
+        } else if (!applyBudget && documentPool !== null) {
+          setMdBudgetTotal(documentPool);
+          applied.md_total = documentPool;
         }
+        documentValuesRef.current = applied;
       };
       const found = findConflicts([
         {
           key: "title",
           label: "Numer zamówienia",
-          current: current.orderNumber,
+          current: typed.title,
           incoming: data.order_number ?? null,
         },
         {
           key: "start_date",
           label: "Obowiązuje od",
-          current: current.startDate,
+          current: typed.start_date,
           incoming: data.start_date ? data.start_date.slice(0, 10) : null,
         },
         {
           key: "end_date",
           label: "Obowiązuje do",
-          current: current.endDate,
+          current: typed.end_date,
           incoming: extractedEnd?.display ?? null,
         },
-        ...(group && isCostBased
+        ...(!group || isCostBased
           ? [
               {
                 key: "total_value" as const,
                 label: "Kwota zamówienia",
-                current: current.budgetAmount,
+                current: typed.total_value,
                 incoming: documentBudget,
               },
             ]
@@ -380,11 +419,20 @@ export function OrderGroupFormModal({
               {
                 key: "md_total" as const,
                 label: "Budżet w MD",
-                current: current.mdBudgetTotal,
+                current: typed.md_total,
                 incoming: numberToField(data.md_total) || null,
               },
             ]
-          : []),
+          : !group
+            ? [
+                {
+                  key: "md_total" as const,
+                  label: "Budżet w MD",
+                  current: typed.md_total,
+                  incoming: documentPool,
+                },
+              ]
+            : []),
       ]);
       setConsultantRef(data.consultant_ref ?? null);
       setClientPolicy(data.client_policy);

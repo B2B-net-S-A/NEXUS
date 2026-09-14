@@ -2146,10 +2146,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
  // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
  const allItems = useMemo(() => cols.flatMap((c) => c.items), [cols]);
- const stuckCount = useMemo(
- () => allItems.filter((i) => (i.days_in_stage ?? 0) > 7).length,
- [allItems]
- );
+ // „Utknęli > 7 d" BEZ kolumn terminalnych (B-B05): odrzucony czy zatrudniony
+ // „stoi" na swoim etapie bezterminowo i nie jest sprawą do załatwienia.
+ // Ta sama reguła co `countStalled` w KPI jobbara tuż nad tablicą — do
+ // 09.2026 filtr liczył wszystkie karty i pokazywał 80 obok KPI „26" pod
+ // tą samą etykietą.
+ const stuckIds = useMemo(() => {
+ const ids = new Set<number>();
+ for (const col of cols) {
+ if (col.category === "terminal") continue;
+ for (const item of col.items) {
+ if ((item.days_in_stage ?? 0) > 7) ids.add(item.id);
+ }
+ }
+ return ids;
+ }, [cols]);
+ const stuckCount = stuckIds.size;
  // Karty bez podpowiedzi „co dalej" — liczone tą samą funkcją, którą karta
  // renderuje, więc licznik w rail'u nie może rozjechać się z tablicą.
  const noActionIds = useMemo(() => {
@@ -2185,7 +2197,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // z trzech filtrów, nigdy przy niepowiązanym re-renderze (np. checkbox).
  const isDimmed = useCallback(
  (item: KanbanItem) => {
- if (stuckFilter && !((item.days_in_stage ?? 0) > 7)) return true;
+ if (stuckFilter && !stuckIds.has(item.id)) return true;
  if (
  blockedFilter &&
  !(Boolean(item.hm_veto) || item.verification_status === "pending")
@@ -2198,7 +2210,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return false;
  },
- [stuckFilter, blockedFilter, noActionFilter, noActionIds, recruiterFilter]
+ [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter]
  );
 
  // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to

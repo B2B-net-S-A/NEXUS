@@ -52,6 +52,8 @@ export interface ClientProfileSummary {
   total_placements: number;
   /** null = brak uprawnień finansowych (backend redaguje; formatPLN → "—") */
   active_mrr: number | null;
+  /** Aktywne kontrakty bez stawki, pominięte w `active_mrr` — >0 = suma niepełna. */
+  active_mrr_unpriced_contracts?: number;
   ltv: number | null;
   avg_time_to_fill_days: number | null;
   /** "opened_at" gdy policzone, "unavailable" gdy żadna rekrutacja nie ma daty

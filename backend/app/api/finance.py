@@ -15,7 +15,7 @@ import hashlib
 import io
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -143,8 +143,40 @@ async def _lock_period(db: AsyncSession, year: int, month: int) -> None:
         )
 
 
+_PCT_QUANT = Decimal("0.1")
+
+
+def _margin_percent(row: FinanceMonthlyResult) -> Optional[Decimal]:
+    """Marża % wiersza w PUNKTACH PROCENTOWYCH (21.4 = 21,4%).
+
+    Kolumna ``margin_pct`` jest niejednoznaczna: komórka Excela sformatowana
+    jako procent przychodzi z openpyxl jako UŁAMEK (0.214), a tekst „20,2%"
+    jako punkty (20.2). Do tego kolumna ma 2 miejsca po przecinku, więc ułamek
+    traci precyzję do pełnego punktu (0.17 zamiast 0.1667). Front doklejał
+    „%" do ułamka i pokazywał „0,2%" zamiast ~21%.
+
+    Kolejność źródeł:
+    1. wartość wpisana RĘCZNIE (``edited_fields``) — człowiek wpisuje punkty
+       procentowe i jego korekta wygrywa;
+    2. „Marża PLN" / „Faktura" — dokładne i niezależne od formatu komórki;
+    3. zapisana wartość z importu: |v| ≤ 1 to ułamek z komórki procentowej.
+    """
+    if row.margin_pct is not None and "margin_pct" in (row.edited_fields or []):
+        return Decimal(row.margin_pct)
+    if row.margin_pln is not None and row.invoice_amount:
+        return (Decimal(row.margin_pln) / Decimal(row.invoice_amount) * 100).quantize(
+            _PCT_QUANT, rounding=ROUND_HALF_UP
+        )
+    if row.margin_pct is None:
+        return None
+    value = Decimal(row.margin_pct)
+    return value * 100 if abs(value) <= 1 else value
+
+
 def _row_to_read(row: FinanceMonthlyResult) -> FinanceResultRow:
-    return FinanceResultRow.model_validate(row)
+    read = FinanceResultRow.model_validate(row)
+    read.margin_percent = _margin_percent(row)
+    return read
 
 
 def _run_to_read(run: FinanceImportRun) -> FinanceImportRunRead:
@@ -260,6 +292,18 @@ async def get_results(
     query = query.order_by(ordering, FinanceMonthlyResult.row_number.asc())
 
     rows = (await db.execute(query)).scalars().all()
+    if sort == "margin_pct":
+        # Tabela pokazuje ``_margin_percent`` (punkty procentowe), a surowa
+        # kolumna miesza ułamki z komórek procentowych (0.21) z punktami (20.2).
+        # Sortowanie po kolumnie stawiałoby 21% poniżej 5%, więc porządek
+        # liczymy z tej samej wartości, którą widzi użytkownik.
+        present = [r for r in rows if _margin_percent(r) is not None]
+        missing = [r for r in rows if _margin_percent(r) is None]
+        present.sort(
+            key=lambda r: _margin_percent(r) or Decimal(0),
+            reverse=direction == "desc",
+        )
+        rows = present + missing
 
     # Kafle liczone z TYCH SAMYCH wierszy co tabela (bez filtra szukania —
     # kafle opisują miesiąc, nie bieżące wyszukiwanie).
@@ -277,9 +321,20 @@ async def get_results(
     cost = sum((r.compensation or Decimal(0) for r in all_rows), Decimal(0))
     revenue = sum((r.invoice_amount or Decimal(0) for r in all_rows), Decimal(0))
     margin = sum((r.margin_pln or Decimal(0) for r in all_rows), Decimal(0))
-    pct_values = [r.margin_pct for r in all_rows if r.margin_pct is not None]
+    # Średnia z marży % w punktach procentowych (patrz ``_margin_percent``) —
+    # nie z surowej kolumny, która dla komórek procentowych Excela jest ułamkiem.
+    pct_values = [p for p in (_margin_percent(r) for r in all_rows) if p is not None]
     avg_pct = (
         sum(pct_values, Decimal(0)) / Decimal(len(pct_values)) if pct_values else None
+    )
+    # Kafel „Marża" to suma kolumny „Marża PLN" z arkusza Finansów, a NIE
+    # „Przychód" − „Koszt": wiersze z wynagrodzeniem bez faktury mają marżę
+    # pustą i nie obniżają sumy marży, choć ich koszt jest w kaflu „Koszt".
+    # Liczby poniżej pozwalają frontowi to powiedzieć wprost zamiast udawać,
+    # że trzy kafle się sumują.
+    without_margin = [r for r in all_rows if r.margin_pln is None]
+    cost_without_margin = sum(
+        (r.compensation or Decimal(0) for r in without_margin), Decimal(0)
     )
 
     return FinanceResultsResponse(
@@ -288,7 +343,12 @@ async def get_results(
         run_id=run.id,
         rows=[_row_to_read(r) for r in rows],
         totals=FinanceTotals(
-            cost=cost, revenue=revenue, margin=margin, avg_margin_pct=avg_pct
+            cost=cost,
+            revenue=revenue,
+            margin=margin,
+            avg_margin_pct=avg_pct,
+            rows_without_margin=len(without_margin),
+            cost_without_margin=cost_without_margin,
         ),
         needs_completion_count=run.needs_completion_count,
     )

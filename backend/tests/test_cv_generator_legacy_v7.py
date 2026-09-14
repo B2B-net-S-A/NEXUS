@@ -334,3 +334,117 @@ async def test_editor_approval_skips_the_paid_review_while_evidence_is_advisory(
     )
     assert result["status"] == "unverified"
     assert result["method"] == "evidence_enforcement_off"
+
+
+# ── M05-B01: lata w „Dlaczego nasz kandydat" liczone do DZIŚ ──────────────
+
+
+def test_model_gets_todays_date_outside_the_cached_system_prompt(defaults):
+    from datetime import date
+
+    _run()
+    call = defaults["calls"][0]
+    today = date.today()
+    assert "<generation_date>" in call["user"]
+    assert today.strftime("%m.%Y") in call["user"]
+    # The cached system prompt stays byte-for-byte the frozen v7 one.
+    assert call["system"] == legacy_prompt("pl", False, "polished")
+    assert today.strftime("%m.%Y") not in call["system"]
+
+
+def test_generation_date_block_speaks_the_document_language():
+    from datetime import date
+
+    pl = legacy.build_generation_date_block("pl", date(2026, 9, 14))
+    en = legacy.build_generation_date_block("en", date(2026, 9, 14))
+    assert "14.09.2026" in pl and "09.2026" in pl and "obecnie" in pl
+    assert "2026-09-14" in en and "09.2026" in en
+
+
+def _roles(*roles):
+    return [
+        {"position": position, "company": company, "dates": dates}
+        for position, company, dates in roles
+    ]
+
+
+def test_role_bound_figure_is_recomputed_from_that_roles_dates():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import _fix_scoped_years
+
+    data = {
+        "experience": _roles(
+            ("Senior Backend Developer", "Test Company Alfa", "01.2017 – 12.2024")
+        ),
+        "why_points": [
+            "6 lat jako Backend Developer, w tym ponad 3 lata w obecnej roli"
+        ],
+    }
+    _fix_scoped_years(data, "pl")
+    # 96 months → 8; the "w obecnej roli" sub-figure is not tied to a name.
+    assert data["why_points"] == [
+        "8 lat jako Backend Developer, w tym ponad 3 lata w obecnej roli"
+    ]
+
+
+def test_company_bound_figure_is_recomputed_from_that_companys_roles():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import _fix_scoped_years
+
+    data = {
+        "experience": _roles(
+            ("QA Engineer", "Test Company Zeta", "05.2019 – 12.2024"),
+            ("Tester", "Test Company Beta", "01.2015 – 04.2019"),
+        ),
+        "why_points": ["Ponad 4 lata w Test Company Zeta przy testach API"],
+    }
+    _fix_scoped_years(data, "pl")
+    # Only Zeta's 68 months count (→ 6), never Beta's.
+    assert data["why_points"] == ["6 lat w Test Company Zeta przy testach API"]
+
+
+def test_scoped_fix_never_adds_years_from_another_role():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import _fix_scoped_years
+
+    data = {
+        "experience": _roles(
+            ("Warehouse worker", "Test Company Gamma", "01.2010 – 12.2017"),
+            ("Python Developer", "Test Company Delta", "01.2018 – 12.2020"),
+        ),
+        "why_points": [
+            "2 lata jako Python Developer",
+            "5 years as a Data Engineer",  # no such role → untouched
+            "4 lata jako Developera",  # inflected, no exact match → untouched
+            "3 lata doświadczenia jako Python Developer",  # baseline headline
+        ],
+    }
+    _fix_scoped_years(data, "pl")
+    assert data["why_points"] == [
+        "3 lata jako Python Developer",
+        "5 years as a Data Engineer",
+        "4 lata jako Developera",
+        "3 lata doświadczenia jako Python Developer",
+    ]
+
+
+def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults):
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        _total_experience_years,
+    )
+
+    role = {
+        "dates": "01.2019 – obecnie",
+        "company": "Test Company Alfa",
+        "position": "Backend Developer",
+        "responsibilities": ["Utrzymanie API w Pythonie"],
+        "technologies": ["Python"],
+    }
+    defaults["response"] = _ai_json(
+        why_points=["6 lat jako Backend Developer"], experience=[role]
+    )
+    result = _run()
+    expected = _total_experience_years([role])
+    point = result.render_payload["why_points"][0]
+    assert point.startswith(f"{expected} ")
+    assert point.endswith("jako Backend Developer")
+    assert not any(
+        w.startswith("BRAK POKRYCIA") and "why_points" in w for w in result.warnings
+    )

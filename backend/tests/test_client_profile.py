@@ -479,6 +479,79 @@ async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
     assert body["summary"]["active_mrr"] == widoczna_suma
 
 
+async def _seed_client_with_contracts(rates: list[tuple[str, str | None]]) -> int:
+    """Klient z aktywnymi kontraktami godzinowymi; `None` = brak stawki przychodowej."""
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"UnpricedClient-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        for i, (cost, revenue) in enumerate(rates):
+            cand = Candidate(
+                name="Unpriced",
+                lastname=f"C{i}-{uuid.uuid4().hex[:6]}",
+                email=f"unpriced-{uuid.uuid4().hex[:8]}@example.com",
+            )
+            db.add(cand)
+            await db.commit()
+            await db.refresh(cand)
+            db.add(
+                Contract(
+                    candidate_id=cand.id,
+                    client_id=client.id,
+                    status=ContractStatus.active,
+                    start_date=today - timedelta(days=30),
+                    rate_candidate=Decimal(cost),
+                    rate_client=Decimal(revenue) if revenue is not None else None,
+                    rate_unit="hourly",
+                    billing_hours_per_month=160,
+                )
+            )
+        await db.commit()
+        return client.id
+
+
+async def test_active_mrr_is_empty_not_zero_when_no_contract_is_priced(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """UAT B-B04: brak stawki to „—", nie 0,00 zł (ta sama reguła co Rada)."""
+    client_id = await _seed_client_with_contracts([("80", None)])
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    summary = resp.json()["summary"]
+    assert summary["active_mrr"] is None
+    assert summary["active_mrr_unpriced_contracts"] == 1
+
+
+async def test_active_mrr_flags_a_partial_sum_when_some_contracts_are_unpriced(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Część kontraktów bez stawki: suma wycenionych + liczba pominiętych."""
+    client_id = await _seed_client_with_contracts(
+        [("80", "100"), ("80", None), ("90", None)]
+    )
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    summary = resp.json()["summary"]
+    # (100 − 80) × 160 h = 3 200 zł — tylko jeden wyceniony kontrakt.
+    assert summary["active_mrr"] == 3200
+    assert summary["active_mrr_unpriced_contracts"] == 2
+
+
 # ── Delivery Lead widzi finanse WŁASNEGO portfela ────────────────────────────
 #
 # „Obecni konsultanci" to obsada Delivery Leada, a stawka kosztowa,

@@ -48,6 +48,36 @@ describe("useClientTab", () => {
     expect(result.current[0]).toBe("analityka");
   });
 
+  it("wybór zakładki zapisuje ją w adresie, a ponowny link do tej samej ?tab= znów przełącza", () => {
+    // Zgłoszenie UAT: adres zostawał na zakładce wejścia, więc F5 wracało na
+    // nią, a drugi klik w powiadomienie do ?tab=zamowienia (po ręcznym
+    // przejściu na Profil) nie zmieniał wartości parametru i nic nie robił.
+    const written: string[] = [];
+    const { result, rerender } = renderHook(
+      ({ tab }: { tab: string | null }) =>
+        useClientTab(tab, (next) => written.push(next)),
+      { initialProps: { tab: "zamowienia" as string | null } },
+    );
+    act(() => result.current[2]("profil"));
+    expect(result.current[0]).toBe("profil");
+    expect(written).toEqual(["profil"]);
+    // Strona robi router.replace — adres dogania wybór.
+    rerender({ tab: "profil" });
+    expect(result.current[0]).toBe("profil");
+    // Powiadomienie prowadzi znowu do ?tab=zamowienia — wartość się zmienia.
+    rerender({ tab: "zamowienia" });
+    expect(result.current[0]).toBe("zamowienia");
+  });
+
+  it("wybór zakładki już zapisanej w adresie nie zapisuje adresu drugi raz", () => {
+    const written: string[] = [];
+    const { result } = renderHook(() =>
+      useClientTab("zamowienia", (next) => written.push(next)),
+    );
+    act(() => result.current[2]("zamowienia"));
+    expect(written).toEqual([]);
+  });
+
   it("zakładka „zasady” (karta klienta) jest adresowalna — link „Edytuj kartę” ze strony oferty i z Pomocy", () => {
     const { result } = renderHook(() => useClientTab("zasady"));
     expect(result.current[0]).toBe("zasady");

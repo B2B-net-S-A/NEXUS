@@ -86,7 +86,8 @@ function collectChips(
  poolsById?: Map<number, string>,
  usersById?: Map<number, string>,
  clientsById?: Map<number, string>,
- ccById?: Map<number, string>
+ ccById?: Map<number, string>,
+ recruitmentsById?: Map<number, string>
 ): Chip[] {
  const chips: Chip[] = [];
 
@@ -152,6 +153,9 @@ function collectChips(
  page: 1,
  }),
  });
+ });
+ // Otwartość i zmiana pracy były zagnieżdżone w pętli etapów: bez filtra etapu
+ // nie miały chipu, a przy kilku etapach chip powielał się (UAT B-B06).
  filters.openTo.forEach((value) => {
  chips.push({
  key: `open_to:${value}`,
@@ -170,7 +174,6 @@ function collectChips(
  clear: () => onUpdate({ recentlyChangedJobs: null, page: 1 }),
  });
  }
- });
  // Stage-move "who" — correlated with the stage chip above.
  filters.stageMovedByIds.forEach((id) => {
  const name =
@@ -358,20 +361,26 @@ function collectChips(
  page: 1,
  }),
  });
+ });
+ // Rekrutacja — chip był zagnieżdżony w pętli klientów, więc bez filtra
+ // „Klient” w ogóle się nie pokazywał (UAT B-B06).
  filters.recruitmentIds.forEach((id) => {
+ const title = recruitmentsById?.get(id);
  chips.push({
  key: `recruitment:${id}`,
  label: `${
  filters.recruitmentMatch === "not_assigned"
  ? "Poza rekrutacją"
  : "Rekrutacja"
- }: #${id}`,
+ }: ${title ? `${title} #${id}` : `#${id}`}`,
  clear: () =>
  onUpdate({
  recruitmentIds: filters.recruitmentIds.filter((item) => item !== id),
+ ...(filters.recruitmentIds.length <= 1
+ ? { recruitmentMatch: "assigned" as const }
+ : {}),
  page: 1,
  }),
- });
  });
  });
  if (filters.experienceMin !== null || filters.experienceMax !== null) {
@@ -521,7 +530,28 @@ export function ActiveFilterChips({
  return new Map(ccData.map((c) => [c.id, c.name_pl] as const));
  }, [ccData]);
 
- const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, resolvedClients, resolvedCcs);
+ // Tytuły rekrutacji dla chipu „Rekrutacja” — ten sam klucz co
+ // <RecruitmentMultiSelect>, więc po otwarciu pickera to trafienie w cache.
+ const { data: recruitmentsData } = useQuery<Array<{ id: number; title: string }>>({
+ queryKey: ["jobs-lookup"],
+ queryFn: () => api.get("/api/jobs-lookup").then((r) => r.data),
+ staleTime: 60_000,
+ enabled: filters.recruitmentIds.length > 0,
+ });
+ const resolvedRecruitments = useMemo(() => {
+ if (!recruitmentsData) return undefined;
+ return new Map(recruitmentsData.map((r) => [r.id, r.title] as const));
+ }, [recruitmentsData]);
+
+ const chips = collectChips(
+ filters,
+ onUpdate,
+ resolvedPools,
+ resolvedUsers,
+ resolvedClients,
+ resolvedCcs,
+ resolvedRecruitments,
+ );
  if (chips.length === 0) return null;
 
  const clearAll = () =>

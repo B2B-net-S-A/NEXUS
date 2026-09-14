@@ -3,6 +3,8 @@ import {
   getEducationList,
   getLanguageList,
   getCandidateSummaryLine,
+  formatExperienceDate,
+  getCvProjectionNotice,
 } from "@/components/v2/pages/candidate-profile-helpers";
 
 describe("getEducationList", () => {
@@ -124,5 +126,43 @@ describe("getCandidateSummaryLine", () => {
 
   it("returns null when nothing meaningful is available", () => {
     expect(getCandidateSummaryLine({})).toBeNull();
+  });
+});
+
+describe("formatExperienceDate (UAT M01-B05)", () => {
+  it("renders months as MM.RRRR and ongoing jobs as obecnie", () => {
+    expect(formatExperienceDate("2023-07")).toBe("07.2023");
+    expect(formatExperienceDate("2023-7-15")).toBe("07.2023");
+    expect(formatExperienceDate("2019")).toBe("2019");
+    expect(formatExperienceDate("06.2023")).toBe("06.2023");
+    expect(formatExperienceDate("present")).toBe("obecnie");
+    expect(formatExperienceDate(null)).toBe("");
+    expect(formatExperienceDate("  ")).toBe("");
+  });
+});
+
+describe("getCvProjectionNotice (UAT M01-B01)", () => {
+  it("warns when the CV was quarantined as another person's", () => {
+    const notice = getCvProjectionNotice({
+      cv_filename: null,
+      cv_parsed_at: null,
+      cv_extracted_data: { _identity_quarantine_source: { kind: "document", id: 5 } },
+    });
+    expect(notice?.tone).toBe("warning");
+    expect(notice?.text).toContain("nie zasiliło profilu");
+  });
+
+  it("tells a file without a parse apart from a parsed profile", () => {
+    expect(
+      getCvProjectionNotice({ cv_filename: "cv.pdf", cv_parsed_at: null })?.tone,
+    ).toBe("info");
+    expect(
+      getCvProjectionNotice({
+        cv_filename: "cv.pdf",
+        cv_parsed_at: "2026-09-13T18:00:00Z",
+        cv_extracted_data: { skills: [] },
+      }),
+    ).toBeNull();
+    expect(getCvProjectionNotice({ cv_filename: null })).toBeNull();
   });
 });

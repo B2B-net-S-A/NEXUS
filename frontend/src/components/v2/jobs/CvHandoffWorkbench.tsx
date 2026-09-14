@@ -577,9 +577,13 @@ export function CvHandoffWorkbench({
       {/* ── Szyna: kolejka + reguły klienta ─────────────────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
-        title="Zweryfikowani"
+        // „Do wysłania CV", nie „Zweryfikowani" (M03-B12): kolejka to wyłącznie
+        // etap „Zweryfikowany", a grupa „Zweryfikowani" na szynie Pipeline'u
+        // obejmuje też własne etapy wewnętrzne po screeningu — ta sama nazwa
+        // dawała na jednym ekranie 1 i 0. Etykieta = KPI jobbara tego kroku.
+        title="Do wysłania CV"
         count={queue.length}
-        meta={queue.length > 0 ? `${queue.length} do wysłania` : null}
+        meta="etap „Zweryfikowany”"
         footer={
           canManageCvRules && clientId != null ? (
             <Link
@@ -592,7 +596,7 @@ export function CvHandoffWorkbench({
         }
       >
         {queue.length > 0 ? (
-          <div className="space-y-0.5" role="list" aria-label="Zweryfikowani kandydaci">
+          <div className="space-y-0.5" role="list" aria-label="Kandydaci do wysłania CV">
             {queue.map(({ item }) => (
               <div key={item.id} role="listitem">
                 <RailRow

@@ -487,6 +487,33 @@ _PAST_EXPERIENCE_SQL = (
 )
 
 
+# Zapytanie, które wygląda jak numer telefonu: same cyfry i typowe separatory.
+_PHONE_QUERY_RE = re.compile(r"^\+?[\d\s().\-/]+$")
+_PHONE_QUERY_MIN_DIGITS = 6
+
+
+def _phone_digits_clause(q: str):
+    """Dopasowanie numeru telefonu niezależne od zapisu (spacje, myślniki, +48).
+
+    Wyszukiwanie tekstowe porównuje podciąg ZAPISANEGO tekstu, więc
+    „000 000 001” nie trafiało w numer zapisany jako „000000001” (i odwrotnie).
+    Dla zapytań w kształcie numeru porównujemy same cyfry po obu stronach;
+    przy 9+ cyfrach bierzemy ostatnie 9 — tak jak `dedup_service` — żeby
+    prefiks kraju po jednej stronie nie psuł trafienia. Zwraca None dla
+    zapytań, które numerem nie są (wtedy działa tylko zwykłe wyszukiwanie).
+    """
+    if not q or not _PHONE_QUERY_RE.match(q):
+        return None
+    digits = re.sub(r"\D", "", q)
+    if len(digits) < _PHONE_QUERY_MIN_DIGITS:
+        return None
+    if len(digits) >= 9:
+        digits = digits[-9:]
+    return func.regexp_replace(
+        func.coalesce(Candidate.phone, ""), r"[^0-9]", "", "g"
+    ).like(f"%{digits}%")
+
+
 def _current_company_predicate(values: list[str]):
     """Match candidates whose CURRENT company ILIKE any of values (OR).
 
@@ -895,7 +922,10 @@ async def _build_candidate_filtered_query(
                 text(f"SET LOCAL pg_trgm.similarity_threshold = {trigram_threshold}")
             )
         phrase_clause = single_phrase_filter(q_stripped, fuzzy=use_fuzzy)
-        if phrase_clause is not None:
+        phone_clause = _phone_digits_clause(q_stripped)
+        if phrase_clause is not None and phone_clause is not None:
+            query = query.where(or_(phrase_clause, phone_clause))
+        elif phrase_clause is not None:
             query = query.where(phrase_clause)
 
     q_any_groups = (
@@ -1091,6 +1121,13 @@ async def _build_candidate_filtered_query(
                 .where(Job.id == job_id_col, Job.client_id.in_(f.stage_client_id))
                 .exists()
             )
+        # Filtr etapu razem z filtrem rekrutacji („przypisany”) opisuje etap
+        # W TEJ rekrutacji, nie w dowolnej. Bez tego lista „Nowi” rekrutacji
+        # liczyła osoby, które są „Nowe” gdziekolwiek indziej, i nie zgadzała
+        # się z kolumną kanbanu tej rekrutacji. Nie przełącza trybu na
+        # historyczny — to zawężenie pary, nie filtr ruchu.
+        if f.recruitment_id and f.recruitment_match != "not_assigned":
+            predicates.append(job_id_col.in_(f.recruitment_id))
         return predicates
 
     has_move_filter = bool(
@@ -1462,7 +1499,10 @@ async def list_candidates(
             "(default) keeps candidates in the pipeline of ANY of these jobs; "
             "`not_assigned` keeps candidates in NONE of them. A candidate counts "
             "as assigned when they have any `candidate_stages` row for the job "
-            "(any stage, including terminal) — mirrors talent-pool membership."
+            "(any stage, including terminal) — mirrors talent-pool membership. "
+            "With `assigned` and a stage filter (`pipeline_stage`/`stage_*`) the "
+            "stage is matched on THESE recruitments only, so the list agrees "
+            "with the recruitment's kanban column."
         ),
     ),
     recruitment_match: str = Query(

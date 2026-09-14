@@ -143,4 +143,13 @@ describe("Panel Ustawienia → AI", () => {
       }),
     );
   });
+
+  it("403 renderuje odmowę, nie awarię (UAT A-B04)", async () => {
+    mocks.get.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Nie udało się załadować ustawień AI."),
+    ).not.toBeInTheDocument();
+  });
 });

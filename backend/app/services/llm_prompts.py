@@ -72,7 +72,10 @@ JOB_CRITERIA_FROM_DESCRIPTION = PromptTemplate(
 
 CV_ENRICHMENT = PromptTemplate(
     name="cv_enrichment",
-    version=5,
+    # v6 (UAT M01-B05): `experience` ze stanowiskami i datami. Sama lista
+    # `companies` zapisywała się jako wpisy bez roli i bez daty końca, więc
+    # KAŻDA firma z CV liczyła się w filtrze „Obecna firma”.
+    version=6,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -105,6 +108,12 @@ CV_ENRICHMENT = PromptTemplate(
         '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n'
         '  "companies": list of strings — past employers in chronological order, '
         "most recent first, unique (max 15). Use official company names as they appear in the CV.\n"
+        '  "experience": list of jobs, most recent first (max 10), each '
+        '{{"company": str|null, "role": str|null, "start": "YYYY-MM"|"YYYY"|null, '
+        '"end": "YYYY-MM"|"YYYY"|"present"|null}}. Copy dates only from the CV. '
+        'Use "present" only when the CV says the job is ongoing (e.g. "obecnie", '
+        '"present", "do teraz"); for a finished job give its end date (the year alone '
+        "when the month is not stated); null only when the CV states no end date at all.\n"
         '  "linkedin_url": the candidate\'s LinkedIn profile URL exactly as it '
         "appears in the CV (e.g. 'linkedin.com/in/jane-doe' or 'https://www.linkedin.com/in/jane-doe'), "
         "or null if no LinkedIn URL is present.\n"

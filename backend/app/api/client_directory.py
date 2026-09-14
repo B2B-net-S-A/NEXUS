@@ -47,6 +47,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.polish_ilike import polish_folded_ilike
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -69,13 +70,6 @@ def _effective_client_name():
     """
 
     return client_display_name_expression()
-
-
-def _escaped_like_pattern(value: str) -> str:
-    """Treat user-entered SQL wildcard characters as ordinary characters."""
-
-    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
 
 
 def _visible_client_filters() -> tuple:
@@ -205,19 +199,19 @@ def _directory_rows_statement(
 
     normalized_q = (q or "").strip()
     if normalized_q:
-        pattern = _escaped_like_pattern(normalized_q)
+        # Bez wrażliwości na polskie znaki: „spolka" znajduje „Spółka" (UAT M06-B03).
         statement = statement.where(
             or_(
-                canonical_name.ilike(pattern, escape="\\"),
-                Client.legal_name.ilike(pattern, escape="\\"),
-                Client.name.ilike(pattern, escape="\\"),
-                Client.industry.ilike(pattern, escape="\\"),
-                ClientPortfolioScope.label.ilike(pattern, escape="\\"),
+                polish_folded_ilike(canonical_name, normalized_q),
+                polish_folded_ilike(Client.legal_name, normalized_q),
+                polish_folded_ilike(Client.name, normalized_q),
+                polish_folded_ilike(Client.industry, normalized_q),
+                polish_folded_ilike(ClientPortfolioScope.label, normalized_q),
                 exists(
                     select(ClientAlias.id).where(
                         ClientAlias.client_id == Client.id,
                         ClientAlias.archived_at.is_(None),
-                        ClientAlias.alias.ilike(pattern, escape="\\"),
+                        polish_folded_ilike(ClientAlias.alias, normalized_q),
                     )
                 ),
             )

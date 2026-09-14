@@ -150,9 +150,11 @@ def missing_must_skills(
     """Must-have, których kandydatowi BRAKUJE — „nieznany przechodzi".
 
     Pusta `must` → `[]` (nie ma czego wymagać). Kandydat bez ŻADNEGO sygnału
-    umiejętności (`candidate_skill_names` puste — ani `skills`, ani
-    `verified_tech`, ani CV, ani tagi) → `[]` też: brak danych nie jest dowodem
-    niedopasowania, tylko brakiem wiedzy. Porównanie idzie przez `skill_present`
+    umiejętności (`candidate_known_skill_names` puste — ani `skills`, ani
+    `verified_tech`, ani CV) → `[]` też: brak danych nie jest dowodem
+    niedopasowania, tylko brakiem wiedzy. Tagi NIE czynią umiejętności
+    „znanymi” (UAT M02-B01: kandydat z samym tagiem „QA-E2E” był ukrywany
+    w każdym pełnym przeglądzie) — tag pasujący do must nadal się liczy. Porównanie idzie przez `skill_present`
     (tolerancja `postgresql`/`postgres`, `node.js`/`nodejs`) — TĘ SAMĄ funkcję,
     której używają chipy ✓/✗ na `/ai-matches`.
 
@@ -161,11 +163,16 @@ def missing_must_skills(
     """
     if not must:
         return []
-    from app.services.scoring_service import candidate_skill_names, skill_present
+    from app.services.scoring_service import (
+        candidate_known_skill_names,
+        candidate_skill_names,
+        skill_present,
+    )
 
     from app.services.requirement_verification import reviewed_gate_status
 
     cand_skills = candidate_skill_names(candidate)
+    has_known_skills = bool(candidate_known_skill_names(candidate))
     missing = []
     for label in must:
         review = reviewed_gate_status(
@@ -180,7 +187,7 @@ def missing_must_skills(
             missing.append(label)
         elif (
             review is None
-            and (cand_skills or include_unknown)
+            and (has_known_skills or include_unknown)
             and not skill_present(label, cand_skills)
         ):
             missing.append(label)

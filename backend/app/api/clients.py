@@ -42,6 +42,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contractor_identity import summarize_active_contracts
+from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
     amount_to_pln_with_rate,
     rates_to_pln,
@@ -232,11 +233,6 @@ def polish_alphabetical_key(expr):
     return func.lower(func.translate(expr, _PL_DIACRITICS, _PL_ASCII_FOLD))
 
 
-def _escaped_like_pattern(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
 def _serialize_client(
     client: Client,
     *,
@@ -361,11 +357,11 @@ async def list_clients(
     )
     normalized_q = (q or "").strip()
     if normalized_q:
-        pattern = _escaped_like_pattern(normalized_q)
+        # Bez wrażliwości na polskie znaki (UAT M06-B03) — jak katalog klientów.
         query = query.where(
             or_(
-                effective_name.ilike(pattern, escape="\\"),
-                Client.name.ilike(pattern, escape="\\"),
+                polish_folded_ilike(effective_name, normalized_q),
+                polish_folded_ilike(Client.name, normalized_q),
             )
         )
     total = (
@@ -746,12 +742,21 @@ async def get_client_profile(
         rates["client_missing_fx"] or rates["candidate_missing_fx"]
         for rates in active_rates_pln.values()
     )
+    # Kontrakt bez stawki (marża `None`) NIE jest zerem: do sumy wchodzą
+    # wyłącznie wiersze z policzoną marżą, a liczba pominiętych jedzie osobno
+    # (`active_mrr_unpriced_contracts`), żeby kafel nie podawał zaniżonej
+    # kwoty jako pełnej. Gdy żaden aktywny kontrakt nie ma marży, kafel
+    # dostaje „—" — ta sama reguła co ranking klientów w Radzie (brak
+    # wycenionego kontraktu = brak kwoty, nie 0,00 zł).
+    priced_margins = [
+        active_rates_pln[c.id]["monthly_margin"]
+        for c in active_contracts
+        if active_rates_pln[c.id]["monthly_margin"] is not None
+    ]
+    active_mrr_unpriced = len(active_contracts) - len(priced_margins)
     active_mrr = (
-        sum(
-            to_whole_pln(active_rates_pln[c.id]["monthly_margin"] or 0)
-            for c in active_contracts
-        )
-        if active_mrr_complete
+        sum(to_whole_pln(margin) for margin in priced_margins)
+        if active_mrr_complete and (priced_margins or not active_contracts)
         else None
     )
 
@@ -812,6 +817,7 @@ async def get_client_profile(
         active_contracts=active_headcount.active_contracts,
         total_placements=total_placements,
         active_mrr=int(active_mrr) if active_mrr is not None else None,
+        active_mrr_unpriced_contracts=active_mrr_unpriced,
         ltv=int(ltv) if ltv_complete else None,
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
         avg_time_to_fill_source=(
@@ -842,6 +848,7 @@ async def get_client_profile(
         delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
     ):
         response.summary.active_mrr = None
+        response.summary.active_mrr_unpriced_contracts = 0
         response.summary.ltv = None
         for job in response.open_jobs:
             job.salary_min = None

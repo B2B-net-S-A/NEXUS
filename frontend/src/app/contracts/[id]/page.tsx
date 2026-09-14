@@ -111,6 +111,8 @@ interface ContractDetail {
     effective_from: string;
     note: string | null;
     created_at: string;
+    /** Krok z zamówienia klienta; `null` = ręczny albo z aneksu. */
+    source_order_id?: number | null;
   }[];
   framework_rate_schedule: {
     id: number;
@@ -2141,6 +2143,18 @@ export default function ContractDetailPage() {
           {!rateHistory || rateHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
               Brak historii stawek dla tego kandydata i klienta.
+              {/* Ta zakładka czyta historię stawek kandydata z poprzednich
+                  zaangażowań (osobna tabela), nie harmonogram tego kontraktu.
+                  Bez tej wskazówki pusta zakładka obok kroków w Szczegółach
+                  czytała się jak zgubione dane. */}
+              {(contract.client_rate_schedule.length > 0 ||
+                contract.candidate_rate_schedule.length > 0) && (
+                <p className="mt-2 text-xs">
+                  Harmonogram stawek tego kontraktu (kroki z datami, także z
+                  zamówień klienta) jest w zakładce „Szczegóły” w karcie „Stawki
+                  finansowe”.
+                </p>
+              )}
             </div>
           ) : (
             <table className="w-full text-sm">

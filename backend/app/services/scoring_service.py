@@ -946,12 +946,14 @@ def _skills_from_raw_cv(candidate) -> List[str]:
     return sorted(found)
 
 
-def candidate_skill_names(candidate) -> set[str]:
-    """Merge independent evidence; only an explicit human override is complete.
+def candidate_known_skill_names(candidate) -> set[str]:
+    """Umiejętności z dowodów o UMIEJĘTNOŚCIACH — bez fallbacku na tagi.
 
-    Automatic notes enrichment is additive. It must not hide imported CV skills
-    merely by making the structured column nonempty. A curated replacement,
-    including an empty one, prevents removed skills reappearing from older CVs.
+    Tagi to etykiety rekrutera, źródła i kampanii („Aktywny Search”,
+    „QA-E2E”), nie deklaracja umiejętności. `candidate_skill_names` dokłada
+    je jako ostatnią deskę ratunku dla punktów, ale bramka must-have pyta
+    „czy WIEMY, co kandydat umie” — kandydat, o którym wiemy tylko tyle, że
+    ma tag, jest kandydatem bez danych i musi przejść (polityka `review`).
     """
     structured = canonical_skill_names(getattr(candidate, "skills", None))
     extracted = getattr(candidate, "cv_extracted_data", None)
@@ -962,14 +964,34 @@ def candidate_skill_names(candidate) -> set[str]:
     cv_skills = _skills_from_cv_extracted(candidate)
     if not cv_skills:
         cv_skills = _skills_from_raw_cv(candidate)
-    cand = set(
+    return set(
         structured
         + canonical_skill_names(getattr(candidate, "verified_tech", None))
         + canonical_skill_names(cv_skills)
     )
-    if not cand:
+
+
+def candidate_skill_names(candidate) -> set[str]:
+    """Merge independent evidence; only an explicit human override is complete.
+
+    Automatic notes enrichment is additive. It must not hide imported CV skills
+    merely by making the structured column nonempty. A curated replacement,
+    including an empty one, prevents removed skills reappearing from older CVs.
+    Tags are a last-resort fallback for scoring only — see
+    `candidate_known_skill_names` for what the must-have gate treats as known.
+    """
+    cand = candidate_known_skill_names(candidate)
+    if not cand and not _skills_curated(candidate):
         cand.update(canonical_skill_names(getattr(candidate, "tags", None)))
     return cand
+
+
+def _skills_curated(candidate) -> bool:
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    return bool(
+        getattr(candidate, "skills_manually_curated", False)
+        or (isinstance(extracted, dict) and extracted.get("_manual_override_skills"))
+    )
 
 
 def _canon_skill(s: str) -> str:

@@ -327,6 +327,12 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     # `(?m)^` can never match again, so the NEXT heading is skipped entirely.
     (rf"{_NUM}MUST[\s\-]?HAVE\b[ \t]*:?", "must_have"),
     (rf"{_NUM}NICE[\s\-]?TO[\s\-]?HAVE\b[ \t]*:?", "nice_to_have"),
+    # Wzór 09.2026 ma pod NICE-TO-HAVE pole „Niuanse wersji / zakresu:". Bez
+    # tej granicy etykieta PUSTEGO pola wpadała do listy NICE jako wymaganie
+    # („Niuanse wersji / zakresu:" jako kafelek u klienta). Treść pola to
+    # uwagi do stacku, nie technologie — trafia tam, gdzie `stack.notes`
+    # z profilu w bazie (`from_nexus_job`).
+    (rf"{_NUM}Niuanse\s+wersji\b[^\n:]*:?", "additional_context"),
     (rf"{_NUM}O\s+projekcie\b[^\n:]*:?", "project_context"),
     (rf"{_NUM}Obowiazk\w*\s+na\s+stanowisku\b[^\n:]*:?", "responsibilities"),
     # `Lead\w*`, not `Lead\b` — Polish inflects it ("Pytania od Delivery Leada").
@@ -487,6 +493,8 @@ def _is_prose_entry(entry: str) -> bool:
         return True  # punctuation-only fragment
     if len(core) > _MAX_SKILL_ENTRY_CHARS:
         return True
+    if s.endswith(":"):
+        return True  # etykieta pola wzoru („Mile widziane:"), nie technologia
     words = [w for w in core.split() if any(ch.isalnum() for ch in w)]
     if len(words) > _MAX_SKILL_ENTRY_WORDS:
         return True
@@ -673,5 +681,6 @@ def parse_champion_from_docx_bytes(
         screening_questions=screening_questions,
         historical_questions=body("historical_questions"),
         consultant_insight=body("consultant_insight"),
+        additional_context=body("additional_context"),
         diagnostics=diag,
     )

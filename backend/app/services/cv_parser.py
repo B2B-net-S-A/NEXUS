@@ -267,10 +267,79 @@ def _unique_strings(values: Any, *, limit: int) -> list[str]:
     return output
 
 
+_EXPERIENCE_MAX_ENTRIES = 10
+_EXPERIENCE_CURRENT_WORDS = frozenset(
+    {"present", "current", "now", "obecnie", "teraz", "do teraz", "nadal", "ongoing"}
+)
+
+
+def _normalize_experience_date(value: Any, *, allow_present: bool) -> Optional[str]:
+    """Data wpisu doświadczenia → ``YYYY-MM`` / ``YYYY`` (albo ``present``).
+
+    Model bywa niekonsekwentny co do zapisu („06.2023”, „2023/06”, pełna
+    data). Nieczytelny POCZĄTEK jest odrzucany (``None``) — zgadnięta data
+    byłaby fabrykacją. Nieczytelny KONIEC (``allow_present``, np. „Dec 2022”)
+    zostaje tekstem z CV: ``None`` w ``end`` to kanoniczny znacznik bieżącej
+    pracy, więc odrzucenie zamieniłoby zakończoną pracę w obecną.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().casefold()
+    if not text:
+        return None
+    if text in _EXPERIENCE_CURRENT_WORDS:
+        return "present" if allow_present else None
+    match = re.fullmatch(r"(\d{4})[-./](\d{1,2})(?:[-./]\d{1,2})?", text)
+    if match:
+        year, month = match.group(1), int(match.group(2))
+        return f"{year}-{month:02d}" if 1 <= month <= 12 else year
+    match = re.fullmatch(r"(?:\d{1,2}[-./])?(\d{1,2})[-./](\d{4})", text)
+    if match:
+        month, year = int(match.group(1)), match.group(2)
+        return f"{year}-{month:02d}" if 1 <= month <= 12 else year
+    if re.fullmatch(r"\d{4}", text):
+        return text
+    if allow_present:
+        return " ".join(str(value).split())[:40]
+    return None
+
+
+def _normalize_experience(value: Any) -> list[dict[str, Optional[str]]]:
+    """Waliduj listę stanowisk z CV (v6): firma, rola, początek, koniec."""
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, Optional[str]]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        company = item.get("company")
+        role = item.get("role") or item.get("title") or item.get("position")
+        company = (
+            " ".join(company.split()).strip()[:160] if isinstance(company, str) else ""
+        )
+        role = " ".join(role.split()).strip()[:160] if isinstance(role, str) else ""
+        if not company and not role:
+            continue
+        entries.append(
+            {
+                "company": company or None,
+                "role": role or None,
+                "start": _normalize_experience_date(
+                    item.get("start"), allow_present=False
+                ),
+                "end": _normalize_experience_date(item.get("end"), allow_present=True),
+            }
+        )
+        if len(entries) >= _EXPERIENCE_MAX_ENTRIES:
+            break
+    return entries
+
+
 def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
     """Validate/cap the v5 quick-view facts while preserving legacy fields."""
 
     output = dict(parsed)
+    output["experience"] = _normalize_experience(output.get("experience"))
     technologies = output.get("technologies")
     if not isinstance(technologies, list):
         technologies = output.get("skills")
@@ -382,7 +451,9 @@ async def _parse_with_claude(
         message = await run_in_threadpool(
             call_claude,
             model=chosen_model,
-            max_tokens=2000,
+            # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
+            # dłuższych CV, a obcięta odpowiedź spada do regexu.
+            max_tokens=3000,
             # Claude 5 does adaptive thinking by default; thinking tokens count
             # toward max_tokens and would truncate this JSON output. On models
             # where thinking is off by default (Haiku 4.5) `disabled` is a no-op

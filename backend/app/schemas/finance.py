@@ -63,6 +63,11 @@ class FinanceResultRow(BaseModel):
     invoice_amount: Optional[MoneyPLN] = None
     margin_pln: Optional[MoneyPLN] = None
     margin_pct: Optional[MoneyPLN] = None
+    # Marża % do WYŚWIETLENIA, w punktach procentowych (21.4 = 21,4%).
+    # ``margin_pct`` to surowa komórka arkusza — bywa ułamkiem (komórka
+    # procentowa Excela) albo punktami (tekst „20,2%"); patrz
+    # ``finance._margin_percent``.
+    margin_percent: Optional[MoneyPLN] = None
     # Pola zmienione RĘCZNIE po imporcie. Front używa tego, żeby odróżnić
     # „pusto, bo import nie dał wartości" (ramka „Uzupełnij") od „pusto, bo
     # człowiek świadomie wyczyścił" — te drugie nie wołają o uzupełnienie.
@@ -80,8 +85,13 @@ class FinanceTotals(BaseModel):
 
     cost: MoneyPLN  # Σ „Wynagrodzenie"
     revenue: MoneyPLN  # Σ „Faktura"
-    margin: MoneyPLN  # Σ „Marża PLN"
+    margin: MoneyPLN  # Σ „Marża PLN" (NIE revenue − cost — patrz niżej)
+    # Średnia marża % wierszy w PUNKTACH procentowych (21.4 = 21,4%).
     avg_margin_pct: Optional[MoneyPLN] = None
+    # Wiersze bez „Marży PLN" (zwykle wynagrodzenie bez faktury) i ich koszt —
+    # są w kaflu „Koszt", a nie obniżają kafla „Marża".
+    rows_without_margin: int = 0
+    cost_without_margin: MoneyPLN = Decimal(0)
 
 
 class FinanceResultsResponse(BaseModel):

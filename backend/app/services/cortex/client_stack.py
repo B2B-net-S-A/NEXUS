@@ -145,6 +145,13 @@ async def contract_successors(
     """Dla kontraktów kończących się w ``days`` dni — dostępni następcy z
     nakładającym się stackiem (ranking po liczbie wspólnych skilli).
 
+    „Kończy się" = data końca UMOWY (``end_date``) w oknie ``[now, now+days]``.
+    Koniec okresu zamówienia nie kończy współpracy (umowa bezterminowa trwa
+    dalej — ta sama reguła co zakładka „Zakończeni"), więc nie wciąga
+    kontraktu na listę i nie jest pokazywany jako „koniec". Dolna granica
+    odcina umowy, których data już minęła (UAT M10-B02: na liście były umowy
+    bezterminowe z zamówieniem zakończonym w 2018 r.).
+
     Liczba kończących się kontraktów jest mała, więc per-kontrakt robimy 2 lekkie
     zapytania (skille osadzonego + dopasowani dostępni) — czytelne, nie N+1 problem.
     """
@@ -168,18 +175,12 @@ async def contract_successors(
             .where(
                 and_(
                     Contract.status.in_(_ACTIVE_STATUSES),
-                    or_(
-                        and_(
-                            Contract.end_date.is_not(None),
-                            Contract.end_date <= cutoff,
-                        ),
-                        and_(
-                            Contract.client_order_end_date.is_not(None),
-                            Contract.client_order_end_date <= cutoff,
-                        ),
-                    ),
+                    Contract.end_date.is_not(None),
+                    Contract.end_date >= now,
+                    Contract.end_date <= cutoff,
                 )
             )
+            .order_by(Contract.end_date, Contract.id)
         )
     ).all()
 
@@ -234,7 +235,7 @@ async def contract_successors(
                 }
                 for s in succ_rows
             ]
-        end = c.client_order_end_date or c.end_date
+        end = c.end_date
         results.append(
             {
                 "contract_id": c.id,
@@ -244,6 +245,13 @@ async def contract_successors(
                 "client_id": c.client_id,
                 "client_name": c.client_name,
                 "end_date": end.isoformat() if end else None,
+                # Informacyjnie: okres zamówienia bywa krótszy albo dłuższy niż
+                # umowa — nie jest datą końca współpracy.
+                "client_order_end_date": (
+                    c.client_order_end_date.isoformat()
+                    if c.client_order_end_date
+                    else None
+                ),
                 "skill_count": len(skill_ids),
                 "successors": successors,
             }

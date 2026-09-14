@@ -774,8 +774,22 @@ export default function ClientDetailPage() {
   // i kazało odbiorcy szukać samodzielnie — czyli link obiecywał coś,
   // czego nie robił.
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useClientTab(searchParams.get("tab"));
   const router = useRouter();
+  // Kliknięcie zakładki zapisuje ją w adresie (replace, bez nowego wpisu
+  // w historii) — F5 odtwarza zakładkę, a kolejny link z powiadomienia do
+  // `?tab=zamowienia` zmienia wartość parametru i naprawdę przełącza widok.
+  const writeTabToUrl = useCallback(
+    (tab: ClientTab) => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", tab);
+      router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+    },
+    [router, id, searchParams],
+  );
+  const [activeTab, setActiveTab, selectTab] = useClientTab(
+    searchParams.get("tab"),
+    writeTabToUrl,
+  );
   const orderMailDocParam = Number(searchParams.get("orderMailDoc"));
   const orderMailDocId =
     Number.isInteger(orderMailDocParam) && orderMailDocParam > 0
@@ -966,7 +980,7 @@ export default function ClientDetailPage() {
             {TABS.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => selectTab(tab.key)}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
                   activeTab === tab.key

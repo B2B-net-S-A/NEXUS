@@ -79,9 +79,12 @@ function formatNumber(value: number | null): string {
   return value.toLocaleString("pl-PL", { maximumFractionDigits: 3 });
 }
 
-function formatPct(value: number | null): string {
+export function formatPct(value: number | null): string {
   if (value == null) return "—";
-  return `${value.toLocaleString("pl-PL", { maximumFractionDigits: 1 })}%`;
+  return `${value.toLocaleString("pl-PL", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
 }
 
 interface Props {
@@ -173,7 +176,11 @@ export function FinanceResultsTable({
               </td>
               {COLUMNS.filter((c) => c.editable).map((col) => {
                 const field = col.editable!;
-                const value = row[field];
+                // „Marża %" pokazujemy i edytujemy w punktach procentowych
+                // (`margin_percent`), bo surowa komórka bywa ułamkiem z Excela
+                // — doklejenie „%" do 0,17 dawało „0,2%" zamiast 16,7%.
+                const value =
+                  field === "margin_pct" ? row.margin_percent : row[field];
                 const isMargin = field === "margin_pln" || field === "margin_pct";
                 return (
                   <ClientNameSlot key={col.key} col={col.key} row={row}>

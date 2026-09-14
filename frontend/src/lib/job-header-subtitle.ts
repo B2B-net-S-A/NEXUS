@@ -91,6 +91,13 @@ export interface JobHeaderSubtitleInput {
   salaryMax?: number | null;
   deadline?: string | null;
   ownerName?: string | null;
+  /**
+   * Delivery Lead rekrutacji (`jobs.delivery_lead_id`, M03-B03). Do 09.2026
+   * nie było go nigdzie poza oknem edycji — nagłówek pokazywał tylko
+   * właściciela. Brak DL nie wychodzi (w odróżnieniu od właściciela to nie
+   * blokuje alertów), więc segment jest tylko wtedy, gdy znamy nazwisko.
+   */
+  deliveryLeadName?: string | null;
   /** Krok 07 — hiring manager jest tam decydentem, nie ciekawostką. */
   hiringManagerName?: string | null;
   /** Krok 08 — ilu z `headcount` etatów jest już obsadzonych. */
@@ -106,6 +113,7 @@ export function buildJobHeaderSubtitle({
   salaryMax,
   deadline,
   ownerName,
+  deliveryLeadName,
   hiringManagerName,
   hired,
   headcount,
@@ -130,6 +138,9 @@ export function buildJobHeaderSubtitle({
 
   const owner = shortenPersonName(ownerName);
   segments.push(owner ?? "właściciel: nieprzypisany");
+
+  const deliveryLead = shortenPersonName(deliveryLeadName);
+  if (deliveryLead) segments.push(`DL: ${deliveryLead}`);
 
   // Hiring manager idzie PEŁNYM nazwiskiem, w odróżnieniu od właściciela:
   // to osoba po stronie klienta, o której rozmawia się z klientem — inicjał

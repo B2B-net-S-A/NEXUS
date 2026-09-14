@@ -262,3 +262,53 @@ describe("ChampionProfileEditor — weryfikacja/briefing/wyszukiwania przeniesio
     ).not.toBeInTheDocument();
   });
 });
+
+describe("ChampionProfileEditor — sekcja 6 „Pełna karta klienta →”", () => {
+  it("prowadzi do Pomocy, nie do profilu klienta bramkowanego sekcją Delivery (M03-B02)", async () => {
+    getMock.mockResolvedValue({ data: {} });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={51} canEdit={false} clientId={12} />
+      </QueryClientProvider>,
+    );
+    const link = await screen.findByTestId(
+      "champion-client-section-full-card-link",
+    );
+    expect(link.getAttribute("href")).toBe("/help?tab=clients&client=12");
+  });
+});
+
+describe("ChampionProfileEditor — stary profil bez stacku (M04-B02)", () => {
+  it("pokazuje wymagania z kolumn rekrutacji, a zapis bez zmian nie wysyła stacku", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 14,
+        champion_profile: { stack: { must: [], nice: [], notes: "" } },
+        job_values: { must: "Python\nPostgreSQL", nice: "Kafka" },
+      },
+    });
+    putMock.mockResolvedValue({ data: { job_id: 14, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={14} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByTestId("champion-stack-seeded-from-job"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Musi mieć · 2")).toBeInTheDocument();
+    expect(screen.getByText("Mile widziane · 1")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as Record<string, unknown>;
+    expect("stack" in payload).toBe(false);
+  });
+});

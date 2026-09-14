@@ -86,6 +86,80 @@ def _salary_info_for_overview(job: Job, *, include_finance: bool = False) -> str
     return ""
 
 
+def _must_have_gaps(job, candidate) -> list[str]:
+    """Luki względem MUST rekrutacji (M03-B04).
+
+    Do 09.2026 luki liczyły się wyłącznie z bazy wiedzy klienta i screeningu,
+    więc kandydat bez żadnej umiejętności (albo bez CV) dostawał „Brak
+    zidentyfikowanych luk — profil pasuje do wymagań". To zdanie twierdziło
+    dopasowanie, którego nikt nie sprawdził.
+
+    Wymagania: te same co bramka must-have (`job_explicit_must_skills`,
+    zawężone do nazw technologii — proza z ogłoszenia nie jest umiejętnością,
+    której brak da się stwierdzić). Porównanie: `missing_must_skills`, czyli ta
+    sama tolerancja nazw co chipy ✓/✗ i bramka. Brak danych o umiejętnościach
+    kandydata jest nazwany wprost — nie jest ani luką, ani dopasowaniem.
+    """
+    from app.services.dealbreaker_filters import (
+        gate_eligible_must_skills,
+        missing_must_skills,
+    )
+    from app.services.scoring_service import (
+        candidate_known_skill_names,
+        job_explicit_must_skills,
+    )
+
+    must = gate_eligible_must_skills(job_explicit_must_skills(job))
+    if not must:
+        return []
+    shown = _display_names(job)
+    if not candidate_known_skill_names(candidate):
+        names = ", ".join(shown.get(skill, skill) for skill in must[:5])
+        return [
+            "Brak danych o umiejętnościach kandydata — nie da się porównać "
+            f"z wymaganiami MUST ({names}). Uzupełnij profil lub CV przed rozmową."
+        ]
+    return [
+        f"Brak {shown.get(skill, skill)} (MUST rekrutacji) w profilu — może być pytanie"
+        for skill in missing_must_skills(candidate, must, verification_job_id=job.id)
+    ]
+
+
+def _display_names(job) -> dict[str, str]:
+    """Kanoniczna nazwa (małe litery) → nazwa tak, jak ją wpisano w rekrutacji."""
+    from app.services import champion_view
+    from app.services.scoring_service import ALIAS_MAP
+    from app.services.skill_normalize import iter_skill_names
+
+    written = iter_skill_names(getattr(job, "must_skills", None)) + iter_skill_names(
+        champion_view.stack(job).get("must")
+    )
+    shown: dict[str, str] = {}
+    for name in written:
+        low = name.strip().lower()
+        if low:
+            shown.setdefault(ALIAS_MAP.get(low, low), name.strip())
+    return shown
+
+
+def _no_gaps_message(job, candidate) -> str:
+    """Pusta lista luk mówi, CO sprawdzono — nigdy „profil pasuje" na ślepo."""
+    from app.services.dealbreaker_filters import gate_eligible_must_skills
+    from app.services.scoring_service import (
+        candidate_known_skill_names,
+        job_explicit_must_skills,
+    )
+
+    if not candidate_known_skill_names(candidate):
+        return "Brak danych o umiejętnościach kandydata — luk nie da się ocenić."
+    if not gate_eligible_must_skills(job_explicit_must_skills(job)):
+        return (
+            "Brak luk do wskazania — rekrutacja nie ma wymagań MUST, "
+            "z którymi da się porównać profil."
+        )
+    return "Brak zidentyfikowanych luk — profil obejmuje wymagania MUST rekrutacji."
+
+
 @router.post("/prep-kit/generate", response_model=PrepKitResponse)
 async def generate_prep_kit(
     request: PrepKitRequest,
@@ -292,9 +366,16 @@ async def generate_prep_kit(
         elif isinstance(sk, str):
             candidate_skill_names.add(sk.lower())
 
+    # MUST rekrutacji — najpierw, bo to one decydują o odrzuceniu u klienta.
+    must_gaps = _must_have_gaps(job, candidate)
+    gaps.extend(must_gaps)
+
     # From tech stack knowledge
     for tech in tech_parts[:5]:
         if tech and tech.lower() not in candidate_skill_names:
+            # Technologia, która jest już luką MUST, nie wychodzi drugi raz.
+            if any(g.lower().startswith(f"brak {tech.lower()} (") for g in must_gaps):
+                continue
             gaps.append(f"Brak {tech} w profilu — może być pytanie")
 
     # From screening red_flags
@@ -307,7 +388,7 @@ async def generate_prep_kit(
                 gaps.append(f"Brak umiejętności: {sk.get('skill', '')}")
 
     if not gaps:
-        gaps = ["Brak zidentyfikowanych luk — profil pasuje do wymagań"]
+        gaps = [_no_gaps_message(job, candidate)]
 
     gaps = gaps[:6]
 

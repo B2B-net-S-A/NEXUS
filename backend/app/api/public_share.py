@@ -383,6 +383,46 @@ async def _interactive_flags(
     return tiles, chat
 
 
+async def approved_interactive_view(
+    db: AsyncSession, doc: CvGeneratedDocument, approved
+) -> tuple[bool, Optional[str], list, bool]:
+    """Co klient zobaczy pod linkiem do ZATWIERDZONEJ wersji CV.
+
+    Jedno źródło dla publicznego widoku i dla okna tworzenia linku — okno
+    mówiło „wersja interaktywna niedostępna", a link pokazywał kafelki i czat.
+    Zwraca ``(tiles, requirements_status, requirements, chat)``.
+    """
+    tiles, chat = await _interactive_flags(db, doc, approved_version=True)
+    requirements_status: Optional[str] = None
+    requirements: list = []
+    if tiles:
+        from app.services.cv_version_map_view import approved_map_view
+
+        requirements_status, requirements = await approved_map_view(db, approved)
+    from app.services.cv_editor_review import EditorReviewInputError
+    from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
+
+    try:
+        approved_chat_context(approved)
+    except EditorReviewInputError:
+        chat = False
+    return tiles, requirements_status, requirements, chat
+
+
+def interactive_view_shown(
+    requirements: Optional[list], requirements_status: Optional[str], chat: bool
+) -> bool:
+    """Lustro ``hasInteractive`` ze strony ``/cv/i/[token]`` (zatwierdzona wersja)."""
+    return bool(
+        requirements
+        or chat
+        or (
+            requirements_status
+            and requirements_status not in {"complete", "not_requested"}
+        )
+    )
+
+
 @router.get("/cv-i/{token}")
 @limiter.limit("30/minute")
 async def get_public_generated_cv(
@@ -432,21 +472,12 @@ async def get_public_generated_cv(
         from app.services.cv_generated_approval import approved_version_for_generation
 
         approved = await approved_version_for_generation(db, doc, version_id)
-        _tiles, chat = await _interactive_flags(db, doc, approved_version=True)
-        tiles = _tiles
-        if tiles:
-            from app.services.cv_version_map_view import approved_map_view
-
-            requirements_status, approved_requirements = await approved_map_view(
-                db, approved
-            )
-        from app.services.cv_generator_b2b.interactive_chat import approved_chat_context
-        from app.services.cv_editor_review import EditorReviewInputError
-
-        try:
-            approved_chat_context(approved)
-        except EditorReviewInputError:
-            chat = False
+        (
+            tiles,
+            requirements_status,
+            approved_requirements,
+            chat,
+        ) = await approved_interactive_view(db, doc, approved)
     else:
         tiles, chat = await _interactive_flags(db, doc)
 
@@ -545,6 +576,7 @@ async def post_public_generated_cv_chat(
     from app.services.cv_generator_b2b.interactive_chat import (
         CvChatDailyLimitExceeded,
         CvChatLLMError,
+        CvChatTimeout,
         answer_question,
     )
 
@@ -566,7 +598,23 @@ async def post_public_generated_cv_chat(
             status_code=503,
             detail="Chat jest chwilowo niedostępny. Spróbuj ponownie później.",
         ) from None
-    except CvChatLLMError:
+    except CvChatTimeout as exc:
+        # Czytelny komunikat zamiast zerwanego połączenia: budżet czasu jest
+        # krótszy niż limit proxy, więc odpowiedź zawsze dociera do przeglądarki.
+        logger.warning(
+            "[cv_chat] timeout revoke_key=%s: %s", getattr(row, "token", None), exc
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "Asystent nie odpowiedział na czas. Spróbuj zadać pytanie "
+                "ponownie za chwilę."
+            ),
+        ) from None
+    except CvChatLLMError as exc:
+        logger.warning(
+            "[cv_chat] LLM error revoke_key=%s: %s", getattr(row, "token", None), exc
+        )
         raise HTTPException(
             status_code=502,
             detail="Nie udało się uzyskać odpowiedzi. Spróbuj ponownie.",

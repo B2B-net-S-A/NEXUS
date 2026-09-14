@@ -254,6 +254,25 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
       expect(params.open_only).toBeUndefined();
     });
   });
+
+  it("typ rekrutacji ląduje w URL-u i znika z niego po „Wyczyść” (M03-B01)", async () => {
+    window.history.replaceState(null, "", "/jobs");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+
+    await user.click(screen.getByRole("button", { name: "Przetargi" }));
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get("type")).toBe(
+        "tender",
+      );
+    });
+
+    await user.click(screen.getByText("Wyczyść"));
+    await waitFor(() => {
+      expect(window.location.search).toBe("");
+    });
+  });
 });
 
 describe("JobsListV2 — „Brak ownera requestu” filtruje SERWER", () => {

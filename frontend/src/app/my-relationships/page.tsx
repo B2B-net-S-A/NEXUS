@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 type RelationshipStrength = "cold" | "warm" | "strong" | "champion";
@@ -60,7 +62,7 @@ export default function MyRelationshipsPage() {
   );
   const [editing, setEditing] = useState<MyRelationshipRow | null>(null);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["my-relationships"],
     queryFn: async () => {
       const res = await api.get<MyRelationshipRow[]>("/api/my-relationships");
@@ -76,9 +78,20 @@ export default function MyRelationshipsPage() {
     );
   }
   if (error) {
+    // UAT A-B04: 403 (brak sekcji — np. w podglądzie jako użytkownik) to
+    // odmowa, nie „Błąd ładowania. Czy jesteś zalogowany?".
+    const state = resolveViewState({ isLoading: false, isError: true, error });
     return (
-      <div className="p-6 text-destructive">
-        Błąd ładowania. Czy jesteś zalogowany?
+      <div className="p-6 max-w-6xl mx-auto">
+        <QueryStateNotice
+          state={state === "forbidden" ? "forbidden" : "error"}
+          description={
+            state === "forbidden"
+              ? "Kluczowe relacje z klientami nie są dostępne dla Twojej roli."
+              : "Nie udało się wczytać kluczowych relacji."
+          }
+          onRetry={() => refetch()}
+        />
       </div>
     );
   }

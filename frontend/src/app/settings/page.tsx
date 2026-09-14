@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import api from "@/lib/api";
@@ -41,6 +42,7 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
+import { useSettingsTab, type SettingsTab } from "@/lib/settings-tab";
 import {
   hasSectionAccess,
   type ProductSection,
@@ -80,15 +82,8 @@ const PipelineTemplatesTab = dynamic(
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
-type Tab =
-  | "integracje"
-  | "szablony"
-  | "coaching"
-  | "procesy"
-  | "administracja"
-  | "historia"
-  | "zaawansowane"
-  | "pomoc";
+// Klucze zakładek żyją w `lib/settings-tab.ts` — `?tab=` w adresie (M11-B01).
+type Tab = SettingsTab;
 
 interface TabConfig {
   id: Tab;
@@ -453,7 +448,12 @@ function FirefliesCard() {
 
 export default function SettingsPage() {
   const { user, hydrated } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<Tab>("integracje");
+  // `?tab=` w adresie: F5 i linki `/settings?tab=…` otwierają właściwą
+  // zakładkę (także przy miękkiej nawigacji — patrz `useSettingsTab`).
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useSettingsTab(
+    searchParams?.get("tab") ?? null,
+  );
 
   // The auth store hydrates `user` from localStorage in a post-mount effect
   // (AppShellV2). Until then `user` is null, so role-gated tabs (Procesy,

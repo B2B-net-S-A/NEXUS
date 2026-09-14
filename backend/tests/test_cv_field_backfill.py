@@ -41,10 +41,14 @@ def test_interactive_prompt_is_untouched():
     szablonem, a ten test zamraża, że stary nie drgnął."""
 
     assert CV_ENRICHMENT.name == "cv_enrichment"
-    assert CV_ENRICHMENT.version == 5
+    # v6 — świadoma zmiana (UAT M01-B05): stanowiska i daty w `experience`.
+    assert CV_ENRICHMENT.version == 6
     rendered = CV_ENRICHMENT.render(cv_text="x")
     assert "professional_profile" in rendered
     assert "career_summary" in rendered
+    assert '"experience"' in rendered
+    # Wariant masowy świadomie bez tej zmiany.
+    assert '"experience"' not in CV_ENRICHMENT_BULK.render(cv_text="x")
 
 
 def test_empty_skills_list_counts_as_empty():

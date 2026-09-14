@@ -255,8 +255,9 @@ function CvGeneratedShareModalContent({
             {created.interactive_available ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-primary" />
-                Klient zobaczy wersję interaktywną (kafelki wymagań
-                {" + chat"}) z przełącznikiem na widok klasyczny.
+                Klient zobaczy wersję interaktywną (ocena wymagań lub czat —
+                to, co jest dostępne dla tej wersji CV) z przełącznikiem na
+                widok klasyczny.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">

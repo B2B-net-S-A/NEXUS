@@ -453,12 +453,12 @@ export function InterviewDecisionDock({
   );
 }
 
-/** Pusty stan doku — nikt nie jest wybrany na liście „U klienta". */
+/** Pusty stan doku — nikt nie jest wybrany na liście „Rozmowy u klienta". */
 export function InterviewDecisionDockEmpty() {
   return (
     <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
       <CheckCircle2 className="mx-auto mb-2 h-6 w-6 opacity-40" />
-      Wybierz kandydata z listy „U klienta”, aby zobaczyć decyzję, ofertę
+      Wybierz kandydata z listy „Rozmowy u klienta”, aby zobaczyć decyzję, ofertę
       i historię.
     </div>
   );
