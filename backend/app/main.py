@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
 
@@ -393,6 +394,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault(
             "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
         )
+        apply_credentialed_cache_policy(request.headers, response.headers)
         if not settings.DEBUG:
             # HSTS only in prod — avoids pinning localhost dev to HTTPS.
             response.headers.setdefault(

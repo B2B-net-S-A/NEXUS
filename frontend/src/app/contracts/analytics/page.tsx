@@ -369,7 +369,7 @@ export default function ContractAnalyticsPage() {
           </Link>
           <h1 className="text-2xl font-bold mt-1">Analityka kontraktów</h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Marża, utylizacja i prognoza dla aktywnych kontraktów.
+            Marża, utylizacja i prognoza dla aktywnych i kończących się kontraktów.
           </p>
         </div>
 

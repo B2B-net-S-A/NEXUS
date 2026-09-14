@@ -148,6 +148,13 @@ class RevenueForecast(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+# „Kończący się" to aktywny kontrakt z bliskim końcem — konsultant nadal
+# pracuje. Rejestr `/contracts` i prognoza liczą oba statusy; kafle i tabele
+# analityki liczyły wyłącznie `active`, więc ten sam ekran pokazywał inną
+# liczbę aktywnych kontraktów i przychód niż prognoza obok (UAT M08-B02).
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
 @router.get("/margin-by-contractor", response_model=List[MarginByContractor])
 async def margin_by_contractor(
     current_user: FinanceReadUser,
@@ -172,7 +179,7 @@ async def margin_by_contractor(
             cost_sql,
         )
         .join(Contract, Contract.candidate_id == Candidate.id)
-        .where(Contract.status == ContractStatus.active)
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
     )
     raw = res.all()
     currencies = {
@@ -260,7 +267,7 @@ async def margin_by_client(
             cost_sql,
         )
         .join(Contract, Contract.client_id == Client.id)
-        .where(Contract.status == ContractStatus.active)
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
     )
     raw = res.all()
     currencies = {
@@ -337,7 +344,7 @@ async def utilization(
                 Candidate.email,
             )
             .join(Contract, Contract.candidate_id == Candidate.id)
-            .where(Contract.status == ContractStatus.active)
+            .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
         )
     ).all()
     active_keys = unique_contractor_keys(active_rows)
@@ -345,7 +352,7 @@ async def utilization(
     active_contracts = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.status == ContractStatus.active
+                Contract.status.in_(_LIVE_CONTRACT_STATUSES)
             )
         )
     ).scalar() or 0
@@ -426,9 +433,7 @@ async def revenue_forecast(
     first_of_month = today.replace(day=1)
 
     all_active_res = await db.execute(
-        select(Contract).where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending])
-        )
+        select(Contract).where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
     )
     active_contracts = list(all_active_res.scalars().all())
 
@@ -598,7 +603,7 @@ async def role_client_mix(
             )
             .select_from(Contract)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-            .where(Contract.status == ContractStatus.active)
+            .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
         )
     ).one()
     total_active = int(totals.contractors or 0)
@@ -614,7 +619,7 @@ async def role_client_mix(
         .join(Candidate, Candidate.id == Contract.candidate_id)
         .join(Client, Client.id == Contract.client_id)
         .outerjoin(Job, Job.id == Contract.job_id)
-        .where(Contract.status == ContractStatus.active)
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
         .group_by(role_expr, Client.id, client_name)
         .order_by(func.count(distinct(identity_key)).desc())
     )
@@ -627,7 +632,7 @@ async def role_client_mix(
         .select_from(Contract)
         .join(Candidate, Candidate.id == Contract.candidate_id)
         .outerjoin(Job, Job.id == Contract.job_id)
-        .where(Contract.status == ContractStatus.active)
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
         .group_by(role_expr)
     )
     role_totals = {row.role: int(row.cnt) for row in role_totals_res.all()}
@@ -701,7 +706,7 @@ async def location_distribution(
     )
     if active_only:
         base_q = base_q.join(Contract, Contract.candidate_id == Candidate.id).where(
-            Contract.status == ContractStatus.active
+            Contract.status.in_(_LIVE_CONTRACT_STATUSES)
         )
     rows = sorted((await db.execute(base_q.distinct())).all(), key=lambda row: row.id)
     profiles_by_identity = {}

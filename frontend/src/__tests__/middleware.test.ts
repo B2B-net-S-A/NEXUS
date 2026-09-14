@@ -477,6 +477,15 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/candidates/contact-queue", validViewer)).toBe("/403")
   })
 
+  it("kolejka zgłoszeń odcina Head of Recruitment, zgodnie z backendem (UAT A-B02)", () => {
+    expect(destination("/applications", validHeadOfRecruitment)).toBe("/403")
+    expect(destination("/applications", validRecruiter)).toBe("pass")
+    expect(destination("/applications", validTac)).toBe("pass")
+    expect(destination("/applications", validAdmin)).toBe("pass")
+    // Hybryda HoR + rekruter rozpatruje zgłoszenia jako rekruter.
+    expect(destination("/applications", validHybridHeadOfRecruitment)).toBe("pass")
+  })
+
   it("najdłuższy pasujący prefix wygrywa (settings/chats → business-read)", () => {
     expect(destination("/settings/chats", validViewer)).toBe("/403")
     expect(destination("/settings/chats", validAdmin)).toBe("pass")

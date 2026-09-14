@@ -308,10 +308,12 @@ describe("InsightsClientsRanking", () => {
       active_contracts: 10,
       active_orders_count: 4,
       monthly_margin_complete: false,
+      monthly_revenue_complete: true,
       revenue_complete: true,
       monthly_margin_total: 3000,
       total_revenue_all_time: 900000,
       active_revenue: 120000,
+      monthly_revenue_total: 16000,
     },
     clients: [
       {
@@ -323,6 +325,7 @@ describe("InsightsClientsRanking", () => {
         total_revenue_all_time: 500000,
         active_revenue: 70000,
         monthly_margin_total: 2000,
+        monthly_revenue_total: 10000,
         active_orders_count: 2,
         active_consultants: 5,
         active_contracts: 6,
@@ -330,6 +333,7 @@ describe("InsightsClientsRanking", () => {
         framework_expiry_date: "2027-01-31",
         revenue_complete: true,
         margin_complete: true,
+        monthly_revenue_complete: true,
       },
       {
         client_id: 2,
@@ -340,6 +344,7 @@ describe("InsightsClientsRanking", () => {
         total_revenue_all_time: 400000,
         active_revenue: 50000,
         monthly_margin_total: 1000,
+        monthly_revenue_total: 6000,
         active_orders_count: 2,
         active_consultants: 4,
         active_contracts: 4,
@@ -347,6 +352,7 @@ describe("InsightsClientsRanking", () => {
         framework_expiry_date: null,
         revenue_complete: true,
         margin_complete: true,
+        monthly_revenue_complete: true,
       },
       {
         client_id: 3,
@@ -357,6 +363,7 @@ describe("InsightsClientsRanking", () => {
         total_revenue_all_time: 0,
         active_revenue: 0,
         monthly_margin_total: null,
+        monthly_revenue_total: null,
         active_orders_count: 0,
         active_consultants: 0,
         active_contracts: 0,
@@ -364,6 +371,7 @@ describe("InsightsClientsRanking", () => {
         framework_expiry_date: null,
         revenue_complete: true,
         margin_complete: false,
+        monthly_revenue_complete: true,
       },
     ],
   };
@@ -382,12 +390,33 @@ describe("InsightsClientsRanking", () => {
 
     const rows = screen.getAllByRole("row").slice(1); // bez nagłówka
     const marginCells = rows.map(
-      (row) => within(row).getAllByRole("cell")[5].textContent ?? "",
+      (row) => within(row).getAllByRole("cell")[4].textContent ?? "",
     );
     expect(marginCells[0]).toContain(formatPLN(2000));
     expect(marginCells[1]).toContain(formatPLN(1000));
     // Wiersz bez policzalnej marży pokazuje „—", nie zero.
     expect(marginCells[2]).toContain("—");
+  });
+
+  it("kafel przychodu to suma przychodu z kontraktów, nie wartość zamówień (UAT M10-B01)", async () => {
+    respond({ "/api/insights/clients/ranking": rankingPayload });
+
+    renderSection(<InsightsClientsRanking period={PERIOD} />);
+
+    expect(await screen.findByText("Alfa")).toBeInTheDocument();
+    expect(
+      tileValue("Kafle rankingu klientów", "Przychód / mc (dzisiejsze kontrakty)"),
+    ).toBe(
+      formatPLN(16000),
+    );
+    expect(screen.queryByText("Aktywne MRR / mc")).toBeNull();
+    const rows = screen.getAllByRole("row").slice(1);
+    const revenueCells = rows.map(
+      (row) => within(row).getAllByRole("cell")[3].textContent ?? "",
+    );
+    expect(revenueCells[0]).toContain(formatPLN(10000));
+    expect(revenueCells[1]).toContain(formatPLN(6000));
+    expect(revenueCells[2]).toContain("—");
   });
 
   it("oznacza, że suma jest zaniżona, gdy marży nie dało się policzyć", async () => {

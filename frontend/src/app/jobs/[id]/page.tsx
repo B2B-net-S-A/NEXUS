@@ -26,6 +26,7 @@ import api, {
   type HiddenReason,
 } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
@@ -2071,6 +2072,13 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
   });
 
+  const kanbanViewState = resolveViewState({
+    isLoading: kanbanLoading,
+    isError: kanbanIsError,
+    error: kanbanError,
+    isSuccess: kanbanIsSuccess,
+  });
+
   // Kroki 05–08 (Screening, CV do klienta, Rozmowy, Umowa) czytają TE SAME
   // kolumny co listwa kroków — bez własnego zapytania (program „flow w języku
   // C2", PR 6/7 i 7/7).
@@ -2395,9 +2403,11 @@ export default function JobDetailPage() {
       {/* Tab Content */}
       {activeTab === "pipeline" && (
         <div>
-          {kanbanLoading ? (
-            <div className="text-muted-foreground">Ładowanie pipeline...</div>
-          ) : (
+          <PipelineBoardGate
+            state={kanbanViewState}
+            hasData={Boolean(kanban)}
+            onRetry={() => void refetchKanban()}
+          >
             <KanbanBoardV2
               columns={kanban?.columns ?? []}
               offTemplate={kanban?.off_template ?? null}
@@ -2412,7 +2422,7 @@ export default function JobDetailPage() {
               // requestów). Bez klienta tablica mówi „nie ustawiono".
               clientId={job?.client_id ?? null}
             />
-          )}
+          </PipelineBoardGate>
         </div>
       )}
 

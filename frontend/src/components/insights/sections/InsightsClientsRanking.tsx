@@ -47,10 +47,16 @@ export function InsightsClientsRanking({ period }: Props) {
 
   const totals = data?.totals;
   const incomplete: string[] = [];
+  if (totals && !totals.monthly_revenue_complete) {
+    incomplete.push(
+      "Część przychodów miesięcznych nie została policzona (brak kursu NBP) — " +
+        "wiersz pokazuje „—”, a kafel liczy go jako zero. Suma jest zaniżona.",
+    );
+  }
   if (totals && !totals.revenue_complete) {
     incomplete.push(
-      "Część przychodów nie została policzona (brak kursu NBP) — kwoty tych " +
-        "wierszy nie wchodzą do kafli.",
+      "Część wartości zamówień nie została policzona (brak kursu NBP) — kwoty " +
+        "tych wierszy nie wchodzą do kafla „Wartość zamówień”.",
     );
   }
   if (totals && !totals.monthly_margin_complete) {
@@ -93,24 +99,27 @@ export function InsightsClientsRanking({ period }: Props) {
             aria-label="Kafle rankingu klientów"
             className="grid grid-cols-2 gap-4 md:grid-cols-4"
           >
+            {/* UAT M10-B01: kafel „Aktywne MRR / mc" sumował wartości
+                zamówień (PO), więc marża wychodziła większa od przychodu.
+                Przychód i marża liczą się teraz z tych samych kontraktów. */}
             <KpiCard
-              label="Aktywne MRR / mc"
-              value={money(totals.active_revenue)}
-              sub={`${count(totals.active_clients)} klientów z konsultantem`}
+              label="Przychód / mc (dzisiejsze kontrakty)"
+              value={money(totals.monthly_revenue_total)}
+              sub={`Suma kolumny „Przychód/mc” · ${count(totals.active_clients)} klientów z konsultantem`}
               icon={Wallet}
               color="green"
             />
             <KpiCard
               label="Marża / mc"
               value={money(totals.monthly_margin_total)}
-              sub="Suma kolumny „Marża/mc”"
+              sub="Suma kolumny „Marża/mc” — dzisiejsze kontrakty"
               icon={Wallet}
               color="blue"
             />
             <KpiCard
-              label="Przychód lifetime"
+              label="Wartość zamówień"
               value={money(totals.total_revenue_all_time)}
-              sub="Nieprzycinany oknem — z definicji cała historia"
+              sub="Suma kwot z zamówień (PO), cała historia — tylko zamówienia z kwotą"
               icon={Wallet}
               color="purple"
             />
@@ -139,12 +148,12 @@ export function InsightsClientsRanking({ period }: Props) {
                   <th className="px-3 py-2 text-left font-medium">Klient</th>
                   <th className="px-3 py-2 text-left font-medium">Head DL</th>
                   <th className="px-3 py-2 text-right font-medium">
-                    Przychód lifetime
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Aktywne / mc
+                    Przychód/mc
                   </th>
                   <th className="px-3 py-2 text-right font-medium">Marża/mc</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Wartość zamówień
+                  </th>
                   <th className="px-3 py-2 text-right font-medium">
                     Zamówienia
                   </th>
@@ -190,18 +199,21 @@ export function InsightsClientsRanking({ period }: Props) {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right font-medium tabular-nums">
-                      {money(r.total_revenue_all_time)}
-                      {!r.revenue_complete && (
-                        <IncompleteMark title="Brak kursu NBP — kwota niepełna." />
+                      {money(r.monthly_revenue_total)}
+                      {!r.monthly_revenue_complete && (
+                        <IncompleteMark title="Przychód niepełny — brak kursu NBP dla stawki klienta." />
                       )}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-green-700 dark:text-green-400">
-                      {money(r.active_revenue)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-primary">
                       {money(r.monthly_margin_total)}
                       {!r.margin_complete && (
                         <IncompleteMark title="Marża niepełna — brak kursu albo brak stawki kandydata." />
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {money(r.total_revenue_all_time)}
+                      {!r.revenue_complete && (
+                        <IncompleteMark title="Brak kursu NBP — kwota niepełna." />
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">

@@ -65,7 +65,7 @@ Jeśli konfiguracja zmieni się w trakcie UAT — **konfiguracja jest źródłem
 | Talenty | `/talents` | wszyscy poza USR |
 | Talent Radar | `/talent-radar` | KAŻDA zalogowana rola (decyzja 19.08) |
 | Targ / Dostępni | `/sourcing/marketplace` | wszyscy poza USR |
-| Zgłoszenia | `/applications` | wszyscy poza USR |
+| Zgłoszenia | `/applications` | wszyscy poza USR i HoR (HoR nie rozpatruje zgłoszeń — `CANDIDATE_WRITE_ROLES`) |
 | Rekrutacje | `/jobs` | role sekcji pipeline |
 | Kalendarz | `/calendar` | role sekcji pipeline |
 | Klienci | `/clients` | role sekcji delivery |
