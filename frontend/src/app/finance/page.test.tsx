@@ -24,6 +24,9 @@ vi.mock("@/components/finance/FinanceArchiveTab", () => ({
 vi.mock("@/components/finance/MdImportWorkspace", () => ({
   MdImportWorkspace: () => <span>md-import</span>,
 }));
+vi.mock("@/components/finance/OrderChangesTab", () => ({
+  OrderChangesTab: () => <span>order-changes</span>,
+}));
 
 const financeUser = {
   id: 7,
@@ -74,5 +77,19 @@ describe("FinancePage permissions", () => {
     expect(
       screen.queryByRole("tab", { name: "Import zużycia MD" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("offers the read-only order changes audit, also while impersonating", async () => {
+    useAuthStore.setState({
+      realUser: { ...financeUser, id: 1, role: "admin", roles: ["admin"] },
+    });
+    window.history.replaceState(null, "", "/finance?view=order-changes");
+
+    render(<FinancePage />);
+
+    expect(await screen.findByText("order-changes")).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Zmiany w zamówieniach" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 });

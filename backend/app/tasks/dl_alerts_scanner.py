@@ -46,6 +46,7 @@ from app.models.dl_alert import (
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
+    ALERT_ORDER_MISSING_SUCCESSOR,
 )
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import consultant_display_name
@@ -346,11 +347,25 @@ async def rule_missing_revenue_rate(
     return created
 
 
+async def rule_order_missing_successor(
+    db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope | None = None
+) -> int:
+    """Brak kolejnego zamówienia (Finanse → Braki): powtórka co N dni.
+
+    Wykrycie braku robi pętla ``order_gaps``; tu tylko przypominamy o brakach,
+    które wciąż są otwarte.
+    """
+    from app.services.order_gaps import remind_open_gaps
+
+    return await remind_open_gaps(db, recipient_scope)
+
+
 #: Rejestr reguł. Dołożenie piątego typu alertu = dopisanie funkcji i wpisu.
 ALERT_RULES: dict[str, Rule] = {
     ALERT_DRAFT_CONSULTANT_UNASSIGNED: rule_draft_consultant_unassigned,
     ALERT_MD_BUDGET_LOW: rule_md_budget_low,
     ALERT_MISSING_REVENUE_RATE: rule_missing_revenue_rate,
+    ALERT_ORDER_MISSING_SUCCESSOR: rule_order_missing_successor,
 }
 
 

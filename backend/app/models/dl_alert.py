@@ -46,6 +46,11 @@ ALERT_DRAFT_CONSULTANT_UNASSIGNED = "draft_consultant_unassigned"
 ALERT_MD_BUDGET_LOW = "md_budget_low"
 ALERT_MISSING_REVENUE_RATE = "missing_revenue_rate"
 ALERT_MD_CONSULTANT_ENDED = "md_consultant_ended"
+# Emitowany bez stałej w `order_mail_ingest.notify_review` od 0265 — dopisany
+# do list, żeby poszerzenie więzu go nie zgubiło, a sekcja miała etykietę.
+ALERT_ORDER_MAIL_REVIEW = "order_mail_review"
+# 0308: zamówienie zakończone, a osoba nie ma u klienta następnego zamówienia.
+ALERT_ORDER_MISSING_SUCCESSOR = "order_missing_successor"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -53,6 +58,8 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
     ALERT_MD_CONSULTANT_ENDED,
+    ALERT_ORDER_MAIL_REVIEW,
+    ALERT_ORDER_MISSING_SUCCESSOR,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -61,6 +68,8 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_MD_BUDGET_LOW: "Niski poziom MD na zamówieniu",
     ALERT_MISSING_REVENUE_RATE: "Brak stawki przychodowej",
     ALERT_MD_CONSULTANT_ENDED: "Zakończenie współpracy — decyzja MD",
+    ALERT_ORDER_MAIL_REVIEW: "Zamówienie z maila do weryfikacji",
+    ALERT_ORDER_MISSING_SUCCESSOR: "Brak kolejnego zamówienia",
 }
 
 DL_ALERT_STATUS_NEW = "new"
@@ -81,7 +90,8 @@ class DlAlert(Base):
         CheckConstraint(
             "alert_type IN ('cost_order_exhausted', "
             "'draft_consultant_unassigned', 'md_budget_low', "
-            "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review')",
+            "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review', "
+            "'order_missing_successor')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint("status IN ('new', 'handled')", name="ck_dl_alerts_status"),

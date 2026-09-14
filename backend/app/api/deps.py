@@ -20,6 +20,7 @@ from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.onboarding_access import onboarding_persona_for_user
+from app.services.order_change_audit import stamp_actor
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.service_account_auth import (
@@ -166,6 +167,11 @@ async def get_authenticated_user(
     # are invalid by construction. The migration starts every account at 1.
     if not token_authorization_version_matches(payload, user.authorization_version):
         raise credentials_exception
+
+    # Autor zmian zamówień w dzienniku Finansów (``order_change_events``).
+    # Sesja żądania jest współdzielona przez zależności, więc handler zapisuje
+    # zamówienie tą samą sesją. Zawsze prawdziwe konto, nie podglądane.
+    stamp_actor(db.info, user.id)
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
     effective_user = (

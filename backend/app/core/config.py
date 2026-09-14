@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from pydantic import field_validator, model_validator
@@ -1404,6 +1404,23 @@ class Settings(BaseSettings):
     # Co ile dni ponawiać alert, którego przyczyna nie ustąpiła. Powtórka to
     # NOWY wiersz, nie aktualizacja — patrz `app/services/dl_alerts.py`.
     DL_ALERT_REPEAT_DAYS: int = 7
+
+    # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
+    # Kill-switch detektora braków (zamówienie zakończone bez następcy):
+    # `false` → pętla kończy się przed startem, zapis zamówienia i odczyt
+    # zakładki nie wykrywają ani nie rozwiązują braków. Zapisane wpisy zostają
+    # czytelne w Finansach.
+    ORDER_GAPS_ENABLED: bool = True
+    # Od jakiej daty końca zamówienia śledzimy braki. Bez granicy pierwszy
+    # przebieg zamieniłby w „braki" lata normalnych odejść sprzed tej funkcji.
+    ORDER_GAP_TRACKING_START: date = date(2026, 8, 1)
+    # Ile dni wstecz od dziś wykrywamy nowe braki. Zamknięty miesiąc nie może
+    # po tygodniach dostawać nowych wpisów (np. po usunięciu szkicu następcy).
+    ORDER_GAP_LOOKBACK_DAYS: int = 45
+    # Godzina (Europe/Warsaw) dziennego przebiegu — tuż po północy, żeby brak
+    # „pojawił się następnego dnia" rano, a nie w środku dnia.
+    ORDER_GAPS_RUN_HOUR_LOCAL: int = 0
+    ORDER_GAPS_RUN_MINUTE_LOCAL: int = 30
 
     @property
     def multi_consultant_order_client_ids(self) -> frozenset[int]:

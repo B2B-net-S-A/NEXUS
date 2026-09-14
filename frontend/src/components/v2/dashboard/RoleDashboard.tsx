@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 import { DashboardShell } from "./DashboardShell"
+import { DlAlertsSection } from "./DlAlertsSection"
 import {
   MyAssignedRecruitments,
   RecruitmentCompetenceDashboard,
@@ -152,6 +153,9 @@ function RecruitmentDashboardContent({
 }) {
   return (
     <div className="space-y-6">
+      {/* Alerty DL (braki zamówień, niski budżet MD, szkice) — od #1304 sekcja
+          nie była montowana nigdzie, więc DL nie widział żadnego z nich. */}
+      {preset === "delivery-lead" && roles.includes("delivery_lead") && <DlAlertsSection />}
       {preset === "head-of-recruitment" && roles.includes("head_of_recruitment") && <AllocationWorkloadBoard />}
       <RecruitmentActivityDashboard />
       <MyAssignedRecruitments preset={preset} />

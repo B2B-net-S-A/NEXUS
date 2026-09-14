@@ -46,6 +46,9 @@ vi.mock("@/components/v2/priority-work", () => ({
 }))
 
 vi.mock("@/components/v2/priority-work/AllocationWorkloadBoard", () => ({ AllocationWorkloadBoard: () => <div>allocation-workload</div> }))
+vi.mock("@/components/v2/dashboard/DlAlertsSection", () => ({
+  DlAlertsSection: () => <div>dl-alerts</div>,
+}))
 
 function recruiter(): User {
   return {
@@ -85,6 +88,29 @@ describe("RoleDashboard — unified recruitment view", () => {
     render(<RoleDashboard />)
     expect(screen.getByText("allocation-workload")).toBeVisible()
     expect(screen.queryByText("team-allocation")).toBeNull()
+  })
+
+  it("shows Delivery Lead alerts (e.g. missing orders) only on the DL dashboard", () => {
+    navigation.params = new URLSearchParams("preset=delivery-lead&period=month")
+    act(() =>
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "delivery_lead",
+          roles: ["delivery_lead"],
+          available_dashboard_presets: ["delivery-lead"],
+          default_dashboard_preset: "delivery-lead",
+        },
+      }),
+    )
+    const { unmount } = render(<RoleDashboard />)
+    expect(screen.getByText("dl-alerts")).toBeInTheDocument()
+    unmount()
+
+    navigation.params = new URLSearchParams("preset=my-work&period=day")
+    act(() => useAuthStore.setState({ user: recruiter() }))
+    render(<RoleDashboard />)
+    expect(screen.queryByText("dl-alerts")).toBeNull()
   })
 
   it("shows activity, personal work and recruitments without legacy tabs", () => {

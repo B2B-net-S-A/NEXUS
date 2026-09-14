@@ -111,6 +111,109 @@ export interface FinanceHeaderMismatch {
   unexpected: string[];
 }
 
+// ── Zmiany w zamówieniach ───────────────────────────────────────────────────
+
+export type OrderTypeCode = "periodic" | "cost" | "md";
+export type RateUnitCode = "hourly" | "daily" | "monthly" | "md";
+
+interface OrderRef {
+  order_id: number | null;
+  order_group_id: number | null;
+  contract_id: number | null;
+  client_id: number | null;
+  client_name: string;
+  consultant_name: string;
+  order_number: string;
+}
+
+export interface OrderEntryItem extends OrderRef {
+  start_date: string | null;
+  end_date: string | null;
+  rate_cost: number | null;
+  rate_revenue: number | null;
+  rate_unit: RateUnitCode | null;
+  currency: string | null;
+  order_type: OrderTypeCode;
+  status: string;
+  is_continuation: boolean;
+  previous_order_number: string | null;
+  previous_end_date: string | null;
+  additional_project: boolean;
+}
+
+export type OrderExitVerdict =
+  | "continuation"
+  | "ended_intent"
+  | "no_successor"
+  | "ending_pending";
+
+export interface OrderExitItem extends OrderRef {
+  end_date: string;
+  start_date: string | null;
+  rate_cost: number | null;
+  rate_revenue: number | null;
+  rate_unit: RateUnitCode | null;
+  currency: string | null;
+  order_type: OrderTypeCode;
+  verdict: OrderExitVerdict;
+  verdict_label: string;
+  successor_order_number: string | null;
+  successor_start_date: string | null;
+  intent: string | null;
+}
+
+export type OrderChangeKind =
+  | "rate_cost"
+  | "rate_revenue"
+  | "end_date"
+  | "additional_project";
+
+export interface OrderChangeItem extends OrderRef {
+  kind: OrderChangeKind;
+  occurred_at: string | null;
+  effective_date: string | null;
+  old_amount: number | null;
+  new_amount: number | null;
+  old_unit: RateUnitCode | null;
+  new_unit: RateUnitCode | null;
+  currency: string | null;
+  old_date: string | null;
+  new_date: string | null;
+  is_whole_order: boolean;
+  source: "user" | "system" | null;
+  author_name: string | null;
+  rate_cost: number | null;
+  rate_revenue: number | null;
+  rate_unit: RateUnitCode | null;
+  other_client_names: string[];
+}
+
+export interface OrderGapItem extends OrderRef {
+  gap_id: number;
+  ended_on: string;
+  detected_on: string;
+  status: "open" | "filled_late";
+  resolved_order_number: string | null;
+  resolved_at: string | null;
+  delay_days: number | null;
+}
+
+export interface OrderChangesResponse {
+  period: { year: number; month: number; label: string };
+  counts: { changes: number; entries: number; exits: number; gaps: number };
+  changes: OrderChangeItem[];
+  entries: OrderEntryItem[];
+  exits: OrderExitItem[];
+  gaps: OrderGapItem[];
+  changes_tracked_since: string | null;
+  gaps_tracked_since: string;
+  open_gaps_total: number;
+}
+
+export function orderChangesExportPath(year: number, month: number): string {
+  return `/api/finance/order-changes/export?year=${year}&month=${month}`;
+}
+
 export const financeApi = {
   listPeriods: () => api.get<FinancePeriod[]>("/api/finance/periods"),
 
@@ -150,4 +253,7 @@ export const financeApi = {
 
   restoreImport: (runId: number) =>
     api.post<FinanceImportRun>(`/api/finance/imports/${runId}/restore`),
+
+  getOrderChanges: (params: { year: number; month: number }) =>
+    api.get<OrderChangesResponse>("/api/finance/order-changes", { params }),
 };
