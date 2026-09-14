@@ -385,3 +385,29 @@ async def test_client_trend_404_for_unknown(rep_client: AsyncClient):
         "/api/reports/clients/99999999/trend?months=3", headers=headers
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_client_trend_active_only_preserves_missing_denominator(
+    rep_client: AsyncClient,
+):
+    client_id = await _seed_client("ActiveOnly")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Job(
+                title="Active-only report regression",
+                client_id=client_id,
+                status=JobStatus.published,
+            )
+        )
+        await db.commit()
+    _, email, password = await _seed_user(UserRole.admin, "active-only")
+    headers = await _login(rep_client, email, password)
+    response = await rep_client.get(
+        f"/api/reports/clients/{client_id}/trend?months=3", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()["trend"]) == 3
+    for month in response.json()["trend"]:
+        assert month["closed_jobs"] == 0
+        assert month["fill_rate"] is None

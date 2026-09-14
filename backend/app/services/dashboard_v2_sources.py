@@ -21,11 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import metrics
 from app.analytics.periods import Period
+from app.services.traffit_status import read_traffit_status
+
 from app.api import (
     admin_index_coverage,
     admin_schema_drift,
     admin_snapshot,
-    admin_traffit,
     candidate_contact,
     contract_analytics,
     invoices,
@@ -168,7 +169,7 @@ async def load_admin_index_coverage(db: AsyncSession) -> dict[str, Any]:
 
 
 async def load_traffit_status(user: User, db: AsyncSession) -> dict[str, Any]:
-    return await admin_traffit.traffit_sync_status(user, db)
+    return await read_traffit_status(db)
 
 
 async def load_priority_status(user: User, db: AsyncSession) -> dict[str, Any]:
