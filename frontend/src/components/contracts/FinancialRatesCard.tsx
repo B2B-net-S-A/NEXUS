@@ -14,6 +14,8 @@ interface RateScheduleEntry {
   id: number;
   rate: number;
   effective_from: string;
+  /** Krok z zamówienia klienta (tylko harmonogram stawki klienta). */
+  source_order_id?: number | null;
 }
 
 export interface FinancialRatesContract {
@@ -223,6 +225,7 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
               unitSuffix={unitSuffix}
               exchangeRate={clientExchangeRate}
               testIdPrefix="client-rate-schedule"
+              showSource
             />
           )}
           <div className="flex justify-between gap-4">
@@ -356,17 +359,28 @@ function RateSchedule({
   unitSuffix,
   exchangeRate,
   testIdPrefix,
+  showSource = false,
 }: {
   currency: string;
   entries: RateScheduleEntry[];
   unitSuffix: string;
   exchangeRate: EurPlnRate | null;
   testIdPrefix: string;
+  /** Oznacz pochodzenie kroku: z zamówienia klienta albo ręczny/z aneksu. */
+  showSource?: boolean;
 }) {
   const today = new Date().toISOString().slice(0, 10);
+  // Sortowanie stabilne: przy tej samej dacie zostaje kolejność z API
+  // (effective_from, id), a backend przy remisie bierze krok dodany jako
+  // ostatni — więc wcześniejszy krok z tą samą datą nigdy nie obowiązuje.
   const sorted = [...entries].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
   const past = sorted.filter((entry) => entry.effective_from <= today);
   const currentId = (past.length ? past[past.length - 1] : sorted[0]).id;
+  const supersededIds = new Set(
+    sorted
+      .filter((entry, index) => sorted[index + 1]?.effective_from === entry.effective_from)
+      .map((entry) => entry.id),
+  );
 
   return (
     <div className="pt-1 pl-2 border-l-2 border-border space-y-1">
@@ -380,6 +394,14 @@ function RateSchedule({
           <span>
             od {formatDate(entry.effective_from)}
             {entry.id === currentId && <span className="ml-1 opacity-70">(aktualna)</span>}
+            {showSource && (
+              <span className="ml-1 opacity-70" data-testid={`${testIdPrefix}-${entry.id}-source`}>
+                · {entry.source_order_id != null ? "z zamówienia" : "ręcznie / aneks"}
+              </span>
+            )}
+            {supersededIds.has(entry.id) && (
+              <span className="ml-1 opacity-70">· nieobowiązująca (zastąpiona krokiem z tą samą datą)</span>
+            )}
           </span>
           <span className="flex flex-wrap items-baseline justify-end gap-x-2">
             <span className="whitespace-nowrap">

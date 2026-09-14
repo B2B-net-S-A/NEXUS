@@ -88,6 +88,7 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckResponse,
 )
 from app.services.order_engagement_separation import has_open_group_line
+from app.services.polish_ilike import polish_folded_ilike
 from app.services.contract_lifecycle import (
     SIGNED_AGREEMENT_ACTIVATION,
     activate_without_revenue_gate,
@@ -1575,25 +1576,26 @@ async def list_generated_contracts(
 
     needle = (q or "").strip()
     if needle:
-        pattern = _like_needle(needle)
         # OUTER JOIN, bo większość wierszy nie ma dowiązanego kandydata —
         # INNER wyciąłby je z wyników wyszukiwania po numerze umowy.
         query = query.outerjoin(
             Candidate, Candidate.id == B2BGeneratedContract.candidate_id
         )
+        # Pola tekstowe bez wrażliwości na polskie znaki (UAT M08-B01);
+        # `polish_folded_ilike` escapuje `%`, `_` i `\\` jak `_like_needle`.
         clauses = [
-            B2BGeneratedContract.contract_number.ilike(pattern, escape="\\"),
-            B2BGeneratedContract.partner_name.ilike(pattern, escape="\\"),
+            polish_folded_ilike(B2BGeneratedContract.contract_number, needle),
+            polish_folded_ilike(B2BGeneratedContract.partner_name, needle),
             # Kolumna „Partner" pokazuje NAZWĘ FIRMY, więc bez tego warunku
             # wyszukiwarka nie znajduje tego, co użytkownik widzi na liście.
-            B2BGeneratedContract.partner_legal_name.ilike(pattern, escape="\\"),
-            B2BGeneratedContract.client_name.ilike(pattern, escape="\\"),
-            Candidate.name.ilike(pattern, escape="\\"),
-            Candidate.lastname.ilike(pattern, escape="\\"),
+            polish_folded_ilike(B2BGeneratedContract.partner_legal_name, needle),
+            polish_folded_ilike(B2BGeneratedContract.client_name, needle),
+            polish_folded_ilike(Candidate.name, needle),
+            polish_folded_ilike(Candidate.lastname, needle),
             # Pełne „Imię Nazwisko" wpisane jednym ciągiem — pojedyncze
             # kolumny wyżej same tego nie dopasują.
-            func.concat(Candidate.name, " ", Candidate.lastname).ilike(
-                pattern, escape="\\"
+            polish_folded_ilike(
+                func.concat(Candidate.name, " ", Candidate.lastname), needle
             ),
         ]
         # NIP dochodzi tylko dla fraz wyglądających jak NIP. Próg 5 cyfr, bo

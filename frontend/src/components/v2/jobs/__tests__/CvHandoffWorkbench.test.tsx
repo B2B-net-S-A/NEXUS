@@ -219,7 +219,7 @@ beforeEach(() => {
 describe("CvHandoffWorkbench", () => {
   it("kolejka pokazuje zweryfikowanych ze stawką kandydata", () => {
     renderWorkbench();
-    const queue = screen.getByRole("list", { name: "Zweryfikowani kandydaci" });
+    const queue = screen.getByRole("list", { name: "Kandydaci do wysłania CV" });
     expect(within(queue).getByText("Grzegorz Żebrowski")).toBeTruthy();
     expect(within(queue).getByText(/118/)).toBeTruthy();
   });

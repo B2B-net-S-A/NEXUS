@@ -32,7 +32,10 @@ from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
-from app.services.contract_order_sync import run_daily_order_cost_sync
+from app.services.contract_order_sync import (
+    backfill_missing_order_periods,
+    run_daily_order_cost_sync,
+)
 from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
@@ -399,6 +402,15 @@ async def run_contract_alerts_cycle() -> dict:
         except Exception:  # noqa: BLE001
             await db.rollback()
             logger.exception("contract_alerts: order cost sync failed")
+    # Uzupełnienie brakującego okresu zamówienia (UAT B-B02) — osobna sesja,
+    # żeby jego awaria nie wycofała zaplanowanych zmian stawek z przebiegu wyżej.
+    async with AsyncSessionLocal() as db:
+        try:
+            stats["order_periods_backfilled"] = await backfill_missing_order_periods(db)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("contract_alerts: order period backfill failed")
     async with AsyncSessionLocal() as db:
         ending, ended = await _promote_statuses(db)
         stats["promoted_ending"] = ending

@@ -47,6 +47,7 @@ import {
   EMPTY_CHAMPION_PROFILE,
   type ChampionProfile,
   type ChampionProfileSuggestion,
+  type ChampionStack,
   type StackItem,
   type ScreeningQuestion,
 } from "@/lib/api";
@@ -55,6 +56,11 @@ import {
   type ChampionProfileChangedEventDetail,
 } from "@/hooks/useNotifications";
 import { useAuthStore } from "@/store/auth";
+import {
+  championSavePayload,
+  seedStackFromJobColumns,
+  withoutSeededStackConflict,
+} from "@/lib/champion-legacy-stack";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { Badge } from "@/components/ui/badge";
@@ -98,6 +104,9 @@ export function ChampionProfileEditor({
   });
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
+  // Stack wczytany z kolumn rekrutacji dla profilu sprzed 09.2026 (M04-B02) —
+  // patrz `lib/champion-legacy-stack.ts`. `null` = profil ma własny stack.
+  const [seededStack, setSeededStack] = useState<ChampionStack | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [remoteChange, setRemoteChange] = useState<{
@@ -140,7 +149,12 @@ export function ChampionProfileEditor({
   useEffect(() => {
     if (data) {
       const loaded = data.champion_profile as Partial<ChampionProfile>;
-      setDraft({ ...EMPTY_CHAMPION_PROFILE, ...loaded });
+      const seed = seedStackFromJobColumns(
+        { ...EMPTY_CHAMPION_PROFILE, ...loaded },
+        data.job_values,
+      );
+      setDraft(seed.profile);
+      setSeededStack(seed.seededStack);
     }
   }, [data]);
 
@@ -176,7 +190,11 @@ export function ChampionProfileEditor({
   }, [remoteChange]);
 
   const mutation = useMutation({
-    mutationFn: (p: ChampionProfile) => championApi.put(jobId, p),
+    mutationFn: (p: ChampionProfile) =>
+      championApi.put(
+        jobId,
+        championSavePayload(p, seededStack) as ChampionProfile,
+      ),
     onSuccess: () => {
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
       // „Przekaż do searchu" — patrz `invalidateChampionDependents`.
@@ -289,7 +307,9 @@ export function ChampionProfileEditor({
       </div>
 
       <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
-      <ChampionValidationPanel validation={data?.validation} />
+      <ChampionValidationPanel
+        validation={withoutSeededStackConflict(data?.validation, seededStack)}
+      />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
 
@@ -558,6 +578,16 @@ export function ChampionProfileEditor({
         anchor={meta("stack").anchor}
         state={championSectionState("stack", draft)}
       >
+        {seededStack ? (
+          <p
+            className="mb-2 text-xs text-muted-foreground"
+            data-testid="champion-stack-seeded-from-job"
+          >
+            Wymagania wczytane z pól rekrutacji — ten profil powstał przed
+            przebudową i nie miał własnego stacku. Zapiszą się w profilu
+            dopiero, gdy je zmienisz.
+          </p>
+        ) : null}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <StackField
             label={`Musi mieć · ${(draft.stack.must || []).length}`}
@@ -846,9 +876,15 @@ export function ChampionProfileEditor({
         state={championSectionState("client", draft)}
         action={
           clientId ? (
+            // Do Pomocy, nie do `/clients/<id>` (M03-B02/M04-B03): profil
+            // klienta jest bramkowany sekcją Delivery, więc rekruter, sourcer,
+            // TAC i HoR lądowali na odmowie. Pomoc czyta każdy zalogowany —
+            // ten sam cel co link w kompaktowej karcie obok. Edycja karty ma
+            // własny link „Edytuj →", zbramkowany uprawnieniem.
             <a
-              href={`/clients/${clientId}?tab=zasady`}
+              href={`/help?tab=clients&client=${clientId}`}
               className="text-xs font-medium text-primary hover:underline"
+              data-testid="champion-client-section-full-card-link"
             >
               Pełna karta klienta →
             </a>

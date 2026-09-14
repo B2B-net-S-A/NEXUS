@@ -332,7 +332,10 @@ export function JobInterviewsTab({
       {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
-        title="U klienta"
+        // „Rozmowy u klienta" (M03-B12): liczy etapy kroku 07, bez „CV Wysłane"
+        // i bez etapów umowy — to NIE jest grupa „U klienta (CV → interview)"
+        // z szyny Pipeline'u. Etykieta = KPI jobbara i licznik listwy kroków.
+        title="Rozmowy u klienta"
         count={entries.length}
         meta="etapy zewnętrzne"
         footer={
@@ -371,7 +374,7 @@ export function JobInterviewsTab({
             Nikt nie jest jeszcze u klienta.
           </p>
         ) : (
-          <div className="space-y-0.5" role="list" aria-label="U klienta">
+          <div className="space-y-0.5" role="list" aria-label="Rozmowy u klienta">
             {entries.map(({ item, col }) => {
               const feedback = feedbackByCandidate.get(item.candidate_id);
               return (

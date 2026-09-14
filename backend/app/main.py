@@ -1732,7 +1732,8 @@ async def api_health_check():
 
     Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
-    `m365` is informational and does not affect the gate.
+    `m365` is informational and does not affect the gate; it also degrades
+    when a mailbox has been stuck in a sync error for more than 24 h.
     Database ping is bounded to 2s; M365 connection count to 1s.
     """
     import asyncio
@@ -1740,7 +1741,7 @@ async def api_health_check():
 
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
-    from sqlalchemy import func, select, text
+    from sqlalchemy import select, text
 
     from app.core.config import settings
     from app.core.database import AsyncSessionLocal
@@ -1761,18 +1762,16 @@ async def api_health_check():
         checks["m365"] = "degraded"
     else:
         try:
-            from app.models.m365 import M365Connection
+            # Nie tylko „jest aktywne połączenie”: skrzynka, której ostatnia
+            # próba padła, albo połączenie wyłączone przez awarię degraduje
+            # sondę (UAT M11-B07 — skrzynka w błędzie od tygodni przy
+            # `m365 = healthy`).
+            from app.services.m365_health import m365_health_status
 
             async with AsyncSessionLocal() as session:
-                count = await asyncio.wait_for(
-                    session.scalar(
-                        select(func.count())
-                        .select_from(M365Connection)
-                        .where(M365Connection.is_active.is_(True))
-                    ),
-                    timeout=1.0,
+                checks["m365"] = await asyncio.wait_for(
+                    m365_health_status(session), timeout=1.0
                 )
-            checks["m365"] = "healthy" if (count or 0) >= 1 else "degraded"
         except Exception:
             checks["m365"] = "degraded"
 

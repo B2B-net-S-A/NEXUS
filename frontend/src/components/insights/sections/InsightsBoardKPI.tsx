@@ -190,10 +190,16 @@ export function InsightsBoardKPI({ period }: Props) {
             icon={Percent}
             color={finance.complete ? "green" : "orange"}
           />
+          {/* UAT M10-B04: ranking „Klienci (MRR)" liczy konsultantów INACZEJ
+              (dzisiejszy status aktywny/kończący się, sumowane po klientach),
+              więc bez podpisanej definicji dwie liczby na jednej zakładce
+              wyglądały jak błąd. */}
           <KpiCard
-            label="Aktywni konsultanci"
+            label="Aktywni konsultanci (w dniu wyceny)"
             value={count(finance.active_consultants)}
-            sub={`${count(finance.active_contracts)} aktywnych kontraktów`}
+            sub={`Unikalne osoby · ${count(
+              finance.active_contracts,
+            )} kontraktów wykonywanych ${finance.asof}`}
             icon={Briefcase}
             color="purple"
           />
@@ -208,6 +214,14 @@ export function InsightsBoardKPI({ period }: Props) {
           MRR to ZDJĘCIE STANU na wskazany dzień, nie suma za okres — stawki
           pochodzą z harmonogramów obowiązujących tego dnia, nie z kolumn
           zapisanych przy ostatniej edycji kontraktu.
+        </DefinitionNote>
+        <DefinitionNote>
+          Aktywni konsultanci to unikalne osoby z kontraktem WYKONYWANYM w dniu
+          wyceny (data startu ≤ dzień ≤ data końca). Ranking „Klienci (MRR)”
+          liczy dzisiejsze kontrakty w statusie aktywny lub kończący się
+          i sumuje osoby po klientach — konsultant u dwóch klientów jest tam
+          liczony dwa razy, a kontrakt bez daty startu tylko tam — dlatego te
+          liczby mogą się różnić.
         </DefinitionNote>
       </div>
 

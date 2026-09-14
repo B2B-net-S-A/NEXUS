@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-11
+> **Zgodność z systemem sprawdzona:** 2026-09-14
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -496,6 +496,9 @@ zostanie odczytane.
 * **Zamówienia MD i kosztowe:** system **pyta „Tak/Nie"** i wymienia różnice pole
   po polu, zanim cokolwiek zmieni. Wypełnienie pustego pola nie jest
   rozbieżnością i odbywa się bez pytania.
+  Wartość, którą wpisał poprzedni odczyt innego PDF-a, też nie jest Twoim
+  wpisem: kolejny odczyt zastępuje ją bez pytania, także pustą, gdy nowy
+  dokument danego pola nie ma.
 
 **Przy dodawaniu konsultanta do istniejącego zamówienia najpierw wybierz osobę** — bez tego
 przycisk odczytu jest nieaktywny. System wiąże wtedy stawkę i liczbę MD
@@ -678,6 +681,11 @@ reguły nie powiodło się…" i można użyć przycisku ręcznie.
   przychodowa**. Stawka z zamówienia zaczynającego się w przyszłości obowiązuje
   w umowie dopiero od jego daty startu. Szkic umowy, który dzięki temu ma
   komplet danych, sam przechodzi na **Aktywny**.
+* **Uzupełnia brakujący okres zamówienia raz na dobę.** Umowa, której
+  zamówienia nikt nie zapisał od wdrożenia synchronizacji, dostaje w nocy sam
+  **okres zamówienia** z najnowszego uzupełnionego zamówienia. Stawki, jednostki
+  i waluty ten przebieg nie zmienia — przeniesie je dopiero najbliższy zapis
+  zamówienia.
 * **Dopasowuje jednostkę umowy do zamówienia** (1 MD = 8 godzin). Umowa z
   generatora jest godzinowa; pierwsze zamówienie w MD przestawia ją na MD
   i przelicza stawkę kosztową (120 zł/h → 960 zł/MD). Umowa zostaje w MD, dopóki

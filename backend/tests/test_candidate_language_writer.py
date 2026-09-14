@@ -228,4 +228,6 @@ async def test_db_writer_updates_only_compatibility_projection_and_version():
     assert candidate_stmt.get_execution_options()["populate_existing"] is True
     assert candidate_stmt._for_update_arg is not None
     db.add.assert_called_once()
-    db.flush.assert_awaited_once()
+    # Pierwszy flush PRZED przeładowaniem z populate_existing (inaczej
+    # niezapisane zmiany wołającego znikają — UAT M01-B02), drugi po zapisie.
+    assert db.flush.await_count == 2

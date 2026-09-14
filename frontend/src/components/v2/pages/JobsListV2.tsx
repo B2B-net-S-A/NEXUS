@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -59,8 +59,15 @@ import {
 } from "@/lib/filter-options";
 import { useUiStore } from "@/store/ui";
 import {
+  encodeJobsListUrl,
+  initialDeadlineFromUrl,
   initialMineFromUrl,
+  initialSortFromUrl,
   initialStatusFromUrl,
+  initialTypeFromUrl,
+  type JobDeadlinePreset,
+  type JobSortFilterValue,
+  type JobTypeFilterValue,
 } from "@/lib/jobs-url-filters";
 import { extractSkills } from "@/lib/job-skills";
 import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
@@ -86,7 +93,7 @@ import type {
 // gatunek błędu, który wcześniej naprawiono dla `ContractTypeValue` w
 // `filter-options.ts` (tam wartości też były przepisane z tego enuma).
 // Etykiety zostają PL/EN tak jak dziś — to wartości WYSYŁANE do API się liczą.
-type JobType = "all" | "body_leasing" | "sales_project" | "tender";
+type JobType = JobTypeFilterValue;
 
 const FILTER_TABS: { value: JobType; label: string }[] = [
   { value: "all", label: "Wszystkie" },
@@ -128,7 +135,7 @@ const FUNNEL_BAR_COLOR: Record<FunnelGroupKey, string> = {
   hired: "bg-success",
 };
 
-type DeadlinePreset = "any" | "overdue" | "next7" | "next30" | "has" | "none";
+type DeadlinePreset = JobDeadlinePreset;
 
 const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
   { value: "any", label: "Termin: dowolny" },
@@ -139,7 +146,7 @@ const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
   { value: "none", label: "Bez terminu" },
 ];
 
-type JobSortValue = "newest" | "oldest" | "deadline";
+type JobSortValue = JobSortFilterValue;
 type PriorityWorkFilter = "any" | "assigned" | "carry_over" | "either";
 
 const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
@@ -428,13 +435,20 @@ function JobsTable({
           const rejectedTotal = hasStageBreakdown
             ? funnelRejectedTotal(job.stage_breakdown)
             : 0;
+          // Suma za ukośnikiem obejmuje ZATRUDNIONYCH, a KPI „w procesie"
+          // w rekrutacji — nie (kolumny terminalne). Tooltip nazywa ją wprost,
+          // żeby „27" tutaj i „26" w rekrutacji nie czytały się jako ta sama
+          // liczba pod dwiema wartościami (B-B05).
           const funnelTitle = [
+            hasStageBreakdown
+              ? `W pipeline łącznie (z zatrudnionymi): ${funnelCount}`
+              : null,
             funnelTooltip(funnelGroups),
             rejectedTotal > 0 ? `Odrzuceni/wycofani: ${rejectedTotal}` : null,
           ]
             .filter(Boolean)
             .join(" · ");
-          // „13·2·0 / 15" — nowi · screening · zweryfikowani / w procesie
+          // „13·2·0 / 15" — nowi · screening · zweryfikowani / w pipeline łącznie
           // (makieta „01 Lista"). Sama suma nie mówiła, czy piętnastu ludzi
           // stoi na wejściu, czy jest już u klienta — a to jest cała różnica
           // między „trzeba dzwonić" a „trzeba czekać".
@@ -646,21 +660,25 @@ export function JobsListV2() {
   // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
   // i nie miał sygnału, że kliknięty filtr nie zadziałał.
   //
-  // Czytane raz, przy montowaniu — te parametry są punktem wejścia, nie
-  // dwukierunkowym wiązaniem; późniejsze klikanie w filtry nie ma przepisywać
-  // URL-a ani być przez niego nadpisywane.
+  // Czytane raz, przy montowaniu. Status, „moje", typ, termin i sortowanie są
+  // potem ZAPISYWANE z powrotem do URL-a (efekt niżej, M03-B01) — inaczej F5
+  // i „Wstecz" z profilu rekrutacji gubiły zawężenie bez słowa.
   const searchParams = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
     () => initialStatusFromUrl(searchParams)
   );
-  const [typeFilter, setTypeFilter] = useState<JobType>("all");
+  const [typeFilter, setTypeFilter] = useState<JobType>(() =>
+    initialTypeFromUrl(searchParams),
+  );
   const [mine, setMine] = useState(() => initialMineFromUrl(searchParams));
   const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
   const [clientIds, setClientIds] = useState<number[]>([]);
   const [ccIds, setCcIds] = useState<number[]>([]);
   const [needsSourcing, setNeedsSourcing] = useState(false);
   const [activeInSearch, setActiveInSearch] = useState(false);
-  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>("any");
+  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(() =>
+    initialDeadlineFromUrl(searchParams),
+  );
   const [openOnly, setOpenOnly] = useState(false);
   // "Brak ownera requestu" jako FILTR (nie tylko badge, makieta „01 Lista").
   // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
@@ -668,7 +686,9 @@ export function JobsListV2() {
   // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
   // bazę — i paginacja pokazywała strony, na których nie było czego zawężać.
   const [noOwnerOnly, setNoOwnerOnly] = useState(false);
-  const [sort, setSort] = useState<JobSortValue>("newest");
+  const [sort, setSort] = useState<JobSortValue>(() =>
+    initialSortFromUrl(searchParams),
+  );
   const [priorityWorkFilter, setPriorityWorkFilter] =
     useState<PriorityWorkFilter>("any");
   const [page, setPage] = useState(1);
@@ -686,6 +706,26 @@ export function JobsListV2() {
   // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
   // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
   const debouncedSearch = useDebouncedValue(search, 300);
+
+  // Filtry → URL. `replaceState`, nie `router.replace`: zmiana filtra nie jest
+  // nawigacją (nie ma zostawiać wpisu w historii ani przebudowywać drzewa),
+  // a stan i tak żyje w komponencie. Lustro `CandidatesListV2`.
+  useEffect(() => {
+    const qs = encodeJobsListUrl(
+      {
+        status: statusFilter,
+        mine,
+        type: typeFilter,
+        deadline: deadlinePreset,
+        sort,
+      },
+      new URLSearchParams(window.location.search),
+    );
+    const target = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (target !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(window.history.state, "", target);
+    }
+  }, [statusFilter, mine, typeFilter, deadlinePreset, sort]);
 
   const dl = deadlineParams(deadlinePreset);
 

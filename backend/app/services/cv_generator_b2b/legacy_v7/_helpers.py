@@ -337,6 +337,100 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         break
 
 
+# Lata przypięte WPROST do roli albo firmy: „6 lat jako Backend Developer",
+# „4 lata w Acme", „5 years as a Data Engineer". Łącznik musi stać zaraz po
+# liczbie — „N lat doświadczenia jako…" to nagłówek kariery i należy do
+# `_fix_experience_years` (zachowanie bazowe, nietknięte).
+_SCOPED_ROLE_CONNECTOR_RE = re.compile(
+    r"\s*(?:jako|as)\s+(?:(?:a|an)\s+)?", re.IGNORECASE
+)
+_SCOPED_COMPANY_CONNECTOR_RE = re.compile(r"\s*(?:w|we|u|at|in)\s+", re.IGNORECASE)
+# Koniec frazy roli: przecinek/średnik/kropka albo kolejny łącznik („… w Acme",
+# „… z Pythonem", „w tym …").
+_SCOPED_PHRASE_END_RE = re.compile(
+    r"[,;.()]|\s(?:w tym|including|incl\.?|w|we|u|z|ze|dla|oraz|i|at|in|with|for|and)\s",
+    re.IGNORECASE,
+)
+
+
+def _scope_key(text: str) -> str:
+    return re.sub(r"[^\w+#]+", " ", str(text or "").casefold()).strip()
+
+
+def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
+    """Przelicz z dat liczby lat przypięte do KONKRETNEJ roli albo firmy.
+
+    Model nie zna dzisiejszej daty i liczył „obecnie" jak rok wcześniej
+    („6 lat jako Backend Developer" przy roli od 01.2019), a bezpiecznik
+    fabrykacji tylko ostrzegał — zła liczba zostawała w DOCX, HTML i kafelkach.
+    Tu liczba jest nadpisywana wyłącznie sumą przedziałów PASUJĄCYCH ról:
+    stanowisko zawiera frazę po „jako"/„as", albo firma jest dokładnie tą
+    nazwą po „w"/„u"/„at". Brak dopasowania, fleksja („jako Developera") czy
+    niepełne daty = liczba zostaje, jak napisał model. Dzięki temu poprawka
+    nigdy nie dolicza lat z innej roli ani innej firmy.
+    """
+    roles = [
+        job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
+    ]
+    if not roles:
+        return
+
+    def unit(years: int) -> str:
+        if language == "en":
+            return "year" if years == 1 else "years"
+        return _polish_year_unit(years)
+
+    companies = sorted(
+        {key for job in roles if len(key := _scope_key(job.get("company") or "")) >= 4},
+        key=len,
+        reverse=True,
+    )
+
+    def scoped_years(tail: str) -> int | None:
+        role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
+        if role:
+            rest = tail[role.end() :]
+            end = _SCOPED_PHRASE_END_RE.search(rest)
+            phrase = _scope_key(rest[: end.start()] if end else rest)
+            if len(phrase) < 4:
+                return None
+            pattern = re.compile(rf"(?:^|\s){re.escape(phrase)}(?:\s|$)")
+            matched = [
+                job for job in roles if pattern.search(_scope_key(job.get("position")))
+            ]
+        else:
+            company = _SCOPED_COMPANY_CONNECTOR_RE.match(tail)
+            if not company:
+                return None
+            rest = _scope_key(tail[company.end() :])
+            name = next(
+                (c for c in companies if rest == c or rest.startswith(c + " ")), None
+            )
+            if name is None:
+                return None
+            matched = [job for job in roles if _scope_key(job.get("company")) == name]
+        if not matched or any(
+            _parse_date_range(str(job.get("dates") or "")) is None for job in matched
+        ):
+            return None
+        return _total_experience_years(matched)
+
+    points = candidate_data.get("why_points") or []
+    for i, point in enumerate(points):
+        if not isinstance(point, str):
+            continue
+
+        def replace(match: re.Match[str]) -> str:
+            years = scoped_years(match.string[match.end() :])
+            if not years:
+                return match.group(0)
+            text = match.group(0)
+            lead = text[: len(text) - len(text.lstrip())]
+            return f"{lead}{years} {unit(years)}"
+
+        points[i] = _YEARS_PHRASE_RE.sub(replace, point)
+
+
 def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> list[str]:
     """Informational check: overlapping employment periods are common in B2B
     (parallel contracts), but the recruiter should verify them consciously
@@ -527,6 +621,15 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
         end = min(end, now.year * 12 + (now.month - 1))
         years = max(0, (end - start) // 12)
         allowed.update(str(years + delta) for delta in (0, 1))
+    # `_fix_scoped_years` sumuje role jednej firmy / jednego stanowiska.
+    roles = [j for j in candidate_data.get("experience") or [] if isinstance(j, dict)]
+    for field in ("company", "position"):
+        for key in {_scope_key(j.get(field)) for j in roles} - {""}:
+            scoped = _total_experience_years(
+                [j for j in roles if _scope_key(j.get(field)) == key]
+            )
+            if scoped is not None:
+                allowed.add(str(scoped))
     return allowed
 
 

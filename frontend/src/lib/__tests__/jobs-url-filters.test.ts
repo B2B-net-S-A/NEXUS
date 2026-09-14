@@ -13,8 +13,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  encodeJobsListUrl,
+  initialDeadlineFromUrl,
   initialMineFromUrl,
+  initialSortFromUrl,
   initialStatusFromUrl,
+  initialTypeFromUrl,
 } from "@/lib/jobs-url-filters";
 
 describe("initialStatusFromUrl", () => {
@@ -58,5 +62,63 @@ describe("initialMineFromUrl", () => {
 
   it("brak parametru = wyłączony", () => {
     expect(initialMineFromUrl(new URLSearchParams("status=published"))).toBe(false);
+  });
+});
+
+// M03-B01: typ, termin i sortowanie żyły tylko w `useState` — F5 zwracało
+// pełną listę. Test sprawdza obie strony: zapis do URL-a i odtworzenie.
+describe("typ, termin, sortowanie w URL-u", () => {
+  it("odtwarza wszystkie trzy filtry z adresu", () => {
+    const params = new URLSearchParams("type=tender&deadline=none&sort=oldest");
+    expect(initialTypeFromUrl(params)).toBe("tender");
+    expect(initialDeadlineFromUrl(params)).toBe("none");
+    expect(initialSortFromUrl(params)).toBe("oldest");
+  });
+
+  it("brak albo nieznana wartość = domyślna, nie 422", () => {
+    const params = new URLSearchParams("type=sales&deadline=jutro&sort=");
+    expect(initialTypeFromUrl(params)).toBe("all");
+    expect(initialDeadlineFromUrl(params)).toBe("any");
+    expect(initialSortFromUrl(params)).toBe("newest");
+  });
+
+  it("zapis → odczyt daje ten sam stan (przeżywa F5)", () => {
+    const qs = encodeJobsListUrl({
+      status: ["published", "draft"],
+      mine: true,
+      type: "body_leasing",
+      deadline: "next7",
+      sort: "deadline",
+    });
+    const params = new URLSearchParams(qs);
+    expect(initialStatusFromUrl(params)).toEqual(["published", "draft"]);
+    expect(initialMineFromUrl(params)).toBe(true);
+    expect(initialTypeFromUrl(params)).toBe("body_leasing");
+    expect(initialDeadlineFromUrl(params)).toBe("next7");
+    expect(initialSortFromUrl(params)).toBe("deadline");
+  });
+
+  it("wartości domyślne nie zaśmiecają adresu", () => {
+    expect(
+      encodeJobsListUrl({
+        status: [],
+        mine: false,
+        type: "all",
+        deadline: "any",
+        sort: "newest",
+      }),
+    ).toBe("");
+  });
+
+  it("zdejmuje nieaktualne wartości, zostawia cudze parametry", () => {
+    const qs = encodeJobsListUrl(
+      { status: [], mine: false, type: "tender", deadline: "any", sort: "newest" },
+      new URLSearchParams("mine=0&status=published&type=body_leasing&foo=bar"),
+    );
+    const params = new URLSearchParams(qs);
+    expect(params.getAll("status")).toEqual([]);
+    expect(params.get("mine")).toBeNull();
+    expect(params.get("type")).toBe("tender");
+    expect(params.get("foo")).toBe("bar");
   });
 });

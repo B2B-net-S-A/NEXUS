@@ -44,6 +44,9 @@ export function AdminUsersTab() {
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  // UAT M11-B02: przy ~240 kontach sama lista ze statusem nie wystarczała.
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -102,17 +105,14 @@ export function AdminUsersTab() {
     },
   });
 
-  // Filtr po statusie + domyślne sortowanie alfabetyczne po imieniu (locale pl).
-  const displayedUsers = useMemo(() => {
-    const list = (users ?? []).filter((u) =>
-      statusFilter === "active"
-        ? u.is_active
-        : statusFilter === "inactive"
-          ? !u.is_active
-          : true,
-    );
-    return [...list].sort((a, b) => a.name.localeCompare(b.name, "pl"));
-  }, [users, statusFilter]);
+  // Filtr po statusie, roli i wyszukiwarce + domyślne sortowanie alfabetyczne
+  // po imieniu (locale pl).
+  const displayedUsers = useMemo(
+    () => filterAdminUsers(users ?? [], { status: statusFilter, role: roleFilter, search }),
+    [users, statusFilter, roleFilter, search],
+  );
+  const filtersActive =
+    statusFilter !== "all" || roleFilter !== "all" || search.trim() !== "";
 
   if (!user) {
     return (
@@ -245,9 +245,31 @@ export function AdminUsersTab() {
                 {label}
               </button>
             ))}
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Szukaj po imieniu lub e-mailu…"
+              aria-label="Szukaj użytkowników"
+              className="min-w-[14rem] rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            />
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              aria-label="Filtr roli"
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
+            >
+              <option value="all">Wszystkie role</option>
+              {Object.entries(ROLE_LABELS).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <span className="ml-auto text-xs text-muted-foreground dark:text-muted-foreground">
-              {displayedUsers.length}{" "}
-              {displayedUsers.length === 1 ? "użytkownik" : "użytkowników"}
+              {displayedUsers.length}
+              {filtersActive && users ? ` z ${users.length}` : ""}{" "}
+              {displayedUsers.length === 1 && !filtersActive ? "użytkownik" : "użytkowników"}
             </span>
           </div>
           {isLoading ? (
@@ -371,7 +393,9 @@ export function AdminUsersTab() {
                 {displayedUsers.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                      Brak użytkowników{statusFilter !== "all" ? " o wybranym statusie" : ""}
+                      {filtersActive
+                        ? "Brak użytkowników pasujących do filtrów"
+                        : "Brak użytkowników"}
                     </td>
                   </tr>
                 )}
@@ -390,9 +414,20 @@ export function AdminUsersTab() {
       {(modal === "create" || modal === "edit") && (
         <UserModal
           initial={modal === "edit" ? selectedUser : null}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            createMutation.reset();
+            updateMutation.reset();
+            setModal(null);
+          }}
           onSave={handleSave}
           loading={createMutation.isPending || updateMutation.isPending}
+          error={
+            createMutation.error
+              ? extractErrorMsg(createMutation.error)
+              : updateMutation.error
+                ? extractErrorMsg(updateMutation.error)
+                : null
+          }
         />
       )}
 
@@ -412,3 +447,36 @@ export function AdminUsersTab() {
 }
 
 export default AdminUsersTab;
+
+function foldText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ł/g, "l")
+    .replace(/Ł/g, "L")
+    .toLowerCase();
+}
+
+/** Filtrowanie listy użytkowników po stronie klienta (lista to komplet kont).
+ *  Rola pasuje po roli głównej ALBO dodatkowej; wyszukiwarka ignoruje wielkość
+ *  liter i polskie znaki. */
+export function filterAdminUsers(
+  users: AdminUser[],
+  {
+    status,
+    role,
+    search,
+  }: { status: "all" | "active" | "inactive"; role: string; search: string },
+): AdminUser[] {
+  const needle = foldText(search.trim());
+  const list = users.filter((u) => {
+    if (status === "active" && !u.is_active) return false;
+    if (status === "inactive" && u.is_active) return false;
+    if (role !== "all" && u.role !== role && !(u.roles ?? []).includes(role)) {
+      return false;
+    }
+    if (needle && !foldText(`${u.name} ${u.email}`).includes(needle)) return false;
+    return true;
+  });
+  return [...list].sort((a, b) => a.name.localeCompare(b.name, "pl"));
+}

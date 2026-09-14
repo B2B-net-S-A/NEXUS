@@ -64,4 +64,53 @@ describe("approved public CV", () => {
     expect(axios.get).toHaveBeenCalledTimes(1);
   });
 
+
+  const approvedHtml = { data: {
+    cv: { language: "pl", candidate_name: "Approved", position: "Developer" },
+    cv_html: "<p>Approved</p>", document_version_id: 71,
+    requirements: null, chat_enabled: true, expires_at: null,
+  } };
+
+  it("prints the whole approved CV frame, not the page clipping it", async () => {
+    vi.mocked(axios.get).mockResolvedValue(approvedHtml);
+    const pagePrint = vi.spyOn(window, "print").mockImplementation(() => {});
+    render(<Page />);
+    const frame = (await screen.findByTitle("CV")) as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toContain("allow-modals");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-scripts");
+    const framePrint = vi.fn();
+    Object.defineProperty(frame, "contentWindow", {
+      configurable: true, value: { focus: vi.fn(), print: framePrint },
+    });
+    Object.defineProperty(frame, "contentDocument", {
+      configurable: true, value: { documentElement: { scrollHeight: 1417 } },
+    });
+    fireEvent.load(frame);
+    await waitFor(() => expect(frame.style.height).toBe("1417px"));
+    fireEvent.click(screen.getByRole("button", { name: /Drukuj/ }));
+    expect(framePrint).toHaveBeenCalledTimes(1);
+    expect(pagePrint).not.toHaveBeenCalled();
+    pagePrint.mockRestore();
+  });
+
+  it("prints the page when there is no approved frame", async () => {
+    vi.mocked(axios.get).mockResolvedValue({ data: {
+      cv: { language: "pl", candidate_name: "Legacy", position: "Developer", why_points: [],
+        education: [], skills: [], certifications: [], languages: [], experience: [] },
+      cv_html: null, requirements: null, chat_enabled: false, expires_at: null,
+    } });
+    const pagePrint = vi.spyOn(window, "print").mockImplementation(() => {});
+    render(<Page />);
+    fireEvent.click(await screen.findByRole("button", { name: /Drukuj/ }));
+    expect(pagePrint).toHaveBeenCalledTimes(1);
+    pagePrint.mockRestore();
+  });
+
+  it("explains a chat timeout instead of a generic failure", async () => {
+    vi.mocked(axios.get).mockResolvedValue(approvedHtml);
+    vi.mocked(axios.post).mockRejectedValue({ response: { status: 504, data: {} } });
+    render(<Page />);
+    fireEvent.click(await screen.findByText("Podsumuj ostatnią rolę kandydata."));
+    expect(await screen.findByText(/nie odpowiedział na czas/)).toBeInTheDocument();
+  });
 });

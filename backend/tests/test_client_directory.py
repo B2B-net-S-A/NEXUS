@@ -414,6 +414,48 @@ async def test_directory_search_ignores_archived_aliases(
         await _cleanup_directory(seed)
 
 
+async def test_directory_search_ignores_polish_diacritics(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """UAT M06-B03: „spolka" musi znaleźć „Spółka" (i odwrotnie)."""
+    seed = await _seed_directory()
+    suffix = seed["suffix"]
+    zulu_id = seed["client_ids"][1]
+    try:
+        async with AsyncSessionLocal() as db:
+            zulu = await db.get(Client, zulu_id)
+            zulu.legal_name = f"Zulu Spółka Łódzka {suffix}"
+            await db.commit()
+
+        for phrase in (
+            f"zulu spolka lodzka {suffix}",
+            f"ZULU SPÓŁKA ŁÓDZKA {suffix}",
+        ):
+            response = await app_client.get(
+                "/api/clients/directory",
+                params={"category": "active", "q": phrase},
+                headers=app_auth_headers,
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["total_clients"] == 1, phrase
+
+        # Klasyczny ``GET /api/clients?q=`` (paleta ⌘K) — ta sama reguła.
+        async with AsyncSessionLocal() as db:
+            zulu = await db.get(Client, zulu_id)
+            zulu.display_name = f"Zulu Żółw {suffix}"
+            await db.commit()
+        listed = await app_client.get(
+            "/api/clients",
+            params={"q": f"zolw {suffix}", "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert listed.status_code == 200, listed.text
+        assert [item["id"] for item in listed.json()["items"]] == [zulu_id]
+    finally:
+        await _cleanup_directory(seed)
+
+
 async def test_scope_crud_archives_instead_of_deleting(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],

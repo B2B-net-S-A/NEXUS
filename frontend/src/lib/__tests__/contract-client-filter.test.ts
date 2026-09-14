@@ -77,6 +77,32 @@ describe("filterClients", () => {
     ]);
   });
 
+  it("finds a bracket-prefixed name by its inner tag and by a multi-word fragment (UAT M02-B02)", () => {
+    const clients: ClientRef[] = [
+      { id: 1, name: "[QA-E2E] Klient Testowy D1" },
+      { id: 2, name: "[QA-E2E] Klient Testowy D2" },
+      { id: 3, name: "Klient Inny" },
+    ];
+    expect(names(filterClients(clients, "QA-E2E"))).toEqual([
+      "[QA-E2E] Klient Testowy D1",
+      "[QA-E2E] Klient Testowy D2",
+    ]);
+    expect(names(filterClients(clients, "Klient Testowy"))).toEqual([
+      "[QA-E2E] Klient Testowy D1",
+      "[QA-E2E] Klient Testowy D2",
+    ]);
+    expect(names(filterClients(clients, "klient"))).toHaveLength(3);
+    // Tokenizacja nie wpuszcza dopasowań w środku słowa.
+    expect(names(filterClients(clients, "estowy"))).toEqual([]);
+  });
+
+  it("ranks a punctuation-stripped name prefix above a word prefix", () => {
+    expect(matchRank("[QA-E2E] Klient", "qa-e2e")).toBe(0);
+    expect(matchRank("[QA-E2E] Klient", "klient")).toBe(1);
+    expect(matchRank("Bank Pocztowy S.A.", "bank poc")).toBe(0);
+    expect(matchRank("Bank Pocztowy S.A.", "pocztowy bank")).toBe(1);
+  });
+
   it("respects the result limit", () => {
     const many: ClientRef[] = Array.from({ length: 150 }, (_, i) => ({
       id: i,

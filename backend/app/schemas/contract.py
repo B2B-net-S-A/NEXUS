@@ -78,6 +78,10 @@ class ContractClientRateEntry(BaseModel):
     note: Optional[str] = None
     created_by: Optional[int] = None
     created_at: datetime
+    # Krok wyprowadzony z zamówienia klienta (synchronizacja kontrakt ↔
+    # zamówienia). `None` = krok ręczny albo z aneksu. Bez tego pola UI nie
+    # odróżniał dwóch kroków z tą samą datą — ręcznego i z zamówienia.
+    source_order_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

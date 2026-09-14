@@ -489,8 +489,9 @@ def test_location_chip_still_drops_a_known_mismatching_city():
     req = CandidateSearchRequest(location_cities=["Kraków"])
     sql = _compile(build_structured_filter(req))
     # `literal_binds` doubles the wildcard (%% ), so match the operator and the
-    # city rather than a hand-written pattern.
-    assert "ILIKE" in sql and "Kraków" in sql
+    # city rather than a hand-written pattern. Miasto jest porównywane bez
+    # polskich znaków po obu stronach (UAT M02-B03), więc we wzorcu jest „Krakow".
+    assert "ILIKE" in sql and "Krakow" in sql and "translate(" in sql
 
 
 # ── Soft ranking (the other half of softening a filter) ──────────────────────

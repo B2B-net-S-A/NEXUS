@@ -21,6 +21,7 @@ import logging
 import re
 import time
 from dataclasses import asdict
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _date_overlap_warnings,
     _fabrication_warnings,
     _fix_experience_years,
+    _fix_scoped_years,
     _normalize_candidate_data,
 )
 from app.services.cv_generator_b2b.legacy_v7.champion import build_champion_section
@@ -78,6 +80,28 @@ logger = logging.getLogger(__name__)
 
 PIPELINE_ID = "legacy_v7"
 PROMPT_VERSION = 7
+
+
+def build_generation_date_block(language: Language, today: date) -> str:
+    """Dzisiejsza data dla modelu — w wiadomości użytkownika, nie w systemowej.
+
+    Prompt każe liczyć staż „do ostatniej daty / obecnie", ale model nie wie,
+    który jest dziś miesiąc, i liczył „obecnie" jak rok wcześniej (lata
+    w „Dlaczego nasz kandydat" zaniżone o rok). Systemowy prompt jest
+    cache'owany i musi zostać bajt w bajt ten sam, więc data jedzie tutaj.
+    """
+    month = today.strftime("%m.%Y")
+    if language == "en":
+        body = (
+            f'Today is {today.isoformat()}. A role dated "present"/"obecnie" '
+            f"lasts until {month} — count years of experience up to this month."
+        )
+    else:
+        body = (
+            f"Dzisiejsza data: {today.strftime('%d.%m.%Y')}. Stanowisko trwające "
+            f"(„obecnie”) trwa do {month} — lata doświadczenia licz do tego miesiąca."
+        )
+    return f"<generation_date>\n{body}\n</generation_date>"
 
 
 def extract_cv_text(cv_bytes: bytes, cv_filename: str) -> str:
@@ -173,6 +197,7 @@ def run_legacy_generation(
     client_rules_block = build_prompt_blocks(client_rule, language)
     if client_rules_block:
         user_parts.append(client_rules_block)
+    user_parts.append(build_generation_date_block(language, date.today()))
     user_content = "\n\n".join(user_parts)
 
     logger.info(
@@ -257,6 +282,8 @@ def run_legacy_generation(
 
     # Exact years of experience recomputed from the extracted dates.
     _fix_experience_years(candidate_data, language)
+    # Not part of 2bc6b14f: role/company-bound figures recomputed from dates.
+    _fix_scoped_years(candidate_data, language)
 
     role_title = (job_title or "").strip()
     if role_title:

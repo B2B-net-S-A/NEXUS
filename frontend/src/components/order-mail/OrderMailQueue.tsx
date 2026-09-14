@@ -19,6 +19,7 @@ import {
   type OrderMailOutcome,
   type OrderMailSyncStatus,
 } from "@/lib/api/orderMail";
+import { openAuthenticatedFile } from "@/lib/authenticated-files";
 import {
   baselineOf,
   checkOutcome,
@@ -61,7 +62,9 @@ function period(a: string | null, b: string | null): string {
   return `${a ?? "—"} – ${b ?? "bezterminowo"}`;
 }
 
-export type OrderMailViewState = "loading" | "error" | "ready";
+// `forbidden` osobno od `error`: odmowa sekcji (np. podgląd admina jako rola
+// bez Delivery albo nieaktualny claim) to brak dostępu, nie awaria do ponowienia.
+export type OrderMailViewState = "loading" | "error" | "forbidden" | "ready";
 
 export interface MailboxCheckProps {
   /** `null` = jeszcze nie pobrano (albo błąd — patrz `statusError`). */
@@ -166,6 +169,14 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
         title="Zamówienia z maila"
         description="Załączniki ze skrzynki zamowienia@b2bnetwork.pl: rozpoznany klient, osoby, okres i stawka — do potwierdzenia jednym kliknięciem."
       />
+      {p.state === "forbidden" ? (
+        <QueryStateNotice
+          state="forbidden"
+          className="mt-6"
+          description="Nie masz dostępu do kolejki zamówień z maila. Poproś administratora o dostęp do sekcji Delivery."
+        />
+      ) : (
+      <>
       <MailboxCheckPanel {...p.mailbox} />
       <div className="mt-4 flex gap-2" role="tablist">
         {TABS.map((t) => (
@@ -217,9 +228,11 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
             ))}
           </ul>
           {selected && (
-            <Detail doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined} busy={p.busy} applyError={p.applyError} />
+            <Detail key={selected.id} doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined} busy={p.busy} applyError={p.applyError} />
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -307,7 +320,15 @@ export function OrderMailQueue() {
       }}
       outcome={outcome}
       onOutcomeChange={(o) => { setOutcome(o); setSelectedId(null); }}
-      state={list.isError ? "error" : !list.isSuccess ? "loading" : "ready"}
+      state={
+        list.isError
+          ? httpStatus(list.error) === 403
+            ? "forbidden"
+            : "error"
+          : !list.isSuccess
+          ? "loading"
+          : "ready"
+      }
       items={list.data?.items ?? []}
       total={list.data?.total ?? 0}
       selectedId={selectedId}
@@ -337,6 +358,7 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
   // zamówienia klienta (ten sam mechanizm co przy ręcznym wgraniu PDF-a).
   const personDecision = needsPersonDecision(doc);
   const windowHref = orderWindowHref(doc);
+  const [fileError, setFileError] = useState<string | null>(null);
   return (
     <section className="rounded-lg border p-4" data-testid="order-mail-detail">
       <div className="flex items-start justify-between gap-3">
@@ -350,9 +372,26 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
           </p>
         </div>
         {doc.has_file && (
-          <a className="inline-flex items-center gap-1 text-sm underline" href={orderMailApi.fileUrl(doc.id)} target="_blank" rel="noreferrer">
-            <FileText className="h-4 w-4" /> PDF <ExternalLink className="h-3 w-3" />
-          </a>
+          <div className="flex flex-col items-end gap-1">
+            {/* Plik idzie z backendu z tokenem (Bearer) i otwiera się jako blob.
+                Zwykły `<a href>` wskazywał względny adres na hoście frontendu,
+                bez nagłówka autoryzacji — kończył się stroną 404. */}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-sm underline"
+              onClick={() => {
+                setFileError(null);
+                openAuthenticatedFile(
+                  orderMailApi.fileUrl(doc.id),
+                  "application/pdf",
+                  doc.attachment_name ?? `zamowienie-${doc.id}.pdf`,
+                ).catch(() => setFileError("Nie udało się otworzyć pliku PDF."));
+              }}
+            >
+              <FileText className="h-4 w-4" /> PDF <ExternalLink className="h-3 w-3" />
+            </button>
+            {fileError && <span className="text-xs text-destructive">{fileError}</span>}
+          </div>
         )}
       </div>
 

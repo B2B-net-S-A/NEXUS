@@ -5,7 +5,7 @@
 // zakładki, w której jest sprawa do załatwienia — `dl_alerts_scanner.py`,
 // `dl_portal_expiry_scanner.py` i `pipeline.py`, wszystkie
 // `/clients/{id}?tab=zamowienia`.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type ClientTab =
   | "profil"
@@ -50,12 +50,25 @@ export function isClientTab(value: string | null): value is ClientTab {
  */
 export function useClientTab(
   requestedTab: string | null,
-): readonly [ClientTab, (tab: ClientTab) => void] {
+  // Zapis wybranej zakładki do adresu (`router.replace` po stronie strony).
+  // Bez tego adres zostawał na zakładce, z której się weszło: F5 wracało na
+  // nią, a ponowny link z powiadomienia do tej samej `?tab=` nie zmieniał
+  // WARTOŚCI parametru, więc efekt niżej nie wchodził i zakładka stała.
+  onSelectTab?: (tab: ClientTab) => void,
+): readonly [ClientTab, (tab: ClientTab) => void, (tab: ClientTab) => void] {
   const [activeTab, setActiveTab] = useState<ClientTab>(() =>
     isClientTab(requestedTab) ? requestedTab : "profil",
   );
   useEffect(() => {
     if (isClientTab(requestedTab)) setActiveTab(requestedTab);
   }, [requestedTab]);
-  return [activeTab, setActiveTab] as const;
+  const selectTab = useCallback(
+    (tab: ClientTab) => {
+      setActiveTab(tab);
+      if (tab !== requestedTab) onSelectTab?.(tab);
+    },
+    [onSelectTab, requestedTab],
+  );
+  // [zakładka, zmiana stanu bez adresu, wybór użytkownika zapisywany w adresie]
+  return [activeTab, setActiveTab, selectTab] as const;
 }

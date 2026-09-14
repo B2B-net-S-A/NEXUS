@@ -129,7 +129,11 @@ export function CommandPaletteV2({
         requests.push(
           api
             .get("/api/candidates", {
-              params: { q: term, page_size: 5 },
+              // `sort: "relevance"` jest load-bearing: domyślne `newest` przy
+              // zapytaniu pasującym do dziesiątek tysięcy rekordów (np. pełny
+              // e-mail rozbity na słowa łapie samą domenę) oddawało piątkę
+              // NAJNOWSZYCH, bez szukanej osoby (UAT M00-B01).
+              params: { q: term, page_size: 5, sort: "relevance" },
               signal: ctrl.signal,
             })
             .then((res) => {

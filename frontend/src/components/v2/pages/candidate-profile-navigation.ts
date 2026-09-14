@@ -4,6 +4,9 @@ export const PROFILE_SECTIONS = [
   "activity",
   "matching",
   "documents",
+  // „Maile” — bez tego wpisu `?tab=emails` i kliknięcie zakładki wracały
+  // na Podsumowanie (UAT M01-B03).
+  "emails",
 ] as const;
 
 export const ACTIVITY_VIEWS = ["timeline", "notes", "calls", "chat"] as const;

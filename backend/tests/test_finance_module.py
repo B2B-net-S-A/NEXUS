@@ -539,3 +539,132 @@ async def test_lock_period_attempts_lock_when_dialect_unknown():
     await finance_api._lock_period(_NoBindSession(), 2031, 9)
     assert executed, "przy nieznanym dialekcie blokada została po cichu pominięta"
     assert "pg_advisory_xact_lock" in executed[0]
+
+
+# ── Marża % i spójność kafli (UAT M09-B01, B-B08) ───────────────────────────
+
+
+def _result(**values):
+    from types import SimpleNamespace
+
+    base = {
+        "margin_pct": None,
+        "margin_pln": None,
+        "invoice_amount": None,
+        "edited_fields": [],
+    }
+    base.update(values)
+    return SimpleNamespace(**base)
+
+
+async def test_margin_percent_is_percent_points_not_excel_fraction():
+    """Komórka procentowa Excela przychodzi jako ułamek (0.17) — front
+    doklejał do niej „%" i pokazywał „0,2%" zamiast ~16,7%."""
+    from decimal import Decimal
+
+    from app.api.finance import _margin_percent
+
+    # Marża PLN / faktura wygrywa z zaokrąglonym ułamkiem z importu.
+    row = _result(
+        margin_pct=Decimal("0.17"),
+        margin_pln=Decimal("5520"),
+        invoice_amount=Decimal("33120"),
+    )
+    assert _margin_percent(row) == Decimal("16.7")
+    # Bez kwot: ułamek z komórki procentowej → punkty procentowe.
+    assert _margin_percent(_result(margin_pct=Decimal("0.21"))) == Decimal("21")
+    # Tekst „20,2%" był już w punktach — bez ponownego mnożenia.
+    assert _margin_percent(_result(margin_pct=Decimal("20.2"))) == Decimal("20.2")
+    # Korekta ręczna (punkty) wygrywa z wyliczeniem z kwot.
+    edited = _result(
+        margin_pct=Decimal("0.5"),
+        margin_pln=Decimal("100"),
+        invoice_amount=Decimal("1000"),
+        edited_fields=["margin_pct"],
+    )
+    assert _margin_percent(edited) == Decimal("0.5")
+    # Faktura 0 nie dzieli przez zero.
+    assert (
+        _margin_percent(_result(margin_pln=Decimal("0"), invoice_amount=Decimal("0")))
+        is None
+    )
+
+
+async def test_totals_expose_percent_points_and_cost_outside_margin(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    year, month = 2031, 10
+    await _reset_period(year, month)
+    rows = [
+        _row(
+            **{
+                "Imię i nazwisko": "Osoba Pierwsza",
+                "Wynagrodzenie": 800,
+                "Faktura": 1000,
+                "Marża PLN": 200,
+                "Marża %": 0.2,  # komórka procentowa Excela = ułamek
+            }
+        ),
+        _row(
+            **{
+                "Imię i nazwisko": "Osoba Druga",
+                "Wynagrodzenie": 560,  # koszt bez faktury i bez marży
+            }
+        ),
+    ]
+    resp = await _import(
+        app_client, app_auth_headers, year=year, month=month, rows=rows
+    )
+    assert resp.status_code == 201, resp.text
+
+    data = (
+        await app_client.get(
+            "/api/finance/results",
+            headers=app_auth_headers,
+            params={"year": year, "month": month},
+        )
+    ).json()
+    first = next(r for r in data["rows"] if r["consultant_name"] == "Osoba Pierwsza")
+    assert first["margin_percent"] == 20.0
+    totals = data["totals"]
+    assert totals["avg_margin_pct"] == 20.0
+    assert totals["margin"] == 200.0
+    assert totals["cost"] == 1360.0
+    assert totals["rows_without_margin"] == 1
+    assert totals["cost_without_margin"] == 560.0
+
+
+async def test_sorting_by_margin_percent_follows_the_displayed_value(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Surowa kolumna miesza ułamek z komórki procentowej (0.21) z punktami
+    wpisanymi tekstem (5) — sortowanie po niej stawiało 21% poniżej 5%."""
+    year, month = 2031, 11
+    await _reset_period(year, month)
+    rows = [
+        _row(**{"Imię i nazwisko": "Osoba Ułamek", "Marża %": 0.21}),
+        _row(**{"Imię i nazwisko": "Osoba Punkty", "Marża %": "5%"}),
+        _row(**{"Imię i nazwisko": "Osoba Bez Marży", "Wynagrodzenie": 500}),
+    ]
+    resp = await _import(
+        app_client, app_auth_headers, year=year, month=month, rows=rows
+    )
+    assert resp.status_code == 201, resp.text
+
+    for direction, expected in (
+        ("desc", ["Osoba Ułamek", "Osoba Punkty", "Osoba Bez Marży"]),
+        ("asc", ["Osoba Punkty", "Osoba Ułamek", "Osoba Bez Marży"]),
+    ):
+        data = (
+            await app_client.get(
+                "/api/finance/results",
+                headers=app_auth_headers,
+                params={
+                    "year": year,
+                    "month": month,
+                    "sort": "margin_pct",
+                    "direction": direction,
+                },
+            )
+        ).json()
+        assert [r["consultant_name"] for r in data["rows"]] == expected, direction

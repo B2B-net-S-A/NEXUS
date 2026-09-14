@@ -50,7 +50,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from itertools import chain
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import event, inspect, select
+from sqlalchemy import event, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -69,6 +69,7 @@ __all__ = [
     "COST_TARGET_ORDER_STATUSES",
     "ContractSyncOutcome",
     "apply_manual_client_rate",
+    "backfill_missing_order_periods",
     "OrderRevenueTerms",
     "REPAIR_MARKER",
     "SOURCE_ORDER_STATUSES",
@@ -342,6 +343,24 @@ def _refresh_rate_caches(contract: Contract, today: date) -> None:
     contract.margin = contract.calculate_margin()
 
 
+def _period_projected_from_dead_order(
+    contract: Contract, orders: Sequence[ClientOrder]
+) -> bool:
+    """Czy okres zamówienia na kontrakcie to dokładnie okres zamówienia, które
+    przestało być źródłem (anulowane). Okres wpisany ręcznie zwykle nie
+    pokrywa się z żadnym zamówieniem co do dnia, więc zostaje."""
+    start = contract.client_order_start_date
+    if start is None:
+        return False
+    return any(
+        order.client_id == contract.client_id
+        and order.start_date == start
+        and order.end_date == contract.client_order_end_date
+        and ClientOrderStatus(order.status) not in SOURCE_ORDER_STATUSES
+        for order in orders
+    )
+
+
 async def sync_contract_from_orders(
     db: AsyncSession,
     contract: Contract,
@@ -363,6 +382,7 @@ async def sync_contract_from_orders(
     outcome = ContractSyncOutcome(contract_id=contract.id)
     if contract.status == ContractStatus.void:
         return outcome
+    orders = list(orders)
 
     terms = [
         t
@@ -383,6 +403,13 @@ async def sync_contract_from_orders(
         order_steps[step.source_order_id] = step
 
     if not terms:
+        if not order_steps and _period_projected_from_dead_order(contract, orders):
+            # Okres uzupełniony nocnym przebiegiem nie ma kroku stawki, więc
+            # gałąź niżej go nie zobaczy. Pokrywa się co do dnia z zamówieniem,
+            # które już nie obowiązuje — nie udaje, że klient ma zamówienie.
+            contract.client_order_start_date = None
+            contract.client_order_end_date = None
+            outcome.period_changed = True
         if order_steps:
             # Zamówienie, z którego pochodziła stawka, zostało anulowane albo
             # skasowane. Krok znika, a okres (prowadzony przez synchronizację)
@@ -925,6 +952,109 @@ async def run_daily_order_cost_sync(
     # Własne zapisy przebiegu nie potrzebują drugiej synchronizacji.
     db.info.pop(_PENDING_KEY, None)
     return changed_total
+
+
+async def backfill_missing_order_periods(
+    db: AsyncSession, *, batch_size: int = 200
+) -> int:
+    """Uzupełnij okres zamówienia kontraktom, których nikt nie zsynchronizował.
+
+    Synchronizacja odpala się przy ZAPISIE zamówienia, a jednorazowa korekta
+    przy wdrożeniu ruszała wyłącznie szkice. Kontrakt aktywny, którego
+    zamówienia nikt od tamtej pory nie zapisał, nie miał więc okresu zamówienia,
+    choć zamówienie go ma (UAT B-B02: 362 z 386 kontraktów).
+
+    Tylko OKRES (osobne pola ``client_order_*``, bez wpływu na kwoty) i tylko
+    tam, gdzie go nie ma — ta sama reguła co krok 5 pełnej synchronizacji
+    (najnowsze uzupełnione zamówienie). Stawki przychodowej, jednostki i waluty
+    ten przebieg świadomie NIE przepisuje: przestawienie jednostki przelicza
+    każdą kwotę kontraktu, a to zmiana pieniędzy, nie projekcja dat —
+    domyka ją pełna synchronizacja przy najbliższym zapisie zamówienia.
+    Idempotentny: po uzupełnieniu start nie jest pusty, więc drugi przebieg
+    kontraktu nie wybiera.
+    """
+    if not await sync_enabled(db):
+        return 0
+    contract_ids = list(
+        (
+            await db.scalars(
+                select(ClientOrder.contract_id)
+                .join(Contract, Contract.id == ClientOrder.contract_id)
+                .where(
+                    Contract.status != ContractStatus.void,
+                    # Okres wpisany kiedyś ręcznie (sama data końca) zostaje:
+                    # przebieg uzupełnia wyłącznie BRAK, nigdy nie nadpisuje.
+                    Contract.client_order_start_date.is_(None),
+                    Contract.client_order_end_date.is_(None),
+                    ClientOrder.client_id == Contract.client_id,
+                    ClientOrder.start_date.is_not(None),
+                    ClientOrder.status.in_(list(SOURCE_ORDER_STATUSES)),
+                    # To samo, co wymaga ``order_revenue_terms`` — bez tego
+                    # szkice bez stawki byłyby wczytywane co noc na próżno.
+                    or_(ClientOrder.rate_client > 0, ClientOrder.md_rate_revenue > 0),
+                )
+                .distinct()
+                .order_by(ClientOrder.contract_id)
+            )
+        ).all()
+    )
+    filled = 0
+    for offset in range(0, len(contract_ids), batch_size):
+        batch = contract_ids[offset : offset + batch_size]
+        contracts = (
+            await db.scalars(select(Contract).where(Contract.id.in_(batch)))
+        ).all()
+        orders_by_contract: dict[int, list[ClientOrder]] = {}
+        for order in (
+            await db.scalars(
+                select(ClientOrder)
+                .where(ClientOrder.contract_id.in_(batch))
+                .order_by(ClientOrder.id)
+            )
+        ).all():
+            orders_by_contract.setdefault(order.contract_id, []).append(order)
+        for contract in contracts:
+            if (
+                contract.status == ContractStatus.void
+                or contract.client_order_start_date is not None
+                or contract.client_order_end_date is not None
+            ):
+                continue
+            terms = [
+                t
+                for order in orders_by_contract.get(contract.id, [])
+                if order.client_id == contract.client_id
+                and (t := order_revenue_terms(order)) is not None
+            ]
+            if not terms:
+                continue
+            latest = _latest(terms)
+            previous_end = contract.client_order_end_date
+            contract.client_order_start_date = latest.start
+            contract.client_order_end_date = latest.end
+            filled += 1
+            db.add(
+                Activity(
+                    entity_type="contract",
+                    entity_id=contract.id,
+                    action="synced_with_orders",
+                    user_id=None,
+                    details={
+                        "source": "daily_period_backfill",
+                        "source_order_id": latest.order_id,
+                        "period_changed": True,
+                        "client_order_start_date": latest.start.isoformat(),
+                        "client_order_end_date": (
+                            latest.end.isoformat() if latest.end else None
+                        ),
+                        "previous_client_order_end_date": (
+                            previous_end.isoformat() if previous_end else None
+                        ),
+                    },
+                )
+            )
+        await db.flush()
+    return filled
 
 
 async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:

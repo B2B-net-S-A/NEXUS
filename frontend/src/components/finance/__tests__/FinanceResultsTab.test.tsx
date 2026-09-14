@@ -125,10 +125,18 @@ describe("FinanceResultsTab — stany", () => {
             invoice_amount: 26180,
             margin_pln: 5280,
             margin_pct: 20.2,
+            margin_percent: 20.2,
             edited_fields: [],
           },
         ],
-        totals: { cost: 20900, revenue: 26180, margin: 5280, avg_margin_pct: 20.2 },
+        totals: {
+          cost: 20900,
+          revenue: 26180,
+          margin: 5280,
+          avg_margin_pct: 20.2,
+          rows_without_margin: 0,
+          cost_without_margin: 0,
+        },
         needs_completion_count: 0,
       },
     } as never);
@@ -145,5 +153,71 @@ describe("FinanceResultsTab — stany", () => {
     expect(
       screen.queryByText(/Nie zaimportowano jeszcze żadnego miesiąca/),
     ).not.toBeInTheDocument();
+  });
+
+  it("marżę % pokazuje w punktach procentowych, nie jako ułamek z Excela (M09-B01)", async () => {
+    vi.mocked(financeApi.listPeriods).mockResolvedValue({
+      data: [
+        { year: 2026, month: 7, label: "Lipiec 2026", run_id: 2, row_count: 2 },
+      ],
+    } as never);
+    vi.mocked(financeApi.getResults).mockResolvedValue({
+      data: {
+        year: 2026,
+        month: 7,
+        run_id: 2,
+        rows: [
+          {
+            id: 7,
+            row_number: 2,
+            consultant_name: "Osoba Testowa",
+            client_name: "Klient A",
+            cost_rate_md: 1000,
+            md_count: 20,
+            compensation: 800,
+            revenue_rate_md: 1200,
+            invoice_amount: 1000,
+            margin_pln: 167,
+            margin_pct: 0.17, // surowa komórka procentowa Excela
+            margin_percent: 16.7,
+            edited_fields: [],
+          },
+          {
+            id: 8,
+            row_number: 3,
+            consultant_name: "Osoba Bez Faktury",
+            client_name: "Klient B",
+            cost_rate_md: null,
+            md_count: null,
+            compensation: 560,
+            revenue_rate_md: null,
+            invoice_amount: null,
+            margin_pln: null,
+            margin_pct: null,
+            margin_percent: null,
+            edited_fields: [],
+          },
+        ],
+        totals: {
+          cost: 1360,
+          revenue: 1000,
+          margin: 167,
+          avg_margin_pct: 21.4,
+          rows_without_margin: 1,
+          cost_without_margin: 560,
+        },
+        needs_completion_count: 1,
+      },
+    } as never);
+
+    renderTab(false);
+
+    expect(await screen.findByText("16,7%")).toBeInTheDocument();
+    expect(screen.queryByText("0,2%")).not.toBeInTheDocument();
+    expect(screen.getByText(/śr\. marża 21,4%/)).toBeInTheDocument();
+    // B-B08: kafle nie udają, że marża = przychód − koszt.
+    const note = screen.getByTestId("finance-margin-note");
+    expect(note).toHaveTextContent(/nie jest różnicą „Przychód” − „Koszt”/);
+    expect(note).toHaveTextContent(/1 wiersz bez marży/);
   });
 });

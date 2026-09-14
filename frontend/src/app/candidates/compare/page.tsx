@@ -9,6 +9,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
+import { profileCompleteness, skillLevelLabel } from "./compare-helpers";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,43 +38,21 @@ function formatNoticePeriod(value: number | null | undefined, unit: string | nul
   return `${value} ${label}`;
 }
 
-function calcScore(c: any): number {
-  let score = 0;
-  const fields = [
-    c.name, c.lastname, c.email, c.phone, c.location,
-    c.competence_category, c.ai_summary,
-  ];
-  score += fields.filter(Boolean).length * 5;
-  if (Array.isArray(c.skills) && c.skills.length > 0) score += Math.min(c.skills.length * 3, 30);
-  if (Array.isArray(c.experience) && c.experience.length > 0) score += Math.min(c.experience.length * 5, 20);
-  if (Array.isArray(c.languages) && c.languages.length > 0) score += 5;
-  if (c.linkedin) score += 5;
-  return Math.min(score, 100);
-}
-
-function SkillBar({ name, level }: { name: string; level?: string | number }) {
-  let pct = 60;
-  if (typeof level === "number") pct = Math.min(level * 10, 100);
-  else if (level === "expert" || level === "advanced") pct = 90;
-  else if (level === "intermediate") pct = 65;
-  else if (level === "beginner" || level === "basic") pct = 35;
-
+function SkillRow({ name, level }: { name: string; level?: string | number }) {
+  const label = skillLevelLabel(level);
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-28 truncate text-muted-foreground dark:text-muted-foreground shrink-0">{name}</span>
-      <div className="flex-1 bg-muted dark:bg-muted rounded-full h-1.5">
-        <div className="bg-primary h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-8 text-right text-muted-foreground">{pct}%</span>
+    <div className="flex items-center justify-between gap-2 text-xs">
+      <span className="truncate text-foreground">{name}</span>
+      <span className="shrink-0 text-muted-foreground">{label || "poziom nieznany"}</span>
     </div>
   );
 }
 
-function ScoreRing({ score }: { score: number }) {
-  const color = score >= 70 ? "text-green-600" : score >= 50 ? "text-yellow-600" : "text-destructive";
+function CompletenessBadge({ score }: { score: number }) {
   return (
-    <div className={cn("text-3xl font-extrabold", color)}>
-      {score}<span className="text-base font-normal text-muted-foreground">/100</span>
+    <div className="text-3xl font-extrabold text-foreground">
+      {score}
+      <span className="text-base font-normal text-muted-foreground">%</span>
     </div>
   );
 }
@@ -83,7 +63,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
   const fullName = `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim();
   const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const avatarColor = getAvatarColor(fullName);
-  const score = calcScore(candidate);
+  const score = profileCompleteness(candidate);
   const formattedLocation = formatCandidateLocation(candidate.location);
 
   const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
@@ -106,8 +86,10 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <p className="text-xs text-muted-foreground mt-1">📍 {formattedLocation}</p>
         )}
         <div className="mt-3">
-          <ScoreRing score={score} />
-          <p className="text-xs text-muted-foreground mt-0.5">Profil kompletny</p>
+          <CompletenessBadge score={score} />
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Kompletność profilu (wypełnione pola, nie dopasowanie do rekrutacji)
+          </p>
         </div>
       </div>
 
@@ -174,7 +156,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
             {skills.slice(0, 8).map((s: any, i: number) => {
               const name = typeof s === "string" ? s : s.name || "—";
               const level = typeof s === "object" ? s.level : undefined;
-              return <SkillBar key={i} name={name} level={level} />;
+              return <SkillRow key={i} name={name} level={level} />;
             })}
           </div>
         </div>
@@ -190,7 +172,10 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
                 <div className="font-medium text-foreground dark:text-muted-foreground">{e.role || e.position || "—"}</div>
                 <div className="text-muted-foreground">{e.company || ""}</div>
                 {(e.start || e.end) && (
-                  <div className="text-muted-foreground">{e.start || "?"} – {e.end || "nadal"}</div>
+                  <div className="text-muted-foreground">
+                    {formatExperienceDate(e.start) || "?"} –{" "}
+                    {formatExperienceDate(e.end) || "obecnie"}
+                  </div>
                 )}
               </div>
             ))}

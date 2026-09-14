@@ -2008,6 +2008,25 @@ export function GeneratedContractsTab() {
             title={NO_ACCESS_TITLE}
             description={NO_ACCESS_DESC}
           />
+        ) : q.error ? (
+          /* Awaria ≠ pustka — lustro zakładek „bez projektu” i „zakończone”.
+             Bez tej gałęzi padnięte zapytanie wpadało w `rows = q.data ?? []`
+             i renderowało się jako „Brak umów aktywnych…”, czyli jako fakt. */
+          <div className="space-y-2">
+            <Alert
+              variant="warning"
+              title="Nie udało się wczytać listy"
+              description={extractErrorMsg(q.error)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => q.refetch()}
+            >
+              Ponów
+            </Button>
+          </div>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {/* Pustka po wyszukaniu ≠ brak umów w systemie — inaczej czyta się

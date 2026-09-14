@@ -18,6 +18,7 @@ import { FinanceImportPanel } from "@/components/finance/FinanceImportPanel";
 import {
   FinanceResultsTable,
   formatMoney,
+  formatPct,
 } from "@/components/finance/FinanceResultsTable";
 
 export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
@@ -89,6 +90,14 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
   }
 
   const totals = resultsQuery.data?.totals;
+  // Kafel „Marża" to suma kolumny „Marża PLN" z arkusza, a nie przychód −
+  // koszt. Gdy te liczby się rozjeżdżają, mówimy to wprost — trzy kafle na
+  // jednym ekranie nie mogą udawać, że się sumują.
+  const revenueMinusCost = totals ? totals.revenue - totals.cost : null;
+  const marginDiffers =
+    totals != null &&
+    revenueMinusCost != null &&
+    Math.abs(totals.margin - revenueMinusCost) >= 0.01;
 
   return (
     <div className="space-y-4">
@@ -144,13 +153,24 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               value={formatMoney(totals?.margin ?? null)}
               sub={
                 totals?.avg_margin_pct != null
-                  ? `Śr. marża: ${totals.avg_margin_pct.toLocaleString("pl-PL", {
-                      maximumFractionDigits: 1,
-                    })}%`
-                  : undefined
+                  ? `Suma „Marża PLN” z arkusza · śr. marża ${formatPct(totals.avg_margin_pct)}`
+                  : "Suma „Marża PLN” z arkusza"
               }
             />
           </StatCardGrid>
+          {marginDiffers && totals && (
+            <p className="text-xs text-muted-foreground" data-testid="finance-margin-note">
+              Marża nie jest różnicą „Przychód” − „Koszt” (
+              {formatMoney(revenueMinusCost)}) — to suma kolumny „Marża PLN”
+              z arkusza.
+              {totals.rows_without_margin > 0 &&
+                ` ${totals.rows_without_margin} ${
+                  totals.rows_without_margin === 1 ? "wiersz" : "wierszy"
+                } bez marży (koszt ${formatMoney(
+                  totals.cost_without_margin,
+                )}, zwykle bez faktury) jest w kaflu „Koszt”, ale nie obniża marży.`}
+            </p>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="relative min-w-[16rem] flex-1">

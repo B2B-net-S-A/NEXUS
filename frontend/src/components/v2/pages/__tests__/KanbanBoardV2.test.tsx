@@ -1099,3 +1099,35 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(3);
   });
 });
+
+// B-B05: filtr „Utknęli > 7 d" liczył także karty terminalne (odrzuceni stoją
+// na swoim etapie bezterminowo) i pokazywał 80 obok KPI jobbara „26".
+describe("KanbanBoardV2 — „Utknęli > 7 d” bez kolumn terminalnych", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [] } });
+    post.mockResolvedValue({ data: {} });
+  });
+
+  it("liczy wyłącznie karty nieterminalne — tak jak KPI jobbara", async () => {
+    const columns = overflowColumns() as unknown as Array<Record<string, unknown>>;
+    const stuck = (id: number, days: number) => ({
+      id,
+      candidate_id: id,
+      name: "Test",
+      lastname: `Osoba${id}`,
+      stage: "new",
+      days_in_stage: days,
+      verification_status: null,
+    });
+    columns[0] = { ...columns[0], count: 1, items: [stuck(951, 9)] };
+    const last = columns.length - 1;
+    columns[last] = {
+      ...columns[last],
+      count: 2,
+      items: [stuck(952, 90), stuck(953, 40)],
+    };
+    renderBoard(columns as never);
+    expect(await screen.findByText("Utknęli > 7 d · 1")).toBeInTheDocument();
+  });
+});

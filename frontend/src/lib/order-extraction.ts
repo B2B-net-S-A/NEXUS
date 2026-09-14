@@ -61,6 +61,25 @@ export function findConflicts(specs: ExtractionFieldSpec[]): ExtractionConflict[
   return conflicts;
 }
 
+/** Wartości pól nagłówka wpisane przez ostatni odczyt dokumentu w oknie. */
+export type DocumentFieldValues = Partial<
+  Record<"title" | "start_date" | "end_date" | "total_value" | "md_total", string>
+>;
+
+/**
+ * Wartość pola, którą użytkownik NAPRAWDĘ wpisał — do porównania w
+ * `findConflicts`. Pole puste albo nadal trzymające wartość z poprzedniego
+ * odczytu dokumentu zwraca `""`: to nie jest cudza praca, więc kolejny odczyt
+ * innego PDF-a nadpisuje je bez pytania (i dialog nie podpisze wartości
+ * z poprzedniego PDF-a jako „wpisano").
+ */
+export function typedByUser(current: string, fromDocument: string | undefined): string {
+  const value = current.trim();
+  if (!value) return "";
+  if (fromDocument !== undefined && value === fromDocument.trim()) return "";
+  return value;
+}
+
 /** Komunikat błędu odczytu — 503 znaczy co innego niż zwykła awaria. */
 export function extractionErrorMessage(
   err: unknown,

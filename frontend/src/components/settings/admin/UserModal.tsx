@@ -17,9 +17,12 @@ interface UserModalProps {
   onClose: () => void;
   onSave: (data: UserFormData) => void;
   loading: boolean;
+  /** Odmowa serwera (np. domena spoza firmy, duplikat adresu) — UAT M11-B10.
+   *  Bez niej nieudany zapis zostawiał formularz otwarty bez słowa. */
+  error?: string | null;
 }
 
-export function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
+export function UserModal({ initial, onClose, onSave, loading, error }: UserModalProps) {
   const isEdit = !!initial?.id;
   const initialPrimary = initial?.role ?? "recruiter";
   const rawInitialRoles =
@@ -233,6 +236,12 @@ export function UserModal({ initial, onClose, onSave, loading }: UserModalProps)
             </select>
           </div>
         </div>
+
+        {error && (
+          <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
 
         <div className="flex justify-end gap-3 pt-2">
           <button

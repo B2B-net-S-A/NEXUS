@@ -1,0 +1,59 @@
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    default: {
+      get: vi.fn((url: string) =>
+        Promise.resolve({
+          data: url === "/api/jobs-lookup" ? [{ id: 454, title: "Rekrutacja Testowa" }] : [],
+        }),
+      ),
+    },
+  };
+});
+
+import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
+import { DEFAULT_FILTERS, type CandidateFilters } from "@/lib/url-filters";
+
+function renderChips(patch: Partial<CandidateFilters>, onUpdate = vi.fn()) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <ActiveFilterChips filters={{ ...DEFAULT_FILTERS, ...patch }} onUpdate={onUpdate} />
+    </QueryClientProvider>,
+  );
+  return onUpdate;
+}
+
+describe("ActiveFilterChips (UAT B-B06)", () => {
+  it("shows the recruitment chip without a client filter, with the title", async () => {
+    const onUpdate = renderChips({ recruitmentIds: [454], pipelineStage: ["new"] });
+    expect(await screen.findByText("Rekrutacja: Rekrutacja Testowa #454")).toBeInTheDocument();
+    expect(screen.getByText("Etap: Nowy")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Usuń filtr: Rekrutacja/ }));
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ recruitmentIds: [], recruitmentMatch: "assigned" }),
+    );
+  });
+
+  it("does not hide or duplicate chips nested under other filters", () => {
+    renderChips({
+      openTo: ["side_projects"],
+      recentlyChangedJobs: 2,
+      pipelineStage: ["new", "screening"],
+    });
+    expect(screen.getAllByText("Otwartość: Side-projekty")).toHaveLength(1);
+    expect(screen.getAllByText("Zmiana pracy: 2 mies.")).toHaveLength(1);
+  });
+
+  it("shows open-to chips without any stage filter", () => {
+    renderChips({ openTo: ["side_projects"] });
+    expect(screen.getByText("Otwartość: Side-projekty")).toBeInTheDocument();
+  });
+});

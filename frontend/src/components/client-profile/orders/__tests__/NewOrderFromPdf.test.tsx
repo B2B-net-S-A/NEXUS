@@ -124,6 +124,29 @@ function renderModal(onSubmit = vi.fn()) {
   return onSubmit;
 }
 
+function renderCost() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <OrderGroupFormModal
+        open
+        onOpenChange={vi.fn()}
+        group={null}
+        clientId={18}
+        orderType="cost"
+        onOrderTypeChange={vi.fn()}
+        allowedOrderTypes={["periodic", "cost", "md"]}
+        submitting={false}
+        error={null}
+        onSubmit={vi.fn()}
+        onDeleteFile={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+}
+
 async function readPdf(user: ReturnType<typeof userEvent.setup>) {
   await user.upload(
     screen.getByLabelText(/Wgraj PDF zamówienia/),
@@ -364,6 +387,44 @@ describe("Nowe zamówienie z PDF-a — jedno okno", () => {
     await readPdf(user);
     await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
     expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("");
+  });
+
+  it("odczyt drugiego PDF-a zastępuje kwotę i numer z poprzedniego dokumentu bez pytania (UAT M07-B02)", async () => {
+    vi.mocked(orderGroupsApi.extractPlan)
+      .mockResolvedValueOnce({ data: { ...BIK_PLAN, total_value: 107000 } } as never)
+      .mockResolvedValueOnce({
+        data: { ...BIK_PLAN, order_number: "QA/003/2026", total_value: 150000 },
+      } as never);
+    const user = userEvent.setup();
+    renderCost();
+
+    await readPdf(user);
+    await screen.findByRole("article", { name: "Konsultant: Krzysztof Suwała" });
+    expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("107000");
+
+    await readPdf(user);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("150000"),
+    );
+    expect(screen.getByLabelText(/Numer zamówienia/)).toHaveValue("QA/003/2026");
+    // Wartości z poprzedniego PDF-a nie są „wpisane” — nie ma o co pytać.
+    expect(screen.queryByText(/wpisano:/)).not.toBeInTheDocument();
+  });
+
+  it("kwota wpisana ręcznie nie znika po odczycie — pytanie o rozbieżność", async () => {
+    vi.mocked(orderGroupsApi.extractPlan).mockResolvedValue({
+      data: { ...BIK_PLAN, total_value: 150000 },
+    } as never);
+    const user = userEvent.setup();
+    renderCost();
+
+    await user.type(screen.getByLabelText(/Budżet całkowity/), "5000");
+    await readPdf(user);
+
+    expect(await screen.findByText("Kwota zamówienia")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("5000");
+    await user.click(screen.getByRole("button", { name: /Tak — zapisz dane z dokumentu/ }));
+    expect(screen.getByLabelText(/Budżet całkowity/)).toHaveValue("150000");
   });
 
   it("osoba z zakończoną współpracą: komunikat wprost i zapis jako historia", async () => {
