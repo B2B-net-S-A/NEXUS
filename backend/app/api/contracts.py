@@ -119,6 +119,7 @@ from app.services.contract_lifecycle import (
     void_contract,
 )
 from app.services.contract_order_sync import (
+    apply_contract_hourly_policy,
     apply_manual_client_rate,
     resync_contract_safely,
 )
@@ -134,7 +135,11 @@ from app.services.contract_service import (
 )
 from app.services.contract_order_offboarding import apply_contract_order_offboarding
 from app.services.cost_orders import is_cost_order_client
-from app.services.order_rate_snapshots import inherited_order_rate_fields
+from app.services.order_rate_snapshots import (
+    CONTRACT_RATE_SCALE,
+    convert_order_rate,
+    inherited_order_rate_fields,
+)
 from app.services.order_types import suggested_order_type
 from app.services.polish_ilike import polish_folded_ilike
 from app.tasks.contract_alerts import run_contract_alerts_cycle
@@ -291,6 +296,34 @@ def _synced_client_order_end(
     user deliberately left one out. Shared by the amendment and bulk-extend paths.
     """
     return new_end_date if current is not None else None
+
+
+DAILY_CONTRACT_UNIT_REASON = "contract_rates_are_hourly"
+DAILY_CONTRACT_UNIT_MESSAGE = (
+    "Stawki w module Kontrakty są godzinowe (zł/h). Stawkę dzienną (MD) "
+    "przelicz na godzinową: stawka za MD ÷ 8. Zamówienia w MD prowadzisz "
+    "w module Klienci — kontrakt przeliczy się sam. Kontrakt, który jest "
+    "jeszcze w MD, zapisz bez zmiany jednostki — zapis przeliczy go na zł/h. "
+    "Jeśli widzisz ten komunikat po zapisie formularza, odśwież stronę."
+)
+
+
+def _reject_daily_contract_unit() -> None:
+    """422 dla przejścia kontraktu na jednostkę dzienną (decyzja 14.09.2026).
+
+    Odmowa zamiast przeliczenia: zmiana samej jednostki na MD opisuje kwoty,
+    które operator podał w innej jednostce niż zapisane w harmonogramach —
+    przeliczenie połowy kontraktu byłoby zgadywaniem. Kontrakt, który JEST
+    jeszcze w MD (sprzed korekty 0309), przelicza się przy zapisie w całości.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "message": DAILY_CONTRACT_UNIT_MESSAGE,
+            "reason": DAILY_CONTRACT_UNIT_REASON,
+            "field": "rate_unit",
+        },
+    )
 
 
 def _reject_b2b_end_date() -> None:
@@ -2238,6 +2271,11 @@ async def create_contract(
             )
             for step in framework_schedule_input
         ]
+    # Stawki w Kontraktach są godzinowe (14.09.2026): kontrakt podany w MD
+    # przeliczamy w całości (stawki, harmonogramy, stawka ramowa, widełki ÷ 8,
+    # 176 h/mc) PRZED zapisem — nowy obiekt ma wszystkie kwoty w jednej
+    # jednostce, a kolekcje harmonogramów nie wymagają doczytania.
+    apply_contract_hourly_policy(contract)
     db.add(contract)
     await db.flush()
     if schedule_input:
@@ -2755,6 +2793,21 @@ async def update_contract(
     status_sent = "status" in updates
     status_target = updates.pop("status", None)
     await _assert_b2b_end_date_update(contract, updates, status_target, db)
+    requested_unit = (
+        RateUnit(updates["rate_unit"]) if updates.get("rate_unit") is not None else None
+    )
+    current_unit = RateUnit(contract.rate_unit)
+    # Dwa przejścia jednostki bez przeliczenia są odrzucane: NA MD (stawki
+    # w Kontraktach są godzinowe) i Z MD na inną jednostkę kontraktu wciąż
+    # w MD — samo przestawienie etykiety zostawiłoby kroki harmonogramu (nie
+    # wysyłane w tym żądaniu) w MD, czytane odtąd jako zł/h (× 8 błędu).
+    # Kontrakt w MD zapisany BEZ zmiany jednostki przelicza się niżej w całości.
+    if (
+        requested_unit is not None
+        and requested_unit != current_unit
+        and (RateUnit.daily in (requested_unit, current_unit))
+    ):
+        _reject_daily_contract_unit()
     for k, v in updates.items():
         setattr(contract, k, v)
     if schedule_sent:
@@ -2789,6 +2842,12 @@ async def update_contract(
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
+    # Kontrakt wciąż w MD (sprzed korekty 0309) — zapis przelicza CAŁY kontrakt
+    # na zł/h. Wszystkie kwoty (także przysłane w tym żądaniu) są wtedy w MD.
+    normalized_from_daily = apply_contract_hourly_policy(contract)
+    if normalized_from_daily:
+        updates["rate_unit"] = RateUnit.hourly
+        updates["billing_hours_per_month"] = contract.billing_hours_per_month
 
     draft_orders_inherited = 0
     if data.model_fields_set & _DRAFT_ORDER_RATE_INHERITANCE_INPUTS:
@@ -2900,7 +2959,16 @@ async def update_contract(
     ):
         apply_manual_client_rate(
             contract,
-            data.rate_client,
+            (
+                convert_order_rate(
+                    data.rate_client,
+                    RateUnit.daily,
+                    RateUnit.hourly,
+                    scale=CONTRACT_RATE_SCALE,
+                )
+                if normalized_from_daily
+                else data.rate_client
+            ),
             actor_id=current_user.id,
             today=business_today(),
         )
@@ -4118,6 +4186,8 @@ async def create_contract_amendment(
             )
             new_values["rate_client"] = data.new_rate_client
         if data.new_rate_unit is not None:
+            if RateUnit(data.new_rate_unit) == RateUnit.daily:
+                _reject_daily_contract_unit()
             contract.rate_unit = data.new_rate_unit  # type: ignore[assignment]
             new_values["rate_unit"] = data.new_rate_unit
         if data.new_billing_hours_per_month is not None:

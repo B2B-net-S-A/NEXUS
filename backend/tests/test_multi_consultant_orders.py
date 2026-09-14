@@ -1445,8 +1445,12 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             .options(selectinload(Contract.candidate_rate_schedule))
             .where(Contract.id == active_id)
         )
-        assert stored.rate_candidate == Decimal("999.000")
-        assert stored.effective_candidate_rate(_TODAY) == Decimal("560.000")
+        # Kontrakt w MD (sprzed korekty 0309) synchronizacja przelicza na zł/h
+        # (÷ 8, 14.09.2026) — ale kwoty kontraktu są te same: stawka linii
+        # (575) nie przeszła na kontrakt.
+        assert stored.rate_unit == RateUnit.hourly
+        assert stored.rate_candidate * 8 == Decimal("999.000")
+        assert stored.effective_candidate_rate(_TODAY) * 8 == Decimal("560.000")
 
 
 async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(

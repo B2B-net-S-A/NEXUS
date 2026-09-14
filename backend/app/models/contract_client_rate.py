@@ -35,7 +35,7 @@ class ContractClientRate(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Client rate in the contract's `rate_unit` / `currency`.
-    rate: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(16, 6), nullable=False)
     # Date from which this rate applies ("Obowiązuje od").
     effective_from: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

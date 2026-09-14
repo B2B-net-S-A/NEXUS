@@ -686,10 +686,13 @@ reguły nie powiodło się…" i można użyć przycisku ręcznie.
   **okres zamówienia** z najnowszego uzupełnionego zamówienia. Stawki, jednostki
   i waluty ten przebieg nie zmienia — przeniesie je dopiero najbliższy zapis
   zamówienia.
-* **Dopasowuje jednostkę umowy do zamówienia** (1 MD = 8 godzin). Umowa z
-  generatora jest godzinowa; pierwsze zamówienie w MD przestawia ją na MD
-  i przelicza stawkę kosztową (120 zł/h → 960 zł/MD). Umowa zostaje w MD, dopóki
-  nie przyjdzie zamówienie w innej jednostce.
+* **Prowadzi stawki umowy w zł/h** (1 MD = 8 godzin). W module Kontrakty
+  stawki są godzinowe: zamówienie w MD **zostaje w MD**, a do umowy trafia jego
+  stawka przeliczona na godzinę (1340 zł/MD → 167,50 zł/h). Umowa z generatora
+  jest godzinowa i taka zostaje; umowa ryczałtowa (zł/mc) przechodzi na zł/h
+  przy pierwszym zamówieniu w MD. Kwoty miesięczne się nie zmieniają — umowa
+  liczy wtedy 176 godzin w miesiącu (22 MD × 8 h). Stawka kosztowa wraca do
+  zamówienia w MD pomnożona przez 8, więc ta sama kwota.
 * **Ustawia stawkę kosztową zamówienia z umowy.** Umowa jest jej jedynym
   źródłem: pole w zamówieniu jest tylko do odczytu (dopisek „z kontraktu"),
   a zaplanowane w umowie zmiany stawki — także kilka naraz, np. od 01.10 i od

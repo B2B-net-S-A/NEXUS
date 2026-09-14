@@ -112,7 +112,13 @@ export function AddProjectDialog({
   const [endDate, setEndDate] = useState("");
   const [contractType, setContractType] = useState(baseContract.contract_type);
   const [workMode, setWorkMode] = useState(baseContract.work_mode ?? "");
-  const [rateUnit, setRateUnit] = useState(baseContract.rate_unit || "monthly");
+  // Stawki w Kontraktach są godzinowe albo ryczałtowe — kontrakt bazowy w MD
+  // (sprzed przeliczenia) nie przenosi MD na nowy projekt.
+  const [rateUnit, setRateUnit] = useState(
+    !baseContract.rate_unit || baseContract.rate_unit === "daily"
+      ? "hourly"
+      : baseContract.rate_unit,
+  );
   const [rateClientCurrency, setRateClientCurrency] = useState(
     baseContract.rate_client_currency ?? baseContract.currency ?? "PLN",
   );
@@ -596,9 +602,8 @@ export function AddProjectDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">Miesięcznie</SelectItem>
-                  <SelectItem value="daily">Dziennie</SelectItem>
                   <SelectItem value="hourly">Godzinowo</SelectItem>
+                  <SelectItem value="monthly">Miesięcznie</SelectItem>
                 </SelectContent>
               </Select>
             </div>

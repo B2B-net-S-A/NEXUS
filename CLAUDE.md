@@ -563,10 +563,10 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
 - **Obie stawki są GODZINOWE, marża MIESIĘCZNA (ticket 09.2026).** Kolumny czytają
   `hourly_rate_candidate`/`hourly_rate_client` (`clients._hourly_rate` →
   `order_rate_snapshots.convert_order_rate`), nie `monthly_rate_*`. Źródłem jest
-  jednostka KONTRAKTU, która trzyma się jednostki najnowszego zamówienia
-  (`contract_order_sync`): godzinowa bez przeliczenia, MD ÷ 8, legacy kontrakt
-  miesięczny ÷ `billing_hours_per_month`. To wyłącznie warstwa wyświetlania —
-  zamówienia i kontrakty zostają w swojej jednostce. Typ `GroszePLN` (grosze,
+  jednostka KONTRAKTU (`contract_order_sync`): godzinowa bez przeliczenia,
+  ryczałt miesięczny ÷ `billing_hours_per_month`, a MD ÷ 8 już tylko dla
+  kontraktu sprzed korekty 0309 (od 14.09.2026 kontrakty nie są w MD — patrz
+  „Synchronizacja kontrakt ↔ zamówienia"). To wyłącznie warstwa wyświetlania. Typ `GroszePLN` (grosze,
   `float`), NIE `WholePLN`: 1340 zł/MD ÷ 8 = 167,50. Marża i kafel „Aktywne MRR"
   zostają miesięczne (kafel = suma kolumny „Marża [mc]") — decyzja Artura.
   Pola godzinowe są redagowane razem z miesięcznymi (active, planned, archiwum).
@@ -2571,8 +2571,29 @@ Każda strona jest źródłem prawdy dla SWOICH pól:
   przychodową** jako krok `client_rate_schedule` od daty startu zamówienia
   (`source_order_id` — krok z zamówienia vs krok ręczny/z aneksu; przyszła
   stawka obowiązuje od swojej daty). **Jednostka kontraktu = jednostka
-  najnowszego zamówienia** (1 MD = 8 h, `convert_rate_between`): przełączenie
-  przelicza KAŻDĄ kwotę kontraktu (obie stawki + harmonogramy, ramowa, widełki).
+  najnowszego zamówienia, ALE NIGDY MD** (`contract_unit_for_order`, ticket
+  „Ujednolicenie stawek w module Kontrakty", 14.09.2026): zamówienie w MD daje
+  kontrakt w zł/h (MD ÷ 8), ryczałt i stawka godzinowa przechodzą bez zmian.
+  Przełączenie przelicza KAŻDĄ kwotę kontraktu (obie stawki + harmonogramy,
+  ramowa, widełki) z precyzją 6 miejsc (`CONTRACT_RATE_SCALE`, kolumny
+  `NUMERIC(16,6)` od 0309 — 1001,55 zł/MD = 125,19375 zł/h; zamówienia zostają
+  przy 3 miejscach). Zamówienie w MD ustawia kontraktowi **176 h/mc** (22 MD ×
+  8 h): czytniki pieniędzy liczą MD × 22, a godziny × `billing_hours_per_month`,
+  więc MRR/marża miesięczna są takie jak przy dawnym kontrakcie w MD. Jawnie
+  wybrana jednostka w PATCH (`follow_order_unit=False`) zostawia też godziny.
+  **Zamówienie nie jest ruszane** — zostaje w MD, koszt wraca do niego ×8 bez
+  zmiany kwoty. Wszystkie inne zapisy kontraktu też nie dają MD
+  (`apply_contract_hourly_policy`): POST `/api/contracts`, `contract-with-order`
+  i szkic z maila przeliczają kontrakt podany w MD; PATCH/aneks przejścia NA MD
+  odmawiają 422 (`contract_rates_are_hourly`), a zapis kontraktu wciąż w MD
+  przelicza go w całości. Formularze Kontraktów nie mają opcji „Dziennie".
+  Jednorazowo `contract_hourly_rate_repair.py` (blok w `entrypoint.sh`, marker
+  `0309_contract_hourly_rates`): każdy kontrakt `daily` → zł/h + 176 h/mc,
+  kontrola odwrotności (×8 == dawna kwota) i miesięcznego ekwiwalentu, suma
+  kontrolna `client_orders` przed/po (różnica = rollback); czeka na poszerzone
+  kolumny, bez nich nie stawia markera. DDL 0309 zdejmuje i zakłada ponownie
+  trigger walut `trg_contract_rate_currencies_legacy_sync` (ma `margin`
+  w `UPDATE OF`, Postgres inaczej odmawia zmiany typu).
   Szkic z kompletem danych przechodzi na `active` przez zwykłą bramkę
   (`auto_activate_complete_draft`) — ale nie szkic, którego `end_date` minęło.
 - **Kontrakt → zamówienie: stawka kosztowa.** Kontrakt jest JEDYNYM źródłem:

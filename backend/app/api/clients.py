@@ -134,11 +134,10 @@ def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
 def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
     """Stawka kontraktu przeliczona na godzinę — kolumny tabeli w profilu klienta.
 
-    Jednostka kontraktu trzyma się jednostki najnowszego zamówienia
-    (``contract_order_sync``), a zamówienie ma stawkę godzinową albo MD:
-    godzinowa idzie bez przeliczenia, MD ÷ 8. Kontrakt miesięczny (legacy,
-    bez zamówienia) dzielimy przez jego godziny rozliczeniowe — ta sama
-    arytmetyka co przy synchronizacji zamówień. Nic nie jest zapisywane.
+    Od 14.09.2026 kontrakt jest godzinowy albo ryczałtowy (``contract_order_sync``
+    — zamówienie w MD daje kontrakt w zł/h): godzinowa idzie bez przeliczenia,
+    ryczałt dzielimy przez godziny rozliczeniowe kontraktu. Gałąź MD ÷ 8 zostaje
+    dla kontraktu sprzed korekty 0309. Nic nie jest zapisywane.
     """
     if rate is None:
         return None

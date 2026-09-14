@@ -1198,9 +1198,13 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
         contract = await db.get(Contract, existing_id)
         assert contract is not None
         assert contract.status == ContractStatus.active
-        assert contract.rate_candidate == Decimal("1204.000")
-        assert contract.rate_client == Decimal("1760.000")
-        assert contract.rate_unit == RateUnit.daily
+        # Warunki zostają — kontrakt w MD synchronizacja z (MD-owym)
+        # zamówieniem przelicza jednak na zł/h (ticket 14.09.2026: stawki
+        # w Kontraktach są godzinowe). Te same kwoty: × 8 = dawna stawka MD.
+        assert contract.rate_unit == RateUnit.hourly
+        assert contract.billing_hours_per_month == 176
+        assert contract.rate_candidate * 8 == Decimal("1204.000")
+        assert contract.rate_client * 8 == Decimal("1760.000")
         assert contract.start_date == date(2026, 8, 1)
         schedule = (
             (
@@ -1213,7 +1217,7 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
             .scalars()
             .all()
         )
-        assert [row.rate for row in schedule] == [Decimal("1204.000")]
+        assert [row.rate * 8 for row in schedule] == [Decimal("1204.000")]
 
         # Absent values are still completed from the document: the B2B detail
         # did not exist, so it is created with the signed document's number.
@@ -1235,8 +1239,8 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
             select(ClientOrder).where(ClientOrder.contract_id == existing_id)
         )
         assert order is not None
-        # The auto-drafted order inherits the contract as it IS, not the
-        # document's hourly reading.
+        # The auto-drafted order inherits the contract as it WAS (MD), not the
+        # document's hourly reading — and stays in MD after the contract sync.
         assert order.rate_unit == RateUnit.daily
 
         audit = (
@@ -1310,9 +1314,11 @@ async def test_keep_existing_terms_completes_empty_fields_but_never_reinterprets
         contract = await db.get(Contract, existing_id)
         assert contract is not None
         assert contract.start_date == date(2026, 8, 1)
-        assert contract.rate_unit == RateUnit.daily
+        # Stawka godzinowa z DOKUMENTU nie jest wpisywana; kontrakt w MD
+        # przechodzi na zł/h przez synchronizację z zamówieniem (÷ 8).
+        assert contract.rate_unit == RateUnit.hourly
         assert contract.rate_candidate is None
-        assert contract.rate_client == Decimal("1760.000")
+        assert contract.rate_client * 8 == Decimal("1760.000")
         schedule_rows = await db.scalar(
             select(func.count(ContractCandidateRate.id)).where(
                 ContractCandidateRate.contract_id == existing_id
