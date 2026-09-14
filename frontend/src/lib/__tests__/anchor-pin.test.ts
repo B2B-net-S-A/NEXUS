@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ANCHOR_PIN_CHECK_MS, ANCHOR_PIN_MAX_MS, pinAnchor } from "@/lib/anchor-pin";
+import {
+  ANCHOR_PIN_CHECK_MS,
+  ANCHOR_PIN_MAX_MS,
+  ANCHOR_PIN_WALL_MAX_MS,
+  pinAnchor,
+} from "@/lib/anchor-pin";
 
 /**
  * Reaudyt 14.09.2026 (R03): po skoku do `#zrodla` sekcje nad celem doczytały
@@ -28,6 +33,7 @@ describe("pinAnchor", () => {
   afterEach(() => {
     target.remove();
     vi.useRealTimers();
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
   });
 
   it("wraca do celu, gdy treść nad nim urośnie", () => {
@@ -55,6 +61,37 @@ describe("pinAnchor", () => {
   it("kończy się po limicie czasu", () => {
     pinAnchor("zrodla");
     vi.advanceTimersByTime(ANCHOR_PIN_MAX_MS + ANCHOR_PIN_CHECK_MS);
+    top = 3260;
+    vi.advanceTimersByTime(ANCHOR_PIN_CHECK_MS * 5);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("czas ukrytej karty nie wyczerpuje przypięcia", () => {
+    // Kliknięcie i przełączenie karty: sekcje montują się dopiero po powrocie.
+    pinAnchor("zrodla");
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    vi.advanceTimersByTime(ANCHOR_PIN_MAX_MS * 5);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    top = 3260; // po powrocie sekcje nad celem doczytały dane
+    vi.advanceTimersByTime(ANCHOR_PIN_CHECK_MS);
+    expect(scrollSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("koryguje przesunięcie także w ukrytej karcie", () => {
+    pinAnchor("zrodla");
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    vi.advanceTimersByTime(ANCHOR_PIN_MAX_MS * 2);
+    top = 3260;
+    vi.advanceTimersByTime(ANCHOR_PIN_CHECK_MS);
+    expect(scrollSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("ukryta karta ma twardy limit czasu", () => {
+    pinAnchor("zrodla");
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    vi.advanceTimersByTime(ANCHOR_PIN_WALL_MAX_MS + ANCHOR_PIN_CHECK_MS);
     top = 3260;
     vi.advanceTimersByTime(ANCHOR_PIN_CHECK_MS * 5);
     expect(scrollSpy).toHaveBeenCalledTimes(1);
