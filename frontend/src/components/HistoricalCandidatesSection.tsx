@@ -358,7 +358,8 @@ export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) 
       });
       return r.data;
     },
-    retry: 1,
+    // Bez własnego `retry`: chwilowe 502/503/504 ponawia interceptor axios.
+    // `retry: 1` tutaj mnożyło to do 6 żądań przy awarii (reaudyt 14.09, R06).
     staleTime: 60_000,
   });
 

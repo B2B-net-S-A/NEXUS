@@ -55,3 +55,31 @@ describe("budżet odpytywania w tle (lib/polling)", () => {
     expect(ALLOCATION_BOARD_POLL_MS).toBeGreaterThanOrEqual(60_000);
   });
 });
+
+describe("jeden właściciel ponowień", () => {
+  it("żaden komponent nie włącza własnego `retry` liczbą większą od zera", async () => {
+    // Reaudyt 14.09.2026 (R06): dwa lokalne `retry: 1` przeżyły zmianę
+    // globalnego domyślnego — każde mnożyło ponowienia axios do 6 żądań.
+    // Funkcje (`retry: (count, error) => …`) i `retry: false` są dozwolone.
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) {
+          if (name === "__tests__" || name === "preview") continue;
+          walk(path);
+        } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+          const source = readFileSync(path, "utf8");
+          // Tylko kod: linie opcji `retry: N`, nie komentarze o historii.
+          if (source.split("\n").some((line) => /^\s*retry:\s*[1-9]/.test(line))) {
+            offenders.push(path);
+          }
+        }
+      }
+    };
+    walk(join(process.cwd(), "src"));
+    expect(offenders).toEqual([]);
+  });
+});

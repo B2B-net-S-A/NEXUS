@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { pinAnchor } from "@/lib/anchor-pin";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,6 +18,11 @@ import { cn } from "@/lib/utils";
  * Odpowiednikiem po stronie sekcji jest `InsightsSection` niżej — to on
  * dokłada `scroll-mt`, bez którego nagłówek sekcji chowa się pod paskiem
  * aplikacji i wygląda, jakby kotwica trafiła w złe miejsce.
+ *
+ * Kotwica sama NIE wystarcza, odkąd sekcje montują się leniwie: treść nad
+ * celem rośnie po skoku i cel odjeżdża (reaudyt 14.09.2026, R03). Dlatego
+ * kliknięcie, bezpośredni `#hash` i Wstecz/Dalej dodatkowo przypinają cel
+ * (`pinAnchor`) na czas doczytywania — do pierwszej akcji użytkownika.
  */
 
 export interface InsightsSectionNavItem {
@@ -34,6 +40,20 @@ export function InsightsSectionNav({
   ariaLabel?: string;
   className?: string;
 }) {
+  const idsKey = items.map((item) => item.id).join("|");
+
+  // Bezpośredni link z `#sekcja` i nawigacja Wstecz/Dalej też muszą trafić.
+  useEffect(() => {
+    const ids = new Set(idsKey.split("|"));
+    const pinCurrentHash = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (id && ids.has(id)) pinAnchor(id);
+    };
+    pinCurrentHash();
+    window.addEventListener("hashchange", pinCurrentHash);
+    return () => window.removeEventListener("hashchange", pinCurrentHash);
+  }, [idsKey]);
+
   // Jedna pozycja to nie jest spis treści — pasek nad pojedynczą sekcją
   // dodaje szum i sugeruje, że gdzieś dalej jest coś jeszcze.
   if (items.length < 2) return null;
@@ -50,6 +70,9 @@ export function InsightsSectionNav({
         <a
           key={item.id}
           href={`#${item.id}`}
+          // Ponowne kliknięcie tej samej kotwicy nie wywołuje `hashchange`,
+          // więc przypinamy także tutaj (po domyślnej nawigacji przeglądarki).
+          onClick={() => window.setTimeout(() => pinAnchor(item.id), 0)}
           className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           {item.label}

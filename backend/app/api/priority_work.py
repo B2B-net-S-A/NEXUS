@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -307,35 +307,98 @@ async def _serialize_demand(
     *,
     current_assignments: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
-    job = await db.scalar(
-        select(Job).where(Job.id == row.job_id).options(selectinload(Job.client))
-    )
-    requester = (
-        await db.scalar(select(User).where(User.id == row.requested_by_user_id))
-        if row.requested_by_user_id
-        else None
-    )
-    job_competence_category_ids = (
-        {job.competence_category_id}
-        if job and job.competence_category_id is not None
-        else set()
-    )
-    job_competence_category_ids.update(
-        (
+    """Pojedynczy demand — cienka nakładka na wersję hurtową (ten sam kształt)."""
+    return (
+        await _serialize_demands(db, [row], current_assignments=current_assignments)
+    )[0]
+
+
+async def _serialize_demands(
+    db: AsyncSession,
+    rows: Sequence[RecruitmentPriorityDemand],
+    *,
+    current_assignments: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """Serializuj demandy STAŁĄ liczbą zapytań, niezależnie od ich liczby.
+
+    Do 09.2026 każdy wiersz robił osobno: ofertę z klientem, zgłaszającego,
+    kategorie poboczne oferty — a wołany bez `current_assignments` (dashboard
+    Delivery Leada) także cały plan priorytetów i jego przypisania. Portfel
+    30 demandów to było ~150 zapytań na jedno wejście (reaudyt 14.09.2026).
+    Teraz: jedno zapytanie na każde źródło, plan co najwyżej raz.
+    """
+    if not rows:
+        return []
+    job_ids = {row.job_id for row in rows}
+    jobs: dict[int, Job] = {
+        job.id: job
+        for job in (
             await db.execute(
-                select(JobSecondaryCc.competence_category_id).where(
-                    JobSecondaryCc.job_id == row.job_id
-                )
+                select(Job).where(Job.id.in_(job_ids)).options(selectinload(Job.client))
             )
         )
         .scalars()
         .all()
+    }
+    requester_ids = {
+        row.requested_by_user_id for row in rows if row.requested_by_user_id
+    }
+    requester_names: dict[int, Optional[str]] = (
+        {
+            user_id: name
+            for user_id, name in (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(requester_ids))
+                )
+            ).all()
+        }
+        if requester_ids
+        else {}
     )
+    secondary_ccs: dict[int, set[int]] = {}
+    for job_id, category_id in (
+        await db.execute(
+            select(JobSecondaryCc.job_id, JobSecondaryCc.competence_category_id).where(
+                JobSecondaryCc.job_id.in_(job_ids)
+            )
+        )
+    ).all():
+        secondary_ccs.setdefault(job_id, set()).add(category_id)
     if current_assignments is None:
         plan = await current_plan(db)
         current_assignments = (
             await _assignment_payloads(db, plan.members) if plan else []
         )
+    return [
+        _demand_payload(
+            row,
+            job=jobs.get(row.job_id),
+            requester_name=(
+                requester_names.get(row.requested_by_user_id)
+                if row.requested_by_user_id
+                else None
+            ),
+            secondary_cc_ids=secondary_ccs.get(row.job_id, set()),
+            current_assignments=current_assignments,
+        )
+        for row in rows
+    ]
+
+
+def _demand_payload(
+    row: RecruitmentPriorityDemand,
+    *,
+    job: Optional[Job],
+    requester_name: Optional[str],
+    secondary_cc_ids: set[int],
+    current_assignments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    job_competence_category_ids = (
+        {job.competence_category_id}
+        if job and job.competence_category_id is not None
+        else set()
+    )
+    job_competence_category_ids.update(secondary_cc_ids)
     demand_assignments = [
         assignment
         for assignment in current_assignments
@@ -355,7 +418,7 @@ async def _serialize_demand(
         },
         "job_id": row.job_id,
         "requested_by_id": row.requested_by_user_id,
-        "requested_by_name": requester.name if requester else None,
+        "requested_by_name": requester_name,
         "status": row.status.value,
         "urgency": _urgency_from_rank(row.proposed_rank),
         "proposed_rank": row.proposed_rank.value if row.proposed_rank else None,
@@ -631,14 +694,9 @@ async def get_team_priority_work(
         "mode": mode.value,
         "plan": _serialize_plan(plan, mode=mode),
         "members": members_payload,
-        "demands": [
-            await _serialize_demand(
-                db,
-                row,
-                current_assignments=all_assignments,
-            )
-            for row in demands
-        ],
+        "demands": await _serialize_demands(
+            db, demands, current_assignments=all_assignments
+        ),
         "unowned_carry_over": unowned_rows,
         "unowned_carry_over_count": len(unowned_rows),
         "overdue": bool(plan and plan.review_due_at and plan.review_due_at < utcnow()),
@@ -663,14 +721,7 @@ async def list_priority_demands(
     rows = (await db.execute(statement)).scalars().all()
     plan = await current_plan(db)
     assignments = await _assignment_payloads(db, plan.members) if plan else []
-    return [
-        await _serialize_demand(
-            db,
-            row,
-            current_assignments=assignments,
-        )
-        for row in rows
-    ]
+    return await _serialize_demands(db, rows, current_assignments=assignments)
 
 
 @router.post("/demands", status_code=201)

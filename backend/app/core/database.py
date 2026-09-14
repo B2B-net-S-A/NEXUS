@@ -48,6 +48,30 @@ class Base(DeclarativeBase):
     pass
 
 
+async def release_idle_connection(db: AsyncSession) -> bool:
+    """Oddaj połączenie sesji do puli PRZED długim czekaniem, jeśli nic nie wisi.
+
+    Sesja requestu trzyma połączenie od pierwszego zapytania (np. auth) aż do
+    zamknięcia po handlerze. Czekanie w tym czasie na cudze obliczenie cache'u
+    albo na zewnętrzne AI zajmuje połączenie z puli, choć nic nie robi — przy
+    zimnym kluczu i 50 oczekujących to 50 zajętych połączeń (reaudyt 14.09,
+    R05). `commit()` bez zmian kończy transakcję i zwalnia połączenie;
+    kolejne zapytanie pobierze nowe.
+
+    NIE rusza sesji z niezapisanymi zmianami (`new`/`dirty`/`deleted`) — ich
+    wcześniejszy commit zmieniłby atomowość operacji, gdyby handler padł
+    później. `rollback()` odpada: wygasiłby wszystkie obiekty ORM (także
+    `current_user`), a sięgnięcie po atrybut w async to `MissingGreenlet`.
+    Zwraca, czy połączenie zostało zwolnione.
+    """
+    if db.new or db.dirty or db.deleted:
+        return False
+    if not db.in_transaction():
+        return False
+    await db.commit()
+    return True
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency: yields a database session per request."""
     async with AsyncSessionLocal() as session:

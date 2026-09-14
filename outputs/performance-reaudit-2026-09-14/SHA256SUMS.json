@@ -1,0 +1,12 @@
+{
+  "ui-observations.json": "e6596d9105bd14c13172f8cb32a7dce9e7857b7ac53b03f34c30822a0ee980a0",
+  "backend-repro.py": "1e9362436be55cba61ad1068fc587ab128316d60cbf4cf085c69a223044a3ad4",
+  "EVIDENCE.md": "d91276b993aee53cfaaf4a5f04208a201ba9c83e83d459bfb33fa1be2648ee04",
+  "frontend-vitest.config.mts": "bda41eccd0b9f685375884cd5efe27a69201a9e1a285d6888f0ff5c8c6d35ddc",
+  "pr-1502.json": "715c79a5a69685624c8d6b28a01bd39ca4473da5bec0099c273efd2fc0fe8f6e",
+  "backend-repro-result.json": "6b94f00c1b451a07827fb5c5fedbb1e3fcd88976386eeb94ea261b119707f126",
+  "frontend-reaudit.test.tsx": "6b106809fdf5c32c9840f3e7350364aca7f6935db08446465196b3a315000c43",
+  "uptime-history.json": "af394878512171c9d34df827d933c89e5c6793499eb92e48c6cda7eadb4c1b99",
+  "frontend-results.json": "fb37b71afa9998f323da355ef550933c8dc5144c2a65fdab7ba2209170db2e91",
+  "public-probes.json": "4ea97bbe06209e02f94fb48728494741ff598b7d2184d29585f9a04d93b7d7b7"
+}

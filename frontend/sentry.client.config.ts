@@ -19,6 +19,9 @@ const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 /** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
 const NETWORK_ERROR_SAMPLE_RATE = 0.1
+/** Ułamek błędów ładowania chunków JS raportowanych do Sentry (patrz beforeSend). */
+const CHUNK_ERROR_SAMPLE_RATE = 0.05
+const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
 if (dsn) {
     Sentry.init({
@@ -42,10 +45,8 @@ if (dsn) {
             'ResizeObserver loop limit exceeded',
             'ResizeObserver loop completed with undelivered notifications',
             'Non-Error promise rejection captured',
-            // Next.js chunk load failures (cache mismatch after deploy) —
-            // user just reloads, no actionable bug
-            /ChunkLoadError/,
-            /Loading chunk \d+ failed/,
+            // ChunkLoadError CELOWO nie jest tu ignorowany — patrz `beforeSend`
+            // (próbkowany: to bezpośredni ślad deployu widziany przez starą kartę).
             // Axios cancel — user navigated away before request returned
             'CanceledError',
             'AbortError',
@@ -66,9 +67,27 @@ if (dsn) {
                 return null
             }
 
-            // Drop expected axios timeout (ECONNABORTED) — user can retry.
+            // Surowy timeout axios odrzucamy — zapytania i mutacje react-query
+            // zgłaszają go osobno jako syntetyczne `API timeout: …`
+            // (`lib/query-error-telemetry.ts`), już z trasą i próbkowaniem.
             if (exc?.code === 'ECONNABORTED' || exc?.name === 'TimeoutError') {
                 return null
+            }
+
+            // Błąd ładowania chunku = stara karta po deployu sięga po plik JS,
+            // którego już nie ma. Przy ~8 przebudowach dziennie to bezpośredni
+            // pomiar wpływu deployów na użytkowników (reaudyt 14.09.2026, R07),
+            // więc próbkujemy zamiast wyrzucać; jeden fingerprint = jeden issue.
+            const chunkText = `${exc?.name ?? ''} ${exc?.message ?? ''} ${
+                event.exception?.values?.[0]?.type ?? ''
+            } ${event.exception?.values?.[0]?.value ?? ''}`
+            if (CHUNK_ERROR_RE.test(chunkText)) {
+                if (Math.random() >= CHUNK_ERROR_SAMPLE_RATE) {
+                    return null
+                }
+                event.fingerprint = ['chunk-load-error']
+                event.tags = { ...event.tags, chunk_load_error: 'sampled' }
+                return event
             }
 
             // Bezcielesny błąd sieci (axios `ERR_NETWORK`) — PRÓBKOWANY, nie

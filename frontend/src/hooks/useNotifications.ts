@@ -53,6 +53,12 @@ import {
   type ChatBusEvent,
 } from "@/types/job-chat";
 
+/** Wykładniczy backoff ponownego łączenia (sufit 30 s) z rozrzutem 50–100%. */
+export function reconnectDelayMs(attempt: number, random: () => number = Math.random): number {
+  const base = Math.min(1000 * Math.pow(2, attempt), 30_000);
+  return Math.round(base * (0.5 + random() * 0.5));
+}
+
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
 }
@@ -65,6 +71,8 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   const reconnectAttemptsRef = useRef(0);
   const mountedRef = useRef(true);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Czy to połączenie jest POWROTEM po zerwaniu (a nie pierwszym otwarciem).
+  const lostConnectionRef = useRef(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -72,6 +80,12 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) return;
     pollingIntervalRef.current = setInterval(async () => {
+      // Ukryta karta nie potrzebuje świeżych powiadomień — ręczny interwał
+      // nie podlega `refetchIntervalInBackground`, więc pilnujemy tego sami.
+      // Po powrocie do karty react-query odświeża przy focusie.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     }, NOTIFICATIONS_FALLBACK_POLL_MS);
   }, [queryClient]);
@@ -115,6 +129,17 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       reconnectAttemptsRef.current = 0;
       setWsConnected(true);
       stopPolling(); // WS is up — no need to poll
+
+      // Powrót po zerwaniu: serwer nie odtwarza zdarzeń z przerwy (wysyła
+      // tylko `connected`), a dzwonek przy zdrowym gnieździe odpytuje co 5 min.
+      // Jeden odczyt po odzyskaniu połączenia zamiast czekania na siatkę
+      // bezpieczeństwa (reaudyt 14.09.2026, R02). Pierwsze otwarcie nie
+      // odświeża — komponenty i tak właśnie pobrały dane.
+      if (lostConnectionRef.current) {
+        lostConnectionRef.current = false;
+        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
+      }
 
       // Expose a sender to `usePresence` without it needing the ws ref.
       setWsSender((msg) => ws.send(JSON.stringify(msg)));
@@ -258,16 +283,16 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       if (!mountedRef.current) return;
       setWsConnected(false);
       wsRef.current = null;
+      lostConnectionRef.current = true;
       clearWsSender();
 
       // Start polling as fallback
       startPolling();
 
-      // Exponential backoff reconnect: 1s, 2s, 4s, 8s, 16s, max 30s
-      const delay = Math.min(
-        1000 * Math.pow(2, reconnectAttemptsRef.current),
-        30_000,
-      );
+      // Exponential backoff reconnect: 1s, 2s, 4s, 8s, 16s, max 30s — z losowym
+      // rozrzutem 50–100%. Po deployu gniazda zrywają się wszystkim naraz;
+      // stałe opóźnienia wracały jedną falą 100 połączeń w tej samej sekundzie.
+      const delay = reconnectDelayMs(reconnectAttemptsRef.current);
       reconnectAttemptsRef.current += 1;
 
       reconnectTimeoutRef.current = setTimeout(() => {

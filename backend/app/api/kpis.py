@@ -287,7 +287,7 @@ async def get_team_panel(
     kp = _PERIOD_MAP.get(period, KpiPeriod.week)
     cache_key = f"kpis:team:panel:{kp.value}"
 
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached:
             return TeamPanelSchema(**cached)

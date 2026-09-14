@@ -5355,10 +5355,10 @@ async def create_candidate_from_cv(
     # 1 — persist the upload and extract text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     safe_name = _sanitize_upload_filename(file.filename, fallback="upload.pdf")
-    content = await file.read()
-    # Size gate BEFORE any disk write or extraction — the same limit every
-    # other CV upload route enforces (`upload_cv`, `upload_candidate_document`).
-    _validate_upload_size(content, label="CV file")
+    # Size gate BEFORE any disk write or extraction, and a bounded read so an
+    # oversized file never lands in memory whole — same helper as the other
+    # CV upload routes (`upload_cv`, `upload_candidate_document`).
+    content = await _read_upload_bounded(file, label="CV file")
 
     # Scratch file for the extractor (it only reads from a path). The name is
     # random on purpose: it used to be `from_cv_tmp_<client filename>`, so two
@@ -5610,6 +5610,22 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     return name or fallback
 
 
+async def _read_upload_bounded(file: UploadFile, *, label: str) -> bytes:
+    """Czytaj upload co najwyżej do limitu + 1 bajt, potem waliduj rozmiar.
+
+    `await file.read()` bez argumentu ładował do RAM CAŁY plik, a limit
+    sprawdzany był dopiero na gotowych bajtach — 413 chroniło ekstrakcję
+    i zapis, ale nie pamięć procesu (reaudyt 14.09.2026, R04; API nie stoi za
+    Cloudflare, więc nic nie tnie ciała żądania wcześniej). Starlette trzyma
+    część pliku ponad 1 MB na dysku, więc ograniczony odczyt wystarcza, żeby
+    za duży plik nigdy nie trafił w całości do pamięci.
+    """
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    _validate_upload_size(content, label=label)
+    return content
+
+
 def _validate_upload_size(content: bytes, *, label: str) -> None:
     if len(content) == 0:
         raise HTTPException(status_code=400, detail=f"{label} is empty")
@@ -5725,9 +5741,8 @@ async def upload_cv(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    # Read content first so we can size-check before writing to disk.
-    content = await file.read()
-    _validate_upload_size(content, label="CV file")
+    # Bounded read first so we can size-check before writing to disk.
+    content = await _read_upload_bounded(file, label="CV file")
 
     raw_filename = file.filename or "upload.pdf"
     _, ext = os.path.splitext(raw_filename.lower())
@@ -5813,8 +5828,7 @@ async def upload_candidate_document(
             detail="Only a document classified as CV can be primary",
         )
 
-    content = await file.read()
-    _validate_upload_size(content, label="File")
+    content = await _read_upload_bounded(file, label="File")
 
     safe_filename = _sanitize_upload_filename(file.filename, fallback="upload")
     _, ext = os.path.splitext(safe_filename.lower())

@@ -77,9 +77,8 @@ function emptyResponse() {
 
 function renderSection(readOnly = false) {
   const client = new QueryClient({
-    // Zapytanie ma WŁASNE `retry: 1` (produkcyjne zachowanie, nie ruszamy go),
-    // więc domyślne `retry: false` go nie zdejmie — zerujemy tylko opóźnienie
-    // między próbami, żeby test nie czekał sekundy na drugie podejście.
+    // Zapytanie nie ma już własnego `retry` (ponawia axios) — `retryDelay: 0`
+    // zostaje jako zabezpieczenie, gdyby ktoś je przywrócił.
     defaultOptions: {
       queries: { retry: false, retryDelay: 0 },
       mutations: { retry: false },

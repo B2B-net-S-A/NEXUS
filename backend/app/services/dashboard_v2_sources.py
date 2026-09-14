@@ -374,7 +374,8 @@ async def load_delivery_demands(
         .scalars()
         .all()
     )
-    return [await priority_work._serialize_demand(db, row) for row in rows]
+    # Hurtowo: stała liczba zapytań zamiast ~5 per demand (reaudyt 14.09).
+    return await priority_work._serialize_demands(db, rows)
 
 
 # ── Recruitment sources ──────────────────────────────────────────────────────
@@ -409,7 +410,11 @@ async def load_team_kpis(
     """
     if not user_ids:
         return []
-    result = await metrics.team_kpis(db, period, user_ids=user_ids)
+    # Roster jest już autoryzowany po WSZYSTKICH rolach osoby — filtr głównej
+    # roli w agregatorze wycinałby np. TCM z dodatkową rolą recruiter (R01).
+    result = await metrics.team_kpis(
+        db, period, user_ids=user_ids, operational_roles_only=False
+    )
     return list(result["rows"])
 
 

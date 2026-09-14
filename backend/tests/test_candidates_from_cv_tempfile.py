@@ -209,3 +209,40 @@ async def test_failure_after_extraction_leaves_no_scratch_file(
     )
     assert resp.status_code == 500, resp.text
     assert _leftover_scratch_files() == before
+
+
+@pytest.mark.asyncio
+async def test_oversized_upload_is_never_read_whole_into_memory(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Reaudyt 14.09.2026 (R04): odczyt jest ograniczony do limitu + 1 bajt.
+
+    Samo 413 po `await file.read()` chroniło ekstrakcję i zapis, ale cały plik
+    był już w pamięci procesu. Sprawdzamy argument faktycznego odczytu.
+    """
+    from starlette.datastructures import UploadFile
+
+    read_sizes: list[int] = []
+    original_read = UploadFile.read
+
+    async def _spy_read(self, size: int = -1):
+        read_sizes.append(size)
+        return await original_read(self, size)
+
+    def _extract(_path: str, _filename: str) -> str:
+        raise AssertionError("ekstraktor nie może ruszyć za dużego pliku")
+
+    async def _parse(_text: str, **_kwargs):
+        raise AssertionError("parser nie może ruszyć za dużego pliku")
+
+    _stub_pipeline(monkeypatch, extract=_extract, parse=_parse)
+    monkeypatch.setattr(settings, "MAX_UPLOAD_SIZE_MB", 1)
+    monkeypatch.setattr(UploadFile, "read", _spy_read)
+    limit = 1024 * 1024
+    resp = await app_client.post(
+        "/api/candidates/from-cv",
+        headers=app_auth_headers,
+        files={"file": ("ogromny.pdf", b"x" * (limit * 3), "application/pdf")},
+    )
+    assert resp.status_code == 413, resp.text
+    assert read_sizes == [limit + 1]

@@ -1,0 +1,38 @@
+{
+  "date": "2026-09-14",
+  "browser": "User Chrome, authenticated, read-only",
+  "dashboard": "Admin Ops rendered populated activity and recruitment sections",
+  "insights": "Recruitment summary and funnel rendered",
+  "anchor_test": {
+    "action": "Click visible Sources link on first Insights load",
+    "url_after": "https://nexus.dynaminds.pl/insights?tab=rekrutacja#zrodla",
+    "after_lazy_layout": "Viewport showed placements / Power Calling rather than Sources",
+    "dom_rects": [
+      {
+        "id": "placementy",
+        "top": -33.671875,
+        "height": 786.884765625
+      },
+      {
+        "id": "aktywnosc",
+        "top": 777.20703125,
+        "height": 1267.16796875
+      },
+      {
+        "id": "zrodla",
+        "top": 3179.521484375,
+        "height": 630.01953125
+      }
+    ],
+    "sources_visible": false
+  },
+  "console": {
+    "inspected_levels": [
+      "error",
+      "warn"
+    ],
+    "limit": 15,
+    "returned_entries": []
+  },
+  "limits": "No HAR, browser timing or quantitative CLS. No production writes."
+}
