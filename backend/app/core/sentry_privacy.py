@@ -25,8 +25,13 @@ def _scrub_stack(stack: dict) -> None:
             frame.pop(key, None)
 
 
-def scrub_event(event: dict, hint=None) -> dict:
+def scrub_event(event: dict, hint=None) -> dict | None:
     """Keep stack locations, SDK grouping and explicit diagnostics; omit free text."""
+    tags = event.get("tags") or {}
+    if tags.get("sampling_policy") == "operation-in-progress" and tags.get("terminal") != "true":
+        # Transaction timing is still useful; only intermediate errors are suppressed.
+        if event.get("type") != "transaction":
+            return None
     event.pop("user", None)
     event.pop("request", None)
     event.pop("extra", None)

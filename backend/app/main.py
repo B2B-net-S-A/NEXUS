@@ -286,6 +286,8 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     the anthropic mechanism; never swallow errors raised by our own code.
     """
     exc_info = hint.get("exc_info") if hint else None
+    if exc_info and len(exc_info) >= 2 and getattr(exc_info[1], "_nexus_terminal_reported", False):
+        return None
     if not (exc_info and len(exc_info) >= 2):
         return scrub_event(event)
     if not _is_transient_anthropic_exc(exc_info[1]):

@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from starlette.concurrency import run_in_threadpool
 
+from app.core.terminal_failure import terminal_operation
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
@@ -189,6 +190,32 @@ def _close_open_json(text_value: str) -> str:
     return repaired
 
 
+def _validated_insights(parsed: Any) -> dict:
+    """Reject malformed container shapes before any candidate fields are written."""
+    if not isinstance(parsed, dict):
+        raise ValueError("invalid_notes_response")
+    objects = {"expected_rate", "availability", "current_engagement", "preferences", "relocation"}
+    object_lists = {"languages_observed", "skills_evidenced", "skills_gaps_observed", "client_vetoes"}
+    for key in _INSIGHT_KEYS:
+        value = parsed.get(key)
+        if value is None:
+            continue
+        if key in objects:
+            valid = isinstance(value, dict)
+        elif key in object_lists:
+            valid = isinstance(value, list) and all(isinstance(item, dict) for item in value)
+        elif key == "certifications":
+            valid = isinstance(value, list) and all(isinstance(item, str) for item in value)
+        elif key == "years_confirmed":
+            valid = isinstance(value, (int, float)) and not isinstance(value, bool)
+        else:
+            valid = isinstance(value, str)
+        if not valid:
+            raise ValueError("invalid_notes_field_type")
+    return parsed
+
+
+@terminal_operation("notes-extraction")
 async def extract_insights(notes_blob: str) -> dict:
     """Jedno wywołanie Haiku → sparsowany dict (unia v1+v2).
 
@@ -213,14 +240,14 @@ async def extract_insights(notes_blob: str) -> dict:
         raise ValueError("brak obiektu JSON w odpowiedzi modelu")
     payload = raw[start : raw.rfind("}") + 1] if raw.rfind("}") > start else raw[start:]
     try:
-        return json.loads(payload)
+        return _validated_insights(json.loads(payload))
     except json.JSONDecodeError:
         # Naprawa dostaje PEŁNY ogon (raw[start:]), nie payload ucięty na
         # ostatnim '}' — przy uciętej odpowiedzi wcześniejszy wewnętrzny '}'
         # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
         # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
         # payloadu po prostu się udaje.
-        return json.loads(_close_open_json(raw[start:]))
+        return _validated_insights(json.loads(_close_open_json(raw[start:])))
 
 
 def stamp_no_content(

@@ -40,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.terminal_failure import terminal_operation
 from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
@@ -91,6 +92,7 @@ def _strip_code_fences(raw: str) -> str:
     return raw.strip()
 
 
+@terminal_operation("ai-justification")
 async def _call_claude_json(
     *, prompt: str, system_prompt: str, model: str, max_tokens: int
 ) -> dict[str, Any]:

@@ -103,3 +103,9 @@ class TestSentryBeforeSend:
     def test_keeps_event_with_empty_hint(self):
         event = _app_event()
         assert _sentry_before_send(event, None) is event
+
+
+def test_later_logging_does_not_duplicate_an_already_reported_operation():
+    error = ValueError("synthetic")
+    error._nexus_terminal_reported = True
+    assert _sentry_before_send(_app_event(), {"exc_info": (ValueError, error, None)}) is None
