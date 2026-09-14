@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Hashable, Protocol
 
 from sqlalchemy import String, and_, case, cast, func
@@ -204,6 +205,28 @@ class ContractorHeadcount:
 
     contractors: int
     active_contracts: int
+
+
+def is_current_contract(contract: Any, today: date) -> bool:
+    """Kontrakt, który JUŻ obowiązuje: data startu wpisana i nie późniejsza niż dziś.
+
+    Jedna reguła dla WSZYSTKICH powierzchni liczących „dzisiejsze" kontrakty
+    (profil klienta, zakładka Analityka, ranking Rady, przegląd admina) —
+    UAT B46 i przegląd adwersarialny PR 2 (14.09.2026): profil wyłączył
+    kontrakty z przyszłym startem z „Aktywnego MRR", a sąsiednie ekrany tego
+    samego klienta nadal je liczyły, więc ta sama kwota różniła się między
+    zakładkami. Ta sama reguła co licznik w katalogu (`client_directory.py`).
+    Statusu nie ocenia — o zakończeniu decyduje umowa (`Zakończeni`).
+    """
+
+    start = getattr(contract, "start_date", None)
+    return start is not None and start <= today
+
+
+def current_contracts(contracts: Iterable[Any], today: date) -> list[Any]:
+    """Filtr `is_current_contract` zachowujący kolejność wejścia."""
+
+    return [c for c in contracts if is_current_contract(c, today)]
 
 
 def summarize_active_contracts(contracts: Iterable[Any]) -> ContractorHeadcount:

@@ -134,6 +134,9 @@ export interface ClientProfileResponse {
   summary: ClientProfileSummary;
   open_jobs: OpenJobItem[];
   active_consultants: ActiveConsultantItem[];
+  /** Kontrakty aktywne statusem, które jeszcze nie obowiązują (przyszły start
+   *  albo brak daty startu) — poza „Obecnymi" i „Aktywnym MRR" (UAT B46). */
+  planned_consultants: ActiveConsultantItem[];
   historical: {
     placements: HistoricalPlacementItem[];
     lost_jobs: LostJobItem[];

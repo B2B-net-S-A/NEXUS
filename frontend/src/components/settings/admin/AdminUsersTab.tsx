@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Shield,
@@ -33,14 +34,21 @@ import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
 import { AdminToolsGrid } from "./AdminToolsGrid";
 import { PermissionsTab } from "./PermissionsTab";
-
-type SubTab = "users" | "permissions" | "system" | "audit" | "import" | "tools";
+import {
+  ADMIN_SUBTAB_PARAM,
+  useAdminSubTab,
+  type AdminSubTab as SubTab,
+} from "@/lib/settings-admin-subtab";
 
 export function AdminUsersTab() {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
-  const [subTab, setSubTab] = useState<SubTab>("users");
+  // `?sub=` w adresie (B42): F5 na „Uprawnieniach" nie wraca do „Użytkowników".
+  const searchParams = useSearchParams();
+  const [subTab, setSubTab] = useAdminSubTab(
+    searchParams?.get(ADMIN_SUBTAB_PARAM) ?? null,
+  );
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");

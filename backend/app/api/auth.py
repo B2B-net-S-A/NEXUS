@@ -482,23 +482,20 @@ class RefreshRequest(BaseModel):
 @limiter.limit("10/minute")
 async def refresh_token(
     request: Request,
-    payload_in: RefreshRequest | None = None,
-    refresh_token: str | None = None,
+    payload_in: RefreshRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange a refresh token for a new access token. Rate-limited: 10 req/min per IP.
 
-    Token przyjmujemy w ciele (`{"refresh_token": "..."}`).
+    Token przyjmujemy WYŁĄCZNIE w ciele (`{"refresh_token": "..."}`).
     """
-    # `refresh_token` jako goły skalar wiąże się w FastAPI jako parametr QUERY,
-    # więc 30-dniowe poświadczenie jechało w URL-u — a stamtąd do access loga
-    # uvicorna (stdout → json-file → Loki), historii przeglądarki i Referera.
-    # To ta sama klasa błędu, przez którą usunięto webhook CloudTalka z tokenem
-    # w ścieżce. Wariant query ZOSTAJE przyjmowany wyłącznie jako ścieżka
-    # zgodności (żaden klient produkcyjny go nie używa — front nigdy nie
-    # przechowuje refresh tokena) i jest do usunięcia razem z aktualizacją
-    # `tests/test_session_revocation.py`, który wciąż woła go przez `params=`.
-    token = payload_in.refresh_token if payload_in is not None else refresh_token
+    # Do 09.2026 handler miał też goły skalar `refresh_token`, który FastAPI
+    # wiąże jako parametr QUERY — 30-dniowe poświadczenie jechało w URL-u,
+    # a stamtąd do access loga uvicorna (stdout → json-file → Loki), historii
+    # przeglądarki i Referera. Ta sama klasa błędu, przez którą usunięto
+    # webhook CloudTalka z tokenem w ścieżce. Wariant query usunięty (audyt
+    # procesów F06): `?refresh_token=` bez ciała = 422, nigdy wymiana tokenu.
+    token = payload_in.refresh_token
     if not token:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

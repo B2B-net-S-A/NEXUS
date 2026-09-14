@@ -1,35 +1,78 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Loader2, RefreshCcw, TriangleAlert, Users } from "lucide-react";
 import {
   recommendationsApi,
   type SeekingContractorsParams,
+  type SeekingContractorsResponse,
 } from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
 import { ContractorMatchCard } from "./ContractorMatchCard";
 import { RecommendationFiltersBar } from "./RecommendationFiltersBar";
+
+export const SEEKING_PAGE_SIZE = 50;
 
 const DEFAULT_FILTERS: SeekingContractorsParams = {
   horizon_days: 30,
   top_k: 5,
   threshold: 40,
   industry_blocklist: true,
-  page_size: 50,
+  page_size: SEEKING_PAGE_SIZE,
 };
+
+/**
+ * Następne okno = liczba już wczytanych wierszy (UAT B06). Backend porządkuje
+ * pulę deterministycznie, więc okna nie nakładają się na siebie. Starszy
+ * backend (bez `offset` w odpowiedzi) ignoruje przesunięcie i oddałby tę samą
+ * pierwszą stronę w kółko — wtedy przycisku nie ma, jak do tej pory.
+ */
+export function nextSeekingOffset(
+  lastPage: SeekingContractorsResponse,
+  allPages: SeekingContractorsResponse[],
+): number | undefined {
+  if (!lastPage.truncated || lastPage.offset === undefined) return undefined;
+  return allPages.reduce((n, page) => n + page.items.length, 0);
+}
 
 export function SeekingContractorsBoard() {
   const [filters, setFilters] = useState<SeekingContractorsParams>(DEFAULT_FILTERS);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["seeking-contractors", filters],
-    queryFn: async () => {
-      const res = await recommendationsApi.seekingContractors(filters);
+    queryFn: async ({ pageParam }) => {
+      const res = await recommendationsApi.seekingContractors({
+        ...filters,
+        offset: pageParam,
+      });
       return res.data;
     },
+    initialPageParam: 0,
+    getNextPageParam: nextSeekingOffset,
     staleTime: 60_000,
   });
+
+  // Do 09.2026 plansza kończyła się na pierwszych 50 osobach: „50 z 2890"
+  // i żadnej drogi do reszty poza zgadywaniem filtrów. Kolejne okna doklejamy
+  // do jednej listy; `total` i `degraded` czytamy ze WSZYSTKICH stron, bo
+  // jedna padnięta odpowiedź dostawcy psuje wiarygodność całego kokpitu.
+  const pages = data?.pages ?? [];
+  const items = pages.flatMap((page) => page.items);
+  const total = pages.length ? pages[pages.length - 1].total : 0;
+  const horizonDays = pages[0]?.horizon_days;
+  const degraded = pages.some((page) => page.meta?.degraded);
+  const remaining = Math.max(0, total - items.length);
 
   return (
     <div>
@@ -45,9 +88,9 @@ export function SeekingContractorsBoard() {
           {isLoading
             ? "Wyszukuję dopasowania…"
             : data
-              ? data.truncated
-                ? `${data.returned} z ${data.total} konsultantów w horyzoncie ${data.horizon_days} dni`
-                : `${data.total} konsultantów w horyzoncie ${data.horizon_days} dni`
+              ? remaining > 0
+                ? `${items.length} z ${total} konsultantów w horyzoncie ${horizonDays} dni`
+                : `${total} konsultantów w horyzoncie ${horizonDays} dni`
               : ""}
         </div>
         <button
@@ -83,7 +126,7 @@ export function SeekingContractorsBoard() {
         odpowiedź dostawcy psuje wiarygodność całego kokpitu, nie jednego
         wiersza, a który to wiersz, tego backend nie mówi.
       */}
-      {!isLoading && data?.meta?.degraded && (
+      {!isLoading && degraded && (
         <Alert
           variant="error"
           icon={TriangleAlert}
@@ -122,8 +165,8 @@ export function SeekingContractorsBoard() {
       */}
       {!isLoading &&
         data &&
-        data.items.length === 0 &&
-        !data.meta?.degraded && (
+        items.length === 0 &&
+        !degraded && (
           <div
             className="rounded-lg border border-dashed border-border dark:border-border p-12 text-center"
             data-testid="empty-state"
@@ -140,14 +183,31 @@ export function SeekingContractorsBoard() {
           </div>
         )}
 
-      {data && data.items.length > 0 && (
+      {data && items.length > 0 && (
         <div
           className="grid grid-cols-1 lg:grid-cols-2 gap-4"
           data-testid="contractors-grid"
         >
-          {data.items.map((row) => (
+          {items.map((row) => (
             <ContractorMatchCard key={row.candidate.id} row={row} />
           ))}
+        </div>
+      )}
+
+      {hasNextPage && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+            data-testid="load-more"
+          >
+            {isFetchingNextPage ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : null}
+            Pokaż kolejnych {Math.min(SEEKING_PAGE_SIZE, remaining)}
+          </button>
         </div>
       )}
     </div>

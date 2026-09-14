@@ -21,6 +21,10 @@ import {
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import {
+  contractActivityDetailRows,
+  contractActivityLabel,
+} from "@/components/contracts/contract-timeline-labels";
 import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
 import {
@@ -1300,10 +1304,10 @@ export default function ContractDetailPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-start-date" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Data rozpoczęcia
                     </label>
-                    <input
+                    <input id="contract-edit-start-date"
                       type="date"
                       value={form.start_date}
                       onChange={(e) =>
@@ -1313,7 +1317,10 @@ export default function ContractDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label
+                      htmlFor="contract-edit-end-date"
+                      className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
+                    >
                       Data zakończenia
                     </label>
                     {b2bEndDateLocked({
@@ -1330,6 +1337,7 @@ export default function ContractDetailPage() {
                       </p>
                     ) : (
                       <input
+                        id="contract-edit-end-date"
                         type="date"
                         value={form.end_date}
                         onChange={(e) =>
@@ -1340,10 +1348,10 @@ export default function ContractDetailPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-client-order-end-date" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Koniec zamówienia u klienta
                     </label>
-                    <input
+                    <input id="contract-edit-client-order-end-date"
                       type="date"
                       value={form.client_order_end_date}
                       onChange={(e) =>
@@ -1355,10 +1363,10 @@ export default function ContractDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-contract-type" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Typ kontraktu
                     </label>
-                    <select
+                    <select id="contract-edit-contract-type"
                       value={form.contract_type}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, contract_type: e.target.value } : f))
@@ -1371,10 +1379,10 @@ export default function ContractDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-status" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Status
                     </label>
-                    <select
+                    <select id="contract-edit-status"
                       value={form.status}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, status: e.target.value } : f))
@@ -1393,10 +1401,10 @@ export default function ContractDetailPage() {
                   <>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-rate-client" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka klienta
                     </label>
-                    <input
+                    <input id="contract-edit-rate-client"
                       type="text"
                       inputMode="decimal"
                       value={form.rate_client}
@@ -1418,10 +1426,10 @@ export default function ContractDetailPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-target-rate-min" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Widełki docelowe (min)
                     </label>
-                    <input
+                    <input id="contract-edit-target-rate-min"
                       type="text"
                       inputMode="decimal"
                       value={form.target_rate_min}
@@ -1436,10 +1444,10 @@ export default function ContractDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-target-rate-max" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Widełki docelowe (max)
                     </label>
-                    <input
+                    <input id="contract-edit-target-rate-max"
                       type="text"
                       inputMode="decimal"
                       value={form.target_rate_max}
@@ -1454,10 +1462,10 @@ export default function ContractDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-rate-client-currency" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Waluta stawki przychodowej (klienta)
                     </label>
-                    <select
+                    <select id="contract-edit-rate-client-currency"
                       value={form.rate_client_currency}
                       onChange={(e) =>
                         setForm((f) =>
@@ -1474,10 +1482,10 @@ export default function ContractDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-rate-candidate-currency" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Waluta stawki kosztowej (kandydata / umowy ramowej)
                     </label>
-                    <select
+                    <select id="contract-edit-rate-candidate-currency"
                       value={form.rate_candidate_currency}
                       onChange={(e) =>
                         setForm((f) =>
@@ -1498,7 +1506,7 @@ export default function ContractDetailPage() {
                 {/* Stawka z umowy ramowej — pojedyncza lub progresywna (harmonogram) */}
                 <div className="space-y-2">
                   <div className="flex items-baseline justify-between gap-2">
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+                    <label id="contract-edit-framework-rate-label" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
                       Stawka z umowy ramowej
                     </label>
                     <span className="text-xs text-muted-foreground">
@@ -1509,6 +1517,8 @@ export default function ContractDetailPage() {
 
                   {form.framework_rate_schedule.length === 0 ? (
                     <input
+                      id="contract-edit-framework-rate"
+                      aria-labelledby="contract-edit-framework-rate-label"
                       type="text"
                       inputMode="decimal"
                       value={form.framework_rate}
@@ -1536,6 +1546,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki z umowy ramowej: kwota`}
                               type="text"
                               inputMode="decimal"
                               value={row.rate}
@@ -1570,6 +1581,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki z umowy ramowej: obowiązuje od`}
                               type="date"
                               value={row.effectiveFrom}
                               onChange={(e) =>
@@ -1597,6 +1609,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki z umowy ramowej: obowiązuje do`}
                               type="date"
                               value={row.effectiveTo}
                               onChange={(e) =>
@@ -1620,6 +1633,7 @@ export default function ContractDetailPage() {
                           <button
                             type="button"
                             title="Usuń etap stawki"
+                            aria-label={`Usuń etap ${idx + 1} stawki z umowy ramowej`}
                             onClick={() =>
                               setForm((f) =>
                                 f
@@ -1681,7 +1695,7 @@ export default function ContractDetailPage() {
                 {/* Stawka kandydata — pojedyncza lub progresywna (harmonogram) */}
                 <div className="space-y-2">
                   <div className="flex items-baseline justify-between gap-2">
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
+                    <label id="contract-edit-rate-candidate-label" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
                       Stawka kandydata
                     </label>
                     <span className="text-xs text-muted-foreground">
@@ -1691,6 +1705,8 @@ export default function ContractDetailPage() {
 
                   {form.candidate_rate_schedule.length === 0 ? (
                     <input
+                      id="contract-edit-rate-candidate"
+                      aria-labelledby="contract-edit-rate-candidate-label"
                       type="text"
                       inputMode="decimal"
                       value={form.rate_candidate}
@@ -1715,6 +1731,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki kandydata: kwota`}
                               type="text"
                               inputMode="decimal"
                               value={row.rate}
@@ -1749,6 +1766,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki kandydata: obowiązuje od`}
                               type="date"
                               value={row.effectiveFrom}
                               onChange={(e) =>
@@ -1776,6 +1794,7 @@ export default function ContractDetailPage() {
                               </span>
                             )}
                             <input
+                              aria-label={`Etap ${idx + 1} stawki kandydata: obowiązuje do`}
                               type="date"
                               value={row.effectiveTo}
                               onChange={(e) =>
@@ -1799,6 +1818,7 @@ export default function ContractDetailPage() {
                           <button
                             type="button"
                             title="Usuń etap stawki"
+                            aria-label={`Usuń etap ${idx + 1} stawki kandydata`}
                             onClick={() =>
                               setForm((f) =>
                                 f
@@ -1859,10 +1879,10 @@ export default function ContractDetailPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-rate-unit" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Jednostka stawki
                     </label>
-                    <select
+                    <select id="contract-edit-rate-unit"
                       value={form.rate_unit}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_unit: e.target.value } : f))
@@ -1876,10 +1896,10 @@ export default function ContractDetailPage() {
                   </div>
                   {form.rate_unit === "hourly" && (
                     <div>
-                      <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      <label htmlFor="contract-edit-billing-hours-per-month" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                         Godziny / miesiąc
                       </label>
-                      <input
+                      <input id="contract-edit-billing-hours-per-month"
                         type="number"
                         min="1"
                         step="1"
@@ -1898,10 +1918,10 @@ export default function ContractDetailPage() {
                 {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-order-consumption" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Zużycie zamówienia
                     </label>
-                    <input
+                    <input id="contract-edit-order-consumption"
                       type="text"
                       inputMode="decimal"
                       value={form.order_consumption}
@@ -1916,10 +1936,10 @@ export default function ContractDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                    <label htmlFor="contract-edit-order-consumption-unit" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Jednostka zużycia
                     </label>
-                    <select
+                    <select id="contract-edit-order-consumption-unit"
                       value={form.order_consumption_unit}
                       onChange={(e) =>
                         setForm((f) =>
@@ -1935,10 +1955,10 @@ export default function ContractDetailPage() {
                 </div>
 
                 <div className="border-t border-border dark:border-border pt-3">
-                  <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                  <label htmlFor="contract-edit-handover-notes" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                     Notatki wewnętrzne (widoczne tylko dla TAC/delivery)
                   </label>
-                  <textarea
+                  <textarea id="contract-edit-handover-notes"
                     rows={3}
                     value={form.handover_notes}
                     onChange={(e) =>
@@ -1956,10 +1976,10 @@ export default function ContractDetailPage() {
                   <div className="space-y-3 mt-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-client-pm-name" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           PM po stronie klienta
                         </label>
-                        <input
+                        <input id="contract-edit-client-pm-name"
                           type="text"
                           value={form.client_pm_name}
                           onChange={(e) =>
@@ -1970,10 +1990,10 @@ export default function ContractDetailPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-client-pm-email" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Email PM
                         </label>
-                        <input
+                        <input id="contract-edit-client-pm-email"
                           type="email"
                           value={form.client_pm_email}
                           onChange={(e) =>
@@ -1984,10 +2004,10 @@ export default function ContractDetailPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-line-manager" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Line Manager
                         </label>
-                        <input
+                        <input id="contract-edit-line-manager"
                           type="text"
                           value={form.line_manager}
                           onChange={(e) =>
@@ -2000,10 +2020,10 @@ export default function ContractDetailPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-work-mode" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Tryb pracy (opcjonalnie)
                         </label>
-                        <select
+                        <select id="contract-edit-work-mode"
                           value={form.work_mode}
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, work_mode: e.target.value } : f))
@@ -2017,10 +2037,10 @@ export default function ContractDetailPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-office-location" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Lokalizacja biura
                         </label>
-                        <input
+                        <input id="contract-edit-office-location"
                           type="text"
                           value={form.office_location}
                           onChange={(e) =>
@@ -2033,10 +2053,10 @@ export default function ContractDetailPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-project-name" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Projekt
                         </label>
-                        <input
+                        <input id="contract-edit-project-name"
                           type="text"
                           value={form.project_name}
                           onChange={(e) =>
@@ -2046,10 +2066,10 @@ export default function ContractDetailPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                        <label htmlFor="contract-edit-team-name" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Zespół
                         </label>
-                        <input
+                        <input id="contract-edit-team-name"
                           type="text"
                           value={form.team_name}
                           onChange={(e) =>
@@ -2216,7 +2236,14 @@ export default function ContractDetailPage() {
                   <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
                   <div className="flex-1">
                     <div className="text-sm text-foreground dark:text-foreground">
-                      <span className="font-medium capitalize">{a.action}</span>
+                      {/* Etykieta PL zamiast slugu (UAT B23) — `synced_with_orders`
+                          i `<pre>` z JSON-em kazały czytać strukturę techniczną. */}
+                      <span
+                        className="font-medium"
+                        data-testid={`contract-activity-${a.id}-label`}
+                      >
+                        {contractActivityLabel(a.action)}
+                      </span>
                       {a.user_name && (
                         <span className="text-muted-foreground dark:text-muted-foreground">
                           {" "}
@@ -2225,9 +2252,31 @@ export default function ContractDetailPage() {
                       )}
                     </div>
                     {a.details && Object.keys(a.details).length > 0 && (
-                      <pre className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground bg-muted dark:bg-card/50 rounded px-2 py-1 overflow-x-auto">
-                        {JSON.stringify(a.details, null, 2)}
-                      </pre>
+                      <>
+                        <dl
+                          className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs"
+                          data-testid={`contract-activity-${a.id}-details`}
+                        >
+                          {contractActivityDetailRows(a.details).map((row) => (
+                            <div key={row.key} className="contents">
+                              <dt className="text-muted-foreground dark:text-muted-foreground">
+                                {row.label}
+                              </dt>
+                              <dd className="text-foreground dark:text-foreground break-words">
+                                {row.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                        <details className="mt-1 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer select-none">
+                            Dane techniczne
+                          </summary>
+                          <pre className="mt-1 bg-muted dark:bg-card/50 rounded px-2 py-1 overflow-x-auto">
+                            {JSON.stringify(a.details, null, 2)}
+                          </pre>
+                        </details>
+                      </>
                     )}
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {formatDate(a.created_at)}

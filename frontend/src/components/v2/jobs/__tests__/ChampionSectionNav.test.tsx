@@ -125,3 +125,43 @@ describe("ChampionSectionNav — kolejność kroku 02", () => {
     expect(order[1].startsWith("3 · ")).toBe(true);
   });
 });
+
+// Audyt B48: profil sprzed 09.2026 trzyma stack w kolumnach rekrutacji
+// (`job_values`) — edytor go stamtąd wczytuje (`seedStackFromJobColumns`),
+// a nawigacja liczyła stan z samego `champion_profile` i pokazywała „puste"
+// przy sekcji, która obok była „wypełnione" z listą technologii.
+describe("ChampionSectionNav — stack z kolumn rekrutacji (profil legacy)", () => {
+  it("pusty stack profilu + niepuste kolumny → kropka „wypełnione”, jak w edytorze", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 501,
+        champion_profile: { stack: { must: [], nice: [], notes: "" } },
+        job_values: { must: "Angular\nTypeScript", nice: "" },
+      },
+    });
+    renderNav();
+    const stackLabel = CHAMPION_SECTIONS.find((s) => s.id === "stack")!.label;
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(stackLabel) });
+      expect(link.querySelector("span[title]")).toHaveAttribute(
+        "title",
+        CHAMPION_SECTION_STATE_LABEL.filled,
+      );
+    });
+  });
+
+  it("pusty stack i puste kolumny → nadal „puste”", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 501, champion_profile: {}, job_values: { must: "", nice: "" } },
+    });
+    renderNav();
+    const stackLabel = CHAMPION_SECTIONS.find((s) => s.id === "stack")!.label;
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(stackLabel) });
+      expect(link.querySelector("span[title]")).toHaveAttribute(
+        "title",
+        CHAMPION_SECTION_STATE_LABEL.empty,
+      );
+    });
+  });
+});

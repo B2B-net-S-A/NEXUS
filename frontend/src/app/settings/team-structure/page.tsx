@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import api from "@/lib/api"
+import { fetchAllClientOptions } from "@/lib/admin-client-options"
 import { cn } from "@/lib/utils"
 import { hasRole, useAuthStore } from "@/store/auth"
 
@@ -615,10 +616,18 @@ export default function AdminTeamStructurePage() {
 
   const { data: clients = [] } = useQuery<ClientBrief[]>({
     queryKey: ["admin-clients-list"],
+    // B43: `GET /api/clients` nie zna `limit` — stronicuje po `page_size` (sufit
+    // 100), więc picker DL widział tylko pierwsze 20 firm. Przechodzimy strony.
     queryFn: () =>
-      api
-        .get("/api/clients", { params: { limit: 500 } })
-        .then((r) => (Array.isArray(r.data) ? r.data : r.data.items ?? [])),
+      fetchAllClientOptions((page, page_size) =>
+        api.get("/api/clients", { params: { page, page_size } }).then((r) => ({
+          items: ((r.data.items ?? []) as ClientBrief[]).map(({ id, name }) => ({
+            id,
+            name,
+          })),
+          total: Number(r.data.total ?? 0),
+        })),
+      ),
     enabled: hydrated && canEdit,
   })
 

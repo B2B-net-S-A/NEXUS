@@ -8,7 +8,9 @@ export const metadata = {
 export default function CandidatesSearchPage() {
   return (
     <Suspense>
-      <CandidateSearchView backHref="/candidates" />
+      {/* syncUrl: filtry i strona w `?s=` — Wstecz z profilu wraca na to samo
+          wyszukiwanie zamiast na pustą wyszukiwarkę (UAT B29). */}
+      <CandidateSearchView backHref="/candidates" syncUrl />
     </Suspense>
   );
 }

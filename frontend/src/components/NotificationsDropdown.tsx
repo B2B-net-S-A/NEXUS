@@ -3,7 +3,12 @@
 import { useState, useRef, useCallback } from "react";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Bell,
   CheckCheck,
@@ -32,6 +37,11 @@ import {
 } from "@/lib/polling";
 import { cn } from "@/lib/utils";
 import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
+import {
+  NOTIFICATIONS_INITIAL_LIMIT,
+  canShowMoreNotifications,
+  nextNotificationsLimit,
+} from "@/lib/notifications-paging";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { useAuthStore } from "@/store/auth";
@@ -194,6 +204,9 @@ export function NotificationsDropdown() {
   const authUser = useAuthStore((state) => state.user);
   const scopeCacheKey = `${authUser?.id ?? "anonymous"}:${authUser?.authorization_version ?? "none"}`;
   const [open, setOpen] = useState(false);
+  // B51: „Pokaż więcej" podnosi limit (20 → 50 → 200) zamiast doklejać strony —
+  // patrz `lib/notifications-paging.ts`.
+  const [limit, setLimit] = useState<number>(NOTIFICATIONS_INITIAL_LIMIT);
   const [toastNotif, setToastNotif] = useState<WsNotification | null>(null);
   const [feedbackModal, setFeedbackModal] = useState<{
     eventId: number;
@@ -215,9 +228,11 @@ export function NotificationsDropdown() {
     onNotification: handleWsNotification,
   });
 
-  const { data } = useQuery({
-    queryKey: ["notifications", scopeCacheKey, 20],
-    queryFn: () => notificationsApi.list(20).then((r) => r.data),
+  const { data, isFetching } = useQuery({
+    queryKey: ["notifications", scopeCacheKey, limit],
+    queryFn: () => notificationsApi.list(limit).then((r) => r.data),
+    // Przy podniesieniu limitu lista nie znika na czas doładowania.
+    placeholderData: keepPreviousData,
     // WS inwaliduje ten klucz na każdym zdarzeniu, więc przy zdrowym gnieździe
     // odpytywanie jest tylko siatką bezpieczeństwa. Bez gniazda `useNotifications`
     // i tak inwaliduje co minutę — tu interwał minutowy jest lustrem, żeby
@@ -379,7 +394,26 @@ export function NotificationsDropdown() {
 
             {/* Footer */}
             {notifications.length > 0 && (
-              <div className="border-t border-border dark:border-border px-4 py-2 text-center">
+              <div className="border-t border-border dark:border-border px-4 py-2 flex items-center justify-center gap-4">
+                {canShowMoreNotifications(notifications.length, limit) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = nextNotificationsLimit(limit);
+                      if (next !== null) setLimit(next);
+                    }}
+                    disabled={isFetching}
+                    className="text-xs text-primary hover:text-primary/80 font-medium transition-colors disabled:opacity-50"
+                  >
+                    {isFetching ? "Ładowanie…" : "Pokaż więcej"}
+                  </button>
+                ) : (
+                  notifications.length >= limit && (
+                    <span className="text-xs text-muted-foreground">
+                      Pokazano {limit} najnowszych
+                    </span>
+                  )
+                )}
                 <button
                   onClick={() => setOpen(false)}
                   className="text-xs text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors"

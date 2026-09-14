@@ -208,7 +208,36 @@ async def get_original_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVOriginalSnapshotResponse:
-    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+    # Metadane snapshotu NIE idą przez ``_load_csv_for_stage``: tamten helper
+    # zamienia brak wiersza ``CandidateStageCV`` (etap sprzed backfillu 0070,
+    # etap założony ścieżką bez snapshotu) na 404 — dokładnie ten sam kod,
+    # który front dostaje przy nieistniejącym etapie, więc „Pokaż CV obok"
+    # w screeningu kończyło się „Nie udało się wczytać CV" u kandydata, którego
+    # aktualne CV działało na profilu (audyt B19). Brak wiersza jest STANEM
+    # („brak snapshotu"), nie awarią — wraca jako 200 ``has_snapshot=False``,
+    # tak jak wiersz z pustą treścią. Bramka zakresu zostaje ta sama.
+    row = (
+        await db.execute(
+            select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStageCV)
+            .select_from(CandidateStage)
+            .outerjoin(
+                CandidateStageCV,
+                CandidateStageCV.candidate_stage_id == CandidateStage.id,
+            )
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage nie znaleziony")
+    candidate_id, job_id, csv = row
+    await ensure_job_read_access(db, current_user, job_id)
+    if csv is None:
+        return CVOriginalSnapshotResponse(
+            candidate_stage_id=stage_id,
+            candidate_id=candidate_id,
+            job_id=job_id,
+            has_snapshot=False,
+        )
     return _build_original_response(csv)
 
 

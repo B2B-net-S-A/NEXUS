@@ -158,4 +158,8 @@ class ClientProfileResponse(BaseModel):
     summary: ClientProfileSummary
     open_jobs: List[OpenJobItem]
     active_consultants: List[ActiveConsultantItem]
+    # Kontrakty aktywne statusem, które jeszcze nie obowiązują (przyszły
+    # start albo brak daty startu). Poza „Obecnymi", licznikami i „Aktywnym
+    # MRR" — ta sama definicja obecności co w katalogu klientów (UAT B46).
+    planned_consultants: List[ActiveConsultantItem] = []
     historical: ClientProfileHistory

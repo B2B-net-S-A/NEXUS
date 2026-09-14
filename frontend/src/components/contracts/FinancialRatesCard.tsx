@@ -218,7 +218,11 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
               />
             </span>
           </div>
-          {contract.client_rate_schedule.length > 1 && (
+          {/* Także przy JEDNYM kroku (UAT B53): zakładka „Historia stawek" odsyła
+              tu po kroki z datami i pochodzeniem, a przy `> 1` karta pokazywała
+              samą kwotę — wskazówka prowadziła do czegoś, czego nie było.
+              Edycja i tak blokuje stawkę klienta już od pierwszego kroku. */}
+          {contract.client_rate_schedule.length > 0 && (
             <RateSchedule
               currency={clientCurrency}
               entries={contract.client_rate_schedule}
@@ -243,7 +247,7 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
               />
             </span>
           </div>
-          {contract.candidate_rate_schedule.length > 1 && (
+          {contract.candidate_rate_schedule.length > 0 && (
             <RateSchedule
               currency={candidateCurrency}
               entries={contract.candidate_rate_schedule}

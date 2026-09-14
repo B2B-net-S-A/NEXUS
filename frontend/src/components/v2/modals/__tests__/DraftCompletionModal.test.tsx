@@ -159,3 +159,37 @@ describe("DraftCompletionModal — niezależne waluty stawek", () => {
     );
   });
 });
+
+// UAT B25: formularz aktywacji pokazywał „130" bez jednostki, a szczegóły
+// kontraktu obok mówiły „Godzinowo, 130 PLN/h".
+describe("DraftCompletionModal — jednostka stawek (UAT B25)", () => {
+  it("pokazuje jednostkę kontraktu przy obu polach stawek i w podpowiedzi", () => {
+    renderModal({ rate_unit: "hourly" });
+
+    expect(screen.getByTestId("rate-candidate-unit")).toHaveTextContent("PLN/h");
+    expect(screen.getByTestId("rate-client-unit")).toHaveTextContent("PLN/h");
+    expect(screen.getByTestId("rate-unit-hint")).toHaveTextContent(
+      "Jednostka stawek: Godzinowo (/h)",
+    );
+  });
+
+  it("jednostka dzienna czyta się jako MD, miesięczna jako /mc", () => {
+    renderModal({
+      rate_unit: "daily",
+      currency: "EUR",
+      rate_client_currency: "EUR",
+      rate_candidate_currency: "EUR",
+    });
+    expect(screen.getByTestId("rate-client-unit")).toHaveTextContent("EUR/MD");
+    expect(screen.getByTestId("rate-unit-hint")).toHaveTextContent("Dziennie (/MD)");
+  });
+
+  it("nie zgaduje jednostki, gdy payload jej nie niesie", () => {
+    renderModal({ rate_unit: undefined });
+
+    expect(screen.queryByTestId("rate-client-unit")).not.toBeInTheDocument();
+    expect(screen.getByTestId("rate-unit-hint")).toHaveTextContent(
+      "Jednostka stawki nieznana",
+    );
+  });
+});

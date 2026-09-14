@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, FileText } from "lucide-react";
+import { Users, FileText, CalendarClock } from "lucide-react";
 import api from "@/lib/api";
 import {
   filterConsultantsByPart,
@@ -66,6 +66,7 @@ export function ProfileTab({ clientId }: Props) {
 
       <ConsultantsSection
         active={data.active_consultants}
+        planned={data.planned_consultants ?? []}
         archived={data.historical.placements}
         clientId={clientId}
       />
@@ -80,14 +81,21 @@ export function ProfileTab({ clientId }: Props) {
 // Archiwum = wyłącznie odbiorca danych — konsultant trafia tu automatycznie
 // po zakończeniu projektu (read-model z zakończonych kontraktów).
 
-type ConsultantsTab = "obecni" | "archiwum";
+// Planowani = kontrakt aktywny statusem, ale jeszcze nieobowiązujący (przyszły
+// start albo brak daty startu). Osobna zakładka, bo do 09.2026 tacy konsultanci
+// siedzieli w „Obecnych" i zawyżali „Aktywne MRR" o marżę, której nikt jeszcze
+// nie zarabia (UAT B46); ukrycie ich w ogóle czytałoby się jak utrata danych.
+
+type ConsultantsTab = "obecni" | "planowani" | "archiwum";
 
 function ConsultantsSection({
   active,
+  planned,
   archived,
   clientId,
 }: {
   active: ClientProfileResponse["active_consultants"];
+  planned: ClientProfileResponse["planned_consultants"];
   archived: ClientProfileResponse["historical"]["placements"];
   clientId: number;
 }) {
@@ -101,6 +109,7 @@ function ConsultantsSection({
     : active;
 
   const isArchive = tab === "archiwum";
+  const isPlanned = tab === "planowani";
   const activeCount =
     ezdrowie && partFilter !== "all" ? filtered.length : active.length;
 
@@ -123,6 +132,12 @@ function ConsultantsSection({
             count: activeCount,
           },
           {
+            value: "planowani",
+            label: "Planowani konsultanci",
+            icon: CalendarClock,
+            count: planned.length,
+          },
+          {
             value: "archiwum",
             label: "Archiwum konsultantów",
             icon: FileText,
@@ -135,19 +150,41 @@ function ConsultantsSection({
         icon={
           isArchive ? (
             <FileText className="w-4 h-4 text-emerald-600" />
+          ) : isPlanned ? (
+            <CalendarClock className="w-4 h-4 text-emerald-600" />
           ) : (
             <Users className="w-4 h-4 text-emerald-600" />
           )
         }
-        title={isArchive ? "Archiwum konsultantów" : "Obecni konsultanci"}
-        count={isArchive ? archived.length : activeCount}
+        title={
+          isArchive
+            ? "Archiwum konsultantów"
+            : isPlanned
+              ? "Planowani konsultanci"
+              : "Obecni konsultanci"
+        }
+        count={isArchive ? archived.length : isPlanned ? planned.length : activeCount}
       />
       <p className="text-xs text-muted-foreground">
-        Widok informacyjny. Zakończenie projektu odbywa się w Zamówieniach lub
-        Kontraktach.
+        {isPlanned
+          ? "Kontrakty, które jeszcze nie wystartowały albo nie mają daty startu. Nie wchodzą do „Obecnych” ani do „Aktywnego MRR”."
+          : "Widok informacyjny. Zakończenie projektu odbywa się w Zamówieniach lub Kontraktach."}
       </p>
 
-      {!isArchive ? (
+      {isPlanned ? (
+        planned.length === 0 ? (
+          <EmptyState icon={<CalendarClock className="w-8 h-8" />}>
+            Brak zaplanowanych kontraktów u tego klienta.
+          </EmptyState>
+        ) : (
+          <ConsultantsTable
+            rows={planned.map(toConsultantRow)}
+            renderActions={(r) => (
+              <ExtendContractMenu contractId={r.contract_id} clientId={clientId} />
+            )}
+          />
+        )
+      ) : !isArchive ? (
         <>
           {ezdrowie && active.length > 0 && (
             <div

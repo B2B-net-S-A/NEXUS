@@ -73,6 +73,7 @@ type RecruitmentOption = {
   job_id: number;
   job_title: string;
   stage?: string;
+  client_id?: number | null;
 };
 
 type ClientOption = { id: number; name: string };
@@ -554,6 +555,17 @@ function NewContractForm() {
                                 value={String(c.id)}
                                 onSelect={() => {
                                   setClientId(String(c.id));
+                                  // Rekrutacja innego klienta nie może zostać
+                                  // w formularzu po zmianie klienta — backend
+                                  // i tak odrzuci `job_client_mismatch`, ale
+                                  // dopiero przy zapisie (UAT B24). Rekrutacja
+                                  // bez klienta zostaje.
+                                  const chosen = recruitmentsQuery.data?.find(
+                                    (r) => String(r.stage_id) === stageId,
+                                  );
+                                  if (chosen?.client_id != null && chosen.client_id !== c.id) {
+                                    setStageId("");
+                                  }
                                   clearField("client_id");
                                   setClientOpen(false);
                                 }}
