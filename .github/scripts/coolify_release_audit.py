@@ -57,6 +57,13 @@ def summarize(application, envs):
                 ),
                 None,
             )
+            row["recognized_default"] = (
+                value if value in (
+                    "${SOURCE_COMMIT:-unknown}",
+                    "${GIT_SHA:-unknown}",
+                    "${SOURCE_COMMIT:-${GIT_SHA:-unknown}}",
+                ) else None
+            )
         result["envs"].append(row)
     return result
 
@@ -73,13 +80,29 @@ def main():
             headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
         )
         with urllib.request.urlopen(request, timeout=30) as response:
+            if path == "version":
+                raw = response.read(200).decode().strip().strip('"')
+                return raw if re.fullmatch(r"v?\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", raw) else None
             return json.load(response)
 
     try:
         application = read("applications/" + app_id)
         envs = read("applications/" + app_id + "/envs")
         assert isinstance(application, dict) and isinstance(envs, list)
-        print(json.dumps(summarize(application, envs), sort_keys=True))
+        result = summarize(application, envs)
+        result["server_version"] = read("version")
+        from configure_coolify_release import planned_changes
+
+        update, remove = planned_changes(application, envs)
+        result["release_wrapper_update_needed"] = update
+        result["production_cycles_to_remove"] = len(remove)
+        generated = application.get("docker_compose") or ""
+        result["generated_image_releases"] = {
+            service: sha for service, sha in re.findall(
+                r"image:\s*['\"]?[a-z0-9]+_(backend|frontend):([0-9a-f]{40})\b", generated
+            )
+        }
+        print(json.dumps(result, sort_keys=True))
     except urllib.error.HTTPError as error:
         print(
             "Release configuration read failed: HTTP " + str(error.code),
