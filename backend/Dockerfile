@@ -50,6 +50,7 @@ ENV BUILT_AT=$BUILT_AT
 
 # Copy application code
 COPY . .
+RUN printf '%s\n' "$GIT_SHA" > /app/.nexus-build-sha
 
 # Create uploads directory
 RUN mkdir -p /tmp/nexus/uploads

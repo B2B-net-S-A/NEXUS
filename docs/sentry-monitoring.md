@@ -19,7 +19,7 @@ Odbiór: ręczny run, poprawny odczyt obu projektów, karta rzeczywiście widocz
 
 ## Release i wdrożenie
 
-Docelowo build, upload map i runtime muszą korzystać z rzeczywistego SHA kompilacji. Przeglądarka, Node i Edge używają projektu frontendu. Uwaga operacyjna: #1519 zmienił brak SHA/tokenu w kontroli builda na ostrzeżenie. Zatem ukończony build nie dowodzi publikacji poprawnych map. Kontrola błędu samego uploadu pozostaje odrębna. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
+Build, upload map i runtime korzystają z SHA faktycznego checkoutu Coolify. Przy włączonym DSN brak pełnego SHA lub tokenu source map przerywa build. Kontrola błędu samego uploadu pozostaje odrębna; odbiór wymaga symbolikacji nowego zdarzenia. Przeglądarka, Node i Edge używają projektu frontendu. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
 
 Nowy frontend najpierw wykonuje prosty GET health bez dodatkowych nagłówków. Propagację do API i X-Operation-Id włącza po otrzymaniu eksponowanego X-Request-Id. Dzięki temu równoległy restart usług nie powoduje błędów CORS wobec starego backendu. Niepowodzenie sondy nie zatrzymuje aplikacji; kolejne żądanie może ponowić sondę.
 
@@ -53,13 +53,34 @@ odwołania między zmiennymi SHA; nigdy wartości sekretów. Test redakcji poprz
 odczyt konfiguracji. Brak pola ustawień w starszym API ma wartość `null`, a nie
 `false`: nie można z niego wnioskować, że opcja jest wyłączona.
 
-Odczyty 34882689840 i 34882846625 potwierdziły token source map dostępny podczas
-builda oraz odwołanie `GIT_SHA` do `SOURCE_COMMIT`. Pole
-`include_source_commit_in_build` nie jest wystawiane przez używany odczyt API,
-a jego PATCH został wcześniej odrzucony HTTP 422. Stan opcji trzeba sprawdzić
-w zalogowanym panelu Coolify przed ponowieniem standardowego wdrożenia.
+Audyt [34893466506](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34893466506)
+potwierdził Coolify 4.1.2, token map dostępny podczas builda i cykl:
+`GIT_SHA=$SOURCE_COMMIT`, `SOURCE_COMMIT=${GIT_SHA:-unknown}`.
+Pole `include_source_commit_in_build` nie jest obsługiwane przez używane API.
+Wygenerowane przez Coolify tagi obrazów backendu i frontendu zawierały jednak
+zgodny SHA rzeczywistego checkoutu `db4a807b21d3d7cf5e17ac70751015f869b9891c`.
 
-Nie wpisywać SHA uruchomienia Actions jako zastępczej wersji obrazu: Coolify może
-pobrać nowszy `main`. Po naprawie konfiguracji odbiór wymaga zgodnego SHA API,
-`version.json`, runtime Sentry i symbolikacji nowego zdarzenia. Ostrzeżenie o
-`unknown` nie spełnia tego warunku.
+Standardowy deploy naprawia konfigurację przez istniejący token API Actions,
+bez logowania do panelu. Skrypt `configure_coolify_release.py` ustawia wyłącznie
+stałą komendę budowania `sh .github/scripts/release.sh --project-directory . --env-file /artifacts/build-time.env`
+i usuwa dokładnie rozpoznany produkcyjny override `SOURCE_COMMIT` powodujący cykl.
+Sprawdza wynik ponownym GET; obcy custom command lub inna wartość override
+zatrzymuje operację. Sekrety i konfiguracja preview pozostają zachowane.
+
+Wrapper działa na zdalnym builderze po wygenerowaniu Compose. Odczytuje tylko
+`config --images`, wymaga zgodnych tagów backend/frontend z pełnym SHA i przekazuje
+ten SHA jako oba argumenty builda. Nie używa SHA wyzwalającego Actions ani `.git`,
+który Coolify usuwa przed buildem. Nie wypisuje pełnego Compose lub pliku env.
+Backend zapisuje SHA w obrazie i odczytuje go przy starcie przed uruchomieniem aplikacji,
+aby zmienne platformy nie mogły zmienić raportowanej wersji istniejącego obrazu.
+Nieznane albo niespójne tagi przerywają build. `version.json=unknown` przerywa odbiór.
+
+Po merge wymagany jest standardowy deploy i zgodność SHA API, `version.json`,
+runtime Sentry oraz symbolikacja nowego zdarzenia. Sam audyt konfiguracji i testy
+wrappera nie są dowodem wdrożenia. Po aktualizacji Coolify uruchomić ponownie
+`release-config-audit`; nie wyłączać walidacji w przypadku zmiany formatu tagów.
+
+Weryfikacja lokalna bez Dockera:
+`python3 -m unittest discover -s .github/scripts/tests -p 'test_coolify_release*.py'`.
+Testy używają własnego substytutu CLI w katalogu tymczasowym; nie uruchamiają silnika
+Docker, buildów ani kontenerów na komputerze użytkownika.
