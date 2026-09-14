@@ -176,6 +176,14 @@ async def _sync_connection_locked(
         result.errors += 1
         result.error_samples.append("top: asyncio.TimeoutError")
         await db.commit()
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "m365_sync",
+            False,
+            interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+            subject_id=conn.id,
+        )
         return result
     except TokenCipherNotConfigured as exc:
         # Encryption key rotated or misconfigured — tokens are dead weight.
@@ -190,6 +198,14 @@ async def _sync_connection_locked(
         await mark_reconnect_required(db, conn, f"{exc!r}"[:500])
         result.errors += 1
         result.error_samples.append("top: TokenCipherNotConfigured")
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "m365_sync",
+            False,
+            interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+            subject_id=conn.id,
+        )
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("m365 sync_connection failed for %s", conn.id)
@@ -199,6 +215,14 @@ async def _sync_connection_locked(
         result.errors += 1
         result.error_samples.append(f"top: {exc!r}")
         await db.commit()
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "m365_sync",
+            False,
+            interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+            subject_id=conn.id,
+        )
         return result
 
     if result.errors > 0:
@@ -217,6 +241,14 @@ async def _sync_connection_locked(
         conn.last_sync_status = M365SyncStatus.idle
     conn.last_sync_at = datetime.now(timezone.utc)
     await db.commit()
+    from app.core.operation_telemetry import record_job_outcome
+
+    record_job_outcome(
+        "m365_sync",
+        result.errors == 0,
+        interval_seconds=max(60, settings.M365_SYNC_INTERVAL_SECONDS),
+        subject_id=conn.id,
+    )
     return result
 
 

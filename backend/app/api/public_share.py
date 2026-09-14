@@ -9,6 +9,7 @@ exposed on these endpoints.
 import asyncio
 import logging
 import os
+import pathlib
 import hashlib
 import re
 from datetime import datetime, timezone
@@ -603,9 +604,7 @@ async def post_public_generated_cv_chat(
     except CvChatTimeout as exc:
         # Czytelny komunikat zamiast zerwanego połączenia: budżet czasu jest
         # krótszy niż limit proxy, więc odpowiedź zawsze dociera do przeglądarki.
-        logger.warning(
-            "[cv_chat] timeout revoke_key=%s: %s", getattr(row, "token", None), exc
-        )
+        logger.warning("[cv_chat] timeout type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=504,
             detail=(
@@ -614,9 +613,7 @@ async def post_public_generated_cv_chat(
             ),
         ) from None
     except CvChatLLMError as exc:
-        logger.warning(
-            "[cv_chat] LLM error revoke_key=%s: %s", getattr(row, "token", None), exc
-        )
+        logger.warning("[cv_chat] LLM error type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=502,
             detail="Nie udało się uzyskać odpowiedzi. Spróbuj ponownie.",
@@ -727,7 +724,11 @@ async def _persist_cv(
     product (download, enrichment, embedding) keeps working.
     """
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    filename = upload.filename or "cv.pdf"
+    # Nazwa z przeglądarki bez komponentów katalogu — jak
+    # `candidates._sanitize_upload_filename`. Wynik trafia do `cv_filename`,
+    # które ścieżki pobrania doklejają do `UPLOAD_DIR`; nazwa z `/` kończyła
+    # się tu `FileNotFoundError` (500 po utworzeniu kandydata).
+    filename = pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
     file_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate_id}_{filename}"
     )

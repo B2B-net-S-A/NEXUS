@@ -14,6 +14,9 @@ import { AuthShell } from "@/components/blocks/AuthShell";
  *  generic 201 as a new one (never 409), so there is no "email taken" branch. */
 function registerErrorMessage(status: number | undefined, detail: string | undefined): string {
   const d = (detail ?? "").toLowerCase();
+  if (d === "registration_disabled") {
+    return "Rejestracja jest obecnie wyłączona. Skontaktuj się z administratorem.";
+  }
   if (status === 503) {
     return detail || "Rejestracja jest obecnie wyłączona. Skontaktuj się z administratorem.";
   }
@@ -27,7 +30,7 @@ function registerErrorMessage(status: number | undefined, detail: string | undef
  * Czy rejestracja jest włączona — to samo źródło co ekran /login
  * (GET /api/auth/methods). Bez tego wyłączona rejestracja pokazywała pełny
  * formularz, a o wyłączeniu mówiła dopiero po wysłaniu (UAT M12-B06).
- * Brak odpowiedzi = formularz zostaje; backend i tak odpowie 503.
+ * Brak odpowiedzi = formularz zostaje; backend i tak odmówi rejestracji.
  */
 type RegistrationAvailability = "checking" | "enabled" | "disabled";
 

@@ -343,3 +343,27 @@ def test_truncation_repair_uses_full_tail_not_last_brace():
     repaired = _json.loads(_close_open_json(raw))
     assert repaired["a"] == {"b": 1}
     assert repaired["c"][0]["name"] == "SQL", "pole za wewnętrznym '}' przeżywa"
+
+
+async def test_invalid_ai_shape_is_rejected_before_caller_can_apply(monkeypatch):
+    import pytest
+    from unittest.mock import AsyncMock
+    from app.services import notes_insights_extractor as extractor
+
+    provider = AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text='{"skills_evidenced":"SQL"}')]))
+    monkeypatch.setattr(extractor, "run_in_threadpool", provider)
+    with pytest.raises(ValueError, match="invalid_notes_field_type"):
+        await extractor.extract_insights("Synthetic notes")
+    assert provider.await_count == 1
+
+
+async def test_unrecoverable_ai_json_does_not_receive_extra_provider_retries(monkeypatch):
+    import pytest
+    from unittest.mock import AsyncMock
+    from app.services import notes_insights_extractor as extractor
+
+    provider = AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text='{"skills_evidenced": ???}')]))
+    monkeypatch.setattr(extractor, "run_in_threadpool", provider)
+    with pytest.raises(ValueError):
+        await extractor.extract_insights("Synthetic notes")
+    assert provider.await_count == 1

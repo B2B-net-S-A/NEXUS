@@ -64,3 +64,41 @@ describe("createQueryFailureReporter", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 });
+
+it("nie blokuje kolejnej próbki po odrzuconym losowaniu", () => {
+  const capture = vi.fn();
+  const random = vi.fn().mockReturnValueOnce(0.9).mockReturnValueOnce(0.01);
+  const report = createQueryFailureReporter({ capture, random });
+  report(axiosError({ response: { status: 503 } }));
+  report(axiosError({ response: { status: 503 } }));
+  expect(capture).toHaveBeenCalledTimes(1);
+});
+
+it("raportuje różne zapisy bez losowania, deduplikuje ten sam błąd operacji", () => {
+  const capture = vi.fn();
+  const random = vi.fn(() => 0.99);
+  const report = createQueryFailureReporter({ capture, random });
+  const first = axiosError({ config: { url: '/api/orders/123', method: 'post' }, response: { status: 500 } });
+  report(first);
+  report(first);
+  report(axiosError({ config: { url: '/api/orders/456', method: 'post' }, response: { status: 500 } }));
+  expect(capture).toHaveBeenCalledTimes(2);
+  expect(random).not.toHaveBeenCalled();
+  expect(capture.mock.calls[0][1].tags.terminal).toBe('true');
+});
+
+it("raportuje nieoczekiwany błąd mutacji spoza axios bez prywatnej wiadomości", () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture, random: () => 0.99 });
+  const mutation = {};
+  report(new TypeError('private CV content'), mutation);
+  report(new TypeError('private CV content'), mutation);
+  report(new TypeError('private CV content'), {});
+  expect(capture).toHaveBeenCalledTimes(2);
+  expect(capture.mock.calls[0][0].message).not.toContain('private');
+});
+
+it("redacts capability paths even for short or URL-encoded tokens", () => {
+  expect(normalizeApiPath("/api/public/cv/short/chat")).toBe("/api/public/cv/:token/chat");
+  expect(normalizeApiPath("/api/generated/share-token/a%40b")).toBe("/api/generated/share-token/:token");
+});

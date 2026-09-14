@@ -5,25 +5,20 @@
 // Privacy: NEXUS handles candidate ATS data — replays must mask all text and
 // block all media so personal data never leaves the user's browser.
 //
-// QA 2026-05-27: Sentry envelope POST 503 — przekroczona b2bnet-sa free
-// plan quota (5k events/mc). Tuning żeby zmieścić się:
-//   - tracesSampleRate 0.1 → 0.01 (10x mniej performance traces; errory
-//     wciąż zawsze łapane, traces są nice-to-have).
-//   - beforeSend filter: drop axios cancel; bezcielesne błędy sieci są od
-//     09.2026 PRÓBKOWANE (10%), nie wyrzucane — patrz komentarz niżej.
-//   - ignoreErrors: common browser noise (ResizeObserver, ChunkLoadError
-//     z service workera) — nie błędy aplikacji, generują dużo events.
 import * as Sentry from '@sentry/nextjs'
+import { apiTraceTargets, probeTelemetryCapability } from './src/lib/telemetry-capability'
+
+import { scrubSentryEvent, scrubReplayEvent, firstInSession } from './src/lib/sentry-privacy'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 /** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
 const NETWORK_ERROR_SAMPLE_RATE = 0.1
-/** Ułamek błędów ładowania chunków JS raportowanych do Sentry (patrz beforeSend). */
-const CHUNK_ERROR_SAMPLE_RATE = 0.05
+const HYDRATION_ERROR_RE = /hydration|Hydration|Minified React error #(418|423|425)/
 const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
 if (dsn) {
+    void probeTelemetryCapability()
     Sentry.init({
         dsn,
         environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? 'production',
@@ -32,11 +27,20 @@ if (dsn) {
         // sampling to spot N+1 patterns and slow routes.
         tracesSampleRate: 0.01,
         replaysSessionSampleRate: 0,
-        replaysOnErrorSampleRate: 1.0,
+        replaysOnErrorSampleRate: 0.1,
+        sendDefaultPii: false,
+        tracePropagationTargets: apiTraceTargets,
+        beforeSendTransaction: scrubSentryEvent,
         integrations: [
             Sentry.replayIntegration({
                 maskAllText: true,
+                maskAllInputs: true,
                 blockAllMedia: true,
+                maskAttributes: ['title', 'aria-label', 'alt', 'href', 'src', 'value'],
+                networkCaptureBodies: false,
+                // Custom network/console/navigation payloads are free-form. DOM
+                // recording remains fully masked; errors retain their own trace.
+                beforeAddRecordingEvent: () => null,
             }),
         ],
         // Drop known noise before it counts against quota.
@@ -46,7 +50,7 @@ if (dsn) {
             'ResizeObserver loop completed with undelivered notifications',
             'Non-Error promise rejection captured',
             // ChunkLoadError CELOWO nie jest tu ignorowany — patrz `beforeSend`
-            // (próbkowany: to bezpośredni ślad deployu widziany przez starą kartę).
+            // (pierwsze wystąpienie danej sygnatury w sesji).
             // Axios cancel — user navigated away before request returned
             'CanceledError',
             'AbortError',
@@ -77,17 +81,19 @@ if (dsn) {
             // Błąd ładowania chunku = stara karta po deployu sięga po plik JS,
             // którego już nie ma. Przy ~8 przebudowach dziennie to bezpośredni
             // pomiar wpływu deployów na użytkowników (reaudyt 14.09.2026, R07),
-            // więc próbkujemy zamiast wyrzucać; jeden fingerprint = jeden issue.
+            // więc raportujemy pierwszą sygnaturę w sesji.
             const chunkText = `${exc?.name ?? ''} ${exc?.message ?? ''} ${
                 event.exception?.values?.[0]?.type ?? ''
             } ${event.exception?.values?.[0]?.value ?? ''}`
-            if (CHUNK_ERROR_RE.test(chunkText)) {
-                if (Math.random() >= CHUNK_ERROR_SAMPLE_RATE) {
+            if (CHUNK_ERROR_RE.test(chunkText) || HYDRATION_ERROR_RE.test(chunkText)) {
+                const kind = CHUNK_ERROR_RE.test(chunkText) ? "chunk-load-error" : "hydration-error"
+                const frame = event.exception?.values?.[0]?.stacktrace?.frames?.at(-1)
+                if (!firstInSession(`${kind}:${frame?.filename ?? ""}:${frame?.lineno ?? ""}`)) {
                     return null
                 }
-                event.fingerprint = ['chunk-load-error']
-                event.tags = { ...event.tags, chunk_load_error: 'sampled' }
-                return event
+                event.fingerprint = [kind]
+                event.tags = { ...event.tags, sampling_policy: 'first-per-session', failure_kind: kind }
+                return scrubSentryEvent(event)
             }
 
             // Bezcielesny błąd sieci (axios `ERR_NETWORK`) — PRÓBKOWANY, nie
@@ -95,18 +101,18 @@ if (dsn) {
             // dokładnie kształt, jaki w przeglądarce ma 503 „no available
             // server" z Traefika i backendowe 500 bez nagłówków CORS —
             // obie klasy incydentów były w Sentry niewidoczne. 10% wystarcza,
-            // żeby fala była widoczna na wykresie, a nie zjadła darmowego
-            // limitu 5k zdarzeń; jeden fingerprint zbiera je w jeden issue.
+            // żeby fala była widoczna bez nadmiernego zużycia limitu Team.
             if (exc?.code === 'ERR_NETWORK') {
                 if (Math.random() >= NETWORK_ERROR_SAMPLE_RATE) {
                     return null
                 }
                 event.fingerprint = ['network-error']
                 event.tags = { ...event.tags, network_error: 'sampled' }
-                return event
+                return scrubSentryEvent(event)
             }
 
-            return event
+            return scrubSentryEvent(event)
         },
     })
+    Sentry.addEventProcessor(event => scrubReplayEvent(event, window.location.href))
 }

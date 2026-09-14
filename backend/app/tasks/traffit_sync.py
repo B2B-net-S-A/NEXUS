@@ -1141,6 +1141,10 @@ async def run_traffit_sync(
                         ", ".join(sorted(selected)),
                     )
 
+        from app.core.operation_telemetry import record_job_outcome
+
+        if selected is None:
+            record_job_outcome("traffit_sync", status == "ok", interval_seconds=86400)
         notes = sum(
             v.get("notes_promoted") or 0
             for v in results.values()

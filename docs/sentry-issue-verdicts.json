@@ -1,0 +1,86 @@
+{
+  "145702601": {
+    "issue": "NEXUS-BE-34",
+    "operation": "client-report",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  },
+  "141999990": {
+    "issue": "NEXUS-BE-30",
+    "operation": "traffit-status",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  },
+  "146790682": {
+    "issue": "NEXUS-BE-3A",
+    "operation": "ai-justification",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  },
+  "145629426": {
+    "issue": "NEXUS-BE-32",
+    "operation": "chat",
+    "verdict": "retry-acceptance-pending",
+    "pr": null
+  },
+  "146803434": {
+    "issue": "NEXUS-BE-3B",
+    "operation": "chat",
+    "verdict": "retry-acceptance-pending",
+    "pr": null
+  },
+  "130039654": {
+    "issue": "NEXUS-BE-25",
+    "operation": "cv-generation",
+    "verdict": "production-flow-pending",
+    "pr": null
+  },
+  "145838713": {
+    "issue": "NEXUS-BE-36",
+    "operation": "notes-extraction",
+    "verdict": "retry-acceptance-pending",
+    "pr": 1515
+  },
+  "145922436": {
+    "issue": "NEXUS-BE-37",
+    "operation": "cv-privacy",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  },
+  "120092790": {
+    "issue": "NEXUS-FE-1",
+    "operation": "hydration",
+    "verdict": "404-fix-pending-production",
+    "pr": 1515
+  },
+  "145706619": {
+    "issue": "NEXUS-BE-35",
+    "operation": "sql-performance",
+    "verdict": "measurement-pending",
+    "pr": null
+  },
+  "145653459": {
+    "issue": "NEXUS-BE-33",
+    "operation": "sso",
+    "verdict": "diagnostics-pending-production",
+    "pr": 1515
+  },
+  "146436121": {
+    "issue": "NEXUS-BE-39",
+    "operation": "order-policy",
+    "verdict": "expected-denial-verification-pending",
+    "pr": 1510
+  },
+  "129797328": {
+    "issue": "NEXUS-BE-1Z",
+    "operation": "registration",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  },
+  "146224224": {
+    "issue": "NEXUS-BE-38",
+    "operation": "websocket",
+    "verdict": "fix-pending-production",
+    "pr": 1515
+  }
+}

@@ -40,6 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.terminal_failure import terminal_operation
 from app.core.database import AsyncSessionLocal
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
@@ -91,6 +92,7 @@ def _strip_code_fences(raw: str) -> str:
     return raw.strip()
 
 
+@terminal_operation("ai-justification")
 async def _call_claude_json(
     *, prompt: str, system_prompt: str, model: str, max_tokens: int
 ) -> dict[str, Any]:
@@ -102,52 +104,57 @@ async def _call_claude_json(
     if not api_key:
         raise MatchJustificationLLMError("ANTHROPIC_API_KEY not configured")
 
-    started = time.time()
-    try:
-        # Returns the same Message the SDK would — parsed identically below.
-        message = await run_in_threadpool(
-            call_claude,
-            model=model,
-            max_tokens=max_tokens,
-            # Sonnet 5 does adaptive thinking by default; those tokens count
-            # toward max_tokens and would truncate this JSON. Disable it.
-            thinking={"type": "disabled"},
-            system=system_prompt,
-            messages=[{"role": "user", "content": prompt}],
-            api_key=api_key,
-        )
-    except Exception as exc:  # noqa: BLE001 - surface as a clean domain error
-        raise MatchJustificationLLMError(f"LLM request failed: {exc}") from exc
+    from app.core.config import settings
 
-    latency_ms = int((time.time() - started) * 1000)
-    # Claude 5 can lead with a non-text (thinking) block → collect every text
-    # block rather than trusting content[0].text.
-    raw = _strip_code_fences(
-        "".join(
-            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+    deadline = time.monotonic() + settings.ANTHROPIC_TIMEOUT_SECONDS
+    for attempt in range(2):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise MatchJustificationLLMError("LLM time budget exhausted")
+        try:
+            message = await run_in_threadpool(
+                call_claude,
+                model=model,
+                max_tokens=max_tokens,
+                thinking={"type": "disabled"},
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}],
+                api_key=api_key,
+                total_timeout=remaining,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise MatchJustificationLLMError("LLM request failed") from exc
+        raw = _strip_code_fences(
+            "".join(getattr(b, "text", "") or "" for b in message.content)
         )
-    )
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.warning(
-            "match_justification: invalid JSON (model=%s latency=%dms)",
-            model,
-            latency_ms,
-        )
-        raise MatchJustificationLLMError(f"Invalid JSON from LLM: {exc}") from exc
-
-    usage = getattr(message, "usage", None)
-    logger.info(
-        "match_justification: llm_call model=%s latency_ms=%d in=%s out=%s",
-        model,
-        latency_ms,
-        getattr(usage, "input_tokens", "?"),
-        getattr(usage, "output_tokens", "?"),
-    )
-    if not isinstance(parsed, dict):
-        raise MatchJustificationLLMError("LLM returned non-object JSON")
-    return parsed
+        try:
+            if getattr(message, "stop_reason", None) == "max_tokens":
+                raise ValueError("truncated")
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict) or not isinstance(
+                parsed.get("summary"), str
+            ):
+                raise ValueError("invalid_summary")
+            for key in ("pros", "watchouts"):
+                if not isinstance(parsed.get(key), list) or any(
+                    not isinstance(item, str) for item in parsed[key]
+                ):
+                    raise ValueError("invalid_bullets")
+            _sanitize_llm_output(parsed)
+            return parsed
+        except (ValueError, MatchJustificationLLMError) as exc:
+            logger.warning(
+                "match_justification: invalid response format attempt=%d stop_reason=%s",
+                attempt + 1,
+                getattr(message, "stop_reason", None),
+            )
+            if attempt == 1:
+                raise MatchJustificationLLMError(
+                    "Invalid structured response from LLM"
+                ) from exc
+            # Never echo the malformed response or add a second transport retry layer.
+            prompt += "\nReturn ONLY a complete JSON object: summary (string), pros (array of strings), watchouts (array of strings). Keep it concise."
+    raise MatchJustificationLLMError("LLM response unavailable")
 
 
 # ── Prompt context builders ─────────────────────────────────────────────────

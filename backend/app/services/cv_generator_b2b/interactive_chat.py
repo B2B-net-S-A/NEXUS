@@ -37,6 +37,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.terminal_failure import terminal_operation
 from app.models.ai_feature import AIFeatureKey
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken, CvShareChatMessage
@@ -240,6 +241,7 @@ async def answer_question(
         )
 
 
+@terminal_operation("cv-chat")
 async def _answer_with_model(
     db: AsyncSession,
     token_row: CvGeneratedShareToken,
@@ -297,7 +299,7 @@ async def _answer_with_model(
     except Exception as exc:  # noqa: BLE001 — publiczny endpoint: czysty 502
         raise CvChatLLMError(
             f"LLM request failed after {time.monotonic() - started:.1f}s "
-            f"({type(exc).__name__}): {exc}"
+            f"({type(exc).__name__})"
         ) from exc
 
     answer = "".join(
@@ -312,9 +314,7 @@ async def _answer_with_model(
     if _contains_prompt_injection(answer) or _contains_concrete_financial_amount(
         answer
     ):
-        logger.warning(
-            "[cv_chat] output rejected (policy) revoke_key=%s", token_row.token
-        )
+        logger.warning("[cv_chat] output rejected (policy)")
         answer = _REFUSAL_PL
 
     await _persist_exchange(db, token_row.token, question, answer)

@@ -1,147 +1,43 @@
-# Sentry alert rules — runbook (NEXUS prod)
+# NEXUS — docelowe reguły alertów i ich odbiór
 
-> **STATUS 2026-05-27: WSZYSTKIE 6 RULES UTWORZONE (email-only).**
-> Alert IDs: R1=593116, R2=593109, R3=593111, R4=593080, R5=593101, R6=593061.
-> Org: `b2bnet-sa.sentry.io` (Developer plan, free).
-> Action: "Notify on preferred channel" → email do Suggested Assignees/Recently Active (Artur).
-> Throttling: 24h per issue (wszystkie rules).
->
-> Po wdrożeniu kolejny "notifications runaway 137M rows" (2026-05-22, 4 dni od incident
-> do detection) zostanie wykryty w 5 minut przez R1.
+Ta specyfikacja zastępuje nieaktualny runbook deklarujący reguły, których panel nie realizował. Zapis w repozytorium NIE oznacza aktywowania alarmów.
 
-## Prerekwizyt: Slack webhook (POMINIĘTE — gated za Team plan $26/mo)
+Wspólny filtr Sentry: environment=production, projekty nexus-be/nexus-fe. Właściciel: artur.twardowski@b2bnetwork.pl. Pilne powiadomienia: kanał Teams „NEXUS — alerty” i e-mail właściciela. Plan Team bez zwiększania opłat.
 
-Slack integration w Sentry wymaga upgrade z Developer (free) na Team plan ($26/mo / ~$312/yr).
-Decyzja Artura 2026-05-27: pominąć Slack, użyć email-only. Wszystkie rules dostają email do
-Suggested Assignees (z fallbackiem Recently Active Members).
+| Detekcja | Warunek | Powtórzenie |
+|---|---|---|
+| Terminal failure | terminal=true; nowe issue, regresja lub kolejne zdarzenie końcowej awarii | najwyżej raz/30 min przy dalszych zdarzeniach |
+| 5xx | >=5 błędów, >5% wszystkich odpowiedzi, >=20 żądań/5 min | 30 min |
+| Zadania | brak sukcesu >2 interwały, wyłącznie zadania włączone | 30 min |
+| Brak danych | zanik strumienia/sam monitor niedostępny | alarm operacyjny |
+| Nowy defekt FE/BE | nowe/regresyjne issue poza oczekiwanymi odmowami | triage |
 
-Alternatywne ścieżki do Slack #nexus-alerts (przyszłe sesje):
-1. **Webhook → n8n → Slack**: free, wymaga setup n8n workflow (~10 min)
-2. **Grafana Cloud alerts → Slack**: free tier 50GB Loki + Slack contact point
-3. **Upgrade do Team plan**: prostsze ale +$26/mo
+R1 (593116) dotyczy ATLAS — pozostawić. Nie przepinać go pod NEXUS. Zastępujące reguły sprawdzić przed wyłączeniem dublujących się R2–R6/high-priority. Nie odrzucać globalnie 503/HTTPException ani wszystkich awarii Anthropic.
 
-Sentry UI legacy: https://b2bnet-sa.sentry.io/alerts/rules/ (deprecated)
-Sentry UI nowe: https://b2bnet-sa.sentry.io/monitors/alerts/ (Monitors & Alerts redesign)
+## Liczniki pełnego ruchu w Loki
 
-## Rule 1: 🚨 Notifications insert rate >10k/h (P1 incident)
+Middleware emituje `event_kind=http_outcome`, `route` (szablon, nie URL z tokenem), `method`, `status_code`, `duration_ms`, `request_id`, `operation_id`. To pełne odpowiedzi z aplikacji, niezależne od samplingu Sentry. Błędy proxy przed aplikacją wymagają osobnego strumienia proxy i sondy zewnętrznej.
 
-**Problem**: 2026-05-22 incident — 137M rows w `notifications` table przez
-4 dni bo `dl_stage_stale_6h` fan-out 164k/dzień + brak `ix_notif_dedup_daily`
-index. Po 45GB DiskFull DB padło na 2h.
+W istniejącym źródle Loki dla backendu NEXUS obliczyć:
 
-**Detection**: liczba `Notification` INSERTs / 1h powinna być <1000 normalnie
-(per memory `[[project_notifications_runaway_incident]]` 2026-05-27 stan
-to 963/24h, dominuje `dl_stage_stale_6h` 67%). Spike powyżej 10k/h = anomaly.
+- R = sum(count_over_time({app="nexus",service="backend"} | json | event_kind="http_outcome" [5m]))
+- E = sum(count_over_time({app="nexus",service="backend"} | json | event_kind="http_outcome" | status_code >= 500 [5m]))
+- Alarm: E >= 5 AND R >= 20 AND E / R > 0.05.
 
-**Setup w Sentry UI**:
-- Navigate: Alerts → Create Alert → **Metric Alert**
-- Project: `nexus-be`
-- Dataset: `transactions`
-- Metric: `count_unique(span)` (lub custom Loki query do PG INSERT count)
-- Filter: `transaction:emit_notification OR span.op:db.insert table:notifications`
-- Trigger: **Critical** when `>10000 in 1h`
-- Action: Slack `#nexus-alerts` + email Artur
-- Frequency: every 5 minutes
+14.09.2026 potwierdzono w Grafana Cloud arturt96 działający Loki `grafanacloud-logs` i strumień `{app="nexus",service="backend"}`. Obecność nowych `http_outcome` wymaga osobnego odbioru po wdrożeniu. Dla braku danych skonfigurować stan No Data jako wymagający reakcji i potwierdzić niezależnym health probe.
 
-**Alternative (preferred)**: Grafana Loki alert na `{app="nexus"} |= "Notification(id="`
-count >10000 w 1h — to lepsze bo widzi log line, nie sample (Sentry sampluje 10%).
+## Ukończenie zadań
 
-## Rule 2: 🔐 Auth failure burst >50/min (P2 possible attack)
+`event_kind=job_outcome` zawiera job, outcome, expected_interval_seconds i operation_id. Sukces oznacza zwalidowany wynik biegu, nie samo obudzenie pętli. Osobno monitorować włączenie zadania i brak wywołania; reset procesu nie może zerować wieku ostatniego sukcesu w historii Loki. Notes i Traffit są dzienne — nie używać częstotliwości sprawdzania harmonogramu jako częstotliwości wymaganych sukcesów.
 
-**Problem**: Brute-force / credential stuffing na `/api/auth/login` lub MS SSO
-callback failures (np. AAD GroupMember.Read.All consent withdrawn). Bez alertu
-możemy mieć account takeover lub broken SSO przez tygodnie.
+Stan M365 wymaga rozróżnienia pojedynczych połączeń i ostatniego wyniku: udana skrzynka nie może ukryć niesprawnej.
 
-**Setup**:
-- Alerts → Create Alert → **Issue Alert**
-- Project: `nexus-be`
-- Conditions: `level:error AND (message:"Could not validate credentials" OR culprit:auth_microsoft.*)`
-- Trigger: **Warning** when 50+ events in 1 minute
-- Action: Slack `#nexus-alerts`
+`notification_volume` co 5 minut odczytuje zatwierdzone rekordy notifications z `created_at` w ostatnich 5 minutach. `persisted_rows` jest pomiarem okna, nie monotonicznym licznikiem INSERT-ów (usunięcia i późne zatwierdzenia mogą zmienić wynik). Zapytanie ma limit 2 sekund. Błąd odczytu emituje `monitor_status=error` bez wartości liczbowej; poprawne zero ma `monitor_status=ok`. Reguła musi osobno wykrywać brak próbek przez 2 interwały i stan error. Próg wzrostu ustalić po odczycie rzeczywistego poziomu, a następnie sprawdzić kontrolowaną regułę. Nie oznaczać alarmu jako odebranego bez testu w Grafanie.
 
-## Rule 3: 💥 5xx error spike >100/h per endpoint (P1)
+Test zapasowego e-maila 14.09.2026 do artur.twardowski@b2bnetwork.pl został odrzucony przez Grafanę: odbiorca nie należy do organizacji. Nie zapisano nowego contact pointu ani nie zmieniano członkostwa lub abonamentu. Wymaga to rozwiązania przed odbiorem powiadomień.
 
-**Problem**: Pre-2026-05-27 sesja QA — 4 bugs w prod (NEXUS-BE-1N/V/8/D) z
-łącznie ~420 unhandled 5xx events / 7d. Każdy z nich indywidualnie >50 events
-nie był eskalowany. Z alert rule wykrycie w 1h zamiast 7 dni.
+## Test odbiorowy
 
-**Setup**:
-- Alerts → Create Alert → **Metric Alert**
-- Project: `nexus-be`
-- Dataset: `errors`
-- Metric: `count()`
-- Filter: `level:error AND event.type:error`
-- Group by: `transaction` (per endpoint)
-- Trigger: **Critical** when ANY transaction >100 events in 1h
-- Action: Slack `#nexus-alerts` + create Linear issue (jeśli używasz integration)
+Sprawdzić kontrolowane zdarzenie bez danych prywatnych, wyzwolenie reguły, otrzymanie Teams i e-mail, brak duplikatu, recovery i No Data. Syntetyczne awarie procesów oraz danych wykonywać poza produkcją. Zdarzenie testowe w produkcji musi być jasno oznaczone i nie zmieniać rekordów biznesowych.
 
-## Rule 4: 📁 M365 attachment PermissionError (silent failure detection)
-
-**Problem**: 2026-05-25 NEXUS-BE-D — `/tmp/nexus/uploads/microsoft365` brak
-write permission, M365 sync loop quietly failed dla **303 events ongoing 11 dni**.
-Brak alertu = brak detection.
-
-**Setup**:
-- Alerts → Create Alert → **Issue Alert**
-- Project: `nexus-be`
-- Conditions: `culprit:app.services.m365.* AND (message:"Permission denied" OR message:"FileNotFoundError")`
-- Trigger: **Warning** when any new issue or 10+ events / 1h
-- Action: Slack `#nexus-alerts`
-
-**Bonus**: dodać podobną rule dla `culprit:app.services.autenti.*` (jeśli/gdy
-Autenti aktywowany — obecnie `AUTENTI_ENABLED=false`) i CloudTalk po
-aktywacji `[[project_cloudtalk_integration]]`.
-
-## Rule 5: 🐘 SQLAlchemy QueuePool exhausted (cascade prevention)
-
-**Problem**: 2026-05-22 cascade — NEXUS-BE-1B/1C/1D/1F = 1232 events
-"QueuePool limit of size 10 overflow 20 reached, timeout 30.00" w trakcie
-DiskFull incident. Pool exhausted → backend nieresponsywny → cascade failures.
-
-**Setup**:
-- Alerts → Create Alert → **Issue Alert**
-- Project: `nexus-be`
-- Conditions: `message:"QueuePool limit" OR message:"connection timed out, timeout 30"`
-- Trigger: **Critical** when 10+ events in 5 minutes
-- Action: Slack `#nexus-alerts` + page on-call
-
-**Również rozważyć follow-up fix**: bump SQLAlchemy `pool_size=15` + `max_overflow=30`
-(per spawn task chip "SQLAlchemy pool bump 30→60"). To prevention, alert = detection.
-
-## Rule 6: 🔍 New issue fired (any project)
-
-**Problem**: Niektóre bugi pojawiają się i znikają cicho (rzadkie edge case).
-Bez "any new issue" rule można je przegapić.
-
-**Setup**:
-- Alerts → Create Alert → **Issue Alert**
-- Project: `nexus-be` + `nexus-fe`
-- Conditions: `is:new`
-- Trigger: Warning na każdy first occurrence
-- Action: Slack `#nexus-alerts` (low-priority channel)
-- Throttle: 1 alert per issue per 24h (uniknij spam)
-
-## Weryfikacja po setup
-
-Po skonfigurowaniu 6 rules:
-1. Sentry → Alerts → Rules → sprawdź że 6 rules aktywnych
-2. Test trigger (opcjonalnie):
-   - W Coolify Terminal: `python -c "import sentry_sdk; sentry_sdk.capture_exception(RuntimeError('test alert'))"`
-   - Expect: Slack notification w `#nexus-alerts` w ~30s
-3. Update `[[reference_infrastructure]]` memory z nowym Slack channel + rules count
-
-## Out-of-scope (przyszłe sesje)
-
-- **Grafana alert rules** dla Loki/Prometheus — analogiczne ale w Grafana Cloud
-  (auth: dashboard ma już API token zalogowany). 5 rules: log_error_rate,
-  notification_growth_per_second, p99_request_duration, http_5xx_per_endpoint,
-  container_oom_killed.
-- **PagerDuty integration** — jak Slack za mało eskalacji dla P0.
-- **Sentry release tracking notification** — auto-Slack po każdym deploy z
-  release SHA + summary changes.
-
-## Spawn task chip dla wdrożenia
-
-Jeśli wolisz delegować to junior dev: spawn task chip "Setup Sentry alert
-rules per docs/sentry-alerts-runbook.md" — 15 min UI work + 1 PR z dokumentacją
-że zrobione.
+Filtry hydracji i ChunkLoadError wyłączyć dopiero po wdrożeniu scrubbingu. Replays session=0, onError=0.1. Po 7 dniach porównać budżet i użyteczność; nie zmieniać opłat automatycznie.

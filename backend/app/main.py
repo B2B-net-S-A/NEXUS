@@ -15,6 +15,8 @@ from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+from app.core.request_correlation import RequestCorrelationMiddleware
+from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
 # SQLAlchemy registry before lifespan's create_all / configure_mappers runs.
@@ -284,14 +286,20 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     the anthropic mechanism; never swallow errors raised by our own code.
     """
     exc_info = hint.get("exc_info") if hint else None
+    if (
+        exc_info
+        and len(exc_info) >= 2
+        and getattr(exc_info[1], "_nexus_terminal_reported", False)
+    ):
+        return None
     if not (exc_info and len(exc_info) >= 2):
-        return event
+        return scrub_event(event)
     if not _is_transient_anthropic_exc(exc_info[1]):
-        return event
+        return scrub_event(event)
     for value in (event.get("exception") or {}).get("values", []):
         if (value.get("mechanism") or {}).get("type") == "anthropic":
             return None
-    return event
+    return scrub_event(event)
 
 
 if settings.SENTRY_DSN:
@@ -308,6 +316,10 @@ if settings.SENTRY_DSN:
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
+            include_local_variables=False,
+            attach_stacktrace=True,
+            max_request_body_size="never",
+            before_send_transaction=scrub_event,
             before_send=_sentry_before_send,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
@@ -624,6 +636,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
+    from app.tasks.notification_volume_monitor import notification_volume_monitor_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.microsoft365_sync import (
@@ -710,6 +723,9 @@ async def lifespan(app: FastAPI):
         "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
         "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
         "notification_triggers": asyncio.create_task(notification_triggers_loop()),
+        "notification_volume_monitor": asyncio.create_task(
+            notification_volume_monitor_loop()
+        ),
         "rejection_email": asyncio.create_task(rejection_email_loop()),
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
@@ -831,6 +847,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
 
@@ -853,11 +870,14 @@ app.add_middleware(
         "Idempotency-Key",
         # Optimistic concurrency for typed candidate profile facts.
         "If-Match",
+        "sentry-trace",
+        "baggage",
+        "X-Operation-Id",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
     # cannot read the required client/date filename.
-    expose_headers=["ETag", "Content-Disposition"],
+    expose_headers=["ETag", "Content-Disposition", "X-Request-Id"],
 )
 
 # Register routers

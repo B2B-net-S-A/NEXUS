@@ -1107,6 +1107,23 @@ _ClientsReportViewer = Annotated[
 # migracja 0046_backfill_contractor_drafts).
 
 
+def _client_hit_ratio_bucket(client_id: int, name: str, status) -> dict:
+    """One shape for closed-job and active-only clients (Sentry BE-34)."""
+    return {
+        "client_id": client_id,
+        "client_name": name,
+        "client_status": status.value if hasattr(status, "value") else str(status),
+        "closed_jobs": 0,
+        "total_vacancies": 0,
+        "vacancies_declared_jobs": 0,
+        "outcome_known_jobs": 0,
+        "filled_job_ids": set(),
+        "placements": 0,
+        "active_jobs": 0,
+        "close_reasons": {},
+    }
+
+
 async def _compute_client_hit_ratio(
     db: AsyncSession,
     *,
@@ -1163,23 +1180,7 @@ async def _compute_client_hit_ratio(
         closed_job_ids.append(r.id)
         bucket = per_client.setdefault(
             r.client_id,
-            {
-                "client_id": r.client_id,
-                "client_name": r.client_name,
-                "client_status": (
-                    r.client_status.value
-                    if hasattr(r.client_status, "value")
-                    else str(r.client_status)
-                ),
-                "closed_jobs": 0,
-                "total_vacancies": 0,
-                "vacancies_declared_jobs": 0,
-                "outcome_known_jobs": 0,
-                "filled_job_ids": set(),
-                "placements": 0,
-                "active_jobs": 0,
-                "close_reasons": {},
-            },
+            _client_hit_ratio_bucket(r.client_id, r.client_name, r.client_status),
         )
         bucket["closed_jobs"] += 1
         # `headcount` sumujemy TYLKO z rekrutacji, które go naprawdę
@@ -1246,25 +1247,10 @@ async def _compute_client_hit_ratio(
                 )
             ).first()
             if client_meta is not None:
-                per_client[r.client_id] = {
-                    "client_id": r.client_id,
-                    "client_name": client_meta.name,
-                    "client_status": (
-                        client_meta.status.value
-                        if hasattr(client_meta.status, "value")
-                        else str(client_meta.status)
-                    ),
-                    "closed_jobs": 0,
-                    "total_vacancies": 0,
-                    "filled_job_ids": set(),
-                    "placements": 0,
-                    "active_jobs": int(r.cnt),
-                    # Must match the closed-jobs bucket shape above — the
-                    # output loop reads bucket["close_reasons"] unconditionally
-                    # (Sentry NEXUS-BE-8, 20 events, KeyError on clients with
-                    # active jobs but zero closed in the period).
-                    "close_reasons": {},
-                }
+                per_client[r.client_id] = _client_hit_ratio_bucket(
+                    r.client_id, client_meta.name, client_meta.status
+                )
+                per_client[r.client_id]["active_jobs"] = int(r.cnt)
 
     # 4. Materialize per-client output.
     per_client_out: list[dict] = []

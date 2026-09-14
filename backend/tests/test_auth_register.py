@@ -6,7 +6,7 @@ against the postgres service container; alembic migration 0139 creates the
 ``email_verified`` column + ``email_verification_tokens`` table beforehand).
 
 Security invariants under test:
-- Endpoint gated by ``SELF_REGISTRATION_ENABLED`` (503 when off).
+- Endpoint gated by ``SELF_REGISTRATION_ENABLED`` (403 with registration_disabled when off).
 - Domain whitelist enforced (fail-closed).
 - Role is ALWAYS forced to ``recruiter`` for an allowed corporate domain — a
   caller-supplied ``role`` is ignored, and mandatory onboarding still blocks
@@ -48,13 +48,14 @@ async def _get_user(email: str) -> User | None:
 
 
 @pytest.mark.asyncio
-async def test_register_disabled_returns_503(app_client: AsyncClient, monkeypatch):
+async def test_register_disabled_returns_403(app_client: AsyncClient, monkeypatch):
     monkeypatch.setattr(settings, "SELF_REGISTRATION_ENABLED", False)
     resp = await app_client.post(
         "/api/auth/register",
         json={"name": "Jan", "email": _unique_email(), "password": "hunter2hunter"},
     )
-    assert resp.status_code == 503, resp.text
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "registration_disabled"
 
 
 @pytest.mark.asyncio

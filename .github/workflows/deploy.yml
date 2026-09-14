@@ -175,6 +175,31 @@ jobs:
             echo "Live=$version, target=$TARGET_SHA, pokrewieństwo=$rel — deploying normally"
           fi
 
+      - name: Ensure actual source revision is available during builds
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+          base="${COOLIFY_URL%/}/api/v1/applications/${COOLIFY_APP_UUID}"
+          auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+          # Never print the application response: it may contain credentials.
+          enabled=$(curl -fsS --max-time 30 "${auth[@]}" "$base" \
+            | jq -r '.settings.include_source_commit_in_build // false')
+          if [ "$enabled" != "true" ]; then
+            curl -fsS --max-time 30 -X PATCH "${auth[@]}" \
+              -H "Content-Type: application/json" \
+              -d '{"include_source_commit_in_build":true}' \
+              "$base" -o /dev/null
+          fi
+          # Older Coolify versions may accept but ignore unknown fields. Read
+          # back the setting and fail before triggering a build in that case.
+          curl -fsS --max-time 30 "${auth[@]}" "$base" \
+            | jq -e '.settings.include_source_commit_in_build == true' > /dev/null
+          echo "SOURCE_COMMIT is enabled for build-time release metadata."
+
       - name: Ensure dedicated candidate identity fingerprint key
         if: ${{ steps.precheck.outputs.skip != 'true' }}
         env:

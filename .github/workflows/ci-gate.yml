@@ -153,6 +153,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff==0.15.22
+      - name: Sentry digest contract tests
+        run: python -m unittest discover -s ../.github/scripts/tests -p test_sentry_daily_digest.py
       - name: Ruff lint
         run: ruff check app/
       # Osobna bramka od `ruff check` — sam lint NIE łapie fail-i formatowania

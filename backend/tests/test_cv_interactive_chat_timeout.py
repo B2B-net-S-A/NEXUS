@@ -80,6 +80,7 @@ async def test_other_failures_stay_generic_llm_errors(monkeypatch):
     with pytest.raises(chat.CvChatLLMError) as raised:
         await _ask(monkeypatch, AsyncMock(side_effect=RuntimeError("boom")))
     assert not isinstance(raised.value, chat.CvChatTimeout)
+    chat._persist_exchange.assert_not_called()
 
 
 @pytest.mark.parametrize("error,status", [("timeout", 504), ("llm", 502)])

@@ -273,3 +273,67 @@ async def test_generate_prose_raises_on_unusable_output(monkeypatch):
 
     with pytest.raises(mjs.MatchJustificationLLMError):
         await mjs.generate_prose(make_candidate(), make_job(), make_breakdown())
+
+
+@pytest.mark.asyncio
+async def test_json_format_retry_is_bounded_and_preserves_budget(monkeypatch):
+    import json
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    valid = {"summary": "Podsumowanie", "pros": ["Zgodne"], "watchouts": []}
+    call = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                content=[SimpleNamespace(text='{"summary":')], stop_reason="max_tokens"
+            ),
+            SimpleNamespace(
+                content=[SimpleNamespace(text=json.dumps(valid))],
+                stop_reason="end_turn",
+            ),
+        ]
+    )
+    monkeypatch.setattr(mjs, "run_in_threadpool", call)
+    result = await mjs._call_claude_json(
+        prompt="synthetic", system_prompt="", model="test", max_tokens=1500
+    )
+    assert result == valid
+    assert call.await_count == 2
+    assert (
+        call.call_args_list[1].kwargs["total_timeout"]
+        <= call.call_args_list[0].kwargs["total_timeout"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_json_invalid_schema_stops_after_one_retry(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    call = AsyncMock(
+        return_value=SimpleNamespace(
+            content=[SimpleNamespace(text='{"summary": 123}')], stop_reason="end_turn"
+        )
+    )
+    monkeypatch.setattr(mjs, "run_in_threadpool", call)
+    with pytest.raises(
+        mjs.MatchJustificationLLMError, match="Invalid structured response"
+    ):
+        await mjs._call_claude_json(
+            prompt="synthetic", system_prompt="", model="test", max_tokens=1500
+        )
+    assert call.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_does_not_start_format_retry(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    call = AsyncMock(side_effect=TimeoutError("synthetic"))
+    monkeypatch.setattr(mjs, "run_in_threadpool", call)
+    with pytest.raises(mjs.MatchJustificationLLMError, match="LLM request failed"):
+        await mjs._call_claude_json(
+            prompt="synthetic", system_prompt="", model="test", max_tokens=1500
+        )
+    assert call.await_count == 1

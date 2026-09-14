@@ -1,6 +1,7 @@
 import { forgetCvGenerationRequest } from "./cv-generation-request";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
+import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
@@ -180,6 +181,12 @@ export function extractErrorMsg(error: unknown): string {
 // token for another user would have made `/api/auth/me` describe THEM while we
 // stored the SSO user's token.
 api.interceptors.request.use((config) => {
+  // Preserve the operation across the existing transport retries.
+  if (apiSupportsCorrelation()) {
+    config.headers["X-Operation-Id"] ??= crypto.randomUUID();
+  } else if (typeof window !== "undefined") {
+    void probeTelemetryCapability();
+  }
   if (typeof window !== "undefined") {
     const token = getAccessToken();
     const headers = config.headers as unknown as {

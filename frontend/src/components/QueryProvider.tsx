@@ -22,8 +22,10 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       },
     });
     return new QueryClient({
-      queryCache: new QueryCache({ onError: reportFailure }),
-      mutationCache: new MutationCache({ onError: reportFailure }),
+      queryCache: new QueryCache({ onError: (error) => reportFailure(error) }),
+      mutationCache: new MutationCache({
+        onError: (error, _variables, _context, mutation) => reportFailure(error, mutation),
+      }),
       defaultOptions: {
         queries: {
           staleTime: 30_000,
