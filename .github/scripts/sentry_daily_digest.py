@@ -44,6 +44,26 @@ def fetch_issues(token: str, project: str, query: str = 'is:unresolved', sort: s
     raise ValueError('Pagination limit exceeded; report incomplete')
 
 
+def enrich_issue(token: str, issue: dict) -> dict:
+    issue_id = str(issue['id'])
+    if not issue_id.isdigit():
+        raise ValueError('Invalid issue identifier')
+    request = urllib.request.Request(
+        f'https://{SENTRY_HOST}/api/0/issues/{issue_id}/events/latest/?environment=production',
+        headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        event = json.loads(response.read())
+    tags = {tag.get('key'): tag.get('value') for tag in event.get('tags', [])}
+    issue = dict(issue)
+    issue['operation'] = tags.get('operation')
+    issue['terminal'] = tags.get('terminal')
+    issue['failureKind'] = tags.get('failure_kind')
+    release = event.get('release') or {}
+    issue['lastRelease'] = release if isinstance(release, dict) else {'version': release}
+    return issue
+
+
 def format_issue_line(issue: dict, *, redact: bool = True) -> str:
     issue_id = str(issue.get('id', ''))
     if not issue_id.isdigit():
@@ -52,7 +72,7 @@ def format_issue_line(issue: dict, *, redact: bool = True) -> str:
     points = (issue.get('stats') or {}).get('24h')
     count = sum(p[1] for p in points) if isinstance(points, list) else 'unavailable'
     owner = issue.get('assignedTo') or {}
-    owner_label = 'assigned' if owner else 'ARTUR: unassigned'
+    owner_label = ('Artur' if owner.get('email') == 'artur.twardowski@b2bnetwork.pl' else 'assignee:' + safe(owner.get('id'))) if owner else 'ARTUR: unassigned'
     status = safe(issue.get('status'))
     release = issue.get('lastRelease') or {}
     if isinstance(release, dict):
@@ -61,7 +81,7 @@ def format_issue_line(issue: dict, *, redact: bool = True) -> str:
     short_id = safe(issue.get('shortId'), issue_id)
     return (f'[{short_id}](https://{SENTRY_HOST}/issues/{issue_id}/) — {status}; '
             f'events/24h: {count}; {owner_label}; release: {safe(release)}; last seen: {last_seen}. '
-            'Operation, terminal/retry and linked PR: inspect issue context.')
+            f'operation: {safe(issue.get("operation"))}; terminal: {safe(issue.get("terminal"))}; cause: {safe(issue.get("failureKind"))}. PR: see linked issue activity.')
 
 
 def project_section(token: str, project: str, *, redact: bool = True) -> str:
@@ -70,7 +90,7 @@ def project_section(token: str, project: str, *, redact: bool = True) -> str:
     lines = [f'**{safe(project)} — production, 24h ({len(rows)} issues)**']
     for issue in rows:
         prefix = 'NEW: ' if str(issue['id']) in new_ids else ''
-        lines.append(prefix + format_issue_line(issue))
+        lines.append(prefix + format_issue_line(enrich_issue(token, issue)))
     if not rows:
         lines.append('No unresolved issues returned. This alone does not prove healthy ingestion.')
     return '\n\n'.join(lines)

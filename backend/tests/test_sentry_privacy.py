@@ -83,3 +83,37 @@ class SentryPrivacyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SentryTransportTests(unittest.TestCase):
+    def test_real_sdk_envelope_does_not_contain_private_exception(self):
+        import sentry_sdk
+        from sentry_sdk.transport import Transport
+
+        envelopes = []
+
+        class MemoryTransport(Transport):
+            def capture_envelope(self, envelope):
+                envelopes.append(envelope)
+
+        client = sentry_sdk.Client(
+            dsn="https://test@example.invalid/1",
+            transport=MemoryTransport(),
+            default_integrations=False,
+            before_send=scrub_event,
+            include_local_variables=False,
+        )
+        with sentry_sdk.isolation_scope() as scope:
+            scope.set_client(client)
+            try:
+                raise ValueError(
+                    "CV private@example.com +48600111222 secret-share-token"
+                )
+            except ValueError as exc:
+                sentry_sdk.capture_exception(exc)
+        payload = b"".join(envelope.serialize() for envelope in envelopes)
+        self.assertTrue(envelopes)
+        self.assertNotIn(b"private@example.com", payload)
+        self.assertNotIn(b"secret-share-token", payload)
+        self.assertIn(b"ValueError", payload)
+        self.assertIn(b"lineno", payload)

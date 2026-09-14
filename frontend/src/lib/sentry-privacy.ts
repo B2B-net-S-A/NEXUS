@@ -22,7 +22,12 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     if (value.mechanism) {
       delete value.mechanism.data
     }
-    for (const frame of value.stacktrace?.frames ?? []) delete frame.vars
+    for (const frame of value.stacktrace?.frames ?? []) {
+      delete frame.vars
+      delete frame.pre_context
+      delete frame.context_line
+      delete frame.post_context
+    }
   }
   event.breadcrumbs = event.breadcrumbs?.map(({ timestamp, category, level, type }) => ({ timestamp, category, level, type }))
   if ('spans' in event) {

@@ -60,7 +60,8 @@ def scrub_event(event: dict, hint=None) -> dict:
             }
         }
         for frame in (value.get("stacktrace") or {}).get("frames", []):
-            frame.pop("vars", None)
+            for key in ("vars", "pre_context", "context_line", "post_context"):
+                frame.pop(key, None)
     breadcrumbs = event.get("breadcrumbs") or {}
     if isinstance(breadcrumbs, dict):
         breadcrumbs["values"] = [
