@@ -50,8 +50,8 @@
   "120092790": {
     "issue": "NEXUS-FE-1",
     "operation": "hydration",
-    "verdict": "reproduction-pending",
-    "pr": null
+    "verdict": "404-fix-pending-production",
+    "pr": 1515
   },
   "145706619": {
     "issue": "NEXUS-BE-35",
