@@ -64,3 +64,25 @@ describe("createQueryFailureReporter", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 });
+
+it("nie blokuje kolejnej próbki po odrzuconym losowaniu", () => {
+  const capture = vi.fn();
+  const random = vi.fn().mockReturnValueOnce(0.9).mockReturnValueOnce(0.01);
+  const report = createQueryFailureReporter({ capture, random });
+  report(axiosError({ response: { status: 503 } }));
+  report(axiosError({ response: { status: 503 } }));
+  expect(capture).toHaveBeenCalledTimes(1);
+});
+
+it("raportuje różne zapisy bez losowania, deduplikuje ten sam błąd operacji", () => {
+  const capture = vi.fn();
+  const random = vi.fn(() => 0.99);
+  const report = createQueryFailureReporter({ capture, random });
+  const first = axiosError({ config: { url: '/api/orders/123', method: 'post' }, response: { status: 500 } });
+  report(first);
+  report(first);
+  report(axiosError({ config: { url: '/api/orders/456', method: 'post' }, response: { status: 500 } }));
+  expect(capture).toHaveBeenCalledTimes(2);
+  expect(random).not.toHaveBeenCalled();
+  expect(capture.mock.calls[0][1].tags.terminal).toBe('true');
+});

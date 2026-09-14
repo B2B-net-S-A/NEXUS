@@ -180,6 +180,8 @@ export function extractErrorMsg(error: unknown): string {
 // token for another user would have made `/api/auth/me` describe THEM while we
 // stored the SSO user's token.
 api.interceptors.request.use((config) => {
+  // Preserve the operation across the existing transport retries.
+  config.headers["X-Operation-Id"] ??= crypto.randomUUID();
   if (typeof window !== "undefined") {
     const token = getAccessToken();
     const headers = config.headers as unknown as {

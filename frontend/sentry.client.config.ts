@@ -5,22 +5,16 @@
 // Privacy: NEXUS handles candidate ATS data — replays must mask all text and
 // block all media so personal data never leaves the user's browser.
 //
-// QA 2026-05-27: Sentry envelope POST 503 — przekroczona b2bnet-sa free
-// plan quota (5k events/mc). Tuning żeby zmieścić się:
-//   - tracesSampleRate 0.1 → 0.01 (10x mniej performance traces; errory
-//     wciąż zawsze łapane, traces są nice-to-have).
-//   - beforeSend filter: drop axios cancel; bezcielesne błędy sieci są od
-//     09.2026 PRÓBKOWANE (10%), nie wyrzucane — patrz komentarz niżej.
-//   - ignoreErrors: common browser noise (ResizeObserver, ChunkLoadError
-//     z service workera) — nie błędy aplikacji, generują dużo events.
 import * as Sentry from '@sentry/nextjs'
+
+import { scrubSentryEvent, firstInSession } from './src/lib/sentry-privacy'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 /** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
 const NETWORK_ERROR_SAMPLE_RATE = 0.1
 /** Ułamek błędów ładowania chunków JS raportowanych do Sentry (patrz beforeSend). */
-const CHUNK_ERROR_SAMPLE_RATE = 0.05
+const HYDRATION_ERROR_RE = /hydration|Hydration|Minified React error #(418|423|425)/
 const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
 if (dsn) {
@@ -32,7 +26,10 @@ if (dsn) {
         // sampling to spot N+1 patterns and slow routes.
         tracesSampleRate: 0.01,
         replaysSessionSampleRate: 0,
-        replaysOnErrorSampleRate: 1.0,
+        replaysOnErrorSampleRate: 0.1,
+        sendDefaultPii: false,
+        tracePropagationTargets: [/^https:\/\/api\.nexus\.dynaminds\.pl(?:\/|$)/],
+        beforeSendTransaction: scrubSentryEvent,
         integrations: [
             Sentry.replayIntegration({
                 maskAllText: true,
@@ -81,13 +78,15 @@ if (dsn) {
             const chunkText = `${exc?.name ?? ''} ${exc?.message ?? ''} ${
                 event.exception?.values?.[0]?.type ?? ''
             } ${event.exception?.values?.[0]?.value ?? ''}`
-            if (CHUNK_ERROR_RE.test(chunkText)) {
-                if (Math.random() >= CHUNK_ERROR_SAMPLE_RATE) {
+            if (CHUNK_ERROR_RE.test(chunkText) || HYDRATION_ERROR_RE.test(chunkText)) {
+                const kind = CHUNK_ERROR_RE.test(chunkText) ? "chunk-load-error" : "hydration-error"
+                const frame = event.exception?.values?.[0]?.stacktrace?.frames?.at(-1)
+                if (!firstInSession(`${kind}:${frame?.filename ?? ""}:${frame?.lineno ?? ""}`)) {
                     return null
                 }
-                event.fingerprint = ['chunk-load-error']
-                event.tags = { ...event.tags, chunk_load_error: 'sampled' }
-                return event
+                event.fingerprint = [kind]
+                event.tags = { ...event.tags, sampling_policy: 'first-per-session', failure_kind: kind }
+                return scrubSentryEvent(event)
             }
 
             // Bezcielesny błąd sieci (axios `ERR_NETWORK`) — PRÓBKOWANY, nie
@@ -103,10 +102,10 @@ if (dsn) {
                 }
                 event.fingerprint = ['network-error']
                 event.tags = { ...event.tags, network_error: 'sampled' }
-                return event
+                return scrubSentryEvent(event)
             }
 
-            return event
+            return scrubSentryEvent(event)
         },
     })
 }

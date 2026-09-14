@@ -14,7 +14,7 @@
  * Zdarzenie jest SYNTETYCZNE (nowy `Error` z tagami), nie oryginalny błąd
  * axios: nie niesie treści odpowiedzi, nagłówków ani parametrów zapytania
  * (dane kandydatów, tokeny), a filtr `beforeSend` nie odrzuca go jako
- * timeoutu. Próbkowanie i deduplikacja chronią limit 5k zdarzeń/mc.
+ * timeoutu. Zapisy są raportowane deterministycznie; odczyty są próbkowane.
  */
 
 export type QueryFailureKind = "network" | "timeout" | "server";
@@ -35,8 +35,8 @@ interface AxiosLikeError {
   isAxiosError?: boolean;
   code?: string;
   name?: string;
-  response?: { status?: number };
-  config?: { url?: string; method?: string; baseURL?: string };
+  response?: { status?: number; headers?: Record<string, string> };
+  config?: { url?: string; method?: string; baseURL?: string; headers?: Record<string, string> };
 }
 
 /** Ścieżka API bez originu, query stringu i identyfikatorów. */
@@ -82,7 +82,7 @@ export function classifyQueryError(error: unknown): QueryFailure | null {
 
 export type CaptureFn = (
   error: Error,
-  context: { tags: Record<string, string>; fingerprint: string[] },
+  context: { tags: Record<string, string>; fingerprint: string[]; contexts: { correlation: Record<string, string> } },
 ) => void;
 
 export function createQueryFailureReporter({
@@ -95,18 +95,40 @@ export function createQueryFailureReporter({
   now?: () => number;
 }): (error: unknown) => void {
   const lastReported = new Map<string, number>();
+  const reportedWrites = new WeakSet<object>();
   return (error: unknown) => {
     const failure = classifyQueryError(error);
     if (!failure) return;
+    const err = error as AxiosLikeError;
+    const write = !["GET", "HEAD", "OPTIONS"].includes(failure.method);
+    const identity = err.config ?? err;
+    if (write && reportedWrites.has(identity)) return;
     const key = `${failure.kind}|${failure.status ?? ""}|${failure.method}|${failure.path}`;
     const at = now();
     const previous = lastReported.get(key);
-    if (previous !== undefined && at - previous < QUERY_FAILURE_DEDUPE_MS) return;
-    lastReported.set(key, at);
-    if (random() >= QUERY_FAILURE_SAMPLE_RATE) return;
+    if (!write) {
+      if (previous !== undefined && at - previous < QUERY_FAILURE_DEDUPE_MS) return;
+      if (random() >= QUERY_FAILURE_SAMPLE_RATE) return;
+      for (const [oldKey, timestamp] of lastReported) {
+        if (at - timestamp >= QUERY_FAILURE_DEDUPE_MS) lastReported.delete(oldKey);
+      }
+      lastReported.set(key, at);
+    } else {
+      reportedWrites.add(identity);
+    }
+    const correlation: Record<string, string> = {};
+    const operationId = err.config?.headers?.["X-Operation-Id"];
+    const requestId = err.response?.headers?.["x-request-id"];
+    if (operationId && /^[0-9a-f-]{36}$/i.test(operationId)) correlation.operation_id = operationId;
+    if (requestId && /^[0-9a-f-]{36}$/i.test(requestId)) correlation.request_id = requestId;
     const label = failure.status ? `${failure.kind} ${failure.status}` : failure.kind;
     capture(new Error(`API ${label}: ${failure.method} ${failure.path}`), {
+      contexts: { correlation },
       tags: {
+        terminal: "true",
+        operation: `${failure.method} ${failure.path}`,
+        failure_kind: failure.kind,
+        sampling_policy: write ? "all-terminal-writes" : "reads-10pct-60s",
         api_failure: failure.kind,
         api_status: failure.status ? String(failure.status) : "none",
         api_method: failure.method,
