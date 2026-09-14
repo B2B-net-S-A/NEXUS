@@ -653,6 +653,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
+    from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.insights_seniority_journal import (
         insights_seniority_journal_loop,
     )
@@ -746,6 +747,9 @@ async def lifespan(app: FastAPI):
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
         "dl_alerts": asyncio.create_task(dl_alerts_loop()),
+        # Finanse → Braki (0308): zamówienie zakończone bez następcy. Biegnie
+        # po północy w Warszawie; kill-switch ORDER_GAPS_ENABLED przed pętlą.
+        "order_gaps": asyncio.create_task(order_gaps_loop()),
         "insights_seniority_journal": asyncio.create_task(
             insights_seniority_journal_loop()
         ),
@@ -2442,6 +2446,8 @@ async def api_health_deep_check():
     from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
+    from app.models.order_change_event import OrderChangeEvent
+    from app.models.order_gap import OrderGap
     from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
@@ -2567,6 +2573,10 @@ async def api_health_deep_check():
         # 0307: Historia zdarzeń (usunięcia i zablokowane próby). Brak tabeli
         # oznaczałby usunięcia bez śladu — sonda jest dowodem, że ślad powstaje.
         ("critical_events", CriticalEvent),
+        # 0308: Finanse → Zmiany w zamówieniach. Bez `order_change_events`
+        # pada KAŻDY zapis zamówienia (listener dopisuje wiersz w flushu).
+        ("order_change_events", OrderChangeEvent),
+        ("order_gaps", OrderGap),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

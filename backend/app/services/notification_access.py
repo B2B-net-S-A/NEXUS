@@ -88,6 +88,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_deadline_7d: ProductSection.pipeline,
     NotificationType.job_deadline_3d: ProductSection.pipeline,
     NotificationType.job_deadline_1d: ProductSection.pipeline,
+    NotificationType.order_missing_successor: ProductSection.delivery,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

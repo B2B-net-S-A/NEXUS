@@ -31,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Import na poziomie modułu, nie w funkcji: ładuje listener ``after_flush``,
 # który zbiera kontrakty ruszonych zamówień. Zarejestrowany dopiero przy
 # pierwszym commicie przegapiłby flushe pierwszego żądania po starcie.
-from app.services.contract_order_sync import sync_pending_order_contracts
+from app.services.contract_order_sync import (
+    pending_order_contract_ids,
+    sync_pending_order_contracts,
+)
+from app.services.order_change_audit import ACTOR_INFO_KEY
+from app.services.order_gaps import refresh_order_gaps_safely
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +127,25 @@ async def commit_order_write(
 
     Przed commitem kontrakty, których zamówienia ten zapis ruszył, dostają
     okres zamówienia i stawkę przychodową, a zamówienia — stawkę kosztową
-    z kontraktu (``contract_order_sync``). To jedyny punkt, przez który
+    z kontraktu (``contract_order_sync``), a otwarte braki tej osoby
+    (``order_gaps``) dostają informację o uzupełnieniu. To jedyny punkt, przez który
     przechodzą wszystkie zapisy zamówień, więc nowy endpoint nie musi pamiętać
     o synchronizacji.
     """
 
     try:
+        await db.flush()
+        touched_contracts = pending_order_contract_ids(db)
         await sync_pending_order_contracts(db, actor_id=actor_id)
+        # Brak kolejnego zamówienia (Finanse → Braki) zamyka się w chwili
+        # zapisu następnego zamówienia, a nie o północy — Finanse widzą
+        # uzupełnienie od razu. Savepoint: awaria nie cofa zamówienia.
+        if touched_contracts:
+            await refresh_order_gaps_safely(
+                db,
+                contract_ids=sorted(touched_contracts),
+                actor_id=actor_id or db.info.get(ACTOR_INFO_KEY),
+            )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()

@@ -163,6 +163,12 @@ const TYPE_CONFIG: Record<
     color: "text-destructive",
     bgColor: "bg-destructive/15",
   },
+  // Finanse → Braki: zamówienie zakończone bez kolejnego zamówienia.
+  order_missing_successor: {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: "text-amber-600",
+    bgColor: "bg-amber-100",
+  },
 };
 
 const POST_INTERVIEW_TYPES = new Set([

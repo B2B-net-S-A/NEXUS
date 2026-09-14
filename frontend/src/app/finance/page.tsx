@@ -8,11 +8,12 @@ import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
+import { OrderChangesTab } from "@/components/finance/OrderChangesTab";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-type ViewMode = "results" | "archive" | "md";
+type ViewMode = "results" | "archive" | "md" | "order-changes";
 
 /**
  * /finance — moduł „Finanse", trzy powierzchnie pod jedną trasą:
@@ -20,7 +21,9 @@ type ViewMode = "results" | "archive" | "md";
  *  • „Wyniki miesięczne" — koszt / przychód / marża kontraktorów z arkusza,
  *  • „Archiwum"          — historia wgranych plików + przywracanie wersji,
  *  • „Import zużycia MD"  — miesięczne raporty zasilające budżety MD zamówień
- *                           wielo-konsultantowych (PR #1162).
+ *                           wielo-konsultantowych (PR #1162),
+ *  • „Zmiany w zamówieniach" — comiesięczny audyt wejść, zejść, zmian stawek
+ *                           i braków kolejnego zamówienia (tylko odczyt).
  *
  * Dwa niezależne moduły trafiły na tę samą trasę w tym samym tygodniu. Zamiast
  * rozdzielać je na dwa adresy i dwa wpisy w nawigacji (obie nazwane „Finanse",
@@ -52,7 +55,9 @@ export default function FinancePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const initial = params.get("view");
-    if (initial === "archive" || initial === "md") setView(initial);
+    if (initial === "archive" || initial === "md" || initial === "order-changes") {
+      setView(initial);
+    }
     setMounted(true);
   }, []);
 
@@ -63,6 +68,12 @@ export default function FinancePage() {
       params.delete("view");
     } else {
       params.set("view", next);
+    }
+    // Podzakładka i miesiąc należą do „Zmian w zamówieniach" — w innym
+    // widoku zostałyby w adresie jako martwy parametr.
+    if (next !== "order-changes") {
+      params.delete("sub");
+      params.delete("month");
     }
     const query = params.toString();
     window.history.replaceState(
@@ -105,15 +116,27 @@ export default function FinancePage() {
               Import zużycia MD
             </ModeButton>
           )}
+          <ModeButton
+            active={visibleView === "order-changes"}
+            onClick={() => changeView("order-changes")}
+          >
+            Zmiany w zamówieniach
+          </ModeButton>
         </div>
 
         <PageHeader
-          eyebrow="Finanse · Wyniki kontraktorów"
-          title="Finanse"
+          eyebrow={
+            visibleView === "order-changes"
+              ? "Finanse · Zmiany w zamówieniach"
+              : "Finanse · Wyniki kontraktorów"
+          }
+          title={visibleView === "order-changes" ? "Zmiany w zamówieniach" : "Finanse"}
           description={
             visibleView === "md"
               ? "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów"
-              : "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża"
+              : visibleView === "order-changes"
+                ? "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń"
+                : "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża"
           }
         />
 
@@ -125,6 +148,8 @@ export default function FinancePage() {
           <FinanceResultsTab canWrite={canWrite} />
         ) : visibleView === "archive" ? (
           <FinanceArchiveTab canWrite={canWrite} />
+        ) : visibleView === "order-changes" ? (
+          <OrderChangesTab />
         ) : (
           <MdImportWorkspace />
         )}
