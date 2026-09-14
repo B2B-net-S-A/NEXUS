@@ -29,7 +29,7 @@
     "backend/app/services/order_group_materializer.py": "9623cd9981fa511b7405e882fdc0aabee82baac56202efdd07231789b44dcbcf",
     "backend/app/services/order_mail_apply.py": "53bef9d605375f5e371c035aeb05bfc9b57db8e97ec4b1df2bc22fd2d878a0ab",
     "backend/app/services/order_mail_gate.py": "5577ce90d2972ecbf6427723df694c418a6692dc5247bd72a9310cdb8d1efb12",
-    "backend/app/services/order_mail_ingest.py": "f9c138ab3d58f397cd2241f79b4a115ae3671431f5cee7f57a4214a50420bd5d",
+    "backend/app/services/order_mail_ingest.py": "ba467f04318149d4c83c9d70be24b81b755f9a0646e1ccd3ede41d2def07f834",
     "backend/app/services/order_mail_planner.py": "e7af2743141058d8d8ad65755bf9465a0e5c92bcf34a91306935b64383711e34",
     "backend/app/services/order_mail_resolver.py": "8d104dea0c0e0a4f6825a732654195ce4930a1067fa40a4e022a13943a49fb8a",
     "backend/app/services/order_md_exhaustion.py": "604d9a74b205218b25805020e49f1df88ee67a410a7f6132c6330fe722590618",
