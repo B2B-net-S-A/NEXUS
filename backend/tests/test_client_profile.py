@@ -991,3 +991,157 @@ async def test_profile_rate_columns_are_hourly_from_order_unit(
         assert contract.rate_unit.value == rate_unit
         assert contract.rate_candidate == Decimal(candidate_rate)
         assert contract.rate_client == Decimal(client_rate)
+
+
+async def _seed_contract_with_order(
+    *,
+    contract_unit: str,
+    contract_candidate: str,
+    contract_client: str,
+    group_line: bool,
+    order_candidate: str | None = None,
+    order_client: str | None = None,
+    order_unit: str = "hourly",
+    md_rate_cost: str | None = None,
+    md_rate_revenue: str | None = None,
+) -> tuple[int, int]:
+    """Kontrakt ze stawką INNĄ niż na zamówieniu tej osoby.
+
+    Na prodzie (14.09.2026, linie MD) kontrakt potrafi nie mieć kroku przychodu
+    z zamówienia — profil ma wtedy pokazać wartość z ZAMÓWIENIA.
+    """
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.contract import Contract, ContractStatus
+
+    today = date.today()
+    suffix = uuid.uuid4().hex[:6]
+    dec = lambda v: Decimal(v) if v is not None else None  # noqa: E731
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Zamowienie",
+            lastname=f"Z-{suffix}",
+            email=f"order-rate-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"OrderRateClient-{suffix}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=today - timedelta(days=60),
+            rate_candidate=Decimal(contract_candidate),
+            rate_client=Decimal(contract_client),
+            rate_unit=contract_unit,
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        group_id = None
+        if group_line:
+            group = ClientOrderGroup(
+                client_id=client.id,
+                order_number=f"SAP-{suffix}",
+                start_date=today - timedelta(days=30),
+                status="active",
+                order_type="md",
+                is_cost_based=False,
+                is_md_budget_based=False,
+            )
+            db.add(group)
+            await db.commit()
+            await db.refresh(group)
+            group_id = group.id
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                order_group_id=group_id,
+                title=f"PO-{suffix}",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=30),
+                rate_candidate=dec(order_candidate),
+                rate_client=dec(order_client),
+                rate_unit=order_unit,
+                md_rate_cost=dec(md_rate_cost),
+                md_rate_revenue=dec(md_rate_revenue),
+            )
+        )
+        await db.commit()
+        return client.id, contract.id
+
+
+async def _profile_row(
+    app_client: AsyncClient, headers: dict[str, str], client_id: int, contract_id: int
+) -> dict:
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return next(
+        r for r in resp.json()["active_consultants"] if r["contract_id"] == contract_id
+    )
+
+
+async def test_md_line_rates_come_from_the_order_not_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Linia MD 576/750 zł/MD przy kontrakcie 576/800 → 72 / 93,75 zł/h."""
+    client_id, contract_id = await _seed_contract_with_order(
+        contract_unit="daily",
+        contract_candidate="576",
+        contract_client="800",
+        group_line=True,
+        order_candidate="576",
+        order_client="750",
+        order_unit="daily",
+        md_rate_cost="576",
+        md_rate_revenue="750",
+    )
+    row = await _profile_row(app_client, app_auth_headers, client_id, contract_id)
+    assert row["hourly_rate_candidate"] == 72.0
+    assert row["hourly_rate_client"] == 93.75
+    # Marża miesięczna nadal z kontraktu — kafel MRR jest jej sumą.
+    assert row["monthly_margin"] == (800 - 576) * 22
+
+
+async def test_periodic_order_hourly_rate_comes_from_the_order(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Zamówienie okresowe 218,75 zł/h przy kontrakcie 219 zł/h → 218,75."""
+    client_id, contract_id = await _seed_contract_with_order(
+        contract_unit="hourly",
+        contract_candidate="120",
+        contract_client="219",
+        group_line=False,
+        order_candidate="120",
+        order_client="218.75",
+        order_unit="hourly",
+    )
+    row = await _profile_row(app_client, app_auth_headers, client_id, contract_id)
+    assert row["hourly_rate_client"] == 218.75
+    assert row["hourly_rate_candidate"] == 120.0
+
+
+async def test_order_without_a_rate_falls_back_to_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Auto-szkic bez stawek (np. po podpisie umowy) nie zeruje kolumn."""
+    client_id, contract_id = await _seed_contract_with_order(
+        contract_unit="daily",
+        contract_candidate="1000",
+        contract_client="1340",
+        group_line=False,
+        order_unit="daily",
+    )
+    row = await _profile_row(app_client, app_auth_headers, client_id, contract_id)
+    assert row["hourly_rate_candidate"] == 125.0
+    assert row["hourly_rate_client"] == 167.5

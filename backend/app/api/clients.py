@@ -132,13 +132,12 @@ def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
 
 
 def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
-    """Stawka kontraktu przeliczona na godzinę — kolumny tabeli w profilu klienta.
+    """Stawka KONTRAKTU za godzinę — zapasowe źródło kolumn profilu klienta.
 
-    Jednostka kontraktu trzyma się jednostki najnowszego zamówienia
-    (``contract_order_sync``), a zamówienie ma stawkę godzinową albo MD:
-    godzinowa idzie bez przeliczenia, MD ÷ 8. Kontrakt miesięczny (legacy,
-    bez zamówienia) dzielimy przez jego godziny rozliczeniowe — ta sama
-    arytmetyka co przy synchronizacji zamówień. Nic nie jest zapisywane.
+    Używane, gdy kontrakt nie ma zamówienia albo zamówienie nie niesie danej
+    stawki (patrz ``_order_hourly_leg``). Godzinowa bez przeliczenia, MD ÷ 8,
+    kontrakt miesięczny (legacy) ÷ godziny rozliczeniowe. Nic nie jest
+    zapisywane.
     """
     if rate is None:
         return None
@@ -150,10 +149,67 @@ def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
     )
 
 
+_HourlyLeg = tuple[Decimal, str]
+
+
+def _order_currency(order: ClientOrder, side: str) -> str:
+    raw = (
+        order.rate_client_currency
+        if side == "revenue"
+        else order.rate_candidate_currency
+    )
+    return str(raw or order.currency or "PLN").strip().upper() or "PLN"
+
+
+def _order_hourly_leg(order: Optional[ClientOrder], side: str) -> Optional[_HourlyLeg]:
+    """Stawka ZAMÓWIENIA za godzinę (kwota w walucie zamówienia) — albo ``None``.
+
+    Lustro tego, co pokazuje zakładka „Zamówienia": linia zamówienia MD/kosztowego
+    niesie kanoniczną stawkę PLN/MD w ``md_rate_*`` (waluta obca → ``rate_*``
+    w jednostce linii, jak ``source_rate_*`` w ``client_order_groups``), a
+    zamówienie okresowe — ``rate_client``/``rate_candidate`` w swojej
+    ``rate_unit``. Godzinowa bez przeliczenia, MD ÷ 8 (``convert_order_rate``).
+    Kontrakt bywa z zamówieniem rozjechany (linie MD, których stawki nie
+    zsynchronizowały się do kontraktu — zmierzone na prodzie 14.09.2026), a
+    ticket wymaga wartości Z ZAMÓWIENIA. ``None`` = brak zamówienia albo brak
+    tej stawki na nim; wołający cofa się wtedy na kontrakt.
+    """
+    if order is None:
+        return None
+    currency = _order_currency(order, side)
+    order_rate = order.rate_client if side == "revenue" else order.rate_candidate
+    md_rate = order.md_rate_revenue if side == "revenue" else order.md_rate_cost
+    if order.order_group_id is not None and currency == "PLN" and md_rate is not None:
+        amount, unit = md_rate, RateUnit.daily
+    elif order_rate is not None:
+        default_unit = (
+            RateUnit.daily if order.order_group_id is not None else RateUnit.hourly
+        )
+        amount, unit = order_rate, RateUnit(order.rate_unit or default_unit)
+    else:
+        return None
+    hourly = convert_order_rate(
+        amount, unit, RateUnit.hourly, order.billing_hours_per_month or 160
+    )
+    if hourly is None:
+        return None
+    return hourly, currency
+
+
+def _profile_currencies(contract: Contract, on: date) -> set[str]:
+    """Waluty potrzebne do kwot profilu: obie strony kontraktu + zamówienia."""
+    currencies = set(_contract_rate_currencies(contract))
+    order = _representative_order(contract, on)
+    if order is not None:
+        currencies.update(_order_currency(order, side) for side in ("revenue", "cost"))
+    return currencies
+
+
 def _finance_rates_in_pln(
     contract: Contract,
     rate_fields: dict[str, object],
     fx_rates: dict[str, Optional[Decimal]],
+    order: Optional[ClientOrder] = None,
 ) -> dict[str, object]:
     """Convert both monthly rate legs independently and derive a PLN margin.
 
@@ -182,12 +238,20 @@ def _finance_rates_in_pln(
         if client_pln is not None and candidate_pln is not None
         else None
     )
-    hourly_client_pln, _ = amount_to_pln_with_rate(
-        _hourly_rate(contract, rate_fields.get("rate_client")), client_fx
-    )
-    hourly_candidate_pln, _ = amount_to_pln_with_rate(
-        _hourly_rate(contract, rate_fields.get("rate_candidate")), candidate_fx
-    )
+    # Kolumny godzinowe: najpierw ZAMÓWIENIE (wartość z ticketu), a gdy go
+    # nie ma albo nie niesie tej stawki — kontrakt. Marża zostaje miesięczna
+    # z kontraktu (kafel „Aktywne MRR" jest jej sumą).
+    hourly: dict[str, Optional[Decimal]] = {}
+    for side, rate_key, contract_currency in (
+        ("revenue", "rate_client", client_currency),
+        ("cost", "rate_candidate", candidate_currency),
+    ):
+        leg = _order_hourly_leg(order, side) or (
+            (_hourly_rate(contract, rate_fields.get(rate_key)), contract_currency)
+        )
+        hourly[side], _ = amount_to_pln_with_rate(leg[0], fx_rates.get(leg[1]))
+    hourly_client_pln = hourly["revenue"]
+    hourly_candidate_pln = hourly["cost"]
     return {
         "monthly_rate_client": client_pln,
         "monthly_rate_candidate": candidate_pln,
@@ -297,7 +361,9 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - business_today()).days
 
 
-def _representative_order(contract: Contract) -> Optional[ClientOrder]:
+def _representative_order(
+    contract: Contract, on: Optional[date] = None
+) -> Optional[ClientOrder]:
     """Zamówienie reprezentujące kontrakt „na dziś".
 
     ``None`` gdy kontrakt nie ma ANI JEDNEGO nieanulowanego zamówienia — stąd
@@ -317,7 +383,7 @@ def _representative_order(contract: Contract) -> Optional[ClientOrder]:
     ]
     if not orders:
         return None
-    today = business_today()
+    today = on or business_today()
     started = [o for o in orders if o.start_date is None or o.start_date <= today]
     if started:
         return max(started, key=lambda o: (o.start_date or date.min, o.id))
@@ -616,12 +682,14 @@ async def get_client_profile(
         {
             currency
             for contract in active_contracts
-            for currency in _contract_rate_currencies(contract)
+            for currency in _profile_currencies(contract, today)
         },
         today,
     )
     active_rates_pln = {
-        c.id: _finance_rates_in_pln(c, active_rates[c.id], active_fx_rates)
+        c.id: _finance_rates_in_pln(
+            c, active_rates[c.id], active_fx_rates, _representative_order(c, today)
+        )
         for c in active_contracts
     }
 
@@ -699,7 +767,7 @@ async def get_client_profile(
                 currency
                 for contract in ended_contracts
                 if ended_boundaries[contract.id] == boundary
-                for currency in _contract_rate_currencies(contract)
+                for currency in _profile_currencies(contract, boundary)
             }
             for boundary in set(ended_boundaries.values())
         },
@@ -709,6 +777,7 @@ async def get_client_profile(
             c,
             ended_rates[c.id],
             ended_fx_by_boundary[ended_boundaries[c.id]],
+            _representative_order(c, ended_boundaries[c.id]),
         )
         for c in ended_contracts
     }
