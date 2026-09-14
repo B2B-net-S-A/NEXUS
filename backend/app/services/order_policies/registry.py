@@ -121,6 +121,11 @@ class OrderClientPolicy:
     #: odczycie — inaczej dokument sprzed poprawki reguły zostawałby w kolejce
     #: z powodami, których reguła już nie generuje.
     table_authoritative: bool = False
+    #: „Przelicz plan" stosuje regułę klienta ponownie na zapisanym odczycie,
+    #: BEZ przełączania parsera w tryb all-rows (to robi ``table_authoritative``
+    #: i zmienia formularze). PKO BP: reguła prostuje nazwisko z doklejonym
+    #: profilem w odczycie zapisanym przed poprawką.
+    reapply_on_refresh: bool = False
     #: Reguła rodzaju stawki klienta w miejsce uniwersalnego rozpoznania
     #: brutto/netto z dokumentu (Nordea: netto/h, Alior: netto, jawne „brutto" →
     #: weryfikacja; BIK: netto z nagłówka tabeli). Reguła może oddać decyzję
@@ -339,6 +344,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=110,
         rate_unit_default="day",
         extract_rows=pko_bp.extract_rows,
+        rate_rules=pko_bp.apply_rate_rules,
+        reapply_on_refresh=True,
+        # 09.2026: nazwisko bez doklejonego profilu, stawka zawsze netto.
+        rule_version="2026-09-14",
     ),
     OrderClientPolicy(
         key="kir",
@@ -530,7 +539,7 @@ def apply_rate_kind(
     """Klient z własną regułą rodzaju stawki jej używa; reszta — dowodu z PDF-a.
 
     Nordea: zawsze netto za godzinę. Alior: netto z definicji, jawne „brutto" →
-    weryfikacja. BIK dowodzi netto nagłówkiem tabeli („Wart.netto" / „netto bez
+    weryfikacja. PKO BP: kolumna „Stawka PLN/MD netto" — zawsze netto. BIK dowodzi netto nagłówkiem tabeli („Wart.netto" / „netto bez
     VAT") — ogólne rozpoznanie szuka etykiety przy KWOCIE stawki, a w sklejonym
     tekście z SAP-a („1.200,00", „wynosi1200,-zł/MD") jej nie widzi i oznaczało
     każdą pozycję jako niepewną; bez tego nagłówka BIK oddaje decyzję (``None``).
@@ -545,7 +554,7 @@ def apply_rate_kind(
 
 def reapplies_on_refresh(policies: list[OrderClientPolicy]) -> bool:
     """Czy „Przelicz plan" stosuje reguły klienta ponownie na zapisanym odczycie."""
-    return any(p.table_authoritative for p in policies)
+    return any(p.table_authoritative or p.reapply_on_refresh for p in policies)
 
 
 def rule_versions(policies: list[OrderClientPolicy]) -> dict[str, str]:
