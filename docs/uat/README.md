@@ -58,6 +58,7 @@ docs/uat/
 ├── 05-szablon-zgloszenia.md           ← format zgłoszenia błędu i raportu z karty
 ├── 06-fala-3-poprawki-i-regresja.md   ← jak naprawiać, retestować, dopisywać Playwright
 ├── 07-fala-4-pilotaz.md               ← pilotaż z 2–3 osobami
+├── 08-audyty-codex-2026-09-14.md      ← weryfikacja 104 ustaleń Codexa + plan 3 PR-ów
 ├── moduly/                            ← Fala 1: 14 kart, tryb tylko do odczytu
 │   ├── M00-wejscie-i-powloka.md
 │   ├── M01-kandydaci.md
@@ -105,7 +106,7 @@ normalnych deployów.
 | 0 | ✅ 13.09.2026 | `01-fala-0-przygotowanie.md` §8 |
 | 1 | ✅ 13–14.09.2026, SHA `f76f132`→`6504fef`, 15 kart + weryfikacja P0/P1 (workflow `wf_26061a56-b5c`, 28 agentów) | 111 zgłoszeń: P0 1 (backup drill), P1 6, P2 50, P3 52, odrzucone 2. Pełna lista z dowodami: `wyniki/INDEX.md` (lokalnie, poza gitem — zawiera ID i kwoty produkcyjne) |
 | 2 | ⏸ czeka na decyzje z README i ustawienie `MULTI_CONSULTANT_ORDER_CLIENT_IDS` dla D2 | — |
-| 3 | ⏸ | — |
+| 3 | 🔄 od 14.09.2026: P1 #1506, P2 #1508, P3 #1510 scalone (prod `86731771`); audyty Codexa zweryfikowane → [08-audyty-codex-2026-09-14.md](08-audyty-codex-2026-09-14.md) | 3 PR-y: P1 (`fix/audit-p1`) → UI P2/P3 → ops/CI; retesty w `wyniki/codex-2026-09-14/` |
 | 4 | ⏸ | — |
 
 Nieobjęte Falą 1: karta C (Sentry — brak dostępu agentów), M13 S20–S25 („po nocy”), UI w szerokości 1366 px

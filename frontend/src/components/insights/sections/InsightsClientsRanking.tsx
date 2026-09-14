@@ -49,8 +49,9 @@ export function InsightsClientsRanking({ period }: Props) {
   const incomplete: string[] = [];
   if (totals && !totals.monthly_revenue_complete) {
     incomplete.push(
-      "Część przychodów miesięcznych nie została policzona (brak kursu NBP) — " +
-        "wiersz pokazuje „—”, a kafel liczy go jako zero. Suma jest zaniżona.",
+      "Część przychodów miesięcznych nie została policzona (brak kursu NBP albo kontrakt bez stawki klienta) — " +
+        "wiersze z „*” są niepełne (przy braku kursu „—”, przy braku stawki suma tylko wycenionych kontraktów). " +
+        "Kafel sumuje wyłącznie policzone kwoty, więc jest zaniżony.",
     );
   }
   if (totals && !totals.revenue_complete) {
@@ -61,8 +62,9 @@ export function InsightsClientsRanking({ period }: Props) {
   }
   if (totals && !totals.monthly_margin_complete) {
     incomplete.push(
-      "Część marż nie została policzona — wiersz pokazuje „—”, a kafel liczy " +
-        "go jako zero. Suma jest zaniżona, nie równa zeru.",
+      "Część marż nie została policzona (brak kursu NBP albo kontrakt bez jednej ze stawek) — " +
+        "wiersze z „*” są niepełne (przy braku kursu „—”, przy braku stawki suma tylko wycenionych kontraktów). " +
+        "Kafel sumuje wyłącznie policzone kwoty, więc jest zaniżony, nie równy zeru.",
     );
   }
 
@@ -201,7 +203,7 @@ export function InsightsClientsRanking({ period }: Props) {
                     <td className="px-3 py-2 text-right font-medium tabular-nums">
                       {money(r.monthly_revenue_total)}
                       {!r.monthly_revenue_complete && (
-                        <IncompleteMark title="Przychód niepełny — brak kursu NBP dla stawki klienta." />
+                        <IncompleteMark title="Przychód niepełny — brak kursu NBP albo brak stawki klienta." />
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-primary">

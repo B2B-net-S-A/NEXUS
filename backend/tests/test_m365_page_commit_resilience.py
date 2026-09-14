@@ -104,10 +104,12 @@ async def test_failed_page_commit_is_contained_counted_and_rolled_back(monkeypat
         "utrata strony maili musi być policzona, nie przemilczana"
     )
     assert any("page-commit" in s for s in result.error_samples)
-    # Druga strona przeszła mimo porażki pierwszej — jej wiadomość jest zaciągnięta,
-    # a kursor delta zapisany, więc sync nie zapętli się na tym samym oknie.
+    # Druga strona przeszła mimo porażki pierwszej — jej wiadomość jest zaciągnięta.
     assert result.messages_ingested == 2
-    assert conn.delta_token_inbox is not None
+    # Kursor delta NIE jest zapisany (INT-01): utracona strona ma wrócić przy
+    # następnym przebiegu, a upsert po `m365_message_id` nie zdubluje reszty.
+    # Pełny kontrakt kursora: `test_m365_sync_cursor_on_errors.py`.
+    assert conn.delta_token_inbox is None
 
 
 @pytest.mark.asyncio

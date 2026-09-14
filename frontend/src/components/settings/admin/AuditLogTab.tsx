@@ -1,121 +1,213 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Activity, Clock } from "lucide-react";
+/**
+ * Ustawienia → Administracja → Log aktywności.
+ *
+ * Do 09.2026 (B16, audyt Codexa) zakładka pobierała RANKING tygodnia
+ * (endpoint `leaderboard`) i z liczników syntetyzowała wiersze
+ * z losowym identyfikatorem obiektu i losową datą z ostatnich 7 dni —
+ * bez oznaczenia, że to przykład. Admin czytał zmyślony dziennik.
+ *
+ * Teraz zakładka czyta PRAWDZIWY feed (`GET /api/activities/feed`): scope
+ * (`apply_activity_feed_scope`) i redakcję finansów robi backend; front
+ * renderuje autora, opis i znacznik czasu DOKŁADNIE z odpowiedzi. Feed nie
+ * ma `offset` — „Pokaż więcej" podnosi `limit` do sufitu endpointu (100).
+ */
+
+import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Activity, Clock, ExternalLink, Loader2 } from "lucide-react";
+import Link from "next/link";
+
 import api from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { formatDateTimePl } from "@/lib/date-pl";
+import { resolveViewState } from "@/lib/view-state";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { activityActionLabel } from "@/components/v2/pages/candidate-timeline-labels";
 
-const ACTION_LABELS: Record<string, string> = {
-  candidate_added: "Dodano kandydata",
-  stage_changed: "Zmiana etapu",
-  call_made: "Rozmowa telefoniczna",
-  screening_done: "Screening zakończony",
-  interview_scheduled: "Zaplanowano interview",
-  placement_closed: "Placement zamknięty",
+/** Sufit `limit` w `GET /api/activities/feed` (`Query(50, ge=1, le=100)`). */
+const FEED_INITIAL_LIMIT = 50;
+const FEED_MAX_LIMIT = 100;
+
+export interface ActivityFeedEntry {
+  id: number;
+  user: string;
+  user_id: number | null;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  entity_name: string;
+  description: string;
+  timestamp: string | null;
+  link: string | null;
+}
+
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  candidate: "Kandydat",
+  job: "Rekrutacja",
+  client: "Klient",
+  contract: "Kontrakt",
+  note: "Notatka",
+  pipeline: "Pipeline",
+  user: "Użytkownik",
+};
+
+/**
+ * Etykiety akcji obiektów INNYCH niż kandydat. Słownik osi czasu kandydata
+ * (`activityActionLabel`) tłumaczy `created` jako „Utworzono profil kandydata",
+ * co dla rekrutacji czy klienta byłoby fałszem — stąd osobna, ogólna mapa.
+ */
+const GENERIC_ACTION_LABELS: Record<string, string> = {
+  created: "Utworzono",
+  updated: "Zaktualizowano",
+  deleted: "Usunięto",
+  closed: "Zamknięto",
+  published: "Opublikowano",
+  merged: "Scalono",
+  status_updated: "Zmieniono status",
+  stage_changed: "Zmieniono etap",
+  hired: "Zatrudniono",
+  terminated: "Zakończono współpracę",
+  bulk_marked_ended: "Zakończono zbiorczo",
   note_added: "Dodano notatkę",
-  cv_uploaded: "Przesłano CV",
+  document_uploaded: "Dodano plik",
+  document_deleted: "Usunięto plik",
+  handed_off_to_search: "Przekazano do searchu",
+  claimed: "Przejęto",
+  owner_assigned: "Przypisano opiekuna",
+  owner_released: "Zwolniono opiekuna",
+  collaborator_added: "Dodano współpracownika",
+  champion_profile_updated: "Zaktualizowano profil Championa",
+  champion_verification_updated: "Zaktualizowano weryfikację Championa",
 };
 
-const ACTION_COLORS: Record<string, string> = {
-  candidate_added: "bg-primary/15 text-primary",
-  stage_changed: "bg-purple-100 text-purple-700",
-  call_made: "bg-orange-100 text-orange-700",
-  screening_done: "bg-indigo-100 text-indigo-700",
-  interview_scheduled: "bg-cyan-100 text-cyan-700",
-  placement_closed: "bg-green-100 text-green-700",
-  note_added: "bg-muted text-foreground",
-  cv_uploaded: "bg-yellow-100 text-yellow-700",
-};
+const SLUG_RE = /^[a-z0-9_]+$/;
 
-interface LeaderboardRow {
-  user_name: string;
-  candidates_added: number;
-  screenings: number;
-  interviews: number;
-  placements: number;
-  calls: number;
+/** Etykieta akcji z feedu; nieznany slug nigdy nie wraca dosłownie. */
+export function feedActionLabel(action: string, entityType: string): string {
+  if (entityType === "candidate") return activityActionLabel(action);
+  const known = GENERIC_ACTION_LABELS[action];
+  if (known) return known;
+  return SLUG_RE.test(action) ? "Zdarzenie systemowe" : action;
 }
 
 export function AuditLogTab() {
-  const { data: leaderboard } = useQuery({
-    queryKey: ["leaderboard", "week"],
-    queryFn: () => api.get(`/api/activities/leaderboard?period=week&limit=50`).then((r) => r.data),
+  const [limit, setLimit] = useState(FEED_INITIAL_LIMIT);
+
+  const query = useQuery({
+    queryKey: ["activities", "feed", "audit-log", limit],
+    queryFn: () =>
+      api
+        .get<ActivityFeedEntry[]>("/api/activities/feed", { params: { limit } })
+        .then((r) => r.data),
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 1000,
   });
 
-  const rows: LeaderboardRow[] = leaderboard?.leaderboard ?? [];
-
-  const auditEntries: Array<{
-    id: number;
-    user_name: string;
-    action: string;
-    entity_type: string;
-    entity_id: number;
-    created_at: string;
-  }> = [];
-
-  rows.slice(0, 10).forEach((row) => {
-    const actions = [
-      { action: "candidate_added", entity_type: "candidate", count: row.candidates_added },
-      { action: "screening_done", entity_type: "candidate", count: row.screenings },
-      { action: "interview_scheduled", entity_type: "candidate", count: row.interviews },
-      { action: "placement_closed", entity_type: "candidate", count: row.placements },
-      { action: "call_made", entity_type: "candidate", count: row.calls },
-    ];
-    actions.forEach(({ action, entity_type, count }) => {
-      for (let i = 0; i < Math.min(count, 2); i++) {
-        auditEntries.push({
-          id: auditEntries.length + 1,
-          user_name: row.user_name,
-          action,
-          entity_type,
-          entity_id: Math.floor(Math.random() * 1000) + 1,
-          created_at: new Date(Date.now() - Math.random() * 7 * 86400000).toISOString(),
-        });
-      }
-    });
+  const entries = query.data ?? [];
+  const viewState = resolveViewState({
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    isEmpty: entries.length === 0,
+    isSuccess: query.isSuccess,
   });
+  const canShowMore = limit < FEED_MAX_LIMIT && entries.length >= limit;
 
-  auditEntries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  const recentEntries = auditEntries.slice(0, 20);
-
-  if (recentEntries.length === 0) {
+  if (viewState === "loading") {
     return (
-      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-8 text-center text-muted-foreground">
-        <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
-        <p>Brak aktywności w ostatnim tygodniu</p>
+      <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-10 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        Ładowanie logu aktywności…
+      </div>
+    );
+  }
+
+  if (viewState === "error" || viewState === "forbidden" || viewState === "not_found") {
+    return (
+      <QueryStateNotice
+        state={viewState}
+        description={
+          viewState === "error"
+            ? "Nie udało się pobrać logu aktywności. Zdarzenia istnieją — spróbuj ponownie."
+            : undefined
+        }
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+
+  if (viewState === "empty") {
+    return (
+      <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+        <Activity className="mx-auto mb-3 h-10 w-10 opacity-30" aria-hidden="true" />
+        <p>Brak zdarzeń w logu aktywności</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-xs overflow-hidden">
-      <div className="px-6 py-4 border-b border-border dark:border-border flex items-center gap-2">
-        <Activity className="w-4 h-4 text-primary" />
-        <h3 className="font-semibold text-foreground dark:text-foreground">Ostatnia aktywność użytkowników</h3>
-        <span className="ml-auto text-xs text-muted-foreground">Ostatnie 20 zdarzeń</span>
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+      <div className="flex items-center gap-2 border-b border-border px-6 py-4">
+        <Activity className="h-4 w-4 text-primary" aria-hidden="true" />
+        <h3 className="font-semibold text-foreground">Ostatnia aktywność użytkowników</h3>
+        <span className="ml-auto text-xs text-muted-foreground">
+          Ostatnie {entries.length} zdarzeń
+        </span>
       </div>
-      <div className="divide-y divide-gray-50 dark:divide-gray-700">
-        {recentEntries.map((entry, i) => (
-          <div key={i} className="flex items-center gap-4 px-6 py-3 hover:bg-muted dark:hover:bg-muted/50 transition-colors">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {entry.user_name.charAt(0)}
+      <ul className="divide-y divide-border">
+        {entries.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex items-center gap-4 px-6 py-3 transition-colors hover:bg-muted"
+          >
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground"
+              aria-hidden="true"
+            >
+              {entry.user.charAt(0)}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-foreground dark:text-foreground">{entry.user_name}</span>
-                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", ACTION_COLORS[entry.action] || "bg-muted text-muted-foreground")}>
-                  {ACTION_LABELS[entry.action] || entry.action}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-foreground">{entry.user}</span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                  {feedActionLabel(entry.action, entry.entity_type)}
                 </span>
-                <span className="text-xs text-muted-foreground">#{entry.entity_id}</span>
+                <span className="text-xs text-muted-foreground">
+                  {ENTITY_TYPE_LABELS[entry.entity_type] ?? entry.entity_type}
+                  {entry.entity_id != null ? ` #${entry.entity_id}` : ""}
+                </span>
               </div>
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.description}</p>
             </div>
-            <div className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              {new Date(entry.created_at).toLocaleString("pl-PL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+            {entry.link ? (
+              <Link
+                href={entry.link}
+                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                Otwórz
+              </Link>
+            ) : null}
+            <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" aria-hidden="true" />
+              <time dateTime={entry.timestamp ?? undefined}>{formatDateTimePl(entry.timestamp)}</time>
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
+      {canShowMore ? (
+        <div className="border-t border-border px-6 py-3 text-center">
+          <button
+            type="button"
+            onClick={() => setLimit(FEED_MAX_LIMIT)}
+            disabled={query.isFetching}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            {query.isFetching ? "Ładowanie…" : "Pokaż więcej"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

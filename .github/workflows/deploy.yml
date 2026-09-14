@@ -543,3 +543,52 @@ jobs:
           done
           echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above; a likely cause is a migration column that never landed on prod — mirror it into backend/entrypoint.sh _COLUMN_STATEMENTS (see memory entrypoint-safetynet-new-columns)."
           exit 1
+
+      - name: Alembic revision check (DB bookmark == code heads)
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          # DEP-02 (audyt Codexa, 14.09.2026): `backend/entrypoint.sh` CELOWO
+          # toleruje bledy `alembic upgrade heads` (bookmark na prodzie bywal
+          # osierocony, schemat domyka safety-net DDL), wiec deploy przechodzil
+          # na zielono takze wtedy, gdy zadna nowa migracja nie weszla — a nikt
+          # o tym nie wiedzial, bo /api/health/alembic nie byl nigdzie wolany.
+          # Od stampa 2026-07-30 bookmark = head i migracje aplikuja sie
+          # normalnie; ten krok pilnuje, zeby tak zostalo: zbior `db_versions`
+          # ma byc rowny zbiorowi `code_heads`, a `orphaned` pusty.
+          #
+          # Bez `-f` (jak deep health): cialo JSON z obiema listami jest tym, co
+          # ma wyladowac w logu. Ponowienia lapia chwilowa niedostepnosc bazy
+          # (`db_error`) i restart kontenera; realny rozjazd rewizji jest
+          # deterministyczny i wyczerpuje petle → czerwony deploy.
+          # Deep health w kroku wyzej juz potwierdzil, ze na prodzie stoi NASZ
+          # build (albo jego potomek) — tu nie powtarzamy logiki wersji.
+          if [ -z "$APP_URL" ]; then
+            echo "::error::vars.APP_URL not set in repo settings"
+            exit 1
+          fi
+          for i in $(seq 1 6); do
+            response=$(curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/alembic" 2>/tmp/curl_err || echo '')
+            if [ -n "$response" ] && echo "$response" | jq -e 'type == "object"' >/dev/null 2>&1; then
+              db_versions=$(echo "$response" | jq -c '(.db_versions // []) | sort')
+              code_heads=$(echo "$response" | jq -c '(.code_heads // []) | sort')
+              orphaned=$(echo "$response" | jq -c '.orphaned // []')
+              # Kazdy warunek jawnie: puste `db_versions` przy `db_error` NIE moze
+              # przejsc jako "[] == []" — brak odczytu to nie zgodnosc.
+              if echo "$response" | jq -e '
+                    (.db_error == null) and (.code_error == null)
+                    and ((.db_versions // []) | length > 0)
+                    and (((.db_versions // []) | sort) == ((.code_heads // []) | sort))
+                    and ((.orphaned // []) | length == 0)' >/dev/null; then
+                echo "✅ Pass: alembic bookmark $db_versions == code heads $code_heads, orphaned: $orphaned"
+                exit 0
+              fi
+              echo "Attempt $i: alembic mismatch — db_versions=$db_versions code_heads=$code_heads orphaned=$orphaned $(echo "$response" | jq -c '{db_error, code_error}'), retrying in 15s..."
+            else
+              echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
+            fi
+            sleep 15
+          done
+          echo "::error::Alembic revision check failed after 6 attempts — prod alembic_version ${db_versions:-<no response>} != code heads ${code_heads:-<no response>} (orphaned: ${orphaned:-<no response>}). A migration did not apply on prod: read the entrypoint log for the failing revision, fix it (or stamp deliberately — see docs/alembic-0153-nda-signed-completion-report.md), then redeploy."
+          echo "Last /api/health/alembic response: $(echo "${response:-}" | head -c 600)"
+          exit 1
