@@ -69,7 +69,7 @@ async def get_kpis(
         "dashboard:kpis:v2-contractor-headcount:"
         f"{'ranking' if include_ranking else 'aggregates'}"
     )
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached

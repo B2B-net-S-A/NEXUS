@@ -186,7 +186,8 @@ export function SuggestedCandidatesWidget({
       const data = query.state.data as ProposalSnapshot | null | undefined;
       return data?.status === "pending" ? PENDING_POLL_MS : false;
     },
-    retry: 1,
+    // Bez własnego `retry` — ponowienia chwilowych awarii należą do axios
+    // (reaudyt 14.09, R06).
     enabled: mode === "snapshot",
   });
 

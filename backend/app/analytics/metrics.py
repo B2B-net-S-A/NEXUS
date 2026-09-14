@@ -304,6 +304,7 @@ async def team_kpis(
     period: Period,
     *,
     user_ids: frozenset[int] | None = None,
+    operational_roles_only: bool = True,
 ) -> dict[str, Any]:
     """Wiersze KPI per aktywny user operacyjny — te same definicje co user_kpis.
 
@@ -311,21 +312,29 @@ async def team_kpis(
     (wymóg parity: team totals = suma wierszy, plan §8). ``user_ids=None``
     oznacza jawny scope organizacyjny. Przekazany (również pusty) zbiór jest
     twardym zakresem menedżerskim i filtruje każde źródło przed agregacją.
+
+    ``operational_roles_only=False`` zdejmuje filtr po GŁÓWNEJ roli
+    (``users.role``). Potrzebne, gdy wołający ma już autoryzowaną listę osób
+    ustaloną po WSZYSTKICH rolach (``has_any_role``) — roster HoR bierze np.
+    osobę z główną rolą ``talent_community_manager`` i dodatkową ``recruiter``,
+    a ten filtr by ją po cichu wyciął, zaniżając sumy oznaczone jako pełne
+    (reaudyt 14.09.2026, R01). Bez jawnej listy filtr zostaje zawsze.
     """
     scoped_user_ids = sorted(user_ids) if user_ids is not None else None
-    users_stmt = select(User.id, User.name).where(
-        User.is_active.is_(True),
-        User.role.in_(
-            [
-                "admin",
-                "head_of_recruitment",
-                "delivery_lead",
-                "tac",
-                "recruiter",
-                "sourcer",
-            ]
-        ),
-    )
+    users_stmt = select(User.id, User.name).where(User.is_active.is_(True))
+    if operational_roles_only or scoped_user_ids is None:
+        users_stmt = users_stmt.where(
+            User.role.in_(
+                [
+                    "admin",
+                    "head_of_recruitment",
+                    "delivery_lead",
+                    "tac",
+                    "recruiter",
+                    "sourcer",
+                ]
+            )
+        )
     if scoped_user_ids is not None:
         users_stmt = users_stmt.where(User.id.in_(scoped_user_ids or [-1]))
     users_rows = (await db.execute(users_stmt)).all()

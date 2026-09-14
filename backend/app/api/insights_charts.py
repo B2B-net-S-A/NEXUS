@@ -203,7 +203,7 @@ async def insights_yearly_stats(
         f"insights:charts:yearly:v1:{resolved.cache_suffix}"
         f":{reference.year}-{reference.month:02d}"
     )
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -308,7 +308,7 @@ async def insights_placement_analysis(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     cache_key = f"insights:charts:placements:v1:{resolved.cache_suffix}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached

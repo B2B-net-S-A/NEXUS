@@ -794,11 +794,12 @@ async def build_head_of_recruitment_dashboard(
         allowed = set(scope.payload.operator_user_ids)
         members = [row for row in members if int(row.get("user_id", -1)) in allowed]
 
+    member_ids = frozenset(int(member["user_id"]) for member in members)
+
     async def _team_kpis() -> list[dict[str, Any]]:
         # Jedno źródło dla całego rosteru. Do 09.2026 leciało tu
         # `load_user_kpis` per osoba (3 SQL każde): roster 50 osób = 150
         # zapytań na jedno wejście HoR na dashboard, 100 osób = 300.
-        member_ids = frozenset(int(member["user_id"]) for member in members)
         return await sources.load_team_kpis(member_ids, db, period)
 
     if not team_shape_complete:
@@ -824,6 +825,20 @@ async def build_head_of_recruitment_dashboard(
                 "team_kpis: co najmniej jeden operator nie ma pełnego zestawu KPI",
             )
             team_kpis = None
+        # Kompletność to także OBECNOŚĆ każdej osoby z rosteru, nie tylko
+        # poprawny kształt zwróconych wierszy. Brakujący wiersz zaniża sumę
+        # placementów, która bez tej kontroli wyglądałaby na pełną (R01).
+        if team_kpis is not None:
+            returned_ids = {int(row.get("user_id", -1)) for row in team_kpis}
+            missing = member_ids - returned_ids
+            if missing:
+                _mark_partial(
+                    quality,
+                    "team_kpis",
+                    f"team_kpis: brak wierszy KPI dla {len(missing)} "
+                    "operatorów z rosteru",
+                )
+                team_kpis = None
     quality.set(
         "recruitment_sla",
         "unavailable",
@@ -1689,7 +1704,7 @@ async def build_recruitment_stats_dashboard(
 
     # Jeden wykonawca na klucz: po wygaśnięciu TTL każde równoległe wejście
     # na stronę główną liczyło ciężkie CTE od nowa.
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached:
             response = RecruitmentStatsDashboardResponse.model_validate(cached)

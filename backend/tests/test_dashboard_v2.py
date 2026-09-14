@@ -471,12 +471,12 @@ async def test_delivery_demands_query_uses_resolved_job_ids(
             self.statement = statement
             return _Result()
 
-    async def _serialize(_db: object, _row: object) -> dict[str, Any]:
-        return {"job": {"id": 81}}
+    async def _serialize(_db: object, rows: list[object]) -> list[dict[str, Any]]:
+        return [{"job": {"id": 81}} for _ in rows]
 
     monkeypatch.setattr(
         dashboard_v2_sources.priority_work,
-        "_serialize_demand",
+        "_serialize_demands",
         _serialize,
     )
     db = _Database()
@@ -930,3 +930,96 @@ async def test_partial_finance_summary_marks_every_summary_kpi_partial(
     assert response.data.kpis.margin_pct.quality == "partial"
     if tab == "executive":
         assert response.data.kpis.utilization_pct.quality == "partial"
+
+
+def _complete_member(user_id: int) -> dict[str, Any]:
+    return {
+        "user_id": user_id,
+        "user_name": f"Operator {user_id}",
+        "role": "recruiter",
+        "roles": ["recruiter"],
+        "assignments": [],
+        "verification_capacity": 5,
+        "carry_over_count": 0,
+        "urgent_carry_over_count": 0,
+    }
+
+
+async def _hor_dashboard_with_kpi_rows(
+    monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]]
+) -> Any:
+    leader = _user(UserRole.head_of_recruitment)
+    scope = ResolvedDashboardScope(
+        raw=object(),
+        payload=DashboardScopePayload(
+            kind="organization",
+            user_id=leader.id,
+            tac_user_ids=[],
+            operator_user_ids=[],
+        ),
+    )
+    requested: list[frozenset[int]] = []
+
+    async def _scope(*_args: Any) -> ResolvedDashboardScope:
+        return scope
+
+    async def _team(*_args: Any) -> dict[str, Any]:
+        return {
+            "members": [_complete_member(21), _complete_member(22)],
+            "unowned_carry_over_count": 0,
+            "overdue": False,
+        }
+
+    async def _contact(*_args: Any) -> dict[str, Any]:
+        return {"counters": {}}
+
+    async def _team_kpis(user_ids: frozenset[int], *_args: Any) -> list[dict[str, Any]]:
+        requested.append(user_ids)
+        return rows
+
+    monkeypatch.setattr(dashboard_v2_sources, "resolve_scope", _scope)
+    monkeypatch.setattr(dashboard_v2_sources, "load_team_priority_work", _team)
+    monkeypatch.setattr(dashboard_v2_sources, "load_contact_oversight", _contact)
+    monkeypatch.setattr(dashboard_v2_sources, "load_team_kpis", _team_kpis)
+    response = await build_head_of_recruitment_dashboard(
+        leader,
+        object(),  # type: ignore[arg-type]
+        resolve_period("month"),
+    )
+    # Jedno źródło dla całego rosteru, z pełnym zbiorem osób.
+    assert requested == [frozenset({21, 22})]
+    return response
+
+
+def _kpi_row(user_id: int, placements: int) -> dict[str, Any]:
+    return {
+        "user_id": user_id,
+        "completed_calls": 0,
+        "first_verifications": 0,
+        "first_recommendations": 0,
+        "first_placements": placements,
+    }
+
+
+@pytest.mark.asyncio
+async def test_missing_roster_person_in_team_kpis_is_partial_not_a_lower_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reaudyt 14.09 (R01): brak wiersza osoby z rosteru nie może udawać pełnej sumy."""
+    response = await _hor_dashboard_with_kpi_rows(monkeypatch, [_kpi_row(21, 3)])
+
+    assert response.data.kpis.placements.value is None
+    assert response.data_quality.sections["team_kpis"].status == "partial"
+
+
+@pytest.mark.asyncio
+async def test_complete_team_kpis_sum_placements_for_the_whole_roster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = await _hor_dashboard_with_kpi_rows(
+        monkeypatch, [_kpi_row(21, 3), _kpi_row(22, 2)]
+    )
+
+    assert response.data.kpis.placements.value == 5
+    assert response.data_quality.sections["team_kpis"].status == "complete"
+

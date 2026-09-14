@@ -124,7 +124,7 @@ async def insights_team_table(
     # okresu wyszłyby pod etykietą drugiego — obie wyglądają wiarygodnie,
     # więc nikt by się nie dowiedział.
     cache_key = f"insights:team:table:v1:{resolved.cache_suffix}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached

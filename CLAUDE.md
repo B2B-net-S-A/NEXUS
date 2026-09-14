@@ -198,33 +198,62 @@ Zobacz `~/.claude/rules/observability.md` dla pełnego standardu (Sentry + Grafa
 - **Alloy sidecar:** profile-gated (`profiles: [observability]`). Bez `COMPOSE_PROFILES=observability` w Coolify nie startuje. Po dodaniu Grafana creds → `{app="nexus"}` zwraca logi z 4 services + structured fields (FastAPI JSON logging od PR #108).
 - **Cloudflare:** `api.nexus.dynaminds.pl` — proxy ON, Full strict TLS, OWASP CRS PL2, rate limit `/api/auth/*` 10 req/min/IP. Backend ma już `slowapi` rate limiter — Cloudflare to pierwsza linia, slowapi druga.
 
-## Stabilizacja pod obciążeniem — reguły po audycie 13.09.2026
+## Stabilizacja pod obciążeniem — reguły po audycie 13.09 i reaudycie 14.09.2026
 
-Audyt `docs/performance-and-availability-audit-2026-09-13.md` (12 ustaleń, wszystkie
-potwierdzone w kodzie) i PR „stabilizacja bez zmiany architektury” ustaliły cztery
-reguły, które łatwo cofnąć „przy okazji”:
+Audyt `docs/performance-and-availability-audit-2026-09-13.md`, reaudyt
+`docs/performance-and-availability-reaudit-2026-09-14.md` i dwa PR-y naprawcze
+ustaliły reguły, które łatwo cofnąć „przy okazji”:
+
+- **„No available server” to przede wszystkim DEPLOYE, nie obciążenie.** Oba
+  zarejestrowane 503 frontendu (06.09 18:13, 08.09 06:21 UTC) wypadły w trakcie
+  deployu; 31.08–11.09 było 81 przebudów produkcji w godzinach pracy (do 17
+  dziennie). Dopóki nie ma bezprzerwowego deployu, merguj na `main` poza
+  godzinami pracy albo zbieraj zmiany w jeden merge.
 
 - **Ponowienia HTTP należą do interceptora axios (`lib/api.ts`), nie do react-query.**
   `QueryProvider` ma `retry: 0`. Druga warstwa mnożyła jeden odczyt do 6 żądań przy
   503 z bramy. Zapisy ponawiane są WYŁĄCZNIE na 502/503 z realną odpowiedzią — tej
-  logiki nie ujednolicaj z odczytami (test `api-transient-retry.test.ts`).
+  logiki nie ujednolicaj z odczytami (test `api-transient-retry.test.ts`). Żaden
+  komponent nie ustawia własnego `retry: N>0` (pilnuje `QueryProvider.test.tsx`).
+  `Retry-After` NIE jest czytany: CORS go nie wystawia, więc byłby martwym kodem.
 - **Interwały odpytywania w tle są stałymi w `frontend/src/lib/polling.ts`.** Dzwonek,
   KPI i sekcje dashboardu to siatka bezpieczeństwa pod WebSocketem (5 min), nie źródło
   świeżości. Do 09.2026 sam otwarty dashboard robił ~9,5 GET/min na kartę bez klikania.
   Nowy `refetchInterval` w komponencie shellu/dashboardu = import stałej stamtąd.
+  Rzadki polling działa tylko dlatego, że powrót gniazda (`useNotifications`,
+  `onopen` po zerwaniu) odświeża powiadomienia i KPI — nie usuwaj tego odświeżenia.
+  Ponowne łączenie ma rozrzut 50–100% (`reconnectDelayMs`), fallback pomija ukrytą kartę.
 - **Sekcje Insights poza pierwszą montują się przez `DeferUntilVisible`** — kotwica
-  `<InsightsSection id>` zostaje na zewnątrz wrappera (pasek sekcji i `#hash` działają).
-  Pilnuje tego `InsightsSectionNavContract.test.ts`.
+  `<InsightsSection id>` zostaje na zewnątrz wrappera, a `InsightsSectionNav` przypina
+  cel (`lib/anchor-pin.ts`) na czas doczytywania — bez tego sekcje nad celem rosły
+  po skoku i „Źródła” lądowały 3180 px pod ekranem. Przypięcie ustępuje pierwszej
+  akcji użytkownika. Pilnuje tego `InsightsSectionNavContract.test.ts` i `anchor-pin.test.ts`.
 - **Drogi snapshot pod jednym kluczem cache liczy jeden wykonawca:** `cache_single_flight`
   z `app/core/cache.py` (podwójne sprawdzenie w środku) + `jitter_seconds` w `cache_set`.
-  `_lock` w tym module chroni słownik, nie obliczenie.
+  `_lock` w tym module chroni słownik, nie obliczenie. Przekazuj `db=db`: oczekujący
+  przy kontencji oddaje połączenie do puli (`release_idle_connection` — tylko sesja bez
+  niezapisanych zmian; `rollback()` odpada, bo wygasza `current_user`). To samo przed
+  długim wywołaniem zewnętrznym (rerank w podglądzie CV).
+- **KPI zespołu HoR: `metrics.team_kpis(..., operational_roles_only=False)`.** Roster
+  jest ustalany po WSZYSTKICH rolach (`has_any_role`); filtr głównej roli wycinał np.
+  TCM z dodatkową rolą recruiter. Brak wiersza którejkolwiek osoby z rosteru = sekcja
+  `partial`, nie niższa suma.
+- **Demandy priorytetów serializuj hurtowo (`_serialize_demands`)** — stała liczba
+  zapytań; `_serialize_demand` to nakładka dla pojedynczego wiersza. Wersja per wiersz
+  wołana bez `current_assignments` ładowała cały plan dla każdego demandu.
 - **Eksport XLSX buduje `_build_xlsx_bytes` w `asyncio.to_thread`**, na małych wierszach,
   nie na ORM; `GET /api/candidates/export` jest legacy bez konsumenta i dzieli pomocniki
   z `POST`. `UPDATE candidate_documents … document_kind='cv'` w `entrypoint.sh` MUSI mieć
   `IS DISTINCT FROM 'cv'` — bez tego przepisuje ~136 tys. wierszy na każdy deploy.
 - **Pliki robocze uploadów: `tempfile.NamedTemporaryFile`, nigdy nazwa z przeglądarki.**
   `from-cv` do 09.2026 dzielił jedną ścieżkę między równoległymi żądaniami o tej samej
-  nazwie pliku (kolizja treści CV). Limit rozmiaru (`_validate_upload_size`) PRZED zapisem.
+  nazwie pliku (kolizja treści CV). Upload czytaj przez `_read_upload_bounded`
+  (limit + 1 bajt), nie `await file.read()` — API nie stoi za Cloudflare, więc nic
+  wcześniej nie tnie ciała żądania.
+- **Błędy zapytań i mutacji react-query raportuje `lib/query-error-telemetry.ts`**
+  (QueryCache/MutationCache w `QueryProvider`): tylko sieć/timeout/5xx, syntetyczne
+  zdarzenie bez treści żądania, próbka 10% z deduplikacją. ChunkLoadError jest w Sentry
+  próbkowany (5%), nie ignorowany — to pomiar wpływu deployów na otwarte karty.
 
 Świadomie poza tym PR-em (wymagają decyzji i pracy w Coolify): wydzielenie workera
 (4 moduły pętli piszą na WS przez in-process manager), deploy bez przerwy (compose build

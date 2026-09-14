@@ -461,7 +461,11 @@ async def test_current_response_keeps_effective_mode_without_a_plan(
 
 def test_team_and_demand_read_models_expose_server_validated_context() -> None:
     team_source = inspect.getsource(priority_work.get_team_priority_work)
-    demand_source = inspect.getsource(priority_work._serialize_demand)
+    # Serializacja jest hurtowa (`_serialize_demands` ładuje źródła raz,
+    # `_demand_payload` składa wiersz) — kontrakt kształtu sprawdzamy na obu.
+    demand_source = inspect.getsource(
+        priority_work._serialize_demands
+    ) + inspect.getsource(priority_work._demand_payload)
     assert "JobSecondaryCc.competence_category_id" in demand_source
     assert '"competence_category_ids": sorted(' in demand_source
     assignment_source = inspect.getsource(priority_work._assignment_payloads)

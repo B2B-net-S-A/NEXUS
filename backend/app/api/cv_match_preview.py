@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import require_candidate_read
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import get_db, release_idle_connection
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.models.job import Job, JobStatus
@@ -324,6 +324,10 @@ async def cv_upload_preview(
         # when enabled. Replaces Qdrant cosine in similarity_map; downstream
         # scoring still applies (semantic 40 / skills 30 / salary 15 / loc 10 / avail 5).
         if rerank_enabled and jobs:
+            # Rerank to zewnętrzne wywołanie (timeout do 30 s). Oferty są już
+            # w pamięci, a dalsze zapytania pobiorą nowe połączenie — oddajemy
+            # je do puli na czas czekania (reaudyt 14.09.2026, R05).
+            await release_idle_connection(db)
             ordered_jobs = [
                 j for j in sorted(jobs, key=lambda j: -similarity_map.get(j.id, 0.0))
             ]
