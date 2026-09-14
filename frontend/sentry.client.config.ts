@@ -6,6 +6,7 @@
 // block all media so personal data never leaves the user's browser.
 //
 import * as Sentry from '@sentry/nextjs'
+import { apiTraceTargets, probeTelemetryCapability } from './src/lib/telemetry-capability'
 
 import { scrubSentryEvent, firstInSession } from './src/lib/sentry-privacy'
 
@@ -18,6 +19,7 @@ const HYDRATION_ERROR_RE = /hydration|Hydration|Minified React error #(418|423|4
 const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
 if (dsn) {
+    void probeTelemetryCapability()
     Sentry.init({
         dsn,
         environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? 'production',
@@ -28,7 +30,7 @@ if (dsn) {
         replaysSessionSampleRate: 0,
         replaysOnErrorSampleRate: 0.1,
         sendDefaultPii: false,
-        tracePropagationTargets: [/^https:\/\/api\.nexus\.dynaminds\.pl(?:\/|$)/],
+        tracePropagationTargets: apiTraceTargets,
         beforeSendTransaction: scrubSentryEvent,
         integrations: [
             Sentry.replayIntegration({

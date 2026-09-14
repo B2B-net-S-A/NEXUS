@@ -1,171 +1,127 @@
-"""Daily Sentry health digest -> Slack.
-
-Queries Sentry REST API for top unresolved + newly-seen issues across NEXUS
-projects (last 24h) and posts a summary to Slack. Designed to run under
-GitHub Actions cron — stdlib only, no extra pip install needed.
-
-Environment:
-    SENTRY_AUTH_TOKEN   Personal/Internal token with `project:read` + `event:read`
-    SLACK_WEBHOOK_URL   Incoming webhook for #nexus-alerts (or env override)
-    SENTRY_ORG          Sentry organization slug (default: b2bnet-sa)
-    SENTRY_PROJECTS     Comma-separated project slugs (default: nexus-be,nexus-fe)
-    SENTRY_HOST         API host (default: sentry.io — works for b2bnet-sa.sentry.io)
-    TOP_N               Issues per category (default: 5)
-
-Exit codes:
-    0   Slack notified (or DRY_RUN echoed to stdout)
-    1   Sentry API failure (network / auth / 5xx)
-    2   Slack delivery failure
-"""
-
+"""Production Sentry digest to Teams Workflows. No private issue titles in output."""
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-
-SENTRY_HOST = os.environ.get("SENTRY_HOST", "sentry.io")
-SENTRY_ORG = os.environ.get("SENTRY_ORG", "b2bnet-sa")
-SENTRY_PROJECTS = [
-    p.strip()
-    for p in os.environ.get("SENTRY_PROJECTS", "nexus-be,nexus-fe").split(",")
-    if p.strip()
-]
-TOP_N = int(os.environ.get("TOP_N", "5"))
+SENTRY_HOST = os.environ.get('SENTRY_HOST', 'b2bnet-sa.sentry.io')
+SENTRY_ORG = os.environ.get('SENTRY_ORG', 'b2bnet-sa')
+SENTRY_PROJECTS = [p.strip() for p in os.environ.get('SENTRY_PROJECTS', 'nexus-be,nexus-fe').split(',') if p.strip()]
+SAFE_ID = re.compile(r'^[A-Za-z0-9_.:-]{1,80}$')
 
 
-def fetch_issues(token: str, project: str, query: str, sort: str) -> list[dict]:
-    """Query Sentry issues endpoint and return parsed JSON list."""
-    params = urllib.parse.urlencode(
-        {
-            "query": query,
-            "statsPeriod": "24h",
-            "sort": sort,
-            "limit": str(TOP_N),
-        }
-    )
-    url = f"https://{SENTRY_HOST}/api/0/projects/{SENTRY_ORG}/{project}/issues/?{params}"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        body = resp.read().decode("utf-8")
-    return json.loads(body)
+def safe(value, fallback='unknown'):
+    value = str(value or '')
+    return value if SAFE_ID.fullmatch(value) else fallback
 
 
-def format_issue_line(issue: dict, *, redact: bool = False) -> str:
-    """One-line Slack mrkdwn rendering of a Sentry issue.
-
-    ``redact`` drops the title: it is a raw exception message and can carry
-    candidate data, and the repository is public, so anything printed to the
-    Actions log is readable by anyone. The short id is enough to find it.
-    """
-    count = issue.get("count", "?")
-    users = issue.get("userCount", "?")
-    short_id = issue.get("shortId", "")
-    if redact:
-        return f"• {short_id} (events: {count}, users: {users})"
-    title = issue.get("title", "<no title>")[:120]
-    permalink = issue.get("permalink", "")
-    return f"• <{permalink}|{short_id}> — {title} (events: {count}, users: {users})"
-
-
-def project_section(token: str, project: str, *, redact: bool = False) -> str:
-    """Build the Slack block for one Sentry project."""
-    try:
-        unresolved = fetch_issues(
-            token, project, "is:unresolved", sort="freq"
-        )
-        new_issues = fetch_issues(
-            token, project, "is:unresolved age:-24h", sort="new"
-        )
-    except urllib.error.HTTPError as exc:
-        return f"*{project}* — API error {exc.code}: {exc.reason}"
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return f"*{project}* — network error: {exc}"
-
-    lines = [f"*{project}*"]
-    if unresolved:
-        lines.append(f"_Top {len(unresolved)} unresolved (24h, by freq)_")
-        lines.extend(format_issue_line(i, redact=redact) for i in unresolved)
-    else:
-        lines.append("_No unresolved issues in last 24h_ ✅")
-
-    if new_issues:
-        lines.append(f"_New issues last 24h_ ({len(new_issues)})")
-        lines.extend(format_issue_line(i, redact=redact) for i in new_issues)
-
-    return "\n".join(lines)
+def fetch_issues(token: str, project: str, query: str = 'is:unresolved', sort: str = 'freq') -> list[dict]:
+    params = {'query': query, 'environment': 'production', 'statsPeriod': '24h', 'sort': sort, 'limit': '100'}
+    base = f'https://{SENTRY_HOST}/api/0/projects/{SENTRY_ORG}/{project}/issues/'
+    result, cursors = {}, set()
+    for _ in range(100):
+        req = urllib.request.Request(base + '?' + urllib.parse.urlencode(params), headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=20) as response:
+            rows = json.loads(response.read())
+            links = response.headers.get('Link', '')
+        if not isinstance(rows, list):
+            raise ValueError('Invalid Sentry response')
+        for issue in rows:
+            result[str(issue['id'])] = issue
+        next_link = next((part for part in links.split(',') if 'rel="next"' in part and 'results="true"' in part), None)
+        if not next_link:
+            return list(result.values())
+        cursor = re.search(r'cursor="([^"]+)"', next_link)
+        if not cursor or cursor[1] in cursors:
+            raise ValueError('Invalid pagination cursor')
+        cursors.add(cursor[1])
+        params['cursor'] = cursor[1]
+    raise ValueError('Pagination limit exceeded; report incomplete')
 
 
-def build_message(token: str, *, redact: bool = False) -> str:
-    """Assemble the full Slack message body."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    sections = [project_section(token, p, redact=redact) for p in SENTRY_PROJECTS]
-    header = f":mag: *NEXUS Sentry daily digest* — {today}"
-    footer = (
-        "_Runbook: docs/sentry-monitoring.md · "
-        "Alert rules: docs/sentry-alerts-runbook.md_"
-    )
-    return "\n\n".join([header, *sections, footer])
+def format_issue_line(issue: dict, *, redact: bool = True) -> str:
+    issue_id = str(issue.get('id', ''))
+    if not issue_id.isdigit():
+        raise ValueError('Invalid issue identifier')
+    # stats[24h] is explicitly windowed; lifetime count is never labelled 24h.
+    points = (issue.get('stats') or {}).get('24h')
+    count = sum(p[1] for p in points) if isinstance(points, list) else 'unavailable'
+    owner = issue.get('assignedTo') or {}
+    owner_label = 'assigned' if owner else 'ARTUR: unassigned'
+    status = safe(issue.get('status'))
+    release = issue.get('lastRelease') or {}
+    if isinstance(release, dict):
+        release = release.get('version')
+    last_seen = safe(issue.get('lastSeen'))
+    short_id = safe(issue.get('shortId'), issue_id)
+    return (f'[{short_id}](https://{SENTRY_HOST}/issues/{issue_id}/) — {status}; '
+            f'events/24h: {count}; {owner_label}; release: {safe(release)}; last seen: {last_seen}. '
+            'Operation, terminal/retry and linked PR: inspect issue context.')
 
 
-def post_to_slack(webhook: str, text: str) -> None:
-    """POST mrkdwn-formatted text to a Slack incoming webhook."""
-    payload = json.dumps({"text": text}).encode("utf-8")
-    req = urllib.request.Request(
-        webhook,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        if resp.status >= 300:
-            raise RuntimeError(f"Slack returned {resp.status}")
+def project_section(token: str, project: str, *, redact: bool = True) -> str:
+    rows = fetch_issues(token, project)
+    new_ids = {str(i['id']) for i in fetch_issues(token, project, 'is:unresolved age:-24h', 'new')}
+    lines = [f'**{safe(project)} — production, 24h ({len(rows)} issues)**']
+    for issue in rows:
+        prefix = 'NEW: ' if str(issue['id']) in new_ids else ''
+        lines.append(prefix + format_issue_line(issue))
+    if not rows:
+        lines.append('No unresolved issues returned. This alone does not prove healthy ingestion.')
+    return '\n\n'.join(lines)
+
+
+def build_message(token: str, *, redact: bool = True) -> str:
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+    return '\n\n'.join([f'**NEXUS Sentry — {now}**', 'Triage: artur.twardowski@b2bnetwork.pl', *[project_section(token, p) for p in SENTRY_PROJECTS]])
+
+
+def post_to_teams(webhook: str, message: str) -> None:
+    # Keep each Adaptive Card bounded, without truncating the report silently.
+    chunks, current = [], ''
+    for paragraph in message.split('\n\n'):
+        if len((current + paragraph).encode()) > 16000:
+            chunks.append(current)
+            current = ''
+        current += paragraph + '\n\n'
+    if current:
+        chunks.append(current)
+    for chunk in chunks:
+        card = {'type': 'message', 'attachments': [{'contentType': 'application/vnd.microsoft.card.adaptive', 'content': {'type': 'AdaptiveCard', 'version': '1.2', 'body': [{'type': 'TextBlock', 'text': chunk, 'wrap': True}]}}]}
+        req = urllib.request.Request(webhook, data=json.dumps(card).encode(), headers={'Content-Type': 'application/json'}, method='POST')
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError('Teams rejected the report')
 
 
 def main() -> int:
-    token = os.environ.get("SENTRY_AUTH_TOKEN", "")
-    webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
-    dry_run = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
-
-    if not token:
-        print("ERROR: SENTRY_AUTH_TOKEN is not set", file=sys.stderr)
+    token = os.environ.get('SENTRY_READ_TOKEN', '')
+    webhook = os.environ.get('TEAMS_SENTRY_WEBHOOK_URL', '')
+    dry_run = os.environ.get('DRY_RUN', '').lower() in ('1', 'true')
+    if not token or (not webhook and not dry_run):
+        print('ERROR: required Sentry read token or Teams receiver missing', file=sys.stderr)
         return 1
-
-    # The Actions log of a public repository is public: the full digest (issue
-    # titles are raw exception messages) goes only to Slack; the log gets the
-    # redacted variant with counts and short ids.
-    deliver = bool(webhook) and not dry_run
     try:
-        message = build_message(token, redact=not deliver)
-    except Exception as exc:  # surface to GH Actions
-        print(f"ERROR: failed to build digest: {exc}", file=sys.stderr)
+        message = build_message(token)
+    except Exception as exc:
+        print(f'ERROR: incomplete Sentry read ({type(exc).__name__})', file=sys.stderr)
         return 1
-
-    if not deliver:
+    if dry_run:
         print(message)
-        print("(dry-run / no webhook — skipping Slack POST)", file=sys.stderr)
         return 0
-
     try:
-        post_to_slack(webhook, message)
-    except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
-        print(f"ERROR: Slack delivery failed: {exc}", file=sys.stderr)
+        post_to_teams(webhook, message)
+    except Exception as exc:
+        print(f'ERROR: Teams delivery failed ({type(exc).__name__})', file=sys.stderr)
         return 2
-
-    print(f"Digest delivered to Slack ({len(SENTRY_PROJECTS)} projects).")
+    print(f'Teams accepted digest for {len(SENTRY_PROJECTS)} projects; initial setup requires channel receipt verification.')
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

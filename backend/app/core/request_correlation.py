@@ -1,6 +1,8 @@
 """Per-request correlation without trusting caller-supplied private values."""
 
 from uuid import UUID, uuid4
+import logging
+import time
 
 import sentry_sdk
 
@@ -12,6 +14,8 @@ class RequestCorrelationMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        started = time.monotonic()
+        status_code = 500
         request_id = str(uuid4())
         headers = dict(scope.get("headers", []))
         try:
@@ -25,7 +29,9 @@ class RequestCorrelationMiddleware:
         )
 
         async def send_correlated(message):
+            nonlocal status_code
             if message["type"] == "http.response.start":
+                status_code = message["status"]
                 message = {
                     **message,
                     "headers": [
@@ -39,4 +45,19 @@ class RequestCorrelationMiddleware:
             context.set_context(
                 "correlation", {"request_id": request_id, "operation_id": operation_id}
             )
-            await self.app(scope, receive, send_correlated)
+            try:
+                await self.app(scope, receive, send_correlated)
+            finally:
+                route = getattr(scope.get("route"), "path", "unmatched-route")
+                logging.getLogger(__name__).info(
+                    "http_outcome",
+                    extra={
+                        "event_kind": "http_outcome",
+                        "route": route,
+                        "method": scope.get("method", "UNKNOWN"),
+                        "status_code": status_code,
+                        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                        "request_id": request_id,
+                        "operation_id": operation_id,
+                    },
+                )

@@ -1,6 +1,6 @@
 name: Sentry daily monitor
 
-# Daily Sentry health digest -> Slack. Replaces the session-only Claude
+# Daily Sentry health digest -> Teams. Replaces the session-only Claude
 # CronCreate cron `393ccf85` (which auto-expires after 7 days) with a
 # durable GH Actions schedule. Setup + secrets: docs/sentry-monitoring.md.
 
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   digest:
-    name: Sentry digest -> Slack
+    name: Sentry digest -> Teams
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -28,19 +28,9 @@ jobs:
 
       - name: Run Sentry digest
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          TEAMS_SENTRY_WEBHOOK_URL: ${{ secrets.TEAMS_SENTRY_WEBHOOK_URL }}
           SENTRY_HOST: b2bnet-sa.sentry.io
           SENTRY_ORG: b2bnet-sa
           SENTRY_PROJECTS: nexus-be,nexus-fe
-          TOP_N: "5"
-        run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
-            echo "::warning::SENTRY_AUTH_TOKEN secret not set — skipping digest."
-            echo "::warning::See docs/sentry-monitoring.md for setup."
-            exit 0
-          fi
-          if [ -z "$SLACK_WEBHOOK_URL" ]; then
-            echo "::warning::SLACK_WEBHOOK_URL secret not set — running in dry-run mode (stdout only)."
-          fi
-          python .github/scripts/sentry_daily_digest.py
+        run: python .github/scripts/sentry_daily_digest.py
