@@ -60,3 +60,27 @@ def to_whole_pln(value: Any) -> Any:
 
 WholePLN = Annotated[int, BeforeValidator(to_whole_pln)]
 """``int`` w pełnych złotych, tolerancyjny na ``Decimal``/``float`` na wejściu."""
+
+
+_GROSZ = Decimal("0.01")
+
+
+def to_grosze_pln(value: Any) -> Any:
+    """Zaokrągl kwotę do groszy (pół w górę) i oddaj ``float``. Reszta typów bez zmian.
+
+    Dla stawek GODZINOWYCH, które mają część dziesiętną z definicji
+    (1340 zł/MD ÷ 8 = 167,50 zł/h) — ``WholePLN`` by ją uciął. ``float``,
+    a nie ``Decimal``: pydantic serializuje ``Decimal`` do stringa, a front
+    traktuje te pola jak liczby.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Decimal):
+        return float(value.quantize(_GROSZ, rounding=ROUND_HALF_UP))
+    if isinstance(value, (int, float)):
+        return float(Decimal(str(value)).quantize(_GROSZ, rounding=ROUND_HALF_UP))
+    return value
+
+
+GroszePLN = Annotated[float, BeforeValidator(to_grosze_pln)]
+"""``float`` w złotych z dokładnością do grosza, tolerancyjny na ``Decimal``."""

@@ -84,6 +84,10 @@ const PROFILE: ClientProfileResponse = {
       monthly_rate_candidate: 12000,
       monthly_rate_client: 18000,
       monthly_margin: 6000,
+      // Tabela pokazuje stawki GODZINOWO (MD ÷ 8 po stronie backendu) —
+      // wartości różne od miesięcznych, żeby pomylenie pól było mierzalne.
+      hourly_rate_candidate: 125,
+      hourly_rate_client: 167.5,
       currency: "PLN",
       project_part: null,
     },
@@ -106,6 +110,8 @@ const PROFILE: ClientProfileResponse = {
       monthly_rate_candidate: null,
       monthly_rate_client: null,
       monthly_margin: null,
+      hourly_rate_candidate: null,
+      hourly_rate_client: null,
       currency: "PLN",
       project_part: null,
     },
@@ -158,6 +164,8 @@ const PROFILE: ClientProfileResponse = {
         monthly_rate_candidate: 21600,
         monthly_rate_client: 24800,
         monthly_margin: 3200,
+        hourly_rate_candidate: 135,
+        hourly_rate_client: 155,
         total_revenue: 322400,
       },
     ],
@@ -247,9 +255,9 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(headers).toEqual([
       "Konsultant",
       "Start date",
-      "Stawka kosztowa",
-      "Stawka przychodowa",
-      "Marża",
+      "Stawka kosztowa [godz.]",
+      "Stawka przychodowa [godz.]",
+      "Marża [mc]",
       "Akcje",
     ]);
     // Ta sekcja pokazuje TYLKO aktualnie przypisanych konsultantów, więc data
@@ -257,13 +265,19 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(headers).not.toContain("End date");
   });
 
-  it("pokazuje stawki i marżę w osobnych kolumnach", async () => {
+  it("pokazuje stawki godzinowe i miesięczną marżę w osobnych kolumnach", async () => {
     renderTab();
     await screen.findByText("Tomasz Sadowski");
 
-    expect(screen.getByText("12 000,00 zł")).toBeInTheDocument();
-    expect(screen.getByText("18 000,00 zł")).toBeInTheDocument();
-    expect(screen.getByText("6000,00 zł")).toBeInTheDocument();
+    const row = screen.getByText("Tomasz Sadowski").closest("tr");
+    // Intl wstawia twardą spację przed „zł" — normalizujemy, liczy się kwota.
+    const cells = Array.from(row?.querySelectorAll("td") ?? []).map((td) =>
+      (td.textContent ?? "").replace(/\s/g, " ").trim(),
+    );
+    expect(cells.slice(2, 5)).toEqual(["125,00 zł", "167,50 zł", "6000,00 zł"]);
+    // Kwoty miesięczne stawek NIE trafiają już do tabeli.
+    expect(screen.queryByText("12 000,00 zł")).toBeNull();
+    expect(screen.queryByText("18 000,00 zł")).toBeNull();
   });
 
   it("rekrutacja stoi pod nazwiskiem, a jej brak zostawia PUSTY wiersz", async () => {
@@ -321,16 +335,16 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(headers).toEqual([
       "Konsultant",
       "Start date",
-      "Stawka kosztowa",
-      "Stawka przychodowa",
-      "Marża",
+      "Stawka kosztowa [godz.]",
+      "Stawka przychodowa [godz.]",
+      "Marża [mc]",
       "End date",
       "Akcje",
     ]);
     expect(screen.getByText("31.03.2026")).toBeInTheDocument();
-    // Archiwum niesie ten sam komplet stawek co „Obecni".
-    expect(screen.getByText("21 600,00 zł")).toBeInTheDocument();
-    expect(screen.getByText("24 800,00 zł")).toBeInTheDocument();
+    // Archiwum niesie ten sam komplet stawek co „Obecni" — też godzinowo.
+    expect(screen.getByText("135,00 zł")).toBeInTheDocument();
+    expect(screen.getByText("155,00 zł")).toBeInTheDocument();
   });
 
   it("planowani konsultanci mają własną zakładkę i nie siedzą w Obecnych", async () => {

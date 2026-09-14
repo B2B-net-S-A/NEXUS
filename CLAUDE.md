@@ -557,8 +557,19 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 
 Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
 (`components/client-profile/ConsultantsTable.tsx`), nie karty. Kolumny: `Konsultant`
-(nazwisko / tag CC / **rekrutacja**) · `Start date` · `Stawka kosztowa` ·
-`Stawka przychodowa` · `Marża` (+ `End date` tylko w Archiwum, + `Akcje` w obu).
+(nazwisko / tag CC / **rekrutacja**) · `Start date` · `Stawka kosztowa [godz.]` ·
+`Stawka przychodowa [godz.]` · `Marża [mc]` (+ `End date` tylko w Archiwum, + `Akcje` w obu).
+
+- **Obie stawki są GODZINOWE, marża MIESIĘCZNA (ticket 09.2026).** Kolumny czytają
+  `hourly_rate_candidate`/`hourly_rate_client` (`clients._hourly_rate` →
+  `order_rate_snapshots.convert_order_rate`), nie `monthly_rate_*`. Źródłem jest
+  jednostka KONTRAKTU, która trzyma się jednostki najnowszego zamówienia
+  (`contract_order_sync`): godzinowa bez przeliczenia, MD ÷ 8, legacy kontrakt
+  miesięczny ÷ `billing_hours_per_month`. To wyłącznie warstwa wyświetlania —
+  zamówienia i kontrakty zostają w swojej jednostce. Typ `GroszePLN` (grosze,
+  `float`), NIE `WholePLN`: 1340 zł/MD ÷ 8 = 167,50. Marża i kafel „Aktywne MRR"
+  zostają miesięczne (kafel = suma kolumny „Marża [mc]") — decyzja Artura.
+  Pola godzinowe są redagowane razem z miesięcznymi (active, planned, archiwum).
 
 - **Stawki idą z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.** Kolumna niesie
   wartość zapisaną przy ostatnim ZAPISIE kontraktu, więc stawka progresywna albo

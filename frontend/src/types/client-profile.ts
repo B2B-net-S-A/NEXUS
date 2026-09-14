@@ -92,6 +92,10 @@ export interface ActiveConsultantItem {
   /** Stawka kosztowa /mc (ticket #5) — redagowana bez VIEW_FINANCE. */
   monthly_rate_candidate?: number | null;
   monthly_margin: number | null;
+  /** Stawki GODZINOWE do tabeli konsultantów: jednostka zamówienia, MD ÷ 8.
+      Redagowane razem z kwotami miesięcznymi. */
+  hourly_rate_client?: number | null;
+  hourly_rate_candidate?: number | null;
   currency: string;
   /** „Część umowy" e-Zdrowia z reprezentatywnego (bieżącego) zamówienia
       kontraktu — null u innych klientów i gdy nieuzupełniona. */
@@ -118,6 +122,9 @@ export interface HistoricalPlacementItem {
   monthly_rate_client: number | null;
   monthly_rate_candidate: number | null;
   monthly_margin: number | null;
+  /** Godzinowo, na dzień zakończenia — jak w „Obecnych konsultantach". */
+  hourly_rate_client?: number | null;
+  hourly_rate_candidate?: number | null;
   total_revenue: number | null;
 }
 

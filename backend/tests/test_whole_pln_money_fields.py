@@ -281,3 +281,31 @@ def test_whole_pln_still_rejects_non_numeric() -> None:
         ActiveConsultantItem(
             contract_id=1, candidate=_candidate_brief(), monthly_margin="dużo"
         )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (Decimal("167.500"), 167.5),  # 1340 zł/MD ÷ 8
+        (Decimal("141.180"), 141.18),  # stawka godzinowa z groszami
+        (Decimal("167.505"), 167.51),  # pół grosza → w górę
+        (Decimal("167.504"), 167.5),  # w dół
+        (120, 120.0),
+        (None, None),
+    ],
+)
+def test_hourly_rate_keeps_grosze(value: object, expected: object) -> None:
+    """Stawka godzinowa w profilu klienta NIE jest zaokrąglana do pełnych złotych.
+
+    ``WholePLN`` zamieniłby 167,50 zł/h w 168 zł/h — błąd widoczny od razu przy
+    porównaniu z zamówieniem w MD. Wynik jest liczbą (``float``), nie stringiem,
+    jak dałby ``Decimal`` po serializacji.
+    """
+    from app.schemas.client_profile import ActiveConsultantItem
+
+    item = ActiveConsultantItem(
+        contract_id=1, candidate=_candidate_brief(), hourly_rate_client=value
+    )
+    assert item.hourly_rate_client == expected
+    dumped = item.model_dump(mode="json")["hourly_rate_client"]
+    assert dumped is None or isinstance(dumped, float)

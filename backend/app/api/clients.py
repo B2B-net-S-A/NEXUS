@@ -16,7 +16,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services import job_data_trust
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -45,6 +45,7 @@ from app.services.contractor_identity import (
     current_contracts as current_contracts_for,
     summarize_active_contracts,
 )
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
     amount_to_pln_with_rate,
@@ -130,6 +131,25 @@ def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
     )
 
 
+def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
+    """Stawka kontraktu przeliczona na godzinę — kolumny tabeli w profilu klienta.
+
+    Jednostka kontraktu trzyma się jednostki najnowszego zamówienia
+    (``contract_order_sync``), a zamówienie ma stawkę godzinową albo MD:
+    godzinowa idzie bez przeliczenia, MD ÷ 8. Kontrakt miesięczny (legacy,
+    bez zamówienia) dzielimy przez jego godziny rozliczeniowe — ta sama
+    arytmetyka co przy synchronizacji zamówień. Nic nie jest zapisywane.
+    """
+    if rate is None:
+        return None
+    return convert_order_rate(
+        rate,
+        RateUnit(contract.rate_unit),
+        RateUnit.hourly,
+        contract.billing_hours_per_month or 160,
+    )
+
+
 def _finance_rates_in_pln(
     contract: Contract,
     rate_fields: dict[str, object],
@@ -162,10 +182,18 @@ def _finance_rates_in_pln(
         if client_pln is not None and candidate_pln is not None
         else None
     )
+    hourly_client_pln, _ = amount_to_pln_with_rate(
+        _hourly_rate(contract, rate_fields.get("rate_client")), client_fx
+    )
+    hourly_candidate_pln, _ = amount_to_pln_with_rate(
+        _hourly_rate(contract, rate_fields.get("rate_candidate")), candidate_fx
+    )
     return {
         "monthly_rate_client": client_pln,
         "monthly_rate_candidate": candidate_pln,
         "monthly_margin": margin_pln,
+        "hourly_rate_client": hourly_client_pln,
+        "hourly_rate_candidate": hourly_candidate_pln,
         "client_missing_fx": client_missing_fx,
         "candidate_missing_fx": candidate_missing_fx,
     }
@@ -620,6 +648,8 @@ async def get_client_profile(
                 monthly_rate_client=rates["monthly_rate_client"],
                 monthly_rate_candidate=rates["monthly_rate_candidate"],
                 monthly_margin=rates["monthly_margin"],
+                hourly_rate_client=rates["hourly_rate_client"],
+                hourly_rate_candidate=rates["hourly_rate_candidate"],
                 # This profile schema has a single display currency. Both rate
                 # legs above have already been converted independently to PLN.
                 currency="PLN",
@@ -706,6 +736,8 @@ async def get_client_profile(
                 monthly_rate_client=rates["monthly_rate_client"],
                 monthly_rate_candidate=rates["monthly_rate_candidate"],
                 monthly_margin=rates["monthly_margin"],
+                hourly_rate_client=rates["hourly_rate_client"],
+                hourly_rate_candidate=rates["hourly_rate_candidate"],
                 total_revenue=_contract_total_revenue(
                     c, end_boundary, rates["monthly_rate_client"]
                 ),
@@ -880,12 +912,16 @@ async def get_client_profile(
             consultant.monthly_rate_client = None
             consultant.monthly_rate_candidate = None
             consultant.monthly_margin = None
+            consultant.hourly_rate_client = None
+            consultant.hourly_rate_candidate = None
         # „Planowani" niosą ten sam kształt (`ActiveConsultantItem`) i te same
         # trzy kwoty — redakcja obejmuje ich tak samo jak obecnych.
         for consultant in response.planned_consultants:
             consultant.monthly_rate_client = None
             consultant.monthly_rate_candidate = None
             consultant.monthly_margin = None
+            consultant.hourly_rate_client = None
+            consultant.hourly_rate_candidate = None
         for placement in response.historical.placements:
             placement.total_revenue = None
             # Archiwum pokazuje ten sam komplet stawek co „Obecni konsultanci",
@@ -895,6 +931,8 @@ async def get_client_profile(
             placement.monthly_rate_client = None
             placement.monthly_rate_candidate = None
             placement.monthly_margin = None
+            placement.hourly_rate_client = None
+            placement.hourly_rate_candidate = None
 
     return response
 
