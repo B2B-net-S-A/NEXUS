@@ -161,6 +161,13 @@ async def test_new_share_requires_explicit_approval_before_token_creation(
     monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=doc))
     resolver = AsyncMock(return_value=SimpleNamespace(id=12))
     monkeypatch.setattr(approvals, "approved_version_for_generation", resolver)
+    import app.api.public_share as public_api
+
+    monkeypatch.setattr(
+        public_api,
+        "approved_interactive_view",
+        AsyncMock(return_value=(False, None, [], False)),
+    )
     added = []
     db = SimpleNamespace(add=Mock(side_effect=added.append), commit=AsyncMock())
     kwargs = dict(
@@ -186,3 +193,55 @@ async def test_new_share_requires_explicit_approval_before_token_creation(
         assert token.token_sha256 == hashlib.sha256(response.token.encode()).hexdigest()
         assert response.token != token.token
         db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "view,expected",
+    [
+        ((False, None, [], False), False),
+        ((True, "not_requested", [], True), True),  # tylko czat
+        ((True, "complete", [{"requirement": "Python"}], False), True),
+        ((True, "queued", [], False), True),  # mapa w przygotowaniu
+        ((True, "complete", [], False), False),
+    ],
+)
+async def test_share_dialog_promise_matches_what_the_public_link_shows(
+    monkeypatch, view, expected
+):
+    """M12-B02: `interactive_available` liczone tą samą funkcją co widok linku."""
+    from unittest.mock import Mock
+    from app.api import cv_generator_b2b as api
+    from app.models.activity import Activity
+    import app.api.public_share as public_api
+    import app.services.cv_generated_approval as approvals
+
+    doc = SimpleNamespace(
+        id=7,
+        status="ready",
+        render_payload={"language": "pl"},
+        candidate_id=None,
+        job_id=None,
+    )
+    approved = SimpleNamespace(id=12)
+    monkeypatch.setattr(api, "_load_generated_document", AsyncMock(return_value=doc))
+    monkeypatch.setattr(
+        approvals, "approved_version_for_generation", AsyncMock(return_value=approved)
+    )
+    resolver = AsyncMock(return_value=view)
+    monkeypatch.setattr(public_api, "approved_interactive_view", resolver)
+    added = []
+    db = SimpleNamespace(add=Mock(side_effect=added.append), commit=AsyncMock())
+    response = await api.create_generated_cv_share_token(
+        generated_id=7,
+        current_user=SimpleNamespace(id=9),
+        expires_in_days=14,
+        max_views=None,
+        document_version_id=12,
+        db=db,
+    )
+    resolver.assert_awaited_once_with(db, doc, approved)
+    assert response.interactive_available is expected
+    activity = next(item for item in added if isinstance(item, Activity))
+    assert activity.details["interactive_available"] is expected
+    _tiles, status, requirements, chat = view
+    assert public_api.interactive_view_shown(requirements, status, chat) is expected

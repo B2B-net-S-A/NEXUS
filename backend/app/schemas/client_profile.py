@@ -44,6 +44,10 @@ class ClientProfileSummary(BaseModel):
     # R0 (plan 2026-07-16): finanse są Optional — dla ról bez VIEW_FINANCE
     # endpoint redaguje je do None zamiast zwracać kwoty.
     active_mrr: Optional[int] = None  # sum monthly margin for active contracts (PLN)
+    # Aktywne kontrakty bez policzonej marży (brak stawki) — pominięte w
+    # `active_mrr`. >0 znaczy, że kafel jest sumą NIEPEŁNĄ; `active_mrr = None`
+    # przy wszystkich kontraktach niewycenionych („—", nie 0,00 zł).
+    active_mrr_unpriced_contracts: int = 0
     ltv: Optional[int] = (
         None  # lifetime revenue (PLN, monthly_rate_client * duration_months)
     )

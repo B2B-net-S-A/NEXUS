@@ -35,6 +35,19 @@ describe("candidate profile navigation", () => {
     ).toMatchObject({ section: "documents", documents: "contracts" });
   });
 
+  it("keeps the emails section reachable by URL and by click (UAT M01-B03)", () => {
+    expect(
+      parseCandidateProfileView(new URLSearchParams("tab=emails")),
+    ).toMatchObject({ section: "emails", isLegacy: false, hasExplicitTab: true });
+    expect(
+      withCandidateProfileView(new URLSearchParams("nav=1"), {
+        section: "emails",
+        activity: "timeline",
+        documents: "files",
+      }).get("tab"),
+    ).toBe("emails");
+  });
+
   it("maps old deep links without losing their intent", () => {
     expect(
       parseCandidateProfileView(new URLSearchParams("tab=chat&msg=77")),

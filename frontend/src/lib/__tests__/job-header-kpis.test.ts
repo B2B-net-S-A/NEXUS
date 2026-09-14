@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
+  countInterviewStages,
+  groupKanbanColumns,
+} from "@/lib/pipeline-flow";
+import {
   STRONG_MATCH_SCORE,
   buildJobHeaderKpis,
   summarizeRanking,
@@ -134,7 +138,10 @@ describe("buildJobHeaderKpis — kroki", () => {
       value: 1,
       tone: "warn",
     });
-    expect(kpis[2]).toMatchObject({ label: "u klienta", value: 2 });
+    expect(kpis[2]).toMatchObject({
+      label: "u klienta (CV → interview)",
+      value: 2,
+    });
   });
 
   it("Pipeline: zero „utknęli” zostaje neutralne, nie ostrzegawcze", () => {
@@ -158,7 +165,7 @@ describe("buildJobHeaderKpis — kroki", () => {
       value: 1,
       tone: "warn",
     });
-    expect(kpis[2]).toMatchObject({ label: "zweryfikowani", value: 1 });
+    expect(kpis[2]).toMatchObject({ label: "do wysłania CV", value: 1 });
   });
 
   it("Rozmowy: weto HM jest tonem złym, gdy jakiekolwiek jest", () => {
@@ -167,7 +174,7 @@ describe("buildJobHeaderKpis — kroki", () => {
       columns: board(),
       ranking: null,
     });
-    expect(kpis[0]).toMatchObject({ label: "u klienta", value: 2 });
+    expect(kpis[0]).toMatchObject({ label: "rozmowy u klienta", value: 2 });
     expect(kpis[1]).toMatchObject({ label: "akceptacja", value: 1, tone: "ok" });
     expect(kpis[2]).toMatchObject({ label: "weto HM", value: 1, tone: "bad" });
   });
@@ -208,8 +215,51 @@ describe("buildJobHeaderKpis — kroki", () => {
       columns: board(),
       ranking: null,
     });
-    expect(kpis[0]).toMatchObject({ label: "do wysłania", value: 1 });
+    expect(kpis[0]).toMatchObject({ label: "do wysłania CV", value: 1 });
     expect(kpis[1]).toMatchObject({ label: "CV u klienta", value: 1 });
-    expect(kpis[2]).toMatchObject({ label: "u klienta", value: 2 });
+    expect(kpis[2]).toMatchObject({ label: "rozmowy u klienta", value: 2 });
+  });
+});
+
+// M03-B12 / B-B05: realny szablon — „CV Wysłane" jest etapem WEWNĘTRZNYM, a
+// „Onboarding" zewnętrznym etapem umowy. KPI „u klienta" liczyło same kolumny
+// zewnętrzne (0 + onboarding), szyna Pipeline'u — CV Wysłane + rozmowy (3).
+describe("buildJobHeaderKpis — ta sama etykieta = ta sama liczba co szyny", () => {
+  function realBoard(): KanbanColumn[] {
+    return [
+      column({ stage: "screening", items: [item({ id: 1 })] }),
+      column({ stage: "verified", items: [item({ id: 2 })] }),
+      column({
+        stage: "cv_sent",
+        category: "internal",
+        items: [item({ id: 3 }), item({ id: 4 }), item({ id: 5 })],
+      }),
+      column({ stage: "client_interview", category: "external", items: [] }),
+      column({
+        stage: "onboarding",
+        category: "external",
+        items: [item({ id: 6 })],
+      }),
+    ];
+  }
+
+  it("Pipeline liczy grupę „U klienta (CV → interview)” z lewej szyny", () => {
+    const columns = realBoard();
+    const railGroup = groupKanbanColumns(columns).find((g) => g.key === "client");
+    const kpis = buildJobHeaderKpis({ tab: "pipeline", columns, ranking: null });
+    expect(railGroup?.label).toBe("U klienta (CV → interview)");
+    expect(kpis[2]).toMatchObject({
+      label: "u klienta (CV → interview)",
+      value: 3,
+    });
+    expect(kpis[2].value).toBe(railGroup?.count);
+  });
+
+  it("Rozmowy liczą to samo co szyna kroku 07 i licznik na listwie kroków", () => {
+    const columns = realBoard();
+    const kpis = buildJobHeaderKpis({ tab: "interviews", columns, ranking: null });
+    // Onboarding to etap umowy (krok 08), CV Wysłane — jeszcze nie rozmowa.
+    expect(kpis[0]).toMatchObject({ label: "rozmowy u klienta", value: 0 });
+    expect(kpis[0].value).toBe(countInterviewStages(columns));
   });
 });

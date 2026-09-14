@@ -265,6 +265,10 @@ describe("InsightsBoardKPI", () => {
     expect(
       screen.getByText(/odsetek rekrutacji ZAMKNIĘTYCH w tym oknie/),
     ).toBeInTheDocument();
+    // UAT M10-B04: definicja konsultantów różni się od rankingu klientów.
+    expect(
+      screen.getByText(/kontraktem WYKONYWANYM w dniu\s+wyceny/),
+    ).toBeInTheDocument();
   });
 
   it("przy 500 mówi o awarii zamiast znikać z ekranu", async () => {

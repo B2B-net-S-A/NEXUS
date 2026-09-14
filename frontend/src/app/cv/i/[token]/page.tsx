@@ -12,7 +12,11 @@ import { HighlightedCvText } from "@/components/v2/cv-generator/HighlightedCvTex
  * Dane: GET /api/public/cv-i/{token} — client-safe payload (bez warnings,
  * przy blind bez nazwiska i nazw firm). Chat: POST /api/public/cv-i/{token}/chat
  * (odpowiada wyłącznie na podstawie tego profilu; 429 = dzienny limit).
- * Druk: window.print() — elementy interaktywne mają `print:hidden`.
+ * Druk: zatwierdzona wersja (HTML w iframe) drukuje SAMĄ ramkę —
+ * `contentWindow.print()`; dawniej `window.print()` drukował stronę z ramką
+ * o stałej wysokości i dół CV nie trafiał na wydruk. Ramka dopasowuje też
+ * wysokość do treści. Widok bez iframe: window.print(), interaktywne
+ * elementy mają `print:hidden`.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -136,6 +140,8 @@ const LABELS = {
     chatLimit: "Dzienny limit pytań dla tego linku został wyczerpany.",
     chatUnavailable: "Chat jest chwilowo niedostępny. Spróbuj ponownie później.",
     chatFailed: "Nie udało się uzyskać odpowiedzi. Spróbuj ponownie.",
+    chatTimeout:
+      "Asystent nie odpowiedział na czas. Spróbuj zadać pytanie ponownie za chwilę.",
   },
   en: {
     pageKicker: "Candidate profile",
@@ -175,6 +181,8 @@ const LABELS = {
     chatLimit: "The daily question limit for this link has been reached.",
     chatUnavailable: "Chat is temporarily unavailable. Please try again later.",
     chatFailed: "Could not get an answer. Please try again.",
+    chatTimeout:
+      "The assistant did not answer in time. Please ask again in a moment.",
   },
 } as const;
 
@@ -550,6 +558,7 @@ function ChatPanel({
         ?.status;
       if (status === 429) setChatError(t.chatLimit);
       else if (status === 503) setChatError(t.chatUnavailable);
+      else if (status === 504) setChatError(t.chatTimeout);
       else setChatError(getErrorMessage(e, t.chatFailed));
     } finally {
       setSending(false);
@@ -657,6 +666,28 @@ export default function PublicInteractiveCvPage() {
   const [mode, setMode] = useState<"classic" | "interactive">("classic");
   const [highlightedExp, setHighlightedExp] = useState<number | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cvFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [cvFrameHeight, setCvFrameHeight] = useState<number | null>(null);
+
+  function fitCvFrame() {
+    const doc = cvFrameRef.current?.contentDocument;
+    const height = doc?.documentElement?.scrollHeight ?? 0;
+    if (height > 0) setCvFrameHeight(height);
+  }
+
+  function printCv() {
+    const frameWindow = cvFrameRef.current?.contentWindow;
+    if (view?.cv_html && frameWindow) {
+      try {
+        frameWindow.focus();
+        frameWindow.print();
+        return;
+      } catch {
+        // Przeglądarka odmówiła druku ramki — drukujemy stronę.
+      }
+    }
+    window.print();
+  }
 
   useEffect(() => {
     async function load() {
@@ -815,7 +846,7 @@ export default function PublicInteractiveCvPage() {
             </div>
           )}
           <button
-            onClick={() => window.print()}
+            onClick={printCv}
             className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card hover:bg-muted text-foreground px-3 py-2 text-sm font-medium shadow-xs transition-colors"
           >
             <Printer className="h-4 w-4" />
@@ -837,9 +868,12 @@ export default function PublicInteractiveCvPage() {
                 : (cv.language === "en" ? "Requirement assessment is unavailable for this CV version." : "Ocena wymagań jest niedostępna dla tej wersji CV.")}
             </p>
           )}
-          <iframe title="CV" srcDoc={view.cv_html} sandbox="allow-same-origin"
+          {/* allow-modals: tylko po to, by strona mogła wywołać print() ramki;
+              bez allow-scripts treść CV nie wykona żadnego skryptu. */}
+          <iframe ref={cvFrameRef} title="CV" srcDoc={view.cv_html}
+            sandbox="allow-same-origin allow-modals" onLoad={fitCvFrame}
             className="w-full rounded-lg border border-border bg-white"
-            style={{ height: "calc(100vh - 220px)", minHeight: 600 }} />
+            style={{ height: cvFrameHeight ?? "calc(100vh - 220px)", minHeight: 600 }} />
           </div>
           {showInteractive && view.chat_enabled && (
             <ChatPanel token={token} t={t} suggestions={suggestions} />

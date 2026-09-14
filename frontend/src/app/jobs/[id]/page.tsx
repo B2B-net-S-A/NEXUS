@@ -2056,6 +2056,33 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
 
+  // Delivery Lead rekrutacji (M03-B03): `GET /api/jobs/{id}` niesie tylko
+  // `delivery_lead_id`, więc nazwisko bierzemy z katalogu użytkowników —
+  // tego samego, z którego okno edycji wybiera DL. Katalog zwraca wyłącznie
+  // aktywne konta i jest za `OperationalUser`: brak trafienia albo 403
+  // (viewer) po prostu nie dokłada segmentu, zamiast udawać „brak DL".
+  const deliveryLeadId: number | null = job?.delivery_lead_id ?? null;
+  const { data: deliveryLeadDirectory } = useQuery<
+    Array<{ id: number; name?: string | null; email?: string | null }>
+  >({
+    queryKey: ["users-directory", "delivery-lead-roles"],
+    queryFn: () =>
+      api
+        .get("/api/users", {
+          params: { roles: ["delivery_lead", "admin", "head_of_recruitment"] },
+          paramsSerializer: { indexes: null },
+        })
+        .then((r) => r.data),
+    enabled: deliveryLeadId != null,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const deliveryLeadName: string | null = useMemo(() => {
+    if (deliveryLeadId == null) return null;
+    const match = deliveryLeadDirectory?.find((u) => u.id === deliveryLeadId);
+    return match?.name || match?.email || null;
+  }, [deliveryLeadDirectory, deliveryLeadId]);
+
   const {
     data: kanban,
     isLoading: kanbanLoading,
@@ -2158,6 +2185,7 @@ export default function JobDetailPage() {
       salaryMax: job.salary_max,
       deadline: job.deadline,
       ownerName: job.primary_owner?.name,
+      deliveryLeadName,
       // Hiring manager tylko w kroku 07 — tam jest decydentem, a nie jedną
       // z ośmiu rzeczy w linijce, którą trzeba przeczytać w całości.
       hiringManagerName:
@@ -2168,7 +2196,7 @@ export default function JobDetailPage() {
         activeTab === "contract" && kanban ? countHired(kanbanColumns) : null,
       headcount: activeTab === "contract" ? job.headcount : null,
     });
-  }, [job, activeTab, kanban, kanbanColumns]);
+  }, [job, activeTab, kanban, kanbanColumns, deliveryLeadName]);
 
   // Auto-open tab when job data loads
   useEffect(() => {

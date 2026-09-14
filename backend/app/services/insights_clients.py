@@ -63,6 +63,7 @@ from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fiel
 from app.services.contractor_identity import count_unique_contractors
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
+from app.schemas.money import to_whole_pln
 
 __all__ = [
     "HIT_RATIO_TARGET_PCT",
@@ -155,7 +156,10 @@ async def margin_lookup_pln(
             incomplete.add(contract.client_id)
             continue
         assert client_pln is not None and candidate_pln is not None
-        margin_pln = client_pln - candidate_pln
+        # Zaokrąglenie na SKŁADNIKU (kontrakcie), jak wiersz „Marża” na profilu
+        # klienta — inaczej profil (suma zaokrągleń) i Rada/portal DL/przegląd
+        # admina (zaokrąglenie sumy) różniły się o złotówki (UAT M06-B04).
+        margin_pln = Decimal(to_whole_pln(client_pln - candidate_pln))
         totals[contract.client_id] = (
             totals.get(contract.client_id, Decimal("0")) + margin_pln
         )
@@ -196,9 +200,9 @@ async def revenue_lookup_pln(
             incomplete.add(contract.client_id)
             continue
         assert client_pln is not None
-        totals[contract.client_id] = (
-            totals.get(contract.client_id, Decimal("0")) + client_pln
-        )
+        totals[contract.client_id] = totals.get(
+            contract.client_id, Decimal("0")
+        ) + Decimal(to_whole_pln(client_pln))
     for client_id in incomplete:
         totals.pop(client_id, None)
     return totals, incomplete

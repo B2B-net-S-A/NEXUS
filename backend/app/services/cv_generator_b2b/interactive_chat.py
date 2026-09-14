@@ -28,9 +28,11 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+import anthropic
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +61,15 @@ logger = logging.getLogger(__name__)
 # groundowanymi w małym kontekście — nie potrzebuje flagowego modelu.
 CHAT_MODEL = model_for(AIFeatureKey.cv_interactive_chat)
 CHAT_MAX_TOKENS = int(os.environ.get("CV_INTERACTIVE_CHAT_MAX_TOKENS", "700"))
+# Jawny budżet czasu JEDNEGO pytania (wszystkie próby razem). Bez niego czat
+# dziedziczył globalne ANTHROPIC_TIMEOUT_SECONDS=90 × (1 + 2 ponowienia), więc
+# hiring manager czekał na odpowiedź albo na 502 nawet kilka minut, a proxy
+# przed backendem mogło zerwać połączenie wcześniej niż sam backend. 45 s
+# mieści się pod typowym limitem proxy (60 s) z zapasem na resztę żądania.
+CHAT_TIMEOUT_SECONDS = max(
+    5.0, float(os.environ.get("CV_INTERACTIVE_CHAT_TIMEOUT_SECONDS", "45"))
+)
+CHAT_MAX_RETRIES = max(0, int(os.environ.get("CV_INTERACTIVE_CHAT_MAX_RETRIES", "1")))
 DAILY_QUESTION_LIMIT = max(
     1, int(os.environ.get("CV_INTERACTIVE_CHAT_DAILY_LIMIT", "30"))
 )
@@ -128,6 +139,10 @@ class CvChatDailyLimitExceeded(Exception):
 
 class CvChatLLMError(Exception):
     """Wywołanie modelu nie powiodło się."""
+
+
+class CvChatTimeout(CvChatLLMError):
+    """Model nie odpowiedział w budżecie ``CHAT_TIMEOUT_SECONDS``."""
 
 
 async def _questions_today(db: AsyncSession, token: str) -> int:
@@ -257,8 +272,9 @@ async def _answer_with_model(
     messages = await _history(db, token_row.token)
     messages.append({"role": "user", "content": question})
 
-    from app.services.claude_client import call_claude
+    from app.services.claude_client import ClaudeDeadlineExceeded, call_claude
 
+    started = time.monotonic()
     try:
         message = await run_in_threadpool(
             call_claude,
@@ -269,9 +285,20 @@ async def _answer_with_model(
             system=system_prompt,
             messages=messages,
             api_key=api_key,
+            timeout=CHAT_TIMEOUT_SECONDS,
+            max_retries=CHAT_MAX_RETRIES,
+            total_timeout=CHAT_TIMEOUT_SECONDS,
         )
+    except (ClaudeDeadlineExceeded, anthropic.APITimeoutError) as exc:
+        raise CvChatTimeout(
+            f"LLM timeout after {time.monotonic() - started:.1f}s "
+            f"({type(exc).__name__})"
+        ) from exc
     except Exception as exc:  # noqa: BLE001 — publiczny endpoint: czysty 502
-        raise CvChatLLMError(f"LLM request failed: {exc}") from exc
+        raise CvChatLLMError(
+            f"LLM request failed after {time.monotonic() - started:.1f}s "
+            f"({type(exc).__name__}): {exc}"
+        ) from exc
 
     answer = "".join(
         getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")

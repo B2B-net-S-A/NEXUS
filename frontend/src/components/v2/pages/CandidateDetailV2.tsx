@@ -64,7 +64,9 @@ import { PinButton } from"@/components/v2/PinButton";
 import { DeferUntilVisible } from"@/components/v2/DeferUntilVisible";
 import { ExpandableText } from"@/components/v2/ExpandableText";
 import {
+ formatExperienceDate,
  getCandidateSummaryLine,
+ getCvProjectionNotice,
  getEducationList,
 } from"@/components/v2/pages/candidate-profile-helpers";
 import {
@@ -253,6 +255,7 @@ const PROFILE_SECTION_LABELS: Record<CandidateProfileSection, string> = {
  activity: "Aktywność",
  matching: "Dopasowanie",
  documents: "Pliki i umowy",
+ emails: "Maile",
 };
 
 const ACTIVITY_LABELS: Record<CandidateActivityView, string> = {
@@ -2506,6 +2509,7 @@ function ProfilTab({
  };
 
  const [adminOpen, setAdminOpen] = useState(false);
+ const cvProjectionNotice = getCvProjectionNotice(candidate);
  const hasJdg =
  candidate.legal_name ||
  candidate.nip ||
@@ -2560,6 +2564,20 @@ function ProfilTab({
  </Button>
  )}
  </div>
+ {cvProjectionNotice && (
+ <p
+ role="status"
+ className={cn(
+ "mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs",
+ cvProjectionNotice.tone === "warning"
+ ? "border-warning/30 bg-warning-muted text-warning-muted-foreground"
+ : "border-border bg-muted/40 text-muted-foreground",
+ )}
+ >
+ <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+ <span>{cvProjectionNotice.text}</span>
+ </p>
+ )}
  </section>
 
  {/* 0.5 Podsumowanie AI — directly under the CV, per profile layout. */}
@@ -2738,8 +2756,8 @@ function ProfilTab({
  </div>
  {(start || end) && (
  <div className="text-xs text-muted-foreground whitespace-nowrap">
- {start ? formatDate(start) : ""} —{""}
- {end ? formatDate(end) : "obecnie"}
+ {formatExperienceDate(start)} —{""}
+ {formatExperienceDate(end) || "obecnie"}
  </div>
  )}
  </div>

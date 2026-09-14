@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Database, Clock } from "lucide-react";
+import { Database, Clock, GitCommit } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,16 @@ export function SystemTab() {
   const healthMetrics = [
     { label: "Rozmiar bazy danych", value: stats.database?.size || null, icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
     { label: "Uptime serwera", value: stats.uptime || null, icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
+    // UAT M11-B04: wersja = SHA wdrożonego commitu (jak `version` w /api/health).
+    {
+      label: "Wersja (commit)",
+      value:
+        stats.version && stats.version !== "unknown"
+          ? String(stats.version).slice(0, 7)
+          : null,
+      icon: GitCommit,
+      color: "bg-primary/10 dark:bg-primary/30 text-primary",
+    },
   ];
 
   return (

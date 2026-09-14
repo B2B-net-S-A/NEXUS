@@ -6,6 +6,7 @@ import {
   matchExtractedConsultant,
   numberToField,
   OPEN_ENDED_LABEL,
+  typedByUser,
 } from "@/lib/order-extraction";
 
 describe("findConflicts", () => {
@@ -101,5 +102,18 @@ describe("matchExtractedConsultant — pozycja tej samej osoby", () => {
     expect(
       matchExtractedConsultant("Jan Kowalski", [row("Jan Kowalski"), row("Kowalski Jan")]),
     ).toBeNull();
+  });
+});
+
+describe("typedByUser", () => {
+  it("wartość z poprzedniego odczytu dokumentu nie jest „wpisana ręcznie”", () => {
+    expect(typedByUser("107000", "107000")).toBe("");
+    expect(typedByUser(" 107000 ", "107000")).toBe("");
+  });
+
+  it("wartość różna od poprzedniego dokumentu albo bez odczytu jest wpisana", () => {
+    expect(typedByUser("5000", "107000")).toBe("5000");
+    expect(typedByUser("5000", undefined)).toBe("5000");
+    expect(typedByUser("  ", undefined)).toBe("");
   });
 });

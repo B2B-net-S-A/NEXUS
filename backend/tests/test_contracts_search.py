@@ -124,6 +124,36 @@ async def test_search_by_surname_is_case_and_diacritic_insensitive(
 
 
 @pytest.mark.asyncio
+async def test_search_without_polish_diacritics_finds_diacritic_names(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """UAT M08-B01: fraza bez polskich znaków znajduje nazwisko i klienta z nimi."""
+    token = uuid.uuid4().hex[:6]
+    row = await _seed_searchable_contract(
+        lastname=f"Grądzki{token}",
+        client_name=f"Spółka Łódzka {token}",
+        job_title=f"Inżynier {token}",
+    )
+    try:
+        for phrase in (
+            f"gradzki{token}",
+            f"GRADZKI{token}",
+            f"Krzysztof Gradzki{token}",
+            f"spolka lodzka {token}",
+            f"inzynier {token}",
+        ):
+            r = await app_client.get(
+                "/api/contracts",
+                params={"q": phrase, "page_size": 100},
+                headers=app_auth_headers,
+            )
+            assert r.status_code == 200, r.text
+            assert {item["id"] for item in r.json()["items"]} == {row[0]}, phrase
+    finally:
+        await _cleanup([row])
+
+
+@pytest.mark.asyncio
 async def test_search_matches_full_name_client_and_job_title(
     app_client: AsyncClient, app_auth_headers: dict
 ):

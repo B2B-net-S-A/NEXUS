@@ -25,6 +25,7 @@ from httpx import AsyncClient
 from openpyxl import load_workbook
 from sqlalchemy import delete, select
 
+from app.models.activity import Activity
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
@@ -584,6 +585,14 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
     )
     assert contract.end_date is None
 
+    # UAT M08-B03: odpowiedź kontraktu mówi, który krok pochodzi z zamówienia.
+    detail = await app_client.get(
+        f"/api/contracts/{ids['contract_id']}", headers=app_auth_headers
+    )
+    assert detail.status_code == 200, detail.text
+    steps = detail.json()["client_rate_schedule"]
+    assert [step["source_order_id"] for step in steps] == [ids["order_id"]]
+
 
 async def test_contract_cost_change_reaches_the_order_through_the_api(
     app_client: AsyncClient, app_auth_headers: dict
@@ -762,6 +771,206 @@ async def test_daily_cost_sync_waits_for_the_repair_marker():
             if saved is not None:
                 db.add(AppSetting(key=REPAIR_MARKER, value=saved))
             await db.commit()
+
+
+async def test_daily_pass_backfills_the_order_period_without_touching_money():
+    """UAT B-B02: kontrakt aktywny, którego zamówienia nikt nie zapisał po
+    wdrożeniu synchronizacji, dostaje okres najnowszego uzupełnionego
+    zamówienia — ale stawka, jednostka i harmonogram zostają nietknięte."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.services.contract_order_sync import backfill_missing_order_periods
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Okres Backfill {suffix}")
+        candidate = Candidate(
+            name="Okres",
+            lastname=f"Backfill-{suffix}",
+            email=f"period-{suffix}@example.com",
+        )
+        db.add_all([client, candidate])
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 1, 1),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+            rate_unit=RateUnit.hourly,
+            currency="PLN",
+            rate_candidate_currency="PLN",
+        )
+        db.add(contract)
+        await db.flush()
+        common = {
+            "client_id": client.id,
+            "contract_id": contract.id,
+            "rate_unit": RateUnit.daily,
+            "rate_client": Decimal("1200.000"),
+            "rate_client_currency": "PLN",
+            "rate_candidate_currency": "PLN",
+            "currency": "PLN",
+        }
+        older = ClientOrder(
+            title="Z-1",
+            status=ClientOrderStatus.completed,
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 8, 31),
+            **common,
+        )
+        newest = ClientOrder(
+            title="Z-2",
+            status=ClientOrderStatus.active,
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 30),
+            **common,
+        )
+        cancelled = ClientOrder(
+            title="Z-3",
+            status=ClientOrderStatus.cancelled,
+            start_date=date(2026, 10, 1),
+            end_date=date(2026, 12, 31),
+            **common,
+        )
+        db.add_all([older, newest, cancelled])
+        await db.commit()
+        contract_id = contract.id
+        # Bez synchronizacji przy zapisie (bezpośredni zapis do bazy) — stan
+        # kontraktów sprzed wdrożenia.
+
+    async with AsyncSessionLocal() as db:
+        assert await backfill_missing_order_periods(db) >= 1
+        await db.commit()
+
+    loaded = await _load_contract(contract_id)
+    assert (loaded.client_order_start_date, loaded.client_order_end_date) == (
+        date(2026, 9, 1),
+        date(2026, 9, 30),
+    )
+    assert loaded.rate_unit == RateUnit.hourly
+    assert loaded.rate_client == Decimal("150.000")
+    assert list(loaded.client_rate_schedule) == []
+
+    async with AsyncSessionLocal() as db:
+        # Idempotentny: drugi przebieg nie wybiera już tego kontraktu.
+        await backfill_missing_order_periods(db)
+        await db.commit()
+        activities = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "contract",
+                    Activity.entity_id == contract_id,
+                    Activity.action == "synced_with_orders",
+                )
+            )
+        ).all()
+    assert len(activities) == 1
+    assert activities[0].details["source"] == "daily_period_backfill"
+
+
+async def _contract_with_order(
+    *, order_status: ClientOrderStatus, manual_end: date | None = None
+) -> tuple[int, int]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Okres Ręczny {suffix}")
+        candidate = Candidate(
+            name="Okres",
+            lastname=f"Reczny-{suffix}",
+            email=f"period-manual-{suffix}@example.com",
+        )
+        db.add_all([client, candidate])
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 1, 1),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+            rate_unit=RateUnit.hourly,
+            currency="PLN",
+            rate_candidate_currency="PLN",
+            client_order_end_date=manual_end,
+        )
+        db.add(contract)
+        await db.flush()
+        order = ClientOrder(
+            title="Z-R",
+            status=order_status,
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 30),
+            client_id=client.id,
+            contract_id=contract.id,
+            rate_unit=RateUnit.daily,
+            rate_client=Decimal("1200.000"),
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+            currency="PLN",
+        )
+        db.add(order)
+        await db.commit()
+        return contract.id, order.id
+
+
+async def test_daily_backfill_keeps_a_hand_entered_order_end_date():
+    """Przebieg uzupełnia wyłącznie BRAK okresu — ręcznie wpisana data końca
+    (sama, bez startu) nie może zostać nadpisana datą z zamówienia."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.contract_order_sync import backfill_missing_order_periods
+
+    contract_id, _ = await _contract_with_order(
+        order_status=ClientOrderStatus.active, manual_end=date(2027, 3, 31)
+    )
+    async with AsyncSessionLocal() as db:
+        await backfill_missing_order_periods(db)
+        await db.commit()
+
+    loaded = await _load_contract(contract_id)
+    assert loaded.client_order_start_date is None
+    assert loaded.client_order_end_date == date(2027, 3, 31)
+
+
+async def test_cancelling_the_order_clears_a_backfilled_period():
+    """Okres z nocnego przebiegu nie ma kroku stawki, więc anulowanie
+    zamówienia musi go zdjąć inną drogą — inaczej kontrakt udaje zamówienie."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.contract_order_sync import (
+        backfill_missing_order_periods,
+        resync_contract,
+    )
+
+    contract_id, order_id = await _contract_with_order(
+        order_status=ClientOrderStatus.active
+    )
+    async with AsyncSessionLocal() as db:
+        await backfill_missing_order_periods(db)
+        await db.commit()
+    assert (await _load_contract(contract_id)).client_order_start_date == date(
+        2026, 9, 1
+    )
+
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, order_id)
+        order.status = ClientOrderStatus.cancelled
+        await db.flush()
+        await resync_contract(db, contract_id, actor_id=None)
+        await db.commit()
+
+    loaded = await _load_contract(contract_id)
+    assert (loaded.client_order_start_date, loaded.client_order_end_date) == (
+        None,
+        None,
+    )
 
 
 # ── Poprawki po przeglądzie adwersarialnym ──────────────────────────────────

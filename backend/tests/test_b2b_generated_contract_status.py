@@ -613,6 +613,20 @@ async def test_search_by_partner_full_name_is_case_insensitive(
     assert [x["id"] for x in resp.json()] == [rid]
 
 
+async def test_search_ignores_polish_diacritics(app_client, app_auth_headers):
+    """UAT M08-B01: fraza bez polskich znaków znajduje partnera z nimi."""
+    admin_id = await _admin_user_id(app_client)
+    tag = uuid.uuid4().hex[:8]
+    rid, _number = await _seed(admin_id, partner_name=f"Żółta Łąka {tag}")
+
+    for phrase in (f"zolta laka {tag}", f"ŻÓŁTA ŁĄKA {tag}"):
+        resp = await app_client.get(
+            PATH, headers=app_auth_headers, params={"q": phrase}
+        )
+        assert resp.status_code == 200, resp.text
+        assert [x["id"] for x in resp.json()] == [rid], phrase
+
+
 async def test_search_finds_row_by_linked_candidate_name(app_client, app_auth_headers):
     """Umowa jest na firmę Partnera, a szuka się po nazwisku kandydata.
 

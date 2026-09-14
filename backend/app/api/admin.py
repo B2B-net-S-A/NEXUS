@@ -1,5 +1,6 @@
 """Admin-only API endpoints for user management and system stats."""
 
+import os
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -41,6 +42,7 @@ from app.services.onboarding_access import (
     onboarding_persona_for_roles,
 )
 from app.services.admin_membership import protect_active_admin_membership
+from app.services.client_identity import visible_client_predicates
 from app.services.critical_events import record_executed
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.section_permissions import resolve_effective_section_access
@@ -183,6 +185,29 @@ async def list_users(
     ]
 
 
+def admin_email_domain_error(email: str) -> Optional[str]:
+    """Komunikat odmowy dla adresu spoza ``SSO_ALLOWED_DOMAINS`` (UAT M11-B10).
+
+    Tworzenie konta przez admina nie sprawdzało domeny, więc w bazie lądowały
+    konta w domenach spoza firmy. Dotyczy WYŁĄCZNIE zakładania nowych kont —
+    istniejące nie są ruszane.
+
+    Pusta lista domen = brak kontroli. Samorejestracja jest przy pustej liście
+    fail-closed, bo konto zakłada tam ktokolwiek; tu zakłada je administrator,
+    a środowisko bez skonfigurowanego SSO nie może mu zablokować pracy.
+    """
+    allowed = settings.sso_allowed_domains_list
+    if not allowed:
+        return None
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    if domain in allowed:
+        return None
+    return (
+        f"Adres e-mail musi być w domenie firmy ({', '.join(allowed)}). "
+        f"Domena „{domain}” nie jest dozwolona."
+    )
+
+
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     data: AdminUserCreate,
@@ -190,9 +215,16 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new user (admin only)."""
-    existing = await db.execute(select(User).where(User.email == data.email))
+    domain_error = admin_email_domain_error(data.email)
+    if domain_error:
+        raise HTTPException(status_code=422, detail=domain_error)
+    existing = await db.execute(
+        select(User).where(func.lower(User.email) == data.email.lower())
+    )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email already registered")
+        raise HTTPException(
+            status_code=409, detail="Konto z tym adresem e-mail już istnieje."
+        )
 
     # Build the multi-role list (migracja 0110). When ``roles`` is omitted
     # default to ``[role]``; when supplied ensure primary is present.
@@ -647,7 +679,14 @@ async def system_stats(
     """System stats: DB size, entity counts, uptime."""
     candidates_total = (await db.execute(select(func.count(Candidate.id)))).scalar()
     jobs_total = (await db.execute(select(func.count(Job.id)))).scalar()
-    clients_total = (await db.execute(select(func.count(Client.id)))).scalar()
+    # Ta sama widoczność co lista `/api/clients` (UAT M11-B04): ukryci,
+    # zarchiwizowani, scaleni i usunięci klienci nie są „klientami" na żadnym
+    # ekranie, więc kafel liczący ich wszystkich nie zgadzał się z listą.
+    clients_total = (
+        await db.execute(
+            select(func.count(Client.id)).where(*visible_client_predicates())
+        )
+    ).scalar()
     contracts_total = (await db.execute(select(func.count(Contract.id)))).scalar()
     users_total = (await db.execute(select(func.count(User.id)))).scalar()
 
@@ -685,6 +724,8 @@ async def system_stats(
             "size": db_size,
         },
         "uptime": uptime_str,
+        # SHA wdrożonego commitu — ta sama wartość co `version` w /api/health.
+        "version": os.environ.get("GIT_SHA", "unknown"),
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 

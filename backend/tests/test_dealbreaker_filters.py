@@ -22,7 +22,10 @@ from app.services.dealbreaker_filters import (
     resolve_effective_remote_policy,
     resolve_job_budget_hourly,
 )
-from app.services.location_utils import candidate_location_tokens, candidate_office_tokens
+from app.services.location_utils import (
+    candidate_location_tokens,
+    candidate_office_tokens,
+)
 
 
 def _cand(**kw):
@@ -257,6 +260,33 @@ def test_missing_must_hides_only_with_positive_skill_signal():
     assert missing_must_skills(no_signal, ["java", "kafka"]) == []
 
 
+def test_tags_alone_do_not_make_skills_known_for_the_gate():
+    """UAT M02-B01: tag rekrutera („QA-E2E”) nie jest umiejętnością.
+
+    Kandydat bez skilli, CV i verified_tech, ale z tagiem, był traktowany jak
+    ktoś, kto ma znane umiejętności bez Pythona — i znikał z każdego pełnego
+    przeglądu. Bez danych o umiejętnościach przechodzi (polityka `review`);
+    tag pasujący do must nadal jest dowodem, a `exclude` nadal ukrywa brak.
+    """
+    tagged = _cand(tags=["QA-E2E", "QA-E2E-2026-09-13"])
+    assert missing_must_skills(tagged, ["python", "docker"]) == []
+    assert missing_must_skills(tagged, ["python"], include_unknown=True) == ["python"]
+
+    tagged_python = _cand(tags=["Python"])
+    assert missing_must_skills(tagged_python, ["python"], include_unknown=True) == []
+
+    # Znane umiejętności z profilu nadal bramkują, tagi tego nie zmieniają.
+    known = _cand(skills=[{"name": "Java"}], tags=["QA-E2E"])
+    assert missing_must_skills(known, ["python"]) == ["python"]
+
+
+def test_must_gate_policy_version_marks_the_tag_change():
+    """Zmiana znaczenia bramki wymaga nowej wersji w odcisku requestu."""
+    from app.services.requirement_contract import MUST_GATE_POLICY_VERSION
+
+    assert MUST_GATE_POLICY_VERSION != "known-technology-gap-v1"
+
+
 def test_missing_must_is_noop_without_explicit_must():
     cand = _cand(skills=[{"name": "Python"}])
     assert missing_must_skills(cand, []) == []
@@ -428,7 +458,9 @@ def test_dealbreaker_inputs_for_job_reads_columns_then_champion(monkeypatch):
 
     # Bez kolumn, flaga WYŁĄCZONA (domyślnie w testach) — Champion nietknięty
     # dla budżetu/dni/lokalizacji (must-have Tier 0 zostaje bezwarunkowe).
-    monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False, raising=False)
+    monkeypatch.setattr(
+        settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False, raising=False
+    )
     job_champion_only = SimpleNamespace(
         rate_budget_hourly=None,
         must_skills=None,

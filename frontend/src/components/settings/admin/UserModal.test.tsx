@@ -160,4 +160,17 @@ describe("UserModal — imienne uprawnienie do usuwania klientów", () => {
       screen.queryByRole("checkbox", { name: "Może usuwać klientów" }),
     ).not.toBeInTheDocument();
   });
+
+  it("pokazuje odmowę serwera zamiast milczeć (UAT M11-B10)", () => {
+    render(
+      <UserModal
+        initial={null}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        loading={false}
+        error="Adres e-mail musi być w domenie firmy (firma.example)."
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/domenie firmy/);
+  });
 });

@@ -2345,7 +2345,18 @@ async def create_generated_cv_share_token(
         )
     from app.services.cv_generated_approval import approved_version_for_generation
 
-    await approved_version_for_generation(db, row, document_version_id)
+    approved = await approved_version_for_generation(db, row, document_version_id)
+    # Ta sama decyzja co w publicznym widoku linku (M12-B02): okno nie może
+    # obiecywać widoku klasycznego, gdy klient zobaczy kafelki i czat.
+    from app.api.public_share import (
+        approved_interactive_view,
+        interactive_view_shown,
+    )
+
+    _tiles, requirements_status, requirements, chat = await approved_interactive_view(
+        db, row, approved
+    )
+    interactive = interactive_view_shown(requirements, requirements_status, chat)
 
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
@@ -2362,7 +2373,6 @@ async def create_generated_cv_share_token(
             max_views=max_views,
         )
     )
-    interactive = False
     db.add(
         Activity(
             entity_type="cv_generated_document",

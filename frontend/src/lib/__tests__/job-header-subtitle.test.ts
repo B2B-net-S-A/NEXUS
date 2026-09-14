@@ -117,3 +117,20 @@ describe("preferencja zwiniętego nagłówka", () => {
     expect(JOB_HEADER_COLLAPSED_STORAGE_KEY).toBe("nexus:jobHeaderCollapsed:v3");
   });
 });
+
+describe("buildJobHeaderSubtitle — Delivery Lead (M03-B03)", () => {
+  it("pokazuje DL rekrutacji zaraz po właścicielu", () => {
+    expect(
+      buildJobHeaderSubtitle({
+        ownerName: "Marta Kowalska",
+        deliveryLeadName: "Jan Nowak",
+      }),
+    ).toEqual(["Marta K.", "DL: Jan N."]);
+  });
+
+  it("brak DL nie dokłada segmentu", () => {
+    expect(buildJobHeaderSubtitle({ ownerName: "Marta Kowalska" })).toEqual([
+      "Marta K.",
+    ]);
+  });
+});

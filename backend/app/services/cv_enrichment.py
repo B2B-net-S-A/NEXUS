@@ -292,6 +292,45 @@ def _apply_cv_contact_fields(
         )
 
 
+def cv_experience_entries(parsed: dict) -> list[dict]:
+    """Wpisy `experience`, które ten odczyt CV zapisuje kandydatowi.
+
+    Odczyt v6 niesie stanowiska z datami (`experience`); starsze odczyty tylko
+    nazwy firm (`companies`). Data końca zostaje taka, jak ją odczytał parser:
+    „present” to słowo, które filtry „Obecna firma”/„Poprzednia firma”
+    rozpoznają jako bieżącą pracę (`experience_end`), a pusty koniec to
+    „CV nie podaje daty”. Ta sama
+    funkcja buduje oczekiwany kształt przy czyszczeniu kwarantanny
+    tożsamości, więc zapis i jego cofnięcie nie mogą się rozjechać.
+    """
+    rich = [
+        e
+        for e in (parsed.get("experience") or [])
+        if isinstance(e, dict) and (e.get("company") or e.get("role"))
+    ]
+    if any(e.get("role") or e.get("start") or e.get("end") for e in rich):
+        return [
+            {
+                "company": e.get("company") or None,
+                "role": e.get("role") or None,
+                "start": e.get("start") or None,
+                "end": e.get("end") or None,
+                "desc": None,
+            }
+            for e in rich
+        ]
+    return [
+        {
+            "company": name,
+            "role": None,
+            "start": None,
+            "end": None,
+            "desc": None,
+        }
+        for name in (parsed.get("companies") or [])
+    ]
+
+
 def _apply_cv_enrichment(
     candidate: Candidate,
     parsed: dict,
@@ -443,23 +482,25 @@ def _apply_cv_enrichment(
         next_extracted["_field_provenance"] = provenance
     candidate.cv_extracted_data = next_extracted
 
-    companies = parsed.get("companies") or []
-    has_rich_experience = bool(candidate.experience) and any(
-        isinstance(e, dict) and e.get("role") for e in (candidate.experience or [])
-    )
+    entries = cv_experience_entries(parsed)
+    entries_are_rich = any(e.get("role") or e.get("start") for e in entries)
+    existing_entries = [e for e in (candidate.experience or []) if isinstance(e, dict)]
+    has_rich_experience = any(e.get("role") for e in existing_entries)
+    # Historia z opisami stanowisk pochodzi z importu (backfill Traffita), nie
+    # z odczytu CV: zasila tekst kanoniczny, embeddingi i CV HTML. Odczyt CV
+    # (maks. 10 stanowisk, bez opisów) jej nie zastępuje — także przy REFRESH.
+    has_described_history = any(e.get("desc") for e in existing_entries)
     written = 0
-    if companies and not manual_override and not has_rich_experience:
-        candidate.experience = [
-            {
-                "company": name,
-                "role": None,
-                "start": None,
-                "end": None,
-                "desc": None,
-            }
-            for name in companies
-        ]
-        written = len(companies)
+    # Płaska lista firm nigdy nie zastępuje bogatego doświadczenia. Stanowiska
+    # z datami z CV zastępują je tylko przy świadomym „użyj tego CV” (REFRESH).
+    may_replace = not has_rich_experience or (
+        entries_are_rich
+        and policy is CvWritePolicy.REFRESH
+        and not has_described_history
+    )
+    if entries and not manual_override and may_replace:
+        candidate.experience = entries
+        written = len(entries)
 
     candidate.cv_parsed_at = generated_at
     return written

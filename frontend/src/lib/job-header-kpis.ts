@@ -28,12 +28,13 @@ import {
   CV_SENT_STAGE,
   countContractSent,
   countContractStages,
-  countExternal,
   countHired,
   countHmVeto,
   countInProcess,
+  countInterviewStages,
   countStage,
   countStalled,
+  groupKanbanColumns,
   selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
@@ -108,6 +109,23 @@ export interface JobHeaderKpiInput {
   ranking: JobRankingSummary | null;
 }
 
+/**
+ * Etykiety liczb, które stoją na tym samym ekranie co szyny kroków (M03-B12,
+ * B-B05). Zasada: ta sama etykieta = ta sama liczba. Do 09.2026 KPI „u klienta"
+ * liczyło same kolumny zewnętrzne (z etapami umowy), a lewa szyna Pipeline'u
+ * pod nazwą „U klienta (CV → interview)" — CV Wysłane + rozmowy, szyna kroku 07
+ * „U klienta" — same rozmowy. Trzy liczby pod jedną nazwą. Teraz każda liczba
+ * nosi nazwę zbioru, który liczy, i jest liczona TĄ SAMĄ funkcją co szyna.
+ */
+export const KPI_LABEL_CLIENT_GROUP = "u klienta (CV → interview)";
+export const KPI_LABEL_CLIENT_INTERVIEWS = "rozmowy u klienta";
+export const KPI_LABEL_READY_FOR_CV = "do wysłania CV";
+
+/** Grupa „U klienta (CV → interview)" z lewej szyny Pipeline'u. */
+function countClientGroup(columns: KanbanColumn[]): number {
+  return groupKanbanColumns(columns).find((g) => g.key === "client")?.count ?? 0;
+}
+
 /** Liczba dodatnia dostaje ton ostrzegawczy; zero zostaje neutralne. */
 function toneWhenPositive(
   value: number | null,
@@ -154,8 +172,8 @@ export function buildJobHeaderKpis({
       },
       {
         key: "at-client",
-        label: "u klienta",
-        value: columns ? countExternal(columns) : null,
+        label: KPI_LABEL_CLIENT_GROUP,
+        value: columns ? countClientGroup(columns) : null,
         tone: "neutral",
       },
     ];
@@ -178,7 +196,7 @@ export function buildJobHeaderKpis({
       },
       {
         key: "verified",
-        label: "zweryfikowani",
+        label: KPI_LABEL_READY_FOR_CV,
         value: columns ? selectVerifiedQueue(columns).length : null,
         tone: "neutral",
       },
@@ -189,7 +207,7 @@ export function buildJobHeaderKpis({
     return [
       {
         key: "to-send",
-        label: "do wysłania",
+        label: KPI_LABEL_READY_FOR_CV,
         value: columns ? selectVerifiedQueue(columns).length : null,
         tone: "neutral",
       },
@@ -201,8 +219,8 @@ export function buildJobHeaderKpis({
       },
       {
         key: "at-client",
-        label: "u klienta",
-        value: columns ? countExternal(columns) : null,
+        label: KPI_LABEL_CLIENT_INTERVIEWS,
+        value: columns ? countInterviewStages(columns) : null,
         tone: "neutral",
       },
     ];
@@ -214,8 +232,8 @@ export function buildJobHeaderKpis({
     return [
       {
         key: "at-client",
-        label: "u klienta",
-        value: columns ? countExternal(columns) : null,
+        label: KPI_LABEL_CLIENT_INTERVIEWS,
+        value: columns ? countInterviewStages(columns) : null,
         tone: "neutral",
       },
       {

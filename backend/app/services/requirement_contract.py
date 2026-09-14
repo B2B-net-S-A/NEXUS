@@ -84,7 +84,8 @@ def requirements_for_job(job) -> MatchingRequirements:
 # Bumped whenever the meaning of `search_dealbreaker_inputs` changes: it is
 # part of every request fingerprint, so a stored ranking computed under the
 # previous policy can never be served as current.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v1"
+# v2 (UAT M02-B01): same tagi nie czynią umiejętności „znanymi”.
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v2"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

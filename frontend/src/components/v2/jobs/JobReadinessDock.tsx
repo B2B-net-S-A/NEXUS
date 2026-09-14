@@ -585,11 +585,21 @@ export function JobReadinessDock({
   const championStack = championProfile?.stack as
     | { must?: unknown; nice?: unknown }
     | undefined;
+  // Pusty stack (MUST i NICE) na profilu sprzed 09.2026 nie znaczy „brak
+  // wymagań" — parser wpisywał je wprost do kolumn rekrutacji (M04-B02).
+  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-legacy-stack.ts`)
+  // i scoring. Do 09.2026 sam OBIEKT stacku (także pusty) wygrywał, więc dok
+  // pisał „Brak — dodaj wymagania" przy ośmiu pozycjach w `must_skills`.
+  const championStackFilled =
+    championStack != null &&
+    (extractSkills(championStack.must).length > 0 ||
+      extractSkills(championStack.nice).length > 0);
+  const readStackFromChampion = variant === "champion" && championStackFilled;
   const must = extractSkills(
-    variant === "champion" && championStack ? championStack.must : job.must_skills,
+    readStackFromChampion ? championStack?.must : job.must_skills,
   );
   const nice = extractSkills(
-    variant === "champion" && championStack ? championStack.nice : job.nice_skills,
+    readStackFromChampion ? championStack?.nice : job.nice_skills,
   );
   const verification: ChampionVerification =
     (variant === "champion"

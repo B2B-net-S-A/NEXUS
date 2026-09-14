@@ -412,6 +412,12 @@ async def sync_candidate_languages_from_source(
     """Normalize and persist one complete automated source snapshot."""
 
     incoming, invalid = normalize_language_payload(raw_languages)
+    # Sesje mają `autoflush=False`, a `populate_existing` NADPISUJE obiekt
+    # w pamięci stanem z bazy. Bez flusha niezapisane zmiany wołającego
+    # (umiejętności, doświadczenie, `raw_cv_text`, `cv_parsed_at` z
+    # `_apply_cv_enrichment`) znikały po cichu, a commit zapisywał wyłącznie
+    # języki — każde CV z sekcją języków nie zasilało profilu.
+    await db.flush()
     candidate = await db.scalar(
         select(Candidate)
         .where(Candidate.id == candidate_id)

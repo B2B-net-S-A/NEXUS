@@ -38,6 +38,7 @@ from app.schemas.candidate_search import (
 from app.services.candidate_profile_rate import (
     canonical_profile_rate_currency_clause,
 )
+from app.services.polish_ilike import polish_folded_ilike
 
 # CEFR ordering — monotonic in ASCII so plain ``>=`` on the JSON value works.
 _LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2", "native"]
@@ -181,12 +182,11 @@ def _city_match_clauses(cities: list[str]) -> list[ColumnElement]:
     Shared by the WHERE clause and ``location_soft_rank`` so the two can never
     disagree about what "matches this city" means.
     """
+    # Bez wrażliwości na polskie znaki: „Krakow" musi znaleźć „Kraków" (UAT M02-B03).
     return [
         or_(
-            _coalesce_empty(Candidate.city).ilike(f"%{_escape_like(c)}%", escape="\\"),
-            _coalesce_empty(Candidate.location).ilike(
-                f"%{_escape_like(c)}%", escape="\\"
-            ),
+            polish_folded_ilike(_coalesce_empty(Candidate.city), c),
+            polish_folded_ilike(_coalesce_empty(Candidate.location), c),
         )
         for c in cities
     ]

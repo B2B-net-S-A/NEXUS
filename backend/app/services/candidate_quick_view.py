@@ -293,10 +293,12 @@ def format_cv_highlight_bullets(highlights: dict[str, Any]) -> list[str]:
 
     if role:
         if started_at:
-            if precision == "date":
-                label = started_at
-            elif precision == "month":
-                label = started_at.replace("-", ".")
+            # Polski zapis: „07.2023”, nie „2023.07” (UAT M01-B05).
+            if precision == "date" and re.fullmatch(r"\d{4}-\d{2}-\d{2}", started_at):
+                label = ".".join(reversed(started_at.split("-")))
+            elif precision == "month" and re.fullmatch(r"\d{4}-\d{2}", started_at):
+                year, month = started_at.split("-")
+                label = f"{month}.{year}"
             else:
                 label = started_at
             bullets.append(f"Aktualna rola: {role}, od {label}.")

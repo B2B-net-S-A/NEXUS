@@ -19,6 +19,8 @@ import {
   type AIFeatureUsageDto,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -330,7 +332,7 @@ export default function AISettingsPage() {
   const [masterPending, setMasterPending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["ai-settings"],
     queryFn: () => aiSettingsApi.get().then((r) => r.data),
   });
@@ -386,18 +388,29 @@ export default function AISettingsPage() {
     );
   }
 
+  // UAT A-B04: 403 to odmowa — nie generyczne „Nie udało się załadować".
+  if (
+    error &&
+    resolveViewState({ isLoading: false, isError: true, error }) === "forbidden"
+  ) {
+    return (
+      <div className="container max-w-4xl mx-auto py-8 px-4">
+        <QueryStateNotice
+          state="forbidden"
+          description="Ustawienia funkcji AI są dostępne wyłącznie dla administratora."
+        />
+      </div>
+    );
+  }
+
   if (error || !data) {
     return (
       <div className="container max-w-4xl mx-auto py-8 px-4">
-        <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-xl">
-          <div className="flex items-center gap-2 text-rose-500">
-            <AlertCircle className="w-5 h-5" />
-            <span>Nie udało się załadować ustawień AI.</span>
-          </div>
-          <p className="text-sm text-muted-foreground mt-2">
-            Sprawdź czy masz uprawnienia administratora.
-          </p>
-        </div>
+        <QueryStateNotice
+          state="error"
+          description="Nie udało się załadować ustawień AI."
+          onRetry={() => refetch()}
+        />
       </div>
     );
   }

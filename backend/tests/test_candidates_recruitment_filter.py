@@ -219,3 +219,55 @@ async def test_recruitment_match_invalid_value_returns_422(
         headers=app_auth_headers,
     )
     assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_stage_filter_is_matched_on_the_selected_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """UAT B-B06: `recruitment_id` + `pipeline_stage` = etap W TEJ rekrutacji.
+
+    Kandydat „Nowy” w innej rekrutacji, a w wybranej na innym etapie, nie może
+    trafić do listy „Nowi” wybranej rekrutacji (inaczej lista nie zgadza się
+    z kolumną kanbanu).
+    """
+    job_a, client_a = await _seed_job()
+    job_b, client_b = await _seed_job()
+    new_here = await _seed_candidate(name_suffix="-N")
+    new_elsewhere = await _seed_candidate(name_suffix="-E")
+    await _seed_stage(new_here, job_a, "new")
+    await _seed_stage(new_elsewhere, job_a, "screening")
+    await _seed_stage(new_elsewhere, job_b, "new")
+    try:
+        r = await app_client.get(
+            f"/api/candidates?recruitment_id={job_a}&pipeline_stage=new&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = _ids(r.json())
+        assert new_here in ids
+        assert new_elsewhere not in ids
+
+        # Druga rekrutacja widzi „Nowego” u siebie.
+        r = await app_client.get(
+            f"/api/candidates?recruitment_id={job_b}&pipeline_stage=new&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert new_elsewhere in _ids(r.json())
+
+        # `not_assigned` nie zawęża etapu do rekrutacji, z której wyklucza.
+        r = await app_client.get(
+            f"/api/candidates?recruitment_id={job_a}&recruitment_match=not_assigned"
+            "&pipeline_stage=new&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = _ids(r.json())
+        assert new_here not in ids and new_elsewhere not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[new_here, new_elsewhere],
+            job_ids=[job_a, job_b],
+            client_ids=[client_a, client_b],
+        )

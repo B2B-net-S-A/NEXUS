@@ -20,7 +20,10 @@ import {
   type TeamsNotificationType,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { cn } from "@/lib/utils";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 interface NotificationTypeOption {
   value: TeamsNotificationType;
@@ -61,9 +64,7 @@ const EMPTY_FORM: TeamsChannelCreateInput = {
 function describeTypes(values: TeamsNotificationType[]): string {
   if (values.length === 0) return "Brak typów";
   return values
-    .map(
-      (v) => NOTIFICATION_TYPES.find((opt) => opt.value === v)?.label ?? v,
-    )
+    .map((v) => NOTIFICATION_TYPES.find((opt) => opt.value === v)?.label ?? v)
     .join(", ");
 }
 
@@ -73,17 +74,41 @@ export default function TeamsNotificationsCard() {
   const [draft, setDraft] = useState<TeamsChannelCreateInput>(EMPTY_FORM);
   const [testingId, setTestingId] = useState<number | null>(null);
 
-  const { data: channels = [], isLoading } = useQuery({
+  // UAT A-B03: `/api/teams-channels` jest wyłącznie dla admina. Rola bez
+  // prawa (także w podglądzie jako użytkownik) dostawała 403 renderowane jako
+  // „Brak skonfigurowanych kanałów" + formularz dodawania — odmowa wyglądała
+  // jak pusta lista.
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = hasRole(user, "admin");
+  const {
+    data: channels = [],
+    isLoading,
+    isError,
+    error,
+    isSuccess,
+    refetch,
+  } = useQuery({
     queryKey: ["teams-channels"],
     queryFn: () => teamsChannelsApi.list(),
     staleTime: 30_000,
+    enabled: isAdmin,
   });
+  const viewState = isAdmin
+    ? resolveViewState({
+        isLoading,
+        isError,
+        error,
+        isSuccess,
+        isEmpty: channels.length === 0,
+      })
+    : "forbidden";
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["teams-channels"] });
 
   const createMutation = useMutation({
-    mutationFn: (data: TeamsChannelCreateInput) => teamsChannelsApi.create(data),
+    mutationFn: (data: TeamsChannelCreateInput) =>
+      teamsChannelsApi.create(data),
     onSuccess: () => {
       showSuccess("Kanał Teams został dodany");
       setDraft(EMPTY_FORM);
@@ -150,7 +175,9 @@ export default function TeamsNotificationsCard() {
       if (result.sent) {
         showSuccess(`Karta testowa wysłana do "${channel.workspace_label}"`);
       } else {
-        showError(result.detail || "Test nie powiódł się — sprawdź konfigurację.");
+        showError(
+          result.detail || "Test nie powiódł się — sprawdź konfigurację.",
+        );
       }
     } catch {
       showError("Test nie powiódł się — sprawdź logi backendu.");
@@ -170,136 +197,157 @@ export default function TeamsNotificationsCard() {
             Powiadomienia Microsoft Teams
           </h3>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Karty Adaptive Cards na wybrane kanały Teams po kluczowych zdarzeniach
-            ATS (nowy kandydat, decyzja, podpisana umowa).
+            Karty Adaptive Cards na wybrane kanały Teams po kluczowych
+            zdarzeniach ATS (nowy kandydat, decyzja, podpisana umowa).
           </p>
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground mb-5">
-        Wymaga zgody admina dla{" "}
-        <code className="px-1 py-0.5 rounded bg-muted text-foreground">
-          ChannelMessage.Send
-        </code>{" "}
-        (Application permission) w Azure AD oraz ustawienia{" "}
-        <code className="px-1 py-0.5 rounded bg-muted text-foreground">
-          TEAMS_NOTIFICATIONS_ENABLED=true
-        </code>{" "}
-        w Coolify env vault. Team ID i Channel ID skopiujesz w Teams:
-        kliknij &quot;...&quot; przy nazwie kanału → &quot;Get link to
-        channel&quot; → URL zawiera oba ID.
-      </div>
-
-      <h4 className="text-sm font-medium text-foreground mb-3">
-        Skonfigurowane kanały
-      </h4>
-      {isLoading ? (
-        <div className="py-6 text-center text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-          Ładowanie...
-        </div>
-      ) : channels.length === 0 ? (
-        <div className="py-6 text-center text-sm text-muted-foreground rounded-lg border border-dashed border-border">
-          Brak skonfigurowanych kanałów. Dodaj pierwszy poniżej.
-        </div>
+      {isBlockingViewState(viewState) ? (
+        <QueryStateNotice
+          state={viewState as "forbidden" | "not_found" | "error"}
+          description={
+            viewState === "forbidden"
+              ? "Kanały powiadomień Teams konfiguruje administrator. Twoja rola nie ma dostępu do tej konfiguracji."
+              : "Nie udało się wczytać kanałów Teams."
+          }
+          onRetry={() => refetch()}
+        />
       ) : (
-        <ul className="space-y-2 mb-6">
-          {channels.map((channel) => (
-            <ChannelRow
-              key={channel.id}
-              channel={channel}
-              busy={
-                testingId === channel.id ||
-                updateMutation.isPending ||
-                deleteMutation.isPending
-              }
-              onToggle={(enabled) =>
-                updateMutation.mutate({ id: channel.id, patch: { enabled } })
-              }
-              onTypesChange={(types) =>
-                updateMutation.mutate({
-                  id: channel.id,
-                  patch: { notification_types: types },
-                })
-              }
-              onTest={() => handleTest(channel)}
-              onDelete={() => deleteMutation.mutate(channel.id)}
-            />
-          ))}
-        </ul>
-      )}
-
-      <div className="rounded-xl border border-border bg-background/40 p-4 space-y-3">
-        <h4 className="text-sm font-semibold text-foreground">Dodaj nowy kanał</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            type="text"
-            placeholder="Etykieta (np. ATS Deals)"
-            value={draft.workspace_label}
-            onChange={(e) =>
-              setDraft({ ...draft, workspace_label: e.target.value })
-            }
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
-          <input
-            type="text"
-            placeholder="Team ID"
-            value={draft.team_id}
-            onChange={(e) => setDraft({ ...draft, team_id: e.target.value })}
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
-          />
-          <input
-            type="text"
-            placeholder="Channel ID"
-            value={draft.channel_id}
-            onChange={(e) =>
-              setDraft({ ...draft, channel_id: e.target.value })
-            }
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
-          />
-        </div>
-
-        <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            Typy powiadomień
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {NOTIFICATION_TYPES.map((opt) => {
-              const active = draft.notification_types.includes(opt.value);
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => handleAddType(opt.value)}
-                  title={opt.description}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
-                    active
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
+        <>
+          <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground mb-5">
+            Wymaga zgody admina dla{" "}
+            <code className="px-1 py-0.5 rounded bg-muted text-foreground">
+              ChannelMessage.Send
+            </code>{" "}
+            (Application permission) w Azure AD oraz ustawienia{" "}
+            <code className="px-1 py-0.5 rounded bg-muted text-foreground">
+              TEAMS_NOTIFICATIONS_ENABLED=true
+            </code>{" "}
+            w Coolify env vault. Team ID i Channel ID skopiujesz w Teams:
+            kliknij &quot;...&quot; przy nazwie kanału → &quot;Get link to
+            channel&quot; → URL zawiera oba ID.
           </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={createMutation.isPending}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {createMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <h4 className="text-sm font-medium text-foreground mb-3">
+            Skonfigurowane kanały
+          </h4>
+          {viewState === "loading" ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+              Ładowanie...
+            </div>
+          ) : channels.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground rounded-lg border border-dashed border-border">
+              Brak skonfigurowanych kanałów. Dodaj pierwszy poniżej.
+            </div>
           ) : (
-            <CheckCircle2 className="h-4 w-4" />
+            <ul className="space-y-2 mb-6">
+              {channels.map((channel) => (
+                <ChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  busy={
+                    testingId === channel.id ||
+                    updateMutation.isPending ||
+                    deleteMutation.isPending
+                  }
+                  onToggle={(enabled) =>
+                    updateMutation.mutate({
+                      id: channel.id,
+                      patch: { enabled },
+                    })
+                  }
+                  onTypesChange={(types) =>
+                    updateMutation.mutate({
+                      id: channel.id,
+                      patch: { notification_types: types },
+                    })
+                  }
+                  onTest={() => handleTest(channel)}
+                  onDelete={() => deleteMutation.mutate(channel.id)}
+                />
+              ))}
+            </ul>
           )}
-          Dodaj kanał
-        </button>
-      </div>
+
+          <div className="rounded-xl border border-border bg-background/40 p-4 space-y-3">
+            <h4 className="text-sm font-semibold text-foreground">
+              Dodaj nowy kanał
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <input
+                type="text"
+                placeholder="Etykieta (np. ATS Deals)"
+                value={draft.workspace_label}
+                onChange={(e) =>
+                  setDraft({ ...draft, workspace_label: e.target.value })
+                }
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Team ID"
+                value={draft.team_id}
+                onChange={(e) =>
+                  setDraft({ ...draft, team_id: e.target.value })
+                }
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+              />
+              <input
+                type="text"
+                placeholder="Channel ID"
+                value={draft.channel_id}
+                onChange={(e) =>
+                  setDraft({ ...draft, channel_id: e.target.value })
+                }
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+              />
+            </div>
+
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                Typy powiadomień
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {NOTIFICATION_TYPES.map((opt) => {
+                  const active = draft.notification_types.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleAddType(opt.value)}
+                      title={opt.description}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={createMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {createMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              Dodaj kanał
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -10,6 +10,9 @@ import * as React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+const openAuthenticatedFile = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
+
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
 import type { OrderMailDocument, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
@@ -155,5 +158,23 @@ describe("OrderMailQueueView", () => {
     expect(screen.getByText("Nic do pokazania")).toBeInTheDocument();
     rerender(<OrderMailQueueView {...base} state="loading" items={[]} total={0} />);
     expect(screen.getByText("Ładowanie…")).toBeInTheDocument();
+  });
+
+  it("403 is a lack of access, not a server failure with retry (UAT A-B04)", () => {
+    render(<OrderMailQueueView {...base} state="forbidden" items={[]} total={0} />);
+    expect(screen.getByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Nie udało się pobrać danych")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Spróbuj ponownie/ })).toBeNull();
+    expect(screen.queryByTestId("mailbox-check")).toBeNull();
+  });
+
+  it("PDF opens through the authenticated fetch, not a raw link to the frontend host (UAT M07-B03)", async () => {
+    openAuthenticatedFile.mockReset();
+    openAuthenticatedFile.mockRejectedValueOnce(new Error("HTTP 404"));
+    render(<OrderMailQueueView {...base} state="ready" items={[doc({ id: 47, has_file: true })]} selectedId={47} />);
+    expect(screen.queryByRole("link", { name: /PDF/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /PDF/ }));
+    expect(openAuthenticatedFile).toHaveBeenCalledWith("/api/order-mail/queue/47/file", "application/pdf", "z.pdf");
+    expect(await screen.findByText("Nie udało się otworzyć pliku PDF.")).toBeInTheDocument();
   });
 });

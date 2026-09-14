@@ -722,6 +722,43 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(screen.getByText("Stack → must / nice")).toBeInTheDocument();
   });
 
+  it("pusty stack starego profilu nie przykrywa kolumn rekrutacji (M04-B02)", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    championGetMock.mockResolvedValue({
+      data: {
+        ...championProfileFixture,
+        champion_profile: {
+          ...championProfileFixture.champion_profile,
+          // Kształt z API po migracji leniwej: obiekt stacku JEST, ale pusty.
+          stack: { must: [], nice: [], notes: "" },
+        },
+      },
+    });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(
+      await screen.findByText("2 must · 1 nice · zasilają C2 i filtry."),
+    ).toBeInTheDocument();
+  });
+
+  it("wypełniony stack Championa nadal wygrywa z kolumnami", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    championGetMock.mockResolvedValue({
+      data: {
+        ...championProfileFixture,
+        champion_profile: {
+          ...championProfileFixture.champion_profile,
+          stack: { must: [{ name: "Go" }], nice: [], notes: "" },
+        },
+      },
+    });
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(
+      await screen.findByText("1 must · 0 nice · zasilają C2 i filtry."),
+    ).toBeInTheDocument();
+  });
+
   it("licznik liczy SIEDEM warunków (4 zlecenia + 3 weryfikacji), gdy profil Championa się wczytał", async () => {
     useAuthStore.setState({ user: deliveryLead });
     const { container } = renderDock(501, undefined, true, "champion");

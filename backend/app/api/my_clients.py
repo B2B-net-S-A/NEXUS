@@ -52,6 +52,7 @@ from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fiel
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
+from app.schemas.money import to_whole_pln
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -133,8 +134,10 @@ async def _monthly_margin_total_pln(
             complete = False
             continue
         assert client_pln is not None and candidate_pln is not None
-        total += client_pln - candidate_pln
-        revenue += client_pln
+        # Składniki zaokrąglane per kontrakt, jak wiersze tabeli konsultantów na
+        # profilu — kafel Analityki musi równać się „Aktywnemu MRR” (UAT M06-B04).
+        total += Decimal(to_whole_pln(client_pln - candidate_pln))
+        revenue += Decimal(to_whole_pln(client_pln))
         has_margin = True
     return MonthlyMarginTotals(total, revenue, has_margin, complete)
 

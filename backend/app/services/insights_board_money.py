@@ -22,6 +22,11 @@ Trzy reguły, których nie wolno tu rozluźnić:
 * **Przychód bez kosztu nie ma marży równej przychodowi.** Taki kontrakt
   wchodzi do przychodu i do ``without_cost_leg``, a jego marża pozostaje
   NIEZNANA — dodanie zera zawyżyłoby marżę firmy.
+* **Kwoty kontraktu są zaokrąglane do pełnych złotych PRZED sumowaniem**
+  (``to_whole_pln``) — tak samo jak wiersz rankingu klientów, profil klienta
+  i portal Delivery Leada (UAT M06-B04). Suma zaokrągleń ≠ zaokrąglenie sumy,
+  więc bez tego kafel „Marża / mc" różnił się od sumy rankingu na tej samej
+  zakładce o tyle złotych, ile połówek groszy miały kontrakty.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
 from app.models.contract import Contract, RateUnit
+from app.schemas.money import to_whole_pln
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate
@@ -210,7 +216,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
             skipped_margin += 1
             continue
         assert client_pln is not None
-        revenue += client_pln
+        revenue += Decimal(to_whole_pln(client_pln))
 
         if candidate_amount is None:
             # Przychód bez kosztu: marża tego wiersza jest NIEZNANA, a nie
@@ -226,8 +232,8 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
             skipped_margin += 1
             continue
         assert candidate_pln is not None
-        cost += candidate_pln
-        row_margin = client_pln - candidate_pln
+        cost += Decimal(to_whole_pln(candidate_pln))
+        row_margin = Decimal(to_whole_pln(client_pln - candidate_pln))
         margin += row_margin
 
         hours = _billable_hours(contract)

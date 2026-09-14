@@ -30,7 +30,11 @@ export interface FinanceResultRow {
   revenue_rate_md: number | null;
   invoice_amount: number | null;
   margin_pln: number | null;
+  /** Surowa komórka „Marża %" z arkusza — ułamek (komórka procentowa
+   *  Excela) albo punkty procentowe. Do wyświetlania służy `margin_percent`. */
   margin_pct: number | null;
+  /** Marża % w punktach procentowych (21.4 = 21,4%), liczona na serwerze. */
+  margin_percent: number | null;
   /** Pola zmienione ręcznie po imporcie — odróżniają „człowiek wyczyścił"
    *  od „import nie dał wartości" (to drugie dostaje ramkę „Uzupełnij"). */
   edited_fields: FinanceEditableField[];
@@ -39,8 +43,13 @@ export interface FinanceResultRow {
 export interface FinanceTotals {
   cost: number;
   revenue: number;
+  /** Σ „Marża PLN" z arkusza — NIE przychód − koszt. */
   margin: number;
+  /** Średnia marża % w punktach procentowych (21.4 = 21,4%). */
   avg_margin_pct: number | null;
+  /** Wiersze bez „Marży PLN" (zwykle wynagrodzenie bez faktury) i ich koszt. */
+  rows_without_margin: number;
+  cost_without_margin: number;
 }
 
 export interface FinanceResultsResponse {

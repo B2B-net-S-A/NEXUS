@@ -48,3 +48,17 @@ it("can approve an upload without a recruitment stage and share that approval", 
   await waitFor(() => expect(api.create).toHaveBeenCalledWith(8, 14, undefined, 21));
   expect(api.approve).toHaveBeenCalledWith(8);
 });
+
+it.each([
+  [true, /Klient zobaczy wersję interaktywną/],
+  [false, /Klient zobaczy klasyczny widok CV/],
+])("tells the recruiter what the client will see (interactive=%s)", async (interactive, message) => {
+  api.create.mockResolvedValue({ data: { share_url_suffix: "/cv/i/test", interactive_available: interactive } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><CvGeneratedShareModal generatedId={7} onClose={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  await screen.findByRole("option", { name: /Wersja 2/ });
+  await user.selectOptions(screen.getByLabelText("Zatwierdzona wersja CV"), "12");
+  await user.click(screen.getByRole("button", { name: "Wygeneruj link" }));
+  expect(await screen.findByText(message)).toBeInTheDocument();
+});

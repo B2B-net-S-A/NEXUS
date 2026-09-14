@@ -122,3 +122,70 @@ export function getCandidateSummaryLine(c: CandidateProfileLite): string | null 
 
   return segments.length > 0 ? segments.join(" · ") : null;
 }
+
+const EXPERIENCE_CURRENT_WORDS = new Set([
+  "present",
+  "current",
+  "obecnie",
+  "teraz",
+]);
+
+/** Data wpisu doświadczenia w polskim zapisie — „07.2023”, „2019”, „obecnie”.
+ *
+ *  Wpisy z CV i z importów niosą różne zapisy („2023-07”, „2023-07-15”,
+ *  „06.2023”, „present”). `formatDate` robiło z miesiąca pełną datę
+ *  („1.07.2023”), a zapis nie-ISO wywracał render (`Invalid time value`).
+ *  Nierozpoznany zapis wraca bez zmian — lepiej pokazać źródło niż zgadywać. */
+export function formatExperienceDate(value: unknown): string {
+  if (value == null) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (EXPERIENCE_CURRENT_WORDS.has(text.toLowerCase())) return "obecnie";
+  const iso = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?(?:T.*)?$/.exec(text);
+  if (iso) return `${iso[2].padStart(2, "0")}.${iso[1]}`;
+  return text;
+}
+
+export interface CvProjectionNotice {
+  tone: "warning" | "info";
+  text: string;
+}
+
+/** Czy wgrane CV zasiliło profil — sygnał dla sekcji „CV” (UAT M01-B01).
+ *
+ *  Bez tego profil z plikiem, który nie zasilił danych, wyglądał jak profil
+ *  bez umiejętności: sekcje „Umiejętności”/„Doświadczenie” po prostu się nie
+ *  renderowały. Dwa przypadki:
+ *  - kwarantanna tożsamości — backend zostawia w `cv_extracted_data`
+ *    znacznik `_identity_quarantine_source`, gdy imię i nazwisko w pliku
+ *    należą do innej osoby (plik przestaje być głównym CV);
+ *  - plik jest, a odczytu brak (`cv_parsed_at` puste) — w toku albo nieudany. */
+export function getCvProjectionNotice(candidate: {
+  cv_filename?: string | null;
+  cv_parsed_at?: string | null;
+  cv_extracted_data?: unknown;
+}): CvProjectionNotice | null {
+  const extracted =
+    candidate.cv_extracted_data && typeof candidate.cv_extracted_data === "object"
+      ? (candidate.cv_extracted_data as Record<string, unknown>)
+      : {};
+  if (extracted._identity_quarantine_source) {
+    return {
+      tone: "warning",
+      text:
+        "Wgrane CV nie zasiliło profilu: imię i nazwisko w dokumencie nie " +
+        "zgadzają się z kandydatem. Plik zostaje w zakładce „Pliki i umowy”; " +
+        "zwolnić go może administrator albo Head of Recruitment.",
+    };
+  }
+  if (candidate.cv_filename && !candidate.cv_parsed_at) {
+    return {
+      tone: "info",
+      text:
+        "Dane z tego CV (umiejętności, doświadczenie) nie są jeszcze w " +
+        "profilu. Świeżo wgrany plik odczytujemy zwykle w ciągu minuty — jeśli " +
+        "nic się nie zmieni, odczyt się nie powiódł.",
+    };
+  }
+  return null;
+}

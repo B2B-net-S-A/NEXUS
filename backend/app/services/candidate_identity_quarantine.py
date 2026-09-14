@@ -242,16 +242,11 @@ async def _clear_quarantined_cv_projection(
     ):
         candidate.education = []
         cleared_fields.append("education")
-    expected_experience = [
-        {
-            "company": name,
-            "role": None,
-            "start": None,
-            "end": None,
-            "desc": None,
-        }
-        for name in (extracted.get("companies") or [])
-    ]
+    from app.services.cv_enrichment import cv_experience_entries
+
+    # Ten sam kształt, który zapisał `_apply_cv_enrichment` (także stanowiska
+    # z datami z odczytu v6) — inaczej doświadczenie złej osoby zostawałoby.
+    expected_experience = cv_experience_entries(extracted)
     if (
         expected_experience
         and candidate.experience == expected_experience

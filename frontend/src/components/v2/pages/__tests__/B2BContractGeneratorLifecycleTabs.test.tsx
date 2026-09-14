@@ -63,6 +63,7 @@ vi.mock("@/lib/api", () => ({
 
 import {
   ClosedContractsTab,
+  GeneratedContractsTab,
   NoProjectContractsTab,
 } from "@/components/v2/pages/B2BContractGeneratorV2";
 
@@ -302,6 +303,20 @@ describe("Umowy bez projektu", () => {
     expect(
       await screen.findByText("Brak umów pasujących do wyszukiwania."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Umowy aktywne i w trakcie podpisu", () => {
+  it("awaria listy umów NIE renderuje się jako „Brak umów aktywnych…” (UAT M08-B08)", async () => {
+    renderTab(GeneratedContractsTab, new Error("Network Error"));
+
+    expect(
+      await screen.findByText("Nie udało się wczytać listy"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak umów aktywnych i w trakcie podpisu."),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument();
   });
 });
 

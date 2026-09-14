@@ -2,7 +2,6 @@ import asyncio
 import base64
 import hashlib
 import logging
-import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
@@ -137,6 +136,7 @@ from app.services.contract_order_offboarding import apply_contract_order_offboar
 from app.services.cost_orders import is_cost_order_client
 from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
+from app.services.polish_ilike import polish_folded_ilike
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus, get_current_user, require_roles
 from app.api.financial_access import (
@@ -851,21 +851,25 @@ def _apply_contract_list_filters(
     joins never multiply rows (no DISTINCT needed). Multi-selects are OR-combined.
     """
     if q and q.strip():
-        pattern = f"%{unicodedata.normalize('NFC', q.strip())}%"
+        # Bez wrażliwości na polskie znaki: „gradzki" znajduje „Grądzki"
+        # (UAT M08-B01). `polish_folded_ilike` normalizuje frazę do NFC.
+        term = q.strip()
         query = (
             query.join(Contract.candidate)
             .join(Contract.client)
             .outerjoin(Contract.job)
             .where(
                 or_(
-                    Candidate.name.ilike(pattern),
-                    Candidate.lastname.ilike(pattern),
-                    func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
-                    client_display_name_expression().ilike(pattern),
+                    polish_folded_ilike(Candidate.name, term),
+                    polish_folded_ilike(Candidate.lastname, term),
+                    polish_folded_ilike(
+                        func.concat(Candidate.name, " ", Candidate.lastname), term
+                    ),
+                    polish_folded_ilike(client_display_name_expression(), term),
                     # Preserve the legacy/source name as a search alias when a
                     # full NEXUS display name is configured.
-                    Client.name.ilike(pattern),
-                    Job.title.ilike(pattern),
+                    polish_folded_ilike(Client.name, term),
+                    polish_folded_ilike(Job.title, term),
                 )
             )
         )

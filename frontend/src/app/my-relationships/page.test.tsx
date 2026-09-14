@@ -78,4 +78,11 @@ describe("MyRelationshipsPage — Finance read-only", () => {
     expect(screen.queryByRole("button", { name: "Aktualizuj" })).not.toBeInTheDocument();
     expect(screen.queryByText("Edytor relacji")).not.toBeInTheDocument();
   });
+
+  it("403 renderuje odmowę zamiast „Czy jesteś zalogowany?” (UAT A-B04)", async () => {
+    mocks.get.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText(/Czy jesteś zalogowany/)).not.toBeInTheDocument();
+  });
 });
