@@ -77,6 +77,7 @@ import {
   funnelRejectedTotal,
   funnelTooltip,
   funnelTotal,
+  stageSummaryOf,
   type FunnelGroupKey,
 } from "@/lib/job-pipeline-funnel";
 import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
@@ -425,15 +426,18 @@ function JobsTable({
           // — JEDNO zapytanie GROUP BY na całą stronę, zero zapytań per wiersz.
           // Jego brak (np. odpowiedź spoza kontraktu) cofa wiersz do starego
           // paska `filled/target`, zamiast udawać pełny lejek zerami.
-          const hasStageBreakdown = job.stage_breakdown != null;
+          // `stage_columns` (kolumny szablonu) grupuje ta sama funkcja co
+          // szyny w szczegółach — jedna liczba pod jedną nazwą (UAT B33).
+          const stageSummary = stageSummaryOf(job);
+          const hasStageBreakdown = stageSummary != null;
           const funnelGroups = hasStageBreakdown
-            ? buildStageFunnel(job.stage_breakdown)
+            ? buildStageFunnel(stageSummary)
             : [];
           const funnelCount = funnelTotal(funnelGroups);
           // Odrzuceni/wycofani są POZA sześcioma grupami paska (pokazuje
           // postęp, nie odpady) — ale w tooltipie ma być widać, że byli.
           const rejectedTotal = hasStageBreakdown
-            ? funnelRejectedTotal(job.stage_breakdown)
+            ? funnelRejectedTotal(stageSummary)
             : 0;
           // Suma za ukośnikiem obejmuje ZATRUDNIONYCH, a KPI „w procesie"
           // w rekrutacji — nie (kolumny terminalne). Tooltip nazywa ją wprost,
@@ -1592,7 +1596,7 @@ export function JobsListV2() {
         <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
           <JobReadinessDock
             jobId={effSelectedJobId}
-            stageBreakdown={selectedListItem?.stage_breakdown}
+            stageBreakdown={stageSummaryOf(selectedListItem)}
             canOpen={selectedListItem?.can_open !== false}
             listNav={listNav}
           />

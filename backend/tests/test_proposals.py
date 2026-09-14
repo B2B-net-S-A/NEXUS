@@ -235,9 +235,14 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
     """
-    If Qdrant returns no hits and DB has no candidates, the task must mark
-    the snapshot ready with zero candidates — not failed.
+    If Qdrant returns no hits, the task falls back to the DB pool (every
+    non-blacklisted candidate, capped by ``MATCH_POOL_SIZE``) and must mark the
+    snapshot ready — not failed. The shared test database is not empty, so the
+    contract is "subset of the fallback pool", and "zero candidates" only when
+    that pool is empty.
     """
+    from app.core.config import settings
+    from app.models.candidate import Candidate, CandidateStatus
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
         create_pending_snapshot,
@@ -263,9 +268,22 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
         snap = await db.scalar(
             select(ProposalSnapshot).where(ProposalSnapshot.id == snapshot_id)
         )
+        fallback_pool = set(
+            (
+                await db.execute(
+                    select(Candidate.id)
+                    .where(Candidate.status != CandidateStatus.blacklisted)
+                    .limit(settings.MATCH_POOL_SIZE)
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert snap is not None
-    # With no candidates in the fallback pool, we still finish cleanly.
-    assert snap.status in (STATUS_READY, STATUS_FAILED)
-    if snap.status == STATUS_READY:
+    # Empty Qdrant must not fail the snapshot — the DB fallback pool is used.
+    assert snap.status == STATUS_READY, snap.error_message
+    assert set(snap.candidate_ids) <= fallback_pool
+    assert len(snap.breakdowns) == len(snap.candidate_ids)
+    if not fallback_pool:
         assert snap.candidate_ids == []
         assert snap.breakdowns == []

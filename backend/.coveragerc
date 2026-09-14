@@ -1,0 +1,14 @@
+# QA-01 (audyt Codexa, 14.09.2026): pytest w CI biegnie w 4 shardach na
+# 4 osobnych runnerach, a `coverage combine` w jobie `backend-coverage-combine`
+# scala ich pliki danych. `relative_files` sprawia, że ścieżki w danych są
+# względne wobec tego katalogu (`app/...`), więc scalenie nie zależy od tego,
+# czy checkout na runnerze scalającym wylądował pod tą samą ścieżką
+# bezwzględną co na shardach. Sekcja `[paths]` domyka drugą stronę: dane
+# z czyjegoś środowiska (lokalny Docker, inny runner) mapują się na `app/`.
+[run]
+relative_files = True
+
+[paths]
+source =
+    app
+    */backend/app

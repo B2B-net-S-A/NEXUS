@@ -10,6 +10,10 @@ Cover scenariuszy:
 - reject-verification → tworzy nowy CandidateStage z poprzednim stage'em
 - list pending-verifications tylko dla admina
 - notification helper wysyła tylko do adminów
+
+Bramka członkostwa (P1-PIPE-01, `ensure_job_membership`): rekruter, który
+przesuwa kandydata, musi należeć do zespołu rekrutacji — fixture ustawia go
+jako `recruiter_id` oferty. Bez tego każdy `/move` odpowiada 403.
 """
 
 from __future__ import annotations
@@ -86,6 +90,7 @@ async def _seed_candidate() -> int:
 async def _seed_job(
     salary_max: int | None = 20000,
     delivery_lead_id: int | None = None,
+    recruiter_id: int | None = None,
 ) -> int:
     from app.models.client import Client
 
@@ -103,6 +108,8 @@ async def _seed_job(
             salary_min=10000,
             salary_max=salary_max,
             delivery_lead_id=delivery_lead_id,
+            # Właściciel oferty = członek zespołu (bramka członkostwa pipeline'u).
+            recruiter_id=recruiter_id,
             client_id=cli.id,
         )
         db.add(j)
@@ -139,10 +146,10 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
 
 @pytest.mark.asyncio
 async def test_move_to_verified_within_budget_active(pv_client: AsyncClient):
-    _, email, pw = await _seed_user(UserRole.recruiter, "within")
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "within")
     headers = await _login(pv_client, email, pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -166,12 +173,12 @@ async def test_move_to_verified_within_budget_active(pv_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_move_to_verified_above_budget_pending(pv_client: AsyncClient):
-    _, email, pw = await _seed_user(UserRole.recruiter, "above")
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "above")
     headers = await _login(pv_client, email, pw)
     # Admin potrzebny, żeby helper notyfikacyjny miał kogo powiadomić.
     await _seed_user(UserRole.admin, "approver-admin")
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -205,10 +212,10 @@ async def test_move_to_verified_above_budget_pending(pv_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_move_to_verified_missing_rate_returns_422(pv_client: AsyncClient):
-    _, email, pw = await _seed_user(UserRole.recruiter, "missing")
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "missing")
     headers = await _login(pv_client, email, pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job()
+    job_id = await _seed_job(recruiter_id=recr_uid)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -226,12 +233,12 @@ async def test_move_to_verified_missing_rate_returns_422(pv_client: AsyncClient)
 
 @pytest.mark.asyncio
 async def test_accept_verification_by_admin(pv_client: AsyncClient):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "ack-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "ack-r")
     _, admin_email, admin_pw = await _seed_user(UserRole.admin, "ack-admin")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         move = await pv_client.post(
             "/api/pipeline/move",
@@ -263,13 +270,13 @@ async def test_accept_verification_by_admin(pv_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_accept_verification_forbidden_for_recruiter(pv_client: AsyncClient):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-r")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     # Drugi recruiter który próbuje akceptować
     _, recr2_email, recr2_pw = await _seed_user(UserRole.recruiter, "forb-r2")
     recr2_headers = await _login(pv_client, recr2_email, recr2_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         move = await pv_client.post(
             "/api/pipeline/move",
@@ -298,12 +305,12 @@ async def test_accept_verification_forbidden_for_recruiter(pv_client: AsyncClien
 async def test_accept_verification_forbidden_for_delivery_lead(
     pv_client: AsyncClient,
 ):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-dl-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-dl-r")
     _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "forb-dl")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     dl_headers = await _login(pv_client, dl_email, dl_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         move = await pv_client.post(
             "/api/pipeline/move",
@@ -328,12 +335,12 @@ async def test_accept_verification_forbidden_for_delivery_lead(
 
 @pytest.mark.asyncio
 async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "rej-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "rej-r")
     _, admin_email, admin_pw = await _seed_user(UserRole.admin, "rej-admin")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         # Najpierw 'screening' (poprzedni stage)
         prev = await pv_client.post(
@@ -393,7 +400,7 @@ async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "list-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "list-r")
     _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "list-dl")
     _, hor_email, hor_pw = await _seed_user(UserRole.head_of_recruitment, "list-hor")
     _, admin_email, admin_pw = await _seed_user(UserRole.admin, "list-admin")
@@ -402,7 +409,7 @@ async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
     hor_headers = await _login(pv_client, hor_email, hor_pw)
     admin_headers = await _login(pv_client, admin_email, admin_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         await pv_client.post(
             "/api/pipeline/move",
@@ -440,14 +447,16 @@ async def test_pending_verifications_mine_does_not_widen_delivery_lead_access(
     pv_client: AsyncClient,
 ):
     """`?mine=true` nie omija Admin-only nawet dla DL przypisanego do Joba."""
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-r")
     dl_uid_a, dl_a_email, dl_a_pw = await _seed_user(
         UserRole.delivery_lead, "mine-dl-a"
     )
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     dl_a_headers = await _login(pv_client, dl_a_email, dl_a_pw)
     cand_a = await _seed_candidate()
-    job_a = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid_a)
+    job_a = await _seed_job(
+        salary_max=20000, delivery_lead_id=dl_uid_a, recruiter_id=recr_uid
+    )
     try:
         a = await pv_client.post(
             "/api/pipeline/move",
@@ -476,7 +485,7 @@ async def test_pending_verifications_mine_does_not_widen_hor_access(
     pv_client: AsyncClient,
 ):
     """`?mine=true` nie omija Admin-only dla Head of Recruitment."""
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-empty-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-empty-r")
     dl_uid, _, _ = await _seed_user(UserRole.delivery_lead, "mine-empty-dl")
     _, hor_email, hor_pw = await _seed_user(
         UserRole.head_of_recruitment, "mine-empty-hor"
@@ -485,7 +494,9 @@ async def test_pending_verifications_mine_does_not_widen_hor_access(
     hor_headers = await _login(pv_client, hor_email, hor_pw)
     cand_id = await _seed_candidate()
     # Job jest przypisany do DL, nie do HoR
-    job_id = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid)
+    job_id = await _seed_job(
+        salary_max=20000, delivery_lead_id=dl_uid, recruiter_id=recr_uid
+    )
     try:
         await pv_client.post(
             "/api/pipeline/move",
@@ -519,14 +530,14 @@ async def test_pending_verification_notification_sent_only_to_admin(
     pv_client: AsyncClient,
 ):
     # Tylko admin; DL, HoR i recruiter nie mogą dostać PII ani kwot.
-    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "notif-r")
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "notif-r")
     admin_uid, _, _ = await _seed_user(UserRole.admin, "notif-admin")
     dl_uid, _, _ = await _seed_user(UserRole.delivery_lead, "notif-dl")
     hor_uid, _, _ = await _seed_user(UserRole.head_of_recruitment, "notif-hor")
     other_uid, _, _ = await _seed_user(UserRole.recruiter, "notif-other")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     cand_id = await _seed_candidate()
-    job_id = await _seed_job(salary_max=20000)
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",

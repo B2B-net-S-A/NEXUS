@@ -16,7 +16,11 @@ from app.services.cv_standalone_approval import approve_unchanged_generation
 @pytest.mark.parametrize(
     "case", ["verified", "blind", "unverified", "corrupt", "retry"]
 )
-async def test_standalone_approval_freezes_verified_artifact(case):
+async def test_standalone_approval_freezes_verified_artifact(case, pipeline_mode):
+    """Zamrożenie zapisanego DOCX przy zatwierdzeniu — w OBU przepływach
+    (`pipeline_mode`). Jedyna różnica trybów to wiersz BEZ kontroli treści:
+    ścisłe dowody (v10) odmawiają 409, doradcze (legacy, domyślne na
+    produkcji) zatwierdzają — pre-#1444 nie było tu żadnej bramki."""
     payload = {
         "name": "Jan Secret",
         "position": "Engineer",
@@ -45,13 +49,19 @@ async def test_standalone_approval_freezes_verified_artifact(case):
     db = SimpleNamespace(
         scalar=AsyncMock(return_value=existing), add=Mock(), flush=AsyncMock()
     )
-    if case in ("corrupt", "unverified"):
+    evidence_enforced = pipeline_mode == "v10"
+    if case == "corrupt" or (case == "unverified" and evidence_enforced):
         with pytest.raises(HTTPException) as exc:
             await approve_unchanged_generation(db, doc, 9)
         assert exc.value.status_code == 409
         db.add.assert_not_called()
         return
     version = await approve_unchanged_generation(db, doc, 9)
+    if case == "unverified":
+        # Dowody doradcze: zatwierdzenie bez kontroli AI, bez fałszywego
+        # „verified" w metadanych.
+        assert version.render_metadata["generation_review_available"] is False
+        db.add.assert_called_once_with(version)
     if case == "retry":
         assert version is existing
         db.add.assert_not_called()

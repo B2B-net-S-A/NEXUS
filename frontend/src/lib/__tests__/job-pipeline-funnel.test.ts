@@ -104,3 +104,62 @@ describe("funnelTooltip", () => {
     );
   });
 });
+
+/**
+ * UAT B33 — lista i szczegóły liczą z JEDNEJ definicji.
+ *
+ * Kolumny szablonu z wiersza listy (`stage_columns`) są grupowane tą samą
+ * funkcją co szyny szczegółów (`groupKanbanColumns`). Własny etap szablonu
+ * stojący ZA screeningiem („Przepuszczony przez DZ") niesie `stage: "new"`,
+ * więc po samym `stage_breakdown` lista liczyła go do „Nowi", a szczegóły —
+ * po pozycji — do „Zweryfikowani" (4/1/1/2 vs 3/1/2/2).
+ */
+describe("buildStageFunnel — stage_columns (UAT B33)", () => {
+  const columns = [
+    { stage: "new", category: "internal" as const, count: 3, stage_def_id: 1, name: "Nowy", order: 0 },
+    { stage: "screening", category: "internal" as const, count: 1, stage_def_id: 2, name: "Screening", order: 1 },
+    // Własny etap bez legacy enuma — backend degraduje `stage` do "new".
+    { stage: "new", category: "internal" as const, count: 1, stage_def_id: 3, name: "Przepuszczony przez DZ", order: 2 },
+    { stage: "verified", category: "internal" as const, count: 1, stage_def_id: 4, name: "Zweryfikowany", order: 3 },
+    { stage: "cv_sent", category: "internal" as const, count: 2, stage_def_id: 5, name: "CV Wysłane", order: 4 },
+    { stage: "new", category: "terminal" as const, count: 2, stage_def_id: 6, name: "Zatrudniony", order: 5, terminal_type: "hired" as const },
+    { stage: "new", category: "terminal" as const, count: 4, stage_def_id: 7, name: "Odrzucony", order: 6, terminal_type: "rejected" as const },
+  ];
+  // Legacy rozkład tej samej rekrutacji (po enumie): własny etap = "new".
+  const breakdown = { new: 4, screening: 1, verified: 1, cv_sent: 2, hired: 2, rejected: 4 };
+
+  it("liczy własny etap za screeningiem do „Zweryfikowani”, tak jak szczegóły", () => {
+    const groups = buildStageFunnel({ stage_columns: columns, stage_breakdown: breakdown });
+    const byKey = Object.fromEntries(groups.map((g) => [g.key, g.count]));
+    expect(byKey).toEqual({
+      new: 3,
+      screening: 1,
+      verified: 2,
+      with_client: 2,
+      contract: 0,
+      hired: 2,
+    });
+  });
+
+  it("daje te same liczby co grupowanie szyn szczegółów", async () => {
+    const { groupKanbanColumns } = await import("@/lib/pipeline-flow");
+    const detail = Object.fromEntries(
+      groupKanbanColumns(columns.map((c) => ({ ...c, items: [] }))).map((g) => [g.key, g.count]),
+    );
+    const list = Object.fromEntries(
+      buildStageFunnel({ stage_columns: columns }).map((g) => [g.key, g.count]),
+    );
+    expect(list.new).toBe(detail.intake);
+    expect(list.screening).toBe(detail.screening);
+    expect(list.verified).toBe(detail.verification);
+    expect(list.with_client).toBe(detail.client);
+    expect(list.contract + list.hired).toBe(detail.contract);
+    expect(funnelRejectedTotal({ stage_columns: columns })).toBe(detail.closed);
+  });
+
+  it("bez `stage_columns` cofa się do legacy rozkładu (starsze odpowiedzi)", () => {
+    const groups = buildStageFunnel({ stage_breakdown: breakdown });
+    expect(groups.find((g) => g.key === "new")?.count).toBe(4);
+    expect(funnelRejectedTotal({ stage_breakdown: breakdown })).toBe(4);
+  });
+});

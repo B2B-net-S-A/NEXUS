@@ -75,7 +75,10 @@ jobs:
           # przypięcia kolejny taki skok wywróciłby CI w dniu wydania, bez
           # żadnej zmiany po naszej stronie.
           # Wersje zweryfikowane pełnym przebiegiem: 4792 passed, 0 failed.
-          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0
+          # `coverage` przypięte jawnie: pytest-cov ogranicza je tylko od dołu, a job
+          # `backend-coverage-combine` czyta pliki danych tą samą wersją (7.15.3) —
+          # nowsze wydanie w shardach mogłoby wywrócić `coverage combine`.
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0 coverage==7.15.3
       # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
       # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
       # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.
@@ -133,6 +136,14 @@ jobs:
           AI_QUOTA_STRICT: "true"
           CI_SHARD_COUNT: ${{ strategy.job-total }}
           CI_SHARD_INDEX: ${{ strategy.job-index }}
+          # QA-01 (audyt Codexa, 14.09.2026): każdy shard zapisuje SUROWE dane
+          # pokrycia pod własną nazwą, a job `backend-coverage-combine` niżej
+          # scala je w jeden raport. Do 09.2026 każdy shard wysyłał do Codecov
+          # własny `coverage.xml` z ~1/4 testów, a bez `CODECOV_TOKEN` upload
+          # i tak padał — pokrycie backendu NIE istniało nigdzie w całości.
+          # coverage.py czyta tę zmienną sam; pytest-cov nie nadpisuje ścieżki
+          # pliku danych (zweryfikowane na pytest-cov 7.1.0 / coverage 7.15.3).
+          COVERAGE_FILE: .coverage.shard-${{ strategy.job-index }}
         run: |
           # Auto-discovery: pytest collects EVERY module under tests/, minus the
           # explicit exceptions below. This replaced a hand-enumerated list of ~285
@@ -165,34 +176,118 @@ jobs:
                  --ignore=tests/test_auth.py \
                  --ignore=tests/test_backfill_candidate_experience.py \
                  --ignore=tests/test_backfill_talent_pools.py \
-                 --ignore=tests/test_bulk_cv_download.py \
                  --ignore=tests/test_candidates.py \
-                 --ignore=tests/test_candidates_from_cv.py \
-                 --ignore=tests/test_champion_ai_intake.py \
-                 --ignore=tests/test_cv_parser.py \
                  --ignore=tests/test_jobs.py \
-                 --ignore=tests/test_marketplace_flow.py \
-                 --ignore=tests/test_new_endpoints.py \
-                 --ignore=tests/test_notification_triggers.py \
-                 --ignore=tests/test_pending_verification.py \
                  --ignore=tests/test_pipeline.py \
-                 --ignore=tests/test_presence_manager.py \
-                 --ignore=tests/test_proposals.py \
-                 --ignore=tests/test_shortlist_and_proposal.py \
-                 --ignore=tests/test_team_structure_dl_clients_dedup.py \
                  -v --tb=short \
-                 --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
-      - name: Upload backend coverage to Codecov
+                 --cov=app --cov-report=term-missing
+      # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
+      # zsumować 4 shardy w jeden raport. `include-hidden-files` jest
+      # load-bearing — od upload-artifact v4.4 pliki z kropką są domyślnie
+      # POMIJANE, a `.coverage.shard-N` zaczyna się od kropki: bez tej flagi
+      # artefakt jest pusty, a job scalający nie ma czego scalić.
+      - name: Upload coverage data (shard artifact)
         if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-shard-${{ matrix.shard }}
+          path: backend/.coverage.shard-${{ strategy.job-index }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  backend-coverage-combine:
+    # QA-01: jeden raport pokrycia z 4 shardów. Report-only — próg jest
+    # informacją w podsumowaniu biegu (`::warning::` poniżej progu), NIE
+    # bramką; wymagane konteksty branch protection zostają bez zmian.
+    # `!cancelled()` zamiast `always()`: scalamy także po czerwonym shardzie
+    # (częściowe pokrycie jest lepsze niż żadne), ale nie po anulowaniu biegu.
+    name: Backend (coverage combine)
+    runs-on: ubuntu-latest
+    needs: backend-lint-test
+    if: ${{ !cancelled() }}
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Sekret przez `env:` joba, żeby krok Codecov dało się WARUNKOWAĆ na jego
+      # obecność (`if: env.CODECOV_TOKEN != ''`) — `secrets.*` nie jest
+      # dostępne w `if:` kroku. Bez tokena upload jest pomijany jawnie,
+      # zamiast padać po cichu pod `fail_ci_if_error: false`.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      # Próg RAPORTOWY (nie blokujący). Zmiana progu = zmiana tej jednej linii.
+      COVERAGE_REPORT_THRESHOLD: "80"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install coverage
+        # Ta sama wersja, którą pytest-cov 7.1.0 ciągnie w shardach — format
+        # pliku danych musi się zgadzać po obu stronach `combine`.
+        run: pip install coverage==7.15.3
+      - name: Download shard coverage data
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: backend-coverage-shard-*
+          path: backend
+          merge-multiple: true
+      - name: Combine shards + report
+        run: |
+          set -eu
+          shopt -s nullglob
+          files=(.coverage.shard-*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::warning::Brak plików .coverage.shard-* — żaden shard nie zostawił danych pokrycia (pytest nie doszedł do końca?)."
+            echo "### Pokrycie backendu" >> "$GITHUB_STEP_SUMMARY"
+            echo "Brak danych z shardów — raport nie powstał." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Scalam ${#files[@]} plik(ów): ${files[*]}"
+          coverage combine "${files[@]}"
+          coverage xml -o coverage.xml
+          # `--format=total` daje samą liczbę (coverage ≥ 7.0); bez `|| true`
+          # brak wsparcia formatu w przyszłej wersji wywaliłby krok raportujący.
+          total=$(coverage report --format=total 2>/dev/null || echo "")
+          {
+            echo "### Pokrycie backendu (4 shardy scalone: ${#files[@]} plik/ów)"
+            echo
+            echo "**Łącznie: ${total:-?}%** (próg raportowy: ${COVERAGE_REPORT_THRESHOLD}%, nie blokuje)"
+            echo
+            echo '```'
+            coverage report --skip-covered --sort=cover | head -c 60000
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$total" ]; then
+            echo "::warning::Nie udało się odczytać łącznego pokrycia (coverage report --format=total)."
+          elif [ "$total" -lt "$COVERAGE_REPORT_THRESHOLD" ]; then
+            echo "::warning::Pokrycie backendu ${total}% jest poniżej progu raportowego ${COVERAGE_REPORT_THRESHOLD}% (report-only, nie blokuje)."
+          else
+            echo "Pokrycie backendu: ${total}% (próg raportowy ${COVERAGE_REPORT_THRESHOLD}%)."
+          fi
+      - name: Upload combined coverage.xml
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-combined
+          path: backend/coverage.xml
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload backend coverage to Codecov
+        # Jeden upload PO scaleniu zamiast czterech ćwiartek per shard —
+        # Codecov i tak scalał po fladze, ale bez tokena nie przyjmował nic.
+        if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: backend/coverage.xml
           flags: backend
-          # Codecov scala raporty per commit po fladze `backend`; nazwa tylko
-          # rozróżnia uploady shardów w UI.
-          name: backend-coverage-shard-${{ matrix.shard }}
+          name: backend-coverage-combined
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Codecov skipped (no token)
+        if: ${{ !cancelled() && env.CODECOV_TOKEN == '' }}
+        run: echo "::notice::CODECOV_TOKEN nie jest ustawiony — upload do Codecov pominięty; scalony raport jest w artefakcie backend-coverage-combined i w podsumowaniu biegu."
 
   backend-pytest-gate:
     # Branch protection wymaga kontekstu o nazwie DOKŁADNIE "Backend (pytest)".
@@ -222,6 +317,10 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    env:
+      # Jak w `backend-coverage-combine`: token przez env joba, żeby upload
+      # do Codecov dało się pominąć JAWNIE, gdy sekretu nie ma (QA-01).
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -250,7 +349,7 @@ jobs:
       - name: Vitest with coverage
         run: npm run test:coverage
       - name: Upload frontend coverage to Codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: frontend/coverage/lcov.info

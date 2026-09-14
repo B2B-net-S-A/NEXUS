@@ -45,6 +45,7 @@ import {
   funnelRejectedTotal,
   funnelTotal,
   type FunnelGroup,
+  type PipelineStageSummary,
 } from "@/lib/job-pipeline-funnel";
 import { EditJobModal } from "@/components/AppShell";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
@@ -81,9 +82,10 @@ interface JobReadinessDockProps {
    * Skrót pipeline'u z WIERSZA listy (`GET /api/jobs?include_stage_counts=true`)
    * — bez dodatkowego zapytania. `undefined`, gdy dane niedostępne (np. wiersz
    * spoza aktualnie wczytanej strony) — sekcja "Pipeline" po prostu się wtedy
-   * nie renderuje, zamiast kłamać zerami.
+   * nie renderuje, zamiast kłamać zerami. `stage_columns` grupuje ta sama
+   * funkcja co szyny szczegółów (UAT B33).
    */
-  stageBreakdown?: Record<string, number>;
+  stageBreakdown?: PipelineStageSummary;
   /**
    * `can_open` z wiersza listy (`GET /api/jobs` liczy go per wiersz). `false`
    * = detal (`GET /api/jobs/{id}`) odpowie 403 (zakres klient–TAC dla Delivery
@@ -316,7 +318,7 @@ function PipelineSummary({
   stageBreakdown,
 }: {
   jobId: number;
-  stageBreakdown: Record<string, number> | undefined;
+  stageBreakdown: PipelineStageSummary | undefined;
 }) {
   // "jeśli dane" — bez `include_stage_counts` z wiersza listy sekcja się nie
   // pokazuje, zamiast renderować zafałszowane zero.
@@ -371,7 +373,7 @@ function PipelineTab({
   stageBreakdown,
 }: {
   jobId: number;
-  stageBreakdown: Record<string, number> | undefined;
+  stageBreakdown: PipelineStageSummary | undefined;
 }) {
   if (!stageBreakdown) {
     return (

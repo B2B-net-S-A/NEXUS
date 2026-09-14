@@ -23,6 +23,7 @@ klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
 # `candidate_activity_summary.py`.
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -34,6 +35,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.tasks.traffit_sync import (
+    annotate_freshness,
     run_traffit_sync,
     sync_is_running,
     validate_phases,
@@ -174,10 +176,18 @@ async def traffit_sync_status(
                 }
             )
 
+    # Werdykt świeżości PER FAZA (INT-09). `checks.traffit` w `/api/health`
+    # czyta wyłącznie `__daily__` — mówi, że nocna delta się kończy, nie że
+    # każda faza doszła do ogona. `phases_stale` to lista, na którą operator
+    # reaguje; fazy doradcze i `never` (świeżo włączona instalacja) są w
+    # `freshness` wiersza, ale nie na tej liście.
+    phases_stale = annotate_freshness(states, datetime.now(timezone.utc))
+
     return {
         "enabled": settings.TRAFFIT_SYNC_ENABLED,
         "running": sync_is_running(),
         "max_row_attempts": settings.TRAFFIT_MAX_ROW_ATTEMPTS,
         "quarantined": quarantined,
+        "phases_stale": phases_stale,
         "states": states,
     }

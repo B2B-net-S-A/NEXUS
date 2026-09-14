@@ -25,6 +25,7 @@ efektach (co poszło do Claude'a), nie na wywołaniach wewnętrznych:
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import pytest
@@ -36,6 +37,10 @@ from app.services.cv_generator_b2b.client_rules import (
     build_client_presentation_rules_block,
     describe_rule,
     rule_reminders,
+)
+from app.services.cv_generator_b2b.legacy_v7 import pipeline as legacy
+from app.services.cv_generator_b2b.legacy_v7.prompts import (
+    get_prompt as legacy_prompt,
 )
 from app.services.cv_generator_b2b.prompts import (
     EXTRACTION_PROMPT_EN,
@@ -90,12 +95,18 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Prawdziwy pipeline; Claude, ekstrakcja tekstu i DOCX zastąpione."""
     seen: dict = {}
 
-    def fake_analyze(user_content: str, request_id: str, system: str = "") -> str:
+    def fake_analyze(
+        user_content: str, request_id: str, system: str = "", **kwargs
+    ) -> str:
         seen["user"] = user_content
         seen["system"] = system
         return json.dumps(_AI_JSON)
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+    # Te same szwy w przepływie legacy_v7 (testy z `pipeline_mode` biegną w obu).
+    monkeypatch.setattr(legacy, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+    monkeypatch.setattr(legacy, "analyze_with_ai", fake_analyze)
+    monkeypatch.setattr(legacy, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
 
     def facts(**kwargs):
         seen["extraction_sources"] = kwargs
@@ -221,11 +232,13 @@ def test_recruiter_is_told_that_client_instructions_shaped_the_document() -> Non
 
 
 def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
-    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch
+    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch, pipeline_mode: str
 ) -> None:
     """`max_roles=3` nie może zaniżyć nagłówka „N lat doświadczenia" ani
     oflagować prawdziwej liczby jako brak pokrycia — lata liczą się z PEŁNEJ
-    listy stanowisk, obcięcie idzie po bezpiecznikach. Format dat też po."""
+    listy stanowisk, obcięcie idzie po bezpiecznikach. Format dat też po.
+    Kontrakt obowiązuje w obu przepływach (`pipeline_mode`): legacy_v7 też
+    domyka politykę w kodzie, po `_fix_experience_years`."""
     roles = [
         ("03.2024 – obecnie", "F"),
         ("01.2022 – 02.2024", "E"),
@@ -248,6 +261,7 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
         for dates, company in roles
     ]
     monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    monkeypatch.setattr(legacy, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
     monkeypatch.setattr(
         svc,
         "extract_source_facts",
@@ -255,6 +269,7 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
     )
     cv_text = "\n".join(f"{d} {c} Backend Developer, Python" for d, c in roles)
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: cv_text)
+    monkeypatch.setattr(legacy, "extract_text_from_file", lambda *a, **k: cv_text)
 
     rule = CvRuleSnapshot(
         filename_pattern=None,
@@ -269,11 +284,17 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
     saved = result.render_payload
     assert len(saved["experience"]) == 3
     assert saved["experience"][0]["company"] == "F"
-    assert "12 lat" in saved["why_points"][0], saved["why_points"]
+    # Pełny staż z sześciu ról (03.2014 → dziś) to ~12,5 roku; trzy zachowane
+    # role dałyby ~4,5. v10 zostawia liczbę modelu („12"), legacy_v7 przelicza
+    # ją z PEŁNEJ listy dat (`_fix_scoped_years` → „13") — oba nie zaniżają.
+    years_match = re.match(r"(\d+) lat", saved["why_points"][0])
+    assert years_match, saved["why_points"]
+    years = int(years_match.group(1))
+    assert years >= 12, saved["why_points"]
     # `_normalize_dashes` sprowadza półpauzę do zwykłego myślnika — to jest
     # kształt, który trafia do dokumentu.
     assert saved["experience"][0]["dates"] == "03/2024 - obecnie"
-    assert not any("12" in w and "BRAK POKRYCIA" in w for w in result.warnings), (
+    assert not any(str(years) in w and "BRAK POKRYCIA" in w for w in result.warnings), (
         result.warnings
     )
     assert any("domknięto politykę prezentacji" in w for w in result.warnings)
@@ -283,12 +304,14 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
 
 
 def test_upload_path_does_not_relock_above_the_client_cap(
-    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch
+    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch, pipeline_mode: str
 ) -> None:
     """API nakłada blokadę, POTEM sufit, i przekazuje wynik jako
     `payload.content_mode`. Serwis nie może nałożyć blokady drugi raz —
     blokada „polished" przy suficie „basic" wracałaby do „polished", a sufit to
-    obietnica złożona klientowi."""
+    obietnica złożona klientowi. Ścieżka uploadu musi w OBU przepływach
+    (`pipeline_mode`) oddać dokument w trybie z sufitu — różni się tylko
+    prompt systemowy (v7 vs v10)."""
     from app.services.cv_generator_b2b.standalone_service import (
         UploadGenerationInput,
         apply_content_mode_cap,
@@ -319,4 +342,12 @@ def test_upload_path_does_not_relock_above_the_client_cap(
     )
     result = generate_cv_from_uploads(payload)
     assert result.render_payload["content_mode"] == "basic"
-    assert captured_prompt["system"] == get_prompt("pl", False, "basic")
+    assert result.docx_bytes == b"DOCX"
+    assert result.filename.endswith(".docx")
+    assert result.candidate_name == "Jan Kowalski"
+    expected_prompt = (
+        legacy_prompt("pl", False, "basic")
+        if pipeline_mode == "legacy"
+        else get_prompt("pl", False, "basic")
+    )
+    assert captured_prompt["system"] == expected_prompt

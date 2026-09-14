@@ -119,6 +119,15 @@ jobs:
     # bez dotykania produkcji.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
+      # Jedyny checkout w tym jobie — i to sparse: potrzebny WYŁĄCZNIE skryptowi
+      # podsumowania wersji (DEP-01) na końcu. `workflow_run` zawsze bierze
+      # plik workflow z main, a `github.sha` pod nim to HEAD maina — skrypt
+      # renderuje tylko tekst, więc wersja skryptu nie wpływa na weryfikację.
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Skip if target already live (burst coalescing)
         id: precheck
         # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
@@ -508,6 +517,72 @@ jobs:
           echo "::error::Frontend nie odpowiedzial 200 po $i probach ($((SECONDS-started))s) — backend moze byc zdrowy, a aplikacja uzytkownika lezec ($FRONTEND_URL)"
           exit 1
 
+      # DEP-03 (audyt Codexa, 14.09.2026): HTTP 200 z frontendu mowi tylko, ze
+      # JAKIS kontener odpowiada — stary obraz (build, ktory padl po cichu,
+      # Traefik wciaz na poprzednim kontenerze) tez oddaje 200. Backend ma
+      # `version` w /api/health; frontend od tej zmiany ma `public/version.json`
+      # z SHA builda (frontend/scripts/write-version.mjs, wolany w Dockerfile
+      # przed `next build`; SHA z build arga NEXT_PUBLIC_GIT_SHA = ${GIT_SHA}
+      # z Coolify — to samo zrodlo, co `version` backendu).
+      #
+      # Ta sama regula akceptacji, co w smoke backendu: rownosc prefiksu ALBO
+      # potomek targetu (koalescencja burstow). `sha: "unknown"` = build bez
+      # build arga i jest odrzucane wprost, nie przepuszczane jako „cos”.
+      # Middleware nie dotyka sciezek z kropka (`matcher` wyklucza `.*\..*`),
+      # wiec plik jest publiczny bez logowania. Outputs zasilaja podsumowanie
+      # wersji (DEP-01) na koncu joba.
+      - name: Frontend serwuje oczekiwaną wersję (version.json)
+        id: frontend_version
+        env:
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$FRONTEND_URL" ]; then
+            echo "::error::vars.FRONTEND_URL nie jest ustawione — smoke test nie ma czego sprawdzic"
+            exit 1
+          fi
+          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
+          sha=""
+          rel="n/a"
+          started=$SECONDS
+          for i in $(seq 1 12); do
+            body=$(curl -sSL --max-time 15 -A "$SMOKE_UA" "$FRONTEND_URL/version.json" 2>/tmp/fe_ver_err || true)
+            # 404 z Next.js to HTML, nie JSON — jq pada, `sha` zostaje puste.
+            sha=$(printf '%s' "$body" | jq -r '.sha // ""' 2>/dev/null || true)
+            sha_short=$(printf '%s' "$sha" | cut -c1-7)
+            if [ -n "$sha" ] && [ "$sha" != "unknown" ] && [ ${#sha} -ge 7 ]; then
+              if [ "$sha_short" = "$EXPECTED_SHA" ]; then
+                rel="identical"
+              else
+                rel=$(curl -fsSL \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${sha}" \
+                      2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
+              fi
+              if [ "$rel" = "identical" ] || [ "$rel" = "ahead" ]; then
+                echo "frontend_sha=$sha" >> "$GITHUB_OUTPUT"
+                echo "frontend_rel=$rel" >> "$GITHUB_OUTPUT"
+                if [ "$rel" = "identical" ]; then
+                  echo "✅ Frontend: version.json sha=$sha_short == oczekiwane $EXPECTED_SHA"
+                else
+                  echo "✅ Frontend: version.json sha=$sha_short — potomek $EXPECTED_SHA (deploy wyprzedzony przez nowszy merge; nasz kod jest wdrozony)."
+                fi
+                exit 0
+              fi
+              echo "Proba $i: frontend sha=$sha_short, oczekiwano $EXPECTED_SHA (pokrewienstwo=$rel), ponawiam za 15s..."
+            elif [ "$sha" = "unknown" ]; then
+              echo "Proba $i: version.json ma sha=unknown — obraz zbudowany BEZ build arga NEXT_PUBLIC_GIT_SHA (GIT_SHA w Coolify?), ponawiam za 15s..."
+            else
+              echo "Proba $i: brak czytelnego version.json $(head -1 /tmp/fe_ver_err 2>/dev/null), ponawiam za 15s..."
+            fi
+            sleep 15
+          done
+          echo "frontend_sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "frontend_rel=${rel}" >> "$GITHUB_OUTPUT"
+          echo "::error::Frontend nie serwuje oczekiwanej wersji po $i probach ($((SECONDS-started))s): version.json sha='${sha:-brak}' vs oczekiwane $EXPECTED_SHA (pokrewienstwo=$rel). Frontend odpowiada, ale STARYM buildem — sprawdz log builda frontendu w Coolify i czy GIT_SHA (is_buildtime) jest ustawione."
+          exit 1
+
       - name: Deep healthcheck (core modules not 503)
         env:
           APP_URL: ${{ vars.APP_URL }}
@@ -630,6 +705,57 @@ jobs:
           echo "::error::Alembic revision check failed after 6 attempts — prod alembic_version ${db_versions:-<no response>} != code heads ${code_heads:-<no response>} (orphaned: ${orphaned:-<no response>}). A migration did not apply on prod: read the entrypoint log for the failing revision, fix it (or stamp deliberately — see docs/alembic-0153-nda-signed-completion-report.md), then redeploy."
           echo "Last /api/health/alembic response: $(echo "${response:-}" | head -c 600)"
           exit 1
+
+      # DEP-01 (audyt Codexa, 14.09.2026): koalescencja burstów jest DECYZJĄ
+      # (nagłówek tego pliku, CLAUDE.md „CI gotchas”), nie błędem — ale bez
+      # śladu w podsumowaniu biegu nie da się po fakcie odczytać, CO naprawdę
+      # wylądowało na produkcji po TYM deployu. Ten krok WYŁĄCZNIE loguje:
+      # TARGET_SHA obok SHA serwowanego przez /api/health i version.json
+      # frontendu, z adnotacją „koalescencja burstów”, gdy się różnią, a
+      # produkcja serwuje potomka. Logika skip/rebuild wyżej jest nietknięta.
+      # `always()`: rozjazd jest najciekawszy właśnie wtedy, gdy smoke padł.
+      # Każde wywołanie jest fail-open, a krok nigdy nie zmienia wyniku joba.
+      - name: Podsumowanie wersji (TARGET_SHA vs produkcja)
+        if: ${{ always() }}
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
+          REBUILD_SKIPPED: ${{ steps.precheck.outputs.skip == 'true' }}
+          FRONTEND_SHA: ${{ steps.frontend_version.outputs.frontend_sha }}
+          FRONTEND_REL: ${{ steps.frontend_version.outputs.frontend_rel }}
+        run: |
+          set +e
+          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
+          live=""
+          rel=""
+          if [ -n "$APP_URL" ]; then
+            live=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null | jq -r '.version // ""' 2>/dev/null)
+            live_short=$(printf '%s' "$live" | cut -c1-7)
+            if [ -n "$live" ] && [ ${#live} -ge 7 ] && [ "$live_short" != "$EXPECTED_SHA" ]; then
+              rel=$(curl -fsSL \
+                    -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H "Accept: application/vnd.github+json" \
+                    "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${live}" \
+                    2>/dev/null | jq -r '.status // "unknown"' 2>/dev/null)
+              [ -n "$rel" ] || rel="unknown"
+            fi
+          fi
+          if [ ! -f .github/scripts/deploy_version_summary.py ]; then
+            echo "::warning::Brak .github/scripts/deploy_version_summary.py (checkout nie zaszedł?) — podsumowanie wersji pominięte. target=$EXPECTED_SHA live=${live:-brak} rel=${rel:-n/a}"
+            exit 0
+          fi
+          python3 .github/scripts/deploy_version_summary.py \
+            --target "$TARGET_SHA" \
+            --backend-live "$live" --backend-relation "$rel" \
+            --frontend-live "$FRONTEND_SHA" --frontend-relation "$FRONTEND_REL" \
+            --rebuild-skipped "$REBUILD_SKIPPED" \
+            --summary-out "$RUNNER_TEMP/version-summary.md" \
+            --notice-out "$RUNNER_TEMP/version-notice.txt" \
+            || { echo "::warning::Skrypt podsumowania wersji padł — target=$EXPECTED_SHA live=${live:-brak} rel=${rel:-n/a}"; exit 0; }
+          cat "$RUNNER_TEMP/version-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/version-notice.txt"
+          exit 0
+
       - name: Report user-facing downtime
         # `always()`: przerwa jest najciekawsza właśnie wtedy, gdy smoke test padł.
         if: ${{ always() && steps.downtime_meter.outcome == 'success' }}

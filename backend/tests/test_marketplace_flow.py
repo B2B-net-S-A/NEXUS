@@ -104,7 +104,10 @@ async def fresh_db():
     async with AsyncSessionLocal() as db:
         await _cleanup_marketplace_data(db)
         yield db
-        # teardown — usuń obiekty testowe (użyjemy unique sufiksów)
+        # teardown — usuń obiekty testowe (użyjemy unique sufiksów). Padnięty
+        # commit w teście zostawia sesję w PendingRollback — sprzątanie ma
+        # przejść mimo to, inaczej awaria testu maskuje się drugim błędem.
+        await db.rollback()
         await _cleanup_marketplace_data(db)
 
 
@@ -195,10 +198,12 @@ async def test_full_flow_creates_notifications_for_both_owners(monkeypatch, fres
     async def fake_score(
         candidate, job_obj, db_, *, semantic_similarity=None, profile=None
     ):
+        # Pula targu jest wspólna dla całej bazy testowej — cudzy kandydat
+        # dostaje 0, żeby liczby alertów opisywały TEN test.
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=85.0,
+            total=85.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )
@@ -254,6 +259,87 @@ async def test_full_flow_creates_notifications_for_both_owners(monkeypatch, fres
     assert user_ids == {recruiter_cand.id, recruiter_job.id}
 
 
+async def test_two_matches_for_one_job_on_one_day_notify_owner_once(
+    monkeypatch, fresh_db
+):
+    """Dwóch kandydatów dopasowanych do TEJ SAMEJ rekrutacji tego samego dnia:
+    obie pary trafiają do logu alertów, skan się commituje, a właściciel
+    rekrutacji dostaje JEDNO powiadomienie (unique partial index
+    `ix_notif_dedup_daily`: user × typ × rekrutacja × dzień). Do 09.2026 drugi
+    kandydat wywracał `commit` całego skanu — razem z zaklepanymi parami."""
+    db = fresh_db
+    owner_a = await _seed_user(db, name="OwnerA")
+    owner_b = await _seed_user(db, name="OwnerB")
+    recruiter_job = await _seed_user(db, name="OwnerJobTwo")
+    cand_a = await _seed_candidate(db, owner=owner_a)
+    cand_b = await _seed_candidate(db, owner=owner_b)
+    job = await _seed_job(db, recruiter=recruiter_job)
+    await auto_sync_marketplace_membership(db)
+    await db.commit()
+
+    async def fake_search_candidates(*args, **kwargs):
+        return [
+            {"candidate_id": cand_a.id, "score": 0.9, "payload": {}},
+            {"candidate_id": cand_b.id, "score": 0.9, "payload": {}},
+        ]
+
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
+        return _FakeBreakdown(
+            candidate_id=candidate.id,
+            job_id=job_obj.id,
+            total=85.0 if candidate.id in {cand_a.id, cand_b.id} else 0.0,
+            matching_must=["Python"],
+            gap_must=[],
+        )
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic",
+        fake_search_candidates,
+    )
+    monkeypatch.setattr("app.services.scoring_service.score_candidate_job", fake_score)
+
+    result = await scan_job_for_marketplace_matches(job.id, db)
+    await db.commit()  # bez poprawki: IntegrityError na ix_notif_dedup_daily
+
+    assert result.new_alerts >= 2
+    logged = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(MarketplaceAlertLog.candidate_id).where(
+                    MarketplaceAlertLog.job_id == job.id,
+                    MarketplaceAlertLog.candidate_id.in_([cand_a.id, cand_b.id]),
+                )
+            )
+        ).all()
+    }
+    assert logged == {cand_a.id, cand_b.id}
+
+    notifs = (
+        (
+            await db.execute(
+                select(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.marketplace_match,
+                    Notification.related_entity_id == job.id,
+                    Notification.related_entity_type == "job",
+                    Notification.user_id.in_(
+                        [owner_a.id, owner_b.id, recruiter_job.id]
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    per_user = {}
+    for n in notifs:
+        per_user[n.user_id] = per_user.get(n.user_id, 0) + 1
+    assert per_user == {owner_a.id: 1, owner_b.id: 1, recruiter_job.id: 1}
+
+
 async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
     db = fresh_db
 
@@ -272,7 +358,7 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=80.0,
+            total=80.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )
@@ -322,10 +408,11 @@ async def test_owner_equal_single_notification(monkeypatch, fresh_db):
     async def fake_score(
         candidate, job_obj, db_, *, semantic_similarity=None, profile=None
     ):
+        # Ponad progiem (MARKETPLACE_SCORE_THRESHOLD = 80) tylko nasz kandydat.
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=75.0,
+            total=85.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )

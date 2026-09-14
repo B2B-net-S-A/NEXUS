@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
@@ -1128,6 +1129,105 @@ def _bucket_by_stage_def(
     return columns_map, off_template
 
 
+# ── Jedna definicja kolumny tablicy — dla tablicy I dla listy rekrutacji ─────
+#
+# Do 09.2026 lista `/api/jobs?include_stage_counts` liczyła kubełki po legacy
+# enumie `CandidateStage.stage`, a tablica po kolumnach szablonu. Własny etap
+# szablonu bez enuma („Przepuszczony przez DZ") na tablicy stał ZA screeningiem
+# (front liczył go do zweryfikowanych), a na liście niósł `stage=new` (Nowi).
+# Ta sama rekrutacja: 4/1/1/2 na liście, 3/1/2/2 w szczegółach (UAT B33).
+# Obie powierzchnie budują teraz kolumny TYMI SAMYMI funkcjami, a front grupuje
+# je jedną funkcją (`groupKanbanColumns`).
+
+
+@dataclass(frozen=True)
+class StageTally:
+    """Zliczony wpis pipeline'u — jak `CandidateStage`, ale z wagą.
+
+    Lista rekrutacji zlicza pary jednym `GROUP BY (job, stage_def, stage)`
+    zamiast ładować wiersze; `_bucket_by_stage_def` czyta tylko `stage_def_id`
+    i `stage`, więc kubełkowanie jest to samo co na tablicy.
+    """
+
+    stage_def_id: Optional[int]
+    stage: Optional[PipelineStage]
+    count: int = 1
+
+
+def _tally_weight(entry) -> int:
+    return int(getattr(entry, "count", 1) or 0)
+
+
+def template_column_meta(sd: PipelineStageDef) -> dict:
+    """Pola kolumny wynikające z definicji etapu szablonu (bez kart i liczby)."""
+    legacy = None
+    if sd.legacy_enum_value:
+        try:
+            legacy = PipelineStage(sd.legacy_enum_value)
+        except ValueError:
+            legacy = PipelineStage.new
+    return {
+        "stage": legacy or PipelineStage.new,
+        "category": sd.category,
+        "stage_def_id": sd.id,
+        "name": sd.name,
+        "order": sd.order,
+        "terminal_type": sd.terminal_type.value if sd.terminal_type else None,
+    }
+
+
+def legacy_column_meta(stage: PipelineStage) -> dict:
+    """Pola kolumny w gałęzi bez szablonu (kolumny SĄ legacy enumami)."""
+    return {
+        "stage": stage,
+        "category": STAGE_CATEGORY[stage],
+        "name": STAGE_LABELS[stage],
+        "terminal_type": _LEGACY_TERMINAL_TYPE.get(stage),
+    }
+
+
+LEGACY_COLUMN_STAGES: list[PipelineStage] = list(STAGE_ORDER) + [
+    PipelineStage.rejected,
+    PipelineStage.withdrawn,
+]
+
+
+def stage_column_summaries(
+    stage_defs: Sequence[PipelineStageDef],
+    entries: Iterable,
+) -> tuple[list[dict], int]:
+    """Kolumny szablonu z liczbami (bez kart) + liczba wpisów poza szablonem.
+
+    Ten sam podział co `get_kanban` (`_bucket_by_stage_def` + `template_column_meta`),
+    więc suma per kolumna na liście równa się `count` kolumny na tablicy.
+    """
+    columns_map, off_template = _bucket_by_stage_def(entries, stage_defs)
+    columns = [
+        {
+            **template_column_meta(sd),
+            "count": sum(_tally_weight(e) for e in columns_map.get(sd.id, [])),
+        }
+        for sd in stage_defs
+    ]
+    return columns, sum(_tally_weight(e) for e in off_template)
+
+
+def legacy_stage_column_summaries(entries: Iterable) -> tuple[list[dict], int]:
+    """Lustro gałęzi `get_kanban` bez szablonu: kolumna na każdy legacy enum."""
+    counts: dict[PipelineStage, int] = {s: 0 for s in LEGACY_COLUMN_STAGES}
+    off_template = 0
+    for entry in entries:
+        if entry.stage in counts:
+            counts[entry.stage] += _tally_weight(entry)
+        else:
+            off_template += _tally_weight(entry)
+    columns = [
+        {**legacy_column_meta(stage), "count": counts[stage]}
+        for stage in LEGACY_COLUMN_STAGES
+    ]
+    return columns, off_template
+
+
 async def _build_off_template(
     db: AsyncSession,
     *,
@@ -1311,27 +1411,16 @@ async def get_kanban(
         columns = []
         for sd in stage_defs:
             entries = columns_map.get(sd.id, [])
-            legacy = None
-            if sd.legacy_enum_value:
-                try:
-                    legacy = PipelineStage(sd.legacy_enum_value)
-                except ValueError:
-                    legacy = PipelineStage.new
+            # Te same pola co `stage_columns` na liście rekrutacji
+            # (`template_column_meta`) — jedna definicja kolumny.
             columns.append(
                 KanbanColumn(
-                    stage=legacy or PipelineStage.new,
-                    category=sd.category,
+                    **template_column_meta(sd),
                     count=len(entries),
                     items=[
                         CandidateStageResponse(**_stage_resp_with_name(e))
                         for e in entries
                     ],
-                    stage_def_id=sd.id,
-                    name=sd.name,
-                    order=sd.order,
-                    terminal_type=(
-                        sd.terminal_type.value if sd.terminal_type else None
-                    ),
                 )
             )
         return KanbanView(
@@ -1362,22 +1451,18 @@ async def get_kanban(
         off_template_entries.append(stage_entry)
 
     columns = []
-    for stage in list(STAGE_ORDER) + [PipelineStage.rejected, PipelineStage.withdrawn]:
+    for stage in LEGACY_COLUMN_STAGES:
         entries = columns_map_legacy.get(stage, [])
+        # W tej gałęzi (brak szablonu) kolumny SĄ legacy enumami, więc terminal
+        # wynika wprost z nazwy etapu (`legacy_column_meta`) — te same pola co
+        # wyżej i co `stage_columns` na liście rekrutacji.
         columns.append(
             KanbanColumn(
-                stage=stage,
-                category=STAGE_CATEGORY[stage],
+                **legacy_column_meta(stage),
                 count=len(entries),
                 items=[
                     CandidateStageResponse(**_stage_resp_with_name(e)) for e in entries
                 ],
-                name=STAGE_LABELS[stage],
-                # W tej gałęzi (brak szablonu) kolumny SĄ legacy enumami, więc
-                # terminal wynika wprost z nazwy etapu. Wypełniamy to samo pole
-                # co wyżej, żeby frontend miał jeden sposób rozpoznawania
-                # terminala niezależnie od tego, którą ścieżką poszedł backend.
-                terminal_type=_LEGACY_TERMINAL_TYPE.get(stage),
             )
         )
     return KanbanView(

@@ -32,6 +32,9 @@ coverage.xml
 # Coverage reports (frontend vitest)
 frontend/coverage/
 
+# DEP-03: generowany przy buildzie obrazu (frontend/scripts/write-version.mjs)
+frontend/public/version.json
+
 # Uploads / runtime
 uploads/
 *.log
