@@ -21,14 +21,14 @@ class DigestTests(unittest.TestCase):
 
     @patch.dict(os.environ, {'SENTRY_READ_TOKEN': 'synthetic', 'TEAMS_SENTRY_WEBHOOK_URL':'https://test'}, clear=True)
     def test_delivery_failure(self):
-        with patch.object(digest, 'build_message', return_value='safe'), patch.object(digest, 'post_to_teams', side_effect=TimeoutError()):
+        with patch.object(digest, 'build_message', return_value=('safe', True)), patch.object(digest, 'post_to_teams', side_effect=TimeoutError()):
             self.assertEqual(digest.main(), 2)
 
     def test_no_raw_title_and_no_lifetime_as_daily_count(self):
-        line=digest.format_issue_line({'id':'123','shortId':'NEXUS-BE-1','title':'private CV','count':9000,'stats':{'24h':[[1,2],[2,3]]}})
+        line=digest.format_issue_line({'id':'123','shortId':'NEXUS-BE-1','title':'private CV','count':9000,'filtered':{'count':'5'}})
         self.assertNotIn('private',line)
         self.assertNotIn('9000',line)
-        self.assertIn('events/24h: 5',line)
+        self.assertIn('Sentry events/window: 5',line)
 
     def test_pagination_and_production(self):
         first, second = MagicMock(), MagicMock()
@@ -42,6 +42,20 @@ class DigestTests(unittest.TestCase):
             self.assertEqual(len(digest.fetch_issues('test','nexus-be')),2)
             self.assertIn('environment=production',call.call_args_list[0].args[0].full_url)
             self.assertIn('cursor=abc',call.call_args_list[1].args[0].full_url)
+            self.assertIn('project=nexus-be',call.call_args_list[0].args[0].full_url)
+
+    def test_both_projects_share_one_explicit_time_window(self):
+        with patch.object(digest, 'project_section', return_value=('ok', True)) as call:
+            message, complete = digest.build_message('test')
+            self.assertTrue(complete)
+            self.assertEqual(call.call_args_list[0].kwargs, call.call_args_list[1].kwargs)
+            self.assertIn('UTC window:', message)
+
+    def test_linked_pr_and_sanitized_operation(self):
+        line = digest.format_issue_line({'id':'145702601','operation':'GET /api/reports/clients/:id','title':'private CV'})
+        self.assertIn('/pull/1515', line)
+        self.assertIn('GET /api/reports/clients/:id', line)
+        self.assertNotIn('private CV', line)
 
 if __name__=='__main__':
     unittest.main()

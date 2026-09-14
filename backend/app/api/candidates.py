@@ -4596,9 +4596,10 @@ async def delete_candidate(
 ):
     """Trwałe usunięcie profilu kandydata (admin). Operacja nieodwracalna.
 
-    Zwraca 204. 503, gdy operacji nie da się wykonać kompletnie (brak klucza
-    pseudonimizacji albo niedostępny object storage) — nic wtedy nie jest
-    usuwane i żądanie można powtórzyć.
+    Zwraca 204. Pliki CV i dokumenty z object storage są usuwane W TLE: klucze
+    trafiają do trwałego rejestru kasowań z ponowieniami, zapisanego w tej
+    samej transakcji co usunięcie wiersza. 503, gdy brakuje klucza
+    pseudonimizacji — nic wtedy nie jest usuwane i żądanie można powtórzyć.
     """
     # UWAGA: docstring wyżej jest PUBLIKOWANY w `/openapi.json`, więc inwentarz
     # tego, czego usunięcie NIE sprząta, trzymamy w komentarzu — publiczna
@@ -4615,7 +4616,8 @@ async def delete_candidate(
     #    nic już nie wiązałoby ze sobą faktur tej samej osoby.
     # 2. NIEKOMPLETNOŚĆ. Pliki CV i dokumenty w object storage zostawały po
     #    usunięciu wiersza. Zbieramy klucze PRZED usunięciem (potem nie ma ich
-    #    skąd odczytać) i kasujemy w tej samej transakcji — patrz niżej.
+    #    skąd odczytać) i zapisujemy do rejestru kasowań w tej samej
+    #    transakcji — patrz niżej.
     #
     # Czego ta operacja nadal NIE sprząta — świadomie, żeby nie udawać, że
     # „usunięcie całkowite" jest całkowite: `traffit_webhook_events` nie ma FK na
@@ -4643,29 +4645,11 @@ async def delete_candidate(
     )
     storage_keys.extend(k for k in document_keys.scalars().all() if k)
 
+    from app.services.cv_source_cleanup import schedule_source_cleanup
     from app.services.cv_source_erasure import detach_candidate_job_sources
 
     storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
     storage_keys = sorted(set(storage_keys))
-
-    # Fail-closed, ZANIM cokolwiek zmutujemy: bez działającego object storage
-    # pliki CV zostałyby w buckecie (i w kopii off-site, którą backup.sh celowo
-    # wyklucza z przycinania retencji), a wiersz audytu i tak twierdziłby, że
-    # usunięcie się powiodło. Wcześniej `is_available()` == False po cichu
-    # pomijało kasowanie plików w całości. 503 zamiast 500 — to stan
-    # infrastruktury, a nie błąd żądania; po powrocie storage'u operator
-    # powtarza to samo żądanie i nic nie zostało po drodze utracone.
-    from app.services.object_storage import delete_cv, is_available
-
-    if storage_keys and not is_available():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Object storage jest niedostępny — usunięcie wstrzymane, bo "
-                f"{len(storage_keys)} plik(ów) kandydata zostałoby w buckecie. "
-                "Powtórz żądanie, gdy storage wróci."
-            ),
-        )
 
     # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
     # ale zerwie jedyne powiązanie między fakturami jednego podmiotu.
@@ -4744,6 +4728,7 @@ async def delete_candidate(
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
             "storage_objects": len(storage_keys),
+            "storage_cleanup": "scheduled",
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
             **search_erasure,
@@ -4789,36 +4774,25 @@ async def delete_candidate(
         )
     )
 
-    await db.delete(candidate)
-    # Flush PRZED sprzątaniem storage: kaskady w bazie wykonują się tutaj, więc
-    # ewentualny FK bez `ON DELETE` wywali się, ZANIM skasujemy nieodwracalne
-    # obiekty w buckecie.
-    await db.flush()
-
-    # Pliki kasujemy w transakcji, nie po commicie. Po `commit()` klucze nie
-    # istnieją już nigdzie w bazie (odczytaliśmy je z `candidate_documents`,
-    # które właśnie zniknęły), więc nieudane sprzątanie było NIE DO ODZYSKANIA:
-    # zostawał CV w PDF w buckecie, jego kopia off-site i linia WARNING w Loki
-    # jako jedyny ślad. Przy błędzie rollback cofa usunięcie — kandydat zostaje,
-    # klucze dalej są w bazie, a operator powtarza żądanie (DELETE obiektu w S3
-    # jest idempotentny, więc już skasowane pliki nie przeszkadzają).
+    # Pliki NIE są kasowane w żądaniu. Do 09.2026 pętla `delete_cv` szła po
+    # `flush()`, a błąd w jej środku kończył się 503 „usunięcie wycofane
+    # w całości" — ale rollback SQL nie przywraca obiektów skasowanych już
+    # wcześniej w tej pętli, więc „w całości" było nieprawdą: kandydat wracał
+    # do bazy bez części swoich plików. Zamiast tego każdy klucz trafia do
+    # trwałego rejestru kasowań (`cv_source_cleanup`, ten sam wzorzec co
+    # `IndexOutboxEvent` wyżej dla Qdranta): wiersz commituje się RAZEM
+    # z usunięciem, więc albo znika i kandydat, i intencja kasowania jego
+    # plików, albo nic. Pętla `cv_source_cleanup` (main.py) kasuje obiekty
+    # w tle z ponowieniami i backoffem — niedostępny storage odkłada
+    # sprzątanie, nie blokuje usunięcia.
     for key in storage_keys:
-        try:
-            await asyncio.to_thread(delete_cv, key)
-        except Exception as exc:  # noqa: BLE001 — fail-closed, patrz komentarz
-            logger.error(
-                "Storage cleanup failed for candidate %s (key=%s): %s — usunięcie wycofane",
-                candidate_id,
-                key,
-                exc,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "Nie udało się usunąć plików kandydata z object storage — "
-                    "usunięcie wycofane w całości. Powtórz żądanie."
-                ),
-            ) from exc
+        await schedule_source_cleanup(db, key)
+
+    await db.delete(candidate)
+    # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
+    # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się
+    # razem z usunięciem.
+    await db.flush()
 
     await db.commit()
 

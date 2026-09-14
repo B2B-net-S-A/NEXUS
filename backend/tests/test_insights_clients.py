@@ -976,3 +976,119 @@ def test_valuation_date_defaults_to_the_warsaw_business_day():
 
     assert "business_today()" in code
     assert "date.today()" not in code
+
+
+# ── Audyt statystyk 14.09.2026, A04: jedna noga stawki = kwota niepełna ──────
+
+
+@pytest_asyncio.fixture
+async def one_legged_contracts() -> AsyncIterator[dict]:
+    """Dwaj klienci, każdy z żywym kontraktem bez jednej nogi stawki.
+
+    Klient A: kontrakt pełny (300/100) + kontrakt bez stawki KANDYDATA (200/—).
+    Klient B: kontrakt bez stawki KLIENTA (—/150).
+
+    Do 14.09.2026 ``margin_lookup_pln`` robiło przy jednej nodze gołe
+    ``continue``: klient A dostawał marżę 200 podpisaną jako pełną, choć drugi
+    kontrakt miał marżę NIEZNANĄ. ``revenue_lookup_pln`` analogicznie — klient
+    B miał przychód „pełny" równy zeru. Klient B nie ma ŻADNEGO wycenionego
+    kontraktu przychodowego, więc jego kwota to ``None`` (brak wycenionego
+    kontraktu = brak kwoty, nie 0,00 zł — jak na profilu).
+    """
+    sfx = uuid.uuid4().hex[:8]
+    start = date.today() - timedelta(days=90)
+    ids: dict[str, list[int]] = {"contracts": [], "candidates": [], "clients": []}
+    async with AsyncSessionLocal() as db:
+        client_a = Client(name=f"InsCliLegA-{sfx}")
+        client_b = Client(name=f"InsCliLegB-{sfx}")
+        candidates = [
+            Candidate(
+                name=f"Leg-{sfx}", lastname=f"C{i}", email=f"leg-{sfx}-{i}@example.com"
+            )
+            for i in range(3)
+        ]
+        db.add_all([client_a, client_b, *candidates])
+        await db.flush()
+
+        def _mk(client: Client, candidate: Candidate, rc, rk) -> Contract:
+            return Contract(
+                client_id=client.id,
+                candidate_id=candidate.id,
+                status=ContractStatus.active,
+                rate_unit=RateUnit.monthly,
+                currency="PLN",
+                rate_client_currency="PLN",
+                rate_candidate_currency="PLN",
+                rate_client=Decimal(rc) if rc is not None else None,
+                rate_candidate=Decimal(rk) if rk is not None else None,
+                start_date=start,
+            )
+
+        contracts = [
+            _mk(client_a, candidates[0], "300", "100"),
+            _mk(client_a, candidates[1], "200", None),
+            _mk(client_b, candidates[2], None, "150"),
+        ]
+        db.add_all(contracts)
+        await db.commit()
+        ids["contracts"] = [c.id for c in contracts]
+        ids["candidates"] = [c.id for c in candidates]
+        ids["clients"] = [client_a.id, client_b.id]
+
+    try:
+        yield {"client_a": ids["clients"][0], "client_b": ids["clients"][1]}
+    finally:
+        from sqlalchemy import delete
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Contract).where(Contract.id.in_(ids["contracts"])))
+            await db.execute(
+                delete(Candidate).where(Candidate.id.in_(ids["candidates"]))
+            )
+            await db.execute(delete(Client).where(Client.id.in_(ids["clients"])))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_contract_without_cost_leg_marks_client_margin_incomplete(
+    fx_client: AsyncClient,
+    admin_headers: dict[str, str],
+    one_legged_contracts: dict,
+):
+    await cache_invalidate("insights:clients:")
+    body = (await fx_client.get(RANKING, headers=admin_headers)).json()
+    clients, totals = body["clients"], body["totals"]
+
+    row_a = next(
+        c for c in clients if c["client_id"] == one_legged_contracts["client_a"]
+    )
+    # Marża klienta A to suma CZĘŚCIOWA (200 z pełnego kontraktu) oznaczona
+    # jako niepełna — jak kafel „Aktywne MRR" na profilu klienta. ``None``
+    # dla całego klienta zdejmowałoby kwoty z większości rankingu (podpisana
+    # umowa B2B jest aktywna z samą stawką kosztową do czasu zamówienia).
+    assert row_a["margin_complete"] is False
+    assert row_a["monthly_margin_total"] == 200
+    # Przychód klienta A jest pełny: obie nogi klienta są wycenione (300 + 200).
+    assert row_a["monthly_revenue_complete"] is True
+    assert row_a["monthly_revenue_total"] == 500
+    assert totals["monthly_margin_complete"] is False
+
+
+@pytest.mark.asyncio
+async def test_contract_without_revenue_leg_marks_client_revenue_incomplete(
+    fx_client: AsyncClient,
+    admin_headers: dict[str, str],
+    one_legged_contracts: dict,
+):
+    await cache_invalidate("insights:clients:")
+    body = (await fx_client.get(RANKING, headers=admin_headers)).json()
+    clients, totals = body["clients"], body["totals"]
+
+    row_b = next(
+        c for c in clients if c["client_id"] == one_legged_contracts["client_b"]
+    )
+    assert row_b["monthly_revenue_complete"] is False
+    assert row_b["monthly_revenue_total"] is None
+    assert row_b["margin_complete"] is False
+    assert row_b["monthly_margin_total"] is None
+    assert totals["monthly_revenue_complete"] is False

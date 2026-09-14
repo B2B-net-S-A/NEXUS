@@ -540,7 +540,9 @@ async def _sum_finance(
 
     Zwraca (data, warnings, flag): flag == "unavailable" gdy jakikolwiek
     kontrakt w walucie bez kursu raportowego (plan PR 6 pkt 3) — bez kursu
-    kwota NIE wchodzi do sumy i suma NIE udaje kompletnej.
+    kwota NIE wchodzi do sumy i suma NIE udaje kompletnej. flag == "partial"
+    gdy kontrakt ma tylko jedną nogę stawki (liczniki
+    ``contracts_without_cost_leg`` / ``contracts_without_revenue_leg``).
     """
     on = on or date.today()
     currencies = {
@@ -556,6 +558,12 @@ async def _sum_finance(
     mrr = Decimal("0")
     margin = Decimal("0")
     missing: dict[str, int] = {}
+    # Kontrakty z JEDNĄ nogą stawki. Ich marża jest NIEZNANA, nie zerowa —
+    # ta sama semantyka co ``insights_board_money.MoneyFold.without_cost_leg``.
+    # Do 14.09.2026 (audyt statystyk, A04) taki kontrakt nie trafiał do
+    # ``missing``, więc suma z marżą liczoną jak 0% wychodziła jako „complete".
+    without_cost_leg = 0
+    without_revenue_leg = 0
     warnings: list[str] = []
     for c in contracts:
         client_currency = (c.rate_client_currency or c.currency or "PLN").upper()
@@ -591,6 +599,13 @@ async def _sum_finance(
                     else:
                         assert candidate_pln is not None
                         margin += client_pln - candidate_pln
+                else:
+                    # Przychód bez kosztu: wchodzi do MRR, marża pominięta.
+                    without_cost_leg += 1
+        elif monthly_candidate is not None:
+            # Koszt bez przychodu: ani MRR, ani marża — ale liczony, żeby
+            # suma nie udawała kompletnej.
+            without_revenue_leg += 1
 
     flag: QualityFlag = "complete"
     if missing:
@@ -600,6 +615,23 @@ async def _sum_finance(
             f"Brak kursu NBP dla walut: {details} — kwoty NIEDOSTĘPNE "
             "(uzupełnij fx_rates: POST /api/fx/refresh)"
         )
+    if without_cost_leg or without_revenue_leg:
+        # ``unavailable`` jest gorsze i wygrywa; poza tym suma jest częściowa.
+        if flag == "complete":
+            flag = "partial"
+        legs: list[str] = []
+        if without_cost_leg:
+            legs.append(
+                f"{without_cost_leg} kontrakt(ów) bez stawki kandydata — "
+                "przychód wchodzi do MRR, marża NIEZNANA (pominięta, nie zerowa; "
+                "margin_pct liczy tę marżę względem PEŁNEGO MRR, więc jest zaniżony)"
+            )
+        if without_revenue_leg:
+            legs.append(
+                f"{without_revenue_leg} kontrakt(ów) bez stawki klienta — "
+                "bez przychodu i marży"
+            )
+        warnings.append("Niepełna wycena: " + "; ".join(legs))
     foreign = [c for c in currencies if c != "PLN" and rates.get(c) is not None]
     if foreign:
         warnings.append(
@@ -617,6 +649,9 @@ async def _sum_finance(
         "currency": "PLN",
         "active_contracts": headcount.active_contracts,
         "active_consultants": headcount.contractors,
+        # Ile kontraktów pominięto w marży / w MRR z braku drugiej nogi stawki.
+        "contracts_without_cost_leg": without_cost_leg,
+        "contracts_without_revenue_leg": without_revenue_leg,
     }
     return data, warnings, flag
 

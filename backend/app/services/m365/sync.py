@@ -8,6 +8,16 @@ Strategy:
   First run (no delta token) = backfill with `$filter=receivedDateTime ge <12mo>`.
 - Events: delta query over `/me/calendarView/delta?startDateTime=..&endDateTime=..`.
 - Both persist their `@odata.deltaLink` for the next iteration.
+
+Kursor delta NIE przesuwa się po przebiegu z błędami (INT-01, audyt 14.09.2026).
+Graph oddaje `@odata.deltaLink` wyłącznie na OSTATNIEJ stronie okna, więc zapis
+tego linku jest potwierdzeniem „całe okno wchłonięte". Do 09.2026 kursor był
+zapisywany także wtedy, gdy część wiadomości (albo cała strona przy padniętym
+commicie) przepadła — Graph już tych zmian nie oddawał, a `last_sync_status`
+mówił `idle`, więc sonda `checks.m365` niczego nie widziała. Teraz folder
+z błędami zostawia kursor bez zmian (upserty są idempotentne po
+`m365_message_id` / `external_id`, więc powtórka okna nie dubluje wierszy),
+a przebieg z błędami kończy się statusem `error`.
 """
 
 from __future__ import annotations
@@ -215,7 +225,20 @@ async def _sync_connection_locked(
         )
         return result
 
-    conn.last_sync_status = M365SyncStatus.idle
+    if result.errors > 0:
+        # Błędy per wiadomość/wydarzenie/strona są łapane w pętlach niżej,
+        # żeby jeden zepsuty mail nie urwał reszty skrzynki — ale przebieg,
+        # w którym coś przepadło, NIE jest udany. `idle` chowałby go przed
+        # sondą `checks.m365` (czyta `last_sync_status`), a kursor folderów
+        # z błędami został celowo w miejscu (patrz docstring modułu).
+        sample = result.error_samples[0] if result.error_samples else ""
+        conn.last_sync_status = M365SyncStatus.error
+        conn.last_error = (
+            f"{result.errors} błędów importu — kursor folderów z błędami "
+            f"nie przesunięty. {sample}"
+        ).strip()[:2000]
+    else:
+        conn.last_sync_status = M365SyncStatus.idle
     conn.last_sync_at = datetime.now(timezone.utc)
     await db.commit()
     from app.core.operation_telemetry import record_job_outcome
@@ -394,6 +417,11 @@ async def _sync_messages_for_folder(
             params["$filter"] = f"receivedDateTime ge {cutoff.isoformat()}"
 
     last_delta_link: Optional[str] = None
+    # Błędy policzone PRZED tym folderem — kursor wolno zapisać tylko wtedy,
+    # gdy ten przebieg folderu nie dołożył ani jednego (wiadomość ani commit
+    # strony). Licznik jest wspólny dla całego przebiegu, więc porównujemy
+    # różnicę, nie wartość bezwzględną.
+    errors_before = result.errors
 
     async for page in gc.paginate(url, params=params):
         for msg in page.get("value", []):
@@ -428,6 +456,20 @@ async def _sync_messages_for_folder(
                 result.error_samples.append(f"page-commit: {exc!r}")
         if page.get("@odata.deltaLink"):
             last_delta_link = page["@odata.deltaLink"]
+
+    if result.errors > errors_before:
+        # Kursor zostaje w miejscu: deltaLink przychodzi wyłącznie na
+        # ostatniej stronie okna, więc nie ma „linku po ostatniej czystej
+        # stronie" — zapisanie go potwierdziłoby Graphowi także te zmiany,
+        # które właśnie przepadły. Następny przebieg pobierze to okno jeszcze
+        # raz; `_upsert_message` szuka po `m365_message_id`, więc bez duplikatów.
+        logger.warning(
+            "m365 conn %s: %s had %d import error(s) — delta cursor NOT advanced",
+            conn.id,
+            folder,
+            result.errors - errors_before,
+        )
+        return
 
     if last_delta_link and _is_valid_delta_link(last_delta_link):
         setattr(conn, cursor_attr, last_delta_link)
@@ -751,6 +793,8 @@ async def _sync_events(
         }
 
     last_delta_link: Optional[str] = None
+    # Jak w `_sync_messages_for_folder`: kursor tylko po przebiegu bez błędów.
+    errors_before = result.errors
     try:
         async for page in gc.paginate(url, params=params):
             for ev in page.get("value", []):
@@ -772,6 +816,14 @@ async def _sync_events(
             await db.commit()
             return
         raise
+
+    if result.errors > errors_before:
+        logger.warning(
+            "m365 conn %s: events had %d import error(s) — delta cursor NOT advanced",
+            conn.id,
+            result.errors - errors_before,
+        )
+        return
 
     if last_delta_link:
         conn.delta_token_events = last_delta_link

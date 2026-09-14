@@ -754,9 +754,12 @@ async def _compute_dl_metrics(
     """Zwraca (per_dl_rows, overall_totals) dla body_leasing Jobów.
 
     - requests / vacancies liczone z Jobów body_leasing **utworzonych** w okresie
-    - placements = CandidateStage hired w okresie dla Jobów tych DL
+    - placements = PIERWSZE wejście pary (kandydat, oferta) na `hired`
+      (widok `analytics_first_milestones`, `first_reached_at` w okresie)
+      dla Jobów tych DL
     - open_requests / open_vacancies = snapshot otwartych Jobów (draft+published)
-      — bez filtra daty (pokazuje aktualny pipeline)
+      — bez filtra daty (pokazuje aktualny pipeline); zajęte miejsca liczone
+      per OSOBA (`DISTINCT candidate_id`), nie per wiersz `hired`
     """
     fallback = await _dl_head_fallback_map(db)
 
@@ -802,29 +805,40 @@ async def _compute_dl_metrics(
         if r.client_name:
             bucket["client_names"].add(r.client_name)
 
-    # 2. Placements per DL w okresie (liczymy `hired` stage ruchy z `hired` in period).
-    # Placement = PIERWSZE wejście pary na „Zatrudniony" (definicja kanoniczna,
-    # ta sama co `/insights` i `app/services/job_fill.py`). Do 09.2026 liczyło
-    # się tu `count(candidate_stages.id)` po WSZYSTKICH wierszach `hired`, więc
-    # kandydat z powtórzonym etapem podbijał wynik Delivery Leada dwa razy —
-    # i ta sama rekrutacja miała inną liczbę placementów tutaj niż w Insights.
-    placements_q = (
-        select(
-            Job.id.label("job_id"),
-            Job.delivery_lead_id,
-            Job.client_id,
-            func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
-        )
-        .join(CandidateStage, CandidateStage.job_id == Job.id)
-        .where(
-            CandidateStage.stage == PipelineStage.hired,
-            Job.recruitment_type == RecruitmentType.body_leasing,
-        )
-        .group_by(Job.id, Job.delivery_lead_id, Job.client_id)
+    # 2. Placements per DL w okresie.
+    # Placement = PIERWSZE wejście pary (kandydat, oferta) na „Zatrudniony",
+    # czytane z widoku `analytics_first_milestones` (jeden wiersz na parę,
+    # `first_reached_at` = data tego pierwszego wejścia) — ta sama definicja co
+    # `/insights` i `app/services/job_fill.py`. Do 09.2026 liczyło się tu
+    # `count(candidate_stages.id)` po WSZYSTKICH wierszach `hired`, a potem
+    # `count(DISTINCT candidate_id)` z filtrem `moved_at >= period_start`
+    # PRZED deduplikacją: kandydat zatrudniony w sierpniu i ponownie
+    # przeniesiony na „Zatrudniony" we wrześniu liczył się Delivery Leadowi
+    # jako wrześniowy placement. Widok filtruje po dacie PIERWSZEGO wejścia,
+    # więc powtórka etapu nie wraca w kolejnym okresie.
+    period_clause = "AND fm.first_reached_at >= :period_start" if period_start else ""
+    placements_sql = text(
+        f"""
+        SELECT j.id AS job_id, j.delivery_lead_id, j.client_id, count(*) AS cnt
+        FROM analytics_first_milestones fm
+        JOIN jobs j ON j.id = fm.job_id
+        WHERE fm.stage = 'hired'
+          AND j.recruitment_type = :recruitment_type
+          {period_clause}
+        GROUP BY j.id, j.delivery_lead_id, j.client_id
+        """
     )
-    if period_start is not None:
-        placements_q = placements_q.where(CandidateStage.moved_at >= period_start)
-    placement_rows = (await db.execute(placements_q)).all()
+    placement_params: dict[str, object] = {
+        "recruitment_type": RecruitmentType.body_leasing.value
+    }
+    if period_start:
+        placement_params["period_start"] = period_start
+    placement_rows = (
+        await db.execute(
+            placements_sql,
+            placement_params,
+        )
+    ).all()
     placements_by_dl: dict[int, int] = {}
     for r in placement_rows:
         dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
@@ -847,10 +861,15 @@ async def _compute_dl_metrics(
     open_rows = (await db.execute(open_q)).all()
     open_job_ids = [r.id for r in open_rows]
     # Już zajęte vacancy w otwartych Jobach (hired dla tych jobów, all-time).
+    # Per OSOBA, nie per wiersz: kandydat z powtórzonym etapem `hired` zajmuje
+    # jedno miejsce, a liczony po wierszach zabierał dwa i zaniżał wolne wakaty.
     filled_map: dict[int, int] = {}
     if open_job_ids:
         filled_q = (
-            select(CandidateStage.job_id, func.count(CandidateStage.id).label("cnt"))
+            select(
+                CandidateStage.job_id,
+                func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
+            )
             .where(
                 CandidateStage.job_id.in_(open_job_ids),
                 CandidateStage.stage == PipelineStage.hired,
@@ -1080,8 +1099,8 @@ _ClientsReportViewer = Annotated[
 #     (po `closed_at`, dodanym w migracji 0047_job_closed_at).
 #   - Numerator (hit_ratio): liczba tych zapytań z co najmniej jednym `hired`
 #     stage kandydata.
-#   - Numerator (fill_rate): suma hired stages / suma headcount zamkniętych
-#     zapytań (obsługuje joby wielostanowiskowe).
+#   - Numerator (fill_rate): liczba OSÓB z hired stage (DISTINCT candidate_id)
+#     / suma headcount zamkniętych zapytań (obsługuje joby wielostanowiskowe).
 #
 # Źródło "hire" to `CandidateStage.stage = hired` — konsystencja z raportami
 # delivery-leads / recruitment. Contracts są pochodną hired stage (patrz
@@ -1116,8 +1135,9 @@ async def _compute_client_hit_ratio(
     """Zwraca (per_client_rows, overall_totals) dla klientów z zamkniętymi zapytaniami.
 
     - `closed_jobs` = Job.status=closed AND closed_at ∈ [period_start, period_end)
-    - `placements` = CandidateStage.stage=hired dla tych jobów (wszystkie stages,
-      niezależnie kiedy ruch się odbył — hire zamyka joba, nie odwrotnie)
+    - `placements` = liczba OSÓB z CandidateStage.stage=hired w tych jobach
+      (DISTINCT candidate_id; niezależnie kiedy ruch się odbył — hire zamyka
+      joba, nie odwrotnie)
     - `filled_jobs` = DISTINCT job_id z hired stages
     - `active_jobs` = snapshot published dla klienta (nie filtrowane po okresie)
     - `close_reasons` = dict {reason_value: count} per klient (legacy NULL → "unknown")
@@ -1182,12 +1202,15 @@ async def _compute_client_hit_ratio(
         )
 
     # 2. Hired stages dla zamkniętych jobów — zliczamy placements + distinct filled jobs.
+    # Placement = OSOBA zatrudniona w rekrutacji (`DISTINCT candidate_id`), nie
+    # wiersz `hired`: kandydat z powtórzonym etapem liczył się dwa razy, więc
+    # `fill_rate` klienta rósł bez drugiego zatrudnienia.
     if closed_job_ids:
         hired_q = (
             select(
                 Job.client_id,
                 Job.id.label("job_id"),
-                func.count(CandidateStage.id).label("cnt"),
+                func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
             )
             .join(CandidateStage, CandidateStage.job_id == Job.id)
             .where(

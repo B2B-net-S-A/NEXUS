@@ -7,7 +7,8 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 SENTRY_HOST = os.environ.get('SENTRY_HOST', 'b2bnet-sa.sentry.io')
 SENTRY_ORG = os.environ.get('SENTRY_ORG', 'b2bnet-sa')
@@ -20,9 +21,10 @@ def safe(value, fallback='unknown'):
     return value if SAFE_ID.fullmatch(value) else fallback
 
 
-def fetch_issues(token: str, project: str, query: str = 'is:unresolved', sort: str = 'freq') -> list[dict]:
-    params = {'query': query, 'environment': 'production', 'statsPeriod': '24h', 'sort': sort, 'limit': '100'}
-    base = f'https://{SENTRY_HOST}/api/0/projects/{SENTRY_ORG}/{project}/issues/'
+def fetch_issues(token: str, project: str, query: str = 'is:unresolved', sort: str = 'freq', *, start: str | None = None, end: str | None = None) -> list[dict]:
+    params = {'query': query, 'environment': 'production', 'project': project, 'groupStatsPeriod': 'auto', 'sort': sort, 'limit': '100'}
+    params.update({'start': start, 'end': end} if start and end else {'statsPeriod': '24h'})
+    base = f'https://{SENTRY_HOST}/api/0/organizations/{SENTRY_ORG}/issues/'
     result, cursors = {}, set()
     for _ in range(100):
         req = urllib.request.Request(base + '?' + urllib.parse.urlencode(params), headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'})
@@ -49,7 +51,7 @@ def enrich_issue(token: str, issue: dict) -> dict:
     if not issue_id.isdigit():
         raise ValueError('Invalid issue identifier')
     request = urllib.request.Request(
-        f'https://{SENTRY_HOST}/api/0/issues/{issue_id}/events/latest/?environment=production',
+        f'https://{SENTRY_HOST}/api/0/organizations/{SENTRY_ORG}/issues/{issue_id}/events/latest/?environment=production',
         headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'},
     )
     with urllib.request.urlopen(request, timeout=20) as response:
@@ -68,9 +70,9 @@ def format_issue_line(issue: dict, *, redact: bool = True) -> str:
     issue_id = str(issue.get('id', ''))
     if not issue_id.isdigit():
         raise ValueError('Invalid issue identifier')
-    # stats[24h] is explicitly windowed; lifetime count is never labelled 24h.
-    points = (issue.get('stats') or {}).get('24h')
-    count = sum(p[1] for p in points) if isinstance(points, list) else 'unavailable'
+    # Only explicitly filtered counts describe this production query window.
+    # Never substitute the issue's lifetime count or a sliding 24h timeline.
+    count = (issue.get('filtered') or {}).get('count', 'unavailable')
     owner = issue.get('assignedTo') or {}
     owner_label = ('Artur' if owner.get('email') == 'artur.twardowski@b2bnetwork.pl' else 'assignee:' + safe(owner.get('id'))) if owner else 'ARTUR: unassigned'
     status = safe(issue.get('status'))
@@ -79,26 +81,46 @@ def format_issue_line(issue: dict, *, redact: bool = True) -> str:
         release = release.get('version')
     last_seen = safe(issue.get('lastSeen'))
     short_id = safe(issue.get('shortId'), issue_id)
+    operation = str(issue.get('operation') or '')
+    operation = operation if re.fullmatch(r'[A-Z]+ /[a-z0-9_/:{}-]{0,150}|[a-z][a-z0-9_.-]{0,80}', operation) else 'unknown'
+    verdict = ISSUE_VERDICTS.get(issue_id, {})
+    pr = verdict.get('pr')
+    pr_label = f'[#{pr}](https://github.com/B2B-net-S-A/NEXUS/pull/{pr})' if isinstance(pr, int) else 'not linked'
     return (f'[{short_id}](https://{SENTRY_HOST}/issues/{issue_id}/) — {status}; '
-            f'events/24h: {count}; {owner_label}; release: {safe(release)}; last seen: {last_seen}. '
-            f'operation: {safe(issue.get("operation"))}; terminal: {safe(issue.get("terminal"))}; cause: {safe(issue.get("failureKind"))}. PR: see linked issue activity.')
+            f'Sentry events/window: {count}; {owner_label}; release: {safe(release)}; last seen: {last_seen}. '
+            f'operation: {operation}; terminal: {safe(issue.get("terminal"))}; cause: {safe(issue.get("failureKind"))}. PR: {pr_label}; verdict: {safe(verdict.get("verdict"))}.')
 
 
-def project_section(token: str, project: str, *, redact: bool = True) -> str:
-    rows = fetch_issues(token, project)
-    new_ids = {str(i['id']) for i in fetch_issues(token, project, 'is:unresolved age:-24h', 'new')}
-    lines = [f'**{safe(project)} — production, 24h ({len(rows)} issues)**']
-    for issue in rows:
-        prefix = 'NEW: ' if str(issue['id']) in new_ids else ''
-        lines.append(prefix + format_issue_line(enrich_issue(token, issue)))
-    if not rows:
-        lines.append('No unresolved issues returned. This alone does not prove healthy ingestion.')
-    return '\n\n'.join(lines)
+# Curated delivery links contain no raw exception titles or user comments.
+ISSUE_VERDICTS = json.loads((Path(__file__).parents[2] / 'docs/sentry-issue-verdicts.json').read_text())
 
 
-def build_message(token: str, *, redact: bool = True) -> str:
-    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
-    return '\n\n'.join([f'**NEXUS Sentry — {now}**', 'Triage: artur.twardowski@b2bnetwork.pl', *[project_section(token, p) for p in SENTRY_PROJECTS]])
+def project_section(token: str, project: str, *, redact: bool = True, start: str | None = None, end: str | None = None) -> tuple[str, bool]:
+    try:
+        rows = fetch_issues(token, project, start=start, end=end)
+        lines = [f'**{safe(project)} — production ({len(rows)} issues)**']
+        for issue in rows:
+            first_seen = issue.get('firstSeen') or ''
+            prefix = 'NEW: ' if start and start <= first_seen <= (end or '') else ''
+            if issue.get('substatus') == 'regressed':
+                prefix += 'REGRESSION: '
+            lines.append(prefix + format_issue_line(enrich_issue(token, issue)))
+        if not rows:
+            lines.append('No unresolved issues returned. This alone does not prove healthy ingestion.')
+        return '\n\n'.join(lines), True
+    except Exception as exc:
+        # No raw error response, title, URL or token in Teams or public Actions logs.
+        return f'**{safe(project)} — MONITORING READ FAILED ({type(exc).__name__})**', False
+
+
+def build_message(token: str, *, redact: bool = True) -> tuple[str, bool]:
+    end_time = datetime.now(timezone.utc).replace(microsecond=0)
+    start = (end_time - timedelta(hours=24)).isoformat()
+    end = end_time.isoformat()
+    sections = [project_section(token, p, start=start, end=end) for p in SENTRY_PROJECTS]
+    complete = all(ok for _, ok in sections)
+    header = '**NEXUS Sentry**' if complete else '**NEXUS Sentry — INCOMPLETE MONITORING**'
+    return '\n\n'.join([header, f'UTC window: {start} to {end}', 'Triage: artur.twardowski@b2bnetwork.pl', *[text for text, _ in sections]]), complete
 
 
 def post_to_teams(webhook: str, message: str) -> None:
@@ -127,20 +149,20 @@ def main() -> int:
         print('ERROR: required Sentry read token or Teams receiver missing', file=sys.stderr)
         return 1
     try:
-        message = build_message(token)
+        message, complete = build_message(token)
     except Exception as exc:
         print(f'ERROR: incomplete Sentry read ({type(exc).__name__})', file=sys.stderr)
         return 1
     if dry_run:
         print(message)
-        return 0
+        return 0 if complete else 1
     try:
         post_to_teams(webhook, message)
     except Exception as exc:
         print(f'ERROR: Teams delivery failed ({type(exc).__name__})', file=sys.stderr)
         return 2
     print(f'Teams accepted digest for {len(SENTRY_PROJECTS)} projects; initial setup requires channel receipt verification.')
-    return 0
+    return 0 if complete else 1
 
 
 if __name__ == '__main__':

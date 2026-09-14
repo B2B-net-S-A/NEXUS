@@ -8,6 +8,16 @@ Reguły:
   "feedback zebrany".
 - PATCH dopuszczalny tylko dla author_id lub usera z rolą delivery_lead /
   head_of_recruitment (DL może poprawiać feedback swojego teamu).
+- Router stoi za sekcją Pipeline (`PIPELINE_SECTION_DEPENDENCIES`): guardy
+  rolowe niżej sprawdzają rolę, nie efektywny dostęp do sekcji, więc bez tego
+  rekruter z sekcją `pipeline=none` nadal czytał i zapisywał feedback przez API
+  (audyt uprawnień 14.09.2026, F02).
+- POST wiąże feedback z wydarzeniem dopiero po sprawdzeniu, że wołający ma
+  do niego dostęp (`user_can_view_event`: właściciel, uczestnik albo rola
+  z odczytem kalendarza — feedback pisze osoba, która brała udział w rozmowie)
+  i że kandydat/rekrutacja z payloadu zgadzają się z wydarzeniem; pusty
+  `job_id` dziedziczy `event.job_id` (audyt 14.09.2026, F01). Obcy — ani
+  właściciel, ani uczestnik — dostaje 403 przed jakimkolwiek zapisem.
 """
 
 from __future__ import annotations
@@ -20,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.calendar_access import user_can_mutate_event, user_can_view_event
 from app.api.recruitment_access import (
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
@@ -28,6 +39,7 @@ from app.api.recruitment_access import (
     ensure_optional_job_membership,
     job_read_scope_clause,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
 from app.models.interview_feedback import (
@@ -40,7 +52,7 @@ from app.models.interview_feedback import (
 from app.models.user import User, UserRole
 from app.services.interview_feedback_actions import apply_post_feedback_actions
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -151,10 +163,53 @@ def _can_edit(user: User, fb: InterviewFeedback) -> bool:
     )
 
 
-async def _clear_needs_attention(db: AsyncSession, calendar_event_id: int) -> None:
+def _bind_feedback_to_event(
+    event: CalendarEvent,
+    user: User,
+    *,
+    job_id: Optional[int],
+    candidate_id: int,
+) -> Optional[int]:
+    """Zanim feedback wskaże wydarzenie: kto może i o kim/o czym ono jest.
+
+    Do 09.2026 `create_feedback` sprawdzał wyłącznie ISTNIENIE wydarzenia:
+    dowolny operacyjny użytkownik mógł podpiąć feedback pod cudze spotkanie
+    (i zgasić na nim `needs_attention`), a `candidate_id`/`job_id` z payloadu
+    nie musiały mieć nic wspólnego z tym, kogo wydarzenie dotyczy — feedback
+    z rozmowy A lądował pod kandydatem B.
+
+    Zwraca rekrutację, pod którą feedback ma się zapisać: `job_id` z payloadu
+    albo — gdy payload go nie niesie — `event.job_id`. Wydarzenie bez
+    rekrutacji/kandydata (kolumny są nullable) niczego nie wymusza.
+    """
+    # Autoryzacja PRZED spójnością: obcy nie ma się dowiedzieć, jakiej
+    # rekrutacji i jakiego kandydata dotyczy spotkanie. Feedback pisze osoba,
+    # która w spotkaniu BRAŁA UDZIAŁ — także uczestnik cudzego wydarzenia
+    # (rekruter na rozmowie zorganizowanej przez DL), stąd `view`, nie `mutate`.
+    # Bramki sekcji, roli i członkostwa w rekrutacji działają obok.
+    if not user_can_view_event(event, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Brak uprawnień do tego wydarzenia w kalendarzu",
+        )
+    if event.candidate_id is not None and event.candidate_id != candidate_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Kandydat w feedbacku nie zgadza się z kandydatem wydarzenia",
+        )
+    if event.job_id is None:
+        return job_id
+    if job_id is not None and job_id != event.job_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Rekrutacja w feedbacku nie zgadza się z rekrutacją wydarzenia",
+        )
+    return event.job_id
+
+
+async def _clear_needs_attention(db: AsyncSession, event: CalendarEvent) -> None:
     """Feedback zebrany → zgaś czerwoną flagę na evencie."""
-    event = await db.get(CalendarEvent, calendar_event_id)
-    if event is not None and event.needs_attention:
+    if event.needs_attention:
         event.needs_attention = False
         await db.flush()
 
@@ -182,11 +237,21 @@ async def create_feedback(
     event = await db.get(CalendarEvent, payload.calendar_event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Nie znaleziono eventu")
+    job_id = _bind_feedback_to_event(
+        event,
+        current_user,
+        job_id=payload.job_id,
+        candidate_id=payload.candidate_id,
+    )
+    # Rekrutacja odziedziczona z wydarzenia też przechodzi bramkę członkostwa —
+    # payload bez `job_id` nie może być drogą obok P1-PIPE-01.
+    if job_id is not None and job_id != payload.job_id:
+        await ensure_job_membership(db, current_user, job_id)
 
     fb = InterviewFeedback(
         calendar_event_id=payload.calendar_event_id,
         candidate_id=payload.candidate_id,
-        job_id=payload.job_id,
+        job_id=job_id,
         author_id=current_user.id,
         feedback_source=payload.feedback_source,
         overall_impression=payload.overall_impression,
@@ -214,7 +279,7 @@ async def create_feedback(
             ),
         )
 
-    await _clear_needs_attention(db, payload.calendar_event_id)
+    await _clear_needs_attention(db, event)
     # Auto-akcje (advance → suggest_next_step, reject/dead → zamknij + pool)
     try:
         await apply_post_feedback_actions(db, fb)
@@ -300,8 +365,18 @@ async def update_feedback(
 
     await db.flush()
     # Werdykt HM z karty rekrutacji nie ma wydarzenia — nie ma czego odznaczać.
+    # PATCH nie zmienia `calendar_event_id`, więc wydarzenie zostało uzgodnione
+    # przy zapisie; flagę gasi tylko autor feedbacku albo ktoś, kto może
+    # mutować wydarzenie. DL/HoR poprawiający cudzy feedback (`_can_edit`)
+    # zapisuje treść, ale nie dotyka cudzego spotkania — wiersz sprzed tej
+    # bramki mógł wskazywać obce wydarzenie.
     if fb.calendar_event_id is not None:
-        await _clear_needs_attention(db, fb.calendar_event_id)
+        event = await db.get(CalendarEvent, fb.calendar_event_id)
+        if event is not None and (
+            fb.author_id == current_user.id
+            or user_can_mutate_event(event, current_user)
+        ):
+            await _clear_needs_attention(db, event)
     try:
         await apply_post_feedback_actions(db, fb)
     except Exception:  # noqa: BLE001
