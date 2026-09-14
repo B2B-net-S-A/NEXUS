@@ -1,0 +1,21 @@
+{
+  "cache_100_waiters_owner_and_50_waiter_cancellation": "PASS; 2 computations, 50 successes, 0 leaked locks",
+  "hor_primary_tcm_secondary_recruiter": {
+    "roster_eligible": true,
+    "requested_user_ids": [
+      700001
+    ],
+    "team_kpi_rows": [],
+    "synthetic_hired_count": 1,
+    "queries": 4
+  },
+  "xlsx_builder_thread": "PASS; original helper calls builder outside loop",
+  "from_cv_identical_names": "PASS; original extraction prefix, 20 unique paths, matching contents, 0 remaining temps",
+  "from_cv_oversize": {
+    "status": 413,
+    "read_sizes_before_rejection": [
+      -1
+    ],
+    "bytes_returned_before_validation": 1048577
+  }
+}

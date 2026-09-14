@@ -228,7 +228,7 @@ async def insights_recruitment_funnel(
     # Klucz cache'u NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod
     # etykietą drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
     cache_key = f"insights:recruitment:funnel:v1:{resolved.cache_suffix}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -439,7 +439,7 @@ async def insights_time_to_hire(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
     cache_key = f"insights:recruitment:tth:v1:{resolved.cache_suffix}:{min_hires}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -591,7 +591,7 @@ async def insights_team_activity(
     # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
     # liczby jednego zapytania pod etykietą drugiego.
     cache_key = f"insights:recruitment:team-activity:v1:{resolved.cache_suffix}:{limit}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -680,7 +680,7 @@ async def insights_invite_links(
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
     cache_key = f"insights:recruitment:invite-links:v1:{resolved.cache_suffix}"
-    async with cache_single_flight(cache_key):
+    async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached

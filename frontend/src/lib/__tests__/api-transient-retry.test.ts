@@ -180,29 +180,6 @@ describe("api — powtarzanie żądań przejściowych", () => {
     expect(attempts).toBe(1);
   });
 
-  it("czeka `Retry-After` z bramy (z sufitem 10 s) zamiast własnego backoffu", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const delays: number[] = [];
-    const originalSetTimeout = globalThis.setTimeout;
-    const spy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((fn: () => void, ms?: number) => {
-        delays.push(ms ?? 0);
-        return originalSetTimeout(fn, ms);
-      }) as typeof setTimeout);
-
-    const { attempts } = await run({ url: "/api/candidates", method: "get" }, (_n, config) => {
-      const err = httpError(config, 503);
-      (err.response as { headers: Record<string, string> }).headers = { "retry-after": "60" };
-      return Promise.reject(err);
-    });
-
-    spy.mockRestore();
-    expect(attempts).toBe(3);
-    // 60 s z nagłówka przycięte do sufitu; bez własnego 1,5 s / 3 s.
-    expect(delays.filter((d) => d >= 1_000)).toEqual([10_000, 10_000]);
-  });
-
   it("dodaje jitter do backoffu — 100 kart po jednym 503 nie wraca w tej samej ms", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     const delays: number[] = [];

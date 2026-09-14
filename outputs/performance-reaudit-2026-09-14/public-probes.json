@@ -1,0 +1,237 @@
+[
+  {
+    "url": "https://nexus.dynaminds.pl/",
+    "utc": "2026-09-14T08:22:58.738755+00:00",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "bytes": 5432,
+    "elapsed_s": 0.1918,
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "s-maxage=31536000",
+      "Content-Encoding": "gzip",
+      "Server": "cloudflare"
+    }
+  },
+  {
+    "url": "https://nexus.dynaminds.pl/login",
+    "utc": "2026-09-14T08:22:58.930824+00:00",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "bytes": 5432,
+    "elapsed_s": 0.1504,
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "s-maxage=31536000",
+      "Content-Encoding": "gzip",
+      "Server": "cloudflare"
+    }
+  },
+  {
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "utc": "2026-09-14T08:22:59.081409+00:00",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "bytes": 71,
+    "elapsed_s": 0.1344,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "6504fef580964904d6096bf1fd0a16263781ea1b"
+    }
+  },
+  {
+    "url": "https://api.nexus.dynaminds.pl/api/health",
+    "utc": "2026-09-14T08:22:59.215921+00:00",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health",
+    "bytes": 628,
+    "elapsed_s": 0.1789,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "healthy",
+      "version": "6504fef580964904d6096bf1fd0a16263781ea1b",
+      "deployedAt": "2026-09-13T20:45:51Z",
+      "diskPercent": 35,
+      "checks": {
+        "database": "healthy",
+        "m365": "healthy",
+        "m365_encryption": "healthy",
+        "autenti": "unconfigured",
+        "traffit": "healthy",
+        "order_mail": "healthy",
+        "compass_workdays": "healthy",
+        "cortex": "healthy",
+        "qdrant": "healthy",
+        "priority_work": "disabled",
+        "workforce_availability": "disabled",
+        "recruitment_allocation": "disabled",
+        "anthropic": "configured",
+        "voyage": "healthy",
+        "reranker": "unknown",
+        "ai_features": "healthy: powiadomienia NEXUS; Slack nieustawiony",
+        "fx": "healthy",
+        "background_tasks": "healthy",
+        "disk": "healthy"
+      }
+    }
+  },
+  {
+    "url": "https://api.nexus.dynaminds.pl/api/health/deep",
+    "utc": "2026-09-14T08:22:59.394921+00:00",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/deep",
+    "bytes": 1097,
+    "elapsed_s": 0.508,
+    "headers": {
+      "Content-Encoding": "gzip",
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "healthy",
+      "version": "6504fef580964904d6096bf1fd0a16263781ea1b",
+      "checks": {
+        "workforce_availability_state": "healthy",
+        "recruitment_allocation_state": "healthy",
+        "recruitment_allocation_requests": "healthy",
+        "recruitment_allocation_events": "healthy",
+        "calendar_events": "healthy",
+        "contracts": "healthy",
+        "contract_candidate_rates": "healthy",
+        "contract_client_rates": "healthy",
+        "finance_import_runs": "healthy",
+        "finance_monthly_results": "healthy",
+        "b2b_generated_contracts": "healthy",
+        "b2b_generated_contract_status_events": "healthy",
+        "client_order_groups": "healthy",
+        "client_order_group_events": "healthy",
+        "client_order_group_md_consumptions": "healthy",
+        "client_order_md_consumptions": "healthy",
+        "md_consumption_imports": "healthy",
+        "md_consumption_import_rows": "healthy",
+        "client_order_invoice_consumptions": "healthy",
+        "dl_alerts": "healthy",
+        "order_mail_documents": "healthy",
+        "candidates": "healthy",
+        "clients": "healthy",
+        "client_cv_rules": "healthy",
+        "client_cv_rule_events": "healthy",
+        "client_cv_rule_previews": "healthy",
+        "client_cv_rule_publications": "healthy",
+        "cv_document_versions": "healthy",
+        "candidate_stage_cvs": "healthy",
+        "cv_share_tokens": "healthy",
+        "client_playbooks": "healthy",
+        "client_playbook_events": "healthy",
+        "client_cleanup_runs": "healthy",
+        "purged_clients": "healthy",
+        "critical_events": "healthy",
+        "insights_scoring_config": "healthy",
+        "jobs": "healthy",
+        "candidate_stages": "healthy",
+        "notes": "healthy",
+        "candidate_documents": "healthy",
+        "users": "healthy",
+        "notifications": "healthy",
+        "candidate_invite_links": "healthy",
+        "recruitment_processes": "healthy",
+        "recruitment_priority_plans": "healthy",
+        "recruitment_priority_plan_members": "healthy",
+        "recruitment_priority_demands": "healthy",
+        "recruitment_priority_assignments": "healthy",
+        "recruitment_priority_blockers": "healthy",
+        "recruitment_priority_exceptions": "healthy",
+        "recruitment_priority_state": "healthy",
+        "recruitment_priority_user_modes": "healthy",
+        "recruitment_priority_alerts": "healthy",
+        "recruitment_priority_audit_events": "healthy",
+        "candidate_contact_cases": "healthy",
+        "candidate_contact_opportunities": "healthy",
+        "candidate_contact_events": "healthy",
+        "candidate_contact_traffit_cursors": "healthy",
+        "candidate_contact_traffit_ledger": "healthy",
+        "cortex_skill_facts": "healthy",
+        "cortex_unmatched_terms": "healthy",
+        "cortex_unmatched_observations": "healthy",
+        "cortex_extraction_runs": "healthy",
+        "user_workday_periods": "healthy",
+        "compass_workdays_sync_state": "healthy",
+        "user_performance_flags": "healthy",
+        "recruitment_campaigns": "healthy",
+        "insights_seniority_snapshots": "healthy",
+        "priority_position_compatibility": "healthy",
+        "b2b_signature_schema": "healthy",
+        "priority_work_schema": "healthy",
+        "client_portfolio_import": "healthy",
+        "db_collation": "healthy"
+      },
+      "collation": {
+        "datcollate": "en_US.utf8",
+        "datctype": "en_US.utf8",
+        "datlocprovider": "c",
+        "collation_version": null,
+        "polish_order_ok": false,
+        "matches_baseline": true,
+        "baseline": {
+          "datlocprovider": "c",
+          "has_collation_version": false,
+          "polish_order_ok": false
+        }
+      },
+      "client_portfolio_import": {
+        "expected_source_sha256": "1d3957d0907036d19976f887b0167d80061f5ea4bc9cd8f8f8c265dc423a6658",
+        "expected_manifest_sha256": "ee224e1035798e4d35276a2076bbceb0f9629703b5c0be57f35e49d34e6deaa3",
+        "status": "applied",
+        "run_id": 1,
+        "applied_at": "2026-07-30T22:08:06.482080+00:00",
+        "counts": {
+          "expected_manifest_rows": 34,
+          "expected_framework_contracts": 32,
+          "imported_manifest_rows": 34,
+          "nexus_only_rows": 133,
+          "audit_rows": 167,
+          "unique_clients": 156,
+          "portfolio_scopes": 157,
+          "framework_contracts": 32,
+          "live_portfolio_scopes": 157,
+          "live_framework_contracts": 32,
+          "purged_rows": 10,
+          "category_rows": {
+            "active": 30,
+            "relationship": 3,
+            "inactive": 1
+          }
+        }
+      }
+    }
+  },
+  {
+    "url": "https://api.nexus.dynaminds.pl/api/health/alembic",
+    "utc": "2026-09-14T08:22:59.903238+00:00",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/alembic",
+    "bytes": 140,
+    "elapsed_s": 0.324,
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "db_versions": [
+        "0307_client_deletion_event_history"
+      ],
+      "code_heads": [
+        "0307_client_deletion_event_history"
+      ],
+      "orphaned": [],
+      "reconcilable": true
+    }
+  }
+]

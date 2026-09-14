@@ -77,13 +77,26 @@ _inflight_refs: Dict[str, int] = {}
 
 
 @asynccontextmanager
-async def cache_single_flight(key: str) -> AsyncIterator[None]:
-    """Serialize computation of one cache key across concurrent requests."""
+async def cache_single_flight(key: str, *, db: Any = None) -> AsyncIterator[None]:
+    """Serialize computation of one cache key across concurrent requests.
+
+    ``db`` (sesja requestu) jest opcjonalne: gdy klucz liczy już ktoś inny,
+    oczekujący oddaje swoje połączenie do puli przed czekaniem
+    (`release_idle_connection`). Bez kontencji nic się nie dzieje — zwykłe
+    trafienie w cache nie płaci za dodatkowy commit.
+    """
     lock = _inflight.get(key)
     if lock is None:
         lock = asyncio.Lock()
         _inflight[key] = lock
     _inflight_refs[key] = _inflight_refs.get(key, 0) + 1
+    if db is not None and lock.locked():
+        from app.core.database import release_idle_connection
+
+        try:
+            await release_idle_connection(db)
+        except Exception:  # pragma: no cover — zwolnienie jest optymalizacją
+            logger.debug("release_idle_connection failed for %s", key, exc_info=True)
     try:
         async with lock:
             yield

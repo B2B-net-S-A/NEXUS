@@ -241,21 +241,18 @@ const TRANSIENT_RETRY_MAX = 2;
 const TRANSIENT_RETRY_BASE_MS = 1500;
 /** Losowy dodatek, żeby 100 kart po jednym 503 nie wróciło w tej samej ms. */
 const TRANSIENT_RETRY_JITTER_MS = 500;
-/** Sufit dla `Retry-After` z bramy — dłużej nie trzymamy użytkownika w niepewności. */
-const TRANSIENT_RETRY_AFTER_MAX_MS = 10_000;
-
 /**
- * Opóźnienie kolejnej próby: `Retry-After` (sekundy) z odpowiedzi, gdy brama
- * je podała, inaczej wykładniczy backoff. Zawsze z jitterem — zsynchronizowana
+ * Opóźnienie kolejnej próby: wykładniczy backoff z jitterem — zsynchronizowana
  * lawina ponowień po deployu wygląda dla proxy jak drugi incydent.
+ *
+ * Świadomie BEZ `Retry-After`: API jest na innym originie niż front, a CORS
+ * wystawia tylko `ETag` i `Content-Disposition`, więc przeglądarka nigdy nie
+ * pokazuje tego nagłówka skryptowi; 503 z Traefika i tak przychodzi bez CORS
+ * (błąd sieci), a 429 z limitera nie jest ponawiane. Obsługa z 13.09 była
+ * martwym kodem (reaudyt 14.09.2026, R06).
  */
-function transientRetryDelayMs(err: AxiosError, attempts: number): number {
+function transientRetryDelayMs(attempts: number): number {
   const jitter = Math.random() * TRANSIENT_RETRY_JITTER_MS;
-  const header = err.response?.headers?.["retry-after"];
-  const seconds = typeof header === "string" ? Number(header) : Number.NaN;
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1000, TRANSIENT_RETRY_AFTER_MAX_MS) + jitter;
-  }
   return TRANSIENT_RETRY_BASE_MS * Math.pow(2, attempts) + jitter;
 }
 
@@ -294,7 +291,7 @@ api.interceptors.response.use(
     }
 
     config._transientRetryCount = attempts + 1;
-    const delay = transientRetryDelayMs(err, attempts);
+    const delay = transientRetryDelayMs(attempts);
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
   }
