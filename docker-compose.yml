@@ -238,15 +238,16 @@ services:
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     expose:
       - "3000"
-    depends_on:
-      # `condition: service_healthy`, nie goła lista: bez warunku Docker uznaje
-      # zależność za spełnioną w chwili startu kontenera backendu, więc frontend
-      # wstawał w trakcie migracji i renderował RSC-e przeciw serwerowi, którego
-      # jeszcze nie ma. Warunek działa tylko przy `compose up` (nie przy
-      # późniejszych restartach) — to wyłącznie porządkowanie startu, nie
-      # nadzór ciągły.
-      backend:
-        condition: service_healthy
+    # CELOWO bez `depends_on: backend` (reaudyt 14.09.2026). Zależność od zdrowego
+    # backendu sprawiała, że przy KAŻDYM deployu Compose najpierw zatrzymywał
+    # frontend, potem odtwarzał backend z migracjami i dopiero po jego starcie
+    # uruchamiał nowy frontend. Zmierzone przy #1509: frontend „no available
+    # server” ~105 s, API ~52 s — frontend padł 26 s przed API i wstał po nim.
+    # Bez zależności oba kontenery odtwarzają się niezależnie, a frontend leży
+    # tylko przez własny restart. Koszt: w oknie restartu API strona się
+    # wczytuje, ale jej zapytania do API chwilowo zwracają błąd (ponawia je
+    # axios) — to lepsze niż 503 całej aplikacji. Czas przerwy każdego deployu
+    # raportuje krok „Report user-facing downtime” w deploy.yml.
     logging: *default-logging
 
   # Grafana Alloy log shipper. Profile-gated so this PR is safe to merge

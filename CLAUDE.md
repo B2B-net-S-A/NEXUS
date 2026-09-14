@@ -214,8 +214,22 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
 - **„No available server” to przede wszystkim DEPLOYE, nie obciążenie.** Oba
   zarejestrowane 503 frontendu (06.09 18:13, 08.09 06:21 UTC) wypadły w trakcie
   deployu; 31.08–11.09 było 81 przebudów produkcji w godzinach pracy (do 17
-  dziennie). Dopóki nie ma bezprzerwowego deployu, merguj na `main` poza
-  godzinami pracy albo zbieraj zmiany w jeden merge.
+  dziennie). Codex zmierzył to wprost przy deployu #1509 (14.09): frontend
+  ~105 s „no available server”, API ~52 s 502/503, przy zielonym workflow.
+  Dopóki nie ma bezprzerwowego deployu, merguj na `main` poza godzinami pracy
+  albo zbieraj zmiany w jeden merge.
+- **Każdy deploy raportuje przerwę widzianą przez użytkowników** (krok „Report
+  user-facing downtime” w `deploy.yml`: sonda `/login` + `/api/health/live` co
+  ~2 s, tabela w podsumowaniu biegu, `::notice::` z najdłuższą przerwą). To
+  jedyna liczba mówiąca, czy prace nad ciągłością (F03) działają — nie usuwaj.
+- **Frontend w `docker-compose.yml` NIE zależy od backendu** (bez `depends_on`).
+  Zależność od zdrowego backendu zatrzymywała frontend na cały czas migracji
+  przy każdym deployu. Pilnuje tego `test_delivery_contract.py`.
+- **Czas faz startu backendu jest w logach kontenera** (`[startup-timing]` z
+  `entrypoint.sh`, także podfazy siatki DDL). Zanim skrócisz start, sprawdź tam,
+  co naprawdę trwa.
+- **Błąd ładowania chunka JS przeładowuje stronę raz** (`lib/chunk-reload.ts`,
+  `ChunkReloadGuard` w layoucie + `app/error.tsx`) — stara karta po deployu.
 
 - **Ponowienia HTTP należą do interceptora axios (`lib/api.ts`), nie do react-query.**
   `QueryProvider` ma `retry: 0`. Druga warstwa mnożyła jeden odczyt do 6 żądań przy
@@ -238,9 +252,12 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
 - **Drogi snapshot pod jednym kluczem cache liczy jeden wykonawca:** `cache_single_flight`
   z `app/core/cache.py` (podwójne sprawdzenie w środku) + `jitter_seconds` w `cache_set`.
   `_lock` w tym module chroni słownik, nie obliczenie. Przekazuj `db=db`: oczekujący
-  przy kontencji oddaje połączenie do puli (`release_idle_connection` — tylko sesja bez
-  niezapisanych zmian; `rollback()` odpada, bo wygasza `current_user`). To samo przed
-  długim wywołaniem zewnętrznym (rerank w podglądzie CV).
+  przy kontencji oddaje połączenie do puli (`release_idle_connection`). Helper wołaj
+  WYŁĄCZNIE po fazie tylko do odczytu; i tak odmawia, gdy transakcja mogła coś zapisać
+  (`session_has_uncommitted_writes`: zmiany ORM, wykonany `flush()` albo instrukcja inna
+  niż SELECT — znacznik z eventów `Session` w `core/database.py`). `rollback()` odpada,
+  bo wygasza `current_user`. Całe ciało `cache_single_flight` po zwiększeniu licznika
+  jest w `try/finally` — anulowanie w trakcie oddawania sesji nie może zostawić blokady.
 - **KPI zespołu HoR: `metrics.team_kpis(..., operational_roles_only=False)`.** Roster
   jest ustalany po WSZYSTKICH rolach (`has_any_role`); filtr głównej roli wycinał np.
   TCM z dodatkową rolą recruiter. Brak wiersza którejkolwiek osoby z rosteru = sekcja

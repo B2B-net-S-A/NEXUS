@@ -115,6 +115,7 @@ class _FakeSession:
         self.new: set[object] = set()
         self.dirty: set[object] = set()
         self.deleted: set[object] = set()
+        self.info: dict[str, object] = {}
         self.commits = 0
 
     def in_transaction(self) -> bool:
@@ -253,3 +254,95 @@ async def test_batched_demand_serialization_is_constant_queries_and_matches_sing
         )
     finally:
         await _cleanup_demands(demand_ids, job_ids, client_id, user_id)
+
+
+# ── Reaudyt v2 (14.09.2026): N01 i N02 ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_release_refuses_after_flush_or_raw_dml_and_recovers_after_commit():
+    """N02: puste `new/dirty/deleted` po `flush()` nie znaczą „tylko odczyt”."""
+    from sqlalchemy import text
+
+    name = f"flushed-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        db.add(Client(name=name))
+        await db.flush()
+        assert not (db.new or db.dirty or db.deleted)
+        # INSERT jest już w otwartej transakcji — commit utrwaliłby go za callera.
+        assert await release_idle_connection(db) is False
+        await db.rollback()
+    async with AsyncSessionLocal() as db:
+        remaining = (
+            await db.execute(select(Client).where(Client.name == name))
+        ).scalar_one_or_none()
+        assert remaining is None
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE clients SET name = name WHERE name = :name"), {"name": name}
+        )
+        assert await release_idle_connection(db) is False
+        await db.commit()
+        # Po zatwierdzeniu znacznik znika — kolejny odczyt znów pozwala oddać sesję.
+        await db.execute(select(1))
+        assert await release_idle_connection(db) is True
+
+
+class _BlockingCommitSession(_FakeSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.commit_started = asyncio.Event()
+
+    async def commit(self) -> None:
+        self.commit_started.set()
+        await asyncio.Event().wait()  # zawieszony commit — anulowanie w trakcie
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_during_release_leaves_no_lock_entry():
+    """N01: anulowanie w trakcie oddawania sesji nie zostawia wpisu blokady."""
+    from app.core import cache as cache_mod
+    import app.core.database as database_mod
+
+    key = f"reaudit-v2:{uuid.uuid4().hex[:8]}"
+    holder_entered = asyncio.Event()
+    release_holder = asyncio.Event()
+
+    async def _holder() -> None:
+        async with cache_single_flight(key):
+            holder_entered.set()
+            await release_holder.wait()
+
+    waiter_db = _BlockingCommitSession()
+
+    async def _fake_release(db) -> bool:  # ta sama ścieżka co prawdziwy helper
+        await db.commit()
+        return True
+
+    original = database_mod.release_idle_connection
+    database_mod.release_idle_connection = _fake_release
+    try:
+        holder = asyncio.create_task(_holder())
+        await holder_entered.wait()
+
+        async def _waiter() -> None:
+            async with cache_single_flight(key, db=waiter_db):
+                pass
+
+        waiter = asyncio.create_task(_waiter())
+        await waiter_db.commit_started.wait()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        release_holder.set()
+        await holder
+    finally:
+        database_mod.release_idle_connection = original
+
+    assert key not in cache_mod._inflight
+    assert key not in cache_mod._inflight_refs
+    # Kolejny wykonawca działa normalnie.
+    async with cache_single_flight(key):
+        pass
+    assert key not in cache_mod._inflight

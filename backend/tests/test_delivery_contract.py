@@ -93,19 +93,20 @@ def test_backend_healthcheck_start_period_covers_a_heavy_migration() -> None:
     )
 
 
-def test_frontend_waits_for_a_healthy_backend_not_merely_a_started_one() -> None:
-    """Goła lista `depends_on: [backend]` jest spełniona w chwili startu kontenera.
+def test_frontend_does_not_wait_for_the_backend_to_become_healthy() -> None:
+    """Frontend odtwarza się niezależnie od backendu (reaudyt 14.09.2026).
 
-    Czyli w trakcie migracji — frontend renderował wtedy RSC-e przeciw serwerowi,
-    którego jeszcze nie ma.
+    Wcześniej `depends_on: backend: condition: service_healthy` porządkowało
+    pierwszy start, ale przy każdym deployu Compose zatrzymywał frontend na
+    cały czas migracji backendu. Zmierzone przy deployu #1509: ~105 s „no
+    available server” na froncie wobec ~52 s na API. Powrót tej zależności
+    przywraca dłuższą przerwę bez żadnego sygnału w CI — stąd ten test.
     """
-    depends_on = _service("frontend").get("depends_on")
-    assert isinstance(depends_on, dict), (
-        "frontend.depends_on wrócił do postaci listy — warunek `service_healthy` "
-        f"zniknął: {depends_on!r}"
-    )
-    assert depends_on.get("backend", {}).get("condition") == "service_healthy", (
-        f"frontend nie czeka na zdrowy backend: {depends_on!r}"
+    depends_on = _service("frontend").get("depends_on") or {}
+    names = set(depends_on) if isinstance(depends_on, (dict, list)) else set()
+    assert "backend" not in names, (
+        "frontend znów zależy od backendu — przy każdym deployu będzie czekał "
+        f"na migracje i leżał dłużej niż API: {depends_on!r}"
     )
 
 

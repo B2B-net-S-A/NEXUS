@@ -90,14 +90,20 @@ async def cache_single_flight(key: str, *, db: Any = None) -> AsyncIterator[None
         lock = asyncio.Lock()
         _inflight[key] = lock
     _inflight_refs[key] = _inflight_refs.get(key, 0) + 1
-    if db is not None and lock.locked():
-        from app.core.database import release_idle_connection
-
-        try:
-            await release_idle_connection(db)
-        except Exception:  # pragma: no cover — zwolnienie jest optymalizacją
-            logger.debug("release_idle_connection failed for %s", key, exc_info=True)
+    # `try` obejmuje WSZYSTKO po zwiększeniu licznika, także oddawanie sesji.
+    # Anulowanie żądania (`CancelledError` nie jest `Exception`) w trakcie
+    # `release_idle_connection` omijało wcześniej sprzątanie i zostawiało wpis
+    # blokady na zawsze (reaudyt v2 14.09.2026, N01).
     try:
+        if db is not None and lock.locked():
+            from app.core.database import release_idle_connection
+
+            try:
+                await release_idle_connection(db)
+            except Exception:  # pragma: no cover — zwolnienie jest optymalizacją
+                logger.debug(
+                    "release_idle_connection failed for %s", key, exc_info=True
+                )
         async with lock:
             yield
     finally:

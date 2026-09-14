@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-14",
+  "browser": "Authenticated user Chrome",
+  "after_deploy_sha": "a30d915c5e52c2adfb7e18af24de643f7bf3347f",
+  "insights": {
+    "action": "Fresh Insights tab, click Sources hash link, allow lazy content to finish",
+    "url": "https://nexus.dynaminds.pl/insights?tab=rekrutacja#zrodla",
+    "target_top_px": 350.146484375,
+    "target_height_px": 630.01953125,
+    "viewport_height_px": 987,
+    "sources_heading_visible": true
+  },
+  "dashboard": {
+    "selected": "Head of Recruitment",
+    "url": "https://nexus.dynaminds.pl/dashboard?preset=head-of-recruitment&period=week",
+    "rendered": "Populated activity and recruitment sections"
+  },
+  "limits": "Visual/DOM read-only checks; no timing, HAR, CLS benchmark or production test data",
+  "console_errors_warnings": []
+}
