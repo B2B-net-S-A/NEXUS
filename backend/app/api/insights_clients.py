@@ -129,6 +129,7 @@ def _ranking_payload(row: ClientRankingRow) -> dict:
         "total_revenue_all_time": _money(row.total_revenue_all_time),
         "active_revenue": _money(row.active_revenue),
         "monthly_margin_total": _money(row.monthly_margin_total),
+        "monthly_revenue_total": _money(row.monthly_revenue_total),
         "active_orders_count": row.active_orders_count,
         "active_consultants": row.active_consultants,
         "active_contracts": row.active_contracts,
@@ -140,6 +141,7 @@ def _ranking_payload(row: ClientRankingRow) -> dict:
         # odróżnić „zero marży" od „nie policzyliśmy".
         "revenue_complete": row.revenue_complete,
         "margin_complete": row.margin_complete,
+        "monthly_revenue_complete": row.monthly_revenue_complete,
     }
 
 
@@ -190,12 +192,21 @@ async def insights_clients_ranking(
     # Klucz NIESIE OKNO. Bez tego marża wyceniona na lipiec wyszłaby pod
     # etykietą sierpnia i nikt by się nie zorientował — obie liczby są
     # wiarygodne.
-    cache_key = f"insights:clients:ranking:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:clients:ranking:v2:{resolved.cache_suffix}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     rows = await compute_client_ranking(db, on=on)
+    # Ranking Rady szereguje po MIESIĘCZNYM przychodzie z kontraktów, nie po
+    # wartości zamówień (wypełnionej u garstki klientów): po tamtej kolumnie
+    # klienci testowi bez konsultantów stali przed klientami z 10+ osobami
+    # (UAT M10-B01). Kolejność listy admina (`compute_client_ranking`) bez zmian.
+    rows = sorted(
+        rows,
+        key=lambda r: (r.monthly_revenue_total or 0, r.monthly_margin_total or 0),
+        reverse=True,
+    )
     clients = [_ranking_payload(r) for r in rows]
     totals = fold_ranking_totals(rows)
     # Kwoty kafli sumują się z tych samych, już zaokrąglonych składników, które
@@ -208,6 +219,9 @@ async def insights_clients_ranking(
         c["total_revenue_all_time"] or 0 for c in clients
     )
     totals["active_revenue"] = sum(c["active_revenue"] or 0 for c in clients)
+    totals["monthly_revenue_total"] = sum(
+        c["monthly_revenue_total"] or 0 for c in clients
+    )
 
     result = {
         "period": resolved.as_payload(),
@@ -215,9 +229,13 @@ async def insights_clients_ranking(
             "on": on.isoformat(),
             "basis": "live_contracts",
             "note": (
-                "Marża/MRR to bieżące kontrakty (active/ending) wycenione "
-                "stawkami z harmonogramów obowiązującymi w dniu wyceny. "
-                "Przychód lifetime nie jest przycinany oknem."
+                "Przychód/mc i marża/mc to DZISIEJSZE kontrakty (aktywne i kończące "
+                "się) wycenione stawkami z harmonogramów obowiązującymi w dniu "
+                "wyceny — kafle KPI wyżej liczą kontrakty wykonywane w dniu "
+                "wyceny, więc dla przeszłych okien mogą się różnić. Marża/mc "
+                "klienta w bieżącym oknie to „Aktywne MRR” z jego profilu. "
+                "Wartość zamówień to suma kwot z zamówień (PO) — jest tylko tam, "
+                "gdzie zamówienie ma kwotę, i nie jest przycinana oknem."
             ),
         },
         "totals": totals,

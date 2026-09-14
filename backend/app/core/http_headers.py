@@ -51,3 +51,39 @@ def content_disposition(
 def content_disposition_attachment(filename: str, fallback: str = "download") -> str:
     """Backwards-compatible alias for ``content_disposition(..., "attachment")``."""
     return content_disposition(filename, "attachment", fallback)
+
+
+_CREDENTIAL_HEADERS = ("authorization", "x-api-key", "x-impersonate-user-id")
+
+
+def apply_credentialed_cache_policy(request_headers, response_headers) -> None:
+    """Keep responses to credentialed requests out of shared browser caches.
+
+    ``FileResponse`` sends ``ETag`` + ``Last-Modified`` and no
+    ``Cache-Control``, so browsers cached order PDFs heuristically and later
+    served them to a request WITHOUT a token, or to a different user previewed
+    in the same browser (UAT M07-B01). An API answer to a request carrying
+    credentials is per-user by definition.
+
+    * ``Cache-Control: private, no-store`` is only a DEFAULT — endpoints that
+      deliberately set their own policy (e.g. ``private, max-age=60``) keep it.
+    * ``Vary`` always gains the credential headers, so even such a deliberate
+      short cache is keyed per token instead of per URL.
+    """
+    if not any(name in request_headers for name in _CREDENTIAL_HEADERS):
+        return
+    if "cache-control" not in response_headers:
+        response_headers["Cache-Control"] = "private, no-store"
+    existing = response_headers.get("vary", "")
+    present = {part.strip().lower() for part in existing.split(",") if part.strip()}
+    if "*" in present:
+        return
+    missing = [
+        header
+        for header in ("Authorization", "X-API-Key", "X-Impersonate-User-Id")
+        if header.lower() not in present
+    ]
+    if missing:
+        response_headers["Vary"] = ", ".join(
+            [part.strip() for part in existing.split(",") if part.strip()] + missing
+        )

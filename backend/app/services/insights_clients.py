@@ -164,6 +164,46 @@ async def margin_lookup_pln(
     return totals, incomplete
 
 
+async def revenue_lookup_pln(
+    db: AsyncSession,
+    contracts: list[Contract],
+    on: date,
+) -> tuple[dict[int, Decimal], set[int]]:
+    """Miesięczny PRZYCHÓD per klient z tych samych kontraktów co marża.
+
+    Noga klienta z harmonogramu na dzień ``on``, przewalutowana na PLN. Klient,
+    któremu brakuje kursu dla choć jednej nogi przychodu, dostaje ``None``
+    (zbiór ``incomplete``) — ta sama reguła co ``margin_lookup_pln``.
+
+    Powód istnienia (UAT M10-B01): ranking w Radzie pokazywał jako „Aktywne
+    MRR / mc" sumę ``client_orders.total_value`` aktywnych zamówień — wartość
+    całych zamówień, nie kwotę miesięczną, wypełnioną tylko tam, gdzie PO ma
+    kwotę (3 z 28 klientów). Marża wychodziła wtedy WIĘKSZA niż przychód.
+    """
+
+    currencies = {contract.resolved_rate_client_currency for contract in contracts}
+    fx_rates = await rates_to_pln(db, currencies, on)
+    totals: dict[int, Decimal] = {}
+    incomplete: set[int] = set()
+    for contract in contracts:
+        raw_client = effective_rate_fields(contract, on)["monthly_rate_client"]
+        if raw_client is None:
+            continue
+        client_pln, complete = amount_to_pln_with_rate(
+            raw_client, fx_rates.get(contract.resolved_rate_client_currency)
+        )
+        if not complete:
+            incomplete.add(contract.client_id)
+            continue
+        assert client_pln is not None
+        totals[contract.client_id] = (
+            totals.get(contract.client_id, Decimal("0")) + client_pln
+        )
+    for client_id in incomplete:
+        totals.pop(client_id, None)
+    return totals, incomplete
+
+
 @dataclass(frozen=True)
 class ClientRankingRow:
     """Wiersz rankingu klientów; wszystkie kwoty w PLN.
@@ -181,6 +221,10 @@ class ClientRankingRow:
     total_revenue_all_time: Optional[Decimal]
     active_revenue: Optional[Decimal]
     monthly_margin_total: Optional[Decimal]
+    # Przychód miesięczny z bieżących kontraktów (noga klienta z harmonogramu).
+    # Pole spoza ``OverviewRow`` — router admina go nie deklaruje, więc nie
+    # zmienia jego odpowiedzi.
+    monthly_revenue_total: Optional[Decimal]
     active_orders_count: int
     active_consultants: int
     active_contracts: int
@@ -191,6 +235,9 @@ class ClientRankingRow:
     # więc ich obecność niczego mu nie zmienia.
     revenue_complete: bool
     margin_complete: bool
+    # Brak kursu dla nogi przychodu — osobno od marży: marża potrafi być pełna
+    # (kontrakt bez stawki kandydata nie wchodzi do marży), a przychód nie.
+    monthly_revenue_complete: bool
 
 
 async def compute_client_ranking(
@@ -332,6 +379,9 @@ async def compute_client_ranking(
         if r.candidate is not None:
             contractor_candidates.setdefault(r.client_id, []).append(r.candidate)
     margin_lookup, margin_incomplete = await margin_lookup_pln(db, margin_rows, on)
+    monthly_revenue_lookup, monthly_revenue_incomplete = await revenue_lookup_pln(
+        db, margin_rows, on
+    )
 
     items: list[ClientRankingRow] = []
     for c, effective in client_rows:
@@ -351,6 +401,7 @@ async def compute_client_ranking(
                 else None,
                 active_revenue=(rev["active"] or None) if revenue_complete else None,
                 monthly_margin_total=margin_lookup.get(c.id),
+                monthly_revenue_total=monthly_revenue_lookup.get(c.id),
                 active_orders_count=active_order_counts.get(c.id, 0),
                 active_consultants=count_unique_contractors(
                     contractor_candidates.get(c.id, [])
@@ -360,6 +411,7 @@ async def compute_client_ranking(
                 framework_expiry_date=fc[1] if fc else None,
                 revenue_complete=revenue_complete,
                 margin_complete=c.id not in margin_incomplete,
+                monthly_revenue_complete=c.id not in monthly_revenue_incomplete,
             )
         )
 
@@ -388,6 +440,7 @@ def fold_ranking_totals(rows: Iterable[ClientRankingRow]) -> dict:
         "active_contracts": sum(r.active_contracts for r in rows),
         "active_orders_count": sum(r.active_orders_count for r in rows),
         "monthly_margin_complete": all(r.margin_complete for r in rows),
+        "monthly_revenue_complete": all(r.monthly_revenue_complete for r in rows),
         "revenue_complete": all(r.revenue_complete for r in rows),
     }
 

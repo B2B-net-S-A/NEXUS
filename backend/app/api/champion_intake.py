@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, get_db
@@ -52,6 +53,23 @@ async def read_preview(file, db):
     except anthropic.APIError as exc:
         raise HTTPException(
             503, "Model AI chwilowo niedostępny — spróbuj za chwilę."
+        ) from exc
+    except ValidationError as exc:
+        # ValidationError is a ValueError: without this branch the user got
+        # the raw Pydantic dump with an errors.pydantic.dev link (UAT M04-B01).
+        fields = sorted(
+            {
+                ".".join(str(part) for part in err.get("loc", ()))
+                for err in exc.errors()
+                if err.get("loc")
+            }
+        )
+        where = f" ({', '.join(fields[:5])})" if fields else ""
+        raise HTTPException(
+            422,
+            "Nie udało się odczytać profilu: dokument ma niepoprawne albo "
+            f"niekompletne pola{where}. "
+            "Uzupełnij je we wzorze albo w edytorze Championa.",
         ) from exc
     except (ValueError, KeyError) as exc:
         raise HTTPException(422, f"Nie udało się odczytać profilu: {exc}") from exc
