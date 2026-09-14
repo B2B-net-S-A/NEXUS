@@ -120,22 +120,6 @@ on:
         options: [A, B]
         default: A
       eval_jobs:
-  release-config-audit:
-    name: Read release build configuration without secrets
-    if: inputs.action == 'release-config-audit'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: .github/scripts
-      - name: Read configuration flags only
-        env:
-          CO_URL: ${{ secrets.COOLIFY_URL }}
-          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-        run: python3 .github/scripts/coolify_release_audit.py
-
         description: "Liczba ofert (1-50). Mniej niż 50 = INNY zbiór, nieporównywalny z baselinem."
         required: false
         default: "50"
@@ -191,6 +175,22 @@ permissions:
   contents: read
 
 jobs:
+  release-config-audit:
+    name: Read release build configuration without secrets
+    if: inputs.action == 'release-config-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Read configuration flags only
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: python3 .github/scripts/coolify_release_audit.py
+
   staging-status:
     name: Read configured staging application
     if: inputs.action == 'staging-status'
