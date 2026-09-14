@@ -1284,9 +1284,22 @@ def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
                 + func.coalesce(Candidate.email, "")
             )
             score = sum(func.similarity(haystack, term) for term in terms)
-            return query.order_by(
-                score.desc(), Candidate.created_at.desc(), Candidate.id.desc()
-            )
+            # Dokładny e-mail wygrywa z podobieństwem trigramowym (UAT B35):
+            # fuzzy dla pełnego adresu stawiał wyżej osobę o podobnym adresie
+            # z krótszym nazwiskiem, a Enter w palecie otwierał ją zamiast
+            # właściciela wpisanego adresu.
+            ordering = [score.desc(), Candidate.created_at.desc(), Candidate.id.desc()]
+            if filters.q:
+                exact_email = case(
+                    (
+                        func.lower(func.coalesce(Candidate.email, ""))
+                        == filters.q.strip().lower(),
+                        0,
+                    ),
+                    else_=1,
+                )
+                ordering.insert(0, exact_email.asc())
+            return query.order_by(*ordering)
     return query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
 

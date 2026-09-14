@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { talentPoolsApi, competenceCategoriesApi } from "@/lib/api";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import {
@@ -57,6 +62,31 @@ function poolWord(n: number): string {
 }
 
 const UNCATEGORIZED_LABEL = "Pozostałe";
+
+/** Rozmiar okna listy członków puli — lustro domyślnego `limit` backendu. */
+const POOL_MEMBERS_PAGE_SIZE = 500;
+
+interface PoolCandidatesPage {
+  candidates?: CandidateInPool[];
+  total?: number;
+}
+
+/**
+ * Następne okno = liczba już wczytanych członków (UAT B41). Backend zawsze
+ * stronicował (`limit`/`offset`, domyślnie 500/0), ale widok nie przekazywał
+ * przesunięcia i kończył się na 500. członku z dopiskiem „pokazano 500 z 817",
+ * bez żadnej drogi do reszty. Pusta strona przy niedoliczonym `total` (ktoś
+ * usunął członków w międzyczasie) kończy doładowywanie zamiast zapętlić.
+ */
+function nextPoolMembersOffset(
+  lastPage: PoolCandidatesPage,
+  allPages: PoolCandidatesPage[],
+): number | undefined {
+  const loaded = allPages.reduce((n, page) => n + (page.candidates?.length ?? 0), 0);
+  const total = lastPage.total ?? 0;
+  if ((lastPage.candidates?.length ?? 0) === 0) return undefined;
+  return loaded < total ? loaded : undefined;
+}
 
 interface CandidateInPool {
   id: number;
@@ -280,10 +310,19 @@ function PoolDetailView({
 }) {
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["talent-pool-candidates", pool.id],
-    queryFn: () => talentPoolsApi.getCandidates(pool.id).then((r) => r.data),
-  });
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["talent-pool-candidates", pool.id],
+      queryFn: ({ pageParam }) =>
+        talentPoolsApi
+          .getCandidates(pool.id, {
+            limit: POOL_MEMBERS_PAGE_SIZE,
+            offset: pageParam,
+          })
+          .then((r) => r.data as PoolCandidatesPage),
+      initialPageParam: 0,
+      getNextPageParam: nextPoolMembersOffset,
+    });
 
   const removeMutation = useMutation({
     mutationFn: (candidateId: number) =>
@@ -302,12 +341,16 @@ function PoolDetailView({
     },
   });
 
-  const candidates: CandidateInPool[] = data?.candidates ?? [];
+  const pages = data?.pages ?? [];
+  const candidates: CandidateInPool[] = pages.flatMap(
+    (page) => page.candidates ?? [],
+  );
   const poolColor = getPoolColor(pool.name);
   // The API reports the true membership count separately from the (capped)
   // page of candidate rows — the largest pools hold ~1k members after the
   // cv_sent backfill, so we show the real total and note when truncated.
-  const total: number = data?.total ?? candidates.length;
+  const total: number =
+    pages.length ? (pages[pages.length - 1].total ?? candidates.length) : 0;
 
   return (
     <div className="space-y-4">
@@ -504,6 +547,24 @@ function PoolDetailView({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {hasNextPage && (
+          <div className="px-6 py-4 border-t border-border flex justify-center">
+            <button
+              type="button"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+              data-testid="pool-load-more"
+            >
+              {isFetchingNextPage ? "Wczytuję…" : "Pokaż więcej"}
+              <span className="text-xs text-muted-foreground tabular-nums">
+                ({Math.min(POOL_MEMBERS_PAGE_SIZE, total - candidates.length)} z{" "}
+                {total - candidates.length} pozostałych)
+              </span>
+            </button>
           </div>
         )}
       </div>

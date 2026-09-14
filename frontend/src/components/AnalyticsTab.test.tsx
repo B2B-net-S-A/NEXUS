@@ -125,7 +125,7 @@ describe("AnalyticsTab finance redaction", () => {
     renderTab(10);
 
     expect(await screen.findByText("Przychód łącznie (PLN)")).toBeInTheDocument();
-    expect(screen.getByText("Przychód aktywny (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Wartość aktywnych zamówień (PLN)")).toBeInTheDocument();
     expect(screen.getByText("Marża/mc (PLN)")).toBeInTheDocument();
     expect(screen.getByText("Przychód według waluty")).toBeInTheDocument();
   });

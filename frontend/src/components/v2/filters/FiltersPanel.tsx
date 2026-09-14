@@ -18,6 +18,7 @@ import type {
   CandidateStatusValue,
   AvailabilityStatusValue,
 } from "@/lib/candidate-search-api";
+import { experienceRangeError } from "@/lib/candidate-search-request";
 import { cn } from "@/lib/utils";
 
 interface FiltersPanelProps {
@@ -70,6 +71,7 @@ export function FiltersPanel({
   const patch = (next: Partial<CandidateSearchRequest>) => {
     onChange({ ...value, ...next });
   };
+  const experienceError = experienceRangeError(value);
 
   const advanced: AdvancedSearchValue = useMemo(
     () => ({
@@ -312,6 +314,7 @@ export function FiltersPanel({
                 })
               }
               placeholder="min"
+              aria-invalid={experienceError ? true : undefined}
               className="w-20 text-sm"
             />
             <span className="text-muted-foreground">–</span>
@@ -328,9 +331,17 @@ export function FiltersPanel({
                 })
               }
               placeholder="max"
+              aria-invalid={experienceError ? true : undefined}
               className="w-20 text-sm"
             />
           </div>
+          {/* Odwrócony przedział (UAT B28): błąd przy polu, zanim ktoś odczyta
+              „wyniki" pod niemożliwym kryterium. Backend i tak odpowie 422. */}
+          {experienceError && (
+            <p role="alert" className="text-xs text-destructive-muted-foreground">
+              {experienceError}
+            </p>
+          )}
         </div>
 
         {/* City picker */}

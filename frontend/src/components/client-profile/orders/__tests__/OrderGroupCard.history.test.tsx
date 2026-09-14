@@ -110,6 +110,7 @@ function event(overrides: Partial<OrderGroupEvent> = {}): OrderGroupEvent {
     related_group_id: null,
     related_order_number: null,
     created_by_user_id: null,
+    created_by_name: null,
     created_at: "2026-05-01T10:00:00Z",
     ...overrides,
   };
@@ -162,6 +163,57 @@ async function openHistory(user: ReturnType<typeof userEvent.setup>) {
 describe("OrderGroupCard — historia zamówienia", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("każdy wpis nazywa wykonawcę: osobę, samo id po usunięciu konta albo system", async () => {
+    // UAT B50: historia mówiła CO i KIEDY, ale nie KTO — nie dało się ustalić,
+    // kto zmienił budżet. Pusty autor to zdarzenie automatyczne, nie brak danych.
+    vi.mocked(orderGroupsApi.events).mockResolvedValue({
+      data: {
+        events: [
+          event({
+            id: 20,
+            event_type: "edycja_reczna",
+            event_label: "Edycja ręczna",
+            description: "Zmieniono: budżet MD.",
+            created_by_user_id: 5,
+            created_by_name: "Anna Testowa",
+            created_at: "2026-05-02T09:15:00Z",
+          }),
+          event({
+            id: 21,
+            event_type: "dodanie_konsultanta",
+            event_label: "Dodanie konsultanta",
+            description: "Dodano osobę.",
+            created_by_user_id: 9,
+            created_by_name: null,
+          }),
+          event({
+            id: 22,
+            event_type: "zakonczenie",
+            event_label: "Zakończenie",
+            description: "Zamówienie zakończone — budżet MD wyczerpany.",
+          }),
+        ],
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderCard({ group: group() });
+    await openHistory(user);
+
+    const edited = (await screen.findByText("Edycja ręczna")).closest("li");
+    expect(edited).toHaveTextContent("Anna Testowa");
+    // Godzina obok daty — dwa wpisy tego samego dnia dało się dotąd tylko
+    // uporządkować, nie umiejscowić w czasie.
+    expect(edited).toHaveTextContent(/02\.05\.2026 \d{2}:\d{2}/);
+    // Konto usunięte: identyfikator bez zgadywania nazwiska.
+    expect(screen.getByText("Dodanie konsultanta").closest("li")).toHaveTextContent(
+      "Użytkownik #9",
+    );
+    expect(screen.getByText("Zakończenie").closest("li")).toHaveTextContent(
+      "Automatycznie (system)",
+    );
   });
 
   it("wpis transfer_md ma własną ikonę i klikalny numer zamówienia powiązanego", async () => {

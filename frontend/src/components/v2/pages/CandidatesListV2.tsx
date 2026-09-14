@@ -131,7 +131,9 @@ import {
  type OpenToValue,
 } from"@/lib/filter-options";
 import {
+ decodeSelectedIds,
  decodeSkillsExpr,
+ encodeCompareHref,
  encodeFilterCriteria,
  encodeFilters,
  filtersToApiParams,
@@ -155,12 +157,15 @@ import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatus
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
+ candidateRowTestId,
+ focusCandidateRow,
  formatCandidateLocation,
  getCandidateInitials,
  getCurrentCompany,
  getCurrentTitle,
  getExperienceLabel,
  getSkillList,
+ isRowActivationKey,
 } from"@/components/v2/pages/candidate-list-helpers";
 import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar";
 import { RequireRole } from"@/components/RequireRole";
@@ -1813,7 +1818,12 @@ export function CandidatesListV2() {
  }, [virtualizer, data, rowHeight, hasSearchTerms]);
 
  // Selection ---------------------------------------------------
- const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+ // `?sel=` odtwarza zaznaczenie po powrocie z porównania (UAT B21) — czytane
+ // przy montowaniu, jak reszta stanu listy; `encodeFilters` go nie zapisuje,
+ // więc replaceState niżej zdejmuje parametr po pierwszym renderze.
+ const [selectedIds, setSelectedIds] = useState<Set<number>>(
+ () => new Set(decodeSelectedIds(new URLSearchParams(searchParams.toString())))
+ );
  const toggleId = useCallback((id: number) => {
  setSelectedIds((prev) => {
  const next = new Set(prev);
@@ -1865,6 +1875,12 @@ export function CandidatesListV2() {
  const [bulkPoolPending, setBulkPoolPending] = useState(false);
  const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
  const [detailId, setDetailId] = useState<number | null>(null);
+ // Ostatnio oglądany kandydat — cel powrotu fokusu po zamknięciu podglądu
+ // (UAT B22). Ref, bo przy zamykaniu `detailId` jest już `null`.
+ const lastDetailIdRef = useRef<number | null>(null);
+ useEffect(() => {
+ if (detailId !== null) lastDetailIdRef.current = detailId;
+ }, [detailId]);
  // 1-based position of the open profile within the filtered set. Updated on
  // row click and on prev/next navigation inside the modal so CandidateNav
  // can show"N / total" and walk page boundaries.
@@ -3267,9 +3283,22 @@ export function CandidatesListV2() {
  return (
  <div
  key={candidate.id}
- data-testid={`candidate-row-${candidate.id}`}
+ data-testid={candidateRowTestId(candidate.id)}
  data-index={virtualRow.index}
  onClick={openDetail}
+ // Wiersz jest celem klawiatury (UAT B22): Tab trafia na wiersz,
+ // Enter/Spacja otwiera podgląd, a po zamknięciu podglądu fokus tu wraca.
+ // Klawisz z zagnieżdżonej kontrolki (checkbox, przyciski) zostaje jej.
+ // `role="group"`, nie `button`: wiersz ma w środku checkbox i przyciski,
+ // a rola przycisku nie dopuszcza interaktywnych potomków (WAI-ARIA APG).
+ role="group"
+ aria-label={`${fullName} — Enter otwiera podgląd`}
+ tabIndex={0}
+ onKeyDown={(e) => {
+ if (e.target !== e.currentTarget || !isRowActivationKey(e.key)) return;
+ e.preventDefault();
+ openDetail();
+ }}
  style={{
  position: "absolute",
  top: 0,
@@ -3281,6 +3310,7 @@ export function CandidatesListV2() {
  className={cn(
  "flex cursor-pointer flex-col overflow-hidden border-b border-border transition-colors",
  "border-l-4 border-l-transparent",
+ "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
  // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
  isNewMatch && "bg-success-muted/70 border-l-success",
@@ -3414,8 +3444,10 @@ export function CandidatesListV2() {
  size="sm"
  variant="primary"
  onClick={() => {
- const ids = Array.from(selectedIds).slice(0, 3).join(",");
- router.push(`/candidates/compare?ids=${ids}`);
+ // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
+ // stronę i zaznaczenie (UAT B21).
+ const ids = Array.from(selectedIds).slice(0, 3);
+ router.push(encodeCompareHref(filtersSnapshot, ids));
  }}
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
@@ -3511,7 +3543,18 @@ export function CandidatesListV2() {
  open={detailId !== null}
  onOpenChange={(v) => !v && setDetailId(null)}
  >
- <SheetContent side="right" size="2xl" className="p-0!" hideClose>
+ <SheetContent
+ side="right"
+ size="2xl"
+ className="p-0!"
+ hideClose
+ // Podgląd otwiera się programowo (bez Radixowego triggera), więc domyślny
+ // powrót fokusu trafiał w `body`. Wracamy na wiersz ostatnio oglądanego
+ // kandydata — także po nawigacji prev/next w podglądzie (UAT B22).
+ onCloseAutoFocus={(e) => {
+ if (focusCandidateRow(lastDetailIdRef.current)) e.preventDefault();
+ }}
+ >
  {detailId !== null && (
  <CandidateQuickView
  candidateId={detailId}

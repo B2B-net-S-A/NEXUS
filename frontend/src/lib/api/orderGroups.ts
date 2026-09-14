@@ -228,6 +228,9 @@ export interface OrderGroupEvent {
   related_group_id: number | null;
   related_order_number: string | null;
   created_by_user_id: number | null;
+  /** Wykonawca (UAT B50). `null` przy pustym `created_by_user_id` = zdarzenie
+   *  automatyczne; `null` przy wypełnionym id = konto usunięte. */
+  created_by_name: string | null;
   created_at: string;
 }
 

@@ -310,6 +310,13 @@ export function ChampionProfileEditor({
       <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
       <ChampionValidationPanel
         validation={withoutSeededStackConflict(data?.validation, seededStack)}
+        // Ostrzeżenie o polu ze zwiniętej grupy 2·4·5 najpierw ją rozwija —
+        // inaczej cel kotwicy to pusty `<span>`, a pole zostaje za skrótem.
+        onNavigate={(sectionId) => {
+          if (sectionId && CHAMPION_PROSE_SECTION_IDS.includes(sectionId)) {
+            setProseExpanded(true);
+          }
+        }}
       />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}

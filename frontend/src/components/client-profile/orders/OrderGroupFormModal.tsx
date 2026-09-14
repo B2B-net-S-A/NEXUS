@@ -72,12 +72,19 @@ interface Props {
   group: OrderGroupRead | null;
   clientId: number;
   orderType: Exclude<OrderType, "periodic">;
-  /** Zmiana typu przekazuje wgrany plik, żeby przejście na „Okresowe" (inny
-   *  formularz) nie kazało wgrywać PDF-a drugi raz. */
-  onOrderTypeChange: (orderType: OrderType, file: File | null) => void;
+  /** Zmiana typu przekazuje wgrany plik i wpisany numer, żeby przejście na
+   *  „Okresowe" (inny formularz) nie kazało wgrywać PDF-a ani wpisywać numeru
+   *  drugi raz (UAT B03). */
+  onOrderTypeChange: (
+    orderType: OrderType,
+    file: File | null,
+    orderNumber: string,
+  ) => void;
   allowedOrderTypes?: readonly OrderType[];
   /** Plik przeniesiony z formularza, z którego przełączono typ. */
   initialFile?: File | null;
+  /** Numer zamówienia przeniesiony z formularza, z którego przełączono typ. */
+  initialOrderNumber?: string;
   /** PDF z kolejki zamówień z maila („Rozstrzygnij w oknie zamówienia"):
    *  trafia do okna w OBU trybach i jest od razu odczytywany — Delivery Lead
    *  widzi karty osób, w tym tę nieaktywną/nieznalezioną, bez ręcznego
@@ -122,6 +129,7 @@ export function OrderGroupFormModal({
   onOrderTypeChange,
   allowedOrderTypes,
   initialFile = null,
+  initialOrderNumber = "",
   autoReadFile = null,
   sourceNotice = null,
   submitting,
@@ -196,7 +204,7 @@ export function OrderGroupFormModal({
 
   useEffect(() => {
     if (!open) return;
-    setOrderNumber(group?.order_number ?? "");
+    setOrderNumber(group?.order_number ?? initialOrderNumber);
     setStartDate(group?.start_date ?? "");
     setEndDate(group?.end_date ?? "");
     setNotes(group?.notes ?? "");
@@ -224,8 +232,9 @@ export function OrderGroupFormModal({
     setLines([]);
     setPlanned(false);
     documentValuesRef.current = {};
-    // `initialFile` celowo poza zależnościami: plik przejmujemy raz, przy
-    // otwarciu — późniejsza zmiana w rodzicu nie może nadpisać wyboru tutaj.
+    // `initialFile`/`initialOrderNumber` celowo poza zależnościami: przejmujemy
+    // je raz, przy otwarciu — późniejsza zmiana w rodzicu nie może nadpisać
+    // wyboru tutaj.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, group]);
 
@@ -845,7 +854,7 @@ export function OrderGroupFormModal({
 
         <OrderTypeSwitch
           value={orderType}
-          onChange={(next) => onOrderTypeChange(next, file)}
+          onChange={(next) => onOrderTypeChange(next, file, orderNumber)}
           allowedTypes={allowedOrderTypes}
           disabled={editing}
         />

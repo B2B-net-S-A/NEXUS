@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.services.candidate_monthly_rate_retirement import (
@@ -113,6 +114,38 @@ class CandidateSearchRequest(BaseModel):
     #             fusion (k=60) + Voyage Rerank 2.5 on top-100 → top-K.
     # Hybrid only kicks in when `q` is non-empty; otherwise behaves as boolean.
     search_mode: Literal["boolean", "hybrid"] = "boolean"
+
+    @model_validator(mode="after")
+    def ranges_are_ordered(self) -> "CandidateSearchRequest":
+        """Odwrócony przedział (min > max) to 422, nie pusty wynik.
+
+        Do 09.2026 „min 10 / max 2 lat" przechodziło i zwracało wyłącznie
+        osoby bez uzupełnionego stażu — wynik poprawny arytmetycznie, dla
+        rekrutera nie do odróżnienia od działającego filtra (UAT B28).
+        """
+        raise_if_range_reversed(
+            self.experience_years_min,
+            self.experience_years_max,
+            EXPERIENCE_RANGE_REVERSED_MSG,
+        )
+        raise_if_range_reversed(
+            self.rate_hourly_min, self.rate_hourly_max, RATE_RANGE_REVERSED_MSG
+        )
+        return self
+
+
+EXPERIENCE_RANGE_REVERSED_MSG = (
+    "Minimalna liczba lat doświadczenia nie może być większa niż maksymalna."
+)
+RATE_RANGE_REVERSED_MSG = "Minimalna stawka nie może być większa niż maksymalna."
+
+
+def raise_if_range_reversed(low: Any, high: Any, message: str) -> None:
+    """Wspólna reguła dla obu schematów wyszukiwania (legacy i V3)."""
+    if low is not None and high is not None and low > high:
+        # PydanticCustomError: komunikat wychodzi w 422 bez prefiksu
+        # „Value error, ..." — użytkownik widzi zdanie po polsku.
+        raise PydanticCustomError("range_reversed", message)
 
 
 class CandidateSearchItem(BaseModel):

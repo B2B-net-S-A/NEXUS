@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Bookmark,
@@ -59,6 +60,12 @@ import {
   type MatchBreakdown,
 } from "@/lib/match-breakdown";
 import { assignErrorMessage } from "@/lib/assign-error";
+import {
+  SEARCH_REQUEST_URL_PARAM,
+  decodeSearchRequest,
+  encodeSearchRequest,
+  searchRequestValidationError,
+} from "@/lib/candidate-search-request";
 import {
   MATCH_SCORES_MAX_CANDIDATES,
   useVisibleMatchScores,
@@ -126,6 +133,13 @@ interface CandidateSearchViewProps {
   onBulkAdded?: (resp: BulkProposalsResponse) => void;
   /** Preserve job-scoped search data while hiding every server mutation. */
   readOnly?: boolean;
+  /**
+   * Stan wyszukiwania (filtry, sortowanie, strona) w URL-u (`?s=`), żeby
+   * Wstecz z profilu i odświeżenie wracały na to samo wyszukiwanie (UAT B29).
+   * Tylko dla samodzielnej strony `/candidates/search` — w zakładce
+   * rekrutacji URL należy do strony rekrutacji (`?tab=`).
+   */
+  syncUrl?: boolean;
 }
 
 /**
@@ -142,12 +156,42 @@ export function CandidateSearchView({
   addToJob,
   onBulkAdded,
   readOnly = false,
+  syncUrl = false,
 }: CandidateSearchViewProps) {
-  const [request, setRequest] = useState<CandidateSearchRequest>({
-    ...DEFAULT_REQUEST,
-    ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
-    ...initial,
-  });
+  const searchParams = useSearchParams();
+  // Baza = domyślne + kontekst rekrutacji + prefill; URL niesie tylko różnicę
+  // względem niej. `initial` na stronie rekrutacji bywa nowym obiektem co
+  // render, ale tam `syncUrl` jest wyłączone, więc efekt niżej nic nie robi.
+  const baseRequest = useMemo<CandidateSearchRequest>(
+    () => ({
+      ...DEFAULT_REQUEST,
+      ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
+      ...initial,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addToJob?.id, initial],
+  );
+  // Stan z URL czytany PRZY MONTOWANIU (jak w CandidatesListV2): Wstecz
+  // z profilu montuje stronę od nowa, więc inicjalizator wystarcza. Efekt na
+  // wartości parametru ścigałby się z echem własnego `replaceState` niżej
+  // (dwa szybkie wpisy → cofnięcie drugiego przez spóźnione echo pierwszego).
+  const [request, setRequest] = useState<CandidateSearchRequest>(() =>
+    syncUrl
+      ? decodeSearchRequest(
+          searchParams?.get(SEARCH_REQUEST_URL_PARAM) ?? null,
+          baseRequest,
+        )
+      : baseRequest,
+  );
+
+  // URL ← stan: replaceState, żeby każda zmiana filtra nie dokładała wpisu
+  // w historii (Wstecz ma prowadzić do poprzedniej strony, nie po filtrach).
+  useEffect(() => {
+    if (!syncUrl) return;
+    const qs = encodeSearchRequest(request, baseRequest).toString();
+    const { pathname } = window.location;
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [syncUrl, request, baseRequest]);
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -403,6 +447,16 @@ export function CandidateSearchView({
   // superseded, still-in-flight request can never overwrite newer results —
   // the previous effect's cleanup flips its own flag before the next runs.
   useEffect(() => {
+    // Odwrócony przedział (min > max) to kryterium niemożliwe: backend
+    // odpowiada 422, a lista „wyników" pod nim to osoby bez danych. Nie
+    // wysyłamy zapytania — pokazujemy błąd i prosimy o poprawkę (UAT B28).
+    const validationError = searchRequestValidationError(request);
+    if (validationError) {
+      setLoading(false);
+      setData(null);
+      setError(validationError);
+      return;
+    }
     let cancelled = false;
     const handle = setTimeout(() => {
       setLoading(true);

@@ -596,3 +596,49 @@ export function encodeFilterCriteria(filters: CandidateFilters): URLSearchParams
     savedSearchId: null,
   });
 }
+
+/** Zaznaczenie na liście (`?sel=1,2,3`) — po powrocie z porównania (UAT B21). */
+const SELECTED_IDS_PARAM = "sel";
+const COMPARE_IDS_PARAM = "ids";
+
+/**
+ * Link do porównania niesie obok `ids` CAŁY kontekst listy (te same parametry
+ * co `encodeFilters`), żeby „Wróć do kandydatów" mógł go oddać. Bez tego link
+ * powrotny wskazywał gołe `/candidates`: wyszukiwanie znikało, a zaznaczenie
+ * użyte do porównania trzeba było odtwarzać ręcznie.
+ */
+export function encodeCompareHref(filters: CandidateFilters, ids: number[]): string {
+  const p = encodeFilters(filters);
+  p.set(COMPARE_IDS_PARAM, ids.join(","));
+  return `/candidates/compare?${p.toString()}`;
+}
+
+/**
+ * Link powrotny z porównania: kontekst listy + `sel` = porównywane osoby.
+ * Bez żadnych parametrów poza `ids` (stary link, wklejony ręcznie) → gołe
+ * `/candidates`, ale z zaznaczeniem, jeśli `ids` są.
+ */
+export function decodeCompareBackHref(sp: URLSearchParams): string {
+  const back = new URLSearchParams(sp);
+  const ids = parseIdList(back.get(COMPARE_IDS_PARAM));
+  back.delete(COMPARE_IDS_PARAM);
+  back.delete(SELECTED_IDS_PARAM);
+  if (ids.length) back.set(SELECTED_IDS_PARAM, ids.join(","));
+  const qs = back.toString();
+  return qs ? `/candidates?${qs}` : "/candidates";
+}
+
+/** Zaznaczenie odtwarzane przy wejściu na listę (`?sel=`); nieznane = puste. */
+export function decodeSelectedIds(sp: URLSearchParams): number[] {
+  return parseIdList(sp.get(SELECTED_IDS_PARAM));
+}
+
+function parseIdList(raw: string | null): number[] {
+  if (!raw) return [];
+  const seen = new Set<number>();
+  for (const part of raw.split(",")) {
+    const n = Number.parseInt(part, 10);
+    if (Number.isFinite(n) && n > 0) seen.add(n);
+  }
+  return Array.from(seen);
+}

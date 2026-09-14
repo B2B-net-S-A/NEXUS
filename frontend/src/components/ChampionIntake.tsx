@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { api, extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { CHAMPION_SECTIONS, type ChampionSectionId } from "@/lib/champion-section-state";
 
 export type ChampionIssue = { code: string; path: string; message: string; severity: "error" | "warning"; blocked_operations: string[]; source?: string | null };
 export type ChampionValidation = { status: string; issues: ChampionIssue[]; blocked_operations: string[] };
@@ -58,13 +59,58 @@ function withValues(base: ChampionProfile, values: Values): ChampionProfile {
   return result;
 }
 
-export function ChampionValidationPanel({ validation }: { validation?: ChampionValidation }) {
+/** Sekcja edytora, w której leży pole ze ścieżki ostrzeżenia (`basics.rate_value` → `basics`). */
+export function championIssueSectionId(path: string): ChampionSectionId | null {
+  const head = path.split(".")[0];
+  if (head === "screening_questions") return "screening_questions";
+  return CHAMPION_SECTIONS.some((s) => s.id === head) ? (head as ChampionSectionId) : null;
+}
+
+/**
+ * Cel odnośnika ostrzeżenia, szukany W CHWILI KLIKNIĘCIA: najpierw pole
+ * (`#champion-field-*` — istnieje tylko w oknie importu), w jego braku sekcja
+ * (`#champion-section-*` — kotwice głównego edytora). Kotwica liczona przy
+ * renderze prowadziła w edytorze donikąd: zmieniał się fragment adresu, fokus
+ * zostawał na linku (audyt B47).
+ */
+export function resolveChampionIssueTarget(path: string): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const field = document.getElementById(`champion-field-${path}`);
+  if (field) return field;
+  const sectionId = championIssueSectionId(path);
+  const anchor = CHAMPION_SECTIONS.find((s) => s.id === sectionId)?.anchor;
+  return anchor ? document.getElementById(anchor) : null;
+}
+
+function focusChampionIssueTarget(target: HTMLElement): void {
+  target.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  const control = target.querySelector<HTMLElement>("textarea:not([disabled]), input:not([disabled]), select:not([disabled])");
+  const focusable = control ?? target;
+  if (!control && !target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+  focusable.focus({ preventScroll: true });
+}
+
+export function ChampionValidationPanel({ validation, onNavigate }: {
+  validation?: ChampionValidation;
+  /** Wołane PRZED szukaniem celu — edytor rozwija zwiniętą grupę sekcji (2·4·5). */
+  onNavigate?: (sectionId: ChampionSectionId | null) => void;
+}) {
   if (!validation?.issues.length) return null;
+  const go = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
+    event.preventDefault();
+    onNavigate?.(championIssueSectionId(path));
+    // Po `setState` w `onNavigate` sekcja pojawia się dopiero w następnym
+    // renderze — cel szukamy po nim, nie w tym samym obiegu.
+    window.setTimeout(() => {
+      const target = resolveChampionIssueTarget(path);
+      if (target) focusChampionIssueTarget(target);
+    }, 0);
+  };
   return <div className="rounded-md border p-3 text-sm space-y-2" aria-live="polite">
     <p className="font-medium">{validation.blocked_operations.length ? "Szkic — uzupełnij dane przed użyciem" : "Uwagi do profilu"}</p>
     <p>Możesz zachować szkic. Blokady dotyczą wskazanych operacji.</p>
     {validation.issues.map((issue, i) => <div key={`${issue.path}-${i}`} className={issue.severity === "error" ? "text-destructive" : "text-muted-foreground"}>
-      <a href={`#champion-field-${issue.path}`} className="underline">{fields.find(([p]) => p === issue.path)?.[1] ?? (issue.path.startsWith("screening_questions") ? "Pytania screeningowe" : issue.path)}</a>: {issue.message}
+      <a href={`#champion-field-${issue.path}`} onClick={e => go(e, issue.path)} className="underline">{fields.find(([p]) => p === issue.path)?.[1] ?? (issue.path.startsWith("screening_questions") ? "Pytania screeningowe" : issue.path)}</a>: {issue.message}
       {issue.blocked_operations.length > 0 && <span> Blokuje: {issue.blocked_operations.map(op => ({ search: "wyszukiwanie", handoff: "przekazanie", cv: "dopasowane CV" })[op] ?? op).join(", ")}.</span>}
       {issue.source && <p className="whitespace-pre-wrap">Wpis z dokumentu: {issue.source}</p>}
     </div>)}

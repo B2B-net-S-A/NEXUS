@@ -49,7 +49,11 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
-from app.services.contractor_identity import summarize_active_contracts
+from app.services.contractor_identity import (
+    current_contracts,
+    is_current_contract,
+    summarize_active_contracts,
+)
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
 from app.schemas.money import to_whole_pln
@@ -528,6 +532,9 @@ async def client_dashboard(
             ).scalars()
         )
         today = date.today()
+        # Tylko kontrakty OBECNE (start wpisany i ≤ dziś) — ta sama reguła co
+        # kafel „Aktywne MRR" na profilu tego klienta (UAT B46).
+        contract_rows = current_contracts(contract_rows, today)
         (
             monthly_margin_total,
             monthly_revenue_total,
@@ -556,6 +563,7 @@ async def client_dashboard(
         contract
         for contract in count_contracts
         if contract.status in _LIVE_CONTRACT_STATUSES
+        and is_current_contract(contract, today)
     )
     completed_consultants = sum(
         1 for contract in count_contracts if contract.status == ContractStatus.ended
