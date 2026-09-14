@@ -5624,6 +5624,43 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     return name or fallback
 
 
+def _candidate_cv_disk_path(
+    candidate_id: int, cv_filename: Optional[str]
+) -> Optional[str]:
+    """Ścieżka pliku CV kandydata w `UPLOAD_DIR` albo `None`, gdy nazwa nie jest bezpieczna.
+
+    Upload czyści nazwę (`_sanitize_upload_filename`), ale importy (Traffit)
+    i starsze ścieżki zapisywały `cv_filename` wprost. Nazwa z komponentami
+    katalogu nigdy nie pochodzi z naszego zapisu na dysk, więc nie ma dla niej
+    pliku — zwracamy `None` zamiast składać ścieżkę. Wynik musi też po
+    `resolve()` leżeć w `UPLOAD_DIR` (symlink). Do 09.2026 przed wyjściem
+    chronił wyłącznie przypadek: prefiks `candidate_{id}_` sprawia, że pierwszy
+    segment to zwykle nieistniejący katalog — wystarczył katalog o takiej
+    nazwie, żeby odczyt trafił w plik obok `UPLOAD_DIR`.
+    """
+    import pathlib
+
+    raw = (cv_filename or "").strip()
+    if not raw:
+        return None
+    root = pathlib.Path(settings.UPLOAD_DIR).resolve()
+    if pathlib.Path(raw).name != raw:
+        logger.warning(
+            "cv path rejected candidate=%s: cv_filename ma komponenty katalogu "
+            "(poza UPLOAD_DIR)",
+            candidate_id,
+        )
+        return None
+    resolved = (root / f"candidate_{candidate_id}_{raw}").resolve()
+    if not resolved.is_relative_to(root):
+        logger.warning(
+            "cv path rejected candidate=%s: ścieżka po resolve() poza UPLOAD_DIR",
+            candidate_id,
+        )
+        return None
+    return str(resolved)
+
+
 async def _read_upload_bounded(file: UploadFile, *, label: str) -> bytes:
     """Czytaj upload co najwyżej do limitu + 1 bajt, potem waliduj rozmiar.
 
@@ -5929,10 +5966,8 @@ async def download_cv(
         raise HTTPException(status_code=404, detail="Candidate not found")
     if not candidate.cv_filename:
         raise HTTPException(status_code=404, detail="No CV uploaded for this candidate")
-    file_path = os.path.join(
-        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{candidate.cv_filename}"
-    )
-    if not os.path.exists(file_path):
+    file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
+    if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
     candidate_audit.record_candidate_audit(
         db,
@@ -5997,12 +6032,11 @@ async def bulk_cv_download(
                 skipped += 1
                 continue
 
-            file_path = os.path.join(
-                settings.UPLOAD_DIR,
-                f"candidate_{candidate.id}_{candidate.cv_filename}",
-            )
+            # Niebezpieczna nazwa = brak pliku na dysku; CV może nadal przyjść
+            # z object storage albo BYTEA niżej.
+            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
             data: bytes | None = None
-            if os.path.exists(file_path):
+            if file_path is not None and os.path.exists(file_path):
                 try:
                     async with aiofiles.open(file_path, "rb") as f:
                         data = await f.read()
