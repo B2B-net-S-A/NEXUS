@@ -292,8 +292,8 @@ async def register(
     """
     if not settings.SELF_REGISTRATION_ENABLED:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Rejestracja jest obecnie wyłączona. Skontaktuj się z administratorem.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="registration_disabled",
         )
 
     # Normalize email (DB unique index is exact-match; SSO also lowercases).

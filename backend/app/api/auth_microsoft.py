@@ -270,6 +270,24 @@ def _build_authorize_url(state: str, pkce_verifier: str) -> str:
     )
 
 
+class MicrosoftTokenExchangeError(RuntimeError):
+    """Only a provider code from a fixed allowlist crosses the diagnostic boundary."""
+
+    def __init__(self, code: str, status_code: int):
+        allowed = {
+            "invalid_grant",
+            "access_denied",
+            "invalid_client",
+            "unauthorized_client",
+            "temporarily_unavailable",
+            "server_error",
+            "invalid_scope",
+        }
+        self.provider_code = code if code in allowed else "unknown_provider_error"
+        self.status_code = status_code
+        super().__init__(self.provider_code)
+
+
 async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
     """Trade authorization_code for id_token + access_token.
 
@@ -306,8 +324,7 @@ async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
     body = resp.json() if resp.content else {}
     if resp.status_code >= 400 or "error" in body:
         err = body.get("error", f"http_{resp.status_code}")
-        desc = body.get("error_description") or "no details"
-        raise RuntimeError(f"Microsoft OAuth error: {err}: {desc}")
+        raise MicrosoftTokenExchangeError(str(err), resp.status_code)
     id_token = body.get("id_token")
     if not id_token:
         raise RuntimeError(f"Token response missing id_token: keys={list(body.keys())}")
@@ -422,8 +439,25 @@ async def callback(
 
     try:
         token_payload = await _exchange_code_for_id_token(code, pkce_verifier)
-    except Exception:  # noqa: BLE001
-        logger.error("sso code exchange failed (details redacted)")
+    except Exception as exc:  # noqa: BLE001
+        provider_code = getattr(exc, "provider_code", "transport_or_validation_error")
+        expected = provider_code in {"invalid_grant", "access_denied"}
+        # The explicit capture below is the single terminal event.
+        log = logger.warning
+        log(
+            "sso code exchange failed code=%s status=%s type=%s",
+            provider_code,
+            getattr(exc, "status_code", None),
+            type(exc).__name__,
+        )
+        import sentry_sdk
+
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("operation", "sso-code-exchange")
+            scope.set_tag("failure_kind", provider_code)
+            scope.set_tag("terminal", "true")
+            if not expected:
+                sentry_sdk.capture_exception(exc)
         return RedirectResponse(
             _frontend_login_error_url(_MICROSOFT_SIGN_IN_ERROR),
             status_code=302,

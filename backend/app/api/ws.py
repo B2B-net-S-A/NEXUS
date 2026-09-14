@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError
+from uvicorn.protocols.utils import ClientDisconnected
 from sqlalchemy import select
 
 from app.api.candidate_access import user_has_candidate_read
@@ -520,14 +521,13 @@ async def ws_notifications(
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.connect(
-        user.id,
-        websocket,
-        subprotocol=accepted_subprotocol,
-        auth_token=raw_token,
-    )
-
     try:
+        await manager.connect(
+            user.id,
+            websocket,
+            subprotocol=accepted_subprotocol,
+            auth_token=raw_token,
+        )
         await websocket.send_json(
             {
                 "type": "connected",
@@ -587,8 +587,8 @@ async def ws_notifications(
                 await _handle_presence_message(user, websocket, msg)
             # Other message types are ignored for now.
 
-    except WebSocketDisconnect:
-        pass
+    except (WebSocketDisconnect, ClientDisconnected):
+        logger.debug("WS peer disconnected")
     except Exception as e:
         logger.warning("WS error for user %d: %s", user.id, e)
     finally:
