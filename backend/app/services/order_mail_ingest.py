@@ -1280,6 +1280,13 @@ async def run_order_mail_ingest(
                         ),
                     )
                     stats.errors.append("app_only_misconfigured")
+                    from app.core.operation_telemetry import record_job_outcome
+
+                    record_job_outcome(
+                        "order_mail",
+                        False,
+                        interval_seconds=poll_interval_minutes() * 60,
+                    )
                     return stats
             else:
                 conn = await find_orders_connection(db)
@@ -1291,6 +1298,13 @@ async def run_order_mail_ingest(
                         last_error="no active M365 connection for ORDER_MAIL_UPN",
                     )
                     stats.errors.append("no_connection")
+                    from app.core.operation_telemetry import record_job_outcome
+
+                    record_job_outcome(
+                        "order_mail",
+                        False,
+                        interval_seconds=poll_interval_minutes() * 60,
+                    )
                     return stats
             logger.info(
                 "order_mail ingest start (%s) since=%s mode=%s conn=%s",
@@ -1371,7 +1385,12 @@ async def run_order_mail_ingest(
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("order_mail: could not persist failed run state")
-    logger.info("order_mail ingest done: %s", stats.as_dict())
+    from app.core.operation_telemetry import record_job_outcome
+
+    record_job_outcome(
+        "order_mail", not stats.errors, interval_seconds=poll_interval_minutes() * 60
+    )
+    logger.info("order_mail ingest done: errors=%d", len(stats.errors))
     return stats
 
 

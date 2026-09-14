@@ -1,0 +1,92 @@
+import type { Event, Stacktrace } from '@sentry/nextjs'
+
+const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job'])
+const safeIdentifier = /^[a-zA-Z0-9_./:{} -]{1,180}$/
+const capabilityPath = /(\/(?:cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public\/[\w-]+)\/)[^/]+/gi
+
+function scrubSourceLocation(value: string): string {
+  return value.split(/[?#]/, 1)[0].replace(capabilityPath, '$1[redacted]')
+}
+
+function scrubStack(stack?: Stacktrace): void {
+  for (const frame of stack?.frames ?? []) {
+    delete frame.vars
+    delete frame.pre_context
+    delete frame.context_line
+    delete frame.post_context
+    if (frame.filename) frame.filename = scrubSourceLocation(frame.filename)
+    if (frame.abs_path) frame.abs_path = scrubSourceLocation(frame.abs_path)
+  }
+}
+
+/** Free-form error/request data is private. Preserve source locations and trace IDs. */
+export function scrubSentryEvent<T extends Event>(event: T): T {
+  delete event.user
+  delete event.request
+  delete event.extra
+  if ('logentry' in event) delete event.logentry
+  if ('message' in event) event.message = 'Application failure (private details omitted)'
+  event.tags = Object.fromEntries(Object.entries(event.tags ?? {}).filter(([key, value]) => safeTags.has(key) && safeIdentifier.test(String(value))))
+  const trace = event.contexts?.trace
+  const correlation = event.contexts?.correlation ?? {}
+  event.contexts = {
+    ...(trace ? { trace: { trace_id: trace.trace_id, span_id: trace.span_id, parent_span_id: trace.parent_span_id, op: trace.op, status: trace.status, origin: trace.origin } } : {}),
+    correlation: Object.fromEntries(Object.entries(correlation).filter(([key, value]) => ['request_id', 'operation_id'].includes(key) && /^[a-f0-9-]{16,36}$/i.test(String(value)))),
+  }
+  for (const value of ('exception' in event ? event.exception?.values : undefined) ?? []) {
+    value.value = `${value.type ?? 'Error'} (private details omitted)`
+    if (value.mechanism) {
+      delete value.mechanism.data
+    }
+    scrubStack(value.stacktrace)
+  }
+  if ('threads' in event) {
+    for (const thread of event.threads?.values ?? []) scrubStack(thread.stacktrace)
+  }
+  event.breadcrumbs = event.breadcrumbs?.map(({ timestamp, category, level, type }) => ({ timestamp, category, level, type }))
+  if ('spans' in event) {
+    for (const span of event.spans ?? []) {
+      span.data = {}
+      delete span.description
+    }
+  }
+  if (event.transaction_info?.source === 'url') event.transaction = 'unmatched-route'
+  return event
+}
+
+const privateReplays = new Set<string>()
+/** rrweb metadata bypasses beforeSend; reject recordings with private page URLs. */
+export function scrubReplayEvent<T extends Event>(event: T, currentUrl: string): T | null {
+  if (event.type !== 'replay_event') return event
+  const replay = event as T & { urls?: unknown; replay_id?: string }
+  const id = replay.replay_id ?? ''
+  const urls = Array.isArray(replay.urls) ? replay.urls : []
+  const privateUrl = [...urls, currentUrl].some(value => {
+    if (typeof value !== 'string') return true
+    try {
+      const url = new URL(value)
+      return !!(url.search || url.hash || url.username || url.password) || scrubSourceLocation(url.pathname) !== url.pathname
+    } catch { return true }
+  })
+  if (privateUrl) privateReplays.add(id)
+  if (privateReplays.has(id)) return null
+  delete event.user
+  delete event.request
+  delete event.extra
+  event.contexts = {}
+  event.tags = {}
+  return event
+}
+
+const seen = new Set<string>()
+/** First occurrence per release/session survives; reloads cannot reset the limit. */
+export function firstInSession(signature: string): boolean {
+  const key = `nexus:sentry:${process.env.NEXT_PUBLIC_GIT_SHA ?? 'development'}:${signature}`
+  try {
+    if (sessionStorage.getItem(key)) return false
+    sessionStorage.setItem(key, '1')
+  } catch { /* Storage can be disabled; retain in-memory deduplication. */ }
+  if (seen.has(key)) return false
+  seen.add(key)
+  return true
+}

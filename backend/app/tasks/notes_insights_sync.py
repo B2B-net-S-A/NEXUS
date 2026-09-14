@@ -278,6 +278,11 @@ async def run_and_persist() -> dict[str, Any]:
     async with _run_lock:
         stats = await run_notes_insights_sync()
         await save_state(stats)
+        from app.core.operation_telemetry import record_job_outcome
+
+        record_job_outcome(
+            "notes_insights", stats.get("status") == "ok", interval_seconds=86400
+        )
         return stats
 
 

@@ -38,11 +38,12 @@ def _http_error(project: str) -> urllib.error.HTTPError:
 
 
 def _fake_fetch(failing: set[str]):
-    def fetch_issues(token, project, query, sort):  # noqa: ANN001
+    def fetch_issues(token, project, query="is:unresolved", sort="freq", **kwargs):  # noqa: ANN001
         if project in failing:
             raise _http_error(project)
         return [
             {
+                "id": "1" if project == "nexus-be" else "2",
                 "shortId": f"{project.upper()}-1",
                 "count": 3,
                 "userCount": 1,
@@ -56,10 +57,11 @@ def _fake_fetch(failing: set[str]):
 
 @pytest.fixture
 def dry_run_env(monkeypatch):
-    monkeypatch.setenv("SENTRY_AUTH_TOKEN", "test-token-not-real")
+    monkeypatch.setenv("SENTRY_READ_TOKEN", "test-token-not-real")
     monkeypatch.setenv("DRY_RUN", "1")
-    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("TEAMS_SENTRY_WEBHOOK_URL", raising=False)
     monkeypatch.setattr(digest, "SENTRY_PROJECTS", ["nexus-be", "nexus-fe"])
+    monkeypatch.setattr(digest, "enrich_issue", lambda token, issue: issue)
 
 
 def test_unread_project_fails_the_run_but_the_rest_is_still_delivered(
@@ -70,12 +72,11 @@ def test_unread_project_fails_the_run_but_the_rest_is_still_delivered(
     assert digest.main() == 1
 
     captured = capsys.readouterr()
-    assert "Monitoring nie odczytał projektu nexus-be" in captured.out
-    assert "Digest niekompletny" in captured.out
+    assert "nexus-be — MONITORING READ FAILED" in captured.out
+    assert "INCOMPLETE MONITORING" in captured.out
     # To, co się udało odczytać, nadal idzie w digeście.
     assert "NEXUS-FE-1" in captured.out
-    assert "Monitoring nie odczytał projektu nexus-fe" not in captured.out
-    assert "nexus-be" in captured.err
+    assert "nexus-fe — MONITORING READ FAILED" not in captured.out
 
 
 def test_all_projects_read_exits_zero(dry_run_env, monkeypatch, capsys):
@@ -84,56 +85,49 @@ def test_all_projects_read_exits_zero(dry_run_env, monkeypatch, capsys):
     assert digest.main() == 0
 
     captured = capsys.readouterr()
-    assert "Monitoring nie odczytał" not in captured.out
-    assert "Digest niekompletny" not in captured.out
+    assert "MONITORING READ FAILED" not in captured.out
+    assert "INCOMPLETE MONITORING" not in captured.out
 
 
-def test_partial_digest_is_posted_to_slack_before_failing(monkeypatch):
-    """Wysyłka NIE jest pomijana: Slack dostaje częściowy digest z jawną
+def test_partial_digest_is_posted_to_teams_before_failing(monkeypatch):
+    """Wysyłka NIE jest pomijana: Teams dostaje częściowy digest z jawną
     linią o nieodczytanym projekcie, a dopiero potem bieg kończy się kodem 1."""
-    monkeypatch.setenv("SENTRY_AUTH_TOKEN", "test-token-not-real")
-    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/not-real")
+    monkeypatch.setenv("SENTRY_READ_TOKEN", "test-token-not-real")
+    monkeypatch.setenv("TEAMS_SENTRY_WEBHOOK_URL", "https://hooks.example/not-real")
     monkeypatch.delenv("DRY_RUN", raising=False)
     monkeypatch.setattr(digest, "SENTRY_PROJECTS", ["nexus-be", "nexus-fe"])
+    monkeypatch.setattr(digest, "enrich_issue", lambda token, issue: issue)
     monkeypatch.setattr(digest, "fetch_issues", _fake_fetch({"nexus-fe"}))
     posted: list[str] = []
     monkeypatch.setattr(
-        digest, "post_to_slack", lambda webhook, text: posted.append(text)
+        digest, "post_to_teams", lambda webhook, text: posted.append(text)
     )
 
     assert digest.main() == 1
 
     assert len(posted) == 1
-    assert "Monitoring nie odczytał projektu nexus-fe" in posted[0]
+    assert "nexus-fe — MONITORING READ FAILED" in posted[0]
     assert "NEXUS-BE-1" in posted[0]
 
 
 def test_project_section_reports_read_failure_as_a_flag(monkeypatch):
     monkeypatch.setattr(digest, "fetch_issues", _fake_fetch({"nexus-be"}))
+    monkeypatch.setattr(digest, "enrich_issue", lambda token, issue: issue)
 
     text, ok = digest.project_section("t", "nexus-be", redact=True)
     assert ok is False
-    assert "API error 401" in text
+    assert "MONITORING READ FAILED (HTTPError)" in text
 
     text, ok = digest.project_section("t", "nexus-fe", redact=True)
     assert ok is True
     assert "NEXUS-FE-1" in text
 
 
-def test_workflow_fails_without_token_instead_of_skipping():
-    """Bez sekretu bieg ma być CZERWONY (wzorzec backup-drill.yml), nie
-    ostrzeżeniem z ``exit 0``."""
+def test_workflow_fails_without_token_instead_of_skipping(monkeypatch):
+    """The workflow delegates credential validation to the tested script."""
     source = _WORKFLOW.read_text("utf-8")
-    body = source.split('if [ -z "$SENTRY_AUTH_TOKEN" ]; then', 1)[1]
-    # Tylko KOD gałęzi: komentarze opisują historię („exit 0") i nie liczą się.
-    guard_lines = []
-    for line in body.splitlines():
-        if line.strip() == "fi":
-            break
-        if not line.strip().startswith("#"):
-            guard_lines.append(line)
-    guard = "\n".join(guard_lines)
-    assert "::error::" in guard
-    assert "exit 1" in guard
-    assert "exit 0" not in guard
-    assert "::warning::" not in guard
+    assert "secrets.SENTRY_READ_TOKEN" in source
+    assert "secrets.TEAMS_SENTRY_WEBHOOK_URL" in source
+    assert "run: python .github/scripts/sentry_daily_digest.py" in source
+    monkeypatch.delenv("SENTRY_READ_TOKEN", raising=False)
+    assert digest.main() == 1

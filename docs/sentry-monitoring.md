@@ -1,148 +1,55 @@
-# Sentry daily monitoring — runbook
+# NEXUS Sentry: obsługa operacyjna
 
-> Durable replacement for the session-only Claude `CronCreate` cron
-> `393ccf85` (auto-expired after 7 days). Migrated to GitHub Actions
-> 2026-05-27 so monitoring survives across Claude sessions and machine restarts.
->
-> Companion doc: [sentry-alerts-runbook.md](sentry-alerts-runbook.md) — the
-> real-time alert rules. This runbook is the **daily digest** that catches
-> trends Sentry's per-rule alerts miss (e.g., growing-but-not-spiking errors).
+Właściciel triage: artur.twardowski@b2bnetwork.pl. Docelowy kanał: prywatny zespół Teams NEXUS, kanał „NEXUS — alerty”.
 
-## What it does
+## Dzienny digest
 
-GitHub Actions workflow [.github/workflows/sentry-daily-monitor.yml](../.github/workflows/sentry-daily-monitor.yml)
-runs every day at **06:47 UTC** (07:47 / 08:47 Warsaw, off-the-hour to dodge
-the cron stampede). For each NEXUS Sentry project (`nexus-be`, `nexus-fe`)
-it queries:
+Workflow `Sentry daily monitor` uruchamia się o 06:47 UTC. Czyta nexus-be i nexus-fe w production, pełną paginację unresolved oraz oznacza nowe i regresyjne issue. Oba projekty mają jedno wspólne, jawne okno start/end ostatnich 24 godzin. Liczba zdarzeń pochodzi wyłącznie z `filtered.count` dla tego zapytania; brak wartości oznacza unavailable, nigdy lifetime count ani przybliżenie z szeregu stats. Tytuły wyjątków i dane kandydatów nie trafiają do wiadomości ani logów Actions.
 
-- **Top 5 unresolved** issues from the last 24h, sorted by frequency.
-- **Top 5 new** issues seen for the first time in the last 24h.
+Wymagane sekrety repozytorium B2B-net-S-A/NEXUS:
 
-The combined digest is posted to Slack `#nexus-alerts` via incoming webhook.
+- `SENTRY_READ_TOKEN`: osobny token odczytowy z project:read i event:read; nie token publikowania source map.
+- `TEAMS_SENTRY_WEBHOOK_URL`: URL workflow „When a Teams webhook request is received” publikującego Adaptive Card w kanale. Właścicielem workflow jest Artur.
 
-## One-time setup
+Brak sekretu, niekompletny odczyt któregokolwiek projektu, błędna paginacja albo odrzucona wysyłka powoduje niezerowy exit. `DRY_RUN=1` jest wyłącznie ręcznym, jawnym testem. Nigdy nie wypisuj URL webhooka lub tokenu w logu ani komendzie CLI. Ustawienia sekretów należy wprowadzać przez bezpieczne wejście lub panel.
 
-### 1. Sentry auth token
+Testy lokalne: `python3 -m unittest discover -s .github/scripts/tests -p test_sentry_daily_digest.py`.
 
-1. Open <https://b2bnet-sa.sentry.io/settings/account/api/auth-tokens/>
-2. **Create New Token** with these scopes:
-   - `project:read`
-   - `event:read`
-3. Copy the token (`sntrys_...`) — it is shown only once.
-4. Store as GH repo secret:
+Odbiór: ręczny run, poprawny odczyt obu projektów, karta rzeczywiście widoczna w Teams. HTTP 2xx webhooka oznacza przyjęcie; przy pierwszej konfiguracji trzeba sprawdzić wykonanie workflow i publikację karty.
 
-   ```bash
-   gh secret set SENTRY_AUTH_TOKEN --repo artur-t-96/Nexus --body "sntrys_..."
-   ```
+## Release i wdrożenie
 
-Rotate yearly or whenever the token may have been exposed.
+Build, upload map i runtime korzystają z rzeczywistego SHA kompilacji. Przeglądarka, Node i Edge używają projektu frontendu. Produkcyjny build z DSN wymaga tokenu uploadu oraz pełnego SHA; brak któregokolwiek lub błąd uploadu przerywa build. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
 
-### 2. Slack incoming webhook
+Nowy frontend najpierw wykonuje prosty GET health bez dodatkowych nagłówków. Propagację do API i X-Operation-Id włącza po otrzymaniu eksponowanego X-Request-Id. Dzięki temu równoległy restart usług nie powoduje błędów CORS wobec starego backendu. Niepowodzenie sondy nie zatrzymuje aplikacji; kolejne żądanie może ponowić sondę.
 
-Either reuse the existing `#nexus-alerts` webhook (created during the Sentry
-alert-rules setup — see [sentry-alerts-runbook.md](sentry-alerts-runbook.md))
-or create a dedicated one:
+Replay po błędzie pozostaje próbkowany na 10%, sesyjny na 0%. Pełne maskowanie obejmuje tekst, pola i atrybuty odnośników; dodatkowe payloady konsoli/sieci/nawigacji nie są zapisywane. Nagranie obejmujące stronę z tokenem udostępnienia, query stringiem lub fragmentem URL jest odrzucane także w kolejnych segmentach — samo maskowanie DOM nie chroni metadanych rrweb. Typy wyjątków i linie źródłowe pozostają w osobnych, redagowanych zdarzeniach błędów.
 
-1. Slack → **Apps** → Browse → **Incoming Webhooks** → Add to Slack
-2. Choose channel: `#nexus-alerts`
-3. Copy the webhook URL (`https://hooks.slack.com/services/T.../B.../...`)
-4. Store as GH repo secret:
+## Triage
 
-   ```bash
-   gh secret set SLACK_WEBHOOK_URL --repo artur-t-96/Nexus --body "https://hooks.slack.com/services/..."
-   ```
+Każde issue ma właściciela, werdykt, link do PR i release oraz dowód odtworzenia/odbioru. Regresja ponownie otwiera problem. Codzienny digest sygnalizuje brak właściciela; kontekst operacji i linki do PR należy sprawdzić w issue, jeśli API listy ich nie zwraca.
 
-Without `SLACK_WEBHOOK_URL` the workflow runs in **dry-run mode**: the
-digest is printed to the Actions log, no Slack post. Useful while testing.
+Brak nowych zdarzeń nie dowodzi poprawności: kontrolować accepted/filtered/invalid/rate-limited, działanie ingestu i rzeczywiste użycie procesu. Po wdrożeniu ocena przez 7 dni oraz pełny cykl krytycznych zadań. Nie zamykać historycznych timeoutów bez sprawdzenia aktualnego generatora/czatu.
 
-### 3. Verify
+## Status konfiguracji
 
-Trigger a manual run:
+Kod i ta instrukcja nie są dowodem konfiguracji panelu. Odbiór wymaga osobnego potwierdzenia: Teams workflow, sekrety, mapowanie GitHub, ownership, filtry, reguły alertów, dostarczenie e-mail oraz rzeczywista symbolikacja zdarzenia. Niewyjaśnione Invalid badać według outcome reason; nie zakładać duplikatów lub błędu SDK.
 
-```bash
-gh workflow run sentry-daily-monitor.yml --repo artur-t-96/Nexus
-gh run list --workflow sentry-daily-monitor.yml --repo artur-t-96/Nexus --limit 1
-```
+Odczyt `stats_v2` z 14.09.2026 dla `nexus-be` (projekt 4511350854647888,
+`category=error`, `outcome=invalid`, grupowanie po `reason`, okno
+31.08 00:00 UTC–15.09 00:00 UTC) wykazał 12 odrzuceń, wszystkie
+`too_large:event`. To dowód przekroczenia rozmiaru zdarzenia, nie błędu
+transportu. Wyłączenie zmiennych lokalnych i ograniczenie treści payloadu
+wymaga odbioru przez ponowny odczyt nowych odrzuceń po wdrożeniu.
+# Production release identity
 
-Expected:
-
-- Run completes within ~30s.
-- Slack `#nexus-alerts` shows the digest.
-- If the secret check fails the run emits `::warning::` instead of failing
-  red (so the daily schedule doesn't spam the inbox before secrets exist).
-
-## Modifying the digest
-
-The workflow is a thin wrapper around
-[.github/scripts/sentry_daily_digest.py](../.github/scripts/sentry_daily_digest.py).
-The script uses **stdlib only** (no `pip install`) — `urllib.request` for
-Sentry + Slack, `json` for payloads.
-
-Common tweaks:
-
-| Change | Where |
-|---|---|
-| Add another Sentry project | `SENTRY_PROJECTS` env in workflow yaml |
-| Change schedule | `cron:` line in workflow yaml |
-| Change channel | Update `SLACK_WEBHOOK_URL` secret (channel is baked into webhook URL) |
-| Change top-N | `TOP_N` env in workflow yaml |
-| Add severity filtering | Edit `fetch_issues` `query=` in script |
-
-Local dry-run:
-
-```bash
-export SENTRY_AUTH_TOKEN="sntrys_..."
-export DRY_RUN=1
-python3 .github/scripts/sentry_daily_digest.py
-```
-
-## Troubleshooting
-
-### Workflow runs but Slack stays silent
-
-1. Check `gh run view <run-id> --log` — the digest is also printed to stdout.
-2. Verify `SLACK_WEBHOOK_URL` is set: `gh secret list --repo artur-t-96/Nexus`
-3. POST manually with the webhook URL:
-
-   ```bash
-   curl -X POST -H "Content-Type: application/json" \
-     --data '{"text":"webhook test from CLI"}' \
-     "$SLACK_WEBHOOK_URL"
-   ```
-
-   If this 404s the webhook is revoked — recreate per setup §2.
-
-### `401 Unauthorized` from Sentry
-
-Token expired or has wrong scopes. Re-create with `project:read` +
-`event:read` and update the GH secret.
-
-### `403 Forbidden` from Sentry
-
-Token belongs to a user removed from the b2bnet-sa org, or token scope
-missing. Create a new token from the current admin account.
-
-### Empty digest (no issues + no errors) every day
-
-Either NEXUS is genuinely quiet (✅) or the Sentry query is wrong. Test in
-the Sentry UI: <https://b2bnet-sa.sentry.io/issues/?project=nexus-be&query=is%3Aunresolved&statsPeriod=24h>.
-The script uses the same query string.
-
-## Why GH Actions, not Sentry's native digest?
-
-Sentry does have a built-in weekly digest, but:
-
-- It's **weekly**, not daily — too coarse for "what's burning right now."
-- It can't combine `nexus-be` + `nexus-fe` into one Slack message — they
-  arrive as separate emails.
-- It doesn't show the same `is:new last 24h` cohort that we want to surface.
-
-GH Actions cron also gives us **same place to look** as deploys / uptime
-probe / backup drills, which is the standard ops surface for this repo
-(see [deployment.md](https://github.com/artur-t-96/Nexus/blob/main/.github/workflows/deploy.yml)).
-
-## See also
-
-- [sentry-alerts-runbook.md](sentry-alerts-runbook.md) — 6 real-time alert rules
-- [qa-process-runbook.md](qa-process-runbook.md) — Sentry-first QA pattern
-- `~/.claude/rules/observability.md` — full Sentry + Grafana + Cloudflare standard
+On 2026-09-14, the public production `main-app-afd91ba282d6d2e0.js`
+contained `release:"unknown"`, while API health reported a full deployed SHA.
+The compose build now prefers Coolify's `SOURCE_COMMIT` for both backend and
+frontend build arguments. The normal deployment workflow enables and reads back
+`include_source_commit_in_build` before starting a build; it does not substitute
+the workflow trigger SHA, which can lag the revision Coolify actually checks out.
+See the [Coolify application update API](https://coolify.io/docs/api/endpoints/applications/update-application-by-uuid).
+The Sentry build guard still requires a full SHA and upload credentials when the
+browser DSN is configured. Production acceptance requires inspecting the new
+browser release and a symbolicated event after deployment.

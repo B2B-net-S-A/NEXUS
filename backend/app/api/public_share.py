@@ -604,9 +604,7 @@ async def post_public_generated_cv_chat(
     except CvChatTimeout as exc:
         # Czytelny komunikat zamiast zerwanego połączenia: budżet czasu jest
         # krótszy niż limit proxy, więc odpowiedź zawsze dociera do przeglądarki.
-        logger.warning(
-            "[cv_chat] timeout revoke_key=%s: %s", getattr(row, "token", None), exc
-        )
+        logger.warning("[cv_chat] timeout type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=504,
             detail=(
@@ -615,9 +613,7 @@ async def post_public_generated_cv_chat(
             ),
         ) from None
     except CvChatLLMError as exc:
-        logger.warning(
-            "[cv_chat] LLM error revoke_key=%s: %s", getattr(row, "token", None), exc
-        )
+        logger.warning("[cv_chat] LLM error type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=502,
             detail="Nie udało się uzyskać odpowiedzi. Spróbuj ponownie.",

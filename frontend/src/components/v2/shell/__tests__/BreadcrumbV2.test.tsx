@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ pathname: "/", get: vi.fn() }));
@@ -19,6 +21,32 @@ function renderAt(pathname: string) {
 }
 
 describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B08)", () => {
+  it("hydrates a prerendered 404 before using the requested pathname", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    mocks.pathname = "/_not-found";
+    container.innerHTML = renderToString(<BreadcrumbV2 />);
+    mocks.pathname = "/sentry-audit-nonexistent";
+    const onRecoverableError = vi.fn();
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <BreadcrumbV2 />, { onRecoverableError });
+      });
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(container).toHaveTextContent("sentry-audit…");
+      expect(container).not.toHaveTextContent("_not-found");
+
+      // Client navigation must keep updating the breadcrumb after hydration.
+      mocks.pathname = "/settings/team-structure";
+      await act(async () => root!.render(<BreadcrumbV2 />));
+      expect(container).toHaveTextContent("Kompetencje i odpowiedzialności");
+    } finally {
+      await act(async () => root?.unmount());
+      container.remove();
+    }
+  });
+
   it.each([
     ["/applications", "Zgłoszenia"],
     ["/sourcing/marketplace", "Targ / Dostępni"],

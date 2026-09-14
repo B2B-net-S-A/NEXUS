@@ -87,6 +87,7 @@ export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   disableLogger: true,
   authToken: process.env.SENTRY_AUTH_TOKEN,
+  release: { name: process.env.NEXT_PUBLIC_GIT_SHA },
   sourcemaps: {
     // Upload only when auth token is present; otherwise skip so PR builds work.
     disable: !process.env.SENTRY_AUTH_TOKEN,
@@ -94,12 +95,9 @@ export default withSentryConfig(nextConfig, {
     // them in Sentry only.
     deleteSourcemapsAfterUpload: true,
   },
-  // Resilience: Sentry release create/upload occasionally returns 5xx
-  // (e.g. 504 gateway timeout) — `sentry-cli releases new` then aborts
-  // the whole `next build`. Source maps are a debugging convenience,
-  // not a release blocker. Log + continue. (See compass commit 3c5b2ac
-  // for the bug that motivated this fix.)
-  errorHandler: (err) => {
-    console.warn("[sentry] non-fatal source-map upload error:", err.message);
+  // When upload is configured, a failure is a failed build, never a silent
+  // loss of diagnostics. CI without a publishing credential still builds.
+  errorHandler: () => {
+    throw new Error("SENTRY_SOURCE_MAP_UPLOAD_FAILED: retry this build before deployment");
   },
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
@@ -125,7 +126,11 @@ function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
 
 export function BreadcrumbV2({ className }: { className?: string }) {
   const pathname = usePathname();
-  const segments = pathname.split("/").filter(Boolean);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  // Next prerenders a 404 at /_not-found, while the browser has the requested
+  // URL. Keep the first render stable, then show the actual navigation path.
+  const segments = mounted ? pathname.split("/").filter(Boolean) : [];
 
   if (segments.length === 0) {
     return (

@@ -3,6 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 
+// Probe timing has its own capability tests. This suite measures Axios retry
+// delays, so an unrelated health-probe timeout must not enter its fake clock.
+vi.mock("@/lib/telemetry-capability", () => ({
+  apiSupportsCorrelation: () => false,
+  probeTelemetryCapability: vi.fn().mockResolvedValue(undefined),
+}));
+
 /**
  * Kontrakt powtarzania żądań w interceptorze `api` (`lib/api.ts`).
  *
