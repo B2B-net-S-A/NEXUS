@@ -32,6 +32,7 @@ def record_job_outcome(
             scope.set_tag("job", job)
             scope.set_tag("terminal", "true")
             scope.set_tag("failure_kind", "job_failure")
+            scope.set_tag("sampling_policy", "all-terminal-operations")
             scope.set_context("correlation", {"operation_id": operation_id})
             scope.fingerprint = ["job-terminal-failure", job]
             sentry_sdk.capture_message("Background operation failed", level="error")

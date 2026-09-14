@@ -4,7 +4,7 @@ Właściciel triage: artur.twardowski@b2bnetwork.pl. Docelowy kanał: prywatny z
 
 ## Dzienny digest
 
-Workflow `Sentry daily monitor` uruchamia się o 06:47 UTC. Czyta nexus-be i nexus-fe w production, pełną paginację unresolved oraz oznacza nowe issue bez powtarzania ich w drugiej sekcji. Liczba events/24h pochodzi z szeregu stats[24h]; brak szeregu oznacza unavailable, nigdy lifetime count. Tytuły wyjątków i dane kandydatów nie trafiają do wiadomości ani logów Actions.
+Workflow `Sentry daily monitor` uruchamia się o 06:47 UTC. Czyta nexus-be i nexus-fe w production, pełną paginację unresolved oraz oznacza nowe i regresyjne issue. Oba projekty mają jedno wspólne, jawne okno start/end ostatnich 24 godzin. Liczba zdarzeń pochodzi wyłącznie z `filtered.count` dla tego zapytania; brak wartości oznacza unavailable, nigdy lifetime count ani przybliżenie z szeregu stats. Tytuły wyjątków i dane kandydatów nie trafiają do wiadomości ani logów Actions.
 
 Wymagane sekrety repozytorium B2B-net-S-A/NEXUS:
 
@@ -19,7 +19,7 @@ Odbiór: ręczny run, poprawny odczyt obu projektów, karta rzeczywiście widocz
 
 ## Release i wdrożenie
 
-Build, upload map i runtime korzystają z rzeczywistego SHA kompilacji. Przy skonfigurowanym tokenie nieudany upload przerywa build. Nie ujawniać map w publicznym artefakcie. Bez tokenu upload jest pominięty, co jest dopuszczalne dla CI/preview, lecz nie spełnia odbioru produkcyjnego.
+Build, upload map i runtime korzystają z rzeczywistego SHA kompilacji. Przeglądarka, Node i Edge używają projektu frontendu. Produkcyjny build z DSN wymaga tokenu uploadu oraz pełnego SHA; brak któregokolwiek lub błąd uploadu przerywa build. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
 
 Nowy frontend najpierw wykonuje prosty GET health bez dodatkowych nagłówków. Propagację do API i X-Operation-Id włącza po otrzymaniu eksponowanego X-Request-Id. Dzięki temu równoległy restart usług nie powoduje błędów CORS wobec starego backendu. Niepowodzenie sondy nie zatrzymuje aplikacji; kolejne żądanie może ponowić sondę.
 

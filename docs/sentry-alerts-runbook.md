@@ -24,13 +24,17 @@ W istniejącym źródle Loki dla backendu NEXUS obliczyć:
 - E = sum(count_over_time({app="nexus",service="backend"} | json | event_kind="http_outcome" | status_code >= 500 [5m]))
 - Alarm: E >= 5 AND R >= 20 AND E / R > 0.05.
 
-Rzeczywiste etykiety `service` i obecność strumienia muszą zostać potwierdzone w Grafanie; konfiguracja Alloy w repo nie dowodzi działającego odbioru. Dla braku danych skonfigurować stan No Data jako wymagający reakcji i potwierdzić niezależnym health probe.
+14.09.2026 potwierdzono w Grafana Cloud arturt96 działający Loki `grafanacloud-logs` i strumień `{app="nexus",service="backend"}`. Obecność nowych `http_outcome` wymaga osobnego odbioru po wdrożeniu. Dla braku danych skonfigurować stan No Data jako wymagający reakcji i potwierdzić niezależnym health probe.
 
 ## Ukończenie zadań
 
 `event_kind=job_outcome` zawiera job, outcome, expected_interval_seconds i operation_id. Sukces oznacza zwalidowany wynik biegu, nie samo obudzenie pętli. Osobno monitorować włączenie zadania i brak wywołania; reset procesu nie może zerować wieku ostatniego sukcesu w historii Loki. Notes i Traffit są dzienne — nie używać częstotliwości sprawdzania harmonogramu jako częstotliwości wymaganych sukcesów.
 
-Stan M365 wymaga rozróżnienia pojedynczych połączeń i ostatniego wyniku: udana skrzynka nie może ukryć niesprawnej. Przyrost notifications mierzyć po zatwierdzonych zapisach w DB; liczba wyjątków ani wywołań helpera nie jest równoważna liczbie INSERT-ów. Tych alarmów nie oznaczać jako odebrane bez potwierdzonego źródła i testu.
+Stan M365 wymaga rozróżnienia pojedynczych połączeń i ostatniego wyniku: udana skrzynka nie może ukryć niesprawnej.
+
+`notification_volume` co 5 minut odczytuje zatwierdzone rekordy notifications z `created_at` w ostatnich 5 minutach. `persisted_rows` jest pomiarem okna, nie monotonicznym licznikiem INSERT-ów (usunięcia i późne zatwierdzenia mogą zmienić wynik). Zapytanie ma limit 2 sekund. Błąd odczytu emituje `monitor_status=error` bez wartości liczbowej; poprawne zero ma `monitor_status=ok`. Reguła musi osobno wykrywać brak próbek przez 2 interwały i stan error. Próg wzrostu ustalić po odczycie rzeczywistego poziomu, a następnie sprawdzić kontrolowaną regułę. Nie oznaczać alarmu jako odebranego bez testu w Grafanie.
+
+Test zapasowego e-maila 14.09.2026 do artur.twardowski@b2bnetwork.pl został odrzucony przez Grafanę: odbiorca nie należy do organizacji. Nie zapisano nowego contact pointu ani nie zmieniano członkostwa lub abonamentu. Wymaga to rozwiązania przed odbiorem powiadomień.
 
 ## Test odbiorowy
 

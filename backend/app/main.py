@@ -636,6 +636,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
+    from app.tasks.notification_volume_monitor import notification_volume_monitor_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.microsoft365_sync import (
@@ -722,6 +723,9 @@ async def lifespan(app: FastAPI):
         "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
         "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
         "notification_triggers": asyncio.create_task(notification_triggers_loop()),
+        "notification_volume_monitor": asyncio.create_task(
+            notification_volume_monitor_loop()
+        ),
         "rejection_email": asyncio.create_task(rejection_email_loop()),
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
