@@ -1889,9 +1889,16 @@ export default function ContractDetailPage() {
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
-                      <option value="monthly">Miesięcznie</option>
-                      <option value="daily">Dziennie</option>
                       <option value="hourly">Godzinowo</option>
+                      <option value="monthly">Miesięcznie</option>
+                      {/* Stawki w Kontraktach są godzinowe — MD zostaje tylko
+                          dla kontraktu sprzed przeliczenia; zapis przeliczy go
+                          na zł/h (÷ 8). Nowego MD nie da się wybrać. */}
+                      {form.rate_unit === "daily" && (
+                        <option value="daily" disabled>
+                          Dziennie (MD) — zapis przeliczy na zł/h
+                        </option>
+                      )}
                     </select>
                   </div>
                   {form.rate_unit === "hourly" && (

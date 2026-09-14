@@ -97,7 +97,13 @@ from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
 )
-from app.services.order_rate_snapshots import convert_order_rate
+from app.services.contract_order_sync import apply_contract_hourly_policy
+from app.services.order_rate_snapshots import (
+    CONTRACT_RATE_SCALE,
+    contract_rate_in_unit,
+    convert_order_rate,
+    order_unit_for_contract,
+)
 from app.services.order_types import (
     assert_order_type_allowed,
     effective_standalone_order_type,
@@ -668,15 +674,24 @@ def _compute_monthly_margin(
     poprawna, tylko opisuje inną dobę.
     """
     eff = effective_rate_fields(contract, on or business_today())
+    order_unit = order.rate_unit or order_unit_for_contract(contract)
     # `is not None` zamiast `or` — stawka 0 na Orderze jest legalna i nie może
-    # po cichu spadać do stawki kontraktu.
+    # po cichu spadać do stawki kontraktu. Stawka z kontraktu jest w JEGO
+    # jednostce (zł/h od 14.09.2026), więc przed normalizacją przechodzi na
+    # jednostkę zamówienia — inaczej 125 zł/h liczyłoby się jako 125 zł/MD × 22.
     rate_client_effective = (
-        order.rate_client if order.rate_client is not None else eff["rate_client"]
+        order.rate_client
+        if order.rate_client is not None
+        else contract_rate_in_unit(
+            eff["rate_client"], contract, order_unit, scale=CONTRACT_RATE_SCALE
+        )
     )
     rate_candidate_effective = (
         order.rate_candidate
         if order.rate_candidate is not None
-        else eff["rate_candidate"]
+        else contract_rate_in_unit(
+            eff["rate_candidate"], contract, order_unit, scale=CONTRACT_RATE_SCALE
+        )
     )
     if rate_client_effective is None or rate_candidate_effective is None:
         return None
@@ -693,12 +708,12 @@ def _compute_monthly_margin(
         return None
     monthly_client = _normalize_monthly(
         rate_client_effective,
-        order.rate_unit or contract.rate_unit,
+        order_unit,
         order.billing_hours_per_month or contract.billing_hours_per_month,
     )
     monthly_cand = _normalize_monthly(
         rate_candidate_effective,
-        order.rate_unit or contract.rate_unit,
+        order_unit,
         order.billing_hours_per_month or contract.billing_hours_per_month,
     )
     if monthly_client is None or monthly_cand is None:
@@ -1315,10 +1330,16 @@ async def list_contractors_with_orders(
                 latest_order_end_date=latest_end,
                 latest_order_rate_client=(
                     # `is not None` — stawka 0 na Orderze nie spada do kontraktu.
+                    # Brak stawki na zamówieniu: stawka kontraktu w jednostce
+                    # TEGO zamówienia (formularz przedłużenia podpisuje ją nią).
                     (
                         latest.rate_client
                         if latest.rate_client is not None
-                        else eff["rate_client"]
+                        else contract_rate_in_unit(
+                            eff["rate_client"],
+                            c,
+                            latest.rate_unit or order_unit_for_contract(c),
+                        )
                     )
                     if latest
                     else eff["rate_client"]
@@ -1716,9 +1737,13 @@ async def create_order_extension(
     # na inną niż kontrakt zniekształciłaby dziedziczoną kwotę (×h/×dni). Domyślną
     # jednostkę klienta stosuje wyłącznie tworzenie NOWEGO zamówienia
     # (`contract-with-order`), gdzie stawek nie ma skąd dziedziczyć.
-    resolved_unit = rate_unit or contract.rate_unit
-    resolved_billing_hours = (
-        billing_hours_per_month or contract.billing_hours_per_month or 160
+    # Kontrakt przeliczony z MD jest dziś w zł/h (176 h/mc), ale jego zamówienia
+    # zostają w MD (ticket 14.09.2026) — ``order_unit_for_contract``.
+    resolved_unit = rate_unit or order_unit_for_contract(contract)
+    resolved_billing_hours = billing_hours_per_month or (
+        contract.billing_hours_per_month or 160
+        if RateUnit(resolved_unit) == RateUnit(contract.rate_unit)
+        else 160
     )
     # Values supplied by the form are already expressed in resolved_unit. A
     # missing value is inherited from Contract and therefore must be converted
@@ -1726,22 +1751,12 @@ async def create_order_extension(
     resolved_candidate_rate = (
         rate_candidate
         if rate_candidate is not None
-        else convert_order_rate(
-            effective["rate_candidate"],
-            contract.rate_unit,
-            resolved_unit,
-            resolved_billing_hours,
-        )
+        else contract_rate_in_unit(effective["rate_candidate"], contract, resolved_unit)
     )
     resolved_client_rate = (
         rate_client
         if rate_client is not None
-        else convert_order_rate(
-            effective["rate_client"],
-            contract.rate_unit,
-            resolved_unit,
-            resolved_billing_hours,
-        )
+        else contract_rate_in_unit(effective["rate_client"], contract, resolved_unit)
     )
     legacy_currency = _normalize_contract_currency(
         currency or effective["rate_client_currency"], "currency"
@@ -2814,6 +2829,10 @@ async def create_contract_with_order(
         rate_unit=resolved_rate_unit,
         **contract_finance_kwargs,
     )
+    # Stawki w Kontraktach są godzinowe (14.09.2026): kontrakt z formularza
+    # w MD zapisujemy w zł/h (÷ 8, 176 h/mc). Zamówienie niżej zostaje w MD —
+    # to dokument od klienta, a koszt wróci do niego ×8 bez zmiany kwoty.
+    apply_contract_hourly_policy(contract)
     db.add(contract)
     await db.flush()  # Get contract.id
 

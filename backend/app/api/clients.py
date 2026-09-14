@@ -135,9 +135,10 @@ def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
     """Stawka KONTRAKTU za godzinę — zapasowe źródło kolumn profilu klienta.
 
     Używane, gdy kontrakt nie ma zamówienia albo zamówienie nie niesie danej
-    stawki (patrz ``_order_hourly_leg``). Godzinowa bez przeliczenia, MD ÷ 8,
-    kontrakt miesięczny (legacy) ÷ godziny rozliczeniowe. Nic nie jest
-    zapisywane.
+    stawki (patrz ``_order_hourly_leg``). Od 14.09.2026 kontrakt jest godzinowy
+    albo ryczałtowy (``contract_order_sync``): godzinowa bez przeliczenia,
+    ryczałt ÷ godziny rozliczeniowe kontraktu, MD ÷ 8 tylko dla kontraktu
+    sprzed korekty 0309. Nic nie jest zapisywane.
     """
     if rate is None:
         return None

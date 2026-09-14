@@ -31,6 +31,7 @@ from app.services import storage_service
 from app.services.advanced_candidate_search import fold_polish
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.contract_order_sync import (
+    apply_contract_hourly_policy,
     pending_order_contract_ids,
     sync_pending_order_contracts,
 )
@@ -47,7 +48,11 @@ from app.services.order_mail_planner import (
     AUTO_ACTIONS,
 )
 from app.services.order_pdf_parser import _names_exactly_equivalent
-from app.services.order_rate_snapshots import convert_order_rate
+from app.services.order_rate_snapshots import (
+    contract_rate_in_unit,
+    convert_order_rate,
+    order_unit_for_contract,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +173,9 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         client_rate_schedule=[],
         framework_rate_schedule=[],
     )
+    # Zamówienie w MD daje kontrakt w zł/h (decyzja 14.09.2026); szkic nie ma
+    # jeszcze kwot, więc przestawiana jest sama jednostka i 176 h/mc.
+    apply_contract_hourly_policy(contract)
     db.add(contract)
     await db.flush()
     db.add(
@@ -417,7 +425,10 @@ async def _write_document(
             start = _date(rp.get("start_date"))
             end = _date(rp.get("end_date"))
             effective = effective_rate_fields(contract, start or date.today())
-            unit = _rate_unit(rp.get("rate_unit")) or contract.rate_unit
+            # Bez jednostki z dokumentu — jednostka, w której zamówienia tej osoby
+            # dziedziczą z kontraktu (kontrakt z MD jest dziś w zł/h, a zamówienie
+            # zostaje w MD; ticket 14.09.2026).
+            unit = _rate_unit(rp.get("rate_unit")) or order_unit_for_contract(contract)
 
             if applied.action == ACTION_UNCHANGED:
                 order = await db.scalar(
@@ -557,11 +568,8 @@ async def _write_document(
             # Copy a cost only from the contract's own schedule, preserving
             # unit/currency. A first unsigned engagement has no such cost.
             if order.rate_candidate is None:
-                order.rate_candidate = convert_order_rate(
-                    effective.get("rate_candidate"),
-                    contract.rate_unit,
-                    unit,
-                    contract.billing_hours_per_month,
+                order.rate_candidate = contract_rate_in_unit(
+                    effective.get("rate_candidate"), contract, unit
                 )
                 order.rate_candidate_currency = effective.get("rate_candidate_currency")
             from app.services.order_mail_signature import can_activate_mail_order

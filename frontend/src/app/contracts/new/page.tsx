@@ -106,7 +106,8 @@ function NewContractForm() {
   const [statusVal, setStatusVal] = useState("draft");
   const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
   const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
-  const [rateUnit, setRateUnit] = useState("monthly");
+  // Stawki w Kontraktach są godzinowe (umowa B2B podaje stawkę za godzinę).
+  const [rateUnit, setRateUnit] = useState("hourly");
   const [billingHours, setBillingHours] = useState("160");
   // Effective-dated candidate-rate schedule. First row = stawka od startu
   // (effective_from puste ⇒ data rozpoczęcia). Kolejne wiersze = zmiany w czasie.
@@ -783,9 +784,11 @@ function NewContractForm() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="monthly">Miesięcznie</SelectItem>
-                        <SelectItem value="daily">Dziennie</SelectItem>
+                        {/* Stawki w Kontraktach są godzinowe (zł/h) albo
+                            ryczałtowe — bez MD. Zamówienie w MD prowadzi się
+                            w module Klienci; kontrakt przelicza je ÷ 8. */}
                         <SelectItem value="hourly">Godzinowo</SelectItem>
+                        <SelectItem value="monthly">Miesięcznie</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

@@ -199,19 +199,19 @@ def _parse_date(value: Any, label: str, *, nullable: bool) -> date | None:
     return parsed
 
 
-def _parse_rate(value: Any, label: str) -> Decimal:
+def _parse_rate(value: Any, label: str, *, places: int = 3) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
         raise NexusDataCorrectionError(f"{label} must be a decimal")
     try:
         parsed = Decimal(str(value))
     except InvalidOperation as exc:
         raise NexusDataCorrectionError(f"{label} must be a decimal") from exc
-    if not parsed.is_finite() or parsed < 0 or parsed.as_tuple().exponent < -3:
+    if not parsed.is_finite() or parsed < 0 or parsed.as_tuple().exponent < -places:
         raise NexusDataCorrectionError(
-            f"{label} must be a non-negative decimal with at most 3 places"
+            f"{label} must be a non-negative decimal with at most {places} places"
         )
     if parsed >= Decimal("1000000000"):
-        raise NexusDataCorrectionError(f"{label} exceeds Numeric(12,3)")
+        raise NexusDataCorrectionError(f"{label} exceeds the rate column range")
     return parsed
 
 
@@ -460,7 +460,9 @@ def select_effective_client_rate_schedule_rows(
         _schedule_effective_from(row)
         # ``rate`` is NOT NULL in PostgreSQL, but validate the live boundary
         # before it can participate in a fingerprint or mismatch decision.
-        _parse_rate(row.get("rate"), "schedule.rate")
+        # Kolumna ma od 0309 skalę 6 (NUMERIC(16,6)): baza oddaje 167.500000,
+        # a stawka godzinowa z MD bywa 125.19375 — manifest zostaje przy 3.
+        _parse_rate(row.get("rate"), "schedule.rate", places=6)
         grouped.setdefault(contract_id, []).append(row)
 
     selected: dict[int, dict[str, Any]] = {}

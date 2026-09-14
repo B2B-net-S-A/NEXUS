@@ -47,9 +47,9 @@ class ContractFrameworkRate(Base, TimestampMixin):
     contract_id: Mapped[int] = mapped_column(
         ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # Framework rate in the contract's `rate_unit` / `currency`. NUMERIC(12,2) to
-    # match the legacy `contracts.framework_rate` column (grosze, e.g. 215,60).
-    rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    # Framework rate in the contract's `rate_unit` / `currency`. NUMERIC(16,6) to
+    # match `contracts.framework_rate` (migracja 0309: MD ÷ 8 bez utraty groszy).
+    rate: Mapped[Decimal] = mapped_column(Numeric(16, 6), nullable=False)
     # Date from which this rate applies ("Obowiązuje od").
     effective_from: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     # Optional planned end of this step ("Obowiązuje do"). Advisory only — the

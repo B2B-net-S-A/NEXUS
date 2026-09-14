@@ -2090,7 +2090,7 @@ _COLUMN_STATEMENTS = [
         id              SERIAL PRIMARY KEY,
         contract_id     INTEGER NOT NULL
                             REFERENCES contracts(id) ON DELETE CASCADE,
-        rate            NUMERIC(12, 3) NOT NULL,
+        rate            NUMERIC(16, 6) NOT NULL,
         effective_from  DATE NOT NULL,
         note            TEXT NULL,
         created_by      INTEGER NULL
@@ -2112,7 +2112,7 @@ _COLUMN_STATEMENTS = [
         id              SERIAL PRIMARY KEY,
         contract_id     INTEGER NOT NULL
                             REFERENCES contracts(id) ON DELETE CASCADE,
-        rate            NUMERIC(12, 2) NOT NULL,
+        rate            NUMERIC(16, 6) NOT NULL,
         effective_from  DATE NOT NULL,
         effective_to    DATE NULL,
         note            TEXT NULL,
@@ -2127,18 +2127,69 @@ _COLUMN_STATEMENTS = [
     "ON contract_framework_rates (effective_from)",
     "CREATE INDEX IF NOT EXISTS ix_contract_framework_rates_id "
     "ON contract_framework_rates (id)",
-    # Stawka ramowa + widełki docelowe z groszami (0157): INTEGER → NUMERIC(12,2)
-    # na ISTNIEJĄCYCH kolumnach `contracts`. Gdy alembic padnie na multi-head,
-    # model już mapuje Decimal — zapis 215,60 w INTEGER kończy się DataError
-    # (asyncpg nie rzutuje float→int). Zmiana typu NUMERIC→NUMERIC przy kolejnych
-    # startach to no-op semantyczny (tabela mała), więc statement jest bezpiecznie
-    # re-runowalny.
-    "ALTER TABLE contracts ALTER COLUMN framework_rate TYPE NUMERIC(12, 2) "
-    "USING framework_rate::numeric",
-    "ALTER TABLE contracts ALTER COLUMN target_rate_min TYPE NUMERIC(12, 2) "
-    "USING target_rate_min::numeric",
-    "ALTER TABLE contracts ALTER COLUMN target_rate_max TYPE NUMERIC(12, 2) "
-    "USING target_rate_max::numeric",
+    # Stawki kontraktów NUMERIC(16,6) (0309; wcześniej 0157: stawka ramowa
+    # i widełki INTEGER → NUMERIC(12,2), 0149: stawki NUMERIC(12,3)). Stawki
+    # w Kontraktach są godzinowe, a MD ÷ 8 ma do 5 miejsc po przecinku —
+    # węższa kolumna po cichu zaokrągliłaby kwotę. Gdy alembic padnie na
+    # multi-head, model już mapuje 6 miejsc. Guard na `information_schema`:
+    # ALTER (ACCESS EXCLUSIVE, przepisanie tabeli) idzie tylko przy RÓŻNICY,
+    # więc kolejne starty nie biorą zamka. Wcześniejsza wersja tego wpisu
+    # zawężała framework_rate/target_rate_* z powrotem do (12,2) przy KAŻDYM
+    # starcie. Jedna instrukcja = jedna transakcja: kontencja zamka wycofuje
+    # całość, a korekta 0309 sama sprawdza skalę, zanim cokolwiek przeliczy.
+    # `margin` jest w `UPDATE OF` triggera walut (0248) — Postgres odmawia
+    # zmiany typu kolumny, od której zależy trigger, więc trigger jest zdejmowany
+    # i zakładany ponownie W TEJ SAMEJ transakcji (bez okna bez ochrony).
+    """DO $$
+    DECLARE
+        r record;
+        had_trigger boolean := false;
+    BEGIN
+        FOR r IN
+            SELECT c.table_name, c.column_name
+            FROM information_schema.columns c
+            JOIN (VALUES
+                ('contracts', 'rate_candidate'),
+                ('contracts', 'rate_client'),
+                ('contracts', 'margin'),
+                ('contracts', 'framework_rate'),
+                ('contracts', 'target_rate_min'),
+                ('contracts', 'target_rate_max'),
+                ('contract_candidate_rates', 'rate'),
+                ('contract_client_rates', 'rate'),
+                ('contract_framework_rates', 'rate')
+            ) AS w(table_name, column_name)
+              ON w.table_name = c.table_name AND w.column_name = c.column_name
+            WHERE c.table_schema = current_schema()
+              AND (c.data_type <> 'numeric'
+                   OR c.numeric_precision IS DISTINCT FROM 16
+                   OR c.numeric_scale IS DISTINCT FROM 6)
+        LOOP
+            IF r.table_name = 'contracts' AND r.column_name = 'margin'
+               AND EXISTS (
+                   SELECT 1 FROM pg_trigger
+                   WHERE tgname = 'trg_contract_rate_currencies_legacy_sync'
+                     AND tgrelid = 'contracts'::regclass
+                     AND NOT tgisinternal
+               )
+            THEN
+                DROP TRIGGER trg_contract_rate_currencies_legacy_sync ON contracts;
+                had_trigger := true;
+            END IF;
+            EXECUTE format(
+                'ALTER TABLE %I ALTER COLUMN %I TYPE NUMERIC(16, 6) USING %I::numeric(16, 6)',
+                r.table_name, r.column_name, r.column_name
+            );
+        END LOOP;
+        IF had_trigger THEN
+            CREATE TRIGGER trg_contract_rate_currencies_legacy_sync
+            BEFORE INSERT OR UPDATE OF
+                margin, currency, rate_client_currency, rate_candidate_currency
+            ON contracts
+            FOR EACH ROW
+            EXECUTE FUNCTION sync_contract_rate_currencies_from_legacy();
+        END IF;
+    END $$""",
     # Cortex fact store (0158): na prod `Base.metadata.create_all` potrafi
     # cicho paść (failure-tolerant echo), a alembic bywa multi-head — nowe
     # TABELE też wymagają mirrora tutaj (precedens: saved_search_alert_log).
@@ -7627,6 +7678,44 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract duplicate merge: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Stawki w Kontraktach godzinowe (09.2026, ticket „Ujednolicenie stawek") —
+# jednorazowo: każdy kontrakt w MD przechodzi na zł/h (stawki, harmonogramy,
+# stawka ramowa, widełki ÷ 8; 176 h/mc, więc kwoty miesięczne bez zmian).
+# Kontrakty godzinowe i ryczałtowe zostają nietknięte, zamówień korekta nie
+# rusza (suma kontrolna przed i po, różnica = rollback). Czeka na poszerzone
+# kolumny (DDL 0309 wyżej) — bez nich nie zapisuje markera. Logika
+# w `app/services/contract_hourly_rate_repair.py`; marker w `app_settings`
+# + advisory lock. Log: wyłącznie liczby, ID i kody powodów.
+startup_phase "repair-contract-hourly-rates"
+echo "Contracts: convert daily (MD) rates to hourly (one-shot)..."
+python - <<'PY' || echo "contract hourly rate repair skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_hourly_rate_repair import (
+    run_contract_hourly_rate_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contract_hourly_rate_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contract hourly rate repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"contract hourly rate repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY
