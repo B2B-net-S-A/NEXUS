@@ -1309,6 +1309,18 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
     przy dodawaniu konsultantów.
   * Wiersz bez kompletu (dwie daty + dwie liczby) nie jest brany za wiersz
     osoby — lepiej puste pole niż zła liczba.
+  * **Imię i nazwisko** bierze wyłącznie z kolumny „Imię i nazwisko
+    Wykonawców" — nazwa profilu z sąsiedniej kolumny („Tester Middle") nie jest
+    doklejana, więc system rozpoznaje istniejącego konsultanta i proponuje
+    przedłużenie. Gdy granicy między nazwiskiem a profilem nie da się ustalić
+    pewnie, osoba trafia do sprawdzenia z tym powodem.
+  * **Stawka z kolumny „Stawka PLN/MD netto" jest zawsze netto** — system nie
+    pyta, czy to brutto, i nie dzieli jej przez 1,23 („brutto" przy łącznej
+    wartości zamówienia nie ma na to wpływu). Gwiazdka przy kwocie („stawka
+    negocjowana") jest pomijana. Tylko gdy kolumna stawki byłaby oznaczona
+    „brutto", wpis trafi do sprawdzenia.
+  * Wpisy PKO BP czekające w kolejce przeliczają się same po wdrożeniu tej
+    reguły.
 * Gdy nie znajdzie numeru albo tabeli, powie o tym w banerze i zostawi pola do
   ręcznego wpisania.
 * **Powiadomienia:** standardowe.
