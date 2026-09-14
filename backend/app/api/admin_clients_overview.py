@@ -180,9 +180,14 @@ async def kpi_by_dl(
         # Tylko kontrakty OBECNE — ta sama reguła co profil i ranking (B46).
         margin_rows_dl = current_contracts(margin_rows_dl, today)
         active_headcount = summarize_active_contracts(margin_rows_dl)
-        margin_lookup_dl, incomplete_margin_clients = await _margin_lookup_pln(
-            db, margin_rows_dl, today
-        )
+        # Kontrakt bez jednej nogi stawki (``unpriced``) nie zdejmuje kwoty
+        # z wiersza DL — suma jest częściowa, jak kafel na profilu klienta;
+        # kwotę kasuje wyłącznie brak kursu NBP (``incomplete``).
+        (
+            margin_lookup_dl,
+            incomplete_margin_clients,
+            _unpriced,
+        ) = await _margin_lookup_pln(db, margin_rows_dl, today)
         margin_total = sum(margin_lookup_dl.values(), start=Decimal("0"))
         has_margin = bool(margin_lookup_dl) and not incomplete_margin_clients
 

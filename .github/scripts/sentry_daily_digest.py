@@ -13,8 +13,10 @@ Environment:
     TOP_N               Issues per category (default: 5)
 
 Exit codes:
-    0   Slack notified (or DRY_RUN echoed to stdout)
-    1   Sentry API failure (network / auth / 5xx)
+    0   Slack notified (or DRY_RUN echoed to stdout) AND every project was read
+    1   Sentry API failure (network / auth / 5xx) — including a single project
+        that could not be read: the partial digest is still delivered, but the
+        run is red (MON-01, 2026-09-14)
     2   Slack delivery failure
 """
 
@@ -79,8 +81,17 @@ def format_issue_line(issue: dict, *, redact: bool = False) -> str:
     return f"• <{permalink}|{short_id}> — {title} (events: {count}, users: {users})"
 
 
-def project_section(token: str, project: str, *, redact: bool = False) -> str:
-    """Build the Slack block for one Sentry project."""
+def project_section(
+    token: str, project: str, *, redact: bool = False
+) -> tuple[str, bool]:
+    """Build the Slack block for one Sentry project.
+
+    Returns ``(text, ok)``. ``ok`` is False when the project could NOT be read
+    (auth / HTTP / network error): the text then names the failure instead of
+    issues. Before 2026-09-14 (MON-01) the failure was folded into the text
+    and the run stayed green, so an expired token produced a daily "digest"
+    that had read nothing.
+    """
     try:
         unresolved = fetch_issues(
             token, project, "is:unresolved", sort="freq"
@@ -89,9 +100,16 @@ def project_section(token: str, project: str, *, redact: bool = False) -> str:
             token, project, "is:unresolved age:-24h", sort="new"
         )
     except urllib.error.HTTPError as exc:
-        return f"*{project}* — API error {exc.code}: {exc.reason}"
+        return (
+            f"*{project}* — API error {exc.code}: {exc.reason}\n"
+            f"{unread_project_line(project)}",
+            False,
+        )
     except (urllib.error.URLError, TimeoutError) as exc:
-        return f"*{project}* — network error: {exc}"
+        return (
+            f"*{project}* — network error: {exc}\n{unread_project_line(project)}",
+            False,
+        )
 
     lines = [f"*{project}*"]
     if unresolved:
@@ -104,19 +122,41 @@ def project_section(token: str, project: str, *, redact: bool = False) -> str:
         lines.append(f"_New issues last 24h_ ({len(new_issues)})")
         lines.extend(format_issue_line(i, redact=redact) for i in new_issues)
 
-    return "\n".join(lines)
+    return "\n".join(lines), True
 
 
-def build_message(token: str, *, redact: bool = False) -> str:
-    """Assemble the full Slack message body."""
+def unread_project_line(project: str) -> str:
+    """Explicit digest line for a project the monitor failed to read."""
+    return (
+        f":rotating_light: Monitoring nie odczytał projektu {project} — "
+        "sprawdź token (SENTRY_AUTH_TOKEN) i dostęp do Sentry."
+    )
+
+
+def build_message(token: str, *, redact: bool = False) -> tuple[str, list[str]]:
+    """Assemble the full Slack message body.
+
+    Returns ``(message, unread_projects)``; a non-empty second element means the
+    digest is INCOMPLETE and the run must fail after delivering what it has.
+    """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    sections = [project_section(token, p, redact=redact) for p in SENTRY_PROJECTS]
+    sections: list[str] = []
+    unread: list[str] = []
+    for project in SENTRY_PROJECTS:
+        text, ok = project_section(token, project, redact=redact)
+        sections.append(text)
+        if not ok:
+            unread.append(project)
     header = f":mag: *NEXUS Sentry daily digest* — {today}"
+    if unread:
+        header += (
+            f"\n:warning: *Digest niekompletny* — nie odczytano: {', '.join(unread)}"
+        )
     footer = (
         "_Runbook: docs/sentry-monitoring.md · "
         "Alert rules: docs/sentry-alerts-runbook.md_"
     )
-    return "\n\n".join([header, *sections, footer])
+    return "\n\n".join([header, *sections, footer]), unread
 
 
 def post_to_slack(webhook: str, text: str) -> None:
@@ -147,7 +187,7 @@ def main() -> int:
     # redacted variant with counts and short ids.
     deliver = bool(webhook) and not dry_run
     try:
-        message = build_message(token, redact=not deliver)
+        message, unread = build_message(token, redact=not deliver)
     except Exception as exc:  # surface to GH Actions
         print(f"ERROR: failed to build digest: {exc}", file=sys.stderr)
         return 1
@@ -155,15 +195,21 @@ def main() -> int:
     if not deliver:
         print(message)
         print("(dry-run / no webhook — skipping Slack POST)", file=sys.stderr)
-        return 0
+    else:
+        try:
+            post_to_slack(webhook, message)
+        except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
+            print(f"ERROR: Slack delivery failed: {exc}", file=sys.stderr)
+            return 2
+        print(f"Digest delivered to Slack ({len(SENTRY_PROJECTS)} projects).")
 
-    try:
-        post_to_slack(webhook, message)
-    except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
-        print(f"ERROR: Slack delivery failed: {exc}", file=sys.stderr)
-        return 2
-
-    print(f"Digest delivered to Slack ({len(SENTRY_PROJECTS)} projects).")
+    # MON-01: what was read has been delivered above; a project the monitor
+    # could not read still FAILS the run — a green run must mean "Sentry was
+    # read", not "a message was posted".
+    if unread:
+        for project in unread:
+            print(f"ERROR: {unread_project_line(project)}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -36,9 +36,13 @@ jobs:
           TOP_N: "5"
         run: |
           if [ -z "$SENTRY_AUTH_TOKEN" ]; then
-            echo "::warning::SENTRY_AUTH_TOKEN secret not set — skipping digest."
-            echo "::warning::See docs/sentry-monitoring.md for setup."
-            exit 0
+            # MON-01 (2026-09-14): this step exits non-zero ON PURPOSE. A previous
+            # version emitted a warning and `exit 0`, so the monitor reported GREEN
+            # every day while reading nothing — same trap backup-drill.yml closed.
+            # A monitor that cannot read Sentry is a FAILING monitor.
+            echo "::error::SENTRY_AUTH_TOKEN secret not set — the digest cannot read Sentry."
+            echo "::error::See docs/sentry-monitoring.md for setup."
+            exit 1
           fi
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "::warning::SLACK_WEBHOOK_URL secret not set — running in dry-run mode (stdout only)."

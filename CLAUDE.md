@@ -283,6 +283,87 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
 (4 moduły pętli piszą na WS przez in-process manager), deploy bez przerwy (compose build
 pack Coolify nie ma rolling update), budżet pul przy drugim procesie.
 
+## Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2)
+
+Plan i status: `docs/uat/08-audyty-codex-2026-09-14.md`. Reguły, które łatwo
+cofnąć „przy okazji”:
+
+- **Feedback z rozmowy jest przypięty do wydarzenia, na które autor ma wgląd.**
+  `interview_feedback.py`: router za `PIPELINE_SECTION_DEPENDENCIES`;
+  `_bind_feedback_to_event` sprawdza `user_can_view_event` (właściciel, uczestnik,
+  role z odczytem kalendarza), potem spójność `event.candidate_id`/`job_id`
+  z payloadem (422), a rekrutację dziedziczy z wydarzenia i przepuszcza przez
+  `ensure_job_membership`. `needs_attention` zdejmuje autor feedbacku albo ktoś,
+  kto może edytować wydarzenie. Do 14.09 dowolny `event_id` z cudzym kandydatem
+  przechodził bez sprawdzenia. Uczestnik cudzego spotkania MUSI móc zapisać
+  feedback — dlatego bramka to odczyt, nie mutacja (`test_interview_feedback_access.py`).
+- **Zmiana statusu kontraktu blokuje wiersz** (`with_for_update()` w
+  `update_contract`, `update_contract_status`, `void_contract_endpoint`). Bez tego
+  `void` i równoległy `revert` na przeterminowanym obiekcie oba przechodziły,
+  a ostatni zapis wygrywał. Znany dług: writery zamówień blokują `client_orders`
+  przed `contracts` — kolejność odwrotna niż w cronie i handlerach; nie
+  „ujednolicaj” jej w jednym z miejsc bez drugiego.
+- **Usunięcie kandydata NIE kasuje plików w żądaniu.** Klucze magazynu idą do
+  rejestru `cv_source_cleanup` (`schedule_source_cleanup`) w TEJ SAMEJ transakcji,
+  a kasuje je worker `clean_pending_sources` z ponowieniami. Rollback po
+  wyjątku w handlerze zostawia pliki na miejscu; do 14.09 pliki znikały przed
+  commitem, a wiersz kandydata zostawał. Gałąź 503 „magazyn niedostępny” usunięta.
+- **M365: kursor folderu przesuwa się tylko po czystym biegu folderu.** Graph
+  daje `deltaLink` dopiero na ostatniej stronie, więc „ostatnia czysta strona”
+  nie istnieje — przy jakimkolwiek błędzie importu folder zostaje na starym
+  kursorze (upserty są idempotentne), a `last_sync_status = error` z liczbą
+  błędów. Trwale zepsuta wiadomość = folder w pętli co 30 min — to sygnał
+  w sondzie, nie stan do wyciszenia.
+- **Statystyki liczą osoby, nie wiersze etapów.** Uzgodnienie placementów
+  deduplikuje próby (`DISTINCT ON (candidate_id, job_id)`, liczba prób
+  w `verifier_anchored.attempts`, totale osobnym zapytaniem; klucz złączenia
+  `COALESCE(job_id, 0)`, bo PG16 odrzuca `IS NOT DISTINCT FROM` w FULL JOIN).
+  Raport DL czyta `analytics_first_milestones.first_reached_at`; wakaty i fill
+  rate `count(DISTINCT candidate_id)`. `_sum_finance` oznacza sumę jako
+  `partial` z licznikami `contracts_without_cost_leg`/`…revenue_leg`, a ranking
+  klientów (`margin_lookup_pln`/`revenue_lookup_pln` → `(sumy, incomplete,
+  unpriced)`) oznacza klienta z kontraktem bez jednej nogi jako niepełnego,
+  ale zostawia SUMĘ CZĘŚCIOWĄ z wycenionych kontraktów — jak kafel na profilu
+  (`active_mrr_unpriced_contracts`); `None` daje wyłącznie brak kursu NBP.
+  Podpisana umowa B2B jest aktywna z samą stawką kosztową do czasu zamówienia,
+  więc `None` dla całego klienta zdejmowałoby kwoty z większości rankingu
+  i z całego wiersza DL w przeglądzie admina. Źródła
+  z Traffita idą jako `candidate_source_events` (`note` = `traffit:source:<id>`,
+  idempotentnie), więc raport źródeł je widzi.
+- **Monitoring nie może być zielony bez odczytu:** `sentry-daily-monitor` bez
+  tokenu = `::error::` + `exit 1`, częściowy digest wysyła i kończy `exit 1`;
+  deploy ma krok `/api/health/alembic` (bookmark bazy == heads kodu,
+  `orphaned == []`) — czerwony deploy przy dryfie jest zamierzony.
+- **„Obecny" kontrakt = start wpisany i ≤ dziś — JEDNA reguła na każdej
+  powierzchni** (`contractor_identity.is_current_contract`/`current_contracts`,
+  UAT B46, PR 2): profil klienta (kafel „Aktywne MRR", liczniki), zakładka
+  Analityka (`/my-clients/{id}/dashboard`), ranking Rady (`insights_clients`),
+  przegląd admina; kokpit Rady ma ten sam warunek w SQL. Kontrakt z przyszłym
+  startem albo bez daty jedzie na profilu OSOBNO jako „Planowani" — z tą samą
+  redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko profil
+  i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje tego
+  `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie w fixture).
+- **Stan ekranu w adresie:** `/candidates/search` trzyma request w `?s=`
+  (`lib/candidate-search-request.ts` — tylko pola o kształcie zgodnym z bazą,
+  bo adres pisze użytkownik), porównanie kandydatów wraca z `?sel=`,
+  Administracja w Ustawieniach ma `?sub=`, kalendarz otwiera `?event=`
+  (+`&action=feedback`) i zdejmuje parametr po zamknięciu albo nieudanym
+  odczycie — efekty na WARTOŚCI parametru (miękka nawigacja).
+- **Ruch w pipeline ma opcjonalne `expected_state_version`** (`StageMove`,
+  F05): rozjazd z `RecruitmentProcess.state_version` pod blokadą = 409
+  `PIPELINE_VERSION_CONFLICT` bez zapisu; `None` = bez sprawdzenia (importy,
+  ruchy zbiorcze). Frontend jeszcze wersji nie wysyła — osobny krok.
+  `POST /api/auth/refresh` przyjmuje token WYŁĄCZNIE w ciele (F06).
+- **`finance_trend` nie miesza źródeł:** każdy punkt niesie `basis`
+  (`legacy_monthly_report` | `contracts`) i osobne pola (`mrr` tylko live,
+  `monthly_revenue`/`result_after_other_costs` tylko legacy); trend kotwiczony
+  na końcu okresu (`end=`), a `source_watermarks`/`quality` czytają świeżość
+  syncu Traffita (36 h jak `checks.traffit`).
+- **Listy z „Pokaż więcej" idą po `offset` w API** (dzwonek, Targ, pule
+  talentów): dzwonek podnosi `limit` zamiast doklejać strony — „nieprzeczytane
+  najpierw" przetasowuje kolejność po kliknięciu, więc doklejanie dawało
+  duplikaty.
+
 ## Generator Umów B2B — trzy zakładki cyklu życia umowy
 
 Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracja

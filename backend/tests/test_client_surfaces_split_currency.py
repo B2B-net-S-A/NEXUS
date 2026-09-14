@@ -203,11 +203,12 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     monkeypatch.setattr(
         insights_clients_service, "effective_rate_fields", effective_fields
     )
-    totals, incomplete = await admin_clients_overview._margin_lookup_pln(
+    totals, incomplete, unpriced = await admin_clients_overview._margin_lookup_pln(
         object(), [contract], date.today()
     )
     assert totals == {}
     assert incomplete == {17}
+    assert unpriced == set()
 
     active_rows = [
         SimpleNamespace(
@@ -268,11 +269,16 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     # Zerowy przychód przy ujemnej marży: procent nie ma mianownika i wołający
     # musi zwrócić ``None`` zamiast dzielić przez zero.
     assert zero_totals.revenue == 0
-    zero_admin, zero_admin_incomplete = await admin_clients_overview._margin_lookup_pln(
+    (
+        zero_admin,
+        zero_admin_incomplete,
+        zero_admin_unpriced,
+    ) = await admin_clients_overview._margin_lookup_pln(
         object(), [zero_revenue_contract], date.today()
     )
     assert zero_admin == {18: Decimal("-100")}
     assert zero_admin_incomplete == set()
+    assert zero_admin_unpriced == set()
     report_revenue, report_margin, report_missing = reports._fold_finance_pln(
         [zero_revenue_contract], {"ZZZ": None, "PLN": Decimal("1")}
     )

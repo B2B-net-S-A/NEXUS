@@ -115,6 +115,11 @@ def test_candidate_mutations_require_candidate_write(method: str, path: str) -> 
         ("POST", "/api/jobs/{job_id}/refresh-criteria"),
         ("POST", "/api/jobs/{job_id}/recompute-scores"),
         ("POST", "/api/candidates/{candidate_id}/assign-to-job/{job_id}"),
+        ("GET", "/api/interview-feedback"),
+        ("POST", "/api/interview-feedback"),
+        ("GET", "/api/interview-feedback/{feedback_id}"),
+        ("PATCH", "/api/interview-feedback/{feedback_id}"),
+        ("DELETE", "/api/interview-feedback/{feedback_id}"),
     ),
 )
 def test_pipeline_only_routers_have_pipeline_section_ceiling(

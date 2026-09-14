@@ -79,12 +79,28 @@ router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 _MAX_ROWS = 5000
 
 
-# Obie rodziny sprowadzone do (candidate_id, job_id, reached_at, credit) i
-# złączone FULL OUTER. `first_hired` czyta widok bez filtrów; `credited`
+# Obie rodziny sprowadzone do JEDNEGO wiersza na parę (candidate_id, job_id)
+# i złączone FULL OUTER. `first_hired` czyta widok bez filtrów; `credited`
 # pochodzi z CTE, więc niesie już własne filtry eligibility.
-_RECONCILE_SQL = text(
-    VERIFIER_ANCHORED_CTE
-    + """
+#
+# `credited` NIE jest listą par: CTE składa się z UNION ALL po procesach
+# (`process_id`), więc para z N próbami rekrutacyjnymi ma tam N wierszy
+# `hired`. Do 09.2026 `va` szło do złączenia surowe, a `fh` (1 wiersz na
+# parę) mnożyło się przez każdą próbę — raport pokazywał N „pierwszych
+# zatrudnień" tam, gdzie widok ma jedno. `va` jest więc sprowadzane do
+# najwcześniejszej próby (`DISTINCT ON … ORDER BY reached_at`), a liczba prób
+# jedzie w wierszu jako `attempts`, żeby informacja nie zginęła.
+#
+# Klucz złączenia po `job_id` idzie przez `COALESCE(job_id, 0)`, nie po `=`:
+# `NULL = NULL` nie łączy, więc para bez oferty po obu stronach rozpadałaby
+# się na dwa wiersze „tylko widok" + „tylko CTE". `IS NOT DISTINCT FROM` nie
+# wchodzi w grę — Postgres nie zrobi po nim FULL JOIN („only supported with
+# merge-joinable or hash-joinable join conditions"). Sentinel 0 jest
+# bezpieczny: `jobs.id` to serial od 1. `candidate_id` jest NOT NULL po obu
+# stronach. Dziś `candidate_stages.job_id` też jest NOT NULL, więc to
+# zabezpieczenie na wypadek zdjęcia tego więzu — a `without_job` w totalach
+# opisuje właśnie ten kształt.
+_FAMILIES_CTE = """
     , fh AS (
         SELECT fm.candidate_id, fm.job_id,
                fm.first_reached_at AS reached_at,
@@ -93,7 +109,7 @@ _RECONCILE_SQL = text(
         WHERE fm.stage = 'hired'
           AND fm.first_reached_at >= :start
           AND fm.first_reached_at <  :end
-    ), va AS (
+    ), va_raw AS (
         SELECT c.candidate_id, c.job_id,
                c.reached_at,
                c.credit_user AS actor_id
@@ -101,6 +117,12 @@ _RECONCILE_SQL = text(
         WHERE c.stage = 'hired'
           AND c.reached_at >= :start
           AND c.reached_at <  :end
+    ), va AS (
+        SELECT DISTINCT ON (candidate_id, job_id)
+               candidate_id, job_id, reached_at, actor_id,
+               count(*) OVER (PARTITION BY candidate_id, job_id) AS attempts
+        FROM va_raw
+        ORDER BY candidate_id, job_id, reached_at
     ), joined AS (
         SELECT
             COALESCE(fh.candidate_id, va.candidate_id) AS candidate_id,
@@ -110,12 +132,19 @@ _RECONCILE_SQL = text(
             fh.reached_at                              AS fh_reached_at,
             va.reached_at                              AS va_reached_at,
             fh.actor_id                                AS fh_actor_id,
-            va.actor_id                                AS va_actor_id
+            va.actor_id                                AS va_actor_id,
+            COALESCE(va.attempts, 0)                   AS va_attempts
         FROM fh
         FULL OUTER JOIN va
-          ON va.candidate_id = fh.candidate_id
-         AND va.job_id       = fh.job_id
+          ON va.candidate_id        = fh.candidate_id
+         AND COALESCE(va.job_id, 0) = COALESCE(fh.job_id, 0)
     )
+"""
+
+_RECONCILE_SQL = text(
+    VERIFIER_ANCHORED_CTE
+    + _FAMILIES_CTE
+    + """
     SELECT
         j.candidate_id,
         j.job_id,
@@ -125,6 +154,7 @@ _RECONCILE_SQL = text(
         j.va_reached_at,
         j.fh_actor_id,
         j.va_actor_id,
+        j.va_attempts,
         trim(concat_ws(' ', cand.name, cand.lastname)) AS candidate_name,
         job.title                                      AS job_title,
         cl.id                                          AS client_id,
@@ -140,6 +170,42 @@ _RECONCILE_SQL = text(
     ORDER BY COALESCE(j.fh_reached_at, j.va_reached_at) DESC,
              j.candidate_id, j.job_id
     LIMIT :limit
+    """
+)
+
+# Totale liczone w bazie, z PEŁNEGO złączenia — nie z listy wierszy. Lista ma
+# sufit `_MAX_ROWS`, więc nagłówek liczony z niej opisywałby obcięty raport,
+# a nie okno. `verifier_anchored_attempts` to surowe wiersze `credited`
+# (każda próba osobno) — dokładnie to, co sumują kafle i raporty; różnica
+# między nim a `verifier_anchored` (pary) to liczba powtórnych prób.
+_TOTALS_SQL = text(
+    VERIFIER_ANCHORED_CTE
+    + _FAMILIES_CTE
+    + """
+    SELECT
+        count(*) FILTER (WHERE j.in_first_hired)            AS first_hired,
+        count(*) FILTER (WHERE j.in_verifier_anchored)      AS verifier_anchored,
+        (SELECT count(*) FROM va_raw)                       AS verifier_anchored_attempts,
+        count(*) FILTER (
+            WHERE j.in_first_hired AND j.in_verifier_anchored
+        )                                                   AS in_both,
+        count(*) FILTER (
+            WHERE j.in_first_hired AND NOT j.in_verifier_anchored
+        )                                                   AS only_first_hired,
+        count(*) FILTER (
+            WHERE j.in_verifier_anchored AND NOT j.in_first_hired
+        )                                                   AS only_verifier_anchored,
+        count(*) FILTER (WHERE j.job_id IS NULL)            AS without_job,
+        count(*) FILTER (WHERE cl.id IS NULL)               AS without_client,
+        count(*) FILTER (
+            WHERE j.in_first_hired AND j.fh_actor_id IS NULL
+        )                                                   AS without_actor_first_hired,
+        count(*) FILTER (
+            WHERE j.in_verifier_anchored AND j.va_actor_id IS NULL
+        )                                                   AS without_actor_verifier_anchored
+    FROM joined j
+    LEFT JOIN jobs job   ON job.id = j.job_id
+    LEFT JOIN clients cl ON cl.id  = job.client_id
     """
 )
 
@@ -175,20 +241,13 @@ async def insights_placement_reconciliation(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
+    window = {"start": resolved.start, "end": resolved.end}
     rows = (
-        (
-            await db.execute(
-                _RECONCILE_SQL,
-                {
-                    "start": resolved.start,
-                    "end": resolved.end,
-                    "limit": _MAX_ROWS,
-                },
-            )
-        )
+        (await db.execute(_RECONCILE_SQL, {**window, "limit": _MAX_ROWS}))
         .mappings()
         .all()
     )
+    totals_row = (await db.execute(_TOTALS_SQL, window)).mappings().one()
 
     # Ta sama reguła co wyszukiwarka globalna i joby dla viewera: bez odczytu
     # kandydatów (rola `user`, sekcje sourcing/pipeline odcięte) — bez nazwisk.
@@ -214,17 +273,19 @@ async def insights_placement_reconciliation(
                 "reached_at": r["va_reached_at"],
                 "actor_id": r["va_actor_id"],
                 "actor_name": r["va_actor_name"],
+                # Liczba prób (`process_id`) tej pary w `credited`; wiersz
+                # niesie najwcześniejszą. 0 = pary nie ma w tej rodzinie.
+                "attempts": int(r["va_attempts"]),
             },
         }
         for r in rows
     ]
 
-    both = sum(1 for i in items if i["in_first_hired"] and i["in_verifier_anchored"])
-    only_fh = sum(
-        1 for i in items if i["in_first_hired"] and not i["in_verifier_anchored"]
-    )
-    only_va = sum(
-        1 for i in items if i["in_verifier_anchored"] and not i["in_first_hired"]
+    totals = {key: int(totals_row[key]) for key in totals_row.keys()}
+    pair_count = (
+        totals["in_both"]
+        + totals["only_first_hired"]
+        + totals["only_verifier_anchored"]
     )
 
     return {
@@ -240,32 +301,17 @@ async def insights_placement_reconciliation(
             "first_hired": FIRST_HIRED_PER_CANDIDATE_JOB,
             "verifier_anchored": VERIFIER_ANCHORED_MILESTONES,
         },
-        "totals": {
-            "first_hired": both + only_fh,
-            "verifier_anchored": both + only_va,
-            "in_both": both,
-            "only_first_hired": only_fh,
-            "only_verifier_anchored": only_va,
-            # Sieroty liczone OSOBNO, bo to one tłumaczą, dlaczego nagłówek
-            # raportu i suma jego wierszy się nie zgadzają.
-            "without_job": sum(1 for i in items if i["job_id"] is None),
-            "without_client": sum(1 for i in items if i["client_id"] is None),
-            "without_actor_first_hired": sum(
-                1
-                for i in items
-                if i["in_first_hired"] and i["first_hired"]["actor_id"] is None
-            ),
-            "without_actor_verifier_anchored": sum(
-                1
-                for i in items
-                if i["in_verifier_anchored"]
-                and i["verifier_anchored"]["actor_id"] is None
-            ),
-        },
-        # Sufit osiągnięty = lista jest ucięta. Bez tej flagi obcięty raport
-        # czyta się jak komplet, a raport do uzgadniania, który cicho gubi
-        # wiersze, jest gorszy niż jego brak.
-        "truncated": len(items) >= _MAX_ROWS,
+        # Totale liczy baza z PEŁNEGO okna (`_TOTALS_SQL`), niezależnie od
+        # sufitu listy: `first_hired` i `verifier_anchored` to pary, każda
+        # rodzina liczona osobno; `verifier_anchored_attempts` to surowe
+        # wiersze `credited` (próby), czyli liczba, którą sumują kafle.
+        # Sieroty liczone OSOBNO, bo to one tłumaczą, dlaczego nagłówek
+        # raportu i suma jego wierszy się nie zgadzają.
+        "totals": totals,
+        # Lista ucięta = w oknie jest więcej par, niż weszło na listę. Bez tej
+        # flagi obcięty raport czyta się jak komplet, a raport do uzgadniania,
+        # który cicho gubi wiersze, jest gorszy niż jego brak.
+        "truncated": pair_count > len(items),
         # Nazwiska ukryte, bo rola nie ma dostępu do danych kandydatów — nie
         # dlatego, że ich brak. Pusta kolumna bez tej flagi myli jedno z drugim.
         "candidate_names_redacted": not show_candidate_names,

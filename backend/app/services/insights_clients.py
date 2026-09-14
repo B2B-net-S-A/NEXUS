@@ -123,13 +123,20 @@ async def margin_lookup_pln(
     db: AsyncSession,
     contracts: list[Contract],
     on: date,
-) -> tuple[dict[int, Decimal], set[int]]:
+) -> tuple[dict[int, Decimal], set[int], set[int]]:
     """Marża miesięczna per klient, obie nogi stawki przewalutowane na PLN.
 
-    Zwracany zbiór to klienci, dla których choć jeden wyceniony kontrakt
-    potrzebuje niedostępnego kursu. Wołający zostawia ich marżę jako ``None``
-    zamiast po cichu publikować sumę częściową — brak kursu NBP kasuje kwotę
-    z sumy i kafel obok pokazuje wtedy pewną, zaniżoną liczbę.
+    Zwraca ``(sumy, incomplete, unpriced)``. ``incomplete`` to klienci, dla
+    których choć jeden wyceniony kontrakt potrzebuje niedostępnego kursu —
+    wołający zostawia ich marżę jako ``None`` zamiast po cichu publikować sumę
+    częściową (brak kursu NBP kasuje kwotę z sumy i kafel obok pokazuje wtedy
+    pewną, zaniżoną liczbę). ``unpriced`` to klienci z żywym kontraktem bez
+    jednej nogi stawki (A04, 14.09.2026): suma zostaje CZĘŚCIOWA — tylko
+    z wycenionych kontraktów, dokładnie jak kafel „Aktywne MRR" na profilu
+    klienta (`active_mrr_unpriced_contracts`) — a wołający oznacza wiersz jako
+    niepełny. Na produkcji podpisana umowa B2B jest aktywna z samą stawką
+    kosztową do czasu zamówienia, więc ``None`` dla całego klienta zdejmowałoby
+    kwoty z większości rankingu i rozjeżdżało go z profilem.
     """
 
     currencies = {
@@ -143,11 +150,17 @@ async def margin_lookup_pln(
     fx_rates = await rates_to_pln(db, currencies, on)
     totals: dict[int, Decimal] = {}
     incomplete: set[int] = set()
+    unpriced: set[int] = set()
     for contract in contracts:
         fields = effective_rate_fields(contract, on)
         raw_client = fields["monthly_rate_client"]
         raw_candidate = fields["monthly_rate_candidate"]
         if raw_client is None or raw_candidate is None:
+            # Jedna noga stawki = marża tego kontraktu NIEZNANA, nie zerowa.
+            # Kontrakt jest pomijany, a klient oznaczany jako niepełny —
+            # do 14.09.2026 gołe ``continue`` podpisywało sumę częściową jako
+            # pełną (audyt statystyk, A04).
+            unpriced.add(contract.client_id)
             continue
         client_fx = fx_rates.get(contract.resolved_rate_client_currency)
         candidate_fx = fx_rates.get(contract.resolved_rate_candidate_currency)
@@ -168,19 +181,20 @@ async def margin_lookup_pln(
         )
     for client_id in incomplete:
         totals.pop(client_id, None)
-    return totals, incomplete
+    return totals, incomplete, unpriced
 
 
 async def revenue_lookup_pln(
     db: AsyncSession,
     contracts: list[Contract],
     on: date,
-) -> tuple[dict[int, Decimal], set[int]]:
+) -> tuple[dict[int, Decimal], set[int], set[int]]:
     """Miesięczny PRZYCHÓD per klient z tych samych kontraktów co marża.
 
     Noga klienta z harmonogramu na dzień ``on``, przewalutowana na PLN. Klient,
     któremu brakuje kursu dla choć jednej nogi przychodu, dostaje ``None``
-    (zbiór ``incomplete``) — ta sama reguła co ``margin_lookup_pln``.
+    (zbiór ``incomplete``); żywy kontrakt bez stawki klienta jest pomijany,
+    a klient trafia do ``unpriced`` — ta sama reguła co ``margin_lookup_pln``.
 
     Powód istnienia (UAT M10-B01): ranking w Radzie pokazywał jako „Aktywne
     MRR / mc" sumę ``client_orders.total_value`` aktywnych zamówień — wartość
@@ -192,9 +206,13 @@ async def revenue_lookup_pln(
     fx_rates = await rates_to_pln(db, currencies, on)
     totals: dict[int, Decimal] = {}
     incomplete: set[int] = set()
+    unpriced: set[int] = set()
     for contract in contracts:
         raw_client = effective_rate_fields(contract, on)["monthly_rate_client"]
         if raw_client is None:
+            # Żywy kontrakt bez stawki klienta: przychód klienta jest
+            # niepełny, nie „o jeden kontrakt mniejszy" (A04, jak wyżej).
+            unpriced.add(contract.client_id)
             continue
         client_pln, complete = amount_to_pln_with_rate(
             raw_client, fx_rates.get(contract.resolved_rate_client_currency)
@@ -208,7 +226,7 @@ async def revenue_lookup_pln(
         ) + Decimal(to_whole_pln(client_pln))
     for client_id in incomplete:
         totals.pop(client_id, None)
-    return totals, incomplete
+    return totals, incomplete, unpriced
 
 
 @dataclass(frozen=True)
@@ -242,8 +260,9 @@ class ClientRankingRow:
     # więc ich obecność niczego mu nie zmienia.
     revenue_complete: bool
     margin_complete: bool
-    # Brak kursu dla nogi przychodu — osobno od marży: marża potrafi być pełna
-    # (kontrakt bez stawki kandydata nie wchodzi do marży), a przychód nie.
+    # Brak kursu albo brak stawki klienta dla nogi przychodu — osobno od marży:
+    # przychód potrafi być pełny (kontrakt bez stawki kandydata wchodzi do
+    # przychodu), a marża nie — i odwrotnie przy walucie tylko jednej nogi.
     monthly_revenue_complete: bool
 
 
@@ -390,10 +409,14 @@ async def compute_client_ranking(
         )
         if r.candidate is not None:
             contractor_candidates.setdefault(r.client_id, []).append(r.candidate)
-    margin_lookup, margin_incomplete = await margin_lookup_pln(db, margin_rows, on)
-    monthly_revenue_lookup, monthly_revenue_incomplete = await revenue_lookup_pln(
+    margin_lookup, margin_incomplete, margin_unpriced = await margin_lookup_pln(
         db, margin_rows, on
     )
+    (
+        monthly_revenue_lookup,
+        monthly_revenue_incomplete,
+        monthly_revenue_unpriced,
+    ) = await revenue_lookup_pln(db, margin_rows, on)
 
     items: list[ClientRankingRow] = []
     for c, effective in client_rows:
@@ -422,8 +445,10 @@ async def compute_client_ranking(
                 framework_status=fc[0] if fc else None,
                 framework_expiry_date=fc[1] if fc else None,
                 revenue_complete=revenue_complete,
-                margin_complete=c.id not in margin_incomplete,
-                monthly_revenue_complete=c.id not in monthly_revenue_incomplete,
+                margin_complete=c.id not in margin_incomplete
+                and c.id not in margin_unpriced,
+                monthly_revenue_complete=c.id not in monthly_revenue_incomplete
+                and c.id not in monthly_revenue_unpriced,
             )
         )
 

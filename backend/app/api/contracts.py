@@ -2707,6 +2707,13 @@ async def update_contract(
     db: AsyncSession = Depends(get_db),
 ):
     _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
+    # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
+    # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
+    # Znany dług (audyt 14.09): writery zamówień (`commit_order_write` →
+    # `sync_pending_order_contracts`) blokują `client_orders` PRZED `contracts`,
+    # czyli odwrotnie — kolizja kończy się `deadlock detected` po jednej stronie
+    # (Postgres przerywa, nie psuje danych). Świadomie zaakceptowane; nie
+    # ujednolicaj kolejności w jednym miejscu bez drugiego.
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -2718,6 +2725,7 @@ async def update_contract(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if not contract:
@@ -2993,6 +3001,15 @@ async def update_contract_status(
 ):
     """Change only the operational status; TCM cannot mutate other fields."""
 
+    # FOR UPDATE na wierszu `contracts`: maszyna stanów (`assert_transition`,
+    # `revert_contract`, `void_contract`) ocenia `contract.status` Z PAMIĘCI,
+    # więc dwie równoległe sesje mogły obejść terminalny `void` — pierwsza
+    # anulowała, druga na starym obiekcie „cofała do szkicu" i UPDATE po
+    # commicie sąsiada przepychał `active → void → draft`. Po blokadzie druga
+    # sesja czeka i widzi już `void` (409). `selectinload` idzie osobnymi
+    # SELECT-ami, więc blokada dotyczy tylko rodzica — ten sam porządek co
+    # cron i `/bulk-mark-ended` (kontrakt PRZED zamówieniami). `resync_contract`
+    # bierze ten sam wiersz w tej samej transakcji (re-entrant), bez zakleszczenia.
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -3004,6 +3021,7 @@ async def update_contract_status(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if contract is None:
@@ -3566,6 +3584,8 @@ async def void_contract_endpoint(
 
     The safe alternative to a hard DELETE for executed/active contracts.
     """
+    # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
+    # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -3577,6 +3597,7 @@ async def void_contract_endpoint(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if not contract:
