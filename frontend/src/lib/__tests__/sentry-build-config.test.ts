@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
 
 function check(env: Record<string, string>) {
-  return spawnSync(process.execPath, [resolve('scripts/check-sentry-build-env.mjs')], { env, encoding: 'utf8' })
+  return spawnSync(process.execPath, [resolve('scripts/check-sentry-build-env.mjs')], { env: { NODE_ENV: 'test', ...env }, encoding: 'utf8' })
 }
 
 it('fails enabled telemetry builds when upload or release configuration is missing', () => {

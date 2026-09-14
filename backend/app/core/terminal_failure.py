@@ -1,4 +1,5 @@
 """Report one completed operation, preserving the original exception stack."""
+
 from contextvars import ContextVar
 from functools import wraps
 from uuid import uuid4
@@ -11,7 +12,9 @@ from app.core.request_correlation import correlation_ids
 _operation: ContextVar[dict | None] = ContextVar("sentry_operation", default=None)
 
 
-def capture_terminal_failure(exc: Exception, *, operation: str, failure_kind: str) -> None:
+def capture_terminal_failure(
+    exc: Exception, *, operation: str, failure_kind: str
+) -> None:
     state = _operation.get()
     if state and state["reported"]:
         return
@@ -38,6 +41,7 @@ def capture_terminal_failure(exc: Exception, *, operation: str, failure_kind: st
 
 def terminal_operation(name: str):
     """Async operation boundary: intermediate captures remain breadcrumbs only."""
+
     def decorate(function):
         @wraps(function)
         async def wrapped(*args, **kwargs):
@@ -50,13 +54,19 @@ def terminal_operation(name: str):
                     # Preserve the request correlation; background jobs also get
                     # their own operation UUID independent of Sentry grouping.
                     existing = correlation_ids.get() or {}
-                    scope.set_context("correlation", {"operation_id": str(uuid4()), **existing})
+                    scope.set_context(
+                        "correlation", {"operation_id": str(uuid4()), **existing}
+                    )
                     try:
                         return await function(*args, **kwargs)
                     except Exception as exc:
-                        capture_terminal_failure(exc, operation=name, failure_kind=type(exc).__name__)
+                        capture_terminal_failure(
+                            exc, operation=name, failure_kind=type(exc).__name__
+                        )
                         raise
             finally:
                 _operation.reset(token)
+
         return wrapped
+
     return decorate

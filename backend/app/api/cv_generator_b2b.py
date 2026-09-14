@@ -643,7 +643,12 @@ async def _run_generate_new_job(
                 db, generated_id, err.message, diagnostic_code=err.diagnostic_code
             )
             await db.commit()
-            capture_terminal_failure(err, operation="cv-generation", failure_kind=getattr(err, "diagnostic_code", None) or type(err).__name__)
+            capture_terminal_failure(
+                err,
+                operation="cv-generation",
+                failure_kind=getattr(err, "diagnostic_code", None)
+                or type(err).__name__,
+            )
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
             logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
@@ -651,7 +656,12 @@ async def _run_generate_new_job(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
             await db.commit()
-            capture_terminal_failure(err, operation="cv-generation", failure_kind=getattr(err, "diagnostic_code", None) or type(err).__name__)
+            capture_terminal_failure(
+                err,
+                operation="cv-generation",
+                failure_kind=getattr(err, "diagnostic_code", None)
+                or type(err).__name__,
+            )
             return
 
         finalized = await _finalize_success(
@@ -839,7 +849,12 @@ async def _run_generate_upload_job(
                 db, generated_id, err.message, diagnostic_code=err.diagnostic_code
             )
             await db.commit()
-            capture_terminal_failure(err, operation="cv-generation", failure_kind=getattr(err, "diagnostic_code", None) or type(err).__name__)
+            capture_terminal_failure(
+                err,
+                operation="cv-generation",
+                failure_kind=getattr(err, "diagnostic_code", None)
+                or type(err).__name__,
+            )
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
             logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
@@ -847,7 +862,12 @@ async def _run_generate_upload_job(
                 db, generated_id, "Nieoczekiwany błąd generacji CV."
             )
             await db.commit()
-            capture_terminal_failure(err, operation="cv-generation", failure_kind=getattr(err, "diagnostic_code", None) or type(err).__name__)
+            capture_terminal_failure(
+                err,
+                operation="cv-generation",
+                failure_kind=getattr(err, "diagnostic_code", None)
+                or type(err).__name__,
+            )
             return
 
         finalized = await _finalize_success(

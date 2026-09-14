@@ -314,9 +314,7 @@ async def _answer_with_model(
     if _contains_prompt_injection(answer) or _contains_concrete_financial_amount(
         answer
     ):
-        logger.warning(
-            "[cv_chat] output rejected (policy)"
-        )
+        logger.warning("[cv_chat] output rejected (policy)")
         answer = _REFUSAL_PL
 
     await _persist_exchange(db, token_row.token, question, answer)

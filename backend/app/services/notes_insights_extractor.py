@@ -194,8 +194,19 @@ def _validated_insights(parsed: Any) -> dict:
     """Reject malformed container shapes before any candidate fields are written."""
     if not isinstance(parsed, dict):
         raise ValueError("invalid_notes_response")
-    objects = {"expected_rate", "availability", "current_engagement", "preferences", "relocation"}
-    object_lists = {"languages_observed", "skills_evidenced", "skills_gaps_observed", "client_vetoes"}
+    objects = {
+        "expected_rate",
+        "availability",
+        "current_engagement",
+        "preferences",
+        "relocation",
+    }
+    object_lists = {
+        "languages_observed",
+        "skills_evidenced",
+        "skills_gaps_observed",
+        "client_vetoes",
+    }
     for key in _INSIGHT_KEYS:
         value = parsed.get(key)
         if value is None:
@@ -203,9 +214,13 @@ def _validated_insights(parsed: Any) -> dict:
         if key in objects:
             valid = isinstance(value, dict)
         elif key in object_lists:
-            valid = isinstance(value, list) and all(isinstance(item, dict) for item in value)
+            valid = isinstance(value, list) and all(
+                isinstance(item, dict) for item in value
+            )
         elif key == "certifications":
-            valid = isinstance(value, list) and all(isinstance(item, str) for item in value)
+            valid = isinstance(value, list) and all(
+                isinstance(item, str) for item in value
+            )
         elif key == "years_confirmed":
             valid = isinstance(value, (int, float)) and not isinstance(value, bool)
         else:
