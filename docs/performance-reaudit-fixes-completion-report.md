@@ -61,3 +61,27 @@ a ta sama konfiguracja zadziałała 2,5 h wcześniej. Produkcja została na `650
 2. `COMPOSE_PROFILES=observability` + `GRAFANA_LOKI_*` przez workflow „Coolify set env”.
 3. Zewnętrzny monitor co 1 min na `/login` i `/api/health/live` z alertem do właściciela.
 4. Konfiguracja backup restore drill.
+
+## Runda 3 — po reaudycie v2 (14.09.2026, druga kontrola)
+
+**Źródło:** [reaudyt v2](performance-and-availability-reaudit-2026-09-14-v2.md). Potwierdzono:
+deploy #1509 dał ~105 s 503 na froncie i ~52 s 502/503 na API przy zielonym workflow;
+N01 i N02 są realne (N02 bez aktywnego wpływu na obecne wywołania). Dodatkowe ustalenie:
+frontend leżał dwa razy dłużej, bo w `docker-compose.yml` czekał na zdrowy backend.
+
+| Zmiana | Plik | Test |
+|---|---|---|
+| Pomiar przerwy widzianej przez użytkowników w każdym deployu (sonda co ~2 s, tabela w podsumowaniu, `::notice::`) | `.github/workflows/deploy.yml` | skrypty obu kroków uruchomione lokalnie z atrapą curla |
+| Frontend bez `depends_on: backend` — odtwarza się niezależnie od migracji backendu | `docker-compose.yml` | `test_delivery_contract.py` (kontrakt odwrócony) |
+| Czas faz startu backendu i podfaz siatki DDL w logach (`[startup-timing]`) | `backend/entrypoint.sh` | `bash -n`, testy luster entrypointu |
+| Jednorazowe przeładowanie po ChunkLoadError | `lib/chunk-reload.ts`, `ChunkReloadGuard.tsx`, `app/error.tsx` | `chunk-reload.test.ts` |
+| N01: sprzątanie blokady także przy anulowaniu w trakcie oddawania sesji | `core/cache.py` | `test_perf_reaudit_backend.py` (pada na poprzednim kodzie) |
+| N02: helper odmawia po `flush()` i po instrukcji innej niż SELECT | `core/database.py` | `test_perf_reaudit_backend.py` (pada na poprzednim kodzie) |
+
+**Oczekiwany efekt do potwierdzenia pomiarem:** krótsza przerwa frontendu (tylko jego własny
+restart zamiast czekania na migracje backendu). Przerwa API się nie zmienia — jej fazy pokaże
+`[startup-timing]`. Pierwszy deploy z tą zmianą da obie liczby w podsumowaniu biegu.
+
+**Świadomie poza zakresem:** bezprzerwowy deploy (rozdzielenie FE/API w Coolify z rolling
+update i blokadą lidera dla pętli tła), przywrócenie stagingu, testy 50/100.
+

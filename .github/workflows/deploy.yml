@@ -207,6 +207,43 @@ jobs:
           fi
           echo "Provisioned a dedicated candidate identity fingerprint key."
 
+      # ── Pomiar przerwy widzianej przez użytkowników (reaudyt 14.09.2026) ──
+      # Zielony deploy i końcowy healthcheck NIE mówią, czy użytkownicy dostali
+      # w trakcie 503. 14.09 deploy #1509 zakończył się sukcesem, a niezależne
+      # sondy zarejestrowały ~105 s „no available server” na froncie i ~52 s
+      # 502/503 na API. Ta sonda chodzi w tle od wywołania webhooka do końca
+      # joba i raportuje sekundy bez 200 w podsumowaniu biegu. Nie blokuje
+      # deployu — to pomiar, który ma pokazać postęp prac nad ciągłością (F03).
+      - name: Start user-facing downtime probe
+        id: downtime_meter
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          probe_dir="$RUNNER_TEMP/downtime-probe"
+          mkdir -p "$probe_dir"
+          cat > "$probe_dir/probe.sh" <<'PROBE'
+          #!/usr/bin/env bash
+          # Co ~2 s: frontend /login (z przekierowaniami) i API /api/health/live.
+          # Linia CSV: epoka_s,cel,kod_http. Kod 000 = brak odpowiedzi/timeout.
+          set -u
+          out="$1"; stop="$2"; deadline=$(( $(date +%s) + 1800 ))
+          while [ ! -f "$stop" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+            now=$(date +%s)
+            fe=$(curl -sS -o /dev/null -L --max-time 5 -A "$SMOKE_UA" -w '%{http_code}' "$FRONTEND_URL/login" 2>/dev/null || true)
+            api=$(curl -sS -o /dev/null --max-time 5 -A "$SMOKE_UA" -w '%{http_code}' "$APP_URL/api/health/live" 2>/dev/null || true)
+            echo "$now,frontend,${fe:-000}" >> "$out"
+            echo "$now,api,${api:-000}" >> "$out"
+            sleep 2
+          done
+          PROBE
+          chmod +x "$probe_dir/probe.sh"
+          nohup "$probe_dir/probe.sh" "$probe_dir/samples.csv" "$probe_dir/stop" \
+            > "$probe_dir/probe.log" 2>&1 &
+          echo $! > "$probe_dir/pid"
+          echo "Downtime probe started (pid $(cat "$probe_dir/pid"))."
+
       - name: Trigger deployment
         id: trigger
         if: ${{ steps.precheck.outputs.skip != 'true' }}
@@ -439,9 +476,10 @@ jobs:
           # (patrz komentarz w uptime-probe.yml), a 24.08 powtorzyl ten sam blad
           # obserwator pisany ad hoc podczas tego wlasnie incydentu.
           #
-          # Kontener frontendu startuje PO backendzie (depends_on: service_healthy),
-          # wiec w chwili, gdy /api/health serwuje juz nowy SHA, frontend moze jeszcze
-          # wstawac. Stad wlasny budzet ponowien zamiast pojedynczego zapytania.
+          # Kontener frontendu odtwarza sie niezaleznie od backendu (bez depends_on
+          # od 14.09.2026), wiec w chwili, gdy /api/health serwuje juz nowy SHA,
+          # frontend moze jeszcze wstawac. Stad wlasny budzet ponowien zamiast
+          # pojedynczego zapytania.
           # Czas mierzony, NIE szacowany: przy `--max-time 15` + `sleep 15` jedna
           # iteracja trwa od 15 s (szybka odpowiedz) do 30 s (timeout curla), wiec
           # kazda liczba wpisana na sztywno klamie w polowie przypadkow — i to
@@ -543,3 +581,66 @@ jobs:
           done
           echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above; a likely cause is a migration column that never landed on prod — mirror it into backend/entrypoint.sh _COLUMN_STATEMENTS (see memory entrypoint-safetynet-new-columns)."
           exit 1
+
+      - name: Report user-facing downtime
+        # `always()`: przerwa jest najciekawsza właśnie wtedy, gdy smoke test padł.
+        if: ${{ always() && steps.downtime_meter.outcome == 'success' }}
+        run: |
+          probe_dir="$RUNNER_TEMP/downtime-probe"
+          touch "$probe_dir/stop"
+          sleep 3
+          kill "$(cat "$probe_dir/pid" 2>/dev/null)" 2>/dev/null || true
+          samples="$probe_dir/samples.csv"
+          if [ ! -s "$samples" ]; then
+            echo "::warning::Sonda przerwy nie zebrała próbek — brak pomiaru dla tego deployu."
+            exit 0
+          fi
+          python3 - "$samples" "$TARGET_SHA" "$probe_dir/worst" <<'PY_REPORT' >> "$GITHUB_STEP_SUMMARY"
+          import csv, sys
+          from collections import defaultdict
+          from datetime import datetime, timezone
+
+          samples_path, target_sha, worst_path = sys.argv[1], sys.argv[2], sys.argv[3]
+          rows = defaultdict(list)
+          with open(samples_path) as fh:
+              for ts, target, code in csv.reader(fh):
+                  rows[target].append((int(ts), code))
+
+          def fmt(ts):
+              return datetime.fromtimestamp(ts, timezone.utc).strftime("%H:%M:%S UTC")
+
+          def outages(samples):
+              """(start, end) każdej ciągłej serii próbek bez 200; koniec = pierwsza dobra próbka."""
+              found, start = [], None
+              for ts, code in sorted(samples):
+                  if code != "200" and start is None:
+                      start = ts
+                  elif code == "200" and start is not None:
+                      found.append((start, ts))
+                      start = None
+              if start is not None:
+                  found.append((start, sorted(samples)[-1][0]))
+              return found
+
+          print(f"### Przerwa widziana przez użytkowników — deploy `{target_sha[:8]}`\n")
+          print("| Cel | Próbki | Bez 200 | Najdłuższa przerwa | Od | Do | Kody |")
+          print("|---|---:|---:|---:|---|---|---|")
+          worst = 0
+          for target in ("frontend", "api"):
+              samples = rows.get(target, [])
+              bad_codes = sorted({code for _, code in samples if code != "200"})
+              runs = outages(samples)
+              longest = max(runs, key=lambda r: r[1] - r[0], default=None)
+              seconds = (longest[1] - longest[0]) if longest else 0
+              worst = max(worst, seconds)
+              frm = fmt(longest[0]) if longest else "—"
+              to = fmt(longest[1]) if longest else "—"
+              bad = sum(1 for _, code in samples if code != "200")
+              print(f"| {target} | {len(samples)} | {bad} | {seconds} s | {frm} | {to} | {', '.join(bad_codes) or '—'} |")
+          print("\nPróbki co ~2 s z runnera GitHub. Długość przerwy liczona od pierwszej "
+                "złej do pierwszej dobrej próbki — przybliżenie, nie pomiar ciągły.")
+          with open(worst_path, "w") as fh:
+              fh.write(str(worst))
+          PY_REPORT
+          worst=$(cat "$probe_dir/worst" 2>/dev/null || echo "?")
+          echo "::notice::Najdłuższa przerwa widziana przez użytkowników w tym deployu: ${worst} s (szczegóły w podsumowaniu biegu)."

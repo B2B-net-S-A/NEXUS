@@ -40,9 +40,29 @@ fi
 
 export PYTHONPATH=/app:${PYTHONPATH}
 
+# ── Pomiar czasu faz startu (reaudyt 14.09.2026) ────────────────────────────
+# Przy każdym deployu API nie odpowiada, dopóki ten skrypt nie dojdzie do
+# `exec uvicorn` — zmierzone ~52 s przerwy przy #1509. Bez czasu każdej fazy
+# nie wiadomo, co skracać (migracje? siatka DDL? kolejne procesy Pythona, każdy
+# z własnym importem aplikacji?). Linie `[startup-timing]` są w logach
+# kontenera; zmiana nie wpływa na kolejność ani wynik żadnej fazy.
+STARTUP_T0=$(date +%s)
+STARTUP_PHASE=""
+STARTUP_PHASE_T0=$STARTUP_T0
+startup_phase() {
+    local now
+    now=$(date +%s)
+    if [ -n "$STARTUP_PHASE" ]; then
+        echo "[startup-timing] ${STARTUP_PHASE}: $((now - STARTUP_PHASE_T0))s"
+    fi
+    STARTUP_PHASE="$1"
+    STARTUP_PHASE_T0=$now
+}
+
 echo "=== Nexus ATS Backend Starting (as $(id -un)) ==="
 
 # Wait for postgres to be ready
+startup_phase "wait-for-db"
 echo "Waiting for database..."
 until python -c "
 import asyncio, asyncpg, os
@@ -63,6 +83,7 @@ done
 # Run migrations
 # The alembic.ini lives in /app/alembic/ but script_location=alembic points to /app/alembic
 # Run from /app so that 'alembic' dir is found correctly
+startup_phase "alembic-upgrade"
 echo "Running database migrations..."
 cd /app
 # Tolerate alembic failures in dev: multiple in-flight feature branches can
@@ -76,6 +97,7 @@ alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade faile
 # several columns that those migrations ship; backfill them idempotently
 # so ORM queries don't crash with UndefinedColumnError. Non-fatal — bail
 # back to alembic-only behavior if anything unexpected happens.
+startup_phase "safety-net-ddl-data-indexes"
 echo "Backfilling critical Phase 8 columns (idempotent)..."
 python - <<'PY' || echo "column backfill failed; continuing"
 import asyncio, json, os, re
@@ -6970,7 +6992,18 @@ async def _drop_invalid_indexes(conn, statements):
             print(f"backfill: DROP nieprawidłowego indeksu {name} nie powiódł się -> {e!r}")
 
 
+def _timing(label, started):
+    # Podfazy siatki bezpieczeństwa — patrz `startup_phase` w nagłówku skryptu.
+    import time as _time
+
+    print(f"[startup-timing]   safety-net {label}: {_time.monotonic() - started:.1f}s")
+    return _time.monotonic()
+
+
 async def backfill():
+    import time as _time
+
+    _t = _time.monotonic()
     url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
     url = url.replace("postgresql+asyncpg://", "postgresql://")
     # Enum ADD VALUE must run in autocommit mode.
@@ -7002,6 +7035,7 @@ async def backfill():
         # (przerankowanie `candidate_documents` idzie po ~136 tys. wierszy).
         # Limit czasu zdejmujemy, limit CZEKANIA NA ZAMEK zostaje: instrukcja
         # ma się poddać, a nie ustawiać kolejki przed gorącą tabelą.
+        _t = _timing("enum+column DDL", _t)
         await _apply_limits(conn, lock="'3s'", statement="0")
         for stmt in _DATA_STATEMENTS:
             try:
@@ -7010,6 +7044,7 @@ async def backfill():
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
+        _t = _timing("data statements + seeds", _t)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:
             try:
@@ -7026,6 +7061,7 @@ async def backfill():
         # CZEKA na wydrenowanie transakcji widzących tabelę i robi to nie
         # blokując zapisów, więc trzysekundowy limit z faz wyżej byłby tu
         # przeciwskuteczny — zamieniałby normalne oczekiwanie w porażkę.
+        _t = _timing("constraints", _t)
         await _apply_limits(conn, lock="0", statement="'120s'")
         await _drop_invalid_indexes(conn, _INDEX_STATEMENTS)
         try:
@@ -7047,6 +7083,7 @@ async def backfill():
                 await conn.execute("SET lock_timeout = 0")
             except Exception:
                 pass
+        _timing("indexes", _t)
         print("backfill: ok")
     finally:
         await conn.close()
@@ -7060,6 +7097,7 @@ PY
 # user_competence_categories, candidate_invite_links, procedures,
 # proposal_snapshots, champion_profile_suggestions, app_settings, etc.)
 # that migrations 0029_*/0031_*/0032_*/0033_* would have created.
+startup_phase "metadata-create-all"
 echo "Creating missing tables from SQLAlchemy metadata..."
 python - <<'PY' || echo "metadata create_all failed; continuing"
 import asyncio
@@ -7079,6 +7117,7 @@ PY
 # cannot add foreign keys to the already-existing recruitment_processes table.
 # Install those links only after both sides exist. Every statement is rerun-safe
 # and mirrors migration 0200.
+startup_phase "priority-work-schema"
 echo "Finalizing Recruitment Priority Work schema (idempotent)..."
 python - <<'PY' || echo "priority work schema finalization failed; continuing"
 import asyncio
@@ -7246,6 +7285,7 @@ PY
 # (zepsuta migracja, brak tabeli, zerwane połączenie) zatrzymuje start, jak
 # przed 09.2026; logika w module, żeby testy ćwiczyły ją na prawdziwym
 # Postgresie (`test_entrypoint_lock_timeouts.py`).
+startup_phase "signature-policy-bootstrap"
 python -m app.services.signature_policy_bootstrap
 
 # Availability/allocation must be in place before ORM reads at login or startup.
@@ -7254,12 +7294,14 @@ python -m app.services.signature_policy_bootstrap
 # TWARDY celowo (ORM czyta te kolumny przy logowaniu), ale z `lock_timeout`:
 # upadek po timeoucie zamka tylko wtedy, gdy schematu naprawdę brakuje — przy
 # kompletnym start idzie dalej (szczegóły w docstringu modułu).
+startup_phase "allocation-schema-bootstrap"
 python -m app.services.allocation_schema_bootstrap
 
 # CV schema 0290–0299 must exist before workers or ORM reads start.
 # Fail startup on an incomplete repair; reuse canonical table migrations.
 # Ta sama polityka zamka co wyżej: `lock_timeout`, a timeout jest fatalny
 # wyłącznie przy niekompletnym schemacie (`cv_schema_bootstrap.main`).
+startup_phase "cv-schema-bootstrap"
 python -m app.services.cv_schema_bootstrap
 
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
@@ -7267,6 +7309,7 @@ python -m app.services.cv_schema_bootstrap
 # scala tylko faktyczne duplikaty case + 5 par semantycznych, repin-before-delete.
 # Bez tego prod (zaklinowany alembic na starej rewizji) miałby zdublowaną
 # taksonomię (python/Python) mimo działającego modułu Cortex.
+startup_phase "cortex-taxonomy-dedup"
 echo "Cortex: dedup taxonomy (idempotent safety-net)..."
 python - <<'PY' || echo "cortex dedup skipped; continuing"
 import asyncio
@@ -7292,6 +7335,7 @@ PY
 # `app/services/order_separation_repair.py` — i jest idempotentny: advisory
 # lock serializuje równoległe deploye, a marker w `app_settings` sprawia, że
 # drugie wywołanie kończy się natychmiast.
+startup_phase "repair-md-periodic-orders"
 echo "Separating MD and periodic client orders (one-shot, idempotent)..."
 python - <<'PY' || echo "md/periodic order separation skipped; continuing"
 import asyncio
@@ -7318,6 +7362,7 @@ PY
 # kontraktu + audyt klasy (safety-net dla migracji 0274, gdy alembic na prodzie
 # stoi na starszej rewizji). Jedno źródło SQL-a w
 # `app/services/contract_ended_tab_repair.py`; blok jest idempotentny.
+startup_phase "repair-ended-tab-contracts"
 echo "Repairing contracts ended by an order period, not by administration (one-shot)..."
 python - <<'PY' || echo "ended-tab contract repair skipped; continuing"
 import asyncio
@@ -7347,6 +7392,7 @@ PY
 # (`app/services/contract_order_sync_repair.py`); marker w `app_settings` +
 # advisory lock → drugi start kończy się natychmiast. Dobowy przebieg kosztów
 # rusza dopiero po markerze, więc porażka tego bloku niczego nie nadpisze.
+startup_phase "repair-contract-order-sync"
 echo "Contract ↔ order sync: report snapshot + draft contract repair (one-shot)..."
 python - <<'PY' || echo "contract-order sync repair skipped; continuing"
 import asyncio
@@ -7379,6 +7425,7 @@ PY
 # bez zapisu i bez markera — następny start spróbuje ponownie.
 # Log idzie do Grafany (Loki): wypisujemy WYŁĄCZNIE liczby i powody pominięcia,
 # nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
+startup_phase "repair-pfron-split"
 echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
 python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
 import asyncio
@@ -7419,6 +7466,7 @@ PY
 # okresu do najbliższego zapisu zamówienia. `app/services/pfron_revenue_resync.py`
 # woła tę samą synchronizację co zwykły zapis zamówienia (tylko przy włączonej
 # 0304); własny marker + advisory lock, jednorazowy. Log: tylko liczby.
+startup_phase "repair-pfron-resync"
 echo "PFRON 507-509: contract revenue schedule resync after the split (one-shot)..."
 python - <<'PY' || echo "pfron revenue resync skipped; continuing"
 import asyncio
@@ -7455,6 +7503,7 @@ PY
 # marker w `app_settings` + advisory lock → drugi start kończy się od razu.
 # Porażka nie zapisuje niczego (rollback) — następny start spróbuje ponownie.
 # Log: wyłącznie liczby.
+startup_phase "repair-b2b-end-dates"
 echo "B2B contracts: ticket terminations + indefinite end dates (one-shot)..."
 python - <<'PY' || echo "b2b end-date repair skipped; continuing"
 import asyncio
@@ -7492,6 +7541,7 @@ PY
 # Logika w `app/services/contract_duplicate_merge_repair.py`; marker
 # w `app_settings` + advisory lock. Porażka nie zapisuje niczego (rollback) —
 # następny start spróbuje ponownie. Log: wyłącznie liczby, ID i kody powodów.
+startup_phase "repair-contract-duplicate"
 echo "Contracts: merge the duplicate contract from the ticket (one-shot)..."
 python - <<'PY' || echo "contract duplicate merge skipped; continuing"
 import asyncio
@@ -7525,6 +7575,7 @@ PY
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
 # starting clean.
+startup_phase "m365-sync-reset"
 echo "Resetting stuck m365 sync state (idempotent)..."
 python - <<'PY' || echo "m365 reset skipped (table may not exist yet); continuing"
 import asyncio
@@ -7553,6 +7604,7 @@ asyncio.run(reset())
 PY
 
 # Run seed (idempotent - skips if already seeded)
+startup_phase "seed"
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
 
@@ -7574,9 +7626,12 @@ python seed.py || echo "seed.py failed (likely pre-existing schema drift from un
 # set before its advisory lock — `client_portfolio_import.POSTGRES_LOCK_TIMEOUT`),
 # and the applied-hash path takes no lock that pg_dump's ACCESS SHARE blocks.
 # It stays fail-closed on purpose: a half-known portfolio must not go live.
+startup_phase "client-portfolio-manifest"
 echo "Applying client portfolio manifest (transactional apply-once)..."
 python -m app.cli.client_portfolio_import --apply-once
 
 # Start the application
+startup_phase ""
+echo "[startup-timing] total before uvicorn: $(( $(date +%s) - STARTUP_T0 ))s"
 echo "Starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

@@ -1,0 +1,31 @@
+{
+  "cancel_during_release": {
+    "locks_remaining": 1,
+    "refs_remaining": {
+      "audit-cancel": 1
+    },
+    "refs_after_next_success": {
+      "audit-cancel": 1
+    }
+  },
+  "already_flushed_write": {
+    "state_before": {
+      "new": 0,
+      "dirty": 0,
+      "deleted": 0
+    },
+    "helper_committed": true,
+    "rows_after_caller_rollback": 1
+  },
+  "clean_read_release": {
+    "released": true,
+    "transaction_after": false
+  },
+  "bounded_read": {
+    "status": 413,
+    "read_sizes": [
+      1048577
+    ],
+    "total_upload_bytes": 3145728
+  }
+}

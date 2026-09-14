@@ -1,0 +1,1103 @@
+[
+  {
+    "utc": "2026-09-14T11:16:48.529738+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefb4bcb5cb4bb-WAW"
+    },
+    "elapsed_s": 0.1986
+  },
+  {
+    "utc": "2026-09-14T11:16:48.728520+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.1479
+  },
+  {
+    "utc": "2026-09-14T11:16:53.877600+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefb6cfc231ae7-WAW"
+    },
+    "elapsed_s": 0.0735
+  },
+  {
+    "utc": "2026-09-14T11:16:53.951332+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.1355
+  },
+  {
+    "utc": "2026-09-14T11:16:59.089980+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefb8d8d42027d-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1444
+  },
+  {
+    "utc": "2026-09-14T11:16:59.234446+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.1456
+  },
+  {
+    "utc": "2026-09-14T11:17:04.386046+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefbaebd4ac005-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0869
+  },
+  {
+    "utc": "2026-09-14T11:17:04.472991+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.1474
+  },
+  {
+    "utc": "2026-09-14T11:17:09.622545+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefbcf6905c003-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0755
+  },
+  {
+    "utc": "2026-09-14T11:17:09.698037+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.428
+  },
+  {
+    "utc": "2026-09-14T11:17:15.135811+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefbf279aeaa1f-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.2136
+  },
+  {
+    "utc": "2026-09-14T11:17:15.349492+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.1364
+  },
+  {
+    "utc": "2026-09-14T11:17:20.487435+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefc135c2b5411-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.162
+  },
+  {
+    "utc": "2026-09-14T11:17:20.649658+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "934aef8fcf67779745b3109e27fc03c0a1f20303"
+    },
+    "elapsed_s": 0.2338
+  },
+  {
+    "utc": "2026-09-14T11:17:25.889426+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefc350a99ed0d-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0618
+  },
+  {
+    "utc": "2026-09-14T11:17:25.951277+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 502,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {},
+    "body": "Bad Gateway",
+    "elapsed_s": 0.1257
+  },
+  {
+    "utc": "2026-09-14T11:17:31.082106+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefc558f72722f-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0711
+  },
+  {
+    "utc": "2026-09-14T11:17:31.153295+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 502,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {},
+    "body": "Bad Gateway",
+    "elapsed_s": 0.1344
+  },
+  {
+    "utc": "2026-09-14T11:17:36.293374+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefc7628ed3294-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0841
+  },
+  {
+    "utc": "2026-09-14T11:17:36.377552+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 502,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {},
+    "body": "Bad Gateway",
+    "elapsed_s": 0.1553
+  },
+  {
+    "utc": "2026-09-14T11:17:41.538606+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefc96ed36c405-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0757
+  },
+  {
+    "utc": "2026-09-14T11:17:41.614386+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1379
+  },
+  {
+    "utc": "2026-09-14T11:17:46.758868+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefcb78facc61b-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.073
+  },
+  {
+    "utc": "2026-09-14T11:17:46.831906+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1264
+  },
+  {
+    "utc": "2026-09-14T11:17:51.963456+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefcd7fa320b98-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.06
+  },
+  {
+    "utc": "2026-09-14T11:17:52.023538+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1261
+  },
+  {
+    "utc": "2026-09-14T11:17:57.155297+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefcf87bbbbf30-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0789
+  },
+  {
+    "utc": "2026-09-14T11:17:57.234172+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1235
+  },
+  {
+    "utc": "2026-09-14T11:18:02.363407+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefd18f8670278-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0624
+  },
+  {
+    "utc": "2026-09-14T11:18:02.425823+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1212
+  },
+  {
+    "utc": "2026-09-14T11:18:07.548739+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefd39684e025c-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0628
+  },
+  {
+    "utc": "2026-09-14T11:18:07.611615+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.135
+  },
+  {
+    "utc": "2026-09-14T11:18:12.752969+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefd5a0abe1c02-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0748
+  },
+  {
+    "utc": "2026-09-14T11:18:12.827841+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1227
+  },
+  {
+    "utc": "2026-09-14T11:18:17.956157+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefd7a7e3823d9-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0691
+  },
+  {
+    "utc": "2026-09-14T11:18:18.025313+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 503,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.1282
+  },
+  {
+    "utc": "2026-09-14T11:18:43.947011+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 503,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefe1ced33de89-WAW"
+    },
+    "body": "no available server\n",
+    "elapsed_s": 0.0625
+  },
+  {
+    "utc": "2026-09-14T11:18:44.009764+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1227
+  },
+  {
+    "utc": "2026-09-14T11:18:49.138073+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefe3d5fb1bfc6-WAW"
+    },
+    "elapsed_s": 0.0907
+  },
+  {
+    "utc": "2026-09-14T11:18:49.228798+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.14
+  },
+  {
+    "utc": "2026-09-14T11:18:54.370998+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefe5e0b495020-WAW"
+    },
+    "elapsed_s": 0.1145
+  },
+  {
+    "utc": "2026-09-14T11:18:54.485552+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1516
+  },
+  {
+    "utc": "2026-09-14T11:18:59.644075+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefe7efabbbf43-WAW"
+    },
+    "elapsed_s": 0.1017
+  },
+  {
+    "utc": "2026-09-14T11:18:59.745845+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1258
+  },
+  {
+    "utc": "2026-09-14T11:19:04.876506+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefe9fbaf33bba-WAW"
+    },
+    "elapsed_s": 0.105
+  },
+  {
+    "utc": "2026-09-14T11:19:04.981505+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1421
+  },
+  {
+    "utc": "2026-09-14T11:19:10.129895+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefec099711e5d-WAW"
+    },
+    "elapsed_s": 0.082
+  },
+  {
+    "utc": "2026-09-14T11:19:10.212040+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1333
+  },
+  {
+    "utc": "2026-09-14T11:19:15.351799+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aefee129d5b615-WAW"
+    },
+    "elapsed_s": 0.0998
+  },
+  {
+    "utc": "2026-09-14T11:19:15.451661+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1367
+  },
+  {
+    "utc": "2026-09-14T11:19:20.594374+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeff01fb5c1ae9-WAW"
+    },
+    "elapsed_s": 0.09
+  },
+  {
+    "utc": "2026-09-14T11:19:20.684401+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1337
+  },
+  {
+    "utc": "2026-09-14T11:19:25.825084+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeff22a924c137-WAW"
+    },
+    "elapsed_s": 0.0811
+  },
+  {
+    "utc": "2026-09-14T11:19:25.906190+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1329
+  },
+  {
+    "utc": "2026-09-14T11:19:31.044919+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeff434d99ef8b-WAW"
+    },
+    "elapsed_s": 0.0803
+  },
+  {
+    "utc": "2026-09-14T11:19:31.125292+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1345
+  },
+  {
+    "utc": "2026-09-14T11:19:36.267279+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeff63ec7d0716-WAW"
+    },
+    "elapsed_s": 0.0793
+  },
+  {
+    "utc": "2026-09-14T11:19:36.346674+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1347
+  },
+  {
+    "utc": "2026-09-14T11:19:41.487253+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeff8479b60206-WAW"
+    },
+    "elapsed_s": 0.0734
+  },
+  {
+    "utc": "2026-09-14T11:19:41.560662+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1336
+  },
+  {
+    "utc": "2026-09-14T11:19:46.700738+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeffa51efbeeaf-WAW"
+    },
+    "elapsed_s": 0.0774
+  },
+  {
+    "utc": "2026-09-14T11:19:46.778174+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1394
+  },
+  {
+    "utc": "2026-09-14T11:19:51.924663+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeffc5ce277b43-WAW"
+    },
+    "elapsed_s": 0.0796
+  },
+  {
+    "utc": "2026-09-14T11:19:52.004294+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1322
+  },
+  {
+    "utc": "2026-09-14T11:19:57.139041+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3aeffe65d1598d0-WAW"
+    },
+    "elapsed_s": 0.0831
+  },
+  {
+    "utc": "2026-09-14T11:19:57.222188+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1347
+  },
+  {
+    "utc": "2026-09-14T11:20:02.362269+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af00075d74d614-WAW"
+    },
+    "elapsed_s": 0.1469
+  },
+  {
+    "utc": "2026-09-14T11:20:02.509251+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.2739
+  },
+  {
+    "utc": "2026-09-14T11:20:07.787601+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af0028ede0b607-WAW"
+    },
+    "elapsed_s": 0.0878
+  },
+  {
+    "utc": "2026-09-14T11:20:07.875445+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.195
+  },
+  {
+    "utc": "2026-09-14T11:20:13.077359+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af0049fb00f53c-WAW"
+    },
+    "elapsed_s": 0.0888
+  },
+  {
+    "utc": "2026-09-14T11:20:13.166284+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1307
+  },
+  {
+    "utc": "2026-09-14T11:20:18.303168+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af006a9e3b6ca2-WAW"
+    },
+    "elapsed_s": 0.0825
+  },
+  {
+    "utc": "2026-09-14T11:20:18.385730+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1382
+  },
+  {
+    "utc": "2026-09-14T11:20:23.526409+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af008b3c01c61b-WAW"
+    },
+    "elapsed_s": 0.0795
+  },
+  {
+    "utc": "2026-09-14T11:20:23.606016+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.139
+  },
+  {
+    "utc": "2026-09-14T11:20:28.751963+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af00abeec85b17-WAW"
+    },
+    "elapsed_s": 0.0787
+  },
+  {
+    "utc": "2026-09-14T11:20:28.830727+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1425
+  },
+  {
+    "utc": "2026-09-14T11:20:33.980077+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af00cc9a5741d0-WAW"
+    },
+    "elapsed_s": 0.078
+  },
+  {
+    "utc": "2026-09-14T11:20:34.058167+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1424
+  },
+  {
+    "utc": "2026-09-14T11:20:39.207109+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af00ed39922648-WAW"
+    },
+    "elapsed_s": 0.071
+  },
+  {
+    "utc": "2026-09-14T11:20:39.278169+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1339
+  },
+  {
+    "utc": "2026-09-14T11:20:44.418221+00:00",
+    "url": "https://nexus.dynaminds.pl/login",
+    "status": 200,
+    "final_url": "https://nexus.dynaminds.pl/login",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8",
+      "Server": "cloudflare",
+      "CF-RAY": "a3af010ded7eccaf-WAW"
+    },
+    "elapsed_s": 0.0895
+  },
+  {
+    "utc": "2026-09-14T11:20:44.507748+00:00",
+    "url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "status": 200,
+    "final_url": "https://api.nexus.dynaminds.pl/api/health/live",
+    "headers": {
+      "Content-Type": "application/json",
+      "Server": "uvicorn"
+    },
+    "body": {
+      "status": "alive",
+      "version": "a30d915c5e52c2adfb7e18af24de643f7bf3347f"
+    },
+    "elapsed_s": 0.1371
+  }
+]
