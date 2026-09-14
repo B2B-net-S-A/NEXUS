@@ -44,6 +44,16 @@ def summarize(application, envs):
             )
             row["value_is_unknown"] = value == "unknown"
             row["value_is_reference"] = isinstance(value, str) and "$" in value
+            # Classify only known, non-secret variable references. Never echo
+            # arbitrary values, even when they happen to contain a dollar sign.
+            row["known_reference"] = next(
+                (
+                    name
+                    for name in ("SOURCE_COMMIT", "GIT_SHA", "NEXT_PUBLIC_GIT_SHA")
+                    if value in ("$" + name, "${" + name + "}")
+                ),
+                None,
+            )
         result["envs"].append(row)
     return result
 

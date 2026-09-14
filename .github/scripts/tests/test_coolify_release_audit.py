@@ -38,6 +38,19 @@ class ReleaseAuditTests(unittest.TestCase):
             )["source_commit_setting_exposed"]
         )
 
+    def test_only_known_complete_references_are_identified(self):
+        rows = audit.summarize(
+            {},
+            [
+                {"key": "GIT_SHA", "value": "${SOURCE_COMMIT}"},
+                {"key": "SOURCE_COMMIT", "value": "$SOURCE_COMMIT"},
+                {"key": "GIT_SHA", "value": "$PRIVATE_SECRET"},
+                {"key": "GIT_SHA", "value": "${SOURCE_COMMIT}-private"},
+            ],
+        )["envs"]
+        self.assertEqual([row["known_reference"] for row in rows],
+                         ["SOURCE_COMMIT", "SOURCE_COMMIT", None, None])
+
 
 if __name__ == "__main__":
     unittest.main()
