@@ -706,19 +706,8 @@ def _close_truncated_json(text: str) -> str:
 
 
 def _json_error_context(text: str, err: json.JSONDecodeError, radius: int = 180) -> str:
-    """One-line diagnostic around a JSON parse failure.
-
-    The defect is often deep in the document (e.g. char 8416), so logging just
-    the head is useless. Surface length, position and a window around the
-    failing offset so the actual malformation is visible in Grafana/Loki.
-    """
-    pos = getattr(err, "pos", 0) or 0
-    lo = max(0, pos - radius)
-    hi = min(len(text), pos + radius)
-    return (
-        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} "
-        f"head={text[:100]!r} tail={text[-100:]!r} window={text[lo:hi]!r}"
-    )
+    """Parser coordinates only: the document itself must never enter logs."""
+    return f"len={len(text)} pos={err.pos} line={err.lineno} col={err.colno}"
 
 
 def _loads_cv_json(text: str) -> Any:
@@ -1691,9 +1680,7 @@ def _run_generation_pipeline(
     try:
         raw_data = _loads_cv_json(cleaned)
     except json.JSONDecodeError as err:
-        # The defect is often deep in the document (e.g. char 8416), so a
-        # head-only log hides it — dump length/position and a window around the
-        # failing offset instead. See _json_error_context.
+        # Retain parser coordinates without disclosing CV content.
         logger.error(
             "[cv_b2b][%s] Claude returned unparseable JSON: %s",
             request_id,

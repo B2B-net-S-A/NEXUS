@@ -15,6 +15,8 @@ from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+from app.core.request_correlation import RequestCorrelationMiddleware
+from app.core.sentry_privacy import scrub_event
 
 # Eager-import the models package so every ORM class is registered in the
 # SQLAlchemy registry before lifespan's create_all / configure_mappers runs.
@@ -285,13 +287,13 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     """
     exc_info = hint.get("exc_info") if hint else None
     if not (exc_info and len(exc_info) >= 2):
-        return event
+        return scrub_event(event)
     if not _is_transient_anthropic_exc(exc_info[1]):
-        return event
+        return scrub_event(event)
     for value in (event.get("exception") or {}).get("values", []):
         if (value.get("mechanism") or {}).get("type") == "anthropic":
             return None
-    return event
+    return scrub_event(event)
 
 
 if settings.SENTRY_DSN:
@@ -308,6 +310,10 @@ if settings.SENTRY_DSN:
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
+            include_local_variables=False,
+            attach_stacktrace=True,
+            max_request_body_size="never",
+            before_send_transaction=scrub_event,
             before_send=_sentry_before_send,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
@@ -831,6 +837,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
 
@@ -853,11 +860,14 @@ app.add_middleware(
         "Idempotency-Key",
         # Optimistic concurrency for typed candidate profile facts.
         "If-Match",
+        "sentry-trace",
+        "baggage",
+        "X-Operation-Id",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
     # cannot read the required client/date filename.
-    expose_headers=["ETag", "Content-Disposition"],
+    expose_headers=["ETag", "Content-Disposition", "X-Request-Id"],
 )
 
 # Register routers
