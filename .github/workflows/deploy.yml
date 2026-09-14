@@ -182,23 +182,38 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
-          set -euo pipefail
+          # Best effort, NIGDY bramka deployu (14.09.2026). Nasza wersja Coolify
+          # odrzuca to pole w API (HTTP 422), więc twarde `set -e` z #1515
+          # blokowało KAŻDY deploy przed wyzwoleniem builda — prod stał na
+          # #1517. Bez tego ustawienia build dostaje GIT_SHA (jak przed #1515),
+          # a brak SHA we froncie sygnalizują ostrzeżenia niżej. Włączenie:
+          # panel Coolify → aplikacja → General → Build →
+          # „Include Source Commit in Build".
+          set -uo pipefail
           base="${COOLIFY_URL%/}/api/v1/applications/${COOLIFY_APP_UUID}"
           auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+          hint="panel Coolify → aplikacja → General → Build → Include Source Commit in Build"
           # Never print the application response: it may contain credentials.
-          enabled=$(curl -fsS --max-time 30 "${auth[@]}" "$base" \
-            | jq -r '.settings.include_source_commit_in_build // false')
-          if [ "$enabled" != "true" ]; then
-            curl -fsS --max-time 30 -X PATCH "${auth[@]}" \
-              -H "Content-Type: application/json" \
-              -d '{"include_source_commit_in_build":true}' \
-              "$base" -o /dev/null
+          read_setting() {
+            curl -fsS --max-time 30 "${auth[@]}" "$base" 2>/dev/null \
+              | jq -r '.settings.include_source_commit_in_build // false' 2>/dev/null \
+              || echo "unreadable"
+          }
+          enabled=$(read_setting)
+          if [ "$enabled" = "true" ]; then
+            echo "SOURCE_COMMIT is enabled for build-time release metadata."
+            exit 0
           fi
-          # Older Coolify versions may accept but ignore unknown fields. Read
-          # back the setting and fail before triggering a build in that case.
-          curl -fsS --max-time 30 "${auth[@]}" "$base" \
-            | jq -e '.settings.include_source_commit_in_build == true' > /dev/null
-          echo "SOURCE_COMMIT is enabled for build-time release metadata."
+          code=$(curl -sS --max-time 30 -X PATCH "${auth[@]}" \
+            -H "Content-Type: application/json" \
+            -d '{"include_source_commit_in_build":true}' \
+            -o /dev/null -w '%{http_code}' "$base" 2>/dev/null || echo "000")
+          if [ "$(read_setting)" = "true" ]; then
+            echo "SOURCE_COMMIT enabled via API (HTTP $code)."
+            exit 0
+          fi
+          echo "::warning title=SOURCE_COMMIT niedostępny w buildzie::Coolify nie przyjął include_source_commit_in_build przez API (HTTP $code, odczyt: $enabled). Deploy idzie dalej z GIT_SHA; release Sentry i version.json frontendu mogą mieć 'unknown'. Włącz ręcznie: $hint."
+          exit 0
 
       - name: Ensure dedicated candidate identity fingerprint key
         if: ${{ steps.precheck.outputs.skip != 'true' }}
@@ -597,7 +612,14 @@ jobs:
               fi
               echo "Proba $i: frontend sha=$sha_short, oczekiwano $EXPECTED_SHA (pokrewienstwo=$rel), ponawiam za 15s..."
             elif [ "$sha" = "unknown" ]; then
-              echo "Proba $i: version.json ma sha=unknown — obraz zbudowany BEZ build arga NEXT_PUBLIC_GIT_SHA (GIT_SHA w Coolify?), ponawiam za 15s..."
+              # Build bez metadanych rewizji nie jest dowodem STAREGO builda —
+              # to brak ustawienia w Coolify (krok „Ensure actual source revision").
+              # Ostrzeżenie zamiast czerwonego deployu przy każdym merge'u; wykrycie
+              # nieaktualnego frontendu (realny, INNY sha) zostaje twardą bramką.
+              echo "frontend_sha=unknown" >> "$GITHUB_OUTPUT"
+              echo "frontend_rel=unknown" >> "$GITHUB_OUTPUT"
+              echo "::warning title=Frontend bez SHA builda::version.json ma sha=unknown — obraz zbudowany bez NEXT_PUBLIC_GIT_SHA, więc nie da się potwierdzić wersji frontendu. Włącz w Coolify: General → Build → Include Source Commit in Build."
+              exit 0
             else
               echo "Proba $i: brak czytelnego version.json $(head -1 /tmp/fe_ver_err 2>/dev/null), ponawiam za 15s..."
             fi
