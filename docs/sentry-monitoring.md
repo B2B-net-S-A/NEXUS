@@ -41,3 +41,15 @@ Odczyt `stats_v2` z 14.09.2026 dla `nexus-be` (projekt 4511350854647888,
 `too_large:event`. To dowód przekroczenia rozmiaru zdarzenia, nie błędu
 transportu. Wyłączenie zmiennych lokalnych i ograniczenie treści payloadu
 wymaga odbioru przez ponowny odczyt nowych odrzuceń po wdrożeniu.
+# Production release identity
+
+On 2026-09-14, the public production `main-app-afd91ba282d6d2e0.js`
+contained `release:"unknown"`, while API health reported a full deployed SHA.
+The compose build now prefers Coolify's `SOURCE_COMMIT` for both backend and
+frontend build arguments. The normal deployment workflow enables and reads back
+`include_source_commit_in_build` before starting a build; it does not substitute
+the workflow trigger SHA, which can lag the revision Coolify actually checks out.
+See the [Coolify application update API](https://coolify.io/docs/api/endpoints/applications/update-application-by-uuid).
+The Sentry build guard still requires a full SHA and upload credentials when the
+browser DSN is configured. Production acceptance requires inspecting the new
+browser release and a symbolicated event after deployment.
