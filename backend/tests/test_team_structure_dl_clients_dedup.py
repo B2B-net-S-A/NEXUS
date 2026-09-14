@@ -130,8 +130,11 @@ async def test_dl_clients_normalizes_diacritics_and_dl_suffix(
     legacy_id = await _seed_dl_user(
         f"diacritic-{suffix}@b2bnetwork.pl", f"TestRosol {suffix}"
     )
+    # Tag "(DL)" stoi na KOŃCU nazwy jak na produkcji — normalizacja ucina
+    # wszystko od "(" w prawo, więc sufiks po tagu zlewałby wszystkie
+    # przebiegi tego testu w jedną grupę.
     new_id = await _seed_dl_user(
-        f"diacritic-{suffix}@inframinds.eu", f"TestRosół (DL) {suffix}"
+        f"diacritic-{suffix}@inframinds.eu", f"TestRosół {suffix} (DL)"
     )
 
     cli = await _seed_client(f"DiacClient-{suffix}")

@@ -589,6 +589,93 @@ PHASE_NAMES: tuple[str, ...] = (
 )
 
 
+# ── Świeżość PER FAZA (INT-09) ───────────────────────────────────────────────
+#
+# `checks.traffit` w `/api/health` czyta WYŁĄCZNIE `__daily__` i to jest sonda
+# świeżości BIEGU, nie kompletności: `healthy` znaczy „nocna delta się kończy",
+# a nie „każda faza widziała ogon". Faza budżetowana, która od tygodni nie
+# przesuwa kursora, albo faza doradcza padająca na tym samym wierszu, wygląda
+# w health identycznie jak zdrowa — dokładnie tak luka w plikach przeżyła
+# miesiące. Werdykt per faza w `/sync/status` domyka to bez zmiany sondy.
+#
+# Progi zależą od typu fazy, bo każdy typ ma INNE „normalne" opóźnienie:
+# - zwykła faza biegnie w każdej nocnej delcie → 36 h (lustro `checks.traffit`);
+# - faza kursorowana/budżetowana też biegnie co noc, ale przemiata wycinek
+#   i bywa ucięta deployem w połowie → luźniej, 72 h;
+# - kadencja pełna (`__full__`) to tydzień → tydzień + doba zapasu
+#   (Coolify restartuje kontener przy pushu, a pełny bieg trwa godziny);
+# - fazy DORADCZE (`ADVISORY_PHASES`) nie blokują watermarku, więc ich
+#   opóźnienie nie zatrzymuje importu — werdykt `advisory`, nie `stale`,
+#   i nie liczą się do `phases_stale`.
+
+_DAILY_PHASE_STALE_HOURS = 36
+_CURSORED_PHASE_STALE_HOURS = 72
+_FULL_CADENCE_STALE_HOURS = 8 * 24
+
+# Fazy z kursorem wznawiania (patrz CLAUDE.md „Wznawialność"): budżetowane po
+# `after_id` oraz stronicowane po numerze strony.
+_CURSORED_PHASES = frozenset(
+    _BUDGETED_SWEEP_PHASES + ("candidates", "candidate_activities", "pipelines")
+)
+_FULL_CADENCE_PHASES = frozenset({FULL_MARKER})
+
+FRESHNESS_FRESH = "fresh"
+FRESHNESS_STALE = "stale"
+FRESHNESS_NEVER = "never"
+FRESHNESS_ADVISORY = "advisory"
+
+
+def phase_stale_after(phase: str) -> timedelta:
+    """Próg świeżości dla fazy (albo znacznika) — po typie, nie po nazwie."""
+    if phase in _FULL_CADENCE_PHASES:
+        return timedelta(hours=_FULL_CADENCE_STALE_HOURS)
+    if phase in _CURSORED_PHASES:
+        return timedelta(hours=_CURSORED_PHASE_STALE_HOURS)
+    return timedelta(hours=_DAILY_PHASE_STALE_HOURS)
+
+
+def phase_freshness(
+    phase: str, *, finished_at: Optional[datetime], now: datetime
+) -> str:
+    """``fresh`` | ``stale`` | ``never`` | ``advisory`` dla jednego wiersza stanu.
+
+    Czysta funkcja — o świeżości, nie o wyniku: `last_status` jedzie obok
+    w tej samej odpowiedzi i mówi o błędach, ten werdykt mówi o CZASIE.
+    `never` = wiersz bez końca biegu (faza nigdy nie doszła do końca).
+    """
+    if finished_at is None:
+        return FRESHNESS_NEVER
+    overdue = (now - finished_at) > phase_stale_after(phase)
+    if phase in ADVISORY_PHASES:
+        return FRESHNESS_ADVISORY if overdue else FRESHNESS_FRESH
+    return FRESHNESS_STALE if overdue else FRESHNESS_FRESH
+
+
+def annotate_freshness(states: list[dict[str, Any]], now: datetime) -> list[str]:
+    """Dopisz `freshness` i `stale_after_hours` do wierszy `/sync/status`;
+    zwróć posortowane nazwy faz z werdyktem `stale` (zbiorcze `phases_stale`).
+
+    Wiersze bez końca biegu (`never`) NIE trafiają do `phases_stale`: faza,
+    która nigdy nie pobiegła, to stan świeżo włączonej instalacji, nie regres —
+    a lista ma być tym, na co operator reaguje.
+    """
+    stale: list[str] = []
+    for state in states:
+        phase = str(state.get("phase") or "")
+        raw = state.get("last_run_finished_at")
+        finished_at = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+        if finished_at is not None and finished_at.tzinfo is None:
+            finished_at = finished_at.replace(tzinfo=timezone.utc)
+        verdict = phase_freshness(phase, finished_at=finished_at, now=now)
+        state["freshness"] = verdict
+        state["stale_after_hours"] = int(
+            phase_stale_after(phase).total_seconds() // 3600
+        )
+        if verdict == FRESHNESS_STALE:
+            stale.append(phase)
+    return sorted(stale)
+
+
 def active_phase_names() -> tuple[str, ...]:
     """Fazy, które plan wyprodukuje PRZY OBECNYCH USTAWIENIACH.
 

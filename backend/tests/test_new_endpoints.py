@@ -217,6 +217,7 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
     """Unit-test the 3 pure helpers — they don't touch DB so we don't need a
     DB fixture. Keeps regression coverage cheap."""
     from app.api.candidates import (
+        _NOTE_PREVIEW_MAX_CHARS,
         _format_note_preview,
         _format_rate,
         _format_rejection_reason,
@@ -228,10 +229,11 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
         )
         == "Świetny Python dev. Idzie do klienta."
     )
-    long_note = "a" * 200
+    long_note = "a" * (_NOTE_PREVIEW_MAX_CHARS + 80)
     preview = _format_note_preview(long_note)
     assert preview.endswith("…")
-    assert len(preview) <= 121
+    assert len(preview) <= _NOTE_PREVIEW_MAX_CHARS
+    assert _format_note_preview("a" * _NOTE_PREVIEW_MAX_CHARS).endswith("a")
 
     # Tiptap JSON doc — should extract just the text leaves.
     tiptap_doc = (

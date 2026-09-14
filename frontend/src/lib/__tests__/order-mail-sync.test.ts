@@ -89,3 +89,29 @@ describe("formatAge", () => {
     expect(formatAge("garbage", now)).toBe("nieznany");
   });
 });
+
+describe("errorOutsideReasons (UAT B49 — jeden komunikat, nie dwa)", () => {
+  const msg = "W bazie jest już osoba „Anna Testowa” (#1) bez umowy u tego klienta — potwierdź, że to ta sama osoba, i zastosuj ręcznie";
+
+  it("chowa „Błąd:”, gdy powód z kolejki niesie to samo zdanie z prefiksem writera", async () => {
+    const { errorOutsideReasons } = await import("@/lib/order-mail-sync");
+    expect(errorOutsideReasons(msg, [`Nie udało się zapisać zamówienia: ${msg}`])).toBeNull();
+  });
+
+  it("chowa też stary zapis z repr wyjątku po obu stronach", async () => {
+    const { errorOutsideReasons } = await import("@/lib/order-mail-sync");
+    expect(
+      errorOutsideReasons(`ValueError('${msg}')`, [`Nie udało się zapisać zamówienia: ValueError('${msg}')`]),
+    ).toBeNull();
+  });
+
+  it("pokazuje „Błąd:”, gdy treść różni się od powodów, i czyści repr", async () => {
+    const { errorOutsideReasons } = await import("@/lib/order-mail-sync");
+    expect(errorOutsideReasons("Nie udało się odczytać PDF-a", ["Brak numeru zamówienia"])).toBe(
+      "Nie udało się odczytać PDF-a",
+    );
+    expect(errorOutsideReasons("RuntimeError('padł odczyt')", [])).toBe("padł odczyt");
+    expect(errorOutsideReasons(null, ["x"])).toBeNull();
+    expect(errorOutsideReasons("", ["x"])).toBeNull();
+  });
+});

@@ -7,7 +7,6 @@ import os
 import uuid
 import zipfile
 
-import pytest
 from httpx import AsyncClient
 
 
@@ -197,12 +196,14 @@ async def test_bulk_cv_download_sanitizes_filenames(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     # Path-traversal attempt in cv_filename; entry name must be sanitized.
+    # The bytes are served from the BYTEA column — seeding the hostile name on
+    # disk would make the TEST itself write outside the upload dir.
     hostile = "../../etc/passwd.pdf"
     cid = await _seed_candidate(
         first="Evil/../X",
         last="Hack\\er",
         cv_filename=hostile,
-        cv_on_disk=b"%PDF-evil",
+        cv_in_db=b"%PDF-evil",
     )
     try:
         r = await app_client.post(
@@ -220,4 +221,4 @@ async def test_bulk_cv_download_sanitizes_filenames(
             assert "\\" not in entry
             assert entry.endswith(".pdf")
     finally:
-        await _delete_candidate(cid, hostile)
+        await _delete_candidate(cid, None)

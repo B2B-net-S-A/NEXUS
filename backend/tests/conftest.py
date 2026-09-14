@@ -207,6 +207,28 @@ def _pin_cv_generator_rebuilt_pipeline(monkeypatch):
     monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
 
 
+@pytest.fixture(params=("legacy", "v10"), ids=("pipeline-legacy", "pipeline-v10"))
+def pipeline_mode(request, monkeypatch) -> str:
+    """Macierz flag generatora CV (QA-07).
+
+    Test, który bierze ten fixture, biegnie dwa razy: w domyślnym przepływie
+    produkcyjnym (``legacy_v7`` + dowody doradcze — tak, jak stoi Coolify) i w
+    przebudowanym (``v10`` + ścisłe dowody — tak, jak przypina resztę suite'u
+    ``_pin_cv_generator_rebuilt_pipeline``). Nadpisuje tamten pin, bo oba
+    fixture'y dzielą jeden ``monkeypatch``, a autouse biegnie pierwszy.
+    Wchodzą tu WYŁĄCZNIE kontrakty obowiązujące w obu trybach; różnice trybów
+    opisuje ``test_cv_generator_legacy_v7.py`` (strażnik domyślnego).
+    """
+
+    if request.param == "legacy":
+        monkeypatch.delenv("CV_GENERATION_PIPELINE", raising=False)
+        monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
+    else:
+        monkeypatch.setenv("CV_GENERATION_PIPELINE", "v10")
+        monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+    return request.param
+
+
 # ── Global skill-taxonomy isolation ─────────────────────────────────────────
 
 

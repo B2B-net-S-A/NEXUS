@@ -103,3 +103,33 @@ export function withoutExceptionRepr(text: string): string {
     (_m, _q, inner: string) => inner,
   );
 }
+
+/** Powód z kolejki bez prefiksu writera — do porównania z `error`. */
+function reasonCore(text: string): string {
+  return withoutExceptionRepr(text)
+    .replace(/^Nie udało się zapisać zamówienia:\s*/u, "")
+    .trim();
+}
+
+/**
+ * Czy czerwony „Błąd:" pod „Dlaczego do weryfikacji" wnosi coś nowego.
+ *
+ * Writer zapisuje nieudany zapis W DWA miejsca naraz: do `gate_reasons`
+ * („Nie udało się zapisać zamówienia: …") i do `error` (samo zdanie). Kolejka
+ * pokazywała więc ten sam komunikat dwa razy (UAT B49). „Błąd:" renderuje się
+ * tylko wtedy, gdy jego treść NIE jest już wśród powodów — awaria innego
+ * kroku (np. odczytu PDF-a) nadal ma swoje miejsce.
+ */
+export function errorOutsideReasons(
+  error: string | null | undefined,
+  reasons: readonly string[] | null | undefined,
+): string | null {
+  if (!error) return null;
+  const core = reasonCore(error);
+  if (!core) return null;
+  const covered = (reasons ?? []).some((r) => {
+    const rc = reasonCore(r);
+    return rc === core || rc.includes(core);
+  });
+  return covered ? null : withoutExceptionRepr(error);
+}

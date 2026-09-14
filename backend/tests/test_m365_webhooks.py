@@ -259,11 +259,42 @@ async def test_auto_subscribe_noop_when_feature_disabled(monkeypatch) -> None:
 
 def test_replay_seen_dedupes_within_ttl() -> None:
     m365_api._reset_replay_cache_for_tests()
-    key = ("sub-1", "msg-A")
+    key = ("sub-1", "msg-A", "created")
     assert m365_api._replay_seen(key) is False
+    m365_api._replay_mark(key)
     assert m365_api._replay_seen(key) is True
     # Different key — independent entry.
-    assert m365_api._replay_seen(("sub-1", "msg-B")) is False
+    assert m365_api._replay_seen(("sub-1", "msg-B", "created")) is False
+
+
+def test_replay_seen_is_read_only(monkeypatch) -> None:
+    """INT-02: sam odczyt NIE wpisuje — wpis robi `_replay_mark` po spawnie."""
+    m365_api._reset_replay_cache_for_tests()
+    key = ("sub-1", "msg-A", "created")
+    assert m365_api._replay_seen(key) is False
+    assert m365_api._replay_seen(key) is False
+
+
+def test_replay_key_distinguishes_change_type() -> None:
+    """INT-02: `created` i `updated` tej samej wiadomości to dwa zdarzenia."""
+    m365_api._reset_replay_cache_for_tests()
+    m365_api._replay_mark(("sub-1", "msg-A", "created"))
+    assert m365_api._replay_seen(("sub-1", "msg-A", "updated")) is False
+
+
+def test_replay_ttl_is_minutes_not_a_day(monkeypatch) -> None:
+    """INT-02: po TTL ten sam klucz jest znowu nowym zdarzeniem."""
+    assert m365_api._REPLAY_TTL_SECONDS <= 60 * 60
+    m365_api._reset_replay_cache_for_tests()
+    base = 1_700_000_000.0
+    monkeypatch.setattr(m365_api.time, "time", lambda: base)
+    key = ("sub-1", "msg-A", "created")
+    m365_api._replay_mark(key)
+    assert m365_api._replay_seen(key) is True
+    monkeypatch.setattr(
+        m365_api.time, "time", lambda: base + m365_api._REPLAY_TTL_SECONDS + 1
+    )
+    assert m365_api._replay_seen(key) is False
 
 
 def test_replay_seen_evicts_when_over_cap(monkeypatch) -> None:
@@ -272,12 +303,12 @@ def test_replay_seen_evicts_when_over_cap(monkeypatch) -> None:
     monkeypatch.setattr(m365_api, "_REPLAY_CACHE_MAX", 4)
 
     for i in range(6):
-        m365_api._replay_seen((f"sub-{i}", "msg"))
+        m365_api._replay_mark((f"sub-{i}", "msg", "created"))
 
     # Only the last 4 should remain.
     assert len(m365_api._replay_cache) == 4
-    assert ("sub-0", "msg") not in m365_api._replay_cache
-    assert ("sub-5", "msg") in m365_api._replay_cache
+    assert ("sub-0", "msg", "created") not in m365_api._replay_cache
+    assert ("sub-5", "msg", "created") in m365_api._replay_cache
 
 
 # ── endpoint: validation handshake ──────────────────────────────────────────
@@ -395,7 +426,7 @@ async def test_webhooks_silently_skips_mismatched_client_state(monkeypatch) -> N
 
 
 async def test_webhooks_replay_protection(monkeypatch) -> None:
-    """Same (subscriptionId, resourceData.id) twice → second is silently ignored."""
+    """Same (subscriptionId, resourceData.id, changeType) twice → second is ignored."""
     monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
     m365_api._reset_replay_cache_for_tests()
 
@@ -436,6 +467,112 @@ async def test_webhooks_replay_protection(monkeypatch) -> None:
     )
     await asyncio.sleep(0)
     assert dispatched == [sub.m365_connection_id]  # unchanged
+
+
+async def test_webhooks_updated_after_created_is_dispatched_again(monkeypatch) -> None:
+    """INT-02: `updated` dla wiadomości już widzianej jako `created` to nowe zdarzenie.
+
+    Do 09.2026 klucz nie niósł `changeType`, więc oznaczenie wiadomości jako
+    przeczytanej czekało na następny tick harmonogramu.
+    """
+    monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
+    m365_api._reset_replay_cache_for_tests()
+
+    sub = _make_sub(client_state="secret-1")
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=sub)
+
+    dispatched: list[int] = []
+
+    async def fake_dispatch(connection_id: int) -> None:
+        dispatched.append(connection_id)
+
+    monkeypatch.setattr(m365_api, "_webhook_dispatch_sync", fake_dispatch)
+
+    def body(change_type: str) -> dict:
+        return {
+            "value": [
+                {
+                    "subscriptionId": sub.subscription_id,
+                    "clientState": "secret-1",
+                    "resource": sub.resource,
+                    "resourceData": {"id": "msg-DDD"},
+                    "changeType": change_type,
+                }
+            ]
+        }
+
+    import asyncio
+
+    await m365_api.webhooks(
+        request=_make_request_with_body(body("created")), validationToken=None, db=db
+    )
+    await asyncio.sleep(0)
+    await m365_api.webhooks(
+        request=_make_request_with_body(body("updated")), validationToken=None, db=db
+    )
+    await asyncio.sleep(0)
+
+    assert dispatched == [sub.m365_connection_id, sub.m365_connection_id]
+
+
+async def test_webhooks_failed_spawn_leaves_no_replay_entry(monkeypatch) -> None:
+    """INT-02: wpis do cache PO udanym spawnie — retry Grapha po awarii działa.
+
+    Do 09.2026 klucz lądował w cache przed `_spawn`, więc powiadomienie,
+    którego zadania nie udało się uruchomić, było już „obsłużone".
+    """
+    monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
+    m365_api._reset_replay_cache_for_tests()
+
+    sub = _make_sub(client_state="secret-1")
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=sub)
+
+    dispatched: list[int] = []
+
+    async def fake_dispatch(connection_id: int) -> None:
+        dispatched.append(connection_id)
+
+    monkeypatch.setattr(m365_api, "_webhook_dispatch_sync", fake_dispatch)
+
+    body = {
+        "value": [
+            {
+                "subscriptionId": sub.subscription_id,
+                "clientState": "secret-1",
+                "resource": sub.resource,
+                "resourceData": {"id": "msg-EEE"},
+                "changeType": "created",
+            }
+        ]
+    }
+    import asyncio
+
+    real_spawn = m365_api._spawn
+
+    def broken_spawn(coro, label: str) -> None:
+        coro.close()
+        raise RuntimeError("no event loop")
+
+    # Pierwsza dostawa: spawn pada → 202 (Graph nie ma backoffować), ale
+    # klucz NIE trafia do cache.
+    monkeypatch.setattr(m365_api, "_spawn", broken_spawn)
+    resp = await m365_api.webhooks(
+        request=_make_request_with_body(body), validationToken=None, db=db
+    )
+    assert resp.status_code == 202
+    assert dispatched == []
+    assert (sub.subscription_id, "msg-EEE", "created") not in m365_api._replay_cache
+
+    # Retry Grapha z tym samym ciałem: teraz spawn działa i sync rusza.
+    monkeypatch.setattr(m365_api, "_spawn", real_spawn)
+    await m365_api.webhooks(
+        request=_make_request_with_body(body), validationToken=None, db=db
+    )
+    await asyncio.sleep(0)
+    assert dispatched == [sub.m365_connection_id]
+    assert (sub.subscription_id, "msg-EEE", "created") in m365_api._replay_cache
 
 
 async def test_webhooks_ignores_unknown_subscription(monkeypatch) -> None:

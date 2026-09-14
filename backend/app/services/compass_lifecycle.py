@@ -60,13 +60,14 @@ CZTERY REGUŁY, KTÓRE TRZYMAJĄ TO BEZPIECZNYM
    (``compass_lifecycle_deactivated``).
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
@@ -77,6 +78,11 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 20.0
+
+# Dolny próg odstępu pętli (`compass_lifecycle_sync_loop` clampuje do niego).
+# Trzymany TU, bo sonda `/api/health` liczy z niego próg świeżości — dwie
+# kopie tej liczby rozjechałyby się przy pierwszej zmianie jednej z nich.
+MIN_INTERVAL_SECONDS = 900
 
 # Jedyny status, który odbiera dostęp. Lista jest jawna i jednoelementowa
 # CELOWO — „wszystko poza active" wciągnęłoby `offboarding`.
@@ -196,6 +202,105 @@ async def _save_state(
     )
 
 
+# ── Stempel ostatniego biegu (sonda `checks.compass_lifecycle`) ──────────────
+#
+# Do 09.2026 jedyną informacją o tej pętli w `/api/health` było
+# `classify_background_tasks` → `running`. Ta pętla łyka KAŻDY wyjątek
+# (`except Exception` w `compass_lifecycle_sync_loop`), a `sync_user_lifecycle`
+# wraca z `fetch_failed:` i `empty_roster` normalnie, nic nie zapisawszy —
+# więc niedostępny COMPASS był nie do odróżnienia od zdrowej instalacji, a
+# osoba `exited` zachowywała dostęp dokładnie tak długo, jak długo nikt nie
+# czytał logów. Stempel żyje w TYM SAMYM wierszu `app_settings`, co stan
+# epizodów odejścia (bez migracji); `_save_state` przepisuje wiersz w całości
+# i jest wołane wyłącznie na ścieżce sukcesu, a `record_sync_outcome`
+# dopisuje klucze scaleniem (`||`), więc padnięty bieg nie kasuje `last_seen`.
+
+_STAMP_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (:key, CAST(:patch AS jsonb), NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        value = app_settings.value || EXCLUDED.value,
+        updated_at = NOW()
+    """
+)
+
+
+def public_error_kind(
+    result_error: Optional[str], exc: BaseException | None = None
+) -> str:
+    """Kod błędu do stempla — bez treści wyjątku.
+
+    `LifecycleSyncResult.error` niesie `fetch_failed: <str(exc)>`, a `str`
+    wyjątku httpx zawiera URL, a bywa, że i fragment odpowiedzi. Do
+    `app_settings` (czytanego przez `/api/health` i przegląd admina) idzie
+    wyłącznie kod przed dwukropkiem i NAZWA KLASY wyjątku — to wystarcza, żeby
+    odróżnić timeout od 401, a nie niesie niczego z cudzego feedu.
+    """
+    code = (result_error or "unknown").split(":", 1)[0].strip() or "unknown"
+    if exc is not None:
+        return f"{code} ({type(exc).__name__})"
+    return code
+
+
+async def record_sync_outcome(
+    db,
+    *,
+    ok: bool,
+    error: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> None:
+    """Dopisz do stanu pętli wynik biegu: `last_run_at`, `last_status`,
+    `last_error` i — tylko przy sukcesie — `last_success_at`.
+
+    Scalenie, nie zamiana: ten wiersz niesie też `last_seen`/`exit_since`
+    (początki epizodów odejścia), których błąd pobrania nie ma prawa skasować.
+    Commit własny — wołające ścieżki awaryjne nic innego nie zapisują.
+    """
+    stamp_at = (now or datetime.now(timezone.utc)).isoformat()
+    patch: dict[str, object] = {
+        "last_run_at": stamp_at,
+        "last_status": "ok" if ok else "error",
+        "last_error": None if ok else (error or "unknown"),
+    }
+    if ok:
+        patch["last_success_at"] = stamp_at
+    await db.execute(_STAMP_UPSERT, {"key": _STATE_KEY, "patch": json.dumps(patch)})
+    await db.commit()
+
+
+def lifecycle_sync_verdict(
+    state: Optional[dict],
+    *,
+    interval_seconds: int,
+    now: datetime,
+) -> str:
+    """``"healthy"`` albo ``"degraded"`` dla ``checks.compass_lifecycle``.
+
+    Czysta funkcja — lustro `workdays_sync_verdict`: wersja wpleciona
+    w handler daje się testować wyłącznie przez gałąź `except`.
+
+    `healthy` wymaga DWÓCH rzeczy naraz: ostatni bieg zakończył się `ok`
+    (padnięty bieg degraduje od razu, nawet przy świeżym sukcesie sprzed
+    godziny — to sygnał, że COMPASS właśnie przestał odpowiadać) ORAZ ostatni
+    sukces nie jest starszy niż dwa odstępy pętli (jeden spóźniony bieg,
+    np. przez deploy w trakcie, nie alarmuje; dwa z rzędu — tak). Odstęp
+    liczony z tego samego clampu co pętla, żeby literówka w env nie dała
+    progu 2 min.
+    """
+    if not isinstance(state, dict):
+        return "degraded"
+    if state.get("last_status") != "ok":
+        return "degraded"
+    last_success = _parse_timestamp(state.get("last_success_at"))
+    if last_success is None:
+        return "degraded"
+    interval = max(int(interval_seconds), MIN_INTERVAL_SECONDS)
+    if (now - last_success) > timedelta(seconds=2 * interval):
+        return "degraded"
+    return "healthy"
+
+
 async def _latest_lifecycle_deactivation(db, user_id: int) -> Optional[datetime]:
     """Kiedy ta pętla ostatnio wyłączyła konto (``compass_lifecycle_deactivated``).
 
@@ -294,6 +399,9 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
     except Exception as exc:  # noqa: BLE001 — awaria COMPASSA nie jest nasza
         result.error = f"fetch_failed: {exc}"
         logger.warning("compass_lifecycle fetch failed: %s", exc)
+        await record_sync_outcome(
+            db, ok=False, error=public_error_kind(result.error, exc)
+        )
         return result
 
     people = payload.get("people") or []
@@ -306,6 +414,7 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
     # a to jest wtedy szum, nie informacja.
     if not people:
         result.error = "empty_roster"
+        await record_sync_outcome(db, ok=False, error=public_error_kind(result.error))
         return result
 
     by_email: dict[str, str] = {}
@@ -385,8 +494,14 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
 
     # Stan zapisujemy przy KAŻDYM udanym przebiegu — to on niesie początek
     # epizodu odejścia, do którego porównujemy włączenia admina.
+    # Kolejność load-bearing: `_save_state` ZASTĘPUJE całą wartość wiersza,
+    # a `record_sync_outcome` dokleja stemple scaleniem jsonb — odwrotna
+    # kolejność kasowałaby `last_run_at`/`last_status` przy każdym czystym biegu.
     await _save_state(db, last_seen, exit_since)
     await db.commit()
+    # Stempel sukcesu PO commicie stanu — bieg, który padł na zapisie epizodów,
+    # nie może raportować `ok` (wyjątek stąd łapie pętla i stempluje błąd).
+    await record_sync_outcome(db, ok=True)
     if result.deactivated:
         logger.info(
             "compass_lifecycle deactivated=%s emails=%s",
@@ -406,7 +521,11 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
 
 __all__ = [
     "DEACTIVATION_ACTION",
+    "MIN_INTERVAL_SECONDS",
     "LifecycleSyncResult",
     "fetch_roster",
+    "lifecycle_sync_verdict",
+    "public_error_kind",
+    "record_sync_outcome",
     "sync_user_lifecycle",
 ]

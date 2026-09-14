@@ -25,6 +25,7 @@ import {
   checkOutcome,
   formatAge,
   formatLastRunSummary,
+  errorOutsideReasons,
   reasonLabel,
   withoutExceptionRepr,
   type CheckBaseline,
@@ -441,7 +442,11 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
           <ul className="mt-1 list-disc pl-5">{doc.gate_reasons.map((r) => <li key={r}>{withoutExceptionRepr(r)}</li>)}</ul>
         </div>
       )}
-      {doc.error && <div className="mt-3 text-sm text-destructive">Błąd: {withoutExceptionRepr(doc.error)}</div>}
+      {(() => {
+        // „Błąd:" tylko, gdy mówi coś, czego nie ma w „Dlaczego do weryfikacji" (UAT B49).
+        const distinctError = errorOutsideReasons(doc.error, doc.gate_reasons);
+        return distinctError ? <div className="mt-3 text-sm text-destructive">Błąd: {distinctError}</div> : null;
+      })()}
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
 
       {personDecision && doc.outcome === "needs_review" && (

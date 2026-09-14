@@ -82,9 +82,19 @@ i scalenie), QA-06 (burn-down 12 plików testów z listy `_FAILING`), QA-07 (mac
 
 | PR | Gałąź | Stan |
 |---|---|---|
-| 1 | `fix/audit-p1` | scalony 14.09 (#1512, prod `75a1b8b3`) |
-| 2 | `fix/audit-ui-p2-p3` | PR otwarty 14.09 |
-| 3 | `chore/audit-ops` | po PR 2 |
+| 1 | `fix/audit-p1` | scalony 14.09 (#1512, prod `75a1b8b3`, retest wykonany) |
+| 2 | `fix/audit-ui-p2-p3` | scalony 14.09 (#1516) |
+| 3 | `chore/audit-ops` | PR #1518 — monitoring/CI/QA + poprawki z retestu (B09, B33, B49) |
+| — | `fix/cv-filename-path-guard` | PR #1517 — odczyt CV z dysku nie wychodzi poza `UPLOAD_DIR` (znalezisko z QA-06) |
+
+Retest produkcji po PR 1 (`75a1b8b3`): B16 OK; z 19 pozycji naprawionych w UAT
+P1–P3 potwierdzone 16 w interfejsie. Nadal złe: B09 (encje HTML w transkrypcjach),
+B33 (liczniki listy rekrutacji ≠ szczegóły dla etapu spoza standardu) — poprawki
+w PR 3; B49 częściowo (komunikat dwa razy) — PR 3; B12 wymaga ponownego wgrania
+CV dwóch kandydatów testowych (dane, nie kod). Odczyty API A01 (brak zdublowanych
+par, `verifier_anchored_attempts` obecne) i A04 (8 klientów oznaczonych jako
+niepełni, spójnie z kaflem) zgodne z oczekiwaniem; `/api/analytics/v1/*` na
+produkcji wyłączone (`ANALYTICS_V1_MODE=off`), A05 do sprawdzenia po syncu Traffita.
 
 Poprawki z przeglądu adwersarialnego PR 2 poza tabelą: redakcja kwot także dla
 „Planowanych" na profilu; jedna reguła „obecnego" kontraktu na czterech

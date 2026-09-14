@@ -303,6 +303,16 @@ async def _emit_marketplace_notifications(
 
     Call ONLY after the alert-log claim succeeded — a notification for a pair
     that is already logged is a duplicate alert to a human.
+
+    Wiersz jest kluczowany rekrutacją (``related_entity_id=job.id``), a unique
+    partial index ``ix_notif_dedup_daily`` dopuszcza JEDEN wiersz na
+    (odbiorca, typ, rekrutacja, dzień). Drugi kandydat dopasowany do tej samej
+    rekrutacji tego samego dnia trafiał więc w indeks dopiero przy ``commit``
+    całego skanu — wycofując też zaklepane wpisy ``marketplace_alert_log``
+    i wszystkie powiadomienia z tego biegu; sweeper powtarzał to co godzinę.
+    Duplikat dzienny jest tu oczekiwany (odbiorca ma już dzisiejszy alert
+    o tej rekrutacji), więc każdy INSERT idzie w savepoincie, jak w
+    ``notification_triggers.emit``.
     """
     from app.api.notifications import create_notification
 
@@ -318,17 +328,28 @@ async def _emit_marketplace_notifications(
     )
 
     for uid in recipients:
-        await create_notification(
-            db,
-            user_id=uid,
-            title=title,
-            message=message,
-            notification_type=NotificationType.marketplace_match,
-            link=candidate_for_link,
-            related_entity_type="job",
-            related_entity_id=job.id,
-            dedupe_resurface=False,
-        )
+        try:
+            async with db.begin_nested():
+                await create_notification(
+                    db,
+                    user_id=uid,
+                    title=title,
+                    message=message,
+                    notification_type=NotificationType.marketplace_match,
+                    link=candidate_for_link,
+                    related_entity_type="job",
+                    related_entity_id=job.id,
+                    dedupe_resurface=False,
+                )
+                await db.flush()
+        except IntegrityError:
+            logger.debug(
+                "marketplace_scan: daily notification dedup hit user=%s job=%s "
+                "— candidate_id=%s skipped",
+                uid,
+                job.id,
+                candidate.id,
+            )
 
 
 async def _try_insert_alert_log(

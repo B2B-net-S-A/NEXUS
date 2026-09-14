@@ -794,21 +794,80 @@ async def list_jobs(
     # Dawniej `MAX(id)`, co przy backdated imporcie z Traffita wskazywało inny
     # wiersz niż tablica i KPI (2 712 rozjeżdżonych par na produkcji).
     stage_breakdown: dict[int, dict[str, int]] = {}
+    # `stage_columns`: kolumny szablonu rekrutacji z liczbami — TE SAME
+    # kolumny (i to samo kubełkowanie) co `GET /api/pipeline/kanban/{id}`, więc
+    # mini-lejek listy i szyny szczegółów grupują jedną funkcją frontu. Legacy
+    # `stage_breakdown` (po enumie) zostaje dla starszych konsumentów; sam nie
+    # odróżnia własnego etapu szablonu od „Nowi" (UAT B33).
+    stage_columns: dict[int, list[dict]] = {}
+    off_template_counts: dict[int, int] = {}
     if include_stage_counts and job_ids:
+        from app.api.pipeline import (  # noqa: PLC0415
+            StageTally,
+            _default_template_id,
+            legacy_stage_column_summaries,
+            stage_column_summaries,
+        )
+        from app.models.pipeline_template import PipelineStageDef  # noqa: PLC0415
+
         latest_per_cj = latest_stage_ids(job_ids=job_ids)
-        breakdown_rows = (
+        tally_rows = (
             await db.execute(
                 select(
                     CandidateStage.job_id,
+                    CandidateStage.stage_def_id,
                     CandidateStage.stage,
                     func.count(func.distinct(CandidateStage.candidate_id)),
                 )
                 .where(CandidateStage.id.in_(select(latest_per_cj.c.latest_id)))
-                .group_by(CandidateStage.job_id, CandidateStage.stage)
+                .group_by(
+                    CandidateStage.job_id,
+                    CandidateStage.stage_def_id,
+                    CandidateStage.stage,
+                )
             )
         ).all()
-        for row_job_id, stage_enum, n in breakdown_rows:
-            stage_breakdown.setdefault(row_job_id, {})[stage_enum.value] = int(n)
+        tallies: dict[int, list[StageTally]] = {}
+        for row_job_id, stage_def_id, stage_enum, n in tally_rows:
+            per_job = stage_breakdown.setdefault(row_job_id, {})
+            per_job[stage_enum.value] = per_job.get(stage_enum.value, 0) + int(n)
+            tallies.setdefault(row_job_id, []).append(
+                StageTally(stage_def_id=stage_def_id, stage=stage_enum, count=int(n))
+            )
+
+        default_template_id = (
+            await _default_template_id(db)
+            if any(j.pipeline_template_id is None for j in jobs)
+            else None
+        )
+        template_ids = {
+            tid
+            for tid in (j.pipeline_template_id or default_template_id for j in jobs)
+            if tid is not None
+        }
+        defs_by_template: dict[int, list[PipelineStageDef]] = {}
+        if template_ids:
+            def_rows = (
+                await db.execute(
+                    select(PipelineStageDef)
+                    .where(PipelineStageDef.template_id.in_(template_ids))
+                    .order_by(PipelineStageDef.template_id, PipelineStageDef.order)
+                )
+            ).scalars()
+            for sd in def_rows:
+                defs_by_template.setdefault(sd.template_id, []).append(sd)
+        for j in jobs:
+            tid = j.pipeline_template_id or default_template_id
+            entries = tallies.get(j.id, [])
+            if tid is not None and defs_by_template.get(tid):
+                cols, off = stage_column_summaries(defs_by_template[tid], entries)
+            else:
+                cols, off = legacy_stage_column_summaries(entries)
+            stage_columns[j.id] = [
+                {**c, "stage": c["stage"].value, "category": c["category"].value}
+                for c in cols
+            ]
+            off_template_counts[j.id] = off
 
     # Hydrate primary_owner + collaborators in one pass (avoid N+1).
     collab_map = await _load_collaborator_map(db, job_ids)
@@ -941,6 +1000,8 @@ async def list_jobs(
         )
         if include_stage_counts:
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
+            d["stage_columns"] = stage_columns.get(j.id, [])
+            d["off_template_count"] = off_template_counts.get(j.id, 0)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)

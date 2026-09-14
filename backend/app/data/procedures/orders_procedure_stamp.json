@@ -66,7 +66,7 @@
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "b9d47318f44717e0c7e99b0af1dd9d2157970f81fda9784ed7bab7ab2e4be9d5",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "2506b120fc210085d8328b6edcb10f475748679ca2b34820dda0c04c405ebdc1",
-    "frontend/src/components/order-mail/OrderMailQueue.tsx": "e93134ff4d3e43846db9da49cf839e41b60d24859f0f1a5b59e67d00553c6eee",
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "092077b3b75ce7540bc8b74393fb4e710cd2498387c4b01337329751a2ca78b5",
     "frontend/src/components/orders/ExtractedConsultants.tsx": "50dcdbfbccaf08bb663a2370d61bd79155c596ed45a8ed7ec5abc8bf4974b200",
     "frontend/src/components/orders/InlineOrderFields.tsx": "6926981466f96613e9d25877bd623f6fddcef37d3bef4b3128c9525c79dcc7bf",
     "frontend/src/components/orders/OrderTypeSwitch.tsx": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",

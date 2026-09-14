@@ -13,13 +13,19 @@ import logging
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.services.compass_lifecycle import sync_user_lifecycle
+from app.services.compass_lifecycle import (
+    MIN_INTERVAL_SECONDS,
+    public_error_kind,
+    record_sync_outcome,
+    sync_user_lifecycle,
+)
 
 logger = logging.getLogger(__name__)
 
 # Dolny próg odstępu. Bez niego literówka w env (np. 60) zamieniłaby COMPASSA
-# w cel odpytywany co minutę — lustro `_MIN_INTERVAL_SECONDS` z D5.
-_MIN_INTERVAL_SECONDS = 900
+# w cel odpytywany co minutę — lustro `_MIN_INTERVAL_SECONDS` z D5. Stała
+# mieszka w serwisie, bo z tego samego clampu liczy próg sonda `/api/health`.
+_MIN_INTERVAL_SECONDS = MIN_INTERVAL_SECONDS
 
 
 async def compass_lifecycle_sync_loop() -> None:
@@ -55,6 +61,17 @@ async def compass_lifecycle_sync_loop() -> None:
             raise
         except Exception as exc:  # noqa: BLE001 — pętla ma przeżyć awarię COMPASSA
             logger.exception("compass_lifecycle_sync failed: %s", exc)
+            # Stempel błędu we WŁASNEJ sesji — ta z biegu stoi w zepsutej
+            # transakcji. Bez niego wyjątek z zapisu stanu (np. padnięta baza
+            # w połowie biegu) zostawiałby w `/api/health` ostatni sukces,
+            # a to jest dokładnie ta ślepa plamka, dla której powstał stempel.
+            try:
+                async with AsyncSessionLocal() as db:
+                    await record_sync_outcome(
+                        db, ok=False, error=public_error_kind("exception", exc)
+                    )
+            except Exception:  # noqa: BLE001 — stempel jest best-effort
+                logger.warning("compass_lifecycle_sync: nie zapisano stempla błędu")
 
         await asyncio.sleep(interval)
 

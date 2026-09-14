@@ -129,7 +129,20 @@ async def test_parse_cv_uses_ollama_when_available(monkeypatch):
 
     monkeypatch.setattr(cvp, "_parse_with_ollama", _mock)
     out = await cvp.parse_cv("irrelevant")
-    assert out == expected
+    # The Ollama dict is passed through untouched…
+    assert {key: out[key] for key in expected} == expected
+    # …and `_normalize_cv_output` adds exactly the v5 quick-view facts on top
+    # (defaults, since the mocked model returned none of them).
+    assert set(out) - set(expected) == {
+        "experience",
+        "technologies",
+        "sectors",
+        "current_position_started_at",
+        "current_position_started_at_precision",
+        "professional_profile",
+    }
+    assert out["technologies"] == ["Python"]
+    assert out["current_position_started_at_precision"] == "unknown"
 
 
 @pytest.mark.asyncio

@@ -22,9 +22,9 @@ written reason, nor linger in the baseline after the debt is paid. Categories:
   stale: the test never ran, so nobody noticed when a schema column went NOT
   NULL or a request contract gained a required field underneath it.
 
-Status 2026-08-21: 548 test modules on disk, 19 excluded, 529 run — measured
+Status 2026-09-14: 892 test modules on disk, 6 excluded, 886 run — measured
 with this file's own `_disk_files()` / `_ci_ignored_files()`, not counted by
-hand. The line before it read "2026-08-11: 439 on disk, 23 excluded, 416 run";
+hand. (2026-08-21 read 548 on disk, 19 excluded, 529 run.) The line before it read "2026-08-11: 439 on disk, 23 excluded, 416 run";
 the exclusion count was right, the disk count had drifted by 109 modules in ten
 days. A stale headline number is the one defect this file cannot afford, because
 the burn-down it advertises is the only thing that says whether the debt is
@@ -62,6 +62,25 @@ History of the burn-down:
                  conflict matrix (blacklist / competitor / NDA). Worth noting
                  for the remaining entries: "the test is red so production
                  changed" is an assumption, and here it was wrong.
+    6 excluded → the last twelve FAILING entries burned down (QA-06). Three
+                 were STALE and green on the spot (`test_candidates_from_cv`
+                 cleans up its fixed e-mail, `test_presence_manager` already
+                 accepts `subprotocol=`, `test_shortlist_and_proposal` seeds a
+                 client). Seven were the test's own contract gone stale: the
+                 pipeline membership gate wants the recruiter on the job team
+                 (`recruiter_id`), the CloudTalk webhook reads
+                 `settings.CLOUDTALK_ENABLED` (not an env var the test set),
+                 `parse_cv` adds the v5 quick-view fields, three post-interview
+                 triggers joined `run_all_triggers`, the note preview cap is a
+                 named constant (220, not 120), a "(DL)" tag suffix placed
+                 BEFORE the unique suffix collapsed every run of the diacritic
+                 test into one group, `test_proposals` assumed an empty DB pool,
+                 and `test_bulk_cv_download` wrote its own path-traversal probe
+                 outside the upload dir. One was a real product defect the test
+                 had been reporting all along: two marketplace matches for one
+                 job on one day hit `ix_notif_dedup_daily` at commit and rolled
+                 the WHOLE scan back — the emitter now inserts each row in a
+                 savepoint (`marketplace_service._emit_marketplace_notifications`).
    19 excluded → four FAILING entries burned down at once (68 test functions
                  back in CI). Two were STALE — `test_cv_enrichment.py` (30
                  tests, the CV → candidate entry path of the whole database)
@@ -205,44 +224,12 @@ _LIVE = {
     "test_pipeline.py",
 }
 
-# Red on their own. Measured 2026-07-27 in the prod image against a freshly
-# migrated database, with the same environment CI uses (DATABASE_URL, SECRET_KEY,
-# RUN_LIVE_TESTS=0 and nothing else). Each line is the actual failure, so the
-# next person can pick one up without re-running the whole sweep. Fixing these
-# is deliberately NOT part of the wiring change — a test that has been wrong for
-# months deserves its own diff.
-_FAILING = {
-    # 1 fail — writes its path-traversal probe outside the upload dir:
-    # FileNotFoundError '/tmp/nexus/uploads/candidate_N_../../etc/passwd.pdf'.
-    "test_bulk_cv_download.py",
-    # 1 fail — hardcoded force.test@example.com collides with candidates_email_key
-    # on any re-run; the test never cleans up after itself.
-    "test_candidates_from_cv.py",
-    # 2 fails — endpoint answers {"status":"dry-run","enabled":false}; the test
-    # assumes the Champion AI intake flag is on.
-    "test_champion_ai_intake.py",
-    # 1 fail — parsed-CV dict gained current_position_started_at_precision.
-    "test_cv_parser.py",
-    # 3 fails — two same-day notifications of one type hit ix_notif_dedup_daily.
-    "test_marketplace_flow.py",
-    # 2 fails — endpoint now validates and answers 422 where the test expects 201.
-    "test_new_endpoints.py",
-    # 1 fail — trigger set gained post_interview_t15.
-    "test_notification_triggers.py",
-    # 10 fails (whole file) — the job team-membership gate answers 403; the
-    # fixture user is not on the recruitment's team.
-    "test_pending_verification.py",
-    # 3 fails — production calls accept(subprotocol=...), the test's
-    # FakeWebSocket.accept() takes no such keyword.
-    "test_presence_manager.py",
-    # 6 fails — must_skills.level is now an enum ('junior'..'expert'), the test
-    # still sends the integer 4 and gets 422.
-    "test_proposals.py",
-    # 7 fails (whole file) — fixture inserts jobs without client_id, now NOT NULL.
-    "test_shortlist_and_proposal.py",
-    # 1 fail — diacritic dedup returns 2 rows, the test expects 1.
-    "test_team_structure_dl_clients_dedup.py",
-}
+# Red on their own. Burned down to zero 2026-09-14 (QA-06, audyt Codexa):
+# every file measured in the prod image against a freshly migrated database
+# with the CI environment (DATABASE_URL, SECRET_KEY, RUN_LIVE_TESTS=0). Keep
+# the category — a new red file goes here WITH its actual failure line, so the
+# next person can pick it up without re-running the whole sweep.
+_FAILING: set[str] = set()
 
 _BASELINE = _COLLECTION_ERRORS | _LIVE | _FAILING
 

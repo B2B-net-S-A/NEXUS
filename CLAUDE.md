@@ -118,6 +118,23 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   połączenie wyłączone przez awarię (`is_active=False`) u aktywnego pracownika.
   Odłączenie przez użytkownika kasuje wiersz, więc nieaktywny wiersz to zawsze
   awaria. Sonda jest informacyjna — nie daje `unhealthy`.
+- **`checks.compass_lifecycle` (od 14.09.2026, MON-04/INT-10):** pętla
+  `compass_lifecycle_sync` stempluje każdy bieg w `app_settings['compass_lifecycle_state']`
+  (`last_run_at`, `last_status`, `last_success_at`, `last_error` = kod + klasa
+  wyjątku, bez URL/treści); sonda: `unconfigured` (wyłączona) / `misconfigured`
+  (brak URL/sekretu) / `degraded` (ostatni bieg padł albo brak sukcesu > 2
+  odstępy pętli) / `healthy`. Informacyjna — nie daje `unhealthy`. Zapis jest
+  scaleniem jsonb, więc nie kasuje mapy `exit_since` per osoba.
+- **`GET /api/admin/traffit/sync/status` niesie `freshness` per faza i
+  `phases_stale`** (INT-09): progi po TYPIE fazy (zwykłe 36 h, kursorowane/
+  budżetowane 72 h, znacznik `__full__` 8 dni); `checks.traffit` nadal czyta
+  wyłącznie `__daily__` — to sonda świeżości importu, nie kompletności.
+- **Deploy sprawdza wersję FRONTENDU** (DEP-03): `frontend/public/version.json`
+  pisany przez `scripts/write-version.mjs` przed `next build` (SHA z build arga
+  `NEXT_PUBLIC_GIT_SHA`), smoke akceptuje równość albo potomka jak backend;
+  `sha: "unknown"` = build bez arga = czerwony deploy. Podsumowanie joba
+  (DEP-01) pokazuje `TARGET_SHA` vs serwowany SHA z werdyktem „koalescencja
+  burstów" — logika skip/rebuild nietknięta.
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
 - **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
 
@@ -144,6 +161,10 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Najsilniejsze CI w stacku** (gitleaks + ruff + alembic + pytest + ESLint + tsc + Vitest + Codecov).
 - **`needs: secret-scan`** — gitleaks musi przejść przed innymi jobami (świadomy guard).
 - **Pytest selective:** wskazane konkretne pliki testów (5 plików), nie `pytest .` — bo cały suite ma live-server tests które są skipowane (`RUN_LIVE_TESTS=0`).
+- **Lista `--ignore` w `ci.yml` = `_FAILING` w `test_ci_coverage_contract.py`** (kontrakt czyta workflow). Od 14.09.2026 (QA-06) `_FAILING` jest PUSTA — 12 czerwonych plików naprawiono (11 nieaktualnych kontraktów testów + 1 błąd produktu: dedup dzienny powiadomień targu wywracał cały skan). Zostaje 6 wykluczeń: 2 kolekcyjne + 4 live. Nowy czerwony test = napraw albo dopisz do `_FAILING` Z POWODEM, nigdy samo `--ignore`.
+- **Pokrycie backendu scala job `backend-coverage-combine`** (QA-01): shardy piszą `.coverage.shard-N` jako artefakt, combine daje tabelę + `::warning::` poniżej 80% (report-only); Codecov tylko gdy `CODECOV_TOKEN` ustawiony (jawny `::notice::` bez tokena).
+- **Testy generatora CV mają fixture `pipeline_mode` (`legacy`/`v10`)** (QA-07) dla trzech kontraktów; `test_cv_generator_legacy_v7.py` pilnuje domyślnego trybu produkcji.
+- **M365 webhook: klucz replay = (subskrypcja, id zasobu, `changeType`), TTL 10 min, wpis PO udanym spawnie** (INT-02) — `created` i `updated` tej samej wiadomości oba przechodzą; padnięty spawn = brak wpisu, ponowienie Grapha zadziała.
 - **Codecov flags:** `backend` + `frontend` — separate uploads.
 - **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
 - **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).

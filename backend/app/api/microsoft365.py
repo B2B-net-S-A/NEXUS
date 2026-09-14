@@ -463,38 +463,64 @@ async def free_busy(
 
 # ── Phase 7.3 — Graph push-webhook endpoint ─────────────────────────────────
 
-# In-memory replay-protection cache keyed by (subscriptionId, resourceData.id).
-# 4096 entries × 24h TTL covers the highest-volume mailbox observed in prod
-# (peak ~600 msg/day) by a wide margin. Resetting on worker restart is fine:
-# `sync_connection` is idempotent on `m365_message_id`, so a duplicate
-# notification just no-ops at upsert time. If we ever outgrow this we can
-# move to a `graph_webhook_events` table without changing the API surface.
+# In-memory replay-protection cache keyed by
+# (subscriptionId, resourceData.id, changeType). Resetting on worker restart
+# is fine: `sync_connection` is idempotent on `m365_message_id`, so a
+# duplicate notification just no-ops at upsert time. If we ever outgrow this
+# we can move to a `graph_webhook_events` table without changing the API
+# surface.
+#
+# INT-02 (audyt 14.09): klucz MUSI nieść `changeType`. Graph wysyła dla tej
+# samej wiadomości osobno `created` i `updated` (np. oznaczenie jako
+# przeczytana, przeniesienie), a klucz bez typu zmiany zbijał drugie
+# powiadomienie z pierwszym — aktualizacja czekała na następny tick
+# harmonogramu. TTL w MINUTACH, nie dobę: to jest ochrona przed retry Grapha
+# (ponawia to samo powiadomienie przez kilka minut po 5xx/timeout), nie
+# rejestr historii — po dobie ten sam identyfikator z NOWĄ zmianą to nowe
+# zdarzenie, a 24-godzinny wpis kazał mu czekać na harmonogram.
 _REPLAY_CACHE_MAX = 4096
-_REPLAY_TTL_SECONDS = 24 * 3600
-_replay_cache: OrderedDict[tuple[str, str], float] = OrderedDict()
+# 10 min obejmuje SZYBKIE ponowienia Grapha (sekundy–minuty po 5xx/timeout), nie
+# cały jego horyzont ponowień (do ~4 h z rosnącym odstępem). Późniejsze ponowienie
+# uruchomi sync jeszcze raz — to bezpieczne, bo import jest idempotentny po
+# `m365_message_id`; koszt to jedno zbędne wywołanie, nie duplikat danych.
+_REPLAY_TTL_SECONDS = 10 * 60
+_ReplayKey = tuple[str, str, str]
+_replay_cache: OrderedDict[_ReplayKey, float] = OrderedDict()
 
 
-def _replay_seen(key: tuple[str, str]) -> bool:
+def _replay_evict_expired(now: float) -> None:
+    # Drop TTL-expired head entries cheaply (OrderedDict iterates insertion order).
+    while _replay_cache:
+        _oldest_key, ts = next(iter(_replay_cache.items()))
+        if now - ts > _REPLAY_TTL_SECONDS:
+            _replay_cache.popitem(last=False)
+            continue
+        break
+
+
+def _replay_seen(key: _ReplayKey) -> bool:
     """Return True if we've processed this notification within the TTL window.
 
     Single-process LRU: the FastAPI app runs as one uvicorn worker today, so
     a Python dict is enough. Multi-worker deploys would need a Redis variant
     (call sites stay the same).
+
+    TYLKO odczyt — wpis robi `_replay_mark` PO udanym spawnie zadania. Do
+    09.2026 wpis szedł przed spawnem, więc powiadomienie, którego zadania nie
+    udało się uruchomić, było już „obsłużone": retry Grapha trafiał w cache
+    i sync nie ruszał aż do harmonogramu.
     """
+    _replay_evict_expired(time.time())
+    return key in _replay_cache
+
+
+def _replay_mark(key: _ReplayKey) -> None:
+    """Zapamiętaj obsłużone powiadomienie (wołane po udanym spawnie)."""
     now = time.time()
-    # Drop TTL-expired head entries cheaply (OrderedDict iterates insertion order).
-    while _replay_cache:
-        oldest_key, ts = next(iter(_replay_cache.items()))
-        if now - ts > _REPLAY_TTL_SECONDS:
-            _replay_cache.popitem(last=False)
-            continue
-        break
-    if key in _replay_cache:
-        return True
+    _replay_evict_expired(now)
     _replay_cache[key] = now
     while len(_replay_cache) > _REPLAY_CACHE_MAX:
         _replay_cache.popitem(last=False)
-    return False
 
 
 def _reset_replay_cache_for_tests() -> None:
@@ -533,7 +559,7 @@ async def webhooks(
        ``{"value": [{"subscriptionId", "clientState", "resource",
        "resourceData": {"id"}, "changeType"}]}`` — for each entry we look
        up the local row by `subscriptionId`, constant-time compare the
-       shared `clientState`, dedupe on (sub_id, resourceData.id), then
+       shared `clientState`, dedupe on (sub_id, resourceData.id, changeType), then
        dispatch a fresh sync task per affected connection. Graph requires
        a <3s reply; the sync runs in `asyncio.create_task` so the response
        returns immediately.
@@ -566,8 +592,9 @@ async def webhooks(
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
     # Dedupe affected connections — one inbox + sent + events tick should
-    # fire ONE sync, not three.
-    conns_to_sync: set[int] = set()
+    # fire ONE sync, not three. Klucze replay per połączenie: do cache trafiają
+    # dopiero PO udanym spawnie zadania dla tego połączenia.
+    conns_to_sync: dict[int, list[_ReplayKey]] = {}
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -597,22 +624,34 @@ async def webhooks(
             )
             continue
 
-        # Replay dedup key. resourceData.id is present for created/updated
-        # messages and events; if Graph ever omits it we fall back to a
-        # composite fingerprint so retries still dedupe.
+        # Replay dedup key: (subscription, resource/id, changeType).
+        # resourceData.id is present for created/updated messages and events;
+        # if Graph ever omits it we fall back to the resource path so retries
+        # still dedupe. `changeType` jest częścią klucza — `created` i
+        # `updated` tej samej wiadomości to dwa różne zdarzenia.
         resource_data = entry.get("resourceData") or {}
         rd_id = (
             resource_data.get("id") if isinstance(resource_data, dict) else None
-        ) or f"{entry.get('changeType', '')}|{entry.get('resource', '')}"
-        if _replay_seen((sub_id, str(rd_id))):
+        ) or str(entry.get("resource", ""))
+        key: _ReplayKey = (sub_id, str(rd_id), str(entry.get("changeType", "")))
+        if _replay_seen(key):
             continue
 
-        conns_to_sync.add(sub.m365_connection_id)
+        conns_to_sync.setdefault(sub.m365_connection_id, []).append(key)
 
-    for conn_id in conns_to_sync:
-        _spawn(
-            _webhook_dispatch_sync(conn_id), f"webhook_dispatch_sync(conn={conn_id})"
-        )
+    for conn_id, keys in conns_to_sync.items():
+        try:
+            _spawn(
+                _webhook_dispatch_sync(conn_id),
+                f"webhook_dispatch_sync(conn={conn_id})",
+            )
+        except Exception:  # noqa: BLE001 — brak wpisu = retry Grapha zadziała
+            logger.exception(
+                "webhook dispatch spawn failed for connection_id=%s", conn_id
+            )
+            continue
+        for key in keys:
+            _replay_mark(key)
 
     return Response(status_code=status.HTTP_202_ACCEPTED)
 

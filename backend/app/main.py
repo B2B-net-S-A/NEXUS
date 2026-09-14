@@ -1986,6 +1986,43 @@ async def api_health_check():
         except Exception:
             checks["compass_workdays"] = "degraded"
 
+    # COMPASS: cykl życia kont (Etap 5). Ta sama drabina co `compass_workdays`.
+    # Do 09.2026 jedynym śladem tej pętli w health było `running` z rejestru
+    # zadań — a ona łyka każdy wyjątek i wraca z `fetch_failed`/`empty_roster`
+    # normalnie, więc niedostępny COMPASS był nie do odróżnienia od zdrowej
+    # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
+    # biegu żyje w `app_settings['compass_lifecycle_state']`
+    # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
+    if not settings.COMPASS_LIFECYCLE_ENABLED:
+        checks["compass_lifecycle"] = "unconfigured"
+    elif not (settings.COMPASS_LIFECYCLE_URL and settings.COMPASS_LIFECYCLE_SECRET):
+        checks["compass_lifecycle"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT value FROM app_settings "
+                            "WHERE key = 'compass_lifecycle_state'"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            from app.services.compass_lifecycle import lifecycle_sync_verdict
+
+            checks["compass_lifecycle"] = lifecycle_sync_verdict(
+                r[0] if r is not None else None,
+                interval_seconds=settings.COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS,
+                now=_dt.now(_tz.utc),
+            )
+        except Exception:
+            checks["compass_lifecycle"] = "degraded"
+
     # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
     # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
     # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
