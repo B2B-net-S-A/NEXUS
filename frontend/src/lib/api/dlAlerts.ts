@@ -14,7 +14,10 @@ export type DlAlertType =
   | "draft_consultant_unassigned"
   | "md_budget_low"
   | "missing_revenue_rate"
-  | "md_consultant_ended";
+  | "md_consultant_ended"
+  | "order_mail_review"
+  // Finanse → Braki: zamówienie zakończone, a osoba nie ma kolejnego.
+  | "order_missing_successor";
 
 export interface DlAlertRead {
   id: number;

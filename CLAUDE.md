@@ -2865,6 +2865,63 @@ poprawny i też kończy się przestemplowaniem — to nie jest obejście.
   zachowanie `react-markdown` co do joty, a każdy rozjazd to link prowadzący
   w złe miejsce. Harness wizualny: `/preview/procedure-help`.
 
+## Finanse → Zmiany w zamówieniach (Zmiany · Wejścia · Zejścia · Braki, 0308)
+
+Comiesięczny audyt zamówień dla działu finansowego (`/finance?view=order-changes`,
+`GET /api/finance/order-changes?year&month` + `/export`, bramka sekcji Finance).
+Decyzje Artura 14.09.2026: zmiany do miesiąca WPROWADZENIA; przedłużenie w
+Wejściach oznaczone jako kontynuacja (nie ukryte); Brakiem nie jest wypowiedziana
+umowa, szkic następnego zamówienia ani decyzja offboardingu MD / „zostaw jako
+historię"; DL dostaje alert DL + dzwonek. Pełny opis:
+`docs/finance-order-changes-completion-report.md`.
+
+- **Stara wartość istnieje TYLKO w `order_change_events`.** Jedna zmiana na
+  TRANSAKCJĘ (`services/order_change_audit.py`): `before_flush` zapamiętuje
+  pierwszą starą wartość z `committed_state` (po flushu jest pusty;
+  `get_history` zgłasza starą `None` jako brak historii, a `None → data` końca
+  to zmiana), a wiersze powstają w `before_commit` jako różnica początek →
+  koniec. Zapis per flush rejestrował stan pośredni: PATCH kosztu, który
+  synchronizacja z umową cofa przed commitem, dawał dwie „zmiany" autora.
+  Bez leniwego doczytywania (`MissingGreenlet`). Filtr szumu: pomija
+  zamówienia, które na początku transakcji były szkicem/anulowane, i pierwsze
+  wpisanie stawki. Linia grupy → `md_rate_*`; samodzielne → `rate_*` +
+  `rate_unit` (tam `md_rate_revenue` to lustro, liczone raz). Historia
+  zaczyna się od wdrożenia — widok mówi to wprost.
+- **Autor = `session.info` stemplowane w `deps.get_authenticated_user`**
+  (prawdziwe konto, nie podglądane). Zapis bez zalogowanej osoby (pętle,
+  poczta, sync kosztu z umowy w tle) ma `source="system"`.
+- **Jedna reguła następcy dla Zejść i Braków: `services/order_facts.py`.**
+  Okres = `COALESCE(linia, grupa)`; następca = inne nieanulowane zamówienie tej
+  samej OSOBY (`contracts.candidate_id`, nie kontrakt) u tego samego klienta,
+  trwające po końcu (szkic się liczy; zakończone bez daty — nie). Świadomy
+  koniec (`load_ending_intents`): umowa `ended`/`void` albo wypowiedziana
+  z datą końca ≤ końca zamówienia, `predecessor_order_id` (zamiana),
+  offboarding MD `remove`/`transfer`, zdarzenie `zakonczenie_konsultanta`
+  z `removed_from_order`/`keep_history`.
+- **Braki (`order_gaps`) nigdy nie są kasowane.** Wykrycie: pętla `order_gaps`
+  (00:30 Warszawa + start), `detected_on = koniec + 1`, od
+  `ORDER_GAP_TRACKING_START` (domyślnie 2026-08-01) i najwyżej
+  `ORDER_GAP_LOOKBACK_DAYS` (45) wstecz — zamknięty miesiąc nie dostaje po
+  tygodniach nowych braków. Następca utworzony PO początku dnia wykrycia = od
+  razu `filled_late`. **Aktywna linia MD z niewyczerpanym budżetem nie kończy
+  się datą** (skaner wygasania też jej nie domyka) — nie jest brakiem, a
+  w Zejściach ma werdykt „trwa do wyczerpania budżetu MD". Każdy brak w
+  osobnym savepoincie (awaria powiadomienia nie cofa przebiegu). Dzwonek tylko
+  dla braków sprzed ≤ 2 dni (pierwszy bieg po wdrożeniu nie zasypuje DL).
+  Zamknięcie: `commit_order_write` ORAZ `order_mail_apply` wołają
+  `refresh_order_gaps_safely` dla kontraktów ruszonych zamówień (savepoint,
+  zawężenie w SQL) i oznaczają alerty DL `handled`. Kontrakt bez osoby jest
+  współpracą sam w sobie (`sibling_key`). GET widoku niczego nie zapisuje.
+- **Alert `order_missing_successor`** — lustro CHECK `ck_dl_alerts_type`
+  w migracji, modelu i OBU definicjach w `entrypoint.sh`; powtórka co
+  `DL_ALERT_REPEAT_DAYS` przez regułę w `dl_alerts_scanner`. Dzwonek:
+  `NotificationType.order_missing_successor` (enum w `_ENUM_STATEMENTS`),
+  jedno powiadomienie na brak. `DlAlertsSection` jest znowu montowana
+  w `RoleDashboard` dla presetu `delivery-lead` (od #1304 nie była nigdzie).
+- **Dodatkowy projekt** liczony przy odczycie: zamówienie startujące w miesiącu,
+  gdy osoba ma w dniu startu trwające (nie szkic) zamówienie u INNEGO klienta.
+- Harness wizualny (publiczny, zero zapytań): `/preview/finance-order-changes`.
+
 ## Audyt pomylonych klientów — `GET /api/admin/client-mixups`
 
 Read-only raport (admin) rodzin klientów o wspólnym rdzeniu nazwy wraz z ich
