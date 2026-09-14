@@ -21,8 +21,8 @@ export interface ConsultantTableRow {
   job_from_order: boolean;
   start_date: string | null;
   end_date: string | null;
-  monthly_rate_candidate?: number | null;
-  monthly_rate_client: number | null;
+  hourly_rate_candidate: number | null;
+  hourly_rate_client: number | null;
   monthly_margin: number | null;
   days_to_end?: number | null;
   project_part?: string | null;
@@ -39,8 +39,8 @@ export function toConsultantRow(
     job_from_order: c.job_from_order,
     start_date: c.start_date ?? null,
     end_date: c.end_date ?? null,
-    monthly_rate_candidate: c.monthly_rate_candidate,
-    monthly_rate_client: c.monthly_rate_client,
+    hourly_rate_candidate: c.hourly_rate_candidate ?? null,
+    hourly_rate_client: c.hourly_rate_client ?? null,
     monthly_margin: c.monthly_margin,
     days_to_end: "days_to_end" in c ? c.days_to_end : null,
     project_part: "project_part" in c ? c.project_part : null,
@@ -72,9 +72,10 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
             <th className="py-2 pr-4 font-medium">Konsultant</th>
             <th className="py-2 pr-4 font-medium">Start date</th>
-            <th className="py-2 pr-4 font-medium">Stawka kosztowa</th>
-            <th className="py-2 pr-4 font-medium">Stawka przychodowa</th>
-            <th className="py-2 pr-4 font-medium">Marża</th>
+            <th className="py-2 pr-4 font-medium">Stawka kosztowa [godz.]</th>
+            <th className="py-2 pr-4 font-medium">Stawka przychodowa [godz.]</th>
+            {/* Marża zostaje miesięczna — kafel „Aktywne MRR" jest jej sumą. */}
+            <th className="py-2 pr-4 font-medium">Marża [mc]</th>
             {showEndDate ? (
               <th className="py-2 pr-4 font-medium">End date</th>
             ) : null}
@@ -179,12 +180,15 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
               </td>
               {/* `formatPLN(null)` → „—". Kwoty MUSZĄ renderować się także jako
                   puste: backend zeruje je dla ról bez VIEW_FINANCE, a znikająca
-                  komórka zostawiłaby trzy puste kolumny bez wyjaśnienia. */}
+                  komórka zostawiłaby trzy puste kolumny bez wyjaśnienia.
+                  Stawki są GODZINOWE (backend przelicza z jednostki zamówienia:
+                  godzinowa bez zmian, MD ÷ 8); zamówienia i kontrakty zostają
+                  w swojej jednostce. */}
               <td className="py-3 pr-4 tabular-nums">
-                {formatPLN(r.monthly_rate_candidate)}
+                {formatPLN(r.hourly_rate_candidate)}
               </td>
               <td className="py-3 pr-4 tabular-nums">
-                {formatPLN(r.monthly_rate_client)}
+                {formatPLN(r.hourly_rate_client)}
               </td>
               <td
                 className={cn(
