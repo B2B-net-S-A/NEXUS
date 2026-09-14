@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from app.models.contract import ContractTerminationReason
 from app.models.job import JobCloseReason, JobPriority, Seniority
-from app.schemas.money import WholePLN
+from app.schemas.money import GroszePLN, WholePLN
 
 
 class RecruiterBrief(BaseModel):
@@ -99,6 +99,13 @@ class ActiveConsultantItem(BaseModel):
     # Dane finansowe — redagowane dla ról bez VIEW_FINANCE jak rodzeństwo.
     monthly_rate_candidate: Optional[WholePLN] = None
     monthly_margin: Optional[WholePLN] = None
+    # Obie stawki GODZINOWO — to one są kolumnami tabeli w profilu klienta.
+    # Źródłem jest jednostka kontraktu, która trzyma się jednostki najnowszego
+    # zamówienia: stawka godzinowa bez przeliczenia, MD ÷ 8. Zamówienia
+    # i kontrakty zostają w swojej jednostce. Marża i „Aktywne MRR" nadal
+    # miesięczne (pola wyżej). Redagowane razem z nimi.
+    hourly_rate_client: Optional[GroszePLN] = None
+    hourly_rate_candidate: Optional[GroszePLN] = None
     currency: str = "PLN"
     # „Część umowy" e-Zdrowia z REPREZENTATYWNEGO zamówienia kontraktu
     # (zamówienie pokrywające dziś, fallback: najnowsze po start_date — ta sama
@@ -137,6 +144,9 @@ class HistoricalPlacementItem(BaseModel):
     monthly_rate_client: Optional[WholePLN] = None
     monthly_rate_candidate: Optional[WholePLN] = None
     monthly_margin: Optional[WholePLN] = None
+    # Godzinowo, na dzień zakończenia — jak w „Obecnych konsultantach".
+    hourly_rate_client: Optional[GroszePLN] = None
+    hourly_rate_candidate: Optional[GroszePLN] = None
     total_revenue: Optional[int] = None  # monthly_rate_client * duration_months (PLN)
 
 

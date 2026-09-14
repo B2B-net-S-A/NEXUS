@@ -237,6 +237,9 @@ async def test_active_consultant_rates_come_from_the_schedule(
     assert row["monthly_rate_candidate"] == 12000
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
+    # Kolumny tabeli są godzinowe: kontrakt miesięczny ÷ 160 h rozliczeniowych.
+    assert row["hourly_rate_candidate"] == 75.0
+    assert row["hourly_rate_client"] == 112.5
     # Kafel liczy się z tego samego źródła co wiersze — inaczej suma nie
     # zgadzałaby się z tym, co widać pod nią.
     assert body["summary"]["active_mrr"] == 6000
@@ -261,6 +264,8 @@ async def test_archive_rates_are_resolved_at_the_end_date(
     assert row["monthly_rate_candidate"] == 12000
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
+    assert row["hourly_rate_candidate"] == 75.0
+    assert row["hourly_rate_client"] == 112.5
     # Rekrutacja linkowalna także w archiwum (dotąd był sam tytuł).
     assert row["job_id"] is not None
     assert row["job_title"] == "Projekt z harmonogramem"
@@ -310,6 +315,8 @@ async def test_archive_money_is_redacted_without_view_finance(
     assert row["monthly_rate_candidate"] is None
     assert row["monthly_rate_client"] is None
     assert row["monthly_margin"] is None
+    assert row["hourly_rate_candidate"] is None
+    assert row["hourly_rate_client"] is None
     assert row["total_revenue"] is None
     assert body["summary"]["active_mrr"] is None
 
@@ -689,6 +696,8 @@ async def test_delivery_lead_outside_finance_portfolio_gets_redacted_profile(
     assert row["monthly_rate_candidate"] is None
     assert row["monthly_rate_client"] is None
     assert row["monthly_margin"] is None
+    assert row["hourly_rate_candidate"] is None
+    assert row["hourly_rate_client"] is None
     assert body["summary"]["active_mrr"] is None
 
 
@@ -887,4 +896,98 @@ async def test_planned_consultants_money_is_redacted_without_view_finance(
         assert row["monthly_rate_client"] is None
         assert row["monthly_rate_candidate"] is None
         assert row["monthly_margin"] is None
+        assert row["hourly_rate_client"] is None
+        assert row["hourly_rate_candidate"] is None
     assert body["summary"]["active_mrr"] is None
+
+
+# ── Kolumny stawek godzinowo, z jednostki zamówienia ─────────────────────────
+#
+# Zamówienie ma stawkę godzinową albo MD, a kontrakt trzyma się jednostki
+# najnowszego zamówienia (`contract_order_sync`). Profil klienta pokazuje obie
+# stawki za godzinę: godzinowa bez przeliczenia, MD ÷ 8. Źródło zostaje
+# w swojej jednostce — sprawdzamy to na wierszu kontraktu po odczycie.
+
+
+async def _seed_unit_contract(
+    rate_unit: str, candidate_rate: str, client_rate: str
+) -> tuple[int, int]:
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Jednostka",
+            lastname=f"U-{uuid.uuid4().hex[:6]}",
+            email=f"unit-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        client = Client(name=f"UnitClient-{uuid.uuid4().hex[:6]}")
+        db.add_all([cand, client])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(client)
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=today - timedelta(days=30),
+            rate_candidate=Decimal(candidate_rate),
+            rate_client=Decimal(client_rate),
+            rate_unit=rate_unit,
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        return client.id, contract.id
+
+
+@pytest.mark.parametrize(
+    ("rate_unit", "candidate_rate", "client_rate", "hourly_candidate", "hourly_client"),
+    [
+        # Stawka już godzinowa — bez przeliczenia, z groszami.
+        ("hourly", "120.000", "141.180", 120.0, 141.18),
+        # MD ÷ 8 (1 MD = 8 h): 1000 → 125, 1340 → 167,50.
+        ("daily", "1000.000", "1340.000", 125.0, 167.5),
+    ],
+)
+async def test_profile_rate_columns_are_hourly_from_order_unit(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    rate_unit: str,
+    candidate_rate: str,
+    client_rate: str,
+    hourly_candidate: float,
+    hourly_client: float,
+) -> None:
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    client_id, contract_id = await _seed_unit_contract(
+        rate_unit, candidate_rate, client_rate
+    )
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    row = next(
+        r for r in resp.json()["active_consultants"] if r["contract_id"] == contract_id
+    )
+    assert row["hourly_rate_candidate"] == hourly_candidate
+    assert row["hourly_rate_client"] == hourly_client
+
+    # Tylko warstwa wyświetlania — kontrakt zostaje w swojej jednostce.
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.rate_unit.value == rate_unit
+        assert contract.rate_candidate == Decimal(candidate_rate)
+        assert contract.rate_client == Decimal(client_rate)
