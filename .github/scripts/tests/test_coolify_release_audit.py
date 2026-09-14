@@ -32,6 +32,7 @@ class ReleaseAuditTests(unittest.TestCase):
 
     def test_missing_api_field_is_distinct_from_disabled(self):
         self.assertFalse(audit.summarize({}, [])["source_commit_setting_exposed"])
+        self.assertIsNone(audit.summarize({}, [])["source_commit_in_build"])
         self.assertTrue(
             audit.summarize(
                 {"settings": {"include_source_commit_in_build": False}}, []
@@ -48,8 +49,10 @@ class ReleaseAuditTests(unittest.TestCase):
                 {"key": "GIT_SHA", "value": "${SOURCE_COMMIT}-private"},
             ],
         )["envs"]
-        self.assertEqual([row["known_reference"] for row in rows],
-                         ["SOURCE_COMMIT", "SOURCE_COMMIT", None, None])
+        self.assertEqual(
+            [row["known_reference"] for row in rows],
+            ["SOURCE_COMMIT", "SOURCE_COMMIT", None, None],
+        )
 
 
 if __name__ == "__main__":

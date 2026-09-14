@@ -21,8 +21,11 @@ def summarize(application, envs):
     settings = application.get("settings") or {}
     result = {
         "source_commit_setting_exposed": "include_source_commit_in_build" in settings,
-        "source_commit_in_build": settings.get("include_source_commit_in_build")
-        is True,
+        "source_commit_in_build": (
+            settings["include_source_commit_in_build"] is True
+            if "include_source_commit_in_build" in settings
+            else None
+        ),
         "custom_build_command_present": bool(
             application.get("docker_compose_custom_build_command")
         ),

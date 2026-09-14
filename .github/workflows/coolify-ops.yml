@@ -184,6 +184,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
+      - name: Verify diagnostic redaction
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_coolify_release_audit.py
       - name: Read configuration flags only
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
