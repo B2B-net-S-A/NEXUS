@@ -72,6 +72,11 @@ async def test_profile_returns_expected_shape(
         "ltv",
     ):
         assert key in summary, f"missing summary.{key}"
+        if key == "active_mrr":
+            # Kafel „—", gdy żaden OBECNY kontrakt nie ma policzonej marży
+            # (albo brakuje kursu) — wartość jest z definicji opcjonalna.
+            assert summary[key] is None or isinstance(summary[key], int)
+            continue
         assert isinstance(summary[key], int)
     # avg_time_to_fill_days is Optional[float]
     assert summary.get("avg_time_to_fill_days") is None or isinstance(
