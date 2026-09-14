@@ -18,6 +18,9 @@ export const WS_BACKED_SAFETY_POLL_MS = 5 * 60_000;
 /** Powiadomienia, gdy WebSocket jest rozłączony (jedyne źródło świeżości). */
 export const NOTIFICATIONS_FALLBACK_POLL_MS = 60_000;
 
+/** Finanse → Zmiany w zamówieniach: siatka pod odświeżeniem przy powrocie do karty. */
+export const ORDER_CHANGES_POLL_MS = 5 * 60_000;
+
 /** Sekcje dashboardu (aktywność, rekrutacje, zadania, onboarding). */
 export const DASHBOARD_SECTION_POLL_MS = 5 * 60_000;
 

@@ -778,6 +778,7 @@ Trafiają tu powiadomienia o zbliżającym się końcu:
 | **Umowa ramowa wygasa za N dni** | 30, 14 i 7 dni przed końcem umowy ramowej z klientem |
 | Zbliżający się koniec umowy z konsultantem | 90, 60, 30, 14 i 7 dni przed końcem — umowa B2B ma datę końca dopiero po „Zakończ współpracę" |
 | **Nowy draft kontraktu + zamówienia** | w chwili zatrudnienia kandydata — z prośbą o uzupełnienie stawek, dat i wgranie PDF-a |
+| **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia, gdy osoba nie ma u tego klienta następnego zamówienia (także szkicu) — raz na brak; ta sama sprawa trafia też na pulpit (Miejsce 2) |
 
 Kliknięcie powiadomienia otwiera od razu właściwą zakładkę profilu klienta —
 „Zamówienia” albo „Umowy” (umowy ramowe i aneksy).
@@ -792,7 +793,7 @@ ostrzeżenia, nawet gdy skaner przejdzie kilka razy w ciągu dnia.
 
 Pulpit w widoku **Delivery Lead**. To lista **spraw do załatwienia**, z przyciskiem
 **Oznacz jako obsłużone**, zakładką **Historia** i eksportem do Excela z czasem
-reakcji. Pięć rodzajów:
+reakcji. Sześć rodzajów:
 
 | Sprawa | Kiedy powstaje | Czy się powtarza |
 |---|---|---|
@@ -801,6 +802,16 @@ reakcji. Pięć rodzajów:
 | **[Klient] — mało MD na zamówieniu [numer]** | zostało 15 MD lub mniej — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | co 7 dni |
 | **[Klient] — zamówienie [numer] wyczerpane** | budżet **kosztowy** albo **wspólna pula MD** zeszły do zera | raz |
 | **[Klient] — decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz |
+| **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
+
+**Brak kolejnego zamówienia widzi też dział finansowy** (Finanse → Zmiany
+w zamówieniach → Braki). Nie powstaje, gdy koniec był świadomy: wypowiedziana
+umowa („Zakończ współpracę"), zamiana kontraktora, decyzja o MD po zakończeniu
+współpracy albo „Zostaw jako historię". Dodanie zamówienia po fakcie zamyka
+alert od razu, ale **wpis w Brakach zostaje** jako „Uzupełnione z opóźnieniem"
+z liczbą dni po terminie — dział finansowy widzi, że temat nie był dopilnowany
+na czas. Żeby brak w ogóle nie powstał, dodaj następne zamówienie (wystarczy
+szkic) **najpóźniej w dniu końca obecnego**.
 
 > **Uwaga na dziurę w pierwszym alercie:** przypomina on o zamówieniach
 > w statusie **Draft**, a nie o osobach, które zamówienia **w ogóle nie mają**.

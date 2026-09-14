@@ -532,6 +532,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
+        ALERT_ORDER_MISSING_SUCCESSOR,
     )
     from app.tasks.dl_alerts_scanner import ALERT_RULES
 
@@ -539,6 +540,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
+        ALERT_ORDER_MISSING_SUCCESSOR,
     }
 
 

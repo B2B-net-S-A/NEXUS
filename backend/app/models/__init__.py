@@ -117,6 +117,8 @@ from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
+from app.models.order_change_event import OrderChangeEvent
+from app.models.order_gap import OrderGap
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
@@ -408,6 +410,8 @@ __all__ = [
     "ClientCleanupRun",
     "PurgedClient",
     "CriticalEvent",
+    "OrderChangeEvent",
+    "OrderGap",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
     "CompassWorkdaysSyncState",

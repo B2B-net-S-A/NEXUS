@@ -877,6 +877,11 @@ async def resync_contract_safely(
         return None
 
 
+def pending_order_contract_ids(db: AsyncSession) -> frozenset[int]:
+    """Kontrakty ruszonych zamówień zebrane w tej sesji (bez zdejmowania)."""
+    return frozenset(db.info.get(_PENDING_KEY) or ())
+
+
 async def sync_pending_order_contracts(
     db: AsyncSession,
     *,

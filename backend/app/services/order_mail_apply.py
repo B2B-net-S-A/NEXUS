@@ -32,10 +32,12 @@ from app.services.advanced_candidate_search import fold_polish
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.contract_order_sync import (
     apply_contract_hourly_policy,
+    pending_order_contract_ids,
     sync_pending_order_contracts,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.order_engagement_separation import assert_no_open_md_group_line
+from app.services.order_gaps import refresh_order_gaps_safely
 from app.services.order_mail_planner import (
     ACTION_FILL_DRAFT,
     ACTION_FUTURE,
@@ -340,7 +342,15 @@ async def apply_document(
         return ApplyResult(error=error)
     # Zamówienie z maila to zwykły zapis zamówienia — kontrakt tej osoby
     # dostaje okres zamówienia i stawkę przychodową, zamówienie koszt z umowy.
+    await db.flush()
+    touched_contracts = pending_order_contract_ids(db)
     await sync_pending_order_contracts(db, actor_id=actor_user_id)
+    # Zamówienie z maila zamyka brak kolejnego zamówienia tak samo jak zapis
+    # z formularza (``commit_order_write``) — Finanse widzą to od razu.
+    if touched_contracts:
+        await refresh_order_gaps_safely(
+            db, contract_ids=sorted(touched_contracts), actor_id=actor_user_id
+        )
     return result
 
 
