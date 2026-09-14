@@ -91,6 +91,17 @@ def main():
         assert isinstance(application, dict) and isinstance(envs, list)
         result = summarize(application, envs)
         result["server_version"] = read("version")
+        from configure_coolify_release import planned_changes
+
+        update, remove = planned_changes(application, envs)
+        result["release_wrapper_update_needed"] = update
+        result["production_cycles_to_remove"] = len(remove)
+        generated = application.get("docker_compose") or ""
+        result["generated_image_releases"] = {
+            service: sha for service, sha in re.findall(
+                r"image:\s*['\"]?[a-z0-9]+_(backend|frontend):([0-9a-f]{40})\b", generated
+            )
+        }
         print(json.dumps(result, sort_keys=True))
     except urllib.error.HTTPError as error:
         print(
