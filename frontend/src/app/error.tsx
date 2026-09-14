@@ -5,6 +5,7 @@
 // global-error.tsx (Next default) which is harder to debug.
 import { useEffect } from 'react'
 import * as Sentry from '@sentry/nextjs'
+import { reloadOnceForChunkError } from '@/lib/chunk-reload'
 
 interface ErrorPageProps {
     error: Error & { digest?: string }
@@ -13,6 +14,8 @@ interface ErrorPageProps {
 
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
     useEffect(() => {
+        // Stara karta po deployu: brakujący chunk naprawia jedno przeładowanie.
+        if (reloadOnceForChunkError(error)) return
         Sentry.captureException(error, {
             tags: {
                 boundary: 'app-router',

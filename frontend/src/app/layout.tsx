@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { QueryProvider } from "@/components/QueryProvider";
+import { ChunkReloadGuard } from "@/components/ChunkReloadGuard";
 import { AppShellV2 } from "@/components/v2/shell/AppShellV2";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";
@@ -119,6 +120,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
       <body className="bg-background text-foreground font-sans antialiased">
+        <ChunkReloadGuard />
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>

@@ -1,0 +1,15 @@
+{
+  "roster_eligible": true,
+  "returned_rows": [
+    {
+      "user_id": 700001,
+      "user_name": "Synthetic TCM Recruiter",
+      "completed_calls": 7,
+      "first_verifications": 0,
+      "candidates_added": 8,
+      "first_recommendations": 0,
+      "first_placements": 1
+    }
+  ],
+  "queries": 4
+}

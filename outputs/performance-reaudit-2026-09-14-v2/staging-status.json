@@ -1,0 +1,10 @@
+{
+  "observed_at_utc": "2026-09-14T11:20:27Z",
+  "workflow_url": "https://github.com/B2B-net-S-A/NEXUS/actions/runs/34837698245",
+  "uuid": "bwidyryrt7ppw42yf533l5uu",
+  "status": "exited:unhealthy",
+  "git_branch": "codex/nexus-dependency-upgrades",
+  "git_commit_sha": "6af30237ee17cd6ac4d3394157bb4adf0bf4deb4",
+  "build_pack": "dockercompose",
+  "fqdn": null
+}
