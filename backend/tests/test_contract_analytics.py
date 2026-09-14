@@ -142,3 +142,87 @@ async def test_role_client_mix_sigma_deduplicates_person_across_clients(
             if client_ids:
                 await db.execute(delete(Client).where(Client.id.in_(client_ids)))
             await db.commit()
+
+
+async def test_ending_contracts_count_as_active_in_analytics(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """UAT M08-B02: „Kończący się" to nadal pracujący konsultant.
+
+    Rejestr i prognoza liczą ``active`` + ``ending``; kafle i tabele analityki
+    liczyły tylko ``active``, więc jeden ekran pokazywał dwie liczby.
+    """
+    from decimal import Decimal
+
+    from app.models.contract import RateUnit
+
+    marker = uuid.uuid4().hex[:10]
+    role = f"Ending-{marker}"
+    ids: dict[str, int] = {}
+    try:
+        baseline = await app_client.get(
+            "/api/contract-analytics/utilization", headers=app_auth_headers
+        )
+        assert baseline.status_code == 200, baseline.text
+        before = baseline.json()["active_contracts"]
+
+        async with AsyncSessionLocal() as db:
+            candidate = Candidate(
+                name="Ending", lastname=f"Contractor{marker}", competence_category=role
+            )
+            client = Client(name=f"Ending Client {marker}")
+            db.add_all([candidate, client])
+            await db.flush()
+            contract = Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.ending,
+                start_date=date.today() - timedelta(days=100),
+                end_date=date.today() + timedelta(days=10),
+                rate_unit=RateUnit.monthly,
+                rate_client=Decimal("20000"),
+                rate_candidate=Decimal("15000"),
+            )
+            db.add(contract)
+            await db.commit()
+            ids = {
+                "contract": contract.id,
+                "candidate": candidate.id,
+                "client": client.id,
+            }
+
+        util = await app_client.get(
+            "/api/contract-analytics/utilization", headers=app_auth_headers
+        )
+        assert util.status_code == 200, util.text
+        assert util.json()["active_contracts"] == before + 1
+
+        by_client = await app_client.get(
+            "/api/contract-analytics/margin-by-client", headers=app_auth_headers
+        )
+        assert by_client.status_code == 200, by_client.text
+        assert ids["client"] in {row["client_id"] for row in by_client.json()}
+
+        by_contractor = await app_client.get(
+            "/api/contract-analytics/margin-by-contractor", headers=app_auth_headers
+        )
+        assert by_contractor.status_code == 200, by_contractor.text
+        assert ids["candidate"] in {row["candidate_id"] for row in by_contractor.json()}
+
+        mix = await app_client.get(
+            "/api/contract-analytics/role-client-mix", headers=app_auth_headers
+        )
+        assert mix.status_code == 200, mix.text
+        assert mix.json()["role_totals"].get(role) == 1
+    finally:
+        async with AsyncSessionLocal() as db:
+            if ids.get("contract"):
+                await db.execute(delete(Contract).where(Contract.id == ids["contract"]))
+            if ids.get("candidate"):
+                await db.execute(
+                    delete(Candidate).where(Candidate.id == ids["candidate"])
+                )
+            if ids.get("client"):
+                await db.execute(delete(Client).where(Client.id == ids["client"]))
+            await db.commit()

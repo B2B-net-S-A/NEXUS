@@ -160,8 +160,8 @@ export function buildRadaCsvExport(
       c.monthly_margin_total,
       c.head_dl_name,
       c.active_consultants,
-      c.active_revenue,
-      c.revenue_complete && c.margin_complete ? "tak" : "nie",
+      c.monthly_revenue_total,
+      c.margin_complete && c.monthly_revenue_complete ? "tak" : "nie",
     ],
   );
   return {
@@ -172,7 +172,7 @@ export function buildRadaCsvExport(
       "Wartość / marża miesięczna",
       "Delivery Lead",
       "Aktywni konsultanci",
-      "Przychód aktywny",
+      "Przychód miesięczny (kontrakty)",
       "Kwoty pełne",
     ],
     rows: [...kpi, ...clients],

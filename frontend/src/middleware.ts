@@ -280,9 +280,15 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
   // CandidateWriteAccess + membership do oferty; tu poprawiamy UX, żeby
   // viewer dostał /403 zamiast pustego ekranu z błędem z API.
+  // Head of Recruitment NIE rozpatruje zgłoszeń: backend stoi za
+  // CandidateWriteAccess, a HoR nie wykonuje operacyjnych zapisów kandydatów
+  // (`candidate_access.CANDIDATE_WRITE_ROLES`). Bez tego HoR z menu trafiał na
+  // „Nie udało się pobrać kolejki zgłoszeń." (UAT A-B02).
   {
     prefix: "/applications",
-    roles: SOURCING_OPERATIONAL_ROLES,
+    roles: SOURCING_OPERATIONAL_ROLES.filter(
+      (role) => role !== "head_of_recruitment",
+    ),
     section: "sourcing",
     enforceRoles: true,
   },

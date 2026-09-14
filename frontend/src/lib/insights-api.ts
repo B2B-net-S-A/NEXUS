@@ -519,8 +519,14 @@ export interface InsightsClientRankingRow {
   head_dl_id: number | null;
   head_dl_name: string | null;
   total_revenue_all_time: number | null;
+  /**
+   * Suma wartości AKTYWNYCH zamówień (PO) — nie jest kwotą miesięczną i jest
+   * wypełniona tylko tam, gdzie zamówienie ma kwotę. Nie pokazuj jako MRR.
+   */
   active_revenue: number | null;
   monthly_margin_total: number | null;
+  /** Przychód miesięczny z bieżących kontraktów (noga klienta z harmonogramu). */
+  monthly_revenue_total: number | null;
   active_orders_count: number;
   active_consultants: number;
   active_contracts: number;
@@ -529,6 +535,8 @@ export interface InsightsClientRankingRow {
   /** `false` = brak kursu NBP skasował kwotę z sumy tego wiersza. */
   revenue_complete: boolean;
   margin_complete: boolean;
+  /** `false` = brak kursu NBP dla nogi przychodu; kwota przychodu niepełna. */
+  monthly_revenue_complete: boolean;
 }
 
 export interface InsightsClientsRankingResponse {
@@ -546,10 +554,12 @@ export interface InsightsClientsRankingResponse {
     active_contracts: number;
     active_orders_count: number;
     monthly_margin_complete: boolean;
+    monthly_revenue_complete: boolean;
     revenue_complete: boolean;
     monthly_margin_total: number;
     total_revenue_all_time: number;
     active_revenue: number;
+    monthly_revenue_total: number;
   };
   clients: InsightsClientRankingRow[];
 }

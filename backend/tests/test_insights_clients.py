@@ -155,6 +155,7 @@ async def stale_rate_column_contract() -> AsyncIterator[dict]:
             "candidate_id": candidate.id,
             "column_margin": 50,
             "schedule_margin": 200,
+            "schedule_revenue": 300,
         }
 
     try:
@@ -404,6 +405,41 @@ async def test_mrr_tile_equals_the_sum_of_the_listed_rows(
         seeded["monthly_margin_total"]
         == (stale_rate_column_contract["schedule_margin"])
     )
+
+
+@pytest.mark.asyncio
+async def test_ranking_revenue_is_monthly_contract_revenue_not_order_value(
+    fx_client: AsyncClient,
+    admin_headers: dict[str, str],
+    stale_rate_column_contract: dict,
+):
+    """UAT M10-B01: „przychód / mc" w Radzie to noga klienta z harmonogramu.
+
+    Wcześniej kafel „Aktywne MRR / mc" sumował wartości zamówień (PO), więc
+    marża wychodziła większa od przychodu, a ranking stał na kolumnie
+    wypełnionej u garstki klientów.
+    """
+    await cache_invalidate("insights:clients:")
+    body = (await fx_client.get(RANKING, headers=admin_headers)).json()
+    clients, totals = body["clients"], body["totals"]
+
+    seeded = next(
+        c for c in clients if c["client_id"] == stale_rate_column_contract["client_id"]
+    )
+    assert (
+        seeded["monthly_revenue_total"]
+        == stale_rate_column_contract["schedule_revenue"]
+    )
+    assert totals["monthly_revenue_total"] == sum(
+        c["monthly_revenue_total"] or 0 for c in clients
+    )
+    assert seeded["monthly_revenue_complete"] is True
+    assert "monthly_revenue_complete" in totals
+    revenues = [c["monthly_revenue_total"] or 0 for c in clients]
+    assert revenues == sorted(revenues, reverse=True)
+    for row in clients:
+        if row["monthly_revenue_total"] is not None and row["monthly_margin_total"]:
+            assert row["monthly_margin_total"] <= row["monthly_revenue_total"]
 
 
 @pytest.mark.asyncio

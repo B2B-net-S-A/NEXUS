@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from urllib.parse import unquote
 
-from app.core.http_headers import content_disposition, content_disposition_attachment
+from starlette.datastructures import Headers, MutableHeaders
+
+from app.core.http_headers import (
+    apply_credentialed_cache_policy,
+    content_disposition,
+    content_disposition_attachment,
+)
 
 
 def test_polish_filename_is_latin1_safe():
@@ -78,3 +84,51 @@ def test_attachment_alias_matches_content_disposition():
     assert content_disposition_attachment("Żółć.pdf") == content_disposition(
         "Żółć.pdf", "attachment"
     )
+
+
+# ── UAT M07-B01: odpowiedzi na żądania z poświadczeniami poza cache ────────
+
+
+def _apply(request: dict, response: dict | None = None) -> MutableHeaders:
+    out = MutableHeaders(headers=response or {})
+    apply_credentialed_cache_policy(Headers(headers=request), out)
+    return out
+
+
+def test_file_response_to_bearer_request_is_not_cacheable():
+    headers = _apply(
+        {"authorization": "Bearer x"},
+        {"etag": '"abc"', "last-modified": "Sun, 13 Sep 2026 10:00:00 GMT"},
+    )
+    assert headers["cache-control"] == "private, no-store"
+    vary = {part.strip().lower() for part in headers["vary"].split(",")}
+    assert {"authorization", "x-api-key", "x-impersonate-user-id"} <= vary
+
+
+def test_endpoint_own_cache_policy_is_kept_but_keyed_per_credential():
+    headers = _apply(
+        {"authorization": "Bearer x"},
+        {"cache-control": "private, max-age=60", "vary": "Origin"},
+    )
+    assert headers["cache-control"] == "private, max-age=60"
+    parts = [part.strip() for part in headers["vary"].split(",")]
+    assert parts[0] == "Origin"
+    assert "Authorization" in parts
+
+
+def test_api_key_and_impersonation_count_as_credentials():
+    assert _apply({"x-api-key": "k"})["cache-control"] == "private, no-store"
+    assert (
+        _apply({"x-impersonate-user-id": "5"})["cache-control"] == "private, no-store"
+    )
+
+
+def test_anonymous_request_is_left_alone():
+    headers = _apply({}, {"cache-control": "public, max-age=300"})
+    assert headers["cache-control"] == "public, max-age=300"
+    assert "vary" not in headers
+
+
+def test_vary_star_is_not_rewritten():
+    headers = _apply({"authorization": "Bearer x"}, {"vary": "*"})
+    assert headers["vary"] == "*"

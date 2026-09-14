@@ -21,6 +21,34 @@ from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class _NullTolerantSection(BaseModel):
+    """Treat ``null`` in an optional text/list field as "not filled in".
+
+    The AI parser is told to return ``null`` for information missing from the
+    document, while these fields are typed ``str = ""`` / ``list = []``. A
+    blank "Deal breaker" cell in the Word template therefore failed the whole
+    import with a raw Pydantic error — after the paid parse (UAT M04-B01).
+    Only fields WITH an empty default are coerced; required fields keep
+    failing, because a missing screening question is a real defect.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _null_to_empty(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        cleaned = dict(data)
+        for name, field in cls.model_fields.items():
+            key = field.alias or name
+            if key not in cleaned or cleaned[key] is not None:
+                continue
+            if field.default == "":
+                cleaned[key] = ""
+            elif field.default_factory is list:
+                cleaned[key] = []
+        return cleaned
+
+
 # ── Building blocks: the seven sections ──────────────────────────────────────
 #
 # The template is deliberately SHORT. Everything here earns its place by being
@@ -69,7 +97,7 @@ class ChampionBasics(BaseModel):
     contract_length: Optional[str] = Field(default=None, max_length=255)
 
 
-class ChampionSearch(BaseModel):
+class ChampionSearch(_NullTolerantSection):
     """2. Co wpisać (search) — literally what the recruiter pastes into search.
 
     Not "sourcing strategy" any more. The old block asked for a plan (channels,
@@ -107,7 +135,7 @@ class StackItem(BaseModel):
     name: str = Field(min_length=1, max_length=STACK_ITEM_MAX_CHARS)
 
 
-class ChampionStack(BaseModel):
+class ChampionStack(_NullTolerantSection):
     """3. Stack technologiczny — STRUCTURED, and this is the whole point.
 
     Until now the only machine-readable requirement signal for a champion job
@@ -131,7 +159,7 @@ class ChampionStack(BaseModel):
         return [item.name for item in (*self.must, *self.nice)]
 
 
-class ChampionProject(BaseModel):
+class ChampionProject(_NullTolerantSection):
     """4. O projekcie — two sentences, merged with the duties.
 
     ``about`` is capped by INSTRUCTION, not by a validator: a hard length limit
@@ -144,7 +172,7 @@ class ChampionProject(BaseModel):
     responsibilities: str = ""
 
 
-class ScreeningQuestion(BaseModel):
+class ScreeningQuestion(_NullTolerantSection):
     """One DL-authored screening question with grading hints."""
 
     id: str = Field(min_length=1, max_length=40)
@@ -153,7 +181,7 @@ class ScreeningQuestion(BaseModel):
     deal_breaker: str = ""
 
 
-class ChampionClient(BaseModel):
+class ChampionClient(_NullTolerantSection):
     """6. O kliencie — everything role-independent about who we are staffing.
 
     Absorbs three blocks that used to float at the top level of the profile

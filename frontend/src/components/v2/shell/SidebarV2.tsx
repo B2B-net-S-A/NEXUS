@@ -177,9 +177,10 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Zgłoszenia",
         icon: Inbox,
         badgeKey: "applicationSubmissions",
+        // Te same role co `canReviewApplications` niżej i backendowe
+        // CandidateWriteAccess — HoR nie rozpatruje zgłoszeń (UAT A-B02).
         roles: [
           "admin",
-          "head_of_recruitment",
           "delivery_lead",
           "talent_community_manager",
           "tac",
