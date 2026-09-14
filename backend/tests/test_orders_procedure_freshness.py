@@ -247,7 +247,16 @@ def test_seed_channels_agree_on_the_same_procedure() -> None:
 # a guard, który krzyczy bez powodu, uczy się go obchodzić. Zamiast odcisku
 # pliku przypinamy DOKŁADNIE te wartości, które padają w treści.
 _QUOTED_THRESHOLDS = {
-    "DL_ALERT_MD_THRESHOLD": (15.0, "próg alertu „mało MD” — 15 dni"),
+    "DL_ALERT_MD_THRESHOLD": (21.0, "próg alertu „mało MD” — 21 dni"),
+    "DL_ALERT_COST_BUDGET_THRESHOLD": (10000.0, "próg budżetu kosztowego — 10 000 zł"),
+    "DL_ALERT_HIGH_PRIORITY_WORKDAYS": (
+        7,
+        "wysoki priorytet MD/kosztowy — 7 dni roboczych",
+    ),
+    "DL_ALERT_ENDING_WINDOW_DAYS": (
+        30,
+        "start przypomnień o końcu zamówienia — 30 dni",
+    ),
     "DL_ALERT_REPEAT_DAYS": (7, "powtórka spraw z pulpitu — co 7 dni"),
 }
 

@@ -529,10 +529,16 @@ async def test_mail_new_draft_alert_reaches_dl_assigned_after_the_draft():
 async def test_scanner_uses_a_single_rule_registry():
     """Dołożenie typu ma być dopisaniem reguły, nie przebudową skanera."""
     from app.models.dl_alert import (
+        ALERT_CONTRACT_ENDING,
+        ALERT_COST_BUDGET_LOW,
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
+        ALERT_FRAMEWORK_CONTRACT_EXPIRING,
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
+        ALERT_NEW_CONTRACTOR_DRAFT,
+        ALERT_ORDER_MAIL_REVIEW,
         ALERT_ORDER_MISSING_SUCCESSOR,
+        ALERT_PERIODIC_ORDER_ENDING,
     )
     from app.tasks.dl_alerts_scanner import ALERT_RULES
 
@@ -541,6 +547,12 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
         ALERT_ORDER_MISSING_SUCCESSOR,
+        ALERT_PERIODIC_ORDER_ENDING,
+        ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+        ALERT_CONTRACT_ENDING,
+        ALERT_COST_BUDGET_LOW,
+        ALERT_NEW_CONTRACTOR_DRAFT,
+        ALERT_ORDER_MAIL_REVIEW,
     }
 
 
@@ -548,7 +560,8 @@ def test_md_threshold_is_global_not_per_client():
     """Ticket wprost zabrania konfiguracji progu per klient."""
     from app.core.config import settings
 
-    assert settings.DL_ALERT_MD_THRESHOLD == pytest.approx(15.0)
+    # Panel „Moi klienci" (09.2026): pierwsze przypomnienie przy 21 MD.
+    assert settings.DL_ALERT_MD_THRESHOLD == pytest.approx(21.0)
     assert settings.DL_ALERT_REPEAT_DAYS == 7
 
 

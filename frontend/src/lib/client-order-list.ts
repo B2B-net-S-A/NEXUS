@@ -843,3 +843,53 @@ export function visibleLegacyOrderIds(
     return [current.id];
   });
 }
+
+/** Cel deep linku z panelu „Moi klienci" (`?order=` / `?group=`). */
+export type OrderFocusTarget =
+  | { kind: "group"; groupId: number }
+  | { kind: "contractor"; contractId: number; orderId: number; isDraft: boolean };
+
+/**
+ * Znajdź na liście zamówień klienta to, na co wskazuje link z powiadomienia.
+ *
+ * `groupId` — zamówienie MD/kosztowe (także zagnieżdżone przedłużenie).
+ * `orderId` — linia takiej grupy (wtedy celem jest jej grupa) albo zamówienie
+ * okresowe na karcie kontraktora. `null` = obiekt nie jest już widoczny na
+ * liście (usunięty, anulowany, bez uprawnień) — wołający mówi o tym wprost,
+ * zamiast po cichu zostawić użytkownika na górze zakładki.
+ */
+export function resolveOrderFocus(
+  groups: readonly OrderGroupRead[],
+  contractors: readonly ContractWithOrdersRead[],
+  target: { orderId?: number | null; groupId?: number | null },
+): OrderFocusTarget | null {
+  if (target.groupId && flattenOrderGroupIds(groups).includes(target.groupId)) {
+    return { kind: "group", groupId: target.groupId };
+  }
+  const orderId = target.orderId;
+  if (!orderId) return null;
+  const visit = (group: OrderGroupRead): number | null => {
+    if (group.lines.some((line) => line.id === orderId)) return group.id;
+    for (const future of group.future_orders) {
+      const found = visit(future);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  for (const group of groups) {
+    const found = visit(group);
+    if (found !== null) return { kind: "group", groupId: found };
+  }
+  for (const contractor of contractors) {
+    const order = contractor.orders.find((item) => item.id === orderId);
+    if (order) {
+      return {
+        kind: "contractor",
+        contractId: contractor.contract_id,
+        orderId,
+        isDraft: order.status === "draft",
+      };
+    }
+  }
+  return null;
+}

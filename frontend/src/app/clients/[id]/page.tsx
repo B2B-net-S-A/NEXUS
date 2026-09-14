@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
-import { useClientTab, type ClientTab } from "@/lib/client-tab";
+import {
+  positiveIntParam,
+  useClientTab,
+  type ClientTab,
+} from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
@@ -800,6 +804,21 @@ export default function ClientDetailPage() {
   const clearOrderMailDoc = useCallback(() => {
     router.replace(`/clients/${id}?tab=zamowienia`, { scroll: false });
   }, [router, id]);
+  // Deep linki z panelu „Moi klienci": konkretne zamówienie (`?order=`),
+  // zamówienie MD/kosztowe (`?group=`) albo umowa ramowa (`?framework=`).
+  // Zakładka czyta WARTOŚĆ parametru (miękka nawigacja nie odmontowuje
+  // strony), a po obsłużeniu parametr znika z adresu — F5 nie otwiera
+  // okna uzupełniania drugi raz.
+  const focusOrderId = positiveIntParam(searchParams.get("order"));
+  const focusGroupId = positiveIntParam(searchParams.get("group"));
+  const focusFrameworkId = positiveIntParam(searchParams.get("framework"));
+  const clearFocusParams = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("order");
+    next.delete("group");
+    next.delete("framework");
+    router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+  }, [router, id, searchParams]);
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
@@ -1044,7 +1063,11 @@ export default function ClientDetailPage() {
 
           {canViewDeliveryLegal && activeTab === "umowy-ramowe" && (
             <div className="space-y-4">
-              <FrameworkContractsTab clientId={Number(id)} />
+              <FrameworkContractsTab
+                clientId={Number(id)}
+                focusContractId={focusFrameworkId}
+                onFocusHandled={clearFocusParams}
+              />
 
               <LazyDetails
                 icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
@@ -1068,6 +1091,9 @@ export default function ClientDetailPage() {
               // „Rozstrzygnij w oknie zamówienia" z kolejki zamówień z maila.
               orderMailDocId={orderMailDocId}
               onOrderMailDocDone={clearOrderMailDoc}
+              focusOrderId={focusOrderId}
+              focusGroupId={focusGroupId}
+              onFocusHandled={clearFocusParams}
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}

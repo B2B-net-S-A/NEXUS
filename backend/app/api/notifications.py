@@ -7,14 +7,18 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.api.deps import CurrentUser
-from app.services.notification_access import notification_visibility_predicate
+from app.services.notification_access import (
+    notification_types_for_sections,
+    notification_visibility_predicate,
+)
+from app.services.section_permissions import ProductSection
 from app.services.workforce_availability import operational_owner_ids
 
 router = APIRouter()
@@ -117,8 +121,15 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     offset: int = Query(0, ge=0),
+    exclude_section: List[str] = Query(default=[]),
 ):
     """List notifications for current user — unread first.
+
+    ``exclude_section`` (powtarzalny, np. ``delivery``): widget „Moje zadania"
+    pokazuje wyłącznie zdarzenia rekrutacyjne, a sprawy klientów mają osobny
+    panel „Moi klienci". Filtr działa i na listę, i na ``unread_count`` —
+    licznik liczony bez filtra obiecywałby pozycje, których na liście nie ma.
+    Dzwonek nie wysyła parametru i widzi wszystko jak dotąd.
 
     ``offset`` (B51): dzwonek pokazywał wyłącznie pierwsze ``limit`` pozycji
     bez drogi do starszych; z przesunięciem klient może doładować kolejne.
@@ -126,11 +137,25 @@ async def list_notifications(
     nic nie zostanie oznaczone jako przeczytane — po takiej zmianie klient
     powinien czytać od zera, nie kontynuować przesunięcia.
     """
+    try:
+        excluded_sections = [ProductSection(value) for value in exclude_section]
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail="exclude_section: nieznana sekcja (sourcing, pipeline, delivery, insights)",
+        )
+    excluded_types = notification_types_for_sections(excluded_sections)
+    type_filter = (
+        Notification.notification_type.not_in(sorted(excluded_types, key=str))
+        if excluded_types
+        else true()
+    )
     result = await db.execute(
         select(Notification)
         .where(
             _notification_owner(current_user),
             _notification_visibility(current_user),
+            type_filter,
         )
         .order_by(
             Notification.is_read.asc(),
@@ -149,6 +174,7 @@ async def list_notifications(
             _notification_owner(current_user),
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
+            type_filter,
         )
     )
     unread_count = unread_result.scalar() or 0
