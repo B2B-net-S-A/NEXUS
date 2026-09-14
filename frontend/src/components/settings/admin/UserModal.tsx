@@ -148,7 +148,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
           )}
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Rola podstawowa (primary)</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Rola podstawowa</label>
             <select
               value={form.role}
               onChange={(e) => setPrimaryRole(e.target.value)}
@@ -191,14 +191,14 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                       className="rounded border-border"
                     />
                     <span>{ROLE_LABELS[r] ?? r}</span>
-                    {isPrimary && <span className="text-xs">(primary)</span>}
+                    {isPrimary && <span className="text-xs">(podstawowa)</span>}
                   </label>
                 );
               })}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Hybrid usery (np. DL+TAC) zaznacz obie role. Primary jest zawsze
-              wybrana. Finanse i Viewer (legacy) są rolami wyłącznymi i nie
+              Osobom z kilkoma rolami (np. DL+TAC) zaznacz obie. Rola podstawowa
+              jest zawsze wybrana. Finanse i Viewer (legacy) są rolami wyłącznymi i nie
               mogą być łączone z innymi; Viewer nie jest dostępny jako rola
               dodatkowa.
             </p>

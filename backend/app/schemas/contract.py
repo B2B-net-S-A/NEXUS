@@ -627,6 +627,19 @@ class ContractorCandidateRef(BaseModel):
     email: Optional[str] = None
 
 
+class ContractorOrderRef(BaseModel):
+    """Okres i status zamówienia kontraktora — bez kwot.
+
+    Lista kontraktorów potrzebuje go wyłącznie do dopisku „Brak aktywnego
+    zamówienia"; regułę liczy front (`lacksCurrentOrder`), więc serwer nie
+    trzyma jej drugiej kopii.
+    """
+
+    status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
 class ContractorListItem(BaseModel):
     """Single row in the Contractors list view."""
 
@@ -652,6 +665,9 @@ class ContractorListItem(BaseModel):
     # Only populated for drafts — lists the required fields still missing
     # so the UI can badge the row ("3 braki") and skip the full detail fetch.
     missing_fields: list[str] = []
+    # Wszystkie zamówienia kontraktu (także linie grup MD/kosztowych — osoba
+    # obsadzona tylko na linii grupy MA zamówienie). UAT M08-B05.
+    orders: list[ContractorOrderRef] = []
 
 
 class ContractorList(BaseModel):

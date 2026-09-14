@@ -24,8 +24,16 @@ from app.services.cv_generator_b2b.html_export import render_interactive_html
 from app.services.html_sanitizer import sanitize_cv_html
 
 
-async def load_draft(db, generated):
-    """Caller locks and authorizes the parent generation for every mutation."""
+async def load_draft(db, generated, *, persist: bool = True):
+    """Caller locks and authorizes the parent generation for every mutation.
+
+    ``persist=False`` (odczyty: otwarcie edytora, podgląd, druk) buduje szkic
+    w pamięci i NIE zapisuje go. Samo otwarcie edytora zakładało wiersz
+    szkicu, a istniejący szkic blokuje „Zatwierdź wygenerowane CV” (409) —
+    zgłoszenie UAT M05-B03. Wiersz powstaje dopiero przy pierwszej mutacji
+    (zapis, nowy szkic, kontrola, zatwierdzenie w edytorze) z tą samą treścią
+    i ``edit_revision=0``, więc rewizja widziana w edytorze się zgadza.
+    """
     draft = await db.scalar(
         select(CvGeneratedDraft)
         .where(CvGeneratedDraft.generated_document_id == generated.id)
@@ -79,8 +87,9 @@ async def load_draft(db, generated):
         branded_template="blind" if public["blind"] else "standard",
         branded_docx_filename=generated.filename,
     )
-    db.add(draft)
-    await db.flush()
+    if persist:
+        db.add(draft)
+        await db.flush()
     return draft
 
 

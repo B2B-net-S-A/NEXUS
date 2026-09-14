@@ -20,6 +20,7 @@ import {
   downloadDocumentBlob,
   formatFileSize,
   fileIcon,
+  fileTypeLabel,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
@@ -261,7 +262,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  </span>
  {doc.is_primary && (
  <Badge size="sm" variant="success">
- primary
+ główne CV
  </Badge>
  )}
  <Badge size="sm" variant="neutral">
@@ -289,10 +290,10 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  </span>
  </>
  )}
- {doc.content_type && (
+ {fileTypeLabel(doc.content_type, doc.filename) && (
  <>
  <span className="mx-1.5">·</span>
- <span>{doc.content_type}</span>
+ <span>{fileTypeLabel(doc.content_type, doc.filename)}</span>
  </>
  )}
  </div>
@@ -327,7 +328,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  disabled={metadataMutation.isPending}
  className="text-xs font-medium text-[hsl(var(--accent-primary))] hover:underline disabled:opacity-50"
  >
- Ustaw jako primary
+ Ustaw jako główne CV
  </button>
  ) : null}
  <button

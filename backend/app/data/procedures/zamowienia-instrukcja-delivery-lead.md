@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-14
+> **Zgodność z systemem sprawdzona:** 14.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -139,11 +139,11 @@ zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 * **Kandydat \*** — wyszukiwarka po imieniu, e-mailu, umiejętności
 * **Rekrutacja (opcjonalnie)**
 * **Numer zamówienia \*** — np. 45767
-* **Contract start \*** — początek umowy z konsultantem. **Daty końca umowy
+* **Początek umowy \*** — początek umowy z konsultantem. **Daty końca umowy
   tu nie ma:** umowa B2B jest bezterminowa, dopóki ktoś jej nie zakończy
   przyciskiem **„Zakończ współpracę"** (powód i data, także przyszła). Koniec
-  zamówienia klienta wpisujesz w **Order end** — to on uruchamia ostrzeżenia
-* **Order start (PDF od klienta)** / **Order end** — okres zamówienia
+  zamówienia klienta wpisujesz w **Koniec zamówienia** — to on uruchamia ostrzeżenia
+* **Początek zamówienia (PDF od klienta)** / **Koniec zamówienia** — okres zamówienia
 * **Jednostka stawki** — Godzinowa / MD / Miesięczna
 * **Klient płaci \*** — stawka przychodowa
 * **My płacimy kontraktorowi \*** — stawka kosztowa
@@ -152,7 +152,7 @@ zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 * **PDF zamówienia od klienta** — `.pdf`, `.docx` albo `.doc`, z przyciskiem
   **Zczytaj dane z dokumentu** obok
 
-Zapisujesz przyciskiem **Stwórz Contract + Order**.
+Zapisujesz przyciskiem **Utwórz umowę i zamówienie**.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa

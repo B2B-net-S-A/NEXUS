@@ -162,7 +162,11 @@ export function HelpClientPlaybooksSection() {
                       <span className="block text-xs text-muted-foreground mt-0.5">
                         {`wersja ${item.version}${
                           item.updated_at
-                            ? ` · ${new Date(item.updated_at).toLocaleDateString("pl-PL")}`
+                            ? ` · ${new Date(item.updated_at).toLocaleDateString("pl-PL", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              })}`
                             : ""
                         }`}
                       </span>

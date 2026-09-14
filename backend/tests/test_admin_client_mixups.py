@@ -158,3 +158,43 @@ async def test_unrelated_query_returns_an_empty_report_not_everything(
     )
     assert resp.status_code == 200
     assert resp.json()["families"] == []
+
+
+@pytest.mark.asyncio
+async def test_total_counts_a_mismatch_once_even_in_two_families(
+    app_client, app_auth_headers
+):
+    """UAT M13-B04: para klientów z DWOMA wspólnymi tokenami = dwie rodziny.
+
+    Ten sam kontrakt stoi w obu, więc suma ``mismatch_count`` liczyła go dwa
+    razy; licznik zbiorczy ma liczyć unikalne rozjazdy.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        right = Client(name=f"Zetaqa{suffix} Omegaqa{suffix} Alfa")
+        wrong = Client(name=f"Zetaqa{suffix} Omegaqa{suffix} Beta")
+        candidate = Candidate(name=f"Jan{suffix}", lastname=f"Testowy{suffix}")
+        db.add_all([right, wrong, candidate])
+        await db.flush()
+        job = Job(title=f"Tester {suffix}", client_id=right.id)
+        db.add(job)
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=candidate.id,
+                client_id=wrong.id,
+                job_id=job.id,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.draft,
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.get(
+        "/api/admin/client-mixups", params={"q": suffix}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_families"] == 2, body
+    assert sum(f["mismatch_count"] for f in body["families"]) == 2
+    assert body["total_mismatches"] == 1

@@ -70,6 +70,7 @@ async def list_notes(
     candidate_id: Optional[int] = None,
     job_id: Optional[int] = None,
     note_type: Optional[str] = None,
+    unattached: bool = False,
     limit: int = Query(1000, ge=1, le=2000),
 ):
     """Notatki jednego kandydata/oferty (albo jednej kategorii `note_type`).
@@ -107,6 +108,13 @@ async def list_notes(
         query = query.where(Note.job_id == job_id)
     if note_type:
         query = query.where(Note.note_type == note_type)
+    if unattached:
+        # Panel „Meetingi bez powiązania” w Źródłach AI Championa: wyłącznie
+        # notatki bez rekrutacji I bez kandydata (spotkania z klientem/DL
+        # z Fireflies). Bez tego filtra lista niosła notatki spotkań
+        # kandydatów innych klientów (import Traffita, surowy HTML) z przyciskiem
+        # „Powiąż + AI” na cudzej rekrutacji — UAT M03-B13 / M04-B04.
+        query = query.where(Note.job_id.is_(None), Note.candidate_id.is_(None))
     query = query.order_by(Note.created_at.desc()).limit(limit)
     rows = (await db.execute(query)).all()
 
@@ -356,6 +364,10 @@ async def link_note_to_job(
     # could attach a note to ANY client's job and, worse, trigger a paid LLM
     # enrichment that writes a Champion draft onto it.
     await ensure_delivery_lead_job_visible(job, current_user, db)
+
+    from app.services.note_job_link import ensure_note_linkable_to_job
+
+    await ensure_note_linkable_to_job(db, note, body.job_id)
 
     # Kwota jest obciążana WYŁĄCZNIE w `enrich_from_meeting` (`async with
     # ai_feature(...)`), który pokrywa każdy punkt wejścia. Wcześniejsze

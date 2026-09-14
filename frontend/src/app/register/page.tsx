@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, MailCheck } from "lucide-react";
-import { authApi } from "@/lib/api";
+import api, { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
@@ -23,7 +23,43 @@ function registerErrorMessage(status: number | undefined, detail: string | undef
   return detail || "Nie udało się utworzyć konta. Spróbuj ponownie.";
 }
 
+/**
+ * Czy rejestracja jest włączona — to samo źródło co ekran /login
+ * (GET /api/auth/methods). Bez tego wyłączona rejestracja pokazywała pełny
+ * formularz, a o wyłączeniu mówiła dopiero po wysłaniu (UAT M12-B06).
+ * Brak odpowiedzi = formularz zostaje; backend i tak odpowie 503.
+ */
+type RegistrationAvailability = "checking" | "enabled" | "disabled";
+
+function RegistrationDisabled() {
+  return (
+    <div className="space-y-4">
+      <div
+        role="status"
+        className="flex items-start gap-3 text-sm bg-muted/50 border border-border rounded-md px-4 py-3"
+      >
+        <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-muted-foreground" />
+        <div>
+          <p className="font-medium text-foreground">Rejestracja jest obecnie wyłączona</p>
+          <p className="text-muted-foreground">
+            Konto w Nexus zakłada administrator. Jeśli pracujesz w firmie, zaloguj
+            się kontem Microsoft albo skontaktuj się z administratorem.
+          </p>
+        </div>
+      </div>
+      <Link
+        href="/login"
+        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Wróć do logowania
+      </Link>
+    </div>
+  );
+}
+
 function RegisterForm() {
+  const [availability, setAvailability] = useState<RegistrationAvailability>("checking");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,6 +69,22 @@ function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [resent, setResent] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ self_registration?: boolean }>("/api/auth/methods")
+      .then(({ data }) => {
+        if (cancelled) return;
+        setAvailability(data?.self_registration === false ? "disabled" : "enabled");
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability("enabled");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +109,11 @@ function RegisterForm() {
       setDone(true);
     } catch (err: unknown) {
       const e2 = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (e2.response?.status === 503) {
+        // Wyłączono w międzyczasie — nie zostawiamy formularza z danymi.
+        setAvailability("disabled");
+        return;
+      }
       setError(registerErrorMessage(e2.response?.status, e2.response?.data?.detail));
     } finally {
       setLoading(false);
@@ -72,6 +129,14 @@ function RegisterForm() {
       setResent(true);
     }
   };
+
+  if (availability === "checking") {
+    return <div className="text-center text-sm text-muted-foreground">Ładowanie…</div>;
+  }
+
+  if (availability === "disabled") {
+    return <RegistrationDisabled />;
+  }
 
   if (done) {
     return (

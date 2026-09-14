@@ -88,3 +88,18 @@ export function formatAge(iso: string | null, now: number = Date.now()): string 
   if (hours < 48) return `${hours} h temu`;
   return `${Math.floor(hours / 24)} dni temu`;
 }
+
+/**
+ * Tekst powodu bez reprezentacji wyjątku Pythona.
+ *
+ * Do 09.2026 writer zapisywał `repr(exc)`, więc dokumenty z kolejki mają
+ * w bazie „Nie udało się zapisać zamówienia: ValueError('W bazie jest…')".
+ * Nowe wpisy niosą samo zdanie; stare zostają w bazie i są czyszczone przy
+ * wyświetleniu.
+ */
+export function withoutExceptionRepr(text: string): string {
+  return text.replace(
+    /\b[A-Z][A-Za-z]*(?:Error|Exception)\((['"])([\s\S]*?)\1\)/g,
+    (_m, _q, inner: string) => inner,
+  );
+}

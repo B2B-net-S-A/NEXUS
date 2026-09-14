@@ -112,3 +112,116 @@ async def test_viewer_cannot_list_notes(app_client: AsyncClient):
         "/api/notes", params={"candidate_id": cand_id}, headers=v_headers
     )
     assert resp.status_code == 403
+
+
+# ── Źródła AI Championa: „Meetingi bez powiązania” (UAT M03-B13 / M04-B04) ──
+#
+# Lista brała każdą notatkę „meeting” — także rozmowy z kandydatami innych
+# klientów z importu Traffita — z przyciskiem „Powiąż + AI” na dowolnej
+# rekrutacji. Podpięcie przenosiło notatkę i karmiło jej treścią Championa roli
+# innego klienta.
+
+
+async def _seed_job_for_notes() -> int:
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    unique = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"NotesClient-{unique}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"Rola {unique}",
+            status=JobStatus.published,
+            client_id=cli.id,
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return job.id
+
+
+async def _seed_meeting_note(
+    *, candidate_id: int | None = None, job_id: int | None = None
+) -> int:
+    from app.models.note import Note, NoteType
+
+    async with AsyncSessionLocal() as db:
+        note = Note(
+            content=f"# Spotkanie {uuid.uuid4().hex[:6]}",
+            note_type=NoteType.meeting,
+            candidate_id=candidate_id,
+            job_id=job_id,
+        )
+        db.add(note)
+        await db.commit()
+        await db.refresh(note)
+        return note.id
+
+
+@pytest.mark.asyncio
+async def test_unattached_meetings_exclude_candidate_and_job_notes(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job_for_notes()
+    free_id = await _seed_meeting_note()
+    cand_note_id = await _seed_meeting_note(candidate_id=cand_id)
+    job_note_id = await _seed_meeting_note(job_id=job_id)
+
+    resp = await app_client.get(
+        "/api/notes",
+        params={"note_type": "meeting", "unattached": "true", "limit": 2000},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    ids = {item["id"] for item in resp.json()["items"]}
+    assert free_id in ids
+    assert cand_note_id not in ids
+    assert job_note_id not in ids
+    assert all(
+        item["candidate_id"] is None and item["job_id"] is None
+        for item in resp.json()["items"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_job_refuses_candidate_note_outside_the_pipeline(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    from app.models.note import Note
+
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job_for_notes()
+    note_id = await _seed_meeting_note(candidate_id=cand_id)
+
+    resp = await app_client.post(
+        f"/api/notes/{note_id}/link-job",
+        json={"job_id": job_id},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "nie jest w pipeline" in resp.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Note, note_id)).job_id is None
+
+
+@pytest.mark.asyncio
+async def test_link_job_refuses_note_attached_to_another_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    from app.models.note import Note
+
+    other_job_id = await _seed_job_for_notes()
+    job_id = await _seed_job_for_notes()
+    note_id = await _seed_meeting_note(job_id=other_job_id)
+
+    resp = await app_client.post(
+        f"/api/notes/{note_id}/link-job",
+        json={"job_id": job_id},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Note, note_id)).job_id == other_job_id

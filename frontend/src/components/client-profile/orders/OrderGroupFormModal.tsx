@@ -326,7 +326,7 @@ export function OrderGroupFormModal({
       const documentCurrency = (data.currency ?? "PLN").toUpperCase();
       const documentBudget =
         data.total_value != null && documentCurrency === "PLN"
-          ? String(data.total_value)
+          ? numberToField(data.total_value)
           : null;
       const documentPool = poolMd != null ? String(poolMd) : null;
       const previousDocument = documentValuesRef.current;
@@ -377,8 +377,8 @@ export function OrderGroupFormModal({
           applied.total_value = documentBudget;
         }
         if (applyBudget && sharedMd && data.md_total != null) {
-          setMdBudgetTotal(String(data.md_total));
-          applied.md_total = String(data.md_total);
+          setMdBudgetTotal(numberToField(data.md_total));
+          applied.md_total = numberToField(data.md_total);
         } else if (!applyBudget && documentPool !== null) {
           setMdBudgetTotal(documentPool);
           applied.md_total = documentPool;

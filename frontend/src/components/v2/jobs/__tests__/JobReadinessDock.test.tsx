@@ -460,7 +460,7 @@ describe("JobReadinessDock — dane", () => {
         "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
       ),
     ).toBeInTheDocument();
-    const claimButton = screen.getByRole("button", { name: "Claim" });
+    const claimButton = screen.getByRole("button", { name: "Przejmij" });
 
     claimButton.click();
 
@@ -469,7 +469,7 @@ describe("JobReadinessDock — dane", () => {
     );
   });
 
-  it("head_of_recruitment ma zapis w pipeline, ale NIE dostaje przycisku Claim (backend: 403 „Read-only viewers cannot claim jobs”)", async () => {
+  it("head_of_recruitment ma zapis w pipeline, ale NIE dostaje przycisku Claim (backend: 403 „Rola tylko do odczytu nie może przejąć rekrutacji”)", async () => {
     useAuthStore.setState({ user: headOfRecruitmentWrite });
     mockGetByUrl({
       job: () => Promise.resolve({ data: { ...jobFixture, primary_owner: null } }),
@@ -481,7 +481,7 @@ describe("JobReadinessDock — dane", () => {
         "Nieprzypisany — nikt nie dostanie alertów deadline'u.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Claim" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Przejmij" })).not.toBeInTheDocument();
     // Inne mutacje sekcji pipeline (dodaj kandydata, edycja) zostają.
     expect(screen.getByRole("button", { name: "Dodaj kandydata" })).toBeInTheDocument();
   });
@@ -496,7 +496,7 @@ describe("JobReadinessDock — readOnly (RBAC)", () => {
     renderDock(501);
 
     await screen.findByText("Właściciel projektu");
-    expect(screen.queryByRole("button", { name: "Claim" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Przejmij" })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Dodaj kandydata" }),
     ).not.toBeInTheDocument();

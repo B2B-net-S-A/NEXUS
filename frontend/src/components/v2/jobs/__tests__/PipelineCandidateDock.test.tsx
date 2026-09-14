@@ -190,6 +190,19 @@ describe("PipelineCandidateDock", () => {
     );
   });
 
+  it("pasek pięciu zakładek zawija się zamiast chować „Notatki” za krawędzią", () => {
+    // UAT M03-B06: 438 px zakładek w 327-px pasku z `overflow-x-auto` —
+    // „Notatki” były niewidoczne i bez wskaźnika przewijania.
+    renderDock();
+    const tablist = screen.getByRole("tablist");
+    expect(tablist.className).toContain("flex-wrap");
+    expect(tablist.className).not.toContain("min-w-max");
+    expect(tablist.parentElement?.className ?? "").not.toContain(
+      "overflow-x-auto"
+    );
+    expect(screen.getByRole("tab", { name: /Notatki/ })).toBeTruthy();
+  });
+
   it("wyszarza zablokowany etap w „Przenieś na etap” z powodem widocznym w title", () => {
     const target = stageCol("cv_sent", "CV Wysłane", { stage_def_id: 5 });
     renderDock({
@@ -382,7 +395,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     ).toBeNull();
   });
 
-  it("warunki wobec oferty pokazują „—”, a nie znikają, gdy danych brak", async () => {
+  it("warunki wobec rekrutacji pokazują „—”, a nie znikają, gdy danych brak", async () => {
     candidatesGet.mockResolvedValue({ data: { email: "a@b.pl" } });
     renderDock({ item: baseItem({ expected_rate_value: null }) });
 

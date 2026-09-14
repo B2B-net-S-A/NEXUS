@@ -2493,7 +2493,7 @@ from app.schemas.candidate_stage_cv import (  # noqa: E402
 from app.services import cv_generated_editor as generated_editor  # noqa: E402
 
 
-async def _load_generated_editor(db, generated_id, user):
+async def _load_generated_editor(db, generated_id, user, *, persist: bool = True):
     await _load_generated_document(db, generated_id, user)
     generated = await db.scalar(
         select(CvGeneratedDocument)
@@ -2503,7 +2503,7 @@ async def _load_generated_editor(db, generated_id, user):
     )
     if generated is None:
         raise HTTPException(404, "Nie znaleziono CV.")
-    return await generated_editor.load_draft(db, generated)
+    return await generated_editor.load_draft(db, generated, persist=persist)
 
 
 @router.get("/generated/{generated_id}/editor")
@@ -2512,7 +2512,8 @@ async def get_generated_editor(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    draft = await _load_generated_editor(db, generated_id, current_user)
+    # Odczyt nie zakłada szkicu (M05-B03) — patrz ``load_draft(persist=False)``.
+    draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     result = generated_editor.state(draft)
     await db.commit()
     return result
@@ -2588,7 +2589,7 @@ async def preview_generated_editor(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    draft = await _load_generated_editor(db, generated_id, current_user)
+    draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     from app.services.cv_document_versions import check_revision
 
     check_revision(draft, payload.expected_revision)
@@ -2607,7 +2608,7 @@ async def print_generated_editor(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    draft = await _load_generated_editor(db, generated_id, current_user)
+    draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     from app.services.html_sanitizer import sanitize_cv_html
 
     content = (

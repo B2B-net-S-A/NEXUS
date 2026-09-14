@@ -6782,6 +6782,12 @@ _PROCEDURE_UPSERT = """
             is_published = EXCLUDED.is_published,
             updated_at = now()
         WHERE procedures.updated_by IS NULL
+          -- Data „Aktualizacja" w Pomocy ma mówić o zmianie TREŚCI, nie
+          -- o deployu (UAT M00-B04): identyczny wiersz nie jest przepisywany.
+          AND (procedures.title, procedures.content, procedures.sort_order,
+               procedures.is_published)
+              IS DISTINCT FROM (EXCLUDED.title, EXCLUDED.content,
+               EXCLUDED.sort_order, EXCLUDED.is_published)
 """
 
 

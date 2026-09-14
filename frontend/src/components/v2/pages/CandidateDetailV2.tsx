@@ -80,7 +80,12 @@ import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngage
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
-import { stageLabel } from "@/lib/cv-generator";
+import {
+  activityActionLabel,
+  candidateStageLabel,
+  noteTypeLabel,
+  userActivityLabel,
+} from "@/components/v2/pages/candidate-timeline-labels";
 import { useTabsStore } from"@/store/tabs";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
@@ -2937,9 +2942,9 @@ function traffitFileName(details: unknown): string | null {
 
 function timelineItemLabel(item: any): string {
  if (item.type === "note")
- return `Notatka${item.note_type ? ` — ${item.note_type}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Notatka${noteTypeLabel(item.note_type) ? ` — ${noteTypeLabel(item.note_type)}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
  if (item.type === "stage_change")
- return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` :""}`;
+ return `Etap: ${candidateStageLabel(item.stage)}${item.job_title ? ` (${item.job_title})` :""}`;
  if (item.type === "activity") {
  if (item.action === "applied_via_invite") {
  const owner = item.user_name ??"rekruter";
@@ -2958,9 +2963,9 @@ function timelineItemLabel(item: any): string {
  }
  const rejectionLabel = REJECTION_EMAIL_ACTION_LABELS[item.action];
  if (rejectionLabel) return rejectionLabel;
- return item.action ??"Aktywność";
+ return activityActionLabel(item.action);
  }
- if (item.type === "user_activity") return item.action_type ??"Akcja";
+ if (item.type === "user_activity") return userActivityLabel(item.action_type);
  return TIMELINE_LABEL[item.type] ?? item.type ??"Zdarzenie";
 }
 
@@ -3003,7 +3008,7 @@ function StageBadge({ stage }: { stage: string }) {
       variant={STAGE_BADGE_VARIANT[stage] ?? "neutral"}
       className="font-semibold"
     >
-      {stageLabel(stage)}
+      {candidateStageLabel(stage)}
     </Badge>
   );
 }
@@ -3633,7 +3638,7 @@ function RekrutacjaCard({
  {job.job_title ?? `Rekrutacja #${job.job_id ?? job.id}`}
  </Link>
  <div className="text-xs text-muted-foreground">
- {job.latest_stage ??"—"}
+ {candidateStageLabel(job.latest_stage)}
  {job.first_seen
  ? ` · dodano ${formatDate(job.first_seen)}`
  :""}
@@ -3642,7 +3647,7 @@ function RekrutacjaCard({
  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
  {job.stages.slice(0, 6).map((s: any, si: number) => (
  <Badge key={si} size="sm" variant="soft">
- {s.stage}
+ {candidateStageLabel(s.stage)}
  </Badge>
  ))}
  </div>
@@ -3677,7 +3682,7 @@ function RekrutacjaCard({
  </Badge>
  ) : brandedStatus === "draft" ? (
  <Badge size="sm" variant="info">
- Brandowane: draft
+ Brandowane: szkic
  </Badge>
  ) : (
  <Badge size="sm" variant="neutral">

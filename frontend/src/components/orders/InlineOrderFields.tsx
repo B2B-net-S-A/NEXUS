@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { Calendar, Check, Pencil, X } from "lucide-react";
 
+import { formatIsoDatePl } from "@/lib/date-pl";
 import {
   DATE_PATTERN,
   DATE_PLACEHOLDER,
@@ -22,7 +23,8 @@ export function dateOnly(value: string | null): string | null {
 
 export function fmtDate(d: string | null): string | null {
   if (!d) return null;
-  return d.slice(0, 10);
+  // DD.MM.RRRR — jak na kartach zamówień MD obok (dawniej surowe RRRR-MM-DD).
+  return formatIsoDatePl(d.slice(0, 10));
 }
 
 interface InlineTextProps {

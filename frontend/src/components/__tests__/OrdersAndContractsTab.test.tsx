@@ -405,8 +405,8 @@ describe("OrdersAndContractsTab card", () => {
     // Active order title surfaces as "Numer zamówienia" at the top of the card.
     expect(screen.getByText("45767")).toBeInTheDocument();
     // Numer kontraktu obok nazwiska — BEZ dopisku statusu („draft").
-    expect(screen.getByText("Contract 529")).toBeInTheDocument();
-    expect(screen.queryByText(/Contract 529 draft/)).not.toBeInTheDocument();
+    expect(screen.getByText("Kontrakt #529")).toBeInTheDocument();
+    expect(screen.queryByText(/Kontrakt #529 draft/)).not.toBeInTheDocument();
     // Rekrutacja, z której wyszedł kontraktor.
     expect(screen.getByText(/z rekrutacji/)).toBeInTheDocument();
     expect(

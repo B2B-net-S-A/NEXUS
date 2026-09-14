@@ -1454,7 +1454,7 @@ function AIMatchingSection({
                             title={
                               budgetHourly != null
                                 ? `Budżet do ${Math.round(budgetHourly)} PLN/h`
-                                : "Brak budżetu oferty do porównania"
+                                : "Brak budżetu rekrutacji do porównania"
                             }
                           >
                             {formatMatchingRate(c)}
@@ -1463,7 +1463,7 @@ function AIMatchingSection({
                         {officeFitLabel && (
                           <span
                             className="font-medium text-destructive"
-                            title="Rubryka biura (0278): deklaracja kandydata nie pokrywa wymogu oferty"
+                            title="Rubryka biura (0278): deklaracja kandydata nie pokrywa wymogu rekrutacji"
                           >
                             {officeFitLabel}
                           </span>
@@ -1740,7 +1740,7 @@ function JobMatchDock({
           />
         </div>
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Wynik to głównie podobieństwo semantyczne CV do oferty; pokrycie
+          Wynik to głównie podobieństwo semantyczne CV do rekrutacji; pokrycie
           wymagań must to jeden ze składników.
         </p>
       </div>
@@ -1791,7 +1791,7 @@ function JobMatchDock({
 
       <div className="space-y-1.5">
         <div className="text-xs font-semibold text-foreground">
-          Warunki wobec oferty
+          Warunki wobec rekrutacji
         </div>
         <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
           <span className="text-muted-foreground">Stawka</span>

@@ -419,9 +419,9 @@ export function ConsultantLineModal({
     if (!open) return;
     setPerson(null);
     const sourceCost = line?.source_rate_cost ?? line?.rate_cost;
-    setRateCost(sourceCost != null ? String(sourceCost) : "");
+    setRateCost(numberToField(sourceCost));
     const sourceRevenue = line?.source_rate_revenue ?? line?.rate_revenue;
-    setRateRevenue(sourceRevenue != null ? String(sourceRevenue) : "");
+    setRateRevenue(numberToField(sourceRevenue));
     // Wartości z API są w zł/MD, więc formularz otwiera się w tej jednostce —
     // inaczej pierwszy render pokazywałby liczbę ośmiokrotnie za dużą pod
     // etykietą „zł/h”.
@@ -433,10 +433,10 @@ export function ConsultantLineModal({
     setCostRateToPln(1);
     setRevenueUnit("md");
     setInputMode(line?.input_mode ?? "md");
-    setInputValue(line?.input_value != null ? String(line.input_value) : "");
+    setInputValue(numberToField(line?.input_value));
     setStartDate(line?.start_date ?? group?.start_date ?? "");
     setEndDate(line?.end_date ?? "");
-    setRemaining(line?.md_remaining != null ? String(line.md_remaining) : "");
+    setRemaining(numberToField(line?.md_remaining));
     setFile(null);
     setFileError(null);
     setExtractError(null);
@@ -469,7 +469,7 @@ export function ConsultantLineModal({
         data.rate_client != null && extractedRateUnit == null;
       const extractedRate =
         data.rate_client != null && extractedRateUnit != null
-          ? String(data.rate_client)
+          ? numberToField(data.rate_client)
           : null;
       const explicitUnitMismatch =
         extractedRate != null &&
@@ -477,7 +477,7 @@ export function ConsultantLineModal({
         extractedRateUnit !== extractionFormRef.current.revenueUnit;
       const extractedMd =
         !costBased && !sharedMdBased && data.md_total != null
-          ? String(data.md_total)
+          ? numberToField(data.md_total)
           : null;
       const extractedStart = data.start_date
         ? data.start_date.slice(0, 10)
@@ -583,7 +583,7 @@ export function ConsultantLineModal({
           setGrossConversion(
             data.rate_client_gross != null
               ? {
-                  gross: String(data.rate_client_gross),
+                  gross: numberToField(data.rate_client_gross),
                   net: extractedRate,
                 }
               : null,

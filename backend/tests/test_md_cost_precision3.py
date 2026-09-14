@@ -107,7 +107,11 @@ def test_api_serializers_do_not_round_results_back_to_two_places() -> None:
 
 def test_calculation_and_history_format_use_three_places() -> None:
     assert quantize_money("1234.1254") == Decimal("1234.125")
-    assert format_md(Decimal("15.3754")) == "15.375"
+    assert format_md(Decimal("15.3754")) == "15,375"
+    # Zapis polski bez końcowych zer — jak `formatMd` na pasku linii.
+    assert format_md(Decimal("60.000000")) == "60"
+    assert format_md(Decimal("58.880000")) == "58,88"
+    assert format_md(Decimal("-0.0001")) == "0"
 
 
 def test_0252_is_schema_only_and_covers_every_result_column() -> None:

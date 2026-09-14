@@ -540,12 +540,18 @@ export function PipelineCandidateDock({
           )}
         </div>
 
+        {/* `dense` + `wrap`, nie `scroll`: pięć zakładek miało 438 px
+            w 327-px pasku doku — „Dopasowanie” było ucięte, a „Notatki”
+            niewidoczne i bez wskaźnika przewijania (UAT M03-B06). Ciaśniejsze
+            triggery mieszczą zwykle komplet w jednym wierszu; gdy nie, drugi
+            wiersz jest lepszy niż zakładka schowana za krawędzią. */}
         <TabbedNav
           ariaLabel="Zakładki karty kandydata"
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as DockTab)}
           tabs={DOCK_TABS}
-          overflow="scroll"
+          overflow="wrap"
+          dense
         />
       </div>
 
@@ -609,7 +615,7 @@ export function PipelineCandidateDock({
                 znikający wiersz: pusty rząd czyta się jak „bez zastrzeżeń". */}
             <div className="space-y-1">
               <div className="text-xs font-semibold text-foreground">
-                Warunki wobec oferty
+                Warunki wobec rekrutacji
               </div>
               <div className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
                 <ConditionRow label="Stawka">

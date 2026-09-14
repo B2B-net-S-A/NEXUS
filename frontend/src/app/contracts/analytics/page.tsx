@@ -10,6 +10,7 @@ import api, {
   type TerminationAnalysis,
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { countPl } from "@/lib/plural-pl";
 import { RequireRole } from "@/components/RequireRole";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
@@ -67,6 +68,23 @@ interface Forecast {
 }
 
 /** Stany blokujące, w których wolno renderować `QueryStateNotice`. */
+/** Kubełek backendu dla kontraktów bez rekrutacji i bez kategorii kompetencji. */
+const UNKNOWN_ROLE = "Unknown";
+
+/**
+ * Etykieta miesiąca prognozy po polsku („wrz 2026”). Backend składa
+ * `month_label` przez `strftime("%b %Y")`, czyli w locale procesu — na
+ * produkcji po angielsku („Sep 2026”). `month` (RRRR-MM) jest stabilny.
+ */
+function forecastMonthLabel(month: string, fallback: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return fallback;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  return new Intl.DateTimeFormat("pl-PL", { month: "short", year: "numeric" })
+    .format(date)
+    .replace(".", "");
+}
+
 function isFailedState(
   state: ViewState,
 ): state is "forbidden" | "not_found" | "error" {
@@ -258,7 +276,9 @@ function ForecastChart({
             : 0;
           return (
             <div key={m.month} className="flex flex-col items-center gap-1 min-w-16">
-              <div className="text-[10px] text-muted-foreground mb-1">{m.active_count} cnt</div>
+              <div className="text-[10px] text-muted-foreground mb-1 whitespace-nowrap">
+                {countPl(m.active_count, "kontrakt", "kontrakty", "kontraktów")}
+              </div>
               <div className="relative w-full h-48 bg-muted dark:bg-card/30 rounded-t">
                 <div
                   className="absolute bottom-0 left-0 right-0 bg-primary/20 dark:bg-primary/40 rounded-t"
@@ -272,7 +292,7 @@ function ForecastChart({
                 />
               </div>
               <div className="text-[11px] text-muted-foreground whitespace-nowrap">
-                {m.month_label}
+                {forecastMonthLabel(m.month, m.month_label)}
               </div>
             </div>
           );
@@ -570,7 +590,7 @@ function RoleClientMixCard() {
                   className="border-t border-border dark:border-border"
                 >
                   <td className="px-2 py-1 font-medium sticky left-0 bg-card dark:bg-muted">
-                    {role}
+                    {role === UNKNOWN_ROLE ? "Brak roli" : role}
                   </td>
                   {data.clients.map((c) => {
                     const cnt = matrix[role]?.[c.id] ?? 0;

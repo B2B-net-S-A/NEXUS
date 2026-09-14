@@ -94,6 +94,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -253,6 +254,18 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
  * pole gotowym opisem. Wcześniej warunek na wybranej ofercie zostawiał pole
  * puste (bug: „po wybraniu obszaru usług opis się nie uzupełnia").
  */
+/**
+ * Data i godzina w formacie DD.MM.RRRR GG:MM (czas lokalny przeglądarki).
+ * Wcześniej `created_at.slice(0, 16)` pokazywało surowe ISO i godzinę UTC.
+ */
+export function formatDateTimePl(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${formatIsoDatePl(value)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export function areaPrefillDescription(params: {
   role: B2BRole | null;
   language: Lang;
@@ -1771,7 +1784,7 @@ export function StatusHistoryDialog({
                   <p className="text-xs text-muted-foreground">
                     {[
                       e.effective_date
-                        ? `Zakończenie: ${e.effective_date}`
+                        ? `Zakończenie: ${formatIsoDatePl(e.effective_date)}`
                         : null,
                       closureReasonText(
                         e.reason as B2BClosureReason | null,
@@ -1786,7 +1799,7 @@ export function StatusHistoryDialog({
                   <p className="text-xs text-muted-foreground">
                     {[
                       e.changed_by_name,
-                      e.created_at?.slice(0, 16).replace("T", " "),
+                      e.created_at ? formatDateTimePl(e.created_at) : null,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
@@ -2119,7 +2132,7 @@ export function GeneratedContractsTab() {
                       <td className="py-2 pr-4 tabular-nums">{r.partner_nip || "—"}</td>
                       {/* Data ROZPOCZĘCIA USŁUG — surowe ISO, bez godziny (kontrast:
                           „Wygenerowano" niżej celowo pokazuje czas). */}
-                      <td className="py-2 pr-4 tabular-nums">{r.start_date || "—"}</td>
+                      <td className="py-2 pr-4 tabular-nums">{formatIsoDatePl(r.start_date)}</td>
                       <td className="py-2 pr-4">
                         {editing ? (
                           <Input
@@ -2162,7 +2175,7 @@ export function GeneratedContractsTab() {
                                         )}`
                                       : null,
                                     r.closure_date
-                                      ? `Zakończenie: ${r.closure_date}`
+                                      ? `Zakończenie: ${formatIsoDatePl(r.closure_date)}`
                                       : null,
                                   ]
                                     .filter(Boolean)
@@ -2182,7 +2195,7 @@ export function GeneratedContractsTab() {
                                 r.closure_reason,
                                 r.closure_reason_other,
                               )}
-                              {r.closure_date ? ` · ${r.closure_date}` : ""}
+                              {r.closure_date ? ` · ${formatIsoDatePl(r.closure_date)}` : ""}
                             </span>
                           ) : null}
 
@@ -2207,6 +2220,7 @@ export function GeneratedContractsTab() {
                               className="h-8 px-2"
                               onClick={() => setHistoryRow(r)}
                               title="Historia statusów"
+                              aria-label="Historia statusów"
                             >
                               <History className="h-4 w-4" />
                             </Button>
@@ -2225,9 +2239,7 @@ export function GeneratedContractsTab() {
                                       ? `Potwierdził: ${r.signed_by_name}`
                                       : null,
                                     r.signed_at
-                                      ? `Data: ${r.signed_at
-                                          .slice(0, 16)
-                                          .replace("T", " ")}`
+                                      ? `Data: ${formatDateTimePl(r.signed_at)}`
                                       : null,
                                   ]
                                     .filter(Boolean)
@@ -2287,9 +2299,7 @@ export function GeneratedContractsTab() {
                       <td className="py-2 pr-4">
                         <div className="flex flex-col gap-0.5">
                           <span className="whitespace-nowrap text-muted-foreground">
-                            {r.created_at
-                              ? r.created_at.slice(0, 16).replace("T", " ")
-                              : "—"}
+                            {formatDateTimePl(r.created_at)}
                           </span>
                           <span className="text-muted-foreground">
                             {r.created_by_name || "—"}
@@ -2633,10 +2643,10 @@ function LifecycleContractsTab({
                       {r.partner_nip || "—"}
                     </td>
                     <td className="py-2 pr-4 tabular-nums">
-                      {r.start_date || "—"}
+                      {formatIsoDatePl(r.start_date)}
                     </td>
                     <td className="py-2 pr-4 tabular-nums">
-                      {r.closure_date || "—"}
+                      {formatIsoDatePl(r.closure_date)}
                     </td>
                     <td className="py-2 pr-4">{r.client_name || "—"}</td>
                     <td className="py-2 pr-4">
@@ -2688,6 +2698,7 @@ function LifecycleContractsTab({
                             className="h-8 px-2"
                             onClick={() => setHistoryRow(r)}
                             title="Historia statusów"
+                            aria-label="Historia statusów"
                           >
                             <History className="h-4 w-4" />
                           </Button>
@@ -2768,6 +2779,48 @@ export function ClosedContractsTab() {
 }
 
 // ── Generator form ──────────────────────────────────────────────────────────
+
+/**
+ * Stan listy rekrutacji kandydata pod selectem generatora (UAT M08-B07).
+ * Awaria nie może wyglądać jak pustka, a pusta lista potrzebuje zdania —
+ * rozwinięty, pusty select nie mówi, co zrobić dalej.
+ */
+export function RecruitmentOptionsNotice({
+  hasCandidate,
+  isError,
+  isEmpty,
+  onRetry,
+}: {
+  hasCandidate: boolean;
+  isError: boolean;
+  isEmpty: boolean;
+  onRetry: () => void;
+}) {
+  if (!hasCandidate) return null;
+  if (isError) {
+    return (
+      <p className="mt-1.5 text-xs text-destructive" role="alert">
+        Nie udało się wczytać rekrutacji kandydata.{" "}
+        <button
+          type="button"
+          className="underline underline-offset-2"
+          onClick={onRetry}
+        >
+          Ponów
+        </button>
+      </p>
+    );
+  }
+  if (isEmpty) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Kandydat nie jest w żadnej rekrutacji — dodaj go do rekrutacji, aby
+        wygenerować umowę.
+      </p>
+    );
+  }
+  return null;
+}
 
 function GeneratorForm() {
   const toast = useToast();
@@ -3517,14 +3570,20 @@ function GeneratorForm() {
               <Select
                 value={stageId}
                 onValueChange={setStageId}
-                disabled={!candidate}
+                disabled={
+                  !candidate ||
+                  !recruitmentsQuery.isSuccess ||
+                  recruitmentsQuery.data.length === 0
+                }
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      candidate
-                        ? "Wybierz rekrutację…"
-                        : "Najpierw wybierz kandydata"
+                      !candidate
+                        ? "Najpierw wybierz kandydata"
+                        : recruitmentsQuery.isLoading
+                          ? "Wczytywanie rekrutacji…"
+                          : "Wybierz rekrutację…"
                     }
                   />
                 </SelectTrigger>
@@ -3536,6 +3595,15 @@ function GeneratorForm() {
                   ))}
                 </SelectContent>
               </Select>
+              <RecruitmentOptionsNotice
+                hasCandidate={!!candidate}
+                isError={recruitmentsQuery.isError}
+                isEmpty={
+                  recruitmentsQuery.isSuccess &&
+                  recruitmentsQuery.data.length === 0
+                }
+                onRetry={() => void recruitmentsQuery.refetch()}
+              />
             </div>
           </div>
 

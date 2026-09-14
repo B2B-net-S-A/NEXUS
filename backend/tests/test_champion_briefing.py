@@ -169,3 +169,43 @@ async def test_audio_url_404_when_no_audio(app_client, app_auth_headers):
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_attach_briefing_rejects_candidate_note_outside_the_pipeline(
+    app_client, app_auth_headers
+):
+    """Rozmowa z kandydatem innej rekrutacji (np. innego klienta) nie może
+    zostać briefingiem tej roli ani trafić do jej profilu Championa (UAT
+    M03-B13) — ta sama reguła co „Powiąż + AI”."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.note import Note, NoteType
+
+    job_id = await _seed_job()
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Briefing", lastname=f"Obcy-{suffix}")
+        db.add(candidate)
+        await db.flush()
+        note = Note(
+            content="# Rozmowa z kandydatem\n\nTreść rozmowy.",
+            note_type=NoteType.meeting,
+            job_id=None,
+            candidate_id=candidate.id,
+        )
+        db.add(note)
+        await db.commit()
+        note_id = note.id
+
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/champion-profile/briefing",
+        json={"note_id": note_id, "enrich": False},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Note, note_id)).job_id is None

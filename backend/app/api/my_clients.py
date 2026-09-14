@@ -298,11 +298,14 @@ async def list_my_clients(
         revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
             db, revenue_rows, date.today()
         )
-        for client_id, totals in revenue_lookup.items():
+        # Klient z uprawnieniami, ale bez żadnego zamówienia, dostaje 0 —
+        # tak samo jak w `/dashboard`. Pominięty klucz czyta się jak redakcja.
+        for client_id in finance_client_ids:
             if client_id in revenue_incomplete:
                 continue
-            active_revenue[client_id] = totals["active"]
-            lifetime_revenue[client_id] = totals["total"]
+            totals = revenue_lookup.get(client_id)
+            active_revenue[client_id] = totals["active"] if totals else Decimal(0)
+            lifetime_revenue[client_id] = totals["total"] if totals else Decimal(0)
 
     # Active framework contract per klient (status=active, max effective_date)
     fc_rows = list(
@@ -656,14 +659,16 @@ async def client_dashboard(
     return ClientDashboardResponse(
         client_id=client_id,
         client_name=client_display_name(client),
+        # Zero z uprawnieniami to liczba, nie brak: `or None` zamieniało
+        # klienta bez zamówień w pominięty klucz, który ekran pokazuje jako
+        # „—", czyli tak samo jak redakcję — a lista `/api/my-clients` dla
+        # tego samego klienta zwracała „0".
         total_revenue_all_time=(
-            (total_rev or None) if finance_ok and revenue_fx_complete else None
+            total_rev if finance_ok and revenue_fx_complete else None
         ),
-        active_revenue=(
-            (active_rev or None) if finance_ok and revenue_fx_complete else None
-        ),
+        active_revenue=(active_rev if finance_ok and revenue_fx_complete else None),
         completed_revenue=(
-            (completed_rev or None) if finance_ok and revenue_fx_complete else None
+            completed_rev if finance_ok and revenue_fx_complete else None
         ),
         currency_breakdown=currency_breakdown if finance_ok else None,
         monthly_margin_total=(

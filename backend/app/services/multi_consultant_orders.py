@@ -170,10 +170,20 @@ def quantize_md(value: Decimal | int | float | str) -> Decimal:
 
 
 def format_md(value: Decimal | int | float | None) -> str:
-    """Prezentacja MD — 3 miejsca po przecinku (patrz docstring modułu)."""
+    """Prezentacja MD — najwyżej 3 miejsca po przecinku (patrz docstring modułu).
+
+    Zapis polski, jak ``formatMd`` na froncie: przecinek dziesiętny, bez
+    końcowych zer („57,875", „60"). Wpisy historii pisały „58.880 MD" obok
+    „57,875 / 60 MD" na pasku tej samej linii.
+    """
     if value is None:
         return "—"
-    return str(Decimal(str(value)).quantize(MD_DISPLAY_SCALE))
+    text = format(Decimal(str(value)).quantize(MD_DISPLAY_SCALE), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in ("-0", ""):
+        text = "0"
+    return text.replace(".", ",")
 
 
 def compute_md_total(

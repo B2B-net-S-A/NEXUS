@@ -37,6 +37,7 @@ from app.schemas.contract import (
     ContractorCandidateRef,
     ContractorList,
     ContractorListItem,
+    ContractorOrderRef,
     ContractorStats,
 )
 from app.services.contract_service import (
@@ -146,6 +147,14 @@ def _to_item(contract: Contract) -> ContractorListItem:
         contract_type=contract.contract_type,
         work_mode=contract.work_mode,
         missing_fields=missing,
+        orders=[
+            ContractorOrderRef(
+                status=getattr(order.status, "value", order.status),
+                start_date=order.start_date,
+                end_date=order.end_date,
+            )
+            for order in (contract.client_orders or ())
+        ],
     )
 
 
@@ -168,6 +177,9 @@ async def list_contractors(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
         selectinload(Contract.job),
+        # `_to_item` czyta zamówienia; bez eager-loadu lazy-load w sesji async
+        # to `MissingGreenlet`, czyli 500 bez nagłówków CORS.
+        selectinload(Contract.client_orders),
     )
 
     # Umowy odpięte od usuniętego kandydata (`candidate_id IS NULL`, migracja

@@ -31,6 +31,7 @@ import {
   WS_BACKED_SAFETY_POLL_MS,
 } from "@/lib/polling";
 import { cn } from "@/lib/utils";
+import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { useAuthStore } from "@/store/auth";
@@ -169,15 +170,6 @@ function parseEventIdFromLink(link?: string | null): number | null {
   return Number.isFinite(id) ? id : null;
 }
 
-function timeAgo(iso?: string | null): string {
-  if (!iso) return "";
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60) return "Przed chwilą";
-  if (diff < 3600) return `${Math.floor(diff / 60)} min temu`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} h temu`;
-  return `${Math.floor(diff / 86400)} dni temu`;
-}
-
 // ── Toast notification for real-time events ───────────────────────────────────
 function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => void }) {
   return (
@@ -186,8 +178,8 @@ function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => 
         <Bell className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-foreground dark:text-foreground leading-tight">{notif.title}</p>
-        <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+        <p className="text-sm font-bold text-foreground dark:text-foreground leading-tight">{formatNotificationText(notif.title)}</p>
+        <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2">{formatNotificationText(notif.message)}</p>
       </div>
       <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground shrink-0">
         <X className="w-4 h-4" />
@@ -367,16 +359,16 @@ export function NotificationsDropdown() {
                                 notif.is_read ? "font-medium text-foreground dark:text-muted-foreground" : "font-bold text-foreground dark:text-foreground"
                               )}
                             >
-                              {notif.title}
+                              {formatNotificationText(notif.title)}
                             </p>
                             {!notif.is_read && (
                               <div className="w-2 h-2 bg-primary rounded-full shrink-0 mt-1.5" />
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                            {notif.message}
+                            {formatNotificationText(notif.message)}
                           </p>
-                          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{timeAgo(notif.created_at)}</p>
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{notificationTimeAgo(notif.created_at)}</p>
                         </div>
                       </li>
                     );

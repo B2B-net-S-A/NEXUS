@@ -60,7 +60,7 @@ describe("JobOwnershipPanel section access", () => {
     const first = renderPanel();
     expect(screen.getByRole("button", { name: "Zmień" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Claim this job" }),
+      screen.getByRole("button", { name: "Przejmij rekrutację" }),
     ).toBeInTheDocument();
 
     first.unmount();
@@ -73,7 +73,7 @@ describe("JobOwnershipPanel section access", () => {
     renderPanel();
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Claim this job" }),
+      screen.queryByRole("button", { name: "Przejmij rekrutację" }),
     ).not.toBeInTheDocument();
   });
 
@@ -83,7 +83,7 @@ describe("JobOwnershipPanel section access", () => {
 
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Claim this job" }),
+      screen.queryByRole("button", { name: "Przejmij rekrutację" }),
     ).not.toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { BarChart3, Building2, Crown, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { DlKpiRow, OverviewRow } from "@/lib/api/dlPortal";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 type View = "clients" | "by-dl";
 
@@ -17,11 +18,11 @@ export default function AdminClientsOverviewPage() {
       <header>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <BarChart3 className="w-6 h-6 text-violet-600" />
-          Przegląd klientów (admin)
+          Przegląd klientów
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Wszystkie aktywne klienty + KPI per Delivery Lead. Tylko admin /
-          head_of_recruitment widzi te dane.
+          Wszyscy klienci z przychodem i marżą + KPI per Delivery Lead. Dane
+          finansowe — widzą je administrator i Finanse.
         </p>
       </header>
 
@@ -44,7 +45,7 @@ export default function AdminClientsOverviewPage() {
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          Leaderboard DL
+          Ranking Delivery Leadów
         </button>
       </div>
 
@@ -75,12 +76,12 @@ function ClientsTable() {
             <th className="text-left px-3 py-2 font-medium">#</th>
             <th className="text-left px-3 py-2 font-medium">Klient</th>
             <th className="text-left px-3 py-2 font-medium">Head DL</th>
-            <th className="text-right px-3 py-2 font-medium">Revenue lifetime (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Active (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Przychód łącznie (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Przychód aktywny (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Marża/mc (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Active orders</th>
+            <th className="text-right px-3 py-2 font-medium">Zamówienia aktywne</th>
             <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>
-            <th className="text-left px-3 py-2 font-medium">MSA</th>
+            <th className="text-left px-3 py-2 font-medium">Umowa ramowa</th>
           </tr>
         </thead>
         <tbody>
@@ -125,7 +126,7 @@ function ClientsTable() {
                   {fmt(r.active_revenue)}
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
-                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
+                  {fmt(r.monthly_margin_total)}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">
@@ -134,10 +135,10 @@ function ClientsTable() {
                 <td className="px-3 py-2 text-xs">
                   {r.framework_status ? (
                     <>
-                      {r.framework_status}
+                      {FRAMEWORK_STATUS_LABEL[r.framework_status] ?? r.framework_status}
                       {r.framework_expiry_date && (
                         <div className="text-muted-foreground">
-                          do {r.framework_expiry_date}
+                          do {formatIsoDatePl(r.framework_expiry_date)}
                         </div>
                       )}
                     </>
@@ -176,11 +177,11 @@ function DlLeaderboard() {
             <th className="text-left px-3 py-2 font-medium">#</th>
             <th className="text-left px-3 py-2 font-medium">Delivery Lead</th>
             <th className="text-right px-3 py-2 font-medium">Klienci</th>
-            <th className="text-right px-3 py-2 font-medium">Head clients</th>
-            <th className="text-right px-3 py-2 font-medium">Revenue lifetime (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Active (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Klienci jako Head DL</th>
+            <th className="text-right px-3 py-2 font-medium">Przychód łącznie (PLN)</th>
+            <th className="text-right px-3 py-2 font-medium">Przychód aktywny (PLN)</th>
             <th className="text-right px-3 py-2 font-medium">Marża/mc (PLN)</th>
-            <th className="text-right px-3 py-2 font-medium">Active orders</th>
+            <th className="text-right px-3 py-2 font-medium">Zamówienia aktywne</th>
             <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>
           </tr>
         </thead>
@@ -219,7 +220,7 @@ function DlLeaderboard() {
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
-                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
+                  {fmt(r.monthly_margin_total)}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">
@@ -234,9 +235,19 @@ function DlLeaderboard() {
   );
 }
 
-function fmt(v: string | number | null): string {
+// Statusy umowy ramowej (`FrameworkContractStatus`) — w tabeli po polsku.
+const FRAMEWORK_STATUS_LABEL: Record<string, string> = {
+  draft: "Szkic",
+  pending_signature: "W podpisie",
+  active: "Aktywna",
+  expired: "Wygasła",
+  terminated: "Rozwiązana",
+  superseded: "Zastąpiona",
+};
+
+function fmt(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return "—";
   const num = typeof v === "string" ? parseFloat(v) : v;
   if (Number.isNaN(num)) return "—";
-  return num.toLocaleString("pl-PL");
+  return num.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
 }

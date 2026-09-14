@@ -14,6 +14,7 @@ from app.analytics.capabilities import (
 from app.analytics.periods import Period, PeriodError, resolve_period
 from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
+    ROLE_DENIED_DETAIL,
     AdminUser,
     DeliveryLeadPlus,
     OperationalUser,
@@ -375,7 +376,7 @@ async def finance_dashboard(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Requires analytics capability: view_executive",
+            detail=ROLE_DENIED_DETAIL,
         )
     return await build_finance_dashboard(
         current_user,

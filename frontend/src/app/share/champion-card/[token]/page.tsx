@@ -6,7 +6,8 @@
  * theme-dark palette (black canvas, plum cards, cream text, burgundy
  * accents) for a premium client-facing feel.
  */
-import { notFound } from"next/navigation";
+import { PublicLinkUnavailable } from "@/components/public/PublicLinkUnavailable";
+import { publicLinkFailure } from "@/lib/public-link-state";
 import { AlertCircle, Calendar, CheckCircle2, Sparkles, XCircle } from"lucide-react";
 
 interface PageProps {
@@ -91,25 +92,30 @@ const FIT_META: Record<
  },
 };
 
-async function fetchShare(token: string): Promise<ShareResponse | null> {
+async function fetchShare(
+ token: string,
+): Promise<{ data: ShareResponse } | { status: number | null }> {
  const url = `${apiBase()}/api/public/champion-card/${token}`;
  try {
  const res = await fetch(url, { cache: "no-store" });
  if (!res.ok) {
  console.error("[share] upstream", res.status, url);
- return null;
+ return { status: res.status };
  }
- return (await res.json()) as ShareResponse;
+ return { data: (await res.json()) as ShareResponse };
  } catch (e) {
  console.error("[share] fetch error", url, e);
- return null;
+ return { status: null };
  }
 }
 
 export default async function PublicChampionCardPage({ params }: PageProps) {
  const { token } = await params;
- const data = await fetchShare(token);
- if (!data) notFound();
+ const result = await fetchShare(token);
+ if (!("data" in result)) {
+ return <PublicLinkUnavailable failure={publicLinkFailure(result.status)} />;
+ }
+ const data = result.data;
 
  const questions: Question[] = data.champion_profile.screening_questions ?? [];
  const answers = data.screening_answers;
@@ -150,7 +156,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  Ważne do{""}
  {new Date(data.expires_at).toLocaleDateString("pl-PL", {
  day: "2-digit",
- month: "short",
+ month: "2-digit",
  year: "numeric",
  })}
  </div>

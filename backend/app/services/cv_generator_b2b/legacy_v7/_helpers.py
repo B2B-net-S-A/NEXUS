@@ -431,6 +431,36 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
         points[i] = _YEARS_PHRASE_RE.sub(replace, point)
 
 
+def _certain_overlap_bounds(dates: str) -> tuple[int, int] | None:
+    """Najwęższy przedział, który rola NA PEWNO obejmuje.
+
+    Sam rok bez miesiąca to niepewność: „2017 – 2020” może kończyć się
+    w styczniu 2020, a „2020 – 2026” zaczynać w grudniu 2020. Rok graniczny
+    wspólny dla dwóch ról nie jest więc dowodem nakładania się okresów
+    (zgłoszenie UAT M05-B07). Dla ostrzeżenia bierzemy start z samego roku
+    jako grudzień, a koniec z samego roku jako styczeń; gdy to odwraca
+    przedział (rola „2020”), zostaje pełny zakres z ``_parse_date_range``.
+    """
+    rng = _parse_date_range(dates)
+    if rng is None:
+        return None
+    tokens = [
+        (int(m.group(2)), int(m.group(1)) if m.group(1) else None)
+        for m in _DATE_TOKEN_RE.finditer(dates)
+    ]
+    start, end = rng
+    start_year, start_month = tokens[0]
+    if start_month is None:
+        start = start_year * 12 + 11
+    if not _ONGOING_RE.search(dates):
+        end_year, end_month = tokens[-1]
+        if end_month is None:
+            end = end_year * 12
+    if end < start:
+        return rng
+    return (start, end)
+
+
 def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> list[str]:
     """Informational check: overlapping employment periods are common in B2B
     (parallel contracts), but the recruiter should verify them consciously
@@ -438,7 +468,7 @@ def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> lis
     and never alters the CV itself."""
     roles: list[tuple[str, str, tuple[int, int]]] = []
     for job in candidate_data.get("experience", []):
-        rng = _parse_date_range(job.get("dates") or "")
+        rng = _certain_overlap_bounds(job.get("dates") or "")
         if rng is not None:
             label = job.get("company") or job.get("position") or "?"
             roles.append((label, job.get("dates") or "", rng))

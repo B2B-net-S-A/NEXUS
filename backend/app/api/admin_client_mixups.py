@@ -298,7 +298,11 @@ async def client_mixups(
     clients_by_id = {c.id: c for c in clients}
 
     families: list[MixupFamily] = []
-    total_mismatches = 0
+    # Klient może należeć do kilku rodzin (dwa wspólne tokeny nazwy), więc ten
+    # sam kontrakt pojawia się w każdej z nich. Licznik zbiorczy liczy
+    # UNIKALNE rozjazdy — suma `mismatch_count` liczyła je podwójnie.
+    mismatched_contract_ids: set[int] = set()
+    mismatched_generated_ids: set[int] = set()
     for token, group in sorted(families_tokens.items()):
         group_ids = {c.id for c in group}
         rows: list[MixupContractRow] = []
@@ -349,7 +353,12 @@ async def client_mixups(
         mismatches = sum(r.job_client_mismatch for r in rows) + sum(
             r.job_client_mismatch for r in gen_rows
         )
-        total_mismatches += mismatches
+        mismatched_contract_ids.update(
+            r.contract_id for r in rows if r.job_client_mismatch
+        )
+        mismatched_generated_ids.update(
+            r.generated_contract_id for r in gen_rows if r.job_client_mismatch
+        )
         families.append(
             MixupFamily(
                 token=token,
@@ -366,5 +375,5 @@ async def client_mixups(
         query=q,
         families=families,
         total_families=len(families),
-        total_mismatches=total_mismatches,
+        total_mismatches=len(mismatched_contract_ids) + len(mismatched_generated_ids),
     )

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import Depends, HTTPException, status
 
-from app.api.deps import get_current_user
+from app.api.deps import ROLE_DENIED_DETAIL, get_current_user
 from app.models.user import User, UserRole
 from app.services.section_permissions import (
     ProductSection,
@@ -188,7 +188,7 @@ def require_capability(cap: AnalyticsCapability):
         if not user_has_capability(current_user, cap):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires analytics capability: {cap.value}",
+                detail=ROLE_DENIED_DETAIL,
             )
         return current_user
 
@@ -232,7 +232,7 @@ def require_dynareporter_section(section: str, cap: AnalyticsCapability):
         if not user_has_capability(current_user, cap):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires analytics capability: {cap.value}",
+                detail=ROLE_DENIED_DETAIL,
             )
         if current_user.has_role(UserRole.admin):
             return current_user

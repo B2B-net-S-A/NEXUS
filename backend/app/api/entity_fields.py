@@ -92,7 +92,7 @@ async def create_entity_field(
     if duplicate is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Field '{payload.key}' already exists on {payload.entity_type.value}",
+            detail=f"Pole o kluczu '{payload.key}' już istnieje dla tego typu obiektu.",
         )
 
     field = EntityFieldDef(
@@ -135,7 +135,7 @@ async def update_entity_field(
     field = await db.scalar(select(EntityFieldDef).where(EntityFieldDef.id == field_id))
     if field is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Field not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nie znaleziono pola"
         )
 
     if payload.label_pl is not None:

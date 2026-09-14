@@ -44,14 +44,17 @@ const nextConfig: NextConfig = {
       gone("/dynareporter/body-leasing", insights("rekrutacja")),
       gone("/dynareporter/placements", insights("rekrutacja")),
       gone("/dynareporter/competitions", insights("rekrutacja")),
-      gone("/dynareporter/delivery-lead", insights("klienci")),
-      gone("/dynareporter/delivery-lead-dashboard", insights("klienci")),
-      gone("/dynareporter/clients-mrr", insights("klienci")),
-      gone("/dynareporter/sales", insights("klienci")),
-      gone("/dynareporter/sales-mgmt", insights("klienci")),
-      gone("/dynareporter/board", insights("zarzad")),
-      gone("/dynareporter/board-dashboard", insights("zarzad")),
-      gone("/dynareporter/przetargi", insights("zarzad")),
+      // Kanoniczne identyfikatory zakładek (`delivery-lead`, `rada`), nie
+      // aliasy `klienci`/`zarzad` — ranking klientów i MRR mieszkają w Radzie,
+      // więc `clients-mrr` celuje wprost w tę sekcję (UAT M10-B03).
+      gone("/dynareporter/delivery-lead", insights("delivery-lead")),
+      gone("/dynareporter/delivery-lead-dashboard", insights("delivery-lead")),
+      gone("/dynareporter/clients-mrr", `${insights("rada")}#klienci`),
+      gone("/dynareporter/sales", insights("delivery-lead")),
+      gone("/dynareporter/sales-mgmt", insights("delivery-lead")),
+      gone("/dynareporter/board", insights("rada")),
+      gone("/dynareporter/board-dashboard", insights("rada")),
+      gone("/dynareporter/przetargi", insights("rada")),
       // MINDY to czat AI komentujący KPI, nie strona raportowa — i Insights
       // NIE MA dla niego następcy. Kod zostaje, decyzja produktowa otwarta.
       parked("/dynareporter/mindy", insights("rekrutacja")),

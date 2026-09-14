@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronsUpDown,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -95,15 +94,12 @@ export function RecruitmentCombobox({
         className="w-(--radix-popover-trigger-width) p-0"
       >
         <Command shouldFilter={false}>
-          <div className="flex items-center border-b border-border px-3">
-            <Search className="mr-2 h-4 w-4 text-muted-foreground" />
-            <CommandInput
-              placeholder="Szukaj po numerze requestu lub nazwie…"
-              value={query}
-              onValueChange={setQuery}
-              className="h-10 border-0"
-            />
-          </div>
+          <CommandInput
+            placeholder="Szukaj po numerze requestu lub nazwie…"
+            value={query}
+            onValueChange={setQuery}
+            className="h-10"
+          />
           <CommandList>
             <CommandEmpty>
               {recruitments.length === 0 ? emptyText : "Brak wyników."}

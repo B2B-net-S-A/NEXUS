@@ -35,8 +35,13 @@ from app.data.procedures import (  # noqa: E402
 
 # Linia widoczna w treści procedury — jedyne miejsce, w którym czytelnik widzi,
 # kiedy instrukcję ostatnio skonfrontowano z systemem.
+# Data w treści jest w formacie DD.MM.RRRR (jak każda data w interfejsie —
+# UAT M00-B04); wyrażenie przyjmuje też dawny zapis ISO, żeby pierwsze
+# przestemplowanie po zmianie formatu znalazło starą linię.
 _REVIEWED_LINE = re.compile(
-    r"^> \*\*Zgodność z systemem sprawdzona:\*\* \d{4}-\d{2}-\d{2}$", re.MULTILINE
+    r"^> \*\*Zgodność z systemem sprawdzona:\*\* "
+    r"(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})$",
+    re.MULTILINE,
 )
 
 
@@ -44,13 +49,13 @@ def _restamp_markdown(today: date) -> bool:
     """Przestaw datę przeglądu w treści. Zwraca ``True``, jeśli coś zmieniono."""
     path = ORDERS_PROCEDURE.path
     content = path.read_text(encoding="utf-8")
-    replacement = f"> **Zgodność z systemem sprawdzona:** {today.isoformat()}"
+    replacement = f"> **Zgodność z systemem sprawdzona:** {today.strftime('%d.%m.%Y')}"
     updated, count = _REVIEWED_LINE.subn(replacement, content)
     if count == 0:
         raise SystemExit(
             f"Nie znalazłem linii z datą przeglądu w {path.name}.\n"
             "Instrukcja musi zawierać dokładnie jedną linię w formacie:\n"
-            "  > **Zgodność z systemem sprawdzona:** RRRR-MM-DD"
+            "  > **Zgodność z systemem sprawdzona:** DD.MM.RRRR"
         )
     if updated == content:
         return False

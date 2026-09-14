@@ -201,6 +201,11 @@ async def test_create_invite_link_rejects_draft_job(inv_client: AsyncClient):
         headers=headers,
     )
     assert resp.status_code == 400
+    # Odmowa trafia wprost do okna „Linki aplikacyjne” — musi być po polsku
+    # i mówić, co zrobić (UAT M12-B03: surowe angielskie zdanie).
+    detail = resp.json()["detail"]
+    assert "przekazaniu rekrutacji do searchu" in detail
+    assert "handed off" not in detail
 
 
 @pytest.mark.asyncio

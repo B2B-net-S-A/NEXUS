@@ -196,9 +196,9 @@ async def test_executive_tab_requires_separate_capability(
     response = await client.get("/api/dashboard/v2/finance?tab=executive")
 
     assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "Requires analytics capability: view_executive"
-    )
+    from app.api.deps import ROLE_DENIED_DETAIL
+
+    assert response.json()["detail"] == ROLE_DENIED_DETAIL
 
 
 @pytest.mark.asyncio
@@ -1022,4 +1022,3 @@ async def test_complete_team_kpis_sum_placements_for_the_whole_roster(
 
     assert response.data.kpis.placements.value == 5
     assert response.data_quality.sections["team_kpis"].status == "complete"
-

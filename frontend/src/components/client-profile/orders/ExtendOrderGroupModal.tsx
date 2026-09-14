@@ -173,7 +173,7 @@ export function ExtendOrderGroupModal({
                 : null;
             const rate =
               row.rate_client != null && row.rate_unit === "day"
-                ? String(row.rate_client)
+                ? numberToField(row.rate_client)
                 : null;
             return md == null && rate == null ? [] : [{ line, md, rate }];
           })
@@ -183,7 +183,7 @@ export function ExtendOrderGroupModal({
         if (data.start_date) setStartDate(data.start_date.slice(0, 10));
         if (extractedEnd) setEndDate(extractedEnd.value);
         if (costBased && data.total_value != null) {
-          setBudgetAmount(String(data.total_value));
+          setBudgetAmount(numberToField(data.total_value));
         }
         if (lineUpdates.length > 0) {
           setLines((prev) =>
@@ -198,14 +198,14 @@ export function ExtendOrderGroupModal({
             }),
           );
         } else if (sharedMdBased && data.md_total != null) {
-          setMdBudgetTotal(String(data.md_total));
+          setMdBudgetTotal(numberToField(data.md_total));
         } else if (!costBased && !documentHasPeople && data.md_total != null) {
           // Liczba MD z dokumentu dotyczy CAŁEGO zamówienia; przy jednej
           // przenoszonej osobie jest jej budżetem, przy kilku operator dzieli
           // ją sam — dlatego wpisujemy ją tylko wtedy, gdy nie ma czego dzielić.
           setLines((prev) =>
             prev.length === 1
-              ? prev.map((l) => ({ ...l, mdTotal: String(data.md_total) }))
+              ? prev.map((l) => ({ ...l, mdTotal: numberToField(data.md_total) }))
               : prev,
           );
         }

@@ -76,9 +76,10 @@ export const RECRUITER_ROLE_LABELS: Record<string, string> = {
 export function formatDate(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("pl-PL", {
+    // DD.MM.RRRR, GG:MM — nie „13 wrz 2026" (UAT M11-B08).
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });

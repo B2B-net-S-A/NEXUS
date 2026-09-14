@@ -1022,3 +1022,9 @@ def test_activity_redaction_covers_job_budget_and_generic_amount_keys():
         "title": "Java Developer",
         "nested": {"status": "published"},
     }
+
+
+def test_embed_diagnostics_is_admin_only():
+    # UAT M11-B09: ping Voyage + host/port Qdranta tylko dla admina
+    # (jedyny konsument: /settings/diagnostics w sekcji system_admin).
+    assert _current_user_annotation(phase5.embed_diagnostics) == AdminUser

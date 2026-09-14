@@ -40,8 +40,26 @@ interface ChampionProfileSourcesPanelProps {
   clientId?: number | null;
 }
 
-function noteTitle(content: string): string {
-  const firstLine = (content || "").split("\n", 1)[0] || "";
+/**
+ * Tytuł notatki jako czysty tekst. Notatki z importu Traffita niosą HTML
+ * („<p>…</p>”, „&oacute;”, „&nbsp;”) — renderowany dosłownie był nieczytelny
+ * (UAT M04-B04). Znaczniki zamieniamy na podziały wierszy, a encje dekoduje
+ * przeglądarka (textarea nie wykonuje skryptów ani nie ładuje obrazów).
+ */
+export function noteTitle(content: string): string {
+  let text = (content || "").replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n");
+  text = text.replace(/<[^>]*>/g, "");
+  if (typeof document !== "undefined" && text.includes("&")) {
+    const decoder = document.createElement("textarea");
+    decoder.innerHTML = text;
+    text = decoder.value;
+  }
+  const firstLine =
+    text
+      .replace(/\u00a0/g, " ")
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
   return firstLine.replace(/^#\s*/, "").trim() || "(bez tytułu)";
 }
 
@@ -79,9 +97,13 @@ export function ChampionProfileSourcesPanel({
   const unlinked = useQuery<NoteListResponse>({
     queryKey: ["notes-unlinked"],
     queryFn: async () => {
-      // Only unlinked meeting notes are needed here — ask the server for the
-      // meeting category instead of dumping every note (P0.6 containment).
-      const res = await api.get<NoteListResponse>(`/api/notes?note_type=meeting`);
+      // Tylko spotkania bez rekrutacji I bez kandydata (`unattached`), filtrowane
+      // na serwerze. Do UAT (M03-B13) lista brała każdą notatkę „meeting” —
+      // także rozmowy z kandydatami innych klientów — z „Powiąż + AI” na tej
+      // rekrutacji. Treści cudzych kandydatów nie wysyłamy do przeglądarki.
+      const res = await api.get<NoteListResponse>(
+        `/api/notes?note_type=meeting&unattached=true&limit=10`,
+      );
       return res.data;
     },
   });
@@ -89,7 +111,7 @@ export function ChampionProfileSourcesPanel({
   const unlinkedMeetings = useMemo(() => {
     const items = unlinked.data?.items ?? [];
     return items.filter(
-      (n) => n.note_type === "meeting" && (n.job_id == null || n.job_id === undefined),
+      (n) => n.note_type === "meeting" && n.job_id == null && n.candidate_id == null,
     );
   }, [unlinked.data]);
 

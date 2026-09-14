@@ -1663,6 +1663,78 @@ class TestDocumentRateGrossMarking:
         assert out.rate_client_gross is None
         assert out.consultant_rows[0].rate_client == Decimal("1040.00")
 
+    def test_net_column_header_confirms_every_row_rate(self):
+        """UAT M07-B04: „Stawka netto za MD" w nagłówku, kwoty w wierszach niżej."""
+        doc = (
+            "Zamówienie nr QA/002/2026\n"
+            "Poz. | Konsultant | Liczba MD | Stawka netto za MD | Wartość netto\n"
+            "1 | Anna Testowa | 40 | 1200,00 PLN | 48 000,00 PLN\n"
+            "2 | Maria Fikcyjna | 30 | 1100,00 PLN | 33 000,00 PLN\n"
+            "Razem netto: 81 000,00 PLN\n"
+        )
+        ex = m.OrderExtraction(
+            source="claude",
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Anna Testowa", rate_client=Decimal("1200.00")
+                ),
+                m.ConsultantOrderRow(
+                    consultant_name="Maria Fikcyjna",
+                    rate_client=Decimal("1100.00"),
+                    uncertain=True,
+                    uncertain_reason="Nie ustalono, czy stawka jest brutto czy netto",
+                ),
+            ],
+        )
+        out = m.apply_document_rate_kind(ex, doc)
+        assert not any("brutto czy netto" in r for r in out.uncertain_reasons)
+        assert [row.uncertain_reason for row in out.consultant_rows] == [None, None]
+        assert [row.rate_client for row in out.consultant_rows] == [
+            Decimal("1200.00"),
+            Decimal("1100.00"),
+        ]
+        assert all(row.rate_client_gross is None for row in out.consultant_rows)
+
+    def test_net_elsewhere_but_gross_mentioned_stays_uncertain(self):
+        """Dokument mówiący też „brutto" nie dostaje domniemania netto."""
+        doc = (
+            "Zlecenie na kwotę 150 000,00 PLN netto (184 500,00 PLN brutto)\n"
+            "Konsultanci: Anna Testowa (stawka 1200 PLN/MD)\n"
+        )
+        ex = m.OrderExtraction(
+            source="claude",
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Anna Testowa", rate_client=Decimal("1200")
+                )
+            ],
+        )
+        out = m.apply_document_rate_kind(ex, doc)
+        assert "Nie ustalono, czy każda stawka jest brutto czy netto" in (
+            out.uncertain_reasons
+        )
+
+    def test_net_presumption_needs_a_rate_label_on_the_same_line(self):
+        """„Netto” musi stać przy etykiecie stawki lub kwoty w tej samej linii —
+        „Wartość netto razem” w podsumowaniu nie mówi nic o stawkach wierszy."""
+        assert m._document_marks_only_net(
+            "Poz. | Konsultant | Stawka netto za MD\n1 | Anna Testowa | 1200,00 PLN\n"
+        )
+        assert m._document_marks_only_net("Zlecenie na kwotę 150 000,00 PLN netto\n")
+        assert not m._document_marks_only_net(
+            "Konsultant: Anna Testowa, stawka 1476 PLN/MD\n"
+            "Wartość netto razem: 48 000,00 PLN\n"
+        )
+
+    def test_vat_inclusive_wording_blocks_the_net_presumption(self):
+        """Kwoty „z VAT” bez słowa brutto nie mogą zostać uznane za netto."""
+        assert not m._document_marks_only_net(
+            "Stawka netto za MD podana niżej\nAnna Testowa: 1476 PLN za MD z VAT\n"
+        )
+        assert not m._document_marks_only_net(
+            "Stawka netto za MD\nCena wraz z podatkiem VAT: 1476 PLN\n"
+        )
+
     def test_unknown_marking_does_not_convert(self):
         ex = m.OrderExtraction(rate_client=Decimal("1000.00"), source="claude")
         out = m.apply_document_rate_kind(ex, "Stawka 1 000,00 PLN / godzina")

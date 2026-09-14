@@ -50,14 +50,14 @@ export default function HiringManagersAnalyticsPage() {
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Ranking osób po stronie klientów odpowiedzialnych za rekrutacje.
-          Liczone tylko rekrutacje (Jobs) z przypisanym hiring_manager_contact_id.
+          Liczone tylko rekrutacje z przypisanym hiring managerem.
         </p>
       </header>
 
       {rows.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
           <Users className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          Brak danych. Przy tworzeniu nowych Jobów wybierz hiring managera
+          Brak danych. Przy tworzeniu nowych rekrutacji wybierz hiring managera
           (pole &quot;Hiring manager&quot; w formularzu), żeby zacząć zbierać statystyki.
         </div>
       ) : (

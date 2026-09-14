@@ -14,7 +14,7 @@ export function championErrorValidation(error: unknown): ChampionValidation | un
 const fields = [
   ["basics.role_name", "Nazwa roli"], ["basics.seniority_min_years", "Doświadczenie łącznie w IT (lata)"],
   ["basics.rate_value", "Maksymalna stawka PLN/h"], ["basics.work_mode", "Tryb pracy: zdalnie / hybrydowo / stacjonarnie"],
-  ["basics.onsite_days_per_week", "Dni w biurze (0–7; puste = brak danych)"], ["basics.candidate_location_pref", "Miasto biura"],
+  ["basics.onsite_days_per_week", "Dni w biurze (0–7; puste = brak danych)"], ["basics.candidate_location_pref", "Lokalizacja biura"],
   ["basics.language", "Język pracy"], ["basics.start_date", "Start (RRRR-MM-DD)"], ["basics.deadline", "Termin na kandydatów (RRRR-MM-DD)"],
   ["basics.contract_length", "Długość kontraktu"], ["search.keywords", "Kluczowe słowa do wyszukiwania"],
   ["search.target_companies", "Firmy docelowe"], ["search.disqualifiers", "Kogo odrzucamy"], ["search.notes", "Uwagi / plan DL"],
@@ -23,6 +23,16 @@ const fields = [
   ["client.consultant_insight", "Insight konsultanta"], ["client.historical_questions", "Historyczne pytania klienta"], ["client.priority_rules", "Uwagi / standardy"],
 ] as const;
 const rubrics = ["rate_value", "work_mode", "onsite_days_per_week", "candidate_location_pref", "must", "nice"];
+// Wartość pola REKRUTACJI w dopisku „(obecnie: …)”. Tryb pracy przychodzi jako
+// enum z kolumny `jobs.work_mode` — surowe „remote” w polskim oknie było
+// zgłoszeniem UAT M04-B06; listy (must/nice) jako wpisy po przecinku.
+const JOB_WORK_MODE_LABEL: Record<string, string> = { remote: "zdalnie", hybrid: "hybrydowo", onsite: "stacjonarnie" };
+export function formatJobFieldValue(key: string, value: unknown): string {
+  if (value == null || value === "") return "—";
+  if (Array.isArray(value)) return value.length ? value.map(v => (v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name) : String(v))).join(", ") : "—";
+  if (key === "work_mode" && typeof value === "string") return JOB_WORK_MODE_LABEL[value] ?? value;
+  return String(value);
+}
 type Values = Record<string, string>;
 function readValues(profile: ChampionProfile): Values {
   const obj = profile as unknown as Record<string, Record<string, unknown>>;
@@ -129,16 +139,18 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
   }
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent aria-describedby={undefined} className="max-w-5xl max-h-[90vh] overflow-y-auto space-y-4">
-      <DialogTitle>Podgląd importu Championa</DialogTitle>
-      <p className="text-sm">Popraw odczytane dane. Istniejące niepuste wartości są zachowane; zaznacz pola, które chcesz zastąpić.</p>
-      {source.champion_profile.intake?.document_context && <div className="rounded border p-3 text-sm space-y-1"><p className="font-medium">Informacje z dokumentu — sprawdź zgodność z wybraną rekrutacją</p>{Object.entries(source.champion_profile.intake.document_context).map(([key, value]) => <p key={key} className="whitespace-pre-wrap">{({ client_name: "Klient", delivery_lead: "Delivery Lead", profile_revision: "Data i wersja profilu", source_conversations: "Rozmowy źródłowe", prep_owner: "Za prep odpowiada", last_change: "Ostatnia zmiana" } as Record<string, string>)[key] ?? key}: {value}</p>)}</div>}
+      {/* Ten sam dialog służy importowi dokumentu i „Uzgodnij profil i pola
+          rekrutacji” (bez dokumentu) — tytuł i wstęp mówią, która to akcja. */}
+      <DialogTitle>{sourceIsDocument ? "Podgląd importu Championa" : "Uzgodnij profil i pola rekrutacji"}</DialogTitle>
+      <p className="text-sm">{sourceIsDocument ? "Popraw odczytane dane. Istniejące niepuste wartości są zachowane; zaznacz pola, które chcesz zastąpić." : "Popraw dane profilu i zaznacz pola rekrutacji, które mają przyjąć wartość z profilu."}</p>
+      {Object.values(source.champion_profile.intake?.document_context ?? {}).some(v => v != null && String(v).trim() !== "") && <div className="rounded border p-3 text-sm space-y-1"><p className="font-medium">Informacje z dokumentu — sprawdź zgodność z wybraną rekrutacją</p>{Object.entries(source.champion_profile.intake?.document_context ?? {}).filter(([, value]) => value != null && String(value).trim() !== "").map(([key, value]) => <p key={key} className="whitespace-pre-wrap">{({ client_name: "Klient", delivery_lead: "Delivery Lead", profile_revision: "Data i wersja profilu", source_conversations: "Rozmowy źródłowe", prep_owner: "Za prep odpowiada", last_change: "Ostatnia zmiana" } as Record<string, string>)[key] ?? key}: {value}</p>)}</div>}
       <ChampionValidationPanel validation={source.validation} />
       {fields.map(([path, label]) => <div id={`champion-field-${path}`} key={path} className="border-b pb-3 space-y-1">
         <label className="font-medium text-sm" htmlFor={`input-${path}`}>{label}</label>
         {existing && <><p className="text-xs whitespace-pre-wrap">Obecnie: {old[path] || "—"}</p><label className="text-sm flex gap-2"><input type="checkbox" checked={!!selected[path]} onChange={e => setSelected(s => ({ ...s, [path]: e.target.checked }))} />Użyj wartości z dokumentu</label></>}
         <textarea id={`input-${path}`} className="w-full rounded border bg-background p-2 text-sm" rows={path.startsWith("basics.") ? 1 : 3} value={values[path]} onChange={e => { setValues(v => ({ ...v, [path]: e.target.value })); setSelected(s => ({ ...s, [path]: true })); }} />
         {existing && <p className="text-xs whitespace-pre-wrap">Wartość końcowa: {(selected[path] ? values[path] : old[path]) || "—"}</p>}
-        {jobId && rubrics.includes(path.split(".")[1]) && <label className="text-xs flex gap-2"><input type="checkbox" checked={sync.includes(path.split(".")[1])} onChange={e => setSync(s => e.target.checked ? [...s, path.split(".")[1]] : s.filter(k => k !== path.split(".")[1]))} />Uzgodnij też pole rekrutacji (obecnie: {String(currentJobValues?.[path.split(".")[1]] ?? "—")})</label>}
+        {jobId && rubrics.includes(path.split(".")[1]) && <label className="text-xs flex gap-2"><input type="checkbox" checked={sync.includes(path.split(".")[1])} onChange={e => setSync(s => e.target.checked ? [...s, path.split(".")[1]] : s.filter(k => k !== path.split(".")[1]))} />Uzgodnij też pole rekrutacji (obecnie: {formatJobFieldValue(path.split(".")[1], currentJobValues?.[path.split(".")[1]])})</label>}
       </div>)}
       <h3 id="champion-field-screening_questions" className="font-medium">Pytania screeningowe</h3>
       {existing && <><p className="text-sm whitespace-pre-wrap">Obecnie: {existing.screening_questions.map(q => `${q.question}\n${q.ideal_answer}\n${q.deal_breaker}`).join("\n\n") || "—"}</p><label><input type="checkbox" checked={useQuestions} onChange={e => setUseQuestions(e.target.checked)} /> Zastąp pytania odczytanymi</label></>}

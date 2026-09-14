@@ -184,7 +184,7 @@ describe("Umowy bez projektu", () => {
     renderTab(NoProjectContractsTab, [row()]);
 
     expect(await screen.findByText("Zawieszona")).toBeInTheDocument();
-    expect(screen.getByText("2026-08-01")).toBeInTheDocument();
+    expect(screen.getByText("01.08.2026")).toBeInTheDocument();
     expect(screen.getByText("Brak budżetu u klienta")).toBeInTheDocument();
   });
 

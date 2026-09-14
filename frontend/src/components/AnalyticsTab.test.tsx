@@ -124,10 +124,10 @@ describe("AnalyticsTab finance redaction", () => {
 
     renderTab(10);
 
-    expect(await screen.findByText("Revenue lifetime (PLN)")).toBeInTheDocument();
-    expect(screen.getByText("Active revenue (PLN)")).toBeInTheDocument();
-    expect(screen.getByText("Marża/mc (PLN, gross)")).toBeInTheDocument();
-    expect(screen.getByText("Revenue per waluta")).toBeInTheDocument();
+    expect(await screen.findByText("Przychód łącznie (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Przychód aktywny (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Marża/mc (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Przychód według waluty")).toBeInTheDocument();
   });
 
   it("nie pokazuje kwot Delivery Leadowi poza jego portfelem", async () => {
@@ -141,9 +141,9 @@ describe("AnalyticsTab finance redaction", () => {
     renderTab(999);
 
     expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
-    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Przychód łącznie (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża/mc (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Przychód według waluty")).not.toBeInTheDocument();
   });
 
   it("nie pokazuje kwot hybrydzie HoR + DL bez przypisania finansowego", async () => {
@@ -173,9 +173,9 @@ describe("AnalyticsTab finance redaction", () => {
     renderTab(10);
 
     expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
-    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Przychód łącznie (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża/mc (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Przychód według waluty")).not.toBeInTheDocument();
   });
 
   it("renderuje sekcje operacyjne, gdy backend pominął kwoty", async () => {
@@ -206,8 +206,8 @@ describe("AnalyticsTab finance redaction", () => {
 
     expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
     expect(screen.getByText("Konsultanci aktywni")).toBeInTheDocument();
-    expect(screen.getByText("Completed orders")).toBeInTheDocument();
-    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
+    expect(screen.getByText("Zamówienia zakończone")).toBeInTheDocument();
+    expect(screen.queryByText("Przychód łącznie (PLN)")).not.toBeInTheDocument();
   });
 
   it("renders finance KPIs only for a caller with view_finance", async () => {
@@ -237,10 +237,63 @@ describe("AnalyticsTab finance redaction", () => {
 
     renderTab();
 
-    expect(await screen.findByText("Revenue lifetime (PLN)")).toBeInTheDocument();
-    expect(screen.getByText("Marża/mc (PLN, gross)")).toBeInTheDocument();
-    expect(screen.getByText("Revenue per waluta")).toBeInTheDocument();
+    expect(await screen.findByText("Przychód łącznie (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Marża/mc (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Przychód według waluty")).toBeInTheDocument();
     expect(screen.getByText("PLN")).toBeInTheDocument();
+  });
+
+  it("pokazuje kreskę, gdy backend pominął średni czas obsadzenia", async () => {
+    // `response_model_exclude_none` usuwa klucz, więc brak danych to
+    // `undefined`, nie `null`. Dawniej kafel mówił „undefined dni".
+    act(() => {
+      useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+    });
+    const payload = dashboardWithMoney();
+    const data = { ...(payload.data as unknown as Record<string, unknown>) };
+    delete data.avg_days_to_fill;
+    getDashboard.mockResolvedValue({
+      data,
+    } as unknown as Awaited<ReturnType<typeof dlPortalApi.getDashboard>>);
+
+    renderTab();
+
+    const label = await screen.findByText("Średni czas obsadzenia");
+    expect(label.parentElement?.textContent).toContain("—");
+    expect(document.body.textContent).not.toContain("undefined");
+  });
+
+  it("formatuje kwoty, zero i daty alertów po polsku", async () => {
+    act(() => {
+      useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+    });
+    getDashboard.mockResolvedValue({
+      data: {
+        ...(dashboardWithMoney().data as unknown as Record<string, unknown>),
+        total_revenue_all_time: 0,
+        monthly_margin_total: 39194,
+        currency_breakdown: { EUR: "105853.800" },
+        alerts: [
+          {
+            kind: "order",
+            entity_id: 5,
+            label: "Zamówienie testowe",
+            days_to_expiry: 1,
+            expiry_date: "2026-09-03",
+          },
+        ],
+      },
+    } as unknown as Awaited<ReturnType<typeof dlPortalApi.getDashboard>>);
+
+    renderTab();
+
+    const revenue = await screen.findByText("Przychód łącznie (PLN)");
+    // Zero z uprawnieniami to liczba, nie „—" (to znak redakcji).
+    expect(revenue.parentElement?.textContent).toContain("0");
+    expect(revenue.parentElement?.textContent).not.toContain("—");
+    expect(screen.getByText(/^39\s194$/)).toBeInTheDocument();
+    expect(screen.getByText(/^105\s853,8$/)).toBeInTheDocument();
+    expect(screen.getByText("1 dzień · 03.09.2026")).toBeInTheDocument();
   });
 
   it("does not reuse client analytics after only relationship pairs change", async () => {

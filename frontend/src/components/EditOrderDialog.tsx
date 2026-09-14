@@ -42,7 +42,7 @@ import {
   downloadOrderDocument,
   openOrderDocument,
 } from "@/lib/order-documents";
-import { extractionErrorMessage } from "@/lib/order-extraction";
+import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   effectiveClientOrderType,
@@ -218,10 +218,10 @@ export function EditOrderDialog({
       if (data.start_date) setStartDate(normalizeDateInput(data.start_date));
       if (data.end_date) setEndDate(normalizeDateInput(data.end_date));
       if (orderType === "cost" && data.total_value != null) {
-        setTotalBudget(String(data.total_value));
+        setTotalBudget(numberToField(data.total_value));
       }
       if (orderType === "md" && data.md_total != null) {
-        setMdBudget(String(data.md_total));
+        setMdBudget(numberToField(data.md_total));
       }
       if (canManageFinance) {
         const detectedUnit = extractionRateUnit(data.rate_unit);
@@ -249,7 +249,7 @@ export function EditOrderDialog({
         } else {
           setUnitChangeNotice(null);
         }
-        if (data.rate_client != null) setRateRevenue(String(data.rate_client));
+        if (data.rate_client != null) setRateRevenue(numberToField(data.rate_client));
         // PDF opisuje pozycję przychodową klienta. Nie wolno nim nadpisać
         // niezależnej waluty kosztowej kontraktora.
         if (data.currency) {
@@ -258,13 +258,13 @@ export function EditOrderDialog({
         // Bank Pocztowy: pole stawki dostało wartość GODZINOWĄ; oryginał MD
         // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
         setRateMdOriginal(
-          data.rate_client_md != null ? String(data.rate_client_md) : null,
+          data.rate_client_md != null ? numberToField(data.rate_client_md) : null,
         );
         setGrossConversion(
           data.rate_client_gross != null && data.rate_client != null
             ? {
-                gross: String(data.rate_client_gross),
-                net: String(data.rate_client),
+                gross: numberToField(data.rate_client_gross),
+                net: numberToField(data.rate_client),
               }
             : null,
         );

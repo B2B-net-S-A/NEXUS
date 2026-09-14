@@ -115,13 +115,13 @@ async def create_invite_link(
     """
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
     if not job.is_open:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Job must be handed off to search before an invite link can be "
-                "generated"
+                "Link aplikacyjny można wygenerować dopiero po przekazaniu "
+                "rekrutacji do searchu"
             ),
         )
 
@@ -261,11 +261,16 @@ async def revoke_invite_link(
         )
     )
     if row is None:
-        raise HTTPException(status_code=404, detail="Link not found")
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono linku aplikacyjnego"
+        )
     is_owner = row.created_by == current_user.id
     is_privileged = current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
     if not (is_owner or is_privileged):
-        raise HTTPException(status_code=403, detail="Not allowed to revoke this link")
+        raise HTTPException(
+            status_code=403,
+            detail="Nie możesz unieważnić tego linku — może to zrobić jego autor, Delivery Lead albo administrator",
+        )
     row.revoked = True
     await db.commit()
     return None

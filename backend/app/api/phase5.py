@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
     CandidateFinanceReadAccess,
-    CandidateSearchAccess,
     require_candidate_write,
 )
 from app.api.deps import AdminUser, CurrentUser, ManagerOrAdmin
@@ -48,11 +47,15 @@ router = APIRouter()
 
 @router.get("/embed-diagnostics")
 async def embed_diagnostics(
-    current_user: CandidateSearchAccess,
+    current_user: AdminUser,
 ):
     """
     Report the state of the embedding pipeline so admins can diagnose
     "failed=N/N" situations without shell access.
+
+    Admin-only (UAT M11-B09): jedynym konsumentem jest ``/settings/diagnostics``
+    (sekcja system_admin), a każdy odczyt płaci za ping Voyage i zwraca host,
+    port i treść wyjątków infrastruktury — nie dla ról z odczytem kandydatów.
     """
     report: dict = {
         "voyage": {"key_present": bool(settings.VOYAGE_API_KEY)},

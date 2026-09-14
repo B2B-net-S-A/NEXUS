@@ -271,6 +271,34 @@ describe("MdImportWorkspace", () => {
     expect(screen.getByText(/1.*234,125/)).toBeInTheDocument();
   });
 
+  it("kwota faktury ma walutę, a baner odmienia liczbę wierszy (UAT M09-B02/B03)", async () => {
+    const ambiguous = row({
+      status: "needs_assignment",
+      status_label: "Wymaga przypisania",
+      matched_order_id: null,
+      matched: null,
+      invoice_amount: 33120,
+      options: [],
+    });
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: detail([ambiguous]),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.upload(
+      screen.getByLabelText(/Plik XLSX/),
+      new File(["x"], "raport.xlsx"),
+    );
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+
+    expect(
+      await screen.findByText(/1 wiersz pasuje do\s+więcej niż jednego zamówienia/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/1 wierszy/)).not.toBeInTheDocument();
+    expect(screen.getByText(/33\s120,00\szł/)).toBeInTheDocument();
+  });
+
   it("pokazuje dokładny dry-run Polkomtela bez zapisywania zmian", async () => {
     vi.mocked(mdConsumptionApi.reprocessPolkomtel).mockResolvedValue({
       data: reprocessResponse(),

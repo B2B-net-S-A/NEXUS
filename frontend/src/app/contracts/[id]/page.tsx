@@ -31,11 +31,12 @@ import {
 import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
-  formatDate,
   formatCurrency,
   parseDecimalInput,
   sanitizeDecimalInput,
 } from "@/lib/utils";
+// DD.MM.RRRR z zerem wiodącym (UAT M08-B06) — `Intl` dawało „1.09.2026".
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import {
   B2B_END_DATE_HOW,
   b2bEndDateLocked,
@@ -1110,6 +1111,15 @@ export default function ContractDetailPage() {
                   ) : (
                     `#${contract.client_id}`
                   )}
+                </InfoRow>
+                {/* Zamówienia tej osoby żyją w zakładce klienta (UAT M08-B04). */}
+                <InfoRow icon={FileText} label="Zamówienia">
+                  <Link
+                    href={`/clients/${contract.client_id}?tab=zamowienia`}
+                    className="text-primary hover:underline dark:text-primary"
+                  >
+                    Zamówienia u klienta →
+                  </Link>
                 </InfoRow>
                 <InfoRow icon={Briefcase} label="Rekrutacja">
                   {contract.job_title ? (

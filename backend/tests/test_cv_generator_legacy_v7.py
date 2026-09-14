@@ -448,3 +448,39 @@ def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults
     assert not any(
         w.startswith("BRAK POKRYCIA") and "why_points" in w for w in result.warnings
     )
+
+
+# ── M05-B07: rok graniczny z samych lat nie jest nakładaniem się okresów ────
+
+
+def test_year_only_roles_sharing_a_boundary_year_do_not_warn():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            {"company": "Test Company Theta", "dates": "2020 - 2026"},
+            {"company": "Test Company Iota", "dates": "2017 - 2020"},
+        ]
+    }
+    assert _date_overlap_warnings(data, "pl") == []
+
+
+def test_year_only_roles_with_certain_overlap_still_warn():
+    from app.services.cv_generator_b2b.legacy_v7._helpers import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            # Nawet najwęższy odczyt (12.2019–01.2022 i 12.2020–01.2026)
+            # daje dwa wspólne miesiące.
+            {"company": "Test Company Theta", "dates": "2020 - 2026"},
+            {"company": "Test Company Iota", "dates": "2019 - 2022"},
+            {"company": "Test Company Kappa", "dates": "03.2021 - obecnie"},
+        ]
+    }
+    warnings = _date_overlap_warnings(data, "pl")
+    assert any("Theta" in w and "Iota" in w for w in warnings)
+    assert any("Iota" in w and "Kappa" in w for w in warnings)

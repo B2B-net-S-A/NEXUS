@@ -3,6 +3,7 @@
 // changes — there's no codegen step.
 
 import type { ContractTerminationReason } from "@/lib/api";
+import { formatIsoDatePl } from "@/lib/date-pl";
 
 export type JobCloseReason =
   | "budget"
@@ -151,12 +152,9 @@ export function formatPLN(value: number | null | undefined): string {
 }
 
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("pl-PL");
-  } catch {
-    return iso;
-  }
+  // DD.MM.RRRR z zerem wiodącym — `toLocaleDateString("pl-PL")` dawało
+  // „3.09.2026" obok „2026-09-05" z kart okresowych.
+  return formatIsoDatePl(iso);
 }
 
 export function daysToEndBadgeColor(days: number | null): string {

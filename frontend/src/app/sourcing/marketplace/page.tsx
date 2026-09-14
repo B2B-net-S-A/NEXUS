@@ -49,7 +49,7 @@ function MarketplacePageContent() {
           Wszyscy konsultanci dostępni do nowego projektu w jednym miejscu —
           z kończącymi się kontraktami, deklaracją „aktywnie szuka" lub
           ręcznie wystawieni na targ. AI dobiera top dopasowania do otwartych
-          rekrutacji i alertuje gdy pojawia się świeży job.
+          rekrutacji i alertuje, gdy pojawia się nowa rekrutacja.
         </p>
       </header>
 
@@ -65,7 +65,7 @@ function MarketplacePageContent() {
           </TabsTrigger>
           <TabsTrigger value="cv">
             <UploadCloud className="h-3.5 w-3.5" />
-            Match CV (spoza bazy)
+            Dopasuj CV (spoza bazy)
           </TabsTrigger>
         </TabsList>
 
@@ -82,7 +82,7 @@ function MarketplacePageContent() {
         <TabsContent value="manual" className="space-y-4">
           <p className="text-sm text-muted-foreground max-w-3xl">
             Kandydaci ręcznie wystawieni na targ na określony czas (TTL).
-            Tło: kiedy edytujesz lub dodajesz nowy job, system automatycznie
+            Tło: kiedy edytujesz lub dodajesz rekrutację, system automatycznie
             skanuje tę listę i alertuje o dopasowaniach ze score ≥ {threshold}.
           </p>
           <MarketplaceTable
@@ -94,7 +94,7 @@ function MarketplacePageContent() {
         <TabsContent value="cv" className="space-y-4">
           <p className="text-sm text-muted-foreground max-w-3xl">
             Wrzuć CV osoby spoza bazy — AI dopasuje aktualne otwarte
-            rekrutacje bez tworzenia kandydata. One-off check.
+            rekrutacje bez tworzenia kandydata. Jednorazowe sprawdzenie.
           </p>
           <CVDropzoneMatch />
         </TabsContent>

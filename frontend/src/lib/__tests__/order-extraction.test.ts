@@ -57,6 +57,15 @@ describe("numberToField", () => {
     expect(numberToField(0)).toBe("0");
     expect(numberToField(1200)).toBe("1200");
   });
+
+  it("obcina końcowe zera z Decimala serializowanego jako tekst", () => {
+    // Backend zwraca `Decimal` tekstem — pole pokazywało „1200.0".
+    expect(numberToField("1200.0")).toBe("1200");
+    expect(numberToField("100.00")).toBe("100");
+    expect(numberToField("57.500")).toBe("57.5");
+    expect(numberToField("0.0")).toBe("0");
+    expect(numberToField("1200")).toBe("1200");
+  });
 });
 
 describe("extractedEndDate — „bezterminowo” z reguły klienta", () => {

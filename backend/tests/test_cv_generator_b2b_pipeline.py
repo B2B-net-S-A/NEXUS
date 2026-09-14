@@ -902,6 +902,21 @@ def test_overlap_ignores_handover_month():
     assert _date_overlap_warnings(data, "pl") == []
 
 
+def test_overlap_ignores_shared_year_only_boundary():
+    """M05-B07: „2017 - 2020” i „2020 - 2026” nie muszą się nakładać."""
+    from app.services.cv_generator_b2b.standalone_service import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            {"company": "A", "dates": "2020 - 2026"},
+            {"company": "B", "dates": "2017 - 2020"},
+        ]
+    }
+    assert _date_overlap_warnings(data, "pl") == []
+
+
 def test_overlap_caps_warning_count():
     from app.services.cv_generator_b2b.standalone_service import (
         _date_overlap_warnings,
@@ -1083,9 +1098,7 @@ def test_fix_experience_years_fixes_headline_and_preserves_company_subfigure():
         "experience": [
             {"company": "Gigaset", "dates": "01.2019 – 12.2023"}
         ],  # 5 years total
-        "why_points": [
-            "Ponad 3 lata doświadczenia zawodowego, w tym 4 lata w Gigaset"
-        ],
+        "why_points": ["Ponad 3 lata doświadczenia zawodowego, w tym 4 lata w Gigaset"],
     }
     _fix_experience_years(data, "pl")
     assert data["why_points"][0] == (

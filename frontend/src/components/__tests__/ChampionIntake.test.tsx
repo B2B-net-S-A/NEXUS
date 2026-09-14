@@ -140,4 +140,24 @@ describe("Champion import review", () => {
     expect(post.mock.calls.at(-1)![1].expected_fingerprint).toBe("b".repeat(64));
     expect(post.mock.calls.at(-1)![1].profile.basics.rate_value).toBe("200");
   });
+
+  it("uzgadnianie bez dokumentu ma własny tytuł, polskie wartości pól rekrutacji i bez pustej ramki dokumentu", () => {
+    // UAT M04-B06: tytuł „Podgląd importu Championa” przy uzgadnianiu,
+    // „(obecnie: remote)” i pusta ramka „Informacje z dokumentu”.
+    const stored = profile(150);
+    stored.intake = { ...stored.intake!, document_context: { client_name: "" } };
+    render(<ChampionImportReview initial={{ champion_profile: stored }} jobId={7} jobValues={{ work_mode: "remote", must: ["Python", "SQL"] }} onApply={() => {}} onClose={() => {}} />);
+    expect(screen.getByRole("heading", { name: "Uzgodnij profil i pola rekrutacji" })).toBeInTheDocument();
+    expect(screen.queryByText("Podgląd importu Championa")).toBeNull();
+    expect(screen.queryByText(/Informacje z dokumentu/)).toBeNull();
+    expect(screen.getByText(/obecnie: zdalnie/)).toBeInTheDocument();
+    expect(screen.queryByText(/obecnie: remote/)).toBeNull();
+    expect(screen.getByText(/obecnie: Python, SQL/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Lokalizacja biura")).toBeInTheDocument();
+  });
+
+  it("import dokumentu zostaje „Podglądem importu Championa”", () => {
+    render(<ChampionImportReview initial={{ champion_profile: profile(150) }} sourceIsDocument onApply={() => {}} onClose={() => {}} />);
+    expect(screen.getByRole("heading", { name: "Podgląd importu Championa" })).toBeInTheDocument();
+  });
 });

@@ -8,6 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileText, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ClientDashboardResponse, ExpiringAlert } from "@/lib/api/dlPortal";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { countPl } from "@/lib/plural-pl";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 
 interface AnalyticsTabProps {
@@ -103,21 +105,19 @@ function KpiGrid({
       {showFinance ? (
         <>
           <KpiCard
-            label="Revenue lifetime (PLN)"
+            label="Przychód łącznie (PLN)"
             value={fmtMoney(data.total_revenue_all_time)}
             icon={<TrendingUp className="w-4 h-4 text-success-muted-foreground" />}
           />
           <KpiCard
-            label="Active revenue (PLN)"
+            label="Przychód aktywny (PLN)"
             value={fmtMoney(data.active_revenue)}
-            sublabel={`${data.active_orders_count} zamówień`}
+            sublabel={countPl(data.active_orders_count, "zamówienie", "zamówienia", "zamówień")}
           />
           <KpiCard
-            label="Marża/mc (PLN, gross)"
+            label="Marża/mc (PLN)"
             value={
-              data.monthly_margin_total != null
-                ? `${data.monthly_margin_total}`
-                : "—"
+              fmtMoney(data.monthly_margin_total)
             }
             // „% przychodu/mc", nie samo „%": ten wskaźnik to marża
             // miesięczna podzielona przez przychód miesięczny. Goły procent
@@ -125,7 +125,7 @@ function KpiGrid({
             // w liczbie, której tu nie ma.
             sublabel={
               data.monthly_margin_pct != null
-                ? `${data.monthly_margin_pct}% przychodu/mc`
+                ? `${fmtNumber(data.monthly_margin_pct)}% przychodu/mc`
                 : undefined
             }
           />
@@ -138,16 +138,23 @@ function KpiGrid({
         icon={<Users className="w-4 h-4 text-primary" />}
       />
       <KpiCard
-        label="Avg time to fill"
-        value={data.avg_days_to_fill !== null ? `${data.avg_days_to_fill} dni` : "—"}
+        label="Średni czas obsadzenia"
+        // `!= null`, nie `!== null`: backend pomija puste pola
+        // (`response_model_exclude_none`), więc brak danych przychodzi jako
+        // `undefined` i dawał „undefined dni".
+        value={
+          data.avg_days_to_fill != null
+            ? `${fmtNumber(data.avg_days_to_fill)} dni`
+            : "—"
+        }
       />
       <KpiCard
-        label="MSA"
+        label="Umowy ramowe"
         value={`${data.framework_contracts_count}`}
         icon={<FileText className="w-4 h-4 text-primary" />}
       />
-      <KpiCard label="Active orders" value={`${data.active_orders_count}`} />
-      <KpiCard label="Completed orders" value={`${data.completed_orders_count}`} />
+      <KpiCard label="Zamówienia aktywne" value={`${data.active_orders_count}`} />
+      <KpiCard label="Zamówienia zakończone" value={`${data.completed_orders_count}`} />
     </div>
   );
 }
@@ -177,12 +184,12 @@ function CurrencyBreakdown({ data }: { data: ClientDashboardResponse }) {
   if (entries.length === 0) return null;
   return (
     <div className="border border-border rounded-lg p-3 bg-card">
-      <h4 className="text-sm font-medium mb-2">Revenue per waluta</h4>
+      <h4 className="text-sm font-medium mb-2">Przychód według waluty</h4>
       <ul className="space-y-1 text-sm">
         {entries.map(([currency, amount]) => (
           <li key={currency} className="flex justify-between">
             <span className="text-muted-foreground">{currency}</span>
-            <span className="font-medium">{amount}</span>
+            <span className="font-medium">{fmtMoney(amount)}</span>
           </li>
         ))}
       </ul>
@@ -217,7 +224,7 @@ function AlertsList({ alerts }: { alerts: ExpiringAlert[] }) {
               </span>
             </div>
             <div className="rounded bg-warning-muted px-2 py-0.5 text-xs text-warning-muted-foreground">
-              {a.days_to_expiry} dni · {a.expiry_date}
+              {countPl(a.days_to_expiry, "dzień", "dni", "dni")} · {formatIsoDatePl(a.expiry_date)}
             </div>
           </li>
         ))}
@@ -230,5 +237,11 @@ function fmtMoney(v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
   const num = typeof v === "string" ? parseFloat(v) : v;
   if (Number.isNaN(num)) return "—";
-  return num.toLocaleString("pl-PL");
+  return fmtNumber(num);
+}
+
+function fmtNumber(v: number): string {
+  // Najwyżej dwa miejsca po przecinku: kwoty z bazy przychodzą jako
+  // `Numeric(…, 3)` („105853.800"), a trzecie zero nic nie mówi.
+  return v.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
 }

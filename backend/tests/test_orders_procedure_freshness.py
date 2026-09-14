@@ -120,18 +120,20 @@ def test_procedure_content_is_seedable() -> None:
         "Treść instrukcji wygląda na okrojoną — plik ma "
         f"{len(content)} znaków. Seed wysłałby to na produkcję."
     )
+    # Data w treści: DD.MM.RRRR (UAT M00-B04) — stempel JSON trzyma ISO.
     reviewed = re.findall(
-        r"^> \*\*Zgodność z systemem sprawdzona:\*\* (\d{4}-\d{2}-\d{2})$",
+        r"^> \*\*Zgodność z systemem sprawdzona:\*\* (\d{2})\.(\d{2})\.(\d{4})$",
         content,
         flags=re.MULTILINE,
     )
     assert len(reviewed) == 1, (
         "Instrukcja musi zawierać DOKŁADNIE jedną linię z datą przeglądu "
-        "w formacie `> **Zgodność z systemem sprawdzona:** RRRR-MM-DD` — "
+        "w formacie `> **Zgodność z systemem sprawdzona:** DD.MM.RRRR` — "
         f"znaleziono {len(reviewed)}. Tę linię przestawia "
         "scripts/stamp_orders_procedure.py."
     )
-    assert reviewed[0] == load_stamp()["reviewed_at"], (
+    day, month, year = reviewed[0]
+    assert f"{year}-{month}-{day}" == load_stamp()["reviewed_at"], (
         "Data widoczna w instrukcji różni się od daty w stemplu — czytelnik "
         "zobaczyłby inną świeżość, niż faktycznie potwierdzono." + _RESTAMP_HINT
     )
