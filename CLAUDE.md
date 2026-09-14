@@ -803,6 +803,12 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   każdy z linkiem miał w JSON-ie także NASZĄ stawkę dla kandydata, firmy docelowe,
   dyskwalifikatory i reguły priorytetu klienta — niewidoczne na ekranie, ale obecne
   w odpowiedzi, a odbiorcą linku jest strona trzecia.
+- **Notatkę meetingową podpina do rekrutacji JEDNA bramka**
+  (`services/note_job_link.ensure_note_linkable_to_job`, UAT M03-B13): „Powiąż
+  + AI” i briefing DL odmawiają 422 notatki podpiętej do innej rekrutacji oraz
+  notatki kandydata spoza pipeline'u tej rekrutacji. Bez tego rozmowa
+  z kandydatem innego klienta trafiała do cudzego profilu Championa i do AI.
+  Panel „Meetingi bez powiązania” pyta `GET /api/notes?unattached=true`.
 - **Weryfikacja dwustronna, briefing DL i rekomendowane wyszukiwania NIE są
   sekcjami** — mają własne endpointy, są server-stamped i zwykły zapis profilu ich
   nie dotyka. Trzymanie ich poza siódemką jest decyzją produktową (19.08→09.2026),
@@ -2601,6 +2607,13 @@ fail-closed:
   wysłanie tego samego PDF-u nic nie daje (duplikat po SHA-256). Znacznik
   zapisuje się także przy porażce (wpis nie wraca co godzinę). Wersja
   `None` = bez automatycznego przeliczania.
+- **Domniemanie netto bez reguły klienta** (`_document_marks_only_net`,
+  UAT M07-B04): stawka bez oznaczenia przy kwocie jest netto tylko wtedy, gdy
+  „netto” stoi przy etykiecie stawki/kwoty W TEJ SAMEJ LINII („Stawka netto
+  za MD”, „kwota … PLN netto”), a dokument nigdzie nie mówi „brutto” ani
+  o kwotach „z VAT”. Samo „Wartość netto razem” w podsumowaniu nie wystarcza —
+  reguła działa też w bramce automatu poczty, więc luźniejsze dopasowanie
+  zapisałoby stawkę z VAT jako pewną.
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
 - **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją

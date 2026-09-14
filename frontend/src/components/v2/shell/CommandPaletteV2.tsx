@@ -302,6 +302,16 @@ export function CommandPaletteV2({
       (!item.capability || can[item.capability]),
   );
 
+  // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają
+  // widoczne NAD wynikami wyszukiwania (UAT M00-B03) — „kand” + Enter ma
+  // przenieść do Kandydatów, a nie czekać na skan bazy. Filtrujemy sami, bo
+  // `shouldFilter={false}` wyłącza filtr cmdk.
+  const searchTerm = query.trim();
+  const matchedNav =
+    searchTerm.length < 2
+      ? []
+      : visibleNav.filter((item) => navMatches(item.label, searchTerm));
+
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
       <CommandInput
@@ -319,6 +329,24 @@ export function CommandPaletteV2({
                 ? "Nie udało się wyszukać — spróbuj ponownie za chwilę."
                 : "Brak wyników."}
         </CommandEmpty>
+
+        {matchedNav.length > 0 && (
+          <CommandGroup heading="Nawigacja">
+            {matchedNav.map((item) => {
+              const Icon = item.icon;
+              return (
+                <CommandItem
+                  key={item.href}
+                  value={`go ${item.label}`}
+                  onSelect={() => go(item.href)}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
 
         {results.length > 0 && (
           <CommandGroup heading="Wyniki">
@@ -415,6 +443,21 @@ export function CommandPaletteV2({
       </CommandList>
     </CommandDialog>
   );
+}
+
+function foldForMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ł/g, "l")
+    .replace(/Ł/g, "L")
+    .toLowerCase();
+}
+
+/** Pozycja nawigacji pasuje, gdy jej nazwa zawiera zapytanie (bez polskich znaków i wielkości liter). */
+export function navMatches(label: string, term: string): boolean {
+  const needle = foldForMatch(term.trim());
+  return needle.length > 0 && foldForMatch(label).includes(needle);
 }
 
 function resultHref(r: QuickResult): string {

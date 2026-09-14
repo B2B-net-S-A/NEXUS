@@ -95,10 +95,18 @@ export function extractionErrorMessage(
   return fallback;
 }
 
-/** Liczba → tekst pola formularza. `null`/`undefined` → pusty string. */
+/** Liczba → tekst pola formularza. `null`/`undefined` → pusty string.
+ *
+ *  Backend serializuje `Decimal` jako tekst („1200.0", „57.500"), więc
+ *  `String(value)` wpisywał do pola „1200.0". Końcowe zera po kropce są
+ *  obcinane — wartość się nie zmienia, a pole wygląda jak wpisane ręcznie. */
 export function numberToField(value: number | string | null | undefined): string {
   if (value === null || value === undefined) return "";
-  return String(value);
+  const text = String(value).trim();
+  if (/^-?\d+\.\d+$/.test(text)) {
+    return text.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return text;
 }
 
 /** Tekst pola „do", gdy reguła klienta mówi „bezterminowo" — trafia do

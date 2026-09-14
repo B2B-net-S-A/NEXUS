@@ -121,3 +121,62 @@ async def test_missing_assets_returns_recovery_code_without_creating_draft(monke
     assert exc.value.detail["code"] == "cv_editor_assets_unavailable"
     db.add.assert_not_called()
     db.flush.assert_not_awaited()
+
+
+@pytest.mark.parametrize("persist", [False, True])
+async def test_reading_the_editor_does_not_create_a_draft_row(monkeypatch, persist):
+    """M05-B03: GET edytora nie zapisuje szkicu; mutacja zakłada ten sam stan."""
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, None]), add=Mock(), flush=AsyncMock()
+    )
+    generated = SimpleNamespace(
+        id=7,
+        status="ready",
+        filename="cv.docx",
+        render_payload={"language": "pl", "name": "Synthetic", "position": "Dev"},
+    )
+    monkeypatch.setattr(
+        editor, "generated_assets", Mock(return_value=(b"template", None, {}))
+    )
+    monkeypatch.setattr(editor, "capture_editor_origin", Mock(return_value={}))
+    item = await editor.load_draft(db, generated, persist=persist)
+    assert item.edit_revision == 0
+    assert item.branded_status == "draft"
+    assert item.branded_version == 1
+    if persist:
+        db.add.assert_called_once_with(item)
+        db.flush.assert_awaited_once()
+    else:
+        db.add.assert_not_called()
+        db.flush.assert_not_awaited()
+
+
+def test_editor_read_endpoints_do_not_persist_a_draft():
+    """Kontrakt tras: odczyty edytora wołają ``persist=False``."""
+    import ast
+    import inspect
+
+    from app.api import cv_generator_b2b as api
+
+    for fn in (
+        api.get_generated_editor,
+        api.preview_generated_editor,
+        api.print_generated_editor,
+    ):
+        tree = ast.parse(inspect.getsource(fn).lstrip())
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "_load_generated_editor"
+        ]
+        assert calls, fn.__name__
+        assert all(
+            any(
+                kw.arg == "persist"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is False
+                for kw in call.keywords
+            )
+            for call in calls
+        ), fn.__name__

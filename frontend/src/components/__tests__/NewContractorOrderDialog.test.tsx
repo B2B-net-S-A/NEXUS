@@ -265,7 +265,7 @@ describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {
       await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
     );
     await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
-    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-09-01");
     await user.click(screen.getByRole("radio", { name: "Godzinowa" }));
     await user.type(screen.getByPlaceholderText("np. 215,60"), "215,60");
     await user.type(screen.getByPlaceholderText("np. 150,40"), "150,40");
@@ -292,7 +292,7 @@ describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {
     ).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+      screen.getByRole("button", { name: "Utwórz umowę i zamówienie" }),
     );
 
     await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
@@ -333,7 +333,7 @@ describe("NewContractorOrderDialog — domyślna jednostka klienta", () => {
       await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
     );
     await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
-    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-09-01");
 
     // "MD" (daily) jest zaznaczona domyślnie — nie klikamy w przełącznik.
     expect(screen.getByRole("radio", { name: "MD" })).toBeChecked();
@@ -341,7 +341,7 @@ describe("NewContractorOrderDialog — domyślna jednostka klienta", () => {
     await user.type(screen.getByPlaceholderText("np. 215,60"), "544");
     await user.type(screen.getByPlaceholderText("np. 150,40"), "480");
     await user.click(
-      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+      screen.getByRole("button", { name: "Utwórz umowę i zamówienie" }),
     );
 
     await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
@@ -370,17 +370,17 @@ describe("NewContractorOrderDialog — umowa B2B bezterminowa", () => {
     expect(screen.getByTestId("contract-end-indefinite")).toHaveTextContent(
       "Bezterminowo",
     );
-    expect(screen.queryByLabelText(/Contract end/i)).toBeNull();
+    expect(screen.queryByLabelText(/Koniec umowy/i)).toBeNull();
 
     await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "Jan");
     await user.click(
       await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
     );
     await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
-    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
-    await user.type(screen.getByLabelText(/Order end/i), "2026-12-31");
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-09-01");
+    await user.type(screen.getByLabelText(/Koniec zamówienia/i), "2026-12-31");
     await user.click(
-      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+      screen.getByRole("button", { name: "Utwórz umowę i zamówienie" }),
     );
 
     await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));

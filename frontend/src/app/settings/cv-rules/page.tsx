@@ -293,7 +293,7 @@ export default function CvRulesSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6 p-6">
       <PageHeader
         title="Reguły CV per klient"
         description="Jak ma się nazywać plik CV, w jakim ma być języku, czego jeszcze wymaga klient i jakie instrukcje ma dostać generator. Reguła działa od chwili zatwierdzenia — każdy Delivery Lead zakłada i zatwierdza reguły dla swoich klientów sam."
@@ -412,7 +412,11 @@ export default function CvRulesSettingsPage() {
                     <th className="p-3 font-medium">Stan</th>
                     <th className="p-3 font-medium">Zatwierdzona</th>
                     {canEdit ? (
-                      <th className="sticky right-0 bg-muted/50 p-3 text-right font-medium">
+                      // Przyklejona kolumna akcji ma lewą krawędź i ikonowe
+                      // „Edytuj"/„Usuń": szeroka, bez separacji zasłaniała
+                      // „Zatwierdzona" i „Stan", a przycisk wyglądał jak
+                      // wartość kolumny (UAT M05-B04).
+                      <th className="sticky right-0 border-l bg-muted/50 p-3 text-right font-medium">
                         Akcje
                       </th>
                     ) : null}
@@ -569,7 +573,7 @@ export default function CvRulesSettingsPage() {
                             : "—"}
                         </td>
                         {canEdit ? (
-                          <td className="sticky right-0 bg-background p-3">
+                          <td className="sticky right-0 border-l bg-background p-3">
                             <div className="flex justify-end gap-1">
                               {!row.is_active ? (
                                 <Button
@@ -592,6 +596,7 @@ export default function CvRulesSettingsPage() {
                                 size="sm"
                                 variant="ghost"
                                 aria-label={`Edytuj regułę: ${name}`}
+                                title="Edytuj"
                                 onClick={() =>
                                   setEditor({
                                     clientId: row.client_id,
@@ -600,18 +605,17 @@ export default function CvRulesSettingsPage() {
                                 }
                               >
                                 <Pencil className="h-3.5 w-3.5" />
-                                Edytuj
                               </Button>
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
                                 aria-label={`Usuń regułę: ${name}`}
+                                title="Usuń"
                                 className="text-destructive hover:text-destructive"
                                 onClick={() => setPendingDelete(row)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                                Usuń
                               </Button>
                             </div>
                           </td>

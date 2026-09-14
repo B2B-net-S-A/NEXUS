@@ -273,7 +273,7 @@ export function BulkImportCVsV2() {
  <ArrowLeft className="h-4 w-4" /> Wróć do listy kandydatów
  </Link>
  <h1 className="mt-2 text-2xl font-semibold text-foreground">
- Bulk import CV
+ Masowy import CV
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
  Wrzuć wiele PDF/DOCX naraz — każdy plik trafia do osobnego kandydata.

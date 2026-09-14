@@ -436,7 +436,7 @@ describe("SuggestedCandidatesWidget — przełączniki mówią prawdę", () => {
     fireEvent.click(screen.getByTestId("switch-remote-only"));
 
     const notice = await screen.findByTestId("dealbreaker-hidden-notice");
-    expect(notice).toHaveTextContent("Ukryto 1 powyżej budżetu oferty");
+    expect(notice).toHaveTextContent("Ukryto 1 powyżej budżetu rekrutacji");
     expect(notice).toHaveTextContent("Ukryto 2 bez technologii must-have");
     expect(notice).toHaveTextContent("Ukryto 3 za mało dni w biurze");
     expect(notice).toHaveTextContent("Ukryto 4 inne miasto niż biuro");
@@ -476,7 +476,7 @@ describe("SuggestedCandidatesWidget — przełączniki mówią prawdę", () => {
 
     const button = screen.getByTestId("switch-over-budget");
     expect(button).toBeDisabled();
-    expect(button).toHaveTextContent("Budżet oferty: ranking sprzed filtra");
+    expect(button).toHaveTextContent("Budżet rekrutacji: ranking sprzed filtra");
     expect(
       screen.getByTestId("legacy-snapshot-budget-notice"),
     ).toHaveTextContent("Odśwież propozycje");

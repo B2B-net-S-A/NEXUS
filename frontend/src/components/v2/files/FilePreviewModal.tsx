@@ -78,6 +78,37 @@ export function previewKind(doc: CandidateDocument): PreviewKind {
   return "unsupported";
 }
 
+// Czytelna nazwa formatu zamiast surowego typu MIME („application/pdf”).
+// Nieznany format wraca jako rozszerzenie pliku albo `null` — nigdy jako MIME.
+export function fileTypeLabel(
+  contentType: string | null,
+  filename: string | null,
+): string | null {
+  const ct = (contentType || "").toLowerCase().split(";")[0].trim();
+  const name = (filename || "").toLowerCase();
+  const ext = name.includes(".") ? name.split(".").pop() || "" : "";
+  if (ct === "application/pdf" || ext === "pdf") return "PDF";
+  if (
+    ct === "application/msword" ||
+    ct ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    ext === "doc" ||
+    ext === "docx"
+  ) {
+    return "Dokument Word";
+  }
+  if (ct === "application/rtf" || ct === "text/rtf" || ext === "rtf") {
+    return "Dokument RTF";
+  }
+  if (ct === "application/vnd.oasis.opendocument.text" || ext === "odt") {
+    return "Dokument ODT";
+  }
+  if (ct.startsWith("image/")) return "Obraz";
+  if (ct === "text/plain" || ext === "txt") return "Plik tekstowy";
+  if (/^[a-z0-9]{1,5}$/.test(ext)) return `Plik ${ext.toUpperCase()}`;
+  return null;
+}
+
 // Pobranie bytes dokumentu przez proxy-stream backendu (`/content`). Natywny
 // `fetch` (nie axios — axios `responseType: blob` cross-origin zwracał status 0,
 // testowane na prod 25.05.2026), Bearer JWT dołączany ręcznie. Same-origin nie
@@ -292,7 +323,9 @@ export function FilePreviewContent({
           <FileText className="h-8 w-8 text-muted-foreground" />
           <p className="max-w-sm text-sm text-muted-foreground">
             Podgląd nie jest dostępny dla tego formatu
-            {doc.content_type ? ` (${doc.content_type})` : ""}. Pobierz plik, aby
+            {fileTypeLabel(doc.content_type, doc.filename)
+              ? ` (${fileTypeLabel(doc.content_type, doc.filename)})`
+              : ""}. Pobierz plik, aby
             go otworzyć.
           </p>
           <button

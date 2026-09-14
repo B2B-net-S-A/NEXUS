@@ -37,7 +37,7 @@ export function ReEngageButton({ placement }: Props) {
       className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
     >
       <Mail className="w-3 h-3" />
-      Re-engage
+      Nawiąż kontakt
     </a>
   );
 }

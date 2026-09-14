@@ -56,7 +56,8 @@ class EntityFieldDefCreate(BaseModel):
     def _key_is_identifier_safe(cls, v: str) -> str:
         if not _KEY_RE.match(v):
             raise ValueError(
-                "key must match /^[a-z][a-z0-9_]*$/ (lowercase + underscores)"
+                "Klucz może zawierać tylko małe litery (bez polskich znaków), "
+                "cyfry i podkreślenia, zaczynać się od litery i mieć do 60 znaków."
             )
         return v
 

@@ -26,8 +26,10 @@ import {
   formatAge,
   formatLastRunSummary,
   reasonLabel,
+  withoutExceptionRepr,
   type CheckBaseline,
 } from "@/lib/order-mail-sync";
+import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 
 /**
  * Kolejka zamówień z maila.
@@ -59,7 +61,7 @@ function money(value: string | null, unit: string | null): string {
 }
 
 function period(a: string | null, b: string | null): string {
-  return `${a ?? "—"} – ${b ?? "bezterminowo"}`;
+  return `${formatIsoDatePl(a)} – ${b ? formatIsoDatePl(b) : "bezterminowo"}`;
 }
 
 // `forbidden` osobno od `error`: odmowa sekcji (np. podgląd admina jako rola
@@ -213,7 +215,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{d.client_name ?? "Nierozpoznany klient"}</span>
-                    <span className="text-xs text-muted-foreground">{d.received_at?.slice(0, 10) ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">{formatIsoDatePl(d.received_at)}</span>
                   </div>
                   <div className="truncate text-sm text-muted-foreground">
                     {d.extraction?.title ?? d.attachment_name ?? d.subject ?? "—"} · {d.extraction?.consultant_rows.length ?? 0} os.
@@ -436,10 +438,10 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
       {doc.gate_reasons.length > 0 && (
         <div className="mt-4 rounded-md border border-amber-300/60 bg-amber-50/60 p-3 text-sm dark:bg-amber-950/20" data-testid="gate-reasons">
           <div className="font-medium">Dlaczego do weryfikacji</div>
-          <ul className="mt-1 list-disc pl-5">{doc.gate_reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+          <ul className="mt-1 list-disc pl-5">{doc.gate_reasons.map((r) => <li key={r}>{withoutExceptionRepr(r)}</li>)}</ul>
         </div>
       )}
-      {doc.error && <div className="mt-3 text-sm text-destructive">Błąd: {doc.error}</div>}
+      {doc.error && <div className="mt-3 text-sm text-destructive">Błąd: {withoutExceptionRepr(doc.error)}</div>}
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
 
       {personDecision && doc.outcome === "needs_review" && (
@@ -485,12 +487,12 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
         </div>
       )}
       {doc.applied_order_id && (
-        <p className="mt-3 text-sm">Zapisane jako zamówienie #{doc.applied_order_id}{doc.applied_at ? ` (${doc.applied_at.slice(0, 16).replace("T", " ")})` : ""}.</p>
+        <p className="mt-3 text-sm">Zapisane jako zamówienie #{doc.applied_order_id}{doc.applied_at ? ` (${formatDateTimePl(doc.applied_at)})` : ""}.</p>
       )}
       {doc.proposal?.resolved_in_order && (
         <p className="mt-3 text-sm">
           Rozstrzygnięte w oknie zamówienia — zamówienie nr {doc.proposal.resolved_in_order.order_number ?? `#${doc.proposal.resolved_in_order.order_group_id}`}
-          {doc.proposal.resolved_in_order.resolved_at ? ` (${doc.proposal.resolved_in_order.resolved_at.slice(0, 16).replace("T", " ")})` : ""}.
+          {doc.proposal.resolved_in_order.resolved_at ? ` (${formatDateTimePl(doc.proposal.resolved_in_order.resolved_at)})` : ""}.
         </p>
       )}
     </section>

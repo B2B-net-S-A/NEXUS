@@ -158,6 +158,19 @@ describe("CvRulesSettingsPage", () => {
     expect(
       screen.getByRole("button", { name: "Edytuj regułę: Tauron Polska Energia" }),
     ).toBeInTheDocument();
+    // UAT M05-B04: „Edytuj"/„Usuń" są ikonowe (podpowiedź w title), żeby
+    // przyklejona kolumna akcji nie zasłaniała „Zatwierdzona" i „Stan".
+    const editButton = screen.getByRole("button", {
+      name: "Edytuj regułę: Tauron Polska Energia",
+    });
+    expect(editButton).toHaveAttribute("title", "Edytuj");
+    expect(editButton).not.toHaveTextContent("Edytuj");
+    const deleteButton = screen.getByRole("button", {
+      name: "Usuń regułę: Tauron Polska Energia",
+    });
+    expect(deleteButton).toHaveAttribute("title", "Usuń");
+    expect(deleteButton).not.toHaveTextContent("Usuń");
+    expect(editButton.closest("td")).toHaveClass("sticky", "border-l");
     // Obowiązująca reguła nie ma już czego zatwierdzać.
     expect(
       screen.queryByRole("button", { name: "Zatwierdź regułę: Nordea Bank Abp" }),

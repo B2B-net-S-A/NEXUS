@@ -324,7 +324,7 @@ export function InterviewDecisionDock({
                       (<span className="text-muted-foreground">brak danych</span>),
                   },
                   {
-                    k: "Budżet oferty",
+                    k: "Budżet rekrutacji",
                     v:
                       item.budget_max_at_move != null ? (
                         <span className="tabular-nums">

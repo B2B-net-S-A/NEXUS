@@ -23,6 +23,7 @@ import {
   toMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
+import { numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput } from "@/lib/utils";
 
 export type LineSource = "contract" | "pdf" | "manual";
@@ -105,8 +106,8 @@ export function revenueUnitFromDocument(
   return null;
 }
 
-function numberField(value: number | null | undefined): string {
-  return value === null || value === undefined ? "" : String(value);
+function numberField(value: number | string | null | undefined): string {
+  return numberToField(value);
 }
 
 /** Stawka kosztowa z kontraktu — pole, jednostka i waluta naraz. */

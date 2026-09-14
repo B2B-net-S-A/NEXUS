@@ -2628,11 +2628,9 @@ async def set_champion_briefing(
             status_code=422,
             detail="Briefing musi być notatką meetingową (Fireflies).",
         )
-    if note.job_id is not None and note.job_id != job_id:
-        raise HTTPException(
-            status_code=422,
-            detail="Ta notatka jest podpięta do innej rekrutacji.",
-        )
+    from app.services.note_job_link import ensure_note_linkable_to_job
+
+    await ensure_note_linkable_to_job(db, note, job_id)
 
     # Unattached meeting → attach to this job as part of designation.
     if note.job_id is None:
@@ -3679,7 +3677,7 @@ async def claim_job(
     if not current_user.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Read-only viewers cannot claim jobs",
+            detail="Rola tylko do odczytu nie może przejąć rekrutacji",
         )
 
     await allocation_lock(db)
@@ -3690,7 +3688,7 @@ async def claim_job(
     if job.recruiter_id is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Job already has a primary owner",
+            detail="Ta rekrutacja ma już właściciela",
         )
 
     if job.is_open and current_user.has_any_role(

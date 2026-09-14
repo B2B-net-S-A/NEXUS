@@ -2212,7 +2212,7 @@ export function CandidatesListV2() {
  href="/candidates/bulk-import"
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
  >
- <FileArchive className="h-4 w-4 text-muted-foreground" /> Bulk CV
+ <FileArchive className="h-4 w-4 text-muted-foreground" /> Masowy import CV
  </Link>
  </PopoverContent>
  </Popover>
@@ -3180,7 +3180,7 @@ export function CandidatesListV2() {
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{""}
+ Brak wyników. Zmień filtry lub{" "}
  <button
  className="text-primary hover:underline"
  onClick={() => setShowAdd(true)}
@@ -3224,7 +3224,7 @@ export function CandidatesListV2() {
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{""}
+ Brak wyników. Zmień filtry lub{" "}
  <button
  className="text-primary hover:underline"
  onClick={() => setShowAdd(true)}

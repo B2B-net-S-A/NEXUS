@@ -47,6 +47,10 @@ from app.services.order_rate_snapshots import convert_order_rate
 
 logger = logging.getLogger(__name__)
 
+_UNEXPECTED_APPLY_ERROR = (
+    "Nieoczekiwany błąd zapisu zamówienia — szczegóły w logach serwera"
+)
+
 _RATE_UNIT = {"hour": "hourly", "day": "daily", "month": "monthly"}
 
 
@@ -582,11 +586,35 @@ async def _write_document(
         except HTTPException as exc:
             applied.error = str(exc.detail)
             return result
-        except Exception as exc:  # noqa: BLE001
+        except ValueError as exc:
+            if type(exc) is not ValueError:
+                # Podklasy (`ValidationError`, `UnicodeDecodeError`…) to błędy
+                # kodu albo danych, nie odmowy writera — idą ścieżką niżej,
+                # z pełnym śladem w logach i ogólnym komunikatem w kolejce.
+                logger.exception(
+                    "order_mail apply failed (doc=%s row=%s)",
+                    doc.id,
+                    applied.row_index,
+                )
+                applied.error = _UNEXPECTED_APPLY_ERROR
+                return result
+            # Odmowy writera (imiennik w bazie, zmieniony plan…) niosą polskie
+            # zdanie dla operatora. `repr(exc)` pokazywał je w kolejce jako
+            # „ValueError('W bazie jest już…')". Ślad zostaje w logu.
+            logger.warning(
+                "order_mail apply refused (doc=%s row=%s): %s",
+                doc.id,
+                applied.row_index,
+                exc,
+                exc_info=True,
+            )
+            applied.error = str(exc)[:500]
+            return result
+        except Exception:  # noqa: BLE001
             logger.exception(
                 "order_mail apply failed (doc=%s row=%s)", doc.id, applied.row_index
             )
-            applied.error = repr(exc)[:500]
+            applied.error = _UNEXPECTED_APPLY_ERROR
             return result
 
     first_ok = next((r for r in result.rows if r.order_id), None)

@@ -306,6 +306,9 @@ describe("JobContractTab", () => {
     expect(
       await screen.findByRole("link", { name: /Otwórz Zamówienia klienta/ }),
     ).toHaveAttribute("href", "/clients/3?tab=zamowienia");
+    // Trasa jest adresem linku, nie treścią — surowy tekst ścieżki pod
+    // nagłówkiem sekcji był zgłoszeniem UAT M03-B05.
+    expect(screen.queryByText("/clients/3?tab=zamowienia")).toBeNull();
   });
 
   it("historia statusów umowy stoi w stopce szyny i tłumaczy statusy na polski", async () => {

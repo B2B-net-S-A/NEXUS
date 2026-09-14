@@ -64,6 +64,19 @@ class TestKeyConstraint:
                 field_type=FieldType.number,
             )
 
+    def test_rejection_message_is_polish_without_regex(self):
+        # UAT M11-B08: komunikat trafia do użytkownika — bez surowego regexu.
+        with pytest.raises(ValidationError) as exc:
+            EntityFieldDefCreate(
+                entity_type=EntityType.candidate,
+                key="9_score",
+                label_pl="x",
+                field_type=FieldType.number,
+            )
+        message = str(exc.value)
+        assert "Klucz może zawierać" in message
+        assert "/^[a-z]" not in message
+
     def test_uppercase_rejected(self):
         with pytest.raises(ValidationError):
             EntityFieldDefCreate(

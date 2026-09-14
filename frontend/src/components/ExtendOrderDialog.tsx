@@ -27,7 +27,7 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
-import { extractionErrorMessage } from "@/lib/order-extraction";
+import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -181,20 +181,20 @@ export function ExtendOrderDialog({
         setUnitChangeNotice(null);
       }
       // Kwoty finansowe tylko dla ról z manage_finance (backend i tak je redaguje).
-      if (d.rate_client != null) setRateClient(String(d.rate_client));
+      if (d.rate_client != null) setRateClient(numberToField(d.rate_client));
       // Waluta z dokumentu dotyczy przychodu klienta, nie kosztu kontraktora.
       if (d.currency) {
         setRateClientCurrency(normalizeOrderCurrency(d.currency));
       }
-      if (d.total_value != null) setTotalValue(String(d.total_value));
+      if (d.total_value != null) setTotalValue(numberToField(d.total_value));
       // Bank Pocztowy: pole wyżej dostało stawkę GODZINOWĄ; oryginał MD
       // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
-      setRateMdOriginal(d.rate_client_md != null ? String(d.rate_client_md) : null);
+      setRateMdOriginal(d.rate_client_md != null ? numberToField(d.rate_client_md) : null);
       setGrossConversion(
         d.rate_client_gross != null && d.rate_client != null
           ? {
-              gross: String(d.rate_client_gross),
-              net: String(d.rate_client),
+              gross: numberToField(d.rate_client_gross),
+              net: numberToField(d.rate_client),
             }
           : null,
       );

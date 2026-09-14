@@ -32,6 +32,12 @@ from app.services.service_account_auth import (
 
 logger = logging.getLogger(__name__)
 
+#: Odmowa bramki rolowej. To samo zdanie front pokazywał dotąd w miejsce
+#: surowej listy ról (`extractErrorMsg` w `frontend/src/lib/api.ts`).
+ROLE_DENIED_DETAIL = (
+    "Nie masz uprawnień do tej operacji — poproś administratora o dostęp."
+)
+
 # ``auto_error=False`` — świadomie, NIE domyślne zachowanie.
 #
 # ``HTTPBearer(auto_error=True)`` (default) na BRAK nagłówka ``Authorization``
@@ -249,9 +255,16 @@ def require_roles(*roles: UserRole):
         if not current_user.has_role(UserRole.admin) and not current_user.has_any_role(
             *roles
         ):
+            # Lista ról to nazwy z modelu danych, nie komunikat dla użytkownika
+            # (UAT M02-B04) — trafia do logu, a odpowiedź niesie zdanie po polsku.
+            logger.info(
+                "role gate denied user_id=%s required=%s",
+                current_user.id,
+                [r.value for r in roles],
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires one of roles: {[r.value for r in roles]}",
+                detail=ROLE_DENIED_DETAIL,
             )
         return current_user
 
@@ -655,7 +668,7 @@ def require_service_scope(*required: ServiceScope, allow_admin_jwt: bool = True)
         if not user.has_role(UserRole.admin):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Requires one of roles: ['admin']",
+                detail=ROLE_DENIED_DETAIL,
             )
         return Caller(user=user)
 

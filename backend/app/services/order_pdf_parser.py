@@ -1893,6 +1893,34 @@ def detect_rate_gross_marking(
     return None
 
 
+_NET_RATE_LABEL_RE = re.compile(
+    r"\b(?:stawk\w*|cen\w*|wynagrodzeni\w*|kwot\w*)\b"
+    r"(?:[^\w\n]+\w+){0,4}?[^\w\n]+netto\b"
+)
+# Kwoty „z VAT” bez słowa „brutto” — dokument, który tak mówi, nie jest
+# dowodem netto, nawet jeśli „netto” pada gdzie indziej (np. w podsumowaniu).
+_VAT_INCLUSIVE_RE = re.compile(
+    r"\bz\s+vat\b|\bwraz\s+z\s+(?:podatkiem\s+)?vat\b"
+    r"|\bzawiera\w*\s+(?:podatek\s+)?vat\b|\bz\s+podatkiem\b"
+    r"|\bw\s+tym\s+(?:podatek\s+)?vat\b|\bvat\s+wliczon\w*"
+)
+
+
+def _document_marks_only_net(document_text: str) -> bool:
+    """Czy dokument oznacza STAWKI jako netto i nigdzie nie mówi o brutto.
+
+    „Netto” musi stać przy etykiecie stawki lub kwoty („Stawka netto za MD”,
+    „kwota 1 200 PLN netto”) — samo „Wartość netto razem” w podsumowaniu nie
+    mówi nic o stawkach w wierszach. Wzmianka o brutto albo o kwotach „z VAT”
+    wyłącza regułę: wtedy decyduje oznaczenie przy samej kwocie albo człowiek.
+    """
+
+    folded = _fold_policy_text(document_text or "")
+    if re.search(r"brutto", folded) or _VAT_INCLUSIVE_RE.search(folded):
+        return False
+    return bool(_NET_RATE_LABEL_RE.search(folded))
+
+
 def _strip_rate_conversion_reasons(reasons: list[str]) -> list[str]:
     """Usuń powody „stawka może być brutto/inny VAT" — przeliczenie już nastąpiło."""
 
@@ -1929,6 +1957,7 @@ def apply_document_rate_kind(
 
     # Każda stawka ma własne oznaczenie: netto jednej osoby nie może zablokować
     # przeliczenia brutto innej ani odziedziczyć jej rodzaju stawki.
+    only_net_document = _document_marks_only_net(document_text)
     confirmed = []
     for item in [result, *result.consultant_rows]:
         if item.rate_client is None:
@@ -1936,6 +1965,12 @@ def apply_document_rate_kind(
         marking = detect_rate_gross_marking(
             document_text, [item.rate_client_gross or item.rate_client]
         )
+        if marking is None and only_net_document:
+            # Dokument mówi „netto" (nagłówek kolumny „Stawka netto za MD",
+            # „kwota … PLN netto") i NIGDZIE „brutto": nie ma czego przeliczać
+            # ani o co pytać. Okno wokół kwoty tego nie widziało, bo nagłówek
+            # tabeli stoi linię wyżej — ostrzeżenie było fałszywe.
+            marking = RATE_MARK_NET
         if (
             marking is None
             and item is result

@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/lib/use-click-outside";
 
@@ -55,7 +56,7 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
         disabled={mutation.isPending}
         className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-md transition-colors disabled:opacity-50"
       >
-        {mutation.isPending ? "..." : "Extend"}
+        {mutation.isPending ? "…" : "Przedłuż"}
         <ChevronDown className="w-3 h-3" />
       </button>
       {open && (
@@ -68,7 +69,7 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
                 "block w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-foreground dark:text-muted-foreground"
               )}
             >
-              + {m} miesięcy
+              + {countPl(m, "miesiąc", "miesiące", "miesięcy")}
             </button>
           ))}
         </div>

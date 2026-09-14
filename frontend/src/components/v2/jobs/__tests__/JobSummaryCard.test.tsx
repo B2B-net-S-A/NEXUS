@@ -47,9 +47,9 @@ describe("JobSummaryCard — dane", () => {
     expect(screen.getByText("z requestu klienta")).toBeInTheDocument();
   });
 
-  it("widełki podpisane są „(z oferty)”, NIE „klienta” — to wynagrodzenie z oferty, nie stawka klienta", () => {
+  it("widełki podpisane są „(z rekrutacji)”, NIE „klienta” — to wynagrodzenie z rekrutacji, nie stawka klienta", () => {
     render(<JobSummaryCard job={fullJob} />);
-    expect(screen.getByText("Widełki (z oferty)")).toBeInTheDocument();
+    expect(screen.getByText("Widełki (z rekrutacji)")).toBeInTheDocument();
     // Makieta podpisuje to pole „Widełki klienta"; stawka klienta żyje na
     // kontraktach (`rate_client`) i ta etykieta byłaby nieprawdziwa.
     expect(screen.queryByText("Widełki klienta")).not.toBeInTheDocument();

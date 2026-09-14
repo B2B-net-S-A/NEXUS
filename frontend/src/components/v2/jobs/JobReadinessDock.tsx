@@ -128,7 +128,7 @@ const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
 ];
 
 // Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
-// `POST /jobs/{id}/claim` odrzuca 403 („Read-only viewers cannot claim jobs")
+// `POST /jobs/{id}/claim` odrzuca 403 („Rola tylko do odczytu nie może przejąć rekrutacji")
 // każdą inną rolę — także te z zapisem w sekcji pipeline (finance,
 // head_of_recruitment, talent_community_manager). Przycisk bez tego lustra
 // = gwarantowany 403 po kliknięciu.
@@ -636,7 +636,7 @@ export function JobReadinessDock({
         loading={claimMutation.isPending}
         onClick={() => claimMutation.mutate()}
       >
-        Claim
+        Przejmij
       </Button>
     ) : undefined,
   };
@@ -649,7 +649,7 @@ export function JobReadinessDock({
       ? job.rate_budget_hourly != null
         ? `do ${job.rate_budget_hourly} PLN/h`
         : "Ustawiony — ze stawki w Profilu Championa."
-      : "Brak — dodaj budżet PLN/h do oferty lub stawkę w Profilu Championa.",
+      : "Brak — dodaj budżet PLN/h do rekrutacji lub stawkę w Profilu Championa.",
   };
 
   const skillsItem: ReadinessItem = {
@@ -660,7 +660,7 @@ export function JobReadinessDock({
     description:
       must.length > 0
         ? `${must.length} must · ${nice.length} nice · zasilają C2 i filtry.`
-        : "Brak — dodaj wymagania w Profilu Championa (sekcja Stack) lub w ofercie.",
+        : "Brak — dodaj wymagania w Profilu Championa (sekcja Stack) lub w rekrutacji.",
   };
 
   const hiringManagerItem: ReadinessItem = {

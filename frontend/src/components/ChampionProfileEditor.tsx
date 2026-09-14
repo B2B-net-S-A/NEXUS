@@ -65,6 +65,7 @@ import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { countPl } from "@/lib/plural-pl";
 import { invalidateChampionDependents } from "@/lib/champion-cache";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
@@ -456,7 +457,7 @@ export function ChampionProfileEditor({
           {/* Ta stawka nie jest opisem — filtr odrzuca po niej kandydatów
               powyżej progu, bez marginesu. Podpis mówi o tym wprost, bo pole
               wyglądające jak notatka, a działające jak filtr, jest pułapką. */}
-          <Labeled label="Stawka kandydata (PLN/h) — twardy sufit">
+          <Labeled label="Maksymalna stawka PLN/h — twardy sufit">
             <input
               type="number"
               min={0}
@@ -761,7 +762,7 @@ export function ChampionProfileEditor({
             />
           </Labeled>
           <p className="text-[11px] text-muted-foreground -mt-1">
-            {countSentences(draft.project.about)} zdania/zdań
+            {countPl(countSentences(draft.project.about), "zdanie", "zdania", "zdań")}
             {countSentences(draft.project.about) > 2 && (
               <span className="text-amber-600 dark:text-amber-400">
                 {" "}
@@ -897,7 +898,7 @@ export function ChampionProfileEditor({
             źródłem. */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="space-y-3">
-            <Labeled label="Co przekona kandydata do TEJ oferty">
+            <Labeled label="Co przekona kandydata do TEJ rekrutacji">
               <textarea
                 disabled={disabled}
                 value={draft.client.selling_points}

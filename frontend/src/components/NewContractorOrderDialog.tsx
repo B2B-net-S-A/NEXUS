@@ -23,7 +23,7 @@ import {
 } from "@/lib/dateInput";
 import { B2B_INDEFINITE_HINT } from "@/lib/contract-end-date";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
-import { extractionErrorMessage } from "@/lib/order-extraction";
+import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -269,7 +269,7 @@ export function NewContractorOrderDialog({
       // kontraktora nie wynika z niego i zostaje do wpisania ręcznie.
       fill(
         form.rateClient,
-        data.rate_client == null ? null : String(data.rate_client),
+        data.rate_client == null ? null : numberToField(data.rate_client),
         setRateClient,
       );
       if (data.currency) setRateClientCurrency(data.currency.toUpperCase());
@@ -406,7 +406,7 @@ export function NewContractorOrderDialog({
         }
       }
       showToast(
-        `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone${marginSuffix}${fileNote}`,
+        `Utworzono kontrakt #${res.data.contract_id} i zamówienie #${res.data.order_id}${marginSuffix}${fileNote}`,
         fileNote ? "error" : "success",
       );
       onCreated();
@@ -446,7 +446,7 @@ export function NewContractorOrderDialog({
         <div>
           <h3 className="text-lg font-semibold">Nowy kontraktor / zamówienie</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            Atomic: tworzy nowy Contract z kandydatem + pierwszy Order pod nim.
+            Zakłada jednocześnie umowę z kandydatem i pierwsze zamówienie klienta.
           </p>
         </div>
 
@@ -696,7 +696,7 @@ export function NewContractorOrderDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <label>
-            <span className="text-sm">Contract start *</span>
+            <span className="text-sm">Początek umowy *</span>
             <input
               type="text"
               inputMode="numeric"
@@ -713,7 +713,7 @@ export function NewContractorOrderDialog({
               jest bezterminowa — koniec zamówienia ma własne pole niżej.
               Reguła: `lib/contract-end-date.ts`. */}
           <div>
-            <span className="text-sm">Contract end</span>
+            <span className="text-sm">Koniec umowy</span>
             <p
               className="mt-1 px-3 py-2 text-sm text-muted-foreground"
               data-testid="contract-end-indefinite"
@@ -726,7 +726,7 @@ export function NewContractorOrderDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <label>
-            <span className="text-sm">Order start (PDF od klienta)</span>
+            <span className="text-sm">Początek zamówienia (PDF od klienta)</span>
             <input
               type="text"
               inputMode="numeric"
@@ -739,7 +739,7 @@ export function NewContractorOrderDialog({
             />
           </label>
           <label>
-            <span className="text-sm">Order end</span>
+            <span className="text-sm">Koniec zamówienia</span>
             <input
               type="text"
               inputMode="numeric"
@@ -874,7 +874,7 @@ export function NewContractorOrderDialog({
             disabled={mutation.isPending}
             className="px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
           >
-            {mutation.isPending ? "Zapisywanie…" : "Stwórz Contract + Order"}
+            {mutation.isPending ? "Zapisywanie…" : "Utwórz umowę i zamówienie"}
           </button>
         </div>
       </form>

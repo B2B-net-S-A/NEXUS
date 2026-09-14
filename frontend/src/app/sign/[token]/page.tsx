@@ -5,9 +5,11 @@
  * qualified-signature tool (offline), and uploads the signed PAdES. The server
  * validates it (pyHanko + EU DSS). KIR-free upload-and-validate pas.
  *
- * On any error (expired / revoked / used / unknown token) we notFound().
+ * Odmowa (4xx: wygasły / odwołany / wykorzystany / nieznany token) i awaria
+ * (5xx, brak odpowiedzi) mają własne komunikaty — nie ogólne 404 aplikacji.
  */
-import { notFound } from "next/navigation";
+import { PublicLinkUnavailable } from "@/components/public/PublicLinkUnavailable";
+import { publicLinkFailure } from "@/lib/public-link-state";
 import { FileSignature } from "lucide-react";
 
 import SignForm from "./SignForm";
@@ -35,27 +37,32 @@ function apiBase(): string {
   );
 }
 
-async function fetchMeta(token: string): Promise<SignMeta | null> {
+async function fetchMeta(
+  token: string,
+): Promise<{ meta: SignMeta } | { status: number | null }> {
   try {
     const res = await fetch(`${apiBase()}/api/public/sign/${token}`, {
       cache: "no-store",
     });
-    if (!res.ok) return null;
-    return (await res.json()) as SignMeta;
+    if (!res.ok) return { status: res.status };
+    return { meta: (await res.json()) as SignMeta };
   } catch {
-    return null;
+    return { status: null };
   }
 }
 
 export default async function SignPage({ params }: PageProps) {
   const { token } = await params;
-  const meta = await fetchMeta(token);
-  if (!meta) notFound();
+  const result = await fetchMeta(token);
+  if (!("meta" in result)) {
+    return <PublicLinkUnavailable failure={publicLinkFailure(result.status)} />;
+  }
+  const meta = result.meta;
 
   const expiresLabel = meta.expires_at
     ? new Date(meta.expires_at).toLocaleDateString("pl-PL", {
         day: "2-digit",
-        month: "short",
+        month: "2-digit",
         year: "numeric",
       })
     : null;

@@ -293,7 +293,7 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
                   className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
                 >
                   <XCircle className="w-3 h-3" />
-                  Lost
+                  Przegrana
                 </button>
               </>
             ) : null

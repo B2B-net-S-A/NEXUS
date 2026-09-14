@@ -59,7 +59,10 @@ vi.mock("@/lib/api", () => ({
   signingApi: {},
 }));
 
-import { GeneratedContractsTab } from "@/components/v2/pages/B2BContractGeneratorV2";
+import {
+  GeneratedContractsTab,
+  RecruitmentOptionsNotice,
+} from "@/components/v2/pages/B2BContractGeneratorV2";
 
 beforeAll(() => {
   // Radix Select potrzebuje tych API, których jsdom nie implementuje.
@@ -193,7 +196,7 @@ describe("GeneratedContractsTab — status umowy", () => {
 
     expect(await screen.findByText("Zakończona")).toBeInTheDocument();
     expect(
-      screen.getByText(/Zakończenie projektu · 2026-08-31/),
+      screen.getByText(/Zakończenie projektu · 31\.08\.2026/),
     ).toBeInTheDocument();
   });
 
@@ -209,7 +212,7 @@ describe("GeneratedContractsTab — status umowy", () => {
     ]);
 
     expect(
-      await screen.findByText(/Wypowiedzenie · 2026-08-31/),
+      await screen.findByText(/Wypowiedzenie · 31\.08\.2026/),
     ).toBeInTheDocument();
   });
 
@@ -439,8 +442,9 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
   it("pokazuje NIP i datę rozpoczęcia usług", async () => {
     renderTab([generatedRow()]);
     expect(await screen.findByText("1234563218")).toBeInTheDocument();
-    // Surowe ISO, bez godziny — w odróżnieniu od kolumny „Wygenerowano".
-    expect(screen.getByText("2026-08-25")).toBeInTheDocument();
+    // DD.MM.RRRR bez godziny — w odróżnieniu od kolumny „Wygenerowano" (UAT M08-B06).
+    expect(screen.getByText("25.08.2026")).toBeInTheDocument();
+    expect(screen.queryByText("2026-08-25")).toBeNull();
   });
 
   it("pokazuje autora pod datą w kolumnie Wygenerowano zamiast osobnej kolumny", async () => {
@@ -448,7 +452,9 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
     const author = await screen.findByText("Marta Rekruter");
     const cell = author.closest("td");
     expect(cell).not.toBeNull();
-    expect(cell?.textContent).toContain("2026-07-24 10:30");
+    // Godzina w czasie lokalnym — nie przypinamy jej do strefy maszyny testowej.
+    expect(cell?.textContent).toMatch(/24\.07\.2026 \d{2}:\d{2}/);
+    expect(cell?.textContent).not.toContain("2026-07-24");
     expect(
       screen.queryByRole("columnheader", { name: "Wygenerował" }),
     ).toBeNull();
@@ -461,9 +467,12 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
       "Edytuj nazwę Klienta",
       "Pobierz DOCX ponownie",
       "Usuń umowę z listy",
+      // UAT M08-B09: jedyna ikona, która miała sam `title` bez `aria-label`.
+      "Historia statusów",
     ]) {
       const button = screen.getByRole("button", { name });
       expect(button).toHaveAttribute("title", name);
+      expect(button).toHaveAttribute("aria-label", name);
       // Sama ikona — tekst w przycisku zjadał szerokość, którą przyklejona
       // kolumna zasłaniała pod sobą.
       expect(button.textContent?.trim()).toBe("");
@@ -592,5 +601,51 @@ describe("GeneratedContractsTab — akcje niezależne od podpisu", () => {
     ).toBeInTheDocument();
     // „Edytuj" przeciwnie — po podpisaniu znika.
     expect(screen.queryByRole("button", { name: /Edytuj/ })).toBeNull();
+  });
+});
+
+describe("RecruitmentOptionsNotice — lista rekrutacji w generatorze (UAT M08-B07)", () => {
+  it("pusta lista mówi, że kandydat nie jest w żadnej rekrutacji", () => {
+    render(
+      <RecruitmentOptionsNotice
+        hasCandidate
+        isError={false}
+        isEmpty
+        onRetry={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByText(/Kandydat nie jest w żadnej rekrutacji/),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria ma własny komunikat z ponowieniem, nie udaje pustki", async () => {
+    const onRetry = vi.fn();
+    render(
+      <RecruitmentOptionsNotice
+        hasCandidate
+        isError
+        isEmpty={false}
+        onRetry={onRetry}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Nie udało się wczytać rekrutacji/,
+    );
+    expect(screen.queryByText(/nie jest w żadnej rekrutacji/)).toBeNull();
+    await setupUser().click(screen.getByRole("button", { name: "Ponów" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez kandydata i przy wczytywaniu nic nie pokazuje", () => {
+    const { container } = render(
+      <RecruitmentOptionsNotice
+        hasCandidate={false}
+        isError
+        isEmpty
+        onRetry={() => undefined}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });

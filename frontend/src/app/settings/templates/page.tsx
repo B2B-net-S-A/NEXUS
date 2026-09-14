@@ -128,7 +128,7 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
                 <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  ℹ️ Podgląd z przykładowymi danymi. Rzeczywiste wartości zostaną podstawione przy wysyłce.
+                  ℹ️ Zmienne w nawiasach {"{{…}}"} nie są podstawiane w podglądzie — to pola do uzupełnienia przed wysłaniem wiadomości.
                 </p>
               </div>
             </div>
@@ -245,22 +245,9 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
   const handlePreview = async () => {
     if (!form.subject || !form.body) return;
     if (!template?.id) {
-      // For unsaved templates, do a client-side preview
+      // Niezapisany szablon: pokazujemy treść tak samo jak podgląd serwerowy —
+      // BEZ zmyślonych wartości w miejscu zmiennych (P0.2, UAT M11-B06).
       const rendered = { subject: form.subject, body: form.body };
-      for (const p of AVAILABLE_PLACEHOLDERS) {
-        const sample: Record<string, string> = {
-          "{{candidate_name}}": "Jan Kowalski",
-          "{{job_title}}": "Senior Java Developer",
-          "{{company_name}}": "B2B.net S.A.",
-          "{{interview_date}}": "2025-02-15 10:00",
-          "{{salary}}": "20 000 – 25 000 PLN",
-          "{{recruiter_name}}": "Anna Nowak",
-          "{{recruiter_email}}": "rekrutacja@b2bnet.pl",
-          "{{application_date}}": "2025-02-01",
-        };
-        rendered.subject = rendered.subject.replaceAll(p.key, sample[p.key] ?? p.key);
-        rendered.body = rendered.body.replaceAll(p.key, sample[p.key] ?? p.key);
-      }
       setPreview(rendered);
       setShowPreview(true);
       return;
@@ -483,7 +470,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
                 <p className="text-xs text-amber-700 dark:text-amber-400">
-                  ℹ️ Podgląd z przykładowymi danymi (Jan Kowalski, B2B.net S.A. itp.)
+                  ℹ️ Zmienne w nawiasach {"{{…}}"} nie są podstawiane w podglądzie — to pola do uzupełnienia przed wysłaniem wiadomości.
                 </p>
               </div>
             </div>

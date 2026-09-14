@@ -562,14 +562,10 @@ export function JobContractTab({
           )}
 
           {dockTab === "order" && (
-            <DockSection
-              title="Zamówienie"
-              right={
-                clientId != null
-                  ? `/clients/${clientId}?tab=zamowienia`
-                  : undefined
-              }
-            >
+            // Bez `right`: tamta szczelina renderuje TEKST, więc trasa
+            // „/clients/…?tab=zamowienia” stała pod nagłówkiem jako surowy
+            // adres (UAT M03-B05). Link jest niżej, jako przycisk.
+            <DockSection title="Zamówienie">
               <KvList
                 rows={[
                   { k: "Status", v: "Szkic · numer z PDF zamówienia (PO)" },

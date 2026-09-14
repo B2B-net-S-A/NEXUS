@@ -181,6 +181,16 @@ describe("HelpClientPlaybooksSection", () => {
     expect(mocks.get).toHaveBeenCalledWith(OVERVIEW_URL);
   });
 
+  it("data wersji w liście ma zero wiodące — DD.MM.RRRR (UAT M00-B07)", async () => {
+    routeDefault([
+      makeClientPlaybook({ updated_at: "2026-09-03T10:00:00Z" }),
+    ]);
+    renderSection();
+
+    const button = await screen.findByRole("button", { name: /Nordea/ });
+    expect(button).toHaveTextContent("03.09.2026");
+  });
+
   it("?client=2 zaznacza wskazanego klienta zamiast pierwszego", async () => {
     mocks.search = "tab=clients&client=2";
     renderSection();

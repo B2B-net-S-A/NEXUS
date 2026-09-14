@@ -16,7 +16,6 @@ import {
   FileText,
   Link2,
   Loader2,
-  Search,
   Sparkles,
   Trash2,
   Upload,
@@ -1313,15 +1312,12 @@ function NewModeForm({
               className="w-(--radix-popover-trigger-width) p-0"
             >
               <Command shouldFilter={false}>
-                <div className="flex items-center border-b border-border px-3">
-                  <Search className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <CommandInput
-                    placeholder="Szukaj kandydata…"
-                    value={candidateQuery}
-                    onValueChange={setCandidateQuery}
-                    className="h-10 border-0"
-                  />
-                </div>
+                <CommandInput
+                  placeholder="Szukaj kandydata…"
+                  value={candidateQuery}
+                  onValueChange={setCandidateQuery}
+                  className="h-10"
+                />
                 <CommandList>
                   {candidatesQuery.isLoading && (
                     <div className="p-4 text-center text-xs text-muted-foreground">
@@ -1478,15 +1474,12 @@ function UploadCandidatePicker({
         </PopoverTrigger>
         <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
           <Command shouldFilter={false}>
-            <div className="flex items-center border-b border-border px-3">
-              <Search className="mr-2 h-4 w-4 text-muted-foreground" />
-              <CommandInput
-                placeholder="Szukaj kandydata…"
-                value={query}
-                onValueChange={setQuery}
-                className="h-10 border-0"
-              />
-            </div>
+            <CommandInput
+              placeholder="Szukaj kandydata…"
+              value={query}
+              onValueChange={setQuery}
+              className="h-10"
+            />
             <CommandList>
               {candidatesQuery.isLoading && (
                 <div className="p-4 text-center text-xs text-muted-foreground">

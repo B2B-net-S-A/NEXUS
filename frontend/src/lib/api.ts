@@ -1940,6 +1940,8 @@ export interface ContractorListItem {
   contract_type: "b2b" | "uop" | "uzlecenie";
   work_mode?: "remote" | "hybrid" | "onsite" | null;
   missing_fields: string[];
+  /** Okresy i statusy zamówień osoby (bez kwot) — dopisek „Brak aktywnego zamówienia". */
+  orders?: Array<{ status: string; start_date: string | null; end_date: string | null }>;
 }
 
 export interface ContractorList {
@@ -2723,7 +2725,7 @@ export type HiddenCounters = Partial<Record<HiddenReason, number>>;
  *  gdzie `meta.hidden`/`snapshot.hidden` się pojawia — ukrywanie nigdy nie
  *  jest ciche (reguła „awaria ≠ pustka"). */
 export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
-  over_budget: "powyżej budżetu oferty",
+  over_budget: "powyżej budżetu rekrutacji",
   missing_must: "bez technologii must-have",
   office_days_exceeded: "za mało dni w biurze",
   office_city_mismatch: "inne miasto niż biuro",

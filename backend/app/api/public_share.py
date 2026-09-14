@@ -104,15 +104,17 @@ async def get_public_champion_card(
         )
     )
     if row is None or row.revoked:
-        raise HTTPException(status_code=404, detail="Share link not found or revoked")
+        raise HTTPException(
+            status_code=404, detail="Link nie istnieje lub został odwołany."
+        )
     if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=404, detail="Share link expired")
+        raise HTTPException(status_code=404, detail="Link wygasł.")
 
     stage = await db.scalar(
         select(CandidateStage).where(CandidateStage.id == row.candidate_stage_id)
     )
     if stage is None:
-        raise HTTPException(status_code=404, detail="Stage disappeared")
+        raise HTTPException(status_code=404, detail="Karta nie jest już dostępna.")
     candidate = await db.scalar(
         select(Candidate).where(Candidate.id == stage.candidate_id)
     )

@@ -266,3 +266,55 @@ async def test_unrenderable_legacy_payload_is_refused_without_a_write(
     assert "odtworzyć" in exc.value.detail
     assert (doc.docx_content, doc.docx_sha256) == (None, None)
     db.add.assert_not_called()
+
+
+# ── M05-B03: szkic założony samym otwarciem edytora nie blokuje zatwierdzenia ──
+
+
+def _draft_row(**overrides):
+    fields = dict(id=31, edit_revision=0, branded_status="draft")
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def _db_with_draft(draft, job_id=None):
+    return SimpleNamespace(
+        # kolejno: istniejąca wersja 1, szkic, kontrola w toku dla szkicu
+        scalar=AsyncMock(side_effect=[None, draft, job_id]),
+        add=Mock(),
+        flush=AsyncMock(),
+        delete=AsyncMock(),
+    )
+
+
+async def test_untouched_editor_draft_is_dropped_and_generation_approved(
+    evidence_advisory,
+):
+    draft = _draft_row()
+    db = _db_with_draft(draft)
+    version = await approve_unchanged_generation(db, _legacy_doc(), 9)
+    db.delete.assert_awaited_once_with(draft)
+    db.add.assert_called_once_with(version)
+    assert version.version == 1
+
+
+@pytest.mark.parametrize(
+    "draft,job_id",
+    [
+        (_draft_row(edit_revision=1), None),  # zapisane zmiany w edytorze
+        (_draft_row(branded_status="finalized", edit_revision=0), None),
+        (_draft_row(), 77),  # kontrola treści z edytora w toku
+    ],
+)
+async def test_edited_or_reviewed_draft_still_blocks_approval(
+    evidence_advisory, draft, job_id
+):
+    db = _db_with_draft(draft, job_id)
+    doc = _legacy_doc()
+    with pytest.raises(HTTPException) as exc:
+        await approve_unchanged_generation(db, doc, 9)
+    assert exc.value.status_code == 409
+    assert "szkic" in exc.value.detail
+    db.delete.assert_not_awaited()
+    db.add.assert_not_called()
+    assert doc.docx_content is None

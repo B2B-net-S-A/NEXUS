@@ -1004,7 +1004,7 @@ function ContractorCard({
               👤 {contractor.candidate_name}
             </h3>
             <span className="text-xs text-muted-foreground">
-              Contract {contractor.contract_id}
+              Kontrakt #{contractor.contract_id}
             </span>
             <OrderTypeBadge type={cardOrderType} />
             {expiringWarn && (

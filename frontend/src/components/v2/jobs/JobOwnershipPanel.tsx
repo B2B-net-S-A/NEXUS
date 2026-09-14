@@ -125,7 +125,7 @@ export function JobOwnershipPanel({
  onClick={() => claimMutation.mutate()}
  loading={claimMutation.isPending}
  >
- <UserPlus className="h-3.5 w-3.5" /> Claim this job
+ <UserPlus className="h-3.5 w-3.5" /> Przejmij rekrutację
  </Button>
  ) : null}
  </div>

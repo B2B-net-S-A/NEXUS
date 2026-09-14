@@ -600,6 +600,34 @@ async def test_my_clients_admin_sees_all(
         await _cleanup([client_id], [], [candidate_id])
 
 
+async def test_my_clients_zero_revenue_is_a_number_not_redaction(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Klient bez zamówień ma przychód 0 w OBU endpointach, nie pominięty klucz.
+
+    Dashboard robił `total_rev or None`, więc zero znikało z JSON-a i ekran
+    pokazywał „—" — tak samo jak redakcję kwot — a lista zwracała „0".
+    """
+    client_id = await _new_client()
+    try:
+        resp = await app_client.get("/api/my-clients", headers=app_auth_headers)
+        assert resp.status_code == 200, resp.text
+        row = next(r for r in resp.json() if r["client_id"] == client_id)
+        assert Decimal(str(row["total_revenue_all_time"])) == Decimal("0")
+        assert Decimal(str(row["active_revenue"])) == Decimal("0")
+
+        dashboard = await app_client.get(
+            f"/api/my-clients/{client_id}/dashboard", headers=app_auth_headers
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        body = dashboard.json()
+        assert Decimal(str(body["total_revenue_all_time"])) == Decimal("0")
+        assert Decimal(str(body["active_revenue"])) == Decimal("0")
+        assert Decimal(str(body["completed_revenue"])) == Decimal("0")
+    finally:
+        await _cleanup([client_id], [], [])
+
+
 async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient):
     """Delivery Lead widzi kwoty WŁASNYCH klientów — mimo braku VIEW_FINANCE.
 

@@ -21,7 +21,8 @@ import {
   type PolkomtelReprocessResponse,
   type PolkomtelReprocessTarget,
 } from "@/lib/api/orderGroups";
-import { cn } from "@/lib/utils";
+import { pluralPl } from "@/lib/plural-pl";
+import { cn, formatCurrency } from "@/lib/utils";
 
 const inputClass =
   "rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
@@ -117,7 +118,10 @@ export function MdImportWorkspace() {
       setFile(null);
       if (fileInput.current) fileInput.current.value = "";
       queryClient.invalidateQueries({ queryKey: ["md-imports"] });
-      showToast(`Zaimportowano ${data.rows_applied} z ${data.rows_total} wierszy`, "success");
+      showToast(
+        `Zaimportowano ${data.rows_applied} z ${data.rows_total} ${pluralPl(data.rows_total, "wiersza", "wierszy", "wierszy")}`,
+        "success",
+      );
     },
     onError: (err) =>
       setUploadError(apiError(err, "Nie udało się zaimportować pliku.")),
@@ -311,7 +315,9 @@ export function MdImportWorkspace() {
 
           {pendingCount > 0 ? (
             <p className="border-b border-border bg-amber-50 px-5 py-2 text-xs text-amber-800">
-              {pendingCount} wierszy pasuje do więcej niż jednego zamówienia. System nie
+              {pendingCount}{" "}
+              {pluralPl(pendingCount, "wiersz pasuje", "wiersze pasują", "wierszy pasuje")} do
+              więcej niż jednego zamówienia. System nie
               wybiera za Ciebie — wskaż właściwe zamówienie w kolumnie obok.
             </p>
           ) : null}
@@ -620,12 +626,8 @@ function ImportRowLine({
       </td>
       <td className="px-5 py-2 text-right tabular-nums">{formatMd(row.md_reported)}</td>
       <td className="px-5 py-2 text-right tabular-nums">
-        {row.invoice_amount == null
-          ? "—"
-          : row.invoice_amount.toLocaleString("pl-PL", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 3,
-            })}
+        {/* Kwota z walutą (E10) — ten sam formater co reszta modułu. */}
+        {formatCurrency(row.invoice_amount)}
       </td>
       <td className="px-5 py-2">
         <span

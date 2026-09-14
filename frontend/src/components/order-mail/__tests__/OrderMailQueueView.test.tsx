@@ -72,6 +72,30 @@ describe("OrderMailQueueView", () => {
     expect(screen.getByText("Nowe zamówienie")).toBeInTheDocument();
   });
 
+  it("pokazuje daty DD.MM.RRRR i powód bez reprezentacji wyjątku (UAT A-B06, M07-B06)", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[
+          doc({
+            gate_reasons: ["Nie udało się zapisać zamówienia: ValueError('W bazie jest już osoba — zastosuj ręcznie')"],
+            error: "ValueError(\"Kilka osób o tym imieniu\")",
+          }),
+        ]}
+      />,
+    );
+    const detail = screen.getByTestId("order-mail-detail");
+    expect(detail).toHaveTextContent("01.04.2031 – 30.06.2031");
+    expect(detail).not.toHaveTextContent("2031-04-01");
+    expect(screen.getByTestId("gate-reasons")).toHaveTextContent(
+      "Nie udało się zapisać zamówienia: W bazie jest już osoba — zastosuj ręcznie",
+    );
+    expect(detail).toHaveTextContent("Błąd: Kilka osób o tym imieniu");
+    expect(detail).not.toHaveTextContent("ValueError");
+    expect(screen.getByTestId("order-mail-list")).toHaveTextContent("03.03.2031");
+  });
+
   it("apply is disabled without rights and calls back with rights", () => {
     const onApply = vi.fn();
     const { rerender } = render(<OrderMailQueueView {...base} onApply={onApply} state="ready" items={[doc({ can_apply: false })]} />);

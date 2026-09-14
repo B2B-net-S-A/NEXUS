@@ -68,7 +68,9 @@ ALLOWED_EXTENSIONS = (".pdf", ".docx", ".doc")
 
 # Wiersz pozycji tabeli: numer (1–4 cyfry), opcjonalna kropka/nawias, spacja
 # i LITERA. Litera odsiewa daty („03.09.2026") i ilości („35,000 SZT").
-_POSITION_LINE = re.compile(r"^\s*(\d{1,4})[.)]?\s+[^\W\d_]")
+# Numer pozycji na początku linii, dalej odstęp albo separator kolumn tabeli
+# („1 | Anna Testowa" — tekst tabeli z kolumną „Poz.").
+_POSITION_LINE = re.compile(r"^\s*(\d{1,4})[.)]?(?:\s+|\s*[|│]\s*)[^\W\d_]")
 # Ile wierszy nad nazwiskiem szukać numeru pozycji (BIK: numer w wierszu
 # pozycji, nazwisko w wierszu „Profil UR – …" tuż pod nim).
 _POSITION_LOOKBACK = 4

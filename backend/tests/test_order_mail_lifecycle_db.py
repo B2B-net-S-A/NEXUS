@@ -371,6 +371,8 @@ async def test_single_global_namesake_needs_a_human_and_diacritics_fold(monkeypa
         assert not automatic.ok
         assert f"#{person.id}" in automatic.error
         assert "zastosuj ręcznie" in automatic.error
+        # Kolejka pokazuje zdanie dla operatora, nie reprezentację wyjątku.
+        assert "ValueError" not in automatic.error
         assert (
             await db.scalar(
                 select(func.count())
@@ -625,4 +627,59 @@ async def test_cleanup_fingerprint_guard_and_durable_receipt(monkeypatch):
         assert result["deleted_clients"] == []
         assert (await db.get(AppSetting, cleanup.RECEIPT_KEY)).value == result
         assert await cleanup.apply_cleanup_plan(db, "expected") == result
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_writer_error_is_not_shown_as_exception_repr(monkeypatch):
+    """Błąd techniczny writera → polskie zdanie w kolejce, szczegóły w logach."""
+    from app.services import order_mail_apply as writer
+
+    monkeypatch.setattr(writer, "_notify_new_draft", AsyncMock())
+
+    async def boom(*args):
+        raise RuntimeError("internal detail that must stay in logs")
+
+    monkeypatch.setattr(writer, "_new_person_contract", boom)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Repr mail {uuid.uuid4().hex}")
+        db.add(client)
+        await db.flush()
+        doc = document(client.id, "Jan Reprowy" + uuid.uuid4().hex[:8], "Repr")
+        db.add(doc)
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=None)
+        assert not result.ok
+        assert "RuntimeError" not in result.error
+        assert "internal detail" not in result.error
+        assert "szczegóły w logach serwera" in result.error
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_value_error_subclass_is_a_bug_not_a_writer_refusal(monkeypatch):
+    """`ValidationError`/`UnicodeDecodeError` dziedziczą po `ValueError`, ale nie
+    są odmową writera — ich angielska treść nie może trafić do kolejki."""
+    from app.services import order_mail_apply as writer
+
+    monkeypatch.setattr(writer, "_notify_new_draft", AsyncMock())
+
+    class _DataBug(ValueError):
+        pass
+
+    async def boom(*args):
+        raise _DataBug("Invalid isoformat string: internal detail")
+
+    monkeypatch.setattr(writer, "_new_person_contract", boom)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Subclass mail {uuid.uuid4().hex}")
+        db.add(client)
+        await db.flush()
+        doc = document(client.id, "Jan Podklasowy" + uuid.uuid4().hex[:8], "Sub")
+        db.add(doc)
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=None)
+        assert not result.ok
+        assert "internal detail" not in result.error
+        assert "szczegóły w logach serwera" in result.error
         await db.rollback()

@@ -756,6 +756,36 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     );
   });
 
+  it("ponowny odczyt tych samych liczb nie zgłasza rozbieżności przy zapisanych zerach", async () => {
+    // API serializuje Decimal z zerami („1300.000000”), odczyt PDF daje „1300”.
+    // Obie strony porównania muszą przejść przez tę samą normalizację.
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 1300,
+        md_total: 60,
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal(vi.fn(), GROUP, {
+      line: {
+        ...LINE,
+        rate_revenue: "1300.000000",
+        input_value: "60.000000",
+      } as unknown as OrderLineRead,
+    });
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300");
+    addPdf();
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() => expect(dlPortalApi.extractOrderPdf).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/Odczytane dane różnią się od wpisanych/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("zmiana osoby czyści nadal automatyczne revenue i MD oraz zmienia target", async () => {
     vi.mocked(dlPortalApi.extractOrderPdf)
       .mockResolvedValueOnce(

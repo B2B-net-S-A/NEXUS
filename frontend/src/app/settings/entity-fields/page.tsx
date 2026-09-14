@@ -85,7 +85,7 @@ function AddFieldForm({
 
   const submit = () => {
     if (!/^[a-z][a-z0-9_]*$/.test(key.trim())) {
-      setError("Klucz musi pasować do /^[a-z][a-z0-9_]*$/");
+      setError("Klucz może zawierać tylko małe litery (bez polskich znaków), cyfry i podkreślenia i musi zaczynać się od litery.");
       return;
     }
     if (!labelPl.trim()) {

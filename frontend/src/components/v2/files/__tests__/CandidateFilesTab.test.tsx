@@ -179,3 +179,49 @@ describe("CandidateFilesTab upload", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("CandidateFilesTab labels (UAT M01-B10)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentRole = "recruiter";
+  });
+
+  it("renders Polish labels and no raw MIME type", async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/candidates/42/documents") {
+        return {
+          data: [
+            {
+              id: 1,
+              filename: "cv.pdf",
+              content_type: "application/pdf",
+              size_bytes: 1024,
+              document_kind: "cv",
+              is_primary: true,
+              uploaded_at: null,
+              external_source: null,
+            },
+            {
+              id: 2,
+              filename: "cv-stare.pdf",
+              content_type: "application/pdf",
+              size_bytes: 1024,
+              document_kind: "cv",
+              is_primary: false,
+              uploaded_at: null,
+              external_source: null,
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    });
+    renderTab();
+
+    expect(await screen.findByText("główne CV")).toBeInTheDocument();
+    expect(screen.getByText("Ustaw jako główne CV")).toBeInTheDocument();
+    expect(screen.getAllByText("PDF").length).toBeGreaterThan(0);
+    expect(screen.queryByText("application/pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText(/primary/)).not.toBeInTheDocument();
+  });
+});

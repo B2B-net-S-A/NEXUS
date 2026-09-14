@@ -16,7 +16,11 @@ import {
  type ContractorListItem,
  type ContractorStatus,
 } from"@/lib/api";
-import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { cn, formatCurrency } from"@/lib/utils";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { CONTRACT_STATUS_LABEL } from "@/lib/contract-register";
+import { lacksCurrentOrder } from "@/lib/client-order-list";
+import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import {
  httpStatusFromError,
  isBlockingViewState,
@@ -73,6 +77,29 @@ const FIELD_LABELS: Record<string, string> = {
  work_mode: "Tryb pracy",
 };
 const FINANCE_COMPLETION_FIELDS = new Set(["rate_candidate","rate_client"]);
+
+/**
+ * Okresy zamówień kontraktu z `/api/contractors` (UAT M08-B05). Pole dochodzi
+ * w odpowiedzi API; starsza odpowiedź bez niego nie pokazuje dopisku zamiast
+ * pokazywać go wszystkim.
+ */
+type ContractorOrderRef = {
+ status: string;
+ start_date: string | null;
+ end_date: string | null;
+};
+
+function contractorLacksCurrentOrder(c: ContractorListItem): boolean {
+ const orders = (c as ContractorListItem & { orders?: ContractorOrderRef[] })
+ .orders;
+ if (!orders) return false;
+ if (c.status !== "active" && c.status !== "ending") return false;
+ // Ta sama reguła co karta kontraktora w profilu klienta — czyta wyłącznie
+ // status i datę końca, więc wąski kształt jest tu wystarczający.
+ return lacksCurrentOrder({
+ orders: orders as unknown as ContractWithOrdersRead["orders"],
+ });
+}
 
 function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
  if (unit === "hourly") return"/h";
@@ -382,10 +409,10 @@ export function ContractorsListV2() {
  <TableCell>
  <div className="flex items-center gap-1 text-xs text-foreground">
  <Calendar className="h-3 w-3" />
- {formatDate(c.start_date)}
+ {formatIsoDatePl(c.start_date)}
  </div>
  <div className="text-xs text-muted-foreground">
- {c.end_date ? `→ ${formatDate(c.end_date)}` :"brak daty końca"}
+ {c.end_date ? `→ ${formatIsoDatePl(c.end_date)}` :"brak daty końca"}
  </div>
  </TableCell>
  <TableCell>
@@ -429,9 +456,14 @@ export function ContractorsListV2() {
  size="sm"
  variant={c.status === "active" ?"success" :"warning"}
  >
- {c.status}
+ {CONTRACT_STATUS_LABEL[c.status] ?? c.status}
  </Badge>
  )}
+ {contractorLacksCurrentOrder(c) ? (
+ <div className="mt-1 text-xs text-warning-muted-foreground">
+ Brak aktywnego zamówienia
+ </div>
+ ) : null}
  </TableCell>
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">

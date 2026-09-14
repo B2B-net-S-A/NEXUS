@@ -103,7 +103,7 @@ export function JobSummaryCard({ job, onEdit }: JobSummaryCardProps) {
       // stawka klienta żyje na kontraktach (`rate_client`). Etykieta mówiąca
       // „klienta" nad liczbą z innego źródła jest dokładnie tym rodzajem pola,
       // które zaczyna kłamać przy pierwszym spojrzeniu na marżę.
-      label: "Widełki (z oferty)",
+      label: "Widełki (z rekrutacji)",
       value: formatSalaryRange(job.salary_min, job.salary_max),
     },
     { label: "Lokalizacja", value: formatJobLocation(job) },

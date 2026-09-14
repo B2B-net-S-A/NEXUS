@@ -33,7 +33,7 @@ function procedure(overrides: Partial<Procedure> = {}): Procedure {
   };
 }
 
-const LONG = `> **Zgodność z systemem sprawdzona:** 2026-08-31
+const LONG = `> **Zgodność z systemem sprawdzona:** 31.08.2026
 
 Instrukcja opisuje, jak dziś naprawdę działa moduł Zamówienia.
 

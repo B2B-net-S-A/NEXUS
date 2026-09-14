@@ -230,6 +230,11 @@ describe("ContractAnalyticsPage — degradacja kursów FX", () => {
     // Bez tego prognoza, która wyrzuciła wszystkie kontrakty w EUR/USD,
     // renderowała się jakby była kompletna.
     expect(await screen.findByText(warning)).toBeInTheDocument();
+    // UAT M08-B06: etykiety po polsku, nie „Sep 2026” i „cnt” z backendu.
+    expect(screen.getByText("wrz 2026")).toBeInTheDocument();
+    expect(screen.getByText("1 kontrakt")).toBeInTheDocument();
+    expect(screen.queryByText("Sep 2026")).toBeNull();
+    expect(screen.queryByText(/\bcnt\b/)).toBeNull();
   });
 });
 

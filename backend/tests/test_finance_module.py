@@ -369,6 +369,32 @@ async def test_reimport_requires_confirmation_then_archives_and_restores(
     assert len(edited) == 1 and edited[0]["md_count"] == 21.0
 
 
+async def test_original_workbook_download_is_never_cached(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """UAT M09-B04: oryginalny arkusz nie może trafić do cache przeglądarki.
+
+    `FileResponse` wysyła `ETag` + `Last-Modified` bez `Cache-Control`, więc
+    przeglądarka buforowała plik i podawała go potem żądaniu z INNYM tokenem
+    (podgląd jako rekruter dostawał 200 z cache mimo 403 z serwera). Pilnuje
+    tego globalny `SecurityHeadersMiddleware` — test przechodzi przez całą
+    aplikację, nie przez sam helper.
+    """
+    year, month = 2031, 9
+    await _reset_period(year, month)
+    created = await _import(app_client, app_auth_headers, year=year, month=month)
+    assert created.status_code == 201, created.text
+
+    resp = await app_client.get(
+        f"/api/finance/imports/{created.json()['run_id']}/file",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["cache-control"] == "private, no-store"
+    vary = {part.strip().lower() for part in resp.headers["vary"].split(",")}
+    assert "authorization" in vary
+
+
 async def test_import_rejects_workbook_with_wrong_headers(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):

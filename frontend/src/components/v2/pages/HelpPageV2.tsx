@@ -40,6 +40,13 @@ import {
 } from"@/components/v2/ProcedureTableOfContents";
 import { assignHeadingIds } from"@/lib/procedure-headings";
 
+/** DD.MM.RRRR z zerem wiodącym — domyślne `pl-PL` daje „3.09.2026" (UAT M00-B07). */
+const HELP_DATE: Intl.DateTimeFormatOptions = {
+ day: "2-digit",
+ month: "2-digit",
+ year: "numeric",
+};
+
 type HelpTab = "procedures" | "materials" | "clients";
 const HELP_TAB_VALUES: readonly HelpTab[] = ["procedures", "materials", "clients"];
 function isHelpTab(value: string | null): value is HelpTab {
@@ -271,7 +278,7 @@ export function HelpPageV2() {
  {item.title}
  </span>
  <span className="block text-xs text-muted-foreground mt-0.5">
- {new Date(item.updated_at).toLocaleDateString("pl-PL")}
+ {new Date(item.updated_at).toLocaleDateString("pl-PL", HELP_DATE)}
  </span>
  </span>
  {!item.is_published && isAdmin && (
@@ -434,7 +441,11 @@ export function ProcedureContent({
  {procedure.title}
  </h2>
  <p className="text-xs text-muted-foreground mt-1">
- Aktualizacja: {new Date(procedure.updated_at).toLocaleString("pl-PL")}
+ Aktualizacja: {new Date(procedure.updated_at).toLocaleString("pl-PL", {
+ ...HELP_DATE,
+ hour: "2-digit",
+ minute: "2-digit",
+ })}
  {!procedure.is_published && (
  <span className="ml-2 inline-flex items-center gap-1 text-primary">
  <EyeOff className="h-3 w-3" /> szkic

@@ -100,14 +100,34 @@ async def approve_unchanged_generation(db, generated, user_id):
         return existing
     from app.models.cv_generated_draft import CvGeneratedDraft
 
-    if await db.scalar(
-        select(CvGeneratedDraft.id).where(
-            CvGeneratedDraft.generated_document_id == generated.id
+    draft = await db.scalar(
+        select(CvGeneratedDraft)
+        .where(CvGeneratedDraft.generated_document_id == generated.id)
+        .with_for_update()
+    )
+    if draft is not None:
+        from app.models.cv_approval_job import CvApprovalJob
+
+        # Szkic bez żadnej zmiany (``edit_revision == 0``, nigdy nie zapisany)
+        # i bez kontroli w toku zakładało samo otwarcie edytora sprzed M05-B03.
+        # Jego treść to dokładnie ta generacja, więc nie jest pracą do
+        # ochrony — usuwamy go i zatwierdzamy generację. Szkic ze zmianami
+        # nadal wymaga zatwierdzenia w edytorze.
+        untouched = (
+            draft.edit_revision == 0
+            and draft.branded_status == "draft"
+            and not await db.scalar(
+                select(CvApprovalJob.id)
+                .where(CvApprovalJob.generated_draft_id == draft.id)
+                .limit(1)
+            )
         )
-    ):
-        raise HTTPException(
-            409, "To CV ma zapisany szkic. Zatwierdź jego treść w edytorze."
-        )
+        if not untouched:
+            raise HTTPException(
+                409, "To CV ma zapisany szkic. Zatwierdź jego treść w edytorze."
+            )
+        await db.delete(draft)
+        await db.flush()
     from starlette.concurrency import run_in_threadpool
     from app.services.cv_document_assets import generated_assets, CvAssetsError
 

@@ -13,7 +13,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -122,3 +122,46 @@ describe("CalendarPage — mapa kolizji", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("CalendarPage — nachodzące wydarzenia i okno podglądu (UAT M03-B11)", () => {
+  function eventAt(id: number, title: string) {
+    const start = new Date();
+    start.setHours(10, 0, 0, 0);
+    const end = new Date(start);
+    end.setHours(11);
+    return {
+      id,
+      title,
+      description: null,
+      event_type: "meeting",
+      status: "scheduled",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      all_day: false,
+      attendees: [],
+    };
+  }
+
+  it("dwa wydarzenia o tej samej godzinie stoją obok siebie, nie na sobie", async () => {
+    mocks.listEvents.mockResolvedValue({
+      data: [eventAt(1, "Spotkanie A"), eventAt(2, "Spotkanie B")],
+    });
+    renderPage();
+
+    const a = await screen.findByTestId("calendar-event-1");
+    const b = screen.getByTestId("calendar-event-2");
+    expect(a.style.left).not.toBe(b.style.left);
+    expect(a.style.width).toContain("50%");
+  });
+
+  it("Escape zamyka okno podglądu wydarzenia", async () => {
+    mocks.listEvents.mockResolvedValue({ data: [eventAt(1, "Spotkanie A")] });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("calendar-event-1"));
+    expect(screen.getByRole("dialog", { name: "Spotkanie A" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+

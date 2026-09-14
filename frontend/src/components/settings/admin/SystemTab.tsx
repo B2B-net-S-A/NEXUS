@@ -82,7 +82,7 @@ export function SystemTab() {
               <span>{icon}</span>
               <span>{label}</span>
             </div>
-            <p className="text-3xl font-bold text-foreground dark:text-foreground">{value?.toLocaleString() ?? "—"}</p>
+            <p className="text-3xl font-bold text-foreground dark:text-foreground">{value?.toLocaleString("pl-PL") ?? "—"}</p>
           </div>
         ))}
       </div>
@@ -104,7 +104,15 @@ export function SystemTab() {
           </div>
           <div>
             <p className="text-muted-foreground dark:text-muted-foreground">Czas serwera (UTC)</p>
-            <p className="font-medium text-foreground dark:text-foreground">{new Date(stats.server_time).toLocaleString("pl-PL")}</p>
+            <p className="font-medium text-foreground dark:text-foreground">{new Date(stats.server_time).toLocaleString("pl-PL", {
+              timeZone: "UTC",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })}</p>
           </div>
         </div>
       </div>

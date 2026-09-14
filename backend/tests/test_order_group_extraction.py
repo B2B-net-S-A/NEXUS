@@ -50,6 +50,19 @@ def test_position_labels_do_not_depend_on_row_order():
     ]
 
 
+def test_position_label_read_from_pipe_separated_table():
+    """UAT M07-B04: kolumna „Poz." w tabeli z separatorem „|"."""
+    text = (
+        "Poz. | Konsultant | Liczba MD | Stawka netto za MD\n"
+        "1 | Anna Testowa | 40 | 1200,00 PLN\n"
+        "2 | Maria Fikcyjna | 30 | 1100,00 PLN\n"
+    )
+    assert document_position_labels(text, ["Anna Testowa", "Maria Fikcyjna"]) == [
+        "1",
+        "2",
+    ]
+
+
 def test_position_label_is_unknown_rather_than_borrowed():
     text = "Zamówienie 445\nJan Kowalski — 20 MD\nAnna Nowak — 10 MD\n"
     # Brak numeru pozycji: nie wolno pożyczyć „445" ani cudzej linii.

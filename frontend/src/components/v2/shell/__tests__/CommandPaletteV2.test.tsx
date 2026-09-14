@@ -80,3 +80,32 @@ describe("CommandPaletteV2 — wyszukiwanie kandydatów", () => {
     });
   });
 });
+
+describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", () => {
+  it.each([
+    ["kand", "Kandydaci"],
+    ["rekr", "Rekrutacje"],
+    ["klien", "Klienci"],
+    ["ustaw", "Ustawienia"],
+  ])("'%s' podpowiada pozycję %s", async (term, label) => {
+    const { getByPlaceholderText, getByText } = render(
+      <CommandPaletteV2 open onOpenChange={() => {}} />,
+    );
+    fireEvent.change(getByPlaceholderText(/Szukaj kandydatów/), {
+      target: { value: term },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(getByText(label)).toBeTruthy();
+  });
+
+  it("dopasowanie ignoruje polskie znaki i wielkość liter", async () => {
+    const { navMatches } = await import(
+      "@/components/v2/shell/CommandPaletteV2"
+    );
+    expect(navMatches("Kalendarz", "KALE")).toBe(true);
+    expect(navMatches("Ustawienia", "ustąw")).toBe(true);
+    expect(navMatches("Klienci", "kontr")).toBe(false);
+  });
+});

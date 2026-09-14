@@ -475,17 +475,17 @@ export function SuggestedCandidatesWidget({
               }`}
               title={
                 !jobHasBudget
-                  ? "Oferta nie ma budżetu PLN/h ani stawki Championa — sufit nie ma na czym działać. Uzupełnij budżet na formularzu oferty."
+                  ? "Rekrutacja nie ma budżetu PLN/h ani stawki Championa — sufit nie ma na czym działać. Uzupełnij budżet na formularzu rekrutacji."
                   : legacyUnfilteredSnapshot
                     ? "Ten ranking powstał przed wprowadzeniem sufitu budżetu — nikogo nie ukryto. Kliknij „Odśwież propozycje”, żeby wygenerować ranking z sufitem."
-                    : "Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
+                    : "Budżet rekrutacji działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
               }
               data-testid="switch-over-budget"
             >
               {!jobHasBudget
-                ? "Budżet oferty: brak"
+                ? "Budżet rekrutacji: brak"
                 : legacyUnfilteredSnapshot
-                  ? "Budżet oferty: ranking sprzed filtra"
+                  ? "Budżet rekrutacji: ranking sprzed filtra"
                   : excludeOverBudget
                     ? "Poza budżetem: ukryci"
                     : "Poza budżetem: widoczni"}

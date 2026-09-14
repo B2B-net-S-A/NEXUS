@@ -19,6 +19,7 @@ import { AlertTriangle, CheckCircle2, Clock, Loader2, RefreshCw } from "lucide-r
 
 import { traffitSyncApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { countPl } from "@/lib/plural-pl";
 
 const DAILY_MARKER = "__daily__";
 const FULL_MARKER = "__full__";
@@ -174,7 +175,7 @@ export function TraffitSyncCard() {
               >
                 <span className="font-medium text-foreground">{p.phase}</span>
                 <span className="text-xs text-muted-foreground">
-                  {errorCount(p.stats)} błędów · {formatAge(p.last_run_finished_at)}
+                  {countPl(errorCount(p.stats), "błąd", "błędy", "błędów")} · {formatAge(p.last_run_finished_at)}
                 </span>
               </li>
             ))}

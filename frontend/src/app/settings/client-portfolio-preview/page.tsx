@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
+import { countPl } from "@/lib/plural-pl";
 
 interface ClientRef {
   id: number;
@@ -160,7 +161,9 @@ export default function ClientPortfolioPreviewPage() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={safeToApply ? "success" : "danger"}>
-            {safeToApply ? "Brak blockerów" : `${plan.summary.blockers} blockerów`}
+            {safeToApply
+              ? "Brak blokad"
+              : countPl(plan.summary.blockers, "blokada", "blokady", "blokad")}
           </Badge>
           <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
             Odśwież

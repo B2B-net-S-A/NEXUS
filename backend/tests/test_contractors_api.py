@@ -207,6 +207,44 @@ def test_contractor_item_uses_canonical_client_display_name():
     assert item.client_name == "Nordea Bank Abp S.A. Oddział w Polsce"
 
 
+def test_contractor_item_carries_order_periods_without_amounts():
+    """UAT M08-B05: lista kontraktorów niesie okresy zamówień.
+
+    Bez nich front nie ma z czego policzyć dopisku „Brak aktywnego
+    zamówienia" (`lacksCurrentOrder`). Kwot celowo brak — ta lista jest
+    redagowana finansowo per wiersz, a okres zamówienia nie jest kwotą.
+    """
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    contract = Contract(
+        id=911,
+        candidate_id=912,
+        client_id=913,
+        status=ContractStatus.active,
+        contract_type=ContractType.b2b,
+    )
+    contract.__dict__.update(
+        candidate=Candidate(id=912, name="Jan", lastname="Kowalski"),
+        client=Client(id=913, name="Klient testowy"),
+        job=None,
+        client_orders=[
+            ClientOrder(
+                id=914,
+                status=ClientOrderStatus.completed,
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 6, 30),
+            )
+        ],
+    )
+
+    item = _to_item(contract).model_dump(mode="json")
+
+    assert item["orders"] == [
+        {"status": "completed", "start_date": "2026-01-01", "end_date": "2026-06-30"}
+    ]
+    assert set(item["orders"][0]) == {"status", "start_date", "end_date"}
+
+
 # ── Integration: list + stats ───────────────────────────────────────────────
 
 
@@ -232,6 +270,8 @@ async def test_list_contractors_returns_envelope(
         )
         # missing_fields is always present (empty list for non-drafts)
         assert isinstance(item.get("missing_fields"), list)
+        # Zamówienia są zawsze listą — ścieżka HTTP ładuje je eager-loadem.
+        assert isinstance(item.get("orders"), list)
 
 
 @pytest.mark.asyncio

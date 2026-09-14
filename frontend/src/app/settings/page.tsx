@@ -48,6 +48,8 @@ import {
   type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
+import { countPl } from "@/lib/plural-pl";
+import { stripHtmlTags } from "@/lib/plain-text";
 
 // Lazy-load heavy tabs — content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
@@ -217,7 +219,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/diagnostics",
     title: "Diagnostyka",
-    description: "Status komponentów, kolejki, background tasks.",
+    description: "Stan Voyage AI i Qdrant — połączenia i kolekcje embeddingów.",
     icon: <Stethoscope className="w-5 h-5" />,
     roles: ["admin"],
     section: "system_admin",
@@ -312,6 +314,8 @@ function FirefliesCard() {
   });
 
   const isConnected = status?.connected && !status?.error;
+  // `connected: false` bez błędu = brak klucza API, nie awaria połączenia (UAT M11-B08).
+  const isNotConfigured = !!status && !status.connected && !status.error;
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
@@ -325,12 +329,18 @@ function FirefliesCard() {
             <span
               className={cn(
                 "text-xs px-2 py-0.5 rounded-full font-medium",
-                isLoading ? "bg-muted text-muted-foreground" :
+                isLoading || isNotConfigured ? "bg-muted text-muted-foreground" :
                 isConnected ? "bg-green-100 text-green-700" :
                 "bg-destructive/15 text-destructive"
               )}
             >
-              {isLoading ? "Sprawdzanie..." : isConnected ? "Połączony" : "Błąd połączenia"}
+              {isLoading
+                ? "Sprawdzanie..."
+                : isConnected
+                  ? "Połączony"
+                  : isNotConfigured
+                    ? "Nie skonfigurowano"
+                    : "Błąd połączenia"}
             </span>
           </div>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
@@ -373,7 +383,7 @@ function FirefliesCard() {
             <span className="text-green-700">✓ {syncResult.synced} zsynchronizowanych</span>
             <span className="text-primary">🔗 {syncResult.linked} powiązanych z kandydatami</span>
             {syncResult.errors > 0 && (
-              <span className="text-destructive">✕ {syncResult.errors} błędów</span>
+              <span className="text-destructive">✕ {countPl(syncResult.errors, "błąd", "błędy", "błędów")}</span>
             )}
           </div>
           {syncResult.error && (
@@ -394,7 +404,7 @@ function FirefliesCard() {
                 className="flex items-center gap-3 text-sm py-2 border-b border-border dark:border-border last:border-0"
               >
                 <Mic className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                <span className="flex-1 truncate text-foreground dark:text-muted-foreground">{t.title}</span>
+                <span className="flex-1 truncate text-foreground dark:text-muted-foreground">{stripHtmlTags(t.title)}</span>
                 {t.candidate_id && (
                   <Link
                     href={`/candidates?id=${t.candidate_id}`}

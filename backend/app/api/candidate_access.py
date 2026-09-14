@@ -45,7 +45,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
-from app.api.deps import get_current_user
+from app.api.deps import ROLE_DENIED_DETAIL, get_current_user
 from app.models.user import User, UserRole
 from app.services.section_permissions import (
     ProductSection,
@@ -221,7 +221,7 @@ def require_candidate_roles(
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires candidate role: {[role.value for role in roles]}",
+                detail=ROLE_DENIED_DETAIL,
             )
         candidate_access = max(
             section_access_for_user(current_user, ProductSection.sourcing),

@@ -29,6 +29,7 @@ import { celebrate } from "@/lib/celebrate";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
+import { layoutOverlappingEvents } from "@/lib/calendar-overlap";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -454,6 +455,21 @@ function WeekGrid({
           const evDate = parseTime(ev.start_time);
           return isSameDay(evDate, day);
         });
+        // Nachodzące wydarzenia dzielą szerokość dnia na pasy — bez tego
+        // kafle o tej samej godzinie leżały dokładnie na sobie (UAT M03-B11).
+        // Przedziały w pikselach, z minimalną wysokością kafla (28 px).
+        const overlapSlots = layoutOverlappingEvents(
+          dayEvents.map((ev) => {
+            const evStart = parseTime(ev.start_time);
+            const evEnd = ev.end_time ? parseTime(ev.end_time) : null;
+            const evTop = getEventTop(evStart);
+            return {
+              id: ev.id,
+              start: evTop,
+              end: evTop + Math.max(28, getEventHeight(evStart, evEnd)),
+            };
+          })
+        );
 
         return (
           <div
@@ -501,20 +517,28 @@ function WeekGrid({
               const conflictTooltip = hasConflict
                 ? `Konflikt z: ${conflictTitles.join(", ")}`
                 : undefined;
+              const slot = overlapSlots.get(ev.id) ?? { column: 0, columns: 1 };
 
               return (
                 <div
                   key={ev.id}
                   title={conflictTooltip}
                   className={cn(
-                    "absolute left-1 right-1 rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-xs hover:shadow-md transition-shadow z-5",
+                    "absolute rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-xs hover:shadow-md transition-shadow z-5",
                     cfg.bgColor,
                     cfg.borderColor,
                     ev.status === "cancelled" && "opacity-50 line-through",
                     hasConflict &&
                       "ring-2 ring-amber-500 dark:ring-amber-400 ring-offset-1"
                   )}
-                  style={{ top: `${top}px`, height: `${height}px`, minHeight: "28px" }}
+                  style={{
+                    top: `${top}px`,
+                    height: `${height}px`,
+                    minHeight: "28px",
+                    left: `calc(${(slot.column / slot.columns) * 100}% + 4px)`,
+                    width: `calc(${100 / slot.columns}% - 8px)`,
+                  }}
+                  data-testid={`calendar-event-${ev.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEventClick(ev);
@@ -996,9 +1020,24 @@ function EventDetailModal({
   const start = new Date(event.start_time);
   const end = event.end_time ? new Date(event.end_time) : null;
 
+  // Escape zamyka podgląd jak każde okno w aplikacji — do UAT (M03-B11)
+  // zamykał go wyłącznie przycisk „Zamknij”.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-md">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="calendar-event-detail-title"
+        className="bg-card rounded-2xl shadow-2xl w-full max-w-md"
+      >
         {/* Header stripe */}
         <div className={cn("h-1.5 rounded-t-2xl", cfg.dotColor.replace("bg-", "bg-"))} />
 
@@ -1016,9 +1055,18 @@ function EventDetailModal({
                 <div className={cn("w-1.5 h-1.5 rounded-full", cfg.dotColor)} />
                 {cfg.label}
               </div>
-              <h2 className="text-lg font-bold text-foreground">{event.title}</h2>
+              <h2
+                id="calendar-event-detail-title"
+                className="text-lg font-bold text-foreground"
+              >
+                {event.title}
+              </h2>
             </div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground shrink-0">
+            <button
+              onClick={onClose}
+              aria-label="Zamknij"
+              className="text-muted-foreground hover:text-muted-foreground shrink-0"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -1129,7 +1177,7 @@ function EventDetailModal({
             )}
             <ConfirmButton
               onConfirm={() => deleteMutation.mutate()}
-              message="Na pewno chcesz usunąć ? "
+              message={`Usunąć „${event.title}”?`}
               confirmLabel="Usuń"
               cancelLabel="Anuluj"
               className={`flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 border border-destructive/20 hover:bg-destructive/15 text-destructive text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${deleteMutation.isPending ? "opacity-50 pointer-events-none" : ""}`}
