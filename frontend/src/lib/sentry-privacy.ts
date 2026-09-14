@@ -2,6 +2,11 @@ import type { Event, Stacktrace } from '@sentry/nextjs'
 
 const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job'])
 const safeIdentifier = /^[a-zA-Z0-9_./:{} -]{1,180}$/
+const capabilityPath = /(\/(?:cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public\/[\w-]+)\/)[^/]+/gi
+
+function scrubSourceLocation(value: string): string {
+  return value.split(/[?#]/, 1)[0].replace(capabilityPath, '$1[redacted]')
+}
 
 function scrubStack(stack?: Stacktrace): void {
   for (const frame of stack?.frames ?? []) {
@@ -9,6 +14,8 @@ function scrubStack(stack?: Stacktrace): void {
     delete frame.pre_context
     delete frame.context_line
     delete frame.post_context
+    if (frame.filename) frame.filename = scrubSourceLocation(frame.filename)
+    if (frame.abs_path) frame.abs_path = scrubSourceLocation(frame.abs_path)
   }
 }
 
@@ -44,6 +51,30 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     }
   }
   if (event.transaction_info?.source === 'url') event.transaction = 'unmatched-route'
+  return event
+}
+
+const privateReplays = new Set<string>()
+/** rrweb metadata bypasses beforeSend; reject recordings with private page URLs. */
+export function scrubReplayEvent<T extends Event>(event: T, currentUrl: string): T | null {
+  if (event.type !== 'replay_event') return event
+  const replay = event as T & { urls?: unknown; replay_id?: string }
+  const id = replay.replay_id ?? ''
+  const urls = Array.isArray(replay.urls) ? replay.urls : []
+  const privateUrl = [...urls, currentUrl].some(value => {
+    if (typeof value !== 'string') return true
+    try {
+      const url = new URL(value)
+      return !!(url.search || url.hash || url.username || url.password) || scrubSourceLocation(url.pathname) !== url.pathname
+    } catch { return true }
+  })
+  if (privateUrl) privateReplays.add(id)
+  if (privateReplays.has(id)) return null
+  delete event.user
+  delete event.request
+  delete event.extra
+  event.contexts = {}
+  event.tags = {}
   return event
 }
 

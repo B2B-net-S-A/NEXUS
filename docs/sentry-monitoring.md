@@ -23,6 +23,8 @@ Build, upload map i runtime korzystają z rzeczywistego SHA kompilacji. Przeglą
 
 Nowy frontend najpierw wykonuje prosty GET health bez dodatkowych nagłówków. Propagację do API i X-Operation-Id włącza po otrzymaniu eksponowanego X-Request-Id. Dzięki temu równoległy restart usług nie powoduje błędów CORS wobec starego backendu. Niepowodzenie sondy nie zatrzymuje aplikacji; kolejne żądanie może ponowić sondę.
 
+Replay po błędzie pozostaje próbkowany na 10%, sesyjny na 0%. Pełne maskowanie obejmuje tekst, pola i atrybuty odnośników; dodatkowe payloady konsoli/sieci/nawigacji nie są zapisywane. Nagranie obejmujące stronę z tokenem udostępnienia, query stringiem lub fragmentem URL jest odrzucane także w kolejnych segmentach — samo maskowanie DOM nie chroni metadanych rrweb. Typy wyjątków i linie źródłowe pozostają w osobnych, redagowanych zdarzeniach błędów.
+
 ## Triage
 
 Każde issue ma właściciela, werdykt, link do PR i release oraz dowód odtworzenia/odbioru. Regresja ponownie otwiera problem. Codzienny digest sygnalizuje brak właściciela; kontekst operacji i linki do PR należy sprawdzić w issue, jeśli API listy ich nie zwraca.

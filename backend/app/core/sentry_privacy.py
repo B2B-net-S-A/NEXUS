@@ -17,12 +17,21 @@ _TAGS = {
 }
 _TRACE = {"trace_id", "span_id", "parent_span_id", "op", "status", "origin"}
 _IDS = re.compile(r"^[a-fA-F0-9-]{16,36}$")
+_CAPABILITY_PATH = re.compile(
+    r"(/(?:cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public/[\w-]+)/)[^/]+",
+    re.I,
+)
 
 
 def _scrub_stack(stack: dict) -> None:
     for frame in stack.get("frames", []):
         for key in ("vars", "pre_context", "context_line", "post_context"):
             frame.pop(key, None)
+        for key in ("filename", "abs_path"):
+            if isinstance(frame.get(key), str):
+                frame[key] = _CAPABILITY_PATH.sub(
+                    r"\1[redacted]", re.split(r"[?#]", frame[key], maxsplit=1)[0]
+                )
 
 
 def scrub_event(event: dict, hint=None) -> dict | None:

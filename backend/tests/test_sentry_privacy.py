@@ -40,8 +40,27 @@ class SentryPrivacyTests(unittest.TestCase):
                     }
                 ]
             },
-            "stacktrace": {"frames": [{"filename": "logger.py", "lineno": 5, "context_line": secret}]},
-            "threads": {"values": [{"stacktrace": {"frames": [{"filename": "worker.py", "lineno": 9, "vars": {"cv": secret}, "pre_context": [secret]}]}}]},
+            "stacktrace": {
+                "frames": [
+                    {"filename": "logger.py", "lineno": 5, "context_line": secret}
+                ]
+            },
+            "threads": {
+                "values": [
+                    {
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "worker.py",
+                                    "lineno": 9,
+                                    "vars": {"cv": secret},
+                                    "pre_context": [secret],
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
             "breadcrumbs": {
                 "values": [
                     {"message": secret, "data": {"body": secret}, "category": "http"}
@@ -88,6 +107,26 @@ if __name__ == "__main__":
 
 
 class SentryTransportTests(unittest.TestCase):
+    def test_stack_url_redaction_keeps_source_line(self):
+        event = {
+            "stacktrace": {
+                "frames": [
+                    {
+                        "filename": "https://nexus.dynaminds.pl/cv/synthetic-private-token?email=private@example.com",
+                        "lineno": 42,
+                    }
+                ]
+            }
+        }
+        result = scrub_event(event)
+        self.assertEqual(
+            result["stacktrace"]["frames"][0],
+            {
+                "filename": "https://nexus.dynaminds.pl/cv/[redacted]",
+                "lineno": 42,
+            },
+        )
+
     def test_real_sdk_envelope_does_not_contain_private_exception(self):
         import sentry_sdk
         from sentry_sdk.transport import Transport

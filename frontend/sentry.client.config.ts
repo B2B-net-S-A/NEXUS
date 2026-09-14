@@ -8,7 +8,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { apiTraceTargets, probeTelemetryCapability } from './src/lib/telemetry-capability'
 
-import { scrubSentryEvent, firstInSession } from './src/lib/sentry-privacy'
+import { scrubSentryEvent, scrubReplayEvent, firstInSession } from './src/lib/sentry-privacy'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
@@ -34,7 +34,13 @@ if (dsn) {
         integrations: [
             Sentry.replayIntegration({
                 maskAllText: true,
+                maskAllInputs: true,
                 blockAllMedia: true,
+                maskAttributes: ['title', 'aria-label', 'alt', 'href', 'src', 'value'],
+                networkCaptureBodies: false,
+                // Custom network/console/navigation payloads are free-form. DOM
+                // recording remains fully masked; errors retain their own trace.
+                beforeAddRecordingEvent: () => null,
             }),
         ],
         // Drop known noise before it counts against quota.
@@ -108,4 +114,5 @@ if (dsn) {
             return scrubSentryEvent(event)
         },
     })
+    Sentry.addEventProcessor(event => scrubReplayEvent(event, window.location.href))
 }
