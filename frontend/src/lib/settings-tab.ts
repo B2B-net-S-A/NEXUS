@@ -42,6 +42,9 @@ export function writeSettingsTabToUrl(tab: SettingsTab): void {
   const params = new URLSearchParams(window.location.search);
   if (tab === DEFAULT_SETTINGS_TAB) params.delete("tab");
   else params.set("tab", tab);
+  // Podzakładka Administracji (`?sub=`, B42) należy tylko do tej zakładki —
+  // przeniesiona na inną zostawiałaby w adresie stan, którego nikt nie czyta.
+  if (tab !== "administracja") params.delete("sub");
   const query = params.toString();
   window.history.replaceState(
     window.history.state,

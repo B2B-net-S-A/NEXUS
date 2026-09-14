@@ -103,6 +103,7 @@ function event(overrides: Partial<OrderGroupEvent> = {}): OrderGroupEvent {
     related_group_id: null,
     related_order_number: null,
     created_by_user_id: null,
+    created_by_name: null,
     created_at: "2026-03-01T10:00:00Z",
     ...overrides,
   };

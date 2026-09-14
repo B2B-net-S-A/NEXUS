@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileText, AlertCircle, Loader2 } from "lucide-react";
 
@@ -24,6 +25,20 @@ import {
   fetchAuthenticatedObjectUrl,
 } from "@/lib/authenticated-files";
 import { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
+import { resolveViewState } from "@/lib/view-state";
+
+/**
+ * Trzy różne powody pustego okna, trzy różne zdania (audyt B19). Do 09.2026
+ * każdy błąd zapytania czytał się jako „Nie udało się wczytać CV" — także 403
+ * (rekrutacja spoza zespołu) i 404 etapu bez wiersza snapshotu, więc rekruter
+ * nie wiedział, czy prosić o dostęp, czy sięgnąć po aktualne CV na profilu.
+ */
+const LOAD_ERROR_COPY: Record<"forbidden" | "not_found" | "error", string> = {
+  forbidden:
+    "Nie masz dostępu do tej rekrutacji — snapshot CV widzi tylko jej zespół.",
+  not_found: "Ten etap rekrutacji nie istnieje albo został usunięty.",
+  error: "Nie udało się wczytać CV. Spróbuj ponownie.",
+};
 
 interface Props {
   open: boolean;
@@ -46,11 +61,16 @@ export function CVOriginalPreviewModal({
 }: Props) {
   const { showError } = useToast();
 
-  const { data, isLoading, error } = useQuery<CVOriginalSnapshot>({
+  const { data, isLoading, error, refetch } = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
     queryFn: () => candidateStageCvApi.original.get(stageId).then((r) => r.data),
     enabled: open,
   });
+  const loadState = resolveViewState({ isLoading, error });
+  const loadFailed =
+    loadState === "forbidden" ||
+    loadState === "not_found" ||
+    loadState === "error";
 
   const hasSnapshot = Boolean(data?.has_snapshot);
   const filename = data?.original_cv_filename ?? null;
@@ -152,19 +172,39 @@ export function CVOriginalPreviewModal({
             <div className="p-10 text-center text-sm text-muted-foreground">
               Ładowanie…
             </div>
-          ) : error ? (
-            <div className="p-10 text-center">
-              <AlertCircle className="h-8 w-8 text-amber-500 mx-auto mb-3" />
+          ) : loadFailed ? (
+            <div className="p-10 text-center" role="alert">
+              <AlertCircle className="h-8 w-8 text-warning mx-auto mb-3" />
               <div className="text-sm text-muted-foreground">
-                Nie udało się wczytać CV.
+                {LOAD_ERROR_COPY[loadState]}
               </div>
+              {loadState === "error" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => void refetch()}
+                >
+                  Ponów
+                </Button>
+              ) : null}
             </div>
           ) : !hasSnapshot ? (
             <div className="p-10 text-center">
               <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
               <div className="text-sm text-muted-foreground">
-                Kandydat nie miał CV w momencie zgłoszenia do tej rekrutacji.
+                Brak snapshotu CV z momentu zgłoszenia do tej rekrutacji.
               </div>
+              {/* Aktualne CV to INNY dokument niż snapshot — nie udajemy, że
+                  je tu pokazujemy; przejście jest jawne i prowadzi na profil. */}
+              {data?.candidate_id ? (
+                <Link
+                  href={`/candidates/${data.candidate_id}`}
+                  className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
+                >
+                  Otwórz aktualne CV na profilu kandydata →
+                </Link>
+              ) : null}
             </div>
           ) : showInlinePdf ? (
             pdfError ? (

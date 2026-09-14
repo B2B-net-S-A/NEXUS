@@ -1518,6 +1518,12 @@ export function AddJobModal({
         // kopiujemy `client_id` ani `title` (zmuszamy DL do potwierdzenia).
         prefilled.client_id = "";
         prefilled.title = "";
+        // Szablon to TREŚĆ starej roli, nie jej cykl życia: kopia zamkniętej
+        // rekrutacji startowała jako „Zamknięta" z terminem sprzed lat
+        // (audyt B40). Status i deadline są stanem NOWEGO procesu — zaczyna
+        // jak każda nowa rekrutacja: szkic bez terminu.
+        prefilled.status = EMPTY_JOB.status;
+        prefilled.deadline = "";
         setForm(prefilled);
       })
       .catch(() => {

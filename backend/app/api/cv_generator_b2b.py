@@ -53,6 +53,8 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.polish_ilike import escape_like, fold_polish_query, polish_folded
+
 # Re-audyt M2 (PR1c): kolejna rownolegla powierzchnia danych kandydata.
 # Panel generatora B2B jest w sidebarze dostepny dla WSZYSTKICH rol, a jego
 # trasy stały na golym CurrentUser: typeahead przeszukiwal cala baze po
@@ -1040,22 +1042,30 @@ async def search_candidates(
     del current_user  # auth only
 
     stmt = select(Candidate)
-    needle = (q or "").strip().lower()
+    # Obie strony porównania bez polskich znaków (UAT B27): „Probny" ma
+    # znaleźć „Próbny" i odwrotnie. Ta sama mapa foldu co w wyszukiwarce
+    # kandydatów (`polish_ilike`) — prod nie ma `unaccent`. Fold zachowuje
+    # długość i jest 1:1, więc ranking exact/prefix/substring liczy się na
+    # zfoldowanych wartościach bez zmiany znaczenia.
+    needle = fold_polish_query((q or "").strip()).lower()
     if needle:
-        like = f"%{needle}%"
-        name_l = func.lower(func.coalesce(Candidate.name, ""))
-        lastname_l = func.lower(func.coalesce(Candidate.lastname, ""))
+        needle_like = escape_like(needle)
+        like = f"%{needle_like}%"
+        name_l = func.lower(polish_folded(func.coalesce(Candidate.name, "")))
+        lastname_l = func.lower(polish_folded(func.coalesce(Candidate.lastname, "")))
+        email_l = func.lower(polish_folded(func.coalesce(Candidate.email, "")))
         full = name_l + " " + lastname_l
         full_rev = lastname_l + " " + name_l
         stmt = stmt.where(
             or_(
-                name_l.like(like),
-                lastname_l.like(like),
-                full.like(like),
-                full_rev.like(like),
-                func.lower(func.coalesce(Candidate.email, "")).like(like),
+                name_l.like(like, escape="\\"),
+                lastname_l.like(like, escape="\\"),
+                full.like(like, escape="\\"),
+                full_rev.like(like, escape="\\"),
+                email_l.like(like, escape="\\"),
             )
         )
+        prefix = f"{needle_like}%"
         rank = case(
             (
                 or_(
@@ -1068,10 +1078,10 @@ async def search_candidates(
             ),
             (
                 or_(
-                    lastname_l.like(f"{needle}%"),
-                    name_l.like(f"{needle}%"),
-                    full.like(f"{needle}%"),
-                    full_rev.like(f"{needle}%"),
+                    lastname_l.like(prefix, escape="\\"),
+                    name_l.like(prefix, escape="\\"),
+                    full.like(prefix, escape="\\"),
+                    full_rev.like(prefix, escape="\\"),
                 ),
                 1,
             ),

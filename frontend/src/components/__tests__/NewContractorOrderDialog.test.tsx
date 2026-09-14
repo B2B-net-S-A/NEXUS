@@ -174,7 +174,7 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
     );
     await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
     // Plik (tu: brak) jedzie razem ze zmianą typu — okno MD/kosztowe go przejmie.
-    expect(onOrderTypeChange).toHaveBeenCalledWith("cost", null);
+    expect(onOrderTypeChange).toHaveBeenCalledWith("cost", null, "");
   });
 
   it("awaria zapytania NIE renderuje się jako „Brak wyników”", async () => {

@@ -290,6 +290,14 @@ describe("InsightsRaces", () => {
     expect(
       screen.getByText(/63 \/ 80 wymaganych weryfikacji/),
     ).toBeInTheDocument();
+    // Audyt B44: próg jest WSPÓLNY i kalendarzowy (4 × dni robocze miesiąca),
+    // podczas gdy plakietka „/dzień" obiecuje mianownik indywidualny —
+    // tooltip przy progu musi to nazwać, inaczej ekran opisuje regułę,
+    // której backend nie stosuje.
+    for (const threshold of screen.getAllByTestId("race-threshold")) {
+      expect(threshold).toHaveAttribute("title", expect.stringContaining("wspólny"));
+      expect(threshold).toHaveAttribute("title", expect.stringContaining("dni roboczych"));
+    }
   });
 
   it("lider kwartału jest oznaczony, a nie usunięty z rankingu", async () => {

@@ -110,6 +110,31 @@ const PROFILE: ClientProfileResponse = {
       project_part: null,
     },
   ],
+  // Kontrakt aktywny statusem z PRZYSZŁYM startem — planowany, nie obecny
+  // (UAT B46). Marża wypełniona, żeby wyciek do „Obecnych" był mierzalny.
+  planned_consultants: [
+    {
+      contract_id: 531,
+      candidate: {
+        id: 4,
+        name: "Piotr Planowany",
+        avatar_url: null,
+        competence_category: null,
+        linkedin: null,
+      },
+      job_id: null,
+      job_title: null,
+      job_from_order: false,
+      start_date: "2099-10-19",
+      end_date: null,
+      days_to_end: null,
+      monthly_rate_candidate: 9000,
+      monthly_rate_client: 15000,
+      monthly_margin: 6000,
+      currency: "PLN",
+      project_part: null,
+    },
+  ],
   historical: {
     placements: [
       {
@@ -306,6 +331,24 @@ describe("ProfileTab — tabela konsultantów", () => {
     // Archiwum niesie ten sam komplet stawek co „Obecni".
     expect(screen.getByText("21 600,00 zł")).toBeInTheDocument();
     expect(screen.getByText("24 800,00 zł")).toBeInTheDocument();
+  });
+
+  it("planowani konsultanci mają własną zakładkę i nie siedzą w Obecnych", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderTab();
+    await screen.findByText("Tomasz Sadowski");
+
+    // Obecni: osoby z kontraktem, który JUŻ obowiązuje — bez przyszłego startu.
+    expect(screen.queryByText("Piotr Planowany")).toBeNull();
+    expect(screen.getByRole("tab", { name: /Obecni konsultanci/ })).toHaveTextContent("2");
+    const plannedTab = screen.getByRole("tab", { name: /Planowani konsultanci/ });
+    expect(plannedTab).toHaveTextContent("1");
+
+    await user.click(plannedTab);
+    expect(await screen.findByText("Piotr Planowany")).toBeInTheDocument();
+    expect(screen.getByText("19.10.2099")).toBeInTheDocument();
+    expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
+    expect(screen.getByText(/nie wchodzą do „Obecnych”/i)).toBeInTheDocument();
   });
 
   it("podzakładki są prawdziwymi tabami (rola + aria-selected)", async () => {

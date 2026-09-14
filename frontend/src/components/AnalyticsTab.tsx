@@ -109,8 +109,11 @@ function KpiGrid({
             value={fmtMoney(data.total_revenue_all_time)}
             icon={<TrendingUp className="w-4 h-4 text-success-muted-foreground" />}
           />
+          {/* `active_revenue` to SUMA WARTOŚCI aktywnych zamówień (PO), nie
+              przychód miesięczny — etykieta „przychód" obok „Marża/mc"
+              czytała się jak MRR (UAT B30). */}
           <KpiCard
-            label="Przychód aktywny (PLN)"
+            label="Wartość aktywnych zamówień (PLN)"
             value={fmtMoney(data.active_revenue)}
             sublabel={countPl(data.active_orders_count, "zamówienie", "zamówienia", "zamówień")}
           />

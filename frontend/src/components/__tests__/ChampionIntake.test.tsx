@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChampionImportButton, ChampionImportReview } from "../ChampionIntake";
+import { ChampionImportButton, ChampionImportReview, ChampionValidationPanel, championIssueSectionId, resolveChampionIssueTarget } from "../ChampionIntake";
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 
 const post = vi.hoisted(() => vi.fn());
@@ -159,5 +159,52 @@ describe("Champion import review", () => {
   it("import dokumentu zostaje „Podglądem importu Championa”", () => {
     render(<ChampionImportReview initial={{ champion_profile: profile(150) }} sourceIsDocument onApply={() => {}} onClose={() => {}} />);
     expect(screen.getByRole("heading", { name: "Podgląd importu Championa" })).toBeInTheDocument();
+  });
+});
+
+// Audyt B47: linki ostrzeżeń celowały WYŁĄCZNIE w `#champion-field-*`, które
+// istnieją tylko w oknie importu — w głównym edytorze (kotwice
+// `#champion-section-*`) zmieniał się fragment adresu, a fokus zostawał na linku.
+describe("Champion validation panel — kotwice ostrzeżeń", () => {
+  const validation = {
+    status: "draft",
+    blocked_operations: [],
+    issues: [
+      { code: "missing", path: "basics.rate_value", message: "brak stawki", severity: "warning" as const, blocked_operations: [] },
+      { code: "missing", path: "screening_questions", message: "brak pytań", severity: "warning" as const, blocked_operations: [] },
+    ],
+  };
+
+  it("ścieżka pola mapuje się na sekcję edytora", () => {
+    expect(championIssueSectionId("basics.rate_value")).toBe("basics");
+    expect(championIssueSectionId("screening_questions")).toBe("screening_questions");
+    expect(championIssueSectionId("screening_questions.0.question")).toBe("screening_questions");
+    expect(championIssueSectionId("nieznane.pole")).toBeNull();
+  });
+
+  it("bez celu `champion-field-*` spada na sekcję i ustawia fokus na jej polu", async () => {
+    // Układ głównego edytora: sama kotwica sekcji, bez identyfikatorów pól.
+    render(<>
+      <ChampionValidationPanel validation={validation} />
+      <section id="champion-section-basics"><textarea aria-label="Maksymalna stawka" /></section>
+    </>);
+    expect(resolveChampionIssueTarget("basics.rate_value")?.id).toBe("champion-section-basics");
+    fireEvent.click(screen.getByRole("link", { name: "Maksymalna stawka PLN/h" }));
+    await waitFor(() => expect(screen.getByLabelText("Maksymalna stawka")).toHaveFocus());
+  });
+
+  it("pole z okna importu ma pierwszeństwo przed sekcją", () => {
+    render(<>
+      <div id="champion-field-basics.rate_value" />
+      <section id="champion-section-basics" />
+    </>);
+    expect(resolveChampionIssueTarget("basics.rate_value")?.id).toBe("champion-field-basics.rate_value");
+  });
+
+  it("przed szukaniem celu prosi edytor o rozwinięcie sekcji (zwinięta proza)", () => {
+    const onNavigate = vi.fn();
+    render(<ChampionValidationPanel validation={validation} onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("link", { name: "Pytania screeningowe" }));
+    expect(onNavigate).toHaveBeenCalledWith("screening_questions");
   });
 });

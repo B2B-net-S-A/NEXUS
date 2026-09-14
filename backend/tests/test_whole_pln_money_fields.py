@@ -21,6 +21,7 @@ JEDEN taki wiersz wywracał całą listę dla wszystkich użytkowników.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 import uuid
 from decimal import Decimal
 from typing import AsyncIterator
@@ -71,6 +72,9 @@ async def fractional_contract() -> AsyncIterator[dict[str, int]]:
             rate_unit=RateUnit.hourly,
             billing_hours_per_month=BILLING_HOURS,
             status=ContractStatus.active,
+            # Kontrakt OBECNY (start ≤ dziś): bez daty startu profil i przegląd
+            # admina liczą go jako planowany (UAT B46) i nie wchodzi do kwot.
+            start_date=date.today() - timedelta(days=30),
         )
         db.add(contract)
         await db.commit()

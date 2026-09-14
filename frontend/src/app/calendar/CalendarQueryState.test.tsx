@@ -13,12 +13,16 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listEvents: vi.fn(),
   conflictsSummary: vi.fn(),
+  getEvent: vi.fn(),
+  listCandidates: vi.fn(),
+  search: "",
+  replace: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -26,8 +30,24 @@ vi.mock("@/lib/api", () => ({
   calendarApi: {
     listEvents: (...a: unknown[]) => mocks.listEvents(...a),
     conflictsSummary: (...a: unknown[]) => mocks.conflictsSummary(...a),
+    getEvent: (...a: unknown[]) => mocks.getEvent(...a),
   },
-  candidatesApi: { list: vi.fn() },
+  candidatesApi: { list: (...a: unknown[]) => mocks.listCandidates(...a) },
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(mocks.search),
+  useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
+}));
+
+vi.mock("@/lib/use-debounced-value", () => ({
+  useDebouncedValue: (value: unknown) => value,
+}));
+
+vi.mock("@/components/feedback/InterviewFeedbackModal", () => ({
+  InterviewFeedbackModal: ({ calendarEventId }: { calendarEventId: number }) => (
+    <div data-testid="feedback-modal">feedback:{calendarEventId}</div>
+  ),
 }));
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
@@ -60,7 +80,12 @@ function renderPage() {
 beforeEach(() => {
   mocks.listEvents.mockReset();
   mocks.conflictsSummary.mockReset();
+  mocks.getEvent.mockReset();
+  mocks.listCandidates.mockReset();
+  mocks.replace.mockReset();
+  mocks.search = "";
   mocks.conflictsSummary.mockResolvedValue({ data: { pairs: {} } });
+  mocks.listCandidates.mockResolvedValue({ data: { items: [] } });
 });
 
 describe("CalendarPage — awaria pobrania wydarzeń", () => {
@@ -159,9 +184,141 @@ describe("CalendarPage — nachodzące wydarzenia i okno podglądu (UAT M03-B11)
     renderPage();
 
     fireEvent.click(await screen.findByTestId("calendar-event-1"));
-    expect(screen.getByRole("dialog", { name: "Spotkanie A" })).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: "Escape" });
+    const dialog = screen.getByRole("dialog", { name: "Spotkanie A" });
+    expect(dialog).toBeInTheDocument();
+    // Radix nasłuchuje Escape na `document` — zdarzenie z okna nie schodzi
+    // do dokumentu, więc odpalamy je na samym oknie dialogowym.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  // Audyt B34: własny `div` miał role/aria, ale nie zatrzymywał fokusu —
+  // Tab z „Zamknij" szedł do linku „Przejdź do treści" pod oknem.
+  it("okno podglądu jest modalne i przejmuje fokus po otwarciu", async () => {
+    mocks.listEvents.mockResolvedValue({ data: [eventAt(1, "Spotkanie A")] });
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("calendar-event-1"));
+    const dialog = screen.getByRole("dialog", { name: "Spotkanie A" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Strona pod oknem jest dla technologii asystujących ukryta.
+    const grid = screen.getByTestId("calendar-event-1");
+    expect(grid.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+});
+
+describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
+  function eventOn(id: number, title: string, isoStart: string) {
+    return {
+      id,
+      title,
+      description: null,
+      event_type: "interview",
+      status: "scheduled",
+      start_time: isoStart,
+      end_time: null,
+      all_day: false,
+      attendees: [],
+    };
+  }
+
+  it("otwiera szczegóły wskazanego wydarzenia i przewija tydzień na jego datę", async () => {
+    mocks.search = "event=42";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    // Poniedziałek daleko poza bieżącym tygodniem — miesiąc w nagłówku musi się zmienić.
+    mocks.getEvent.mockResolvedValue({
+      data: eventOn(42, "Rozmowa z linku", "2031-03-10T09:00:00.000Z"),
+    });
+    renderPage();
+
+    expect(
+      await screen.findByRole("dialog", { name: "Rozmowa z linku" }),
+    ).toBeInTheDocument();
+    expect(mocks.getEvent).toHaveBeenCalledWith(42);
+    // Strona pod otwartym oknem jest `aria-hidden` — nagłówek trzeba szukać jawnie.
+    expect(screen.getByRole("heading", { level: 1, hidden: true })).toHaveTextContent(/marzec 2031/);
+  });
+
+  it("zamknięcie okna z linku zdejmuje parametr z adresu", async () => {
+    mocks.search = "event=42";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({
+      data: eventOn(42, "Rozmowa z linku", "2031-03-10T09:00:00.000Z"),
+    });
+    renderPage();
+
+    await screen.findByRole("dialog", { name: "Rozmowa z linku" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" })[0]);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar"));
+  });
+
+  it("&action=feedback otwiera od razu formularz feedbacku zamiast szczegółów", async () => {
+    mocks.search = "event=42&action=feedback";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({
+      data: eventOn(42, "Rozmowa z linku", "2031-03-10T09:00:00.000Z"),
+    });
+    renderPage();
+
+    expect(await screen.findByTestId("feedback-modal")).toHaveTextContent("feedback:42");
+    expect(screen.queryByRole("dialog", { name: "Rozmowa z linku" })).not.toBeInTheDocument();
+  });
+
+  it("nieudane pobranie wydarzenia z linku jest jawną awarią, nie cichą siatką", async () => {
+    mocks.search = "event=42";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockRejectedValue(httpError(404));
+    renderPage();
+
+    expect(
+      await screen.findByText(/Nie udało się otworzyć wydarzenia #42/),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("śmieci w parametrze nie odpalają zapytania", async () => {
+    mocks.search = "event=abc";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    renderPage();
+
+    expect(await screen.findByText("Dzisiaj")).toBeInTheDocument();
+    expect(mocks.getEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("CalendarPage — kandydat w nowym wydarzeniu (audyt B07)", () => {
+  it("szuka kandydata po stronie serwera frazą, nie listą 100 ostatnich", async () => {
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.listCandidates.mockResolvedValue({
+      data: {
+        items: [
+          { id: 196867, name: "Anna", lastname: "Testowa", email: "anna@example.com" },
+        ],
+      },
+    });
+    renderPage();
+
+    // Dwa przyciski „Nowe wydarzenie" (nagłówek + szyna boczna) — bierzemy pierwszy.
+    fireEvent.click((await screen.findAllByRole("button", { name: /Nowe wydarzenie/ }))[0]);
+    // Lista nie jest pobierana „na zapas" przy otwarciu formularza.
+    expect(mocks.listCandidates).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Kandydat (opcjonalnie)" }));
+    const input = await screen.findByPlaceholderText("Szukaj kandydata…");
+    fireEvent.change(input, { target: { value: "testowa" } });
+
+    await waitFor(() =>
+      expect(mocks.listCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({ q: "testowa", page_size: 20 }),
+      ),
+    );
+    fireEvent.click(await screen.findByText("Anna Testowa"));
+    expect(
+      screen.getByRole("combobox", { name: "Kandydat (opcjonalnie)" }),
+    ).toHaveTextContent("Anna Testowa");
   });
 });
 

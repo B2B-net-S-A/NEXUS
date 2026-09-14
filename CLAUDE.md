@@ -283,9 +283,9 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
 (4 moduły pętli piszą na WS przez in-process manager), deploy bez przerwy (compose build
 pack Coolify nie ma rolling update), budżet pul przy drugim procesie.
 
-## Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1)
+## Integralność i uprawnienia — reguły po audytach Codexa 13–14.09.2026 (PR 1 i PR 2)
 
-Plan i status: `docs/uat/08-audyty-codex-2026-09-14.md`. Pięć reguł, które łatwo
+Plan i status: `docs/uat/08-audyty-codex-2026-09-14.md`. Reguły, które łatwo
 cofnąć „przy okazji”:
 
 - **Feedback z rozmowy jest przypięty do wydarzenia, na które autor ma wgląd.**
@@ -334,6 +334,35 @@ cofnąć „przy okazji”:
   tokenu = `::error::` + `exit 1`, częściowy digest wysyła i kończy `exit 1`;
   deploy ma krok `/api/health/alembic` (bookmark bazy == heads kodu,
   `orphaned == []`) — czerwony deploy przy dryfie jest zamierzony.
+- **„Obecny" kontrakt = start wpisany i ≤ dziś — JEDNA reguła na każdej
+  powierzchni** (`contractor_identity.is_current_contract`/`current_contracts`,
+  UAT B46, PR 2): profil klienta (kafel „Aktywne MRR", liczniki), zakładka
+  Analityka (`/my-clients/{id}/dashboard`), ranking Rady (`insights_clients`),
+  przegląd admina; kokpit Rady ma ten sam warunek w SQL. Kontrakt z przyszłym
+  startem albo bez daty jedzie na profilu OSOBNO jako „Planowani" — z tą samą
+  redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko profil
+  i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje tego
+  `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie w fixture).
+- **Stan ekranu w adresie:** `/candidates/search` trzyma request w `?s=`
+  (`lib/candidate-search-request.ts` — tylko pola o kształcie zgodnym z bazą,
+  bo adres pisze użytkownik), porównanie kandydatów wraca z `?sel=`,
+  Administracja w Ustawieniach ma `?sub=`, kalendarz otwiera `?event=`
+  (+`&action=feedback`) i zdejmuje parametr po zamknięciu albo nieudanym
+  odczycie — efekty na WARTOŚCI parametru (miękka nawigacja).
+- **Ruch w pipeline ma opcjonalne `expected_state_version`** (`StageMove`,
+  F05): rozjazd z `RecruitmentProcess.state_version` pod blokadą = 409
+  `PIPELINE_VERSION_CONFLICT` bez zapisu; `None` = bez sprawdzenia (importy,
+  ruchy zbiorcze). Frontend jeszcze wersji nie wysyła — osobny krok.
+  `POST /api/auth/refresh` przyjmuje token WYŁĄCZNIE w ciele (F06).
+- **`finance_trend` nie miesza źródeł:** każdy punkt niesie `basis`
+  (`legacy_monthly_report` | `contracts`) i osobne pola (`mrr` tylko live,
+  `monthly_revenue`/`result_after_other_costs` tylko legacy); trend kotwiczony
+  na końcu okresu (`end=`), a `source_watermarks`/`quality` czytają świeżość
+  syncu Traffita (36 h jak `checks.traffit`).
+- **Listy z „Pokaż więcej" idą po `offset` w API** (dzwonek, Targ, pule
+  talentów): dzwonek podnosi `limit` zamiast doklejać strony — „nieprzeczytane
+  najpierw" przetasowuje kolejność po kliknięciu, więc doklejanie dawało
+  duplikaty.
 
 ## Generator Umów B2B — trzy zakładki cyklu życia umowy
 

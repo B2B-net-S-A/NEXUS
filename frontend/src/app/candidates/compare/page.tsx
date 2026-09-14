@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
+import { decodeCompareBackHref } from "@/lib/url-filters";
 import { profileCompleteness, skillLevelLabel } from "./compare-helpers";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -210,6 +211,9 @@ function CompareCandidatesInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const ids = searchParams.get("ids")?.split(",").map(Number).filter(Boolean) ?? [];
+  // Powrót oddaje liście jej kontekst (filtry, strona) i zaznaczenie użyte
+  // do porównania — gołe `/candidates` kasowało jedno i drugie (UAT B21).
+  const backHref = decodeCompareBackHref(new URLSearchParams(searchParams.toString()));
 
   const queries = ids.map((id) =>
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -229,7 +233,7 @@ function CompareCandidatesInner() {
         <User2 className="w-16 h-16 opacity-30" />
         <p className="text-lg font-medium">Brak kandydatów do porównania</p>
         <p className="text-sm">Zaznacz 2–3 kandydatów na liście i kliknij "Porównaj"</p>
-        <Link href="/candidates" className="text-primary hover:underline text-sm mt-2">
+        <Link href={backHref} className="text-primary hover:underline text-sm mt-2">
           ← Wróć do listy kandydatów
         </Link>
       </div>
@@ -239,7 +243,7 @@ function CompareCandidatesInner() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/candidates" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <Link href={backHref} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4" /> Wróć do kandydatów
         </Link>
         <h1 className="text-2xl font-bold text-foreground dark:text-foreground">

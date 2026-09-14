@@ -53,6 +53,23 @@ async def test_client_margin_is_the_same_on_every_surface(
                 )
                 for candidate in candidates
             ]
+            # Kontrakt z PRZYSZŁYM startem: planowany, nie obecny — nie wchodzi
+            # do marży na ŻADNEJ powierzchni (B46 + przegląd adwersarialny
+            # PR 2: profil go wyłączał, a Analityka/Rada/admin nadal liczyły).
+            planned = Contract(
+                candidate_id=candidates[0].id,
+                client_id=client.id,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.active,
+                start_date=date.today() + timedelta(days=20),
+                rate_unit=RateUnit.monthly,
+                currency="PLN",
+                rate_client_currency="PLN",
+                rate_candidate_currency="PLN",
+                rate_client=Decimal("5000.000"),
+                rate_candidate=Decimal("1000.000"),
+            )
+            contracts.append(planned)
             db.add_all(contracts)
             await db.commit()
             ids["contracts"] = [c.id for c in contracts]
@@ -97,13 +114,22 @@ async def test_client_margin_is_the_same_on_every_surface(
         from app.services.insights_board_money import fold_money
 
         async with AsyncSessionLocal() as db:
+            # Kokpit Rady filtruje w SQL `start_date IS NOT NULL AND start_date
+            # <= koniec okna` (`insights_board.py`) — ten sam warunek co
+            # `is_current_contract`; test odtwarza go, bo woła `fold_money`
+            # na surowych wierszach.
             loaded = (
                 await db.scalars(
                     select(Contract)
-                    .where(Contract.id.in_(ids["contracts"]))
+                    .where(
+                        Contract.id.in_(ids["contracts"]),
+                        Contract.start_date.is_not(None),
+                        Contract.start_date <= date.today(),
+                    )
                     .options(selectinload(Contract.candidate), *RATE_SCHEDULE_LOADS)
                 )
             ).all()
+            assert len(loaded) == 2, "planowany kontrakt nie wchodzi do kokpitu"
             fold = fold_money(loaded, date.today(), {"PLN": Decimal("1")})
         assert fold.margin == profile_mrr
         assert fold.revenue == row["monthly_revenue_total"]

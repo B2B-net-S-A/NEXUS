@@ -72,6 +72,18 @@ class PreviewRequest(BaseModel):
     candidate_id: Optional[int] = None
 
 
+class TemplatePreviewOverride(BaseModel):
+    """Niezapisana treść z edytora do podglądu (B14).
+
+    Bez tego podgląd istniejącego szablonu renderował wiersz z bazy, więc
+    edycja w formularzu była w podglądzie niewidoczna aż do zapisu.
+    Pole pominięte = wartość zapisana w szablonie.
+    """
+
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
 class PreviewResponse(BaseModel):
     subject: str
     body: str
@@ -437,8 +449,15 @@ async def preview_template_by_id(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = None,
+    data: Optional[TemplatePreviewOverride] = None,
 ):
-    """Podgląd wyrenderowanego szablonu z przykładowymi danymi."""
+    """Podgląd wyrenderowanego szablonu.
+
+    Opcjonalne body niesie niezapisaną treść z edytora (temat/treść) — wtedy
+    renderujemy ją zamiast wiersza z bazy. Zmienne ``{{…}}`` poza nazwą
+    kandydata zostają nierozwiązane (P0.2 / UAT M11-B06) — to nie są
+    „przykładowe dane", tylko pola do uzupełnienia.
+    """
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)
     )
@@ -453,9 +472,15 @@ async def preview_template_by_id(
         )
         candidate = cand_result.scalar_one_or_none()
 
-    rendered_subject, rendered_body = _render_template(
-        template.subject, template.body, candidate
-    )
+    subject = template.subject
+    body = template.body
+    if data is not None:
+        if data.subject is not None:
+            subject = data.subject
+        if data.body is not None:
+            body = data.body
+
+    rendered_subject, rendered_body = _render_template(subject, body, candidate)
     return PreviewResponse(subject=rendered_subject, body=rendered_body)
 
 

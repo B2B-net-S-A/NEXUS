@@ -1279,7 +1279,10 @@ export const talentPoolsApi = {
   removeCandidate: (poolId: number, candidateId: number) =>
     api.delete(`/api/talent-pools/${poolId}/remove/${candidateId}`),
   deletePool: (poolId: number) => api.delete(`/api/talent-pools/${poolId}`),
-  getCandidates: (poolId: number) => api.get(`/api/talent-pools/${poolId}/candidates`),
+  // `offset`/`limit` (UAT B41): backend zawsze stronicował (500/0), a to
+  // wywołanie nie przekazywało nic — widok puli kończył się na 500. członku.
+  getCandidates: (poolId: number, params?: { limit?: number; offset?: number }) =>
+    api.get(`/api/talent-pools/${poolId}/candidates`, { params }),
   getPoolsForCandidate: (candidateId: number) =>
     api.get(`/api/talent-pools/for-candidate/${candidateId}`),
 };
@@ -1585,9 +1588,14 @@ export interface NotificationListResponse {
 }
 
 export const notificationsApi = {
-  list: (limit?: number) =>
+  // `offset` (B51): dzwonek doładowuje starsze powiadomienia — backend
+  // stronicuje po `offset` w stałej kolejności „nieprzeczytane najpierw".
+  list: (limit?: number, offset?: number) =>
     api.get<NotificationListResponse>("/api/notifications", {
-      params: limit ? { limit } : undefined,
+      params:
+        limit || offset
+          ? { ...(limit ? { limit } : {}), ...(offset ? { offset } : {}) }
+          : undefined,
     }),
   count: () => api.get("/api/notifications/count"),
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
@@ -3831,6 +3839,8 @@ export interface SeekingContractorsParams {
   competence_category?: string[];
   industry_blocklist?: boolean;
   page_size?: number;
+  /** Przesunięcie w uporządkowanej puli (UAT B06) — kolejne okna „Pokaż kolejnych". */
+  offset?: number;
 }
 
 export interface SeekingContractorRow {
@@ -3866,8 +3876,10 @@ export interface SeekingContractorsResponse {
   total: number;
   /** Ile pozycji faktycznie zwrócono (≤ `page_size`). */
   returned: number;
-  /** `total > returned` — lista jest przycięta i ktoś może nie być widoczny. */
+  /** Zostało coś ZA tym oknem (`total > offset + returned`) — jest następna strona. */
   truncated: boolean;
+  /** Przesunięcie tego okna; starszy backend go nie niesie. */
+  offset?: number;
   items: SeekingContractorRow[];
   /**
    * Stan wyszukiwania, którym powstała ta lista.

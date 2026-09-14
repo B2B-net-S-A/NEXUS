@@ -254,7 +254,12 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
     }
     setLoadingPreview(true);
     try {
-      const r = await api.post(`/api/email-templates/${template.id}/preview`);
+      // Treść z formularza, nie wiersz z bazy (B14): bez body backend
+      // renderował zapisany szablon i edycja była w podglądzie niewidoczna.
+      const r = await api.post(`/api/email-templates/${template.id}/preview`, {
+        subject: form.subject,
+        body: form.body,
+      });
       setPreview(r.data);
       setShowPreview(true);
     } finally {

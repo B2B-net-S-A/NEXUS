@@ -60,7 +60,10 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
-from app.services.contractor_identity import count_unique_contractors
+from app.services.contractor_identity import (
+    count_unique_contractors,
+    current_contracts,
+)
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
 from app.schemas.money import to_whole_pln
@@ -393,6 +396,11 @@ async def compute_client_ranking(
             )
         ).scalars()
     )
+    # Tylko kontrakty OBECNE (start wpisany i ≤ dziś) — ta sama reguła co
+    # kafel „Aktywne MRR" na profilu klienta i zakładka Analityka (UAT B46);
+    # bez niej ranking Rady i profil tego samego klienta pokazywały różne
+    # liczby konsultantów i inną marżę.
+    margin_rows = current_contracts(margin_rows, on)
     contractor_candidates: dict[int, list] = {}
     active_contracts_lookup: dict[int, int] = {}
     for r in margin_rows:

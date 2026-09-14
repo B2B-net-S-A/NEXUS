@@ -134,12 +134,16 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",
     ],
+    # Lustro polityki `candidate-summary-no-finance-v3`
+    # (`candidate_activity_summary_service.CONTENT_POLICY_VERSION`): stawki,
+    # kwoty i inne dane finansowe NIE trafiają do modelu — profil kandydata
+    # mówi to wprost, więc ten opis nie może obiecywać czegoś odwrotnego (B13).
     AIFeatureKey.candidate_summary: [
-        "Historia rekrutacji (etapy, stawki, powody odrzuceń)",
+        "Historia rekrutacji (etapy, powody odrzuceń — bez stawek)",
         "Feedback po interview i screeningi",
         "Notatki rekruterów (ostatnie 30)",
-        "Umowy i historia stawek",
-        "Profil: preferencje, dostępność, skills",
+        "Umowy: klient, okres, tryb pracy, status (bez stawek i kwot)",
+        "Profil: preferencje, dostępność, skills (bez oczekiwań finansowych)",
         "Podsumowania rozmów telefonicznych",
     ],
     AIFeatureKey.champion_draft: [
