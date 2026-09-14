@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+source /app/scripts/load-build-release.sh
+load_build_release /app/.nexus-build-sha
+
 # Privilege handoff (root → appuser). The Dockerfile leaves ENTRYPOINT as
 # root specifically so this block can heal volume ownership. Named Docker
 # volumes (e.g. `uploads_data` mounted at /tmp/nexus/uploads) created under
