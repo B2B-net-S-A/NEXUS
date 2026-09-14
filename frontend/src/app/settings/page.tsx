@@ -407,7 +407,7 @@ function FirefliesCard() {
                 <span className="flex-1 truncate text-foreground dark:text-muted-foreground">{stripHtmlTags(t.title)}</span>
                 {t.candidate_id && (
                   <Link
-                    href={`/candidates?id=${t.candidate_id}`}
+                    href={`/candidates/${t.candidate_id}`}
                     className="text-xs text-primary hover:underline shrink-0"
                   >
                     Kandydat →

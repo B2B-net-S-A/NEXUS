@@ -593,6 +593,7 @@ async def transition_process(
     frozen_priority_compliant: Optional[bool] = None,
     work_channel: Optional[PriorityChannel] = None,
     moved_at: Optional[datetime] = None,
+    expected_state_version: Optional[int] = None,
     _strict_open: bool = False,
     **candidate_stage_values: Any,
 ) -> CandidateStage:
@@ -600,6 +601,13 @@ async def transition_process(
 
     ``require_existing`` is used by signing/contract automation: such hooks may
     advance carry-over, but may never manufacture a fresh recruitment.
+
+    ``expected_state_version`` (F05): wersja procesu widziana przez klienta.
+    Porównywana POD blokadą pary z bieżącym ``RecruitmentProcess.state_version``
+    (brak procesu = 0); rozjazd = 409 bez zapisu. Blokady serializują zapisy,
+    ale bez tego porównania ruch z dawno otwartej karty nadpisywał świeższą
+    decyzję kolegi. ``None`` = ścieżki bez tej wiedzy (import, automaty,
+    ruchy zbiorcze) — osobna, jawna polityka, nie luka.
     """
 
     # One lock order for every entry point.  Besides serialising first-open
@@ -617,6 +625,23 @@ async def transition_process(
     previous_process = await _latest_process(
         db, candidate_id=candidate_id, job_id=job_id
     )
+    if expected_state_version is not None:
+        current_version = (
+            previous_process.state_version if previous_process is not None else 0
+        )
+        if current_version != expected_state_version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PIPELINE_VERSION_CONFLICT",
+                    "entity": "process",
+                    "message": (
+                        "Etap tego kandydata został w międzyczasie zmieniony "
+                        "przez inną osobę. Odśwież widok i zdecyduj ponownie."
+                    ),
+                    "current_state_version": current_version,
+                },
+            )
     if previous_stage is not None and previous_process is None:
         # Repair the missing aggregate before deciding whether this is carry-
         # over. A terminal legacy row becomes a closed attempt, so reopening

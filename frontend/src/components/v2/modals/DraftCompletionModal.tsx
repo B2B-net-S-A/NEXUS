@@ -23,6 +23,7 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { contractsApi, type ContractorListItem } from"@/lib/api";
+import { contractRateUnitSuffix } from"@/lib/rate-unit";
 import {
  canManageCandidateFinance,
  useAuthStore,
@@ -79,6 +80,27 @@ function formDirtyOrValid(
  form.rate_candidate_currency &&
  form.rate_client_currency))
  );
+}
+
+/**
+ * Jednostka stawek WIDOCZNA przy polach (UAT B25). Formularz pokazywał
+ * „130" i pole przychodowej bez słowa, czy to za godzinę, dzień czy miesiąc —
+ * a szczegóły kontraktu obok mówiły „Godzinowo, 130 PLN/h". Etykieta jest
+ * lustrem `RATE_UNIT_LABELS` z karty „Stawki finansowe", żeby oba ekrany
+ * nazywały jednostkę tak samo. Brak jednostki (stary payload) nie zgaduje.
+ */
+const RATE_UNIT_LABELS: Record<string, string> = {
+ hourly: "Godzinowo",
+ daily: "Dziennie",
+ monthly: "Miesięcznie",
+};
+
+export function rateUnitHint(unit: string | null | undefined): string {
+ const label = unit ? RATE_UNIT_LABELS[unit] : undefined;
+ if (!label) {
+ return "Jednostka stawki nieznana — sprawdź ją w szczegółach kontraktu.";
+ }
+ return `Jednostka stawek: ${label} (${contractRateUnitSuffix(unit)}) — jak w kontrakcie; zmienisz ją w szczegółach kontraktu.`;
 }
 
 /**
@@ -170,6 +192,7 @@ export function DraftCompletionModal({
  : null;
  const canSubmit =
  formDirtyOrValid(form, canManageFinance) && !saveRequiredFields.isPending;
+ const unitSuffix = contractRateUnitSuffix(contractor.rate_unit);
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -217,6 +240,7 @@ export function DraftCompletionModal({
  <>
  <div>
  <Label htmlFor="rate_candidate">Stawka kosztowa (kandydata) *</Label>
+ <div className="flex items-center gap-2">
  <Input
  id="rate_candidate"
  type="number"
@@ -227,6 +251,16 @@ export function DraftCompletionModal({
  setForm((f) => ({ ...f, rate_candidate: e.target.value }))
  }
  />
+ {unitSuffix && (
+ <span
+ className="shrink-0 text-sm text-muted-foreground tabular-nums"
+ data-testid="rate-candidate-unit"
+ >
+ {form.rate_candidate_currency}
+ {unitSuffix}
+ </span>
+ )}
+ </div>
  </div>
  <div>
  <Label htmlFor="rate_candidate_currency">
@@ -257,6 +291,7 @@ export function DraftCompletionModal({
  </div>
  <div>
  <Label htmlFor="rate_client">Stawka przychodowa (klienta) *</Label>
+ <div className="flex items-center gap-2">
  <Input
  id="rate_client"
  type="number"
@@ -267,6 +302,16 @@ export function DraftCompletionModal({
  setForm((f) => ({ ...f, rate_client: e.target.value }))
  }
  />
+ {unitSuffix && (
+ <span
+ className="shrink-0 text-sm text-muted-foreground tabular-nums"
+ data-testid="rate-client-unit"
+ >
+ {form.rate_client_currency}
+ {unitSuffix}
+ </span>
+ )}
+ </div>
  </div>
  <div>
  <Label htmlFor="rate_client_currency">
@@ -295,6 +340,12 @@ export function DraftCompletionModal({
  </SelectContent>
  </Select>
  </div>
+ <p
+ className="md:col-span-2 text-xs text-muted-foreground"
+ data-testid="rate-unit-hint"
+ >
+ {rateUnitHint(contractor.rate_unit)}
+ </p>
  </>
  )}
  <div>

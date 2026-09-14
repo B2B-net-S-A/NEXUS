@@ -20,6 +20,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { championApi, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import { seedStackFromJobColumns } from "@/lib/champion-legacy-stack";
 import {
   CHAMPION_SECTIONS,
   CHAMPION_SECTION_STATE_LABEL,
@@ -43,11 +44,19 @@ export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
     queryFn: () => championApi.get(jobId).then((r) => r.data),
   });
 
+  // Ten sam profil, na który patrzy edytor obok: na profilu sprzed 09.2026
+  // stack żyje w kolumnach rekrutacji (`job_values`), a edytor go stamtąd
+  // wczytuje (`seedStackFromJobColumns`). Liczenie stanu z samego
+  // `champion_profile` dawało szarą kropkę „puste" przy sekcji, która 300 px
+  // dalej pokazywała „wypełnione" i listę technologii (audyt B48).
   const profile: ChampionProfile | null = data
-    ? {
-        ...EMPTY_CHAMPION_PROFILE,
-        ...(data.champion_profile as Partial<ChampionProfile>),
-      }
+    ? seedStackFromJobColumns(
+        {
+          ...EMPTY_CHAMPION_PROFILE,
+          ...(data.champion_profile as Partial<ChampionProfile>),
+        },
+        data.job_values,
+      ).profile
     : null;
 
   return (

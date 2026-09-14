@@ -490,8 +490,8 @@ export function EmployeesManager() {
 
         <p className="mt-4 text-xs text-muted-foreground italic">
           User creation + role + password → centralny admin panel Nexusa ({" "}
-          <a href="/settings/users" className="text-primary hover:underline">
-            /settings/users
+          <a href="/settings?tab=administracja" className="text-primary hover:underline">
+            Ustawienia → Administracja
           </a>
           , AAD/SSO managed). Tu zarządzasz seniority + active toggle +
           DR sekcje (allowed_sections).

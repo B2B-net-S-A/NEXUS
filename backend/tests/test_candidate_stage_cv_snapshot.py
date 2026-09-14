@@ -110,7 +110,7 @@ async def test_service_creates_snapshot_with_cv_bytes():
 
     async with AsyncSessionLocal() as db:
         stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
-        csv = await create_original_cv_snapshot(db, stage)
+        await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
@@ -134,7 +134,7 @@ async def test_service_handles_candidate_without_cv():
 
     async with AsyncSessionLocal() as db:
         stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
-        csv = await create_original_cv_snapshot(db, stage)
+        await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
@@ -365,7 +365,36 @@ async def test_get_original_endpoint_returns_metadata(
     assert body["original_cv_filename"] == "my.pdf"
     assert body["candidate_id"] == cid
     assert body["job_id"] == jid
-    assert body["download_url"].endswith(f"/cv/original/download")
+    assert body["download_url"].endswith("/cv/original/download")
+
+
+@pytest.mark.asyncio
+async def test_get_original_without_snapshot_row_is_200_no_snapshot(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Etap BEZ wiersza ``CandidateStageCV`` (sprzed backfillu 0070) to „brak
+    snapshotu", nie awaria: 200 ``has_snapshot=False`` z tożsamością etapu,
+    a nie 404 nieodróżnialne od nieistniejącego etapu (audyt B19)."""
+    cid = await _seed_candidate_with_cv(cv_bytes=b"PDF", cv_filename="my.pdf")
+    jid = await _seed_job()
+    sid = await _seed_stage(cid, jid)
+
+    res = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/original", headers=app_auth_headers
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["has_snapshot"] is False
+    assert body["candidate_id"] == cid
+    assert body["job_id"] == jid
+    assert body["candidate_stage_id"] == sid
+    assert body["download_url"] is None
+
+    # Nieistniejący etap nadal 404 — rozróżnienie zostaje.
+    missing = await app_client.get(
+        "/api/candidates/stages/999999999/cv/original", headers=app_auth_headers
+    )
+    assert missing.status_code == 404
 
 
 @pytest.mark.asyncio

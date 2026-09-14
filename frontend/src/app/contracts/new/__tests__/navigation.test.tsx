@@ -275,6 +275,57 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("zmiana klienta czyści rekrutację innego klienta, a rekrutację bez klienta zostawia", async () => {
+    // UAT B24: rekrutacja poprzedniego klienta zostawała w formularzu po zmianie
+    // klienta — backend odrzucał `job_client_mismatch`, ale dopiero przy zapisie.
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/api/clients-lookup") {
+        return Promise.resolve({
+          data: [
+            { id: 2, name: "Klient Testowy" },
+            { id: 3, name: "Inny Klient" },
+          ],
+        });
+      }
+      if (url === "/api/cv-generator/candidates") {
+        return Promise.resolve({
+          data: [{ id: 42, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski" }],
+        });
+      }
+      if (url === "/api/cv-generator/candidates/42/recruitments") {
+        return Promise.resolve({
+          data: [
+            { stage_id: 7, job_id: 17, job_title: "Backend Engineer", client_id: 2 },
+            { stage_id: 8, job_id: 18, job_title: "Bez klienta", client_id: null },
+          ],
+        });
+      }
+      return Promise.reject(new Error(`Nieoczekiwany GET: ${url}`));
+    });
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    const recruitment = screen.getByRole("combobox", { name: "Rekrutacja" });
+    await user.selectOptions(recruitment, "7");
+
+    // Klient zgodny z rekrutacją — nic nie znika.
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    expect(recruitment).toHaveValue("7");
+
+    // Inny klient — rekrutacja poprzedniego klienta zostaje wyczyszczona.
+    await user.click(screen.getByRole("button", { name: /Inny Klient/ }));
+    expect(recruitment).toHaveValue("");
+    expect(
+      screen.queryByRole("button", { name: "Wyczyść rekrutację" }),
+    ).not.toBeInTheDocument();
+
+    // Rekrutacja bez klienta nie jest sprzeczna z żadnym — zostaje.
+    await user.selectOptions(recruitment, "8");
+    await user.click(screen.getByRole("button", { name: /Klient Testowy/ }));
+    expect(recruitment).toHaveValue("8");
+  });
+
   it("wysyła niezależne waluty stawki przychodowej i kosztowej", async () => {
     mocks.canManageFinance = true;
     mocks.create.mockResolvedValue({ data: { id: 77 } });

@@ -106,6 +106,9 @@ vi.mock("@/components/ds/AppModal", () => ({
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...args: unknown[]) => mocks.apiGet(...args) },
+  // Słowniki etykiet czytane przez `contract-timeline-labels.ts` (UAT B23);
+  // mock modułu w całości musi je wystawić, inaczej import strony pada.
+  CONTRACT_FIELD_LABELS: {},
   contractsApi: {
     get: (...args: unknown[]) => mocks.getContract(...args),
     documents: (...args: unknown[]) => mocks.getDocuments(...args),

@@ -16,13 +16,13 @@ waluty ≠ PLN bez kursu ⇒ finanse partial z warningiem (pełny FX = PR 6).
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from datetime import date as date_type
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import metrics
@@ -59,6 +59,8 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.call import Call
+from app.models.traffit_sync_state import TraffitSyncState
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -94,8 +96,101 @@ def _parse_period(
         ) from exc
 
 
-def _calls_quality() -> QualityPayload:
-    """CloudTalk off/misconfigured ⇒ unavailable — NIGDY 'zero rozmów'."""
+# Ta sama granica świeżości co `checks.traffit` w /api/health.
+_TRAFFIT_MAX_AGE = timedelta(hours=36)
+# Wiersz znacznika dziennego syncu (app.tasks.traffit_sync.DAILY_MARKER —
+# literał, żeby moduł API nie importował pętli tła).
+_TRAFFIT_DAILY_MARKER = "__daily__"
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+async def _traffit_freshness(
+    db: AsyncSession,
+) -> tuple[dict[str, str], list[str], bool]:
+    """Watermark ostatniego udanego importu Traffita (audyt statystyk A08).
+
+    Zwraca ``(watermarki, ostrzeżenia, stale)``. Sync wyłączony = same żywe
+    dane ATS, więc pusto. Włączony bez udanego biegu, z błędem albo starszy niż
+    36 h = ostrzeżenie i obniżona jakość: „wygenerowano teraz" nie dowodzi, że
+    źródło jest aktualne, a zero z nieudanego importu nie jest potwierdzonym
+    zerem.
+    """
+    if not settings.TRAFFIT_SYNC_ENABLED:
+        return {}, [], False
+    row = (
+        await db.execute(
+            select(
+                TraffitSyncState.last_run_finished_at, TraffitSyncState.last_status
+            ).where(TraffitSyncState.phase == _TRAFFIT_DAILY_MARKER)
+        )
+    ).first()
+    if row is None or row[0] is None:
+        return (
+            {},
+            [
+                "Import z Traffita jest włączony, ale nie ma jeszcze udanego "
+                "biegu — dane importowane mogą być niekompletne, zero nie jest "
+                "potwierdzone"
+            ],
+            True,
+        )
+    finished_at = _as_utc(row[0])
+    last_status = row[1]
+    watermark = {"traffit": finished_at.isoformat()}
+    label = finished_at.strftime("%Y-%m-%d %H:%M UTC")
+    if last_status not in ("ok", None):
+        return (
+            watermark,
+            [
+                f"Ostatni import z Traffita ({label}) zakończył się statusem "
+                f"'{last_status}' — dane importowane mogą być niekompletne"
+            ],
+            True,
+        )
+    if datetime.now(timezone.utc) - finished_at > _TRAFFIT_MAX_AGE:
+        return (
+            watermark,
+            [
+                f"Ostatni udany import z Traffita: {label} (ponad 36 h temu) — "
+                "dane importowane mogą być nieaktualne"
+            ],
+            True,
+        )
+    return watermark, [], False
+
+
+def _with_source_freshness(
+    quality: QualityPayload | None,
+    watermarks: dict[str, str],
+    warnings: list[str],
+    stale: bool,
+) -> QualityPayload:
+    base = quality or QualityPayload()
+    merged_warnings = list(base.warnings)
+    merged_warnings.extend(w for w in warnings if w not in merged_warnings)
+    status = base.status
+    if stale and status == QualityStatus.complete:
+        status = QualityStatus.partial
+    return base.model_copy(
+        update={
+            "status": status,
+            "warnings": merged_warnings,
+            "source_watermarks": {**base.source_watermarks, **watermarks},
+        }
+    )
+
+
+async def _calls_quality(db: AsyncSession) -> QualityPayload:
+    """CloudTalk off/misconfigured ⇒ unavailable — NIGDY 'zero rozmów'.
+
+    Włączony: watermark = ostatnia zsynchronizowana rozmowa (pętla syncu nie
+    zapisuje znacznika udanego biegu, więc to jedyny trwały ślad źródła);
+    brak jakiejkolwiek rozmowy = partial — zero rozmów nie jest potwierdzone
+    (audyt statystyk A08).
+    """
     if not settings.CLOUDTALK_ENABLED:
         return QualityPayload(
             status=QualityStatus.unavailable,
@@ -104,7 +199,18 @@ def _calls_quality() -> QualityPayload:
                 "rozmowach są niedostępne, nie zerowe"
             ],
         )
-    return QualityPayload()
+    last_synced = await db.scalar(select(func.max(Call.updated_at)))
+    if last_synced is None:
+        return QualityPayload(
+            status=QualityStatus.partial,
+            warnings=[
+                "CloudTalk jest włączony, ale żadna rozmowa nie została jeszcze "
+                "zsynchronizowana — zero rozmów nie jest potwierdzone"
+            ],
+        )
+    return QualityPayload(
+        source_watermarks={"cloudtalk": _as_utc(last_synced).isoformat()}
+    )
 
 
 def _require_personal_kpis(user: User) -> None:
@@ -130,12 +236,19 @@ async def _cached_envelope(
     compute,
     quality: QualityPayload | None = None,
     filters: dict[str, Any] | None = None,
+    db: AsyncSession | None = None,
+    sources: tuple[str, ...] = ("traffit",),
 ) -> AnalyticsEnvelope:
     """Wspólny szkielet: cache (§4.6) → kanoniczna metryka → koperta (§4.5).
 
     ``compute`` może zwrócić dict (dane) ALBO krotkę (dane, QualityPayload) —
     quality liczone w compute jest cache'owane razem z kopertą, więc cache
     hit nie przelicza metryk.
+
+    ``sources`` = zewnętrzne źródła, których świeżość ma trafić do
+    ``quality.source_watermarks`` (A08). Domyślnie Traffit — kandydaci, etapy
+    i rekrutacje są w części importem; finanse liczą z kontraktów NEXUSA,
+    więc przekazują ``sources=()``.
     """
     caps = capabilities_for(user)
     key = build_cache_key(
@@ -154,6 +267,8 @@ async def _cached_envelope(
         data, quality = result
     else:
         data = result
+    if db is not None and "traffit" in sources:
+        quality = _with_source_freshness(quality, *await _traffit_freshness(db))
     envelope = build_envelope(
         metric_version=METRIC_VERSION,
         scope=scope.as_payload(),
@@ -182,6 +297,7 @@ async def get_overview(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.overview(db, period),
     )
 
@@ -200,6 +316,7 @@ async def get_pipeline_snapshot(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.pipeline_snapshot(db),
     )
 
@@ -218,6 +335,7 @@ async def get_recruitment_funnel(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.recruitment_funnel(db, period),
     )
 
@@ -236,6 +354,7 @@ async def get_sources(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.sources(db, period),
     )
 
@@ -254,8 +373,9 @@ async def get_calls_aggregate(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.calls_aggregate(db, period),
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -277,8 +397,9 @@ async def get_my_kpis(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=lambda: metrics.user_kpis(db, period, current_user.id),
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -296,8 +417,9 @@ async def get_my_calls(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=lambda: metrics.calls_aggregate(db, period, user_id=current_user.id),
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -320,12 +442,13 @@ async def get_team_kpis(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=lambda: metrics.team_kpis(
             db,
             period,
             user_ids=scoped_user_ids,
         ),
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -364,8 +487,9 @@ async def get_team_calls(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=_compute,
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -384,8 +508,9 @@ async def get_user_recruitment(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=lambda: metrics.user_kpis(db, period, user_id),
-        quality=_calls_quality(),
+        quality=await _calls_quality(db),
     )
 
 
@@ -408,6 +533,7 @@ async def get_client_operations(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
         compute=lambda: metrics.client_operations(db, period, client_id),
     )
 
@@ -433,6 +559,8 @@ async def get_client_finance(
         user=current_user,
         scope=scope,
         period=period,
+        db=db,
+        sources=(),
         compute=_compute,
     )
 
@@ -468,6 +596,8 @@ async def get_finance_summary(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
+        sources=(),
         compute=_compute,
     )
 
@@ -481,10 +611,16 @@ async def get_finance_trend(
     db: AsyncSession = Depends(get_db),
 ):
     """Miesięczny trend MRR/marży — date-effective na 1. dzień miesiąca,
-    prawdziwa arytmetyka kalendarza, FX po kursie z danej daty (plan PR 6)."""
+    prawdziwa arytmetyka kalendarza, FX po kursie z danej daty (plan PR 6).
+
+    Seria kończy się miesiącem ostatniego dnia ``period`` (A09) — koperta
+    i punkty opisują to samo okno; ``data.window`` podaje je wprost.
+    """
 
     async def _compute():
-        data, warnings, flag = await metrics.finance_trend(db, months=months)
+        data, warnings, flag = await metrics.finance_trend(
+            db, months=months, end=metrics.finance_as_of(period)
+        )
         return data, _finance_quality(warnings, flag)
 
     return await _cached_envelope(
@@ -492,6 +628,8 @@ async def get_finance_trend(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
+        sources=(),
         compute=_compute,
         filters={"months": months},
     )
@@ -515,6 +653,8 @@ async def get_finance_clients(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
+        sources=(),
         compute=_compute,
     )
 
@@ -540,6 +680,7 @@ async def get_executive_board(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=_compute,
     )
 
@@ -560,6 +701,7 @@ async def get_commercial_tenders(
         user=current_user,
         scope=organization_scope(),
         period=period,
+        db=db,
         compute=lambda: metrics.tenders(db, period, include_values=include_values),
         filters={"include_values": include_values},
     )

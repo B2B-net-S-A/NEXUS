@@ -292,7 +292,7 @@ async def test_refresh_token_before_floor_rejected(
         authorization_version=fresh_user["authorization_version"],
     )
     resp = await app_client.post(
-        "/api/auth/refresh", params={"refresh_token": stale_refresh}
+        "/api/auth/refresh", json={"refresh_token": stale_refresh}
     )
     assert resp.status_code == 401, (
         "Wykradziony refresh token nie może wybijać świeżych access tokenów "
@@ -306,6 +306,16 @@ async def test_refresh_token_before_floor_rejected(
         authorization_version=fresh_user["authorization_version"],
     )
     ok = await app_client.post(
-        "/api/auth/refresh", params={"refresh_token": fresh_refresh}
+        "/api/auth/refresh", json={"refresh_token": fresh_refresh}
     )
     assert ok.status_code == 200, ok.text
+
+    # F06: poświadczenie w URL-u nie jest przyjmowane — query bez ciała = 422
+    # (walidacja), nigdy wymiana tokenu ani 401 „nieprawidłowy token".
+    in_url = await app_client.post(
+        "/api/auth/refresh", params={"refresh_token": fresh_refresh}
+    )
+    assert in_url.status_code == 422, (
+        "Refresh token w query stringu trafiałby do access loga i historii "
+        "przeglądarki — endpoint ma go przyjmować wyłącznie w ciele."
+    )

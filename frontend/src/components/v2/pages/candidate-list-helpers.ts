@@ -165,3 +165,32 @@ export function getExperienceLabel(
   if (years < 5) return { label: `${years} lat`, variant: "soft" };
   return { label: `${years}+ lat`, variant: "success" };
 }
+
+/** `data-testid` wiersza listy — jeden zapis dla renderu, testów i fokusu. */
+export function candidateRowTestId(candidateId: number): string {
+  return `candidate-row-${candidateId}`;
+}
+
+/** Enter/Spacja na wierszu z `role="button"` otwiera podgląd jak kliknięcie. */
+export function isRowActivationKey(key: string): boolean {
+  return key === "Enter" || key === " ";
+}
+
+/**
+ * Po zamknięciu szybkiego podglądu fokus wraca na wiersz OSTATNIO oglądanego
+ * kandydata (UAT B22) — nie na `body`, skąd Tab prowadził na początek strony.
+ * Wiersz jest wirtualizowany, więc może nie być w DOM (nawigacja prev/next
+ * poza ekran); wtedy `false` i Radix robi to, co domyślnie.
+ */
+export function focusCandidateRow(
+  candidateId: number | null,
+  root: ParentNode = document,
+): boolean {
+  if (candidateId == null) return false;
+  const row = root.querySelector<HTMLElement>(
+    `[data-testid="${candidateRowTestId(candidateId)}"]`,
+  );
+  if (!row) return false;
+  row.focus();
+  return document.activeElement === row;
+}

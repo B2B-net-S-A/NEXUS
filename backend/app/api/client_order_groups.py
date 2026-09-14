@@ -2252,8 +2252,12 @@ async def list_group_events(
     _assert_multi_client(client_id)
     await _load_group(db, client_id, group_id)
 
+    # Autor doczytany złączeniem (jak w `_apply_line_history`): historia ma
+    # mówić KTO, nie tylko CO i KIEDY (UAT B50). Konto usunięte → `None`,
+    # front pokazuje wtedy sam identyfikator.
     result = await db.execute(
-        select(ClientOrderGroupEvent)
+        select(ClientOrderGroupEvent, User.name)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
         .where(ClientOrderGroupEvent.group_id == group_id)
         .order_by(
             ClientOrderGroupEvent.created_at.desc(), ClientOrderGroupEvent.id.desc()
@@ -2261,7 +2265,7 @@ async def list_group_events(
     )
     with_finance = await _can_see_finance(db, user, client_id)
     events: list[OrderGroupEventRead] = []
-    for ev in result.scalars():
+    for ev, author_name in result.all():
         if _is_technical_event(ev.event_type, ev.payload):
             continue
         related_id, related_number = _related_order(group_id, ev)
@@ -2282,6 +2286,7 @@ async def list_group_events(
                 order_id=ev.order_id,
                 payload=ev.payload if with_finance else None,
                 created_by_user_id=ev.created_by_user_id,
+                created_by_name=author_name,
                 created_at=ev.created_at,
                 related_group_id=related_id,
                 related_order_number=related_number,

@@ -748,3 +748,138 @@ async def test_profile_preserves_unknown_opening_date(app_client, app_auth_heade
             await db.execute(delete(Job).where(Job.id == job_id))
             await db.execute(delete(Client).where(Client.id == client_id))
             await db.commit()
+
+
+# ── Obecny = kontrakt, który JUŻ obowiązuje (UAT B46) ────────────────────────
+#
+# Status `active` dostaje także kontrakt podpisany na przyszły start. Do 09.2026
+# profil liczył go do „Obecnych" i do „Aktywnego MRR", więc kafel bieżącej
+# marży rósł o kontrakty z października — inaczej niż katalog klientów, który
+# wymaga wpisanej daty startu nie późniejszej niż dziś.
+
+
+async def _seed_client_with_planned_contracts() -> tuple[int, dict[str, int]]:
+    """Klient z trzema aktywnymi kontraktami: obecny, przyszły, bez daty startu."""
+    import uuid
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    today = date.today()
+    starts = {
+        "current": today - timedelta(days=30),
+        "future": today + timedelta(days=21),
+        "unknown": None,
+    }
+    ids: dict[str, int] = {}
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"PlannedClient-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        for key, start in starts.items():
+            cand = Candidate(
+                name="Planowany",
+                lastname=f"{key}-{uuid.uuid4().hex[:6]}",
+                email=f"planned-{uuid.uuid4().hex[:8]}@example.com",
+            )
+            db.add(cand)
+            await db.commit()
+            await db.refresh(cand)
+            contract = Contract(
+                candidate_id=cand.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                start_date=start,
+                rate_candidate=Decimal("10000.000"),
+                rate_client=Decimal("16000.000"),
+                rate_unit="monthly",
+            )
+            db.add(contract)
+            await db.commit()
+            await db.refresh(contract)
+            ids[key] = contract.id
+        return client.id, ids
+
+
+async def test_future_and_undated_contracts_are_planned_not_current(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    client_id, ids = await _seed_client_with_planned_contracts()
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    current_ids = {r["contract_id"] for r in body["active_consultants"]}
+    planned_ids = {r["contract_id"] for r in body["planned_consultants"]}
+    assert current_ids == {ids["current"]}
+    # Przyszły start i brak daty startu NIE znikają z profilu — jadą osobno.
+    assert planned_ids == {ids["future"], ids["unknown"]}
+
+    summary = body["summary"]
+    assert summary["active_consultants"] == 1
+    assert summary["active_contracts"] == 1
+    # Kafel = suma kolumny „Marża" u OBECNYCH; planowani nie dokładają swojej.
+    assert summary["active_mrr"] == 6000
+    assert summary["active_mrr_unpriced_contracts"] == 0
+    # Placement to osoba zatrudniona — planowana też.
+    assert summary["total_placements"] == 3
+
+
+async def test_planned_consultants_money_is_redacted_without_view_finance(
+    app_client: AsyncClient,
+) -> None:
+    """„Planowani" mają te same trzy kwoty co „Obecni" i muszą być redagowani
+    tak samo — przegląd adwersarialny PR 2 (14.09.2026) złapał, że nowa lista
+    omijała blok redakcji, więc rola bez VIEW_FINANCE widziała stawki
+    kontraktów z przyszłym startem."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    client_id, ids = await _seed_client_with_planned_contracts()
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-tcm-planned-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="Pytest TCM",
+                role=UserRole.talent_community_manager,
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    planned = [
+        r
+        for r in body["planned_consultants"]
+        if r["contract_id"] in {ids["future"], ids["unknown"]}
+    ]
+    assert len(planned) == 2
+    for row in planned:
+        assert row["monthly_rate_client"] is None
+        assert row["monthly_rate_candidate"] is None
+        assert row["monthly_margin"] is None
+    assert body["summary"]["active_mrr"] is None

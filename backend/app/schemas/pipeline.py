@@ -54,6 +54,14 @@ class StageMove(BaseModel):
     # `declined` przed wycofaniem → post_accept dropout (10pt w risk score).
     candidate_offer_response: Optional[CandidateOfferResponse] = None
 
+    # ── Optymistyczna współbieżność (audyt procesów F05) ──────────────────
+    # `RecruitmentProcess.state_version` widziana przez klienta w chwili
+    # decyzji. Podana i różna od bieżącej → 409 PIPELINE_VERSION_CONFLICT:
+    # ktoś inny przesunął tę parę, zanim użytkownik kliknął z dawno otwartej
+    # karty. Brak pola = zachowanie dotychczasowe (blokady serializują zapis,
+    # ale nie wykrywają nieaktualnej intencji).
+    expected_state_version: Optional[int] = Field(None, ge=0)
+
 
 class ClientRateUpdate(BaseModel):
     """Body dla PATCH /candidates/{id}/recruitments/{job_id}/client-rate.
