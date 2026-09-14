@@ -84,6 +84,9 @@ describe("finance order changes formatting", () => {
     expect(gapStatusLabel(gap)).toBe(
       "Uzupełnione z opóźnieniem: zam. NB-2 (7 dni po terminie)",
     );
+    expect(gapStatusLabel({ ...gap, delay_days: 0 })).toBe(
+      "Uzupełnione z opóźnieniem: zam. NB-2 (w dniu wykrycia braku)",
+    );
     expect(gapStatusLabel({ ...gap, status: "open" })).toBe("Brak zamówienia");
   });
 
