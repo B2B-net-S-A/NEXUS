@@ -14,21 +14,20 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   const trace = event.contexts?.trace
   const correlation = event.contexts?.correlation ?? {}
   event.contexts = {
-    ...(trace ? { trace: Object.fromEntries(Object.entries(trace).filter(([key]) => ['trace_id', 'span_id', 'parent_span_id', 'op', 'status', 'origin'].includes(key))) } : {}),
+    ...(trace ? { trace: { trace_id: trace.trace_id, span_id: trace.span_id, parent_span_id: trace.parent_span_id, op: trace.op, status: trace.status, origin: trace.origin } } : {}),
     correlation: Object.fromEntries(Object.entries(correlation).filter(([key, value]) => ['request_id', 'operation_id'].includes(key) && /^[a-f0-9-]{16,36}$/i.test(String(value)))),
   }
   for (const value of ('exception' in event ? event.exception?.values : undefined) ?? []) {
     value.value = `${value.type ?? 'Error'} (private details omitted)`
     if (value.mechanism) {
       delete value.mechanism.data
-      delete value.mechanism.description
     }
     for (const frame of value.stacktrace?.frames ?? []) delete frame.vars
   }
   event.breadcrumbs = event.breadcrumbs?.map(({ timestamp, category, level, type }) => ({ timestamp, category, level, type }))
   if ('spans' in event) {
     for (const span of event.spans ?? []) {
-      delete span.data
+      span.data = {}
       delete span.description
     }
   }
