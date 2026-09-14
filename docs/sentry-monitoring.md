@@ -19,7 +19,7 @@ Odbiór: ręczny run, poprawny odczyt obu projektów, karta rzeczywiście widocz
 
 ## Release i wdrożenie
 
-Build, upload map i runtime korzystają z rzeczywistego SHA kompilacji. Przeglądarka, Node i Edge używają projektu frontendu. Produkcyjny build z DSN wymaga tokenu uploadu oraz pełnego SHA; brak któregokolwiek lub błąd uploadu przerywa build. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
+Docelowo build, upload map i runtime muszą korzystać z rzeczywistego SHA kompilacji. Przeglądarka, Node i Edge używają projektu frontendu. Uwaga operacyjna: #1519 zmienił brak SHA/tokenu w kontroli builda na ostrzeżenie. Zatem ukończony build nie dowodzi publikacji poprawnych map. Kontrola błędu samego uploadu pozostaje odrębna. CI bez DSN może jawnie budować bez telemetrii. Nie ujawniać map w publicznym artefakcie.
 
 Nowy frontend najpierw wykonuje prosty GET health bez dodatkowych nagłówków. Propagację do API i X-Operation-Id włącza po otrzymaniu eksponowanego X-Request-Id. Dzięki temu równoległy restart usług nie powoduje błędów CORS wobec starego backendu. Niepowodzenie sondy nie zatrzymuje aplikacji; kolejne żądanie może ponowić sondę.
 
@@ -41,15 +41,25 @@ Odczyt `stats_v2` z 14.09.2026 dla `nexus-be` (projekt 4511350854647888,
 `too_large:event`. To dowód przekroczenia rozmiaru zdarzenia, nie błędu
 transportu. Wyłączenie zmiennych lokalnych i ograniczenie treści payloadu
 wymaga odbioru przez ponowny odczyt nowych odrzuceń po wdrożeniu.
-# Production release identity
+## Diagnostyka wersji produkcyjnej
 
-On 2026-09-14, the public production `main-app-afd91ba282d6d2e0.js`
-contained `release:"unknown"`, while API health reported a full deployed SHA.
-The compose build now prefers Coolify's `SOURCE_COMMIT` for both backend and
-frontend build arguments. The normal deployment workflow enables and reads back
-`include_source_commit_in_build` before starting a build; it does not substitute
-the workflow trigger SHA, which can lag the revision Coolify actually checks out.
-See the [Coolify application update API](https://coolify.io/docs/api/endpoints/applications/update-application-by-uuid).
-The Sentry build guard still requires a full SHA and upload credentials when the
-browser DSN is configured. Production acceptance requires inspecting the new
-browser release and a symbolicated event after deployment.
+14.09.2026 wdrożenie [34878577552](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34878577552)
+ze źródłem `c80a7230d741e79e641307ec1b23b270a112b1cb` zakończyło się błędem odbioru:
+API i frontend zgłaszały `unknown`. Nie potwierdza to rzeczywistej rewizji obrazu.
+
+`Coolify Ops` → `release-config-audit` wykonuje wyłącznie GET konfiguracji aplikacji
+i zmiennych. Zwraca obecność wybranych kluczy, flagi build/runtime i rozpoznane
+odwołania między zmiennymi SHA; nigdy wartości sekretów. Test redakcji poprzedza
+odczyt konfiguracji. Brak pola ustawień w starszym API ma wartość `null`, a nie
+`false`: nie można z niego wnioskować, że opcja jest wyłączona.
+
+Odczyty 34882689840 i 34882846625 potwierdziły token source map dostępny podczas
+builda oraz odwołanie `GIT_SHA` do `SOURCE_COMMIT`. Pole
+`include_source_commit_in_build` nie jest wystawiane przez używany odczyt API,
+a jego PATCH został wcześniej odrzucony HTTP 422. Stan opcji trzeba sprawdzić
+w zalogowanym panelu Coolify przed ponowieniem standardowego wdrożenia.
+
+Nie wpisywać SHA uruchomienia Actions jako zastępczej wersji obrazu: Coolify może
+pobrać nowszy `main`. Po naprawie konfiguracji odbiór wymaga zgodnego SHA API,
+`version.json`, runtime Sentry i symbolikacji nowego zdarzenia. Ostrzeżenie o
+`unknown` nie spełnia tego warunku.

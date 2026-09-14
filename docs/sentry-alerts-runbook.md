@@ -24,7 +24,7 @@ W istniejącym źródle Loki dla backendu NEXUS obliczyć:
 - E = sum(count_over_time({app="nexus",service="backend"} | json | event_kind="http_outcome" | status_code >= 500 [5m]))
 - Alarm: E >= 5 AND R >= 20 AND E / R > 0.05.
 
-14.09.2026 potwierdzono w Grafana Cloud arturt96 działający Loki `grafanacloud-logs` i strumień `{app="nexus",service="backend"}`. Obecność nowych `http_outcome` wymaga osobnego odbioru po wdrożeniu. Dla braku danych skonfigurować stan No Data jako wymagający reakcji i potwierdzić niezależnym health probe.
+14.09.2026 potwierdzono w Grafana Cloud arturt96 działający Loki `grafanacloud-logs` i strumień `{app="nexus",service="backend"}`. Późniejszy odczyt tego samego dnia potwierdził trzy serie `event_kind`: `http_outcome`, `job_outcome` oraz `notification_volume`. Zapytanie `sum by (event_kind) (count_over_time({app="nexus",service="backend"} | json | event_kind!="" | __error__="" [5m]))` zwróciło rzeczywiste dane; przykładowa próbka HTTP miała 174 odpowiedzi w oknie 5 minut. To potwierdzenie źródła pomiarów, nie działających reguł lub doręczeń. Dla braku danych skonfigurować stan No Data jako wymagający reakcji i potwierdzić niezależnym health probe.
 
 ## Ukończenie zadań
 
