@@ -78,7 +78,7 @@ jobs:
           # `coverage` przypięte jawnie: pytest-cov ogranicza je tylko od dołu, a job
           # `backend-coverage-combine` czyta pliki danych tą samą wersją (7.15.3) —
           # nowsze wydanie w shardach mogłoby wywrócić `coverage combine`.
-          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0 coverage==7.15.3
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0 coverage==7.15.3 -r requirements-testing.txt
       # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
       # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
       # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.

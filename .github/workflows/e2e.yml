@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      k6_profile:
+        description: 'smoke: 3 VU / 20s; load: ramp 10/25/50/100 VU on the disposable CI stack'
+        type: choice
+        options: [smoke, load]
+        default: smoke
   schedule:
     - cron: "17 3 * * *"  # nightly at 03:17 UTC
   # MON-02 (audyt 14.09.2026): po każdym udanym deployu biegnie projekt
@@ -83,6 +89,7 @@ jobs:
           done
           echo "Stack gotowy."
       - name: Zasiej konta ról
+        id: seed-roles
         working-directory: .
         run: |
           docker compose -f docker-compose.e2e.yml exec -T \
@@ -117,6 +124,63 @@ jobs:
             }
             if (r.flaky > 0) console.log(`::warning::${r.flaky} przypadków niestabilnych — przeszły dopiero po ponowieniu.`);
           '
+      # Reuse this job's disposable stack. Never target the production job below.
+      - name: Python for HTTP contract tests
+        if: ${{ !cancelled() && steps.seed-roles.outcome == 'success' }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned QA tools
+        id: qa-tools
+        if: ${{ !cancelled() && steps.seed-roles.outcome == 'success' }}
+        working-directory: .
+        run: |
+          python -m venv .qa/venv
+          .qa/venv/bin/pip install -r qa/requirements.txt
+          .qa/venv/bin/python -m pytest qa/tests -q
+          mkdir -p .qa/bin qa/reports
+          curl -fsSL --retry 3 https://github.com/grafana/k6/releases/download/v2.2.0/k6-v2.2.0-linux-amd64.tar.gz -o .qa/k6.tar.gz
+          echo 'b5a8003c86f35f5cd5ceef1490312c48e587696c94d998cefc6d7b3b4cb1597d  .qa/k6.tar.gz' | sha256sum -c -
+          tar -xzf .qa/k6.tar.gz --strip-components=1 -C .qa/bin
+          .qa/bin/k6 version
+      - name: Prepare QA data and export the running application's OpenAPI
+        id: qa-seed
+        if: ${{ !cancelled() && steps.qa-tools.outcome == 'success' }}
+        working-directory: .
+        env:
+          QA_CONFIRM: nexus-e2e
+        run: |
+          .qa/venv/bin/python qa/prepare.py
+          # OpenAPI is disabled publicly outside DEBUG. Export it inside the
+          # tested container instead of exposing a new endpoint in production.
+          docker compose -f docker-compose.e2e.yml exec -T backend python -c 'import json; from pathlib import Path; from app.main import app; Path("/tmp/qa-openapi.json").write_text(json.dumps(app.openapi()))'
+          docker compose -f docker-compose.e2e.yml exec -T backend cat /tmp/qa-openapi.json > .qa/openapi.json
+      - name: Schemathesis — five GET contracts and invalid pagination
+        if: ${{ !cancelled() && steps.qa-seed.outcome == 'success' }}
+        working-directory: .
+        env:
+          QA_CONFIRM: nexus-e2e
+        run: .qa/venv/bin/pytest qa/api -q --junitxml=qa/reports/schemathesis.xml
+      - name: k6 — recruitment, operations and reporting
+        if: ${{ !cancelled() && steps.qa-seed.outcome == 'success' }}
+        working-directory: .
+        env:
+          QA_CONFIRM: nexus-e2e
+          K6_PROFILE: ${{ inputs.k6_profile || 'smoke' }}
+        run: .qa/bin/k6 run qa/load/workflows.js
+      - name: Summarize QA results
+        if: ${{ !cancelled() && steps.qa-tools.outcome == 'success' }}
+        working-directory: .
+        run: .qa/venv/bin/python qa/summarize.py
+      - name: Publish QA evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nexus-qa-toolkit
+          # Never upload .qa/: it contains session tokens and private fixtures.
+          path: qa/reports/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Logi stacku przy porażce
         if: failure()
         working-directory: .

@@ -1,0 +1,4 @@
+# HTTP contract runner, isolated from the application dependencies.
+schemathesis==4.27.1
+hypothesis==6.168.0
+pytest==9.1.1
