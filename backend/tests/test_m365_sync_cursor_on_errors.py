@@ -17,6 +17,7 @@ Każdy scenariusz z błędem pada na kodzie sprzed poprawki (sprawdzone mutacją
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +33,8 @@ _OLD_EVENTS = (
     "https://graph.microsoft.com/v1.0/me/calendarView/delta?$deltatoken=old-events"
 )
 _NEW_LINK = "https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=new-window"
+_NEXT_PAGE = "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=page-2"
+_LATER_PAGE = "https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=page-3"
 
 
 class _FakeGraphClient:
@@ -60,6 +63,25 @@ class _FakeDB:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+    async def refresh(self, instance) -> None:
+        pass
+
+
+class _CheckpointDB(_FakeDB):
+    """Rollback restores the last committed cursor, as a real refresh does."""
+
+    def __init__(self, conn, fail_commit_on=0):
+        super().__init__(fail_commit_on)
+        self.conn = conn
+        self.committed = dict(vars(conn))
+
+    async def commit(self):
+        await super().commit()
+        self.committed = dict(vars(self.conn))
+
+    async def refresh(self, instance):
+        vars(instance).update(self.committed)
 
 
 def _conn() -> SimpleNamespace:
@@ -355,3 +377,81 @@ async def test_error_status_survives_the_whole_path_from_a_bad_page(
     assert conn.delta_token_inbox.endswith("$deltatoken=old-inbox")
     assert conn.delta_token_sent == _NEW_LINK
     assert conn.last_sync_status == M365SyncStatus.error
+
+
+async def test_interrupted_folder_resumes_after_last_committed_page(monkeypatch):
+    monkeypatch.setattr(sync_mod, "_upsert_message", _upsert_failing_on(set()))
+    conn = _conn()
+    db = _CheckpointDB(conn)
+
+    class InterruptedGraph:
+        async def paginate(self, url, params=None):
+            yield {"value": [{"id": "already-saved"}], "@odata.nextLink": _NEXT_PAGE}
+            raise asyncio.TimeoutError()
+
+    with pytest.raises(asyncio.TimeoutError):
+        await sync_mod._sync_messages_for_folder(
+            db,
+            InterruptedGraph(),
+            conn,
+            sync_mod.SyncResult(connection_id=1),
+            "Inbox",
+            "delta_token_inbox",
+            False,
+        )
+    assert db.committed["delta_token_inbox"] == _NEXT_PAGE
+    assert conn.backfill_completed_at is None
+
+    requested = []
+
+    class ResumingGraph:
+        async def paginate(self, url, params=None):
+            requested.append((url, params))
+            yield {"value": [{"id": "remaining"}], "@odata.deltaLink": _NEW_LINK}
+
+    result = sync_mod.SyncResult(connection_id=1)
+    await sync_mod._sync_messages_for_folder(
+        db, ResumingGraph(), conn, result, "Inbox", "delta_token_inbox", False
+    )
+    assert requested == [(_NEXT_PAGE, None)]
+    assert result.messages_ingested == 1
+    assert result.errors == 0
+    assert db.committed["delta_token_inbox"] == _NEW_LINK
+
+
+@pytest.mark.parametrize("failure", ["message", "commit"])
+async def test_checkpoint_never_passes_a_failed_page(monkeypatch, failure):
+    monkeypatch.setattr(
+        sync_mod,
+        "_upsert_message",
+        _upsert_failing_on({"bad"} if failure == "message" else set()),
+    )
+    conn = _conn()
+    db = _CheckpointDB(conn, fail_commit_on=2 if failure == "commit" else 0)
+    pages = [
+        {"value": [{"id": "saved"}], "@odata.nextLink": _NEXT_PAGE},
+        {"value": [{"id": "bad"}], "@odata.nextLink": _LATER_PAGE},
+        {"value": [{"id": "later"}], "@odata.deltaLink": _NEW_LINK},
+    ]
+    result = await _run_folder(db, conn, pages)
+    assert result.errors == 1
+    assert conn.delta_token_inbox == _NEXT_PAGE
+    assert db.committed["delta_token_inbox"] == _NEXT_PAGE
+
+
+async def test_page_cursor_does_not_mark_backfill_complete(monkeypatch):
+    async def noop_folder(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(sync_mod, "_sync_messages_for_folder", noop_folder)
+    conn = _conn()
+    conn.delta_token_inbox = _NEXT_PAGE
+    result = sync_mod.SyncResult(connection_id=1)
+    await sync_mod._sync_messages(_FakeDB(), None, conn, result)
+    assert conn.backfill_completed_at is None
+    assert conn.synced_through is None
+
+    conn.delta_token_inbox = _NEW_LINK
+    await sync_mod._sync_messages(_FakeDB(), None, conn, result)
+    assert conn.backfill_completed_at is not None
+    assert conn.synced_through is not None

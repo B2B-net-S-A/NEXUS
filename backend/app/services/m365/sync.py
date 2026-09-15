@@ -294,7 +294,7 @@ async def _sync_messages(
         ("SentItems", "delta_token_sent"),
     ]
 
-    any_backfill = False
+    any_backfill = conn.backfill_completed_at is None
 
     for folder, cursor_attr in folder_specs:
         is_backfill = getattr(conn, cursor_attr) is None
@@ -313,9 +313,11 @@ async def _sync_messages(
                 raise
 
     if any_backfill:
-        # Mark backfill complete only when ALL folders have a cursor (i.e. no
-        # folder is still in "first time" mode after this run).
-        if conn.delta_token_inbox is not None and conn.delta_token_sent is not None:
+        # Only final deltaLinks acknowledge a completed folder. A nextLink
+        # resumes an unfinished page sequence and must not complete backfill.
+        if _is_valid_delta_link(conn.delta_token_inbox) and _is_valid_delta_link(
+            conn.delta_token_sent
+        ):
             conn.backfill_completed_at = datetime.now(timezone.utc)
             conn.synced_through = datetime.now(timezone.utc)
             await db.commit()
@@ -336,6 +338,13 @@ def _is_valid_delta_link(url: Optional[str]) -> bool:
     if not url:
         return False
     return url.startswith("https://graph.microsoft.com/") and "$deltatoken=" in url
+
+
+def _is_valid_page_link(url: Optional[str]) -> bool:
+    """An opaque Graph nextLink can resume an unfinished delta round."""
+    return bool(
+        url and url.startswith("https://graph.microsoft.com/") and "$skiptoken=" in url
+    )
 
 
 async def _on_delta_invalidation(
@@ -399,7 +408,7 @@ async def _sync_messages_for_folder(
     """Phase 2.5 — `cursor_attr` is "delta_token_inbox" or "delta_token_sent",
     so each folder maintains its own deltaLink independently."""
     existing_cursor = getattr(conn, cursor_attr)
-    if _is_valid_delta_link(existing_cursor):
+    if _is_valid_delta_link(existing_cursor) or _is_valid_page_link(existing_cursor):
         url = existing_cursor
         params = None
     else:
@@ -428,6 +437,7 @@ async def _sync_messages_for_folder(
     # strony). Licznik jest wspólny dla całego przebiegu, więc porównujemy
     # różnicę, nie wartość bezwzględną.
     errors_before = result.errors
+    connection_id = conn.id
 
     async for page in gc.paginate(url, params=params):
         for msg in page.get("value", []):
@@ -449,14 +459,21 @@ async def _sync_messages_for_folder(
         # znacznie mniej prawdopodobne; gdy jednak wystąpi, rollback przywraca
         # sesję do stanu używalnego i sync leci dalej zamiast się urwać.
         try:
+            # Persist the resume point atomically with the page's rows. After
+            # any error in this folder, retain the last clean page so retry
+            # cannot skip a failed message, even if later pages succeed.
+            next_link = page.get("@odata.nextLink")
+            if result.errors == errors_before and _is_valid_page_link(next_link):
+                setattr(conn, cursor_attr, next_link)
             await db.commit()
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "m365 conn %s: page commit failed for %s — page dropped",
-                conn.id,
+                connection_id,
                 folder,
             )
             await db.rollback()
+            await db.refresh(conn)
             result.errors += 1
             if len(result.error_samples) < 20:
                 result.error_samples.append(f"page-commit: {exc!r}")
@@ -464,11 +481,8 @@ async def _sync_messages_for_folder(
             last_delta_link = page["@odata.deltaLink"]
 
     if result.errors > errors_before:
-        # Kursor zostaje w miejscu: deltaLink przychodzi wyłącznie na
-        # ostatniej stronie okna, więc nie ma „linku po ostatniej czystej
-        # stronie" — zapisanie go potwierdziłoby Graphowi także te zmiany,
-        # które właśnie przepadły. Następny przebieg pobierze to okno jeszcze
-        # raz; `_upsert_message` szuka po `m365_message_id`, więc bez duplikatów.
+        # The final deltaLink must not acknowledge a failed page. Keep the
+        # last committed nextLink (or the original cursor if none succeeded).
         logger.warning(
             "m365 conn %s: %s had %d import error(s) — delta cursor NOT advanced",
             conn.id,
