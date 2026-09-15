@@ -234,3 +234,32 @@ def test_e2e_specs_have_no_weak_assertions_or_parked_cases() -> None:
             if needle in text:
                 offenders.append(f"{spec.name}: {needle}")
     assert offenders == []
+
+
+def test_every_run_block_in_quality_workflows_is_valid_bash() -> None:
+    """Niezbalansowany cudzysłów w komunikacie `::error::` wywalił job zbiorczy
+    „Backend (pytest)" kodem 2 przy dwóch zielonych wejściach (PR planu poprawy
+    QA, 15.09.2026). `bash -n` łapie to przed wypchnięciem."""
+    import re
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    assert bash, "bash jest wymagany do kontroli składni workflowów"
+    broken: list[str] = []
+    for name in ("ci.yml", "e2e.yml"):
+        for job_id, job in _load(name)["jobs"].items():
+            for step in job.get("steps", []):
+                script = step.get("run")
+                if not script:
+                    continue
+                # Wyrażenia GitHuba nie są bashem — zastępujemy je słowem.
+                script = re.sub(r"\$\{\{.*?\}\}", "EXPR", script)
+                result = subprocess.run(
+                    [bash, "-n"], input=script, capture_output=True, text=True
+                )
+                if result.returncode != 0:
+                    broken.append(
+                        f"{name}:{job_id}:{step.get('name')}: {result.stderr.strip()}"
+                    )
+    assert broken == []

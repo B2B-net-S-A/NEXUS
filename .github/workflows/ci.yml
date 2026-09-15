@@ -323,7 +323,7 @@ jobs:
             exit 1
           fi
           if [ "$coverage" != "success" ]; then
-            echo "::error::Bramka pokrycia backendu nie przeszła (result=$coverage) — szczegóły w jobie „Backend (coverage combine)"."
+            echo "::error::Bramka pokrycia backendu nie przeszła (result=$coverage) — szczegóły w jobie „Backend (coverage combine)”."
             exit 1
           fi
 
