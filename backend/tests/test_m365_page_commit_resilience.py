@@ -44,6 +44,7 @@ class _FlakyDB:
         self.fail_on = fail_on
         self.commits = 0
         self.rollbacks = 0
+        self.refreshes = 0
 
     async def commit(self) -> None:
         self.commits += 1
@@ -52,6 +53,9 @@ class _FlakyDB:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+    async def refresh(self, instance) -> None:
+        self.refreshes += 1
 
 
 def _connection() -> SimpleNamespace:
@@ -100,6 +104,7 @@ async def test_failed_page_commit_is_contained_counted_and_rolled_back(monkeypat
     assert db.rollbacks == 1, (
         "sesja nie została przywrócona — następna strona pada tak samo"
     )
+    assert db.refreshes == 1
     assert result.errors == 1, (
         "utrata strony maili musi być policzona, nie przemilczana"
     )
@@ -137,5 +142,6 @@ async def test_healthy_pages_do_not_roll_back_anything(monkeypatch):
     )
 
     assert db.rollbacks == 0
+    assert db.refreshes == 0
     assert result.errors == 0
     assert result.messages_ingested == 1
