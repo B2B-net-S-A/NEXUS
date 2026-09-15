@@ -34,7 +34,7 @@
     "backend/app/services/order_mail_planner.py": "e7af2743141058d8d8ad65755bf9465a0e5c92bcf34a91306935b64383711e34",
     "backend/app/services/order_mail_resolver.py": "8d104dea0c0e0a4f6825a732654195ce4930a1067fa40a4e022a13943a49fb8a",
     "backend/app/services/order_md_exhaustion.py": "604d9a74b205218b25805020e49f1df88ee67a410a7f6132c6330fe722590618",
-    "backend/app/services/order_pdf_parser.py": "d0397d4cfd7916fffe66fa2a50bc9b4b3ea61585d69100daef86b9eec2ab3a51",
+    "backend/app/services/order_pdf_parser.py": "9e5ab8ffc46c6f9af041879081e62e075c5a7a5400c129aae5b3d1b3c4360d86",
     "backend/app/services/order_policies/_shared.py": "9728f941d0001d0f17e29886595678ed8dc257b4714cbf1eeb113f18488e25b1",
     "backend/app/services/order_policies/alior.py": "a1e5548277a66ab7a46f80cf6acc76a09bb6d232dfd66c87a8e097518d288c89",
     "backend/app/services/order_policies/bank_pocztowy.py": "0e2867e7938452abf1ea0485431ec0cf38cfdd8c66e943b308ed8754cec77435",
