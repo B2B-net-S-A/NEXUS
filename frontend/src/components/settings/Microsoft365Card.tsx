@@ -14,6 +14,7 @@ import {
 
 import { microsoft365Api } from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
+import { m365SyncErrorMessage } from "@/lib/m365-sync-error";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
 export default function Microsoft365Card() {
@@ -63,6 +64,7 @@ export default function Microsoft365Card() {
   const connected = !!status?.connected;
   const backfillInProgress = connected && status?.backfill_in_progress;
   const hasError = connected && !!status?.last_error;
+  const syncError = m365SyncErrorMessage(status?.last_error_code);
   const requiresReconnect = !!status?.requires_reconnect;
 
   return (
@@ -182,9 +184,17 @@ export default function Microsoft365Card() {
       {/* Sync error banner. */}
       {hasError && (
         <Alert
-          variant="error"
-          title="Błąd synchronizacji"
-          description={status?.last_error}
+          variant={syncError.variant}
+          title={syncError.title}
+          description={
+            <>
+              <span className="block">{syncError.description}</span>
+              <details className="mt-1 text-xs opacity-80">
+                <summary className="cursor-pointer">Szczegóły techniczne</summary>
+                <code className="mt-1 block break-all">{status?.last_error}</code>
+              </details>
+            </>
+          }
           className="mb-4"
         />
       )}

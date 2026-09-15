@@ -49,6 +49,7 @@ from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365 import webhooks as m365_webhooks
 from app.services.m365.calendar import get_free_busy
+from app.services.m365.error_codes import M365ErrorCode, classify_m365_error
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.sync import sync_connection, trigger_backfill
 
@@ -117,6 +118,9 @@ class ConnectionStatus(BaseModel):
     synced_through: Optional[datetime] = None
     last_sync_status: Optional[str] = None
     last_error: Optional[str] = None
+    # Kod do polskiego komunikatu w karcie (UAT B61); `last_error` zostaje
+    # jako szczegół techniczny.
+    last_error_code: Optional[M365ErrorCode] = None
     backfill_in_progress: bool = False
     # True when a previously-connected mailbox needs the user to re-run OAuth
     # (e.g. encryption key rotated server-side, or Microsoft revoked the
@@ -328,6 +332,7 @@ async def get_connection(
                 mailbox_upn=conn.mailbox_upn,
                 last_sync_status=conn.last_sync_status.value,
                 last_error=conn.last_error,
+                last_error_code=classify_m365_error(conn.last_error),
                 requires_reconnect=True,
             )
         return ConnectionStatus(connected=False)
@@ -338,6 +343,7 @@ async def get_connection(
         synced_through=conn.synced_through,
         last_sync_status=conn.last_sync_status.value if conn.last_sync_status else None,
         last_error=conn.last_error,
+        last_error_code=classify_m365_error(conn.last_error),
         backfill_in_progress=conn.backfill_completed_at is None,
     )
 

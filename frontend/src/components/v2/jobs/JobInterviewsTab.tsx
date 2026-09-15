@@ -108,6 +108,8 @@ export interface JobInterviewsTabProps {
   /** `isSuccess` zapytania kanbana — pusty stan wolno pokazać tylko po nim. */
   columnsSuccess?: boolean;
   onColumnsRetry?: () => void;
+  /** Budżet PLN/h rekrutacji — ta sama kwota co nagłówek (`jobBudgetHourly`). */
+  budgetHourly?: number | null;
 }
 
 interface SelectedEntry {
@@ -124,6 +126,7 @@ export function JobInterviewsTab({
   columnsError,
   columnsSuccess = true,
   onColumnsRetry,
+  budgetHourly = null,
 }: JobInterviewsTabProps) {
   const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
@@ -550,6 +553,7 @@ export function JobInterviewsTab({
             item={selected.item}
             jobId={jobId}
             jobTitle={jobTitle}
+            budgetHourly={budgetHourly}
             currentStageLabel={columnLabel(selected.col)}
             moveTargets={moveTargets}
             readOnly={readOnly}

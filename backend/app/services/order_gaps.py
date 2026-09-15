@@ -5,6 +5,8 @@ Reguła (ticket Finansów, decyzje Artura 14.09):
 * wpis powstaje DZIEŃ PO dacie końca zamówienia (``detected_on = koniec + 1``),
   gdy ta sama osoba nie ma u tego klienta zamówienia trwającego po tej dacie
   — aktywnego, przyszłego ani szkicu (``order_facts.successor_of``);
+* następca dodany do końca dnia wykrycia jest NA CZAS (decyzja 15.09.2026) —
+  taki wpis nie powstaje, a uzupełniony tego samego dnia nie trafia do raportu;
 * świadomy koniec nie jest brakiem: wypowiedziana umowa, zamiana kontraktora,
   decyzja offboardingu MD, „usuń z zamówienia" / „zostaw jako historię"
   (``order_facts.load_ending_intents``);
@@ -197,8 +199,10 @@ async def detect_order_gaps(
             continue
         detected_on = fact.end + timedelta(days=1)
         successor = successor_of(fact, siblings_of(fact, siblings))
+        # Następca dodany do końca dnia wykrycia jest na czas (decyzja
+        # 15.09.2026, UAT B69): „0 dni po terminie” nie jest opóźnieniem.
         if successor is not None and successor.created_at < local_day_start(
-            detected_on
+            detected_on + timedelta(days=1)
         ):
             continue  # następca był na czas — to nie jest brak
         values = {

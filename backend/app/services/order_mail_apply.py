@@ -46,6 +46,7 @@ from app.services.order_mail_planner import (
     ACTION_REACTIVATE,
     ACTION_UNCHANGED,
     AUTO_ACTIONS,
+    renewal_gap_phrase,
 )
 from app.services.order_pdf_parser import _names_exactly_equivalent
 from app.services.order_rate_snapshots import (
@@ -252,7 +253,7 @@ async def _renewal_of_completed_order(
         "previous_end_date": previous.end_date.isoformat(),
         "gap_days": gap_days,
         "message": (
-            f"Powrót po {gap_days} dniach od zakończenia poprzedniego zamówienia "
+            f"{renewal_gap_phrase(gap_days)} od zakończenia poprzedniego zamówienia "
             f"#{previous.id} — nowe zamówienie, poprzednie bez zmian"
         ),
     }

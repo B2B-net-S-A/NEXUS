@@ -230,7 +230,7 @@ def test_prose_template_carries_no_score_and_forbids_quoting_one():
     template has no `{score}` and both prompts say not to cite points, scores
     or percentages — while the breakdown stays available as input."""
     template = mjs.MATCH_JUSTIFICATION
-    assert template.version == 2
+    assert template.version >= 2
     assert "{score}" not in template.template
     assert "{score_breakdown}" in template.template
     assert "NIE cytuj z niego liczb" in template.template
@@ -248,6 +248,37 @@ def test_prompt_inputs_are_exactly_the_template_placeholders():
     }
     inputs = mjs._prompt_inputs(make_candidate(), make_job(), make_breakdown())
     assert set(inputs) == placeholders
+
+
+def test_known_location_and_work_mode_reach_the_prompt():
+    """UAT B59: profil z miastem i trybem pracy dostawał uzasadnienie, że
+    lokalizacja i tryb pracy są nieznane — model ich po prostu nie dostawał."""
+    candidate = make_candidate(
+        city="Łódź",
+        country="PL",
+        preferences={"remote_modes": ["hybrid", "remote"]},
+        max_onsite_days_per_week=2,
+        notice_period=1,
+        notice_period_unit="months",
+    )
+    job = make_job(location="Warszawa", remote_policy="hybrid", onsite_days_per_week=3)
+    inputs = mjs._prompt_inputs(candidate, job, make_breakdown())
+
+    assert "Łódź, PL" in inputs["candidate_work_facts"]
+    assert "hybrydowo, zdalnie" in inputs["candidate_work_facts"]
+    assert "maks. dni w biurze/tydz.: 2" in inputs["candidate_work_facts"]
+    assert "1 mies." in inputs["candidate_work_facts"]
+    assert "Warszawa" in inputs["job_work_facts"]
+    assert "tryb: hybrydowo" in inputs["job_work_facts"]
+    rendered = mjs.MATCH_JUSTIFICATION.template.format(**inputs)
+    assert "Łódź, PL" in rendered
+    assert "brak danych kandydata" in mjs.MATCH_JUSTIFICATION.system_prompt
+
+
+def test_missing_facts_are_named_as_missing_on_the_right_side():
+    inputs = mjs._prompt_inputs(make_candidate(), make_job(), make_breakdown())
+    assert "lokalizacja: (brak w profilu)" in inputs["candidate_work_facts"]
+    assert "lokalizacja: (brak w ofercie)" in inputs["job_work_facts"]
 
 
 def test_bumping_the_prompt_version_regenerates_cached_prose(monkeypatch):

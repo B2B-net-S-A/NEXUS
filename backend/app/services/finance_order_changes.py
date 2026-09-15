@@ -42,7 +42,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract
 from app.models.order_change_event import OrderChangeEvent
-from app.models.order_gap import GAP_STATUS_OPEN, OrderGap
+from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderGap
 from app.models.user import User
 from app.schemas.finance_order_changes import (
     OrderChangeItem,
@@ -463,6 +463,10 @@ async def _gaps(db: AsyncSession, window: MonthWindow) -> list[OrderGapItem]:
         delay = None
         if gap.resolved_at is not None:
             delay = (gap.resolved_at.astimezone(zone).date() - gap.detected_on).days
+        if gap.status == GAP_STATUS_FILLED_LATE and delay is not None and delay <= 0:
+            # Uzupełnione w dniu wykrycia = na czas (UAT B69) — wpis zostaje
+            # w bazie (pętla mogła go założyć rano), ale nie jest brakiem.
+            continue
         items.append(
             OrderGapItem(
                 gap_id=gap.id,

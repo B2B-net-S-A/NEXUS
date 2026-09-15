@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { formatExpectedRate, moveBlockedReason } from "@/lib/pipeline-flow";
+import { formatBudgetHourly } from "@/lib/job-budget";
 import {
   colId,
   type KanbanColumn,
@@ -153,6 +154,12 @@ export interface InterviewDecisionDockProps {
    * kolumna obok.
    */
   stageLabel: (row: { stage: string; stage_def_id?: number | null }) => string;
+  /**
+   * Budżet PLN/h rekrutacji (`jobBudgetHourly`) — ta sama kwota co nagłówek.
+   * `budget_max_at_move` to migawka miesięcznych widełek z chwili ruchu,
+   * pusta w rekrutacjach z samym budżetem godzinowym (UAT B72).
+   */
+  budgetHourly?: number | null;
 }
 
 export function InterviewDecisionDock({
@@ -168,6 +175,7 @@ export function InterviewDecisionDock({
   rejectedColumn,
   withdrawnColumn,
   stageLabel,
+  budgetHourly = null,
 }: InterviewDecisionDockProps) {
   const [activeTab, setActiveTab] = useState<DockTab>("decision");
 
@@ -326,9 +334,14 @@ export function InterviewDecisionDock({
                   {
                     k: "Budżet rekrutacji",
                     v:
-                      item.budget_max_at_move != null ? (
+                      budgetHourly != null ? (
                         <span className="tabular-nums">
-                          do {item.budget_max_at_move}
+                          do {formatBudgetHourly(budgetHourly)} PLN/h
+                        </span>
+                      ) : item.budget_max_at_move != null ? (
+                        <span className="tabular-nums">
+                          do {item.budget_max_at_move.toLocaleString("pl-PL")} PLN/mies.{" "}
+                          <span className="text-muted-foreground">(w chwili przesunięcia)</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">brak danych</span>

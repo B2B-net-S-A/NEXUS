@@ -4165,6 +4165,51 @@ async def update_candidate_document(
     return doc
 
 
+@router.post("/{candidate_id}/cv/reparse", status_code=202)
+@limiter.limit("10/minute")
+async def reparse_primary_cv(
+    request: Request,
+    candidate_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ponów odczyt głównego CV do profilu (UAT B12).
+
+    Odczyt po wgraniu idzie w tle i przy pustym tekście, błędzie parsera albo
+    imporcie bez parsowania kończy się po cichu. Profil mówił wtedy „dane
+    z CV nie są jeszcze w profilu” bez żadnego następnego kroku. To ta sama
+    ścieżka co wgranie pliku i ustawienie go jako głównego — bramka tożsamości
+    i kwota AI działają bez zmian.
+    """
+
+    if (
+        await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Kandydat nie ma głównego pliku CV do odczytania.",
+        )
+    background_tasks.add_task(
+        _enrich_candidate_from_document_task,
+        candidate_id,
+        document.id,
+        document.content_sha256,
+    )
+    return {"status": "queued", "document_id": document.id}
+
+
 @router.get("/{candidate_id}/documents/{doc_id}/content")
 async def download_candidate_document(
     candidate_id: int,
