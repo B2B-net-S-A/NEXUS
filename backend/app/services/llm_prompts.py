@@ -217,7 +217,10 @@ ORDER_EXTRACTION = PromptTemplate(
     # zlecenia) nie ma MD z definicji, a MD bywa jedną liczbą na całe
     # zamówienie zamiast przy osobach. v5 zgłaszał wtedy „brak informacji
     # o liczbie MD" i zerował stawkę wiersza, choć ta była w dokumencie.
-    version=6,
+    # v7 (UAT B77): KAŻDY powód niepewności po polsku — wierszowy
+    # `uncertain_reason` wracał po angielsku („kept as printed”) i trafiał
+    # wprost do kolejki poczty zamówień.
+    version=7,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -250,7 +253,7 @@ ORDER_EXTRACTION = PromptTemplate(
         "including its table header. Never infer this from the client identity. "
         "Copy gross amounts unchanged: the server converts them to net using "
         "the document. Never divide by VAT yourself. If the marking is absent "
-        "or conflicting, explain that in uncertain_reasons/uncertain_reason.\n"
+        "or conflicting, explain that IN POLISH in uncertain_reasons/uncertain_reason.\n"
         '  "rate_unit": the unit of rate_client — one of "hour"|"day"|"month" '
         "(godzina/roboczodzień-MD/miesiąc) or null if not stated.\n"
         '  "total_value": total order value as a plain number, only if the document '
@@ -278,7 +281,7 @@ ORDER_EXTRACTION = PromptTemplate(
         "rate_client is the FINAL rate the client pays, not the base or the margin. "
         "Set uncertain=true whenever the name-to-values binding is not explicit and "
         "unambiguous; in that case keep rate_client, rate_unit and md_total null and "
-        "explain why in uncertain_reason. Do not include table headers without a "
+        "explain why in a short Polish uncertain_reason. Do not include table headers without a "
         "person's name. Repeated identical rows may be returned once.\n"
         '  "currency": ISO 4217 code ("PLN"|"EUR"|"USD") if present, else null.\n'
         '  "_confidence": object mapping each field above to a float 0.0-1.0 — 0.95+ '
@@ -287,7 +290,9 @@ ORDER_EXTRACTION = PromptTemplate(
         '  "uncertain": boolean — true if ANY field was missing, ambiguous, had '
         "several plausible candidates, or looked atypical/incomplete.\n"
         '  "uncertain_reasons": list of short Polish strings naming what is unsure '
-        '(e.g. "Nie znaleziono jednoznacznej daty końca"). Empty list if fully confident.\n\n'
+        '(e.g. "Nie znaleziono jednoznacznej daty końca"). Empty list if fully confident. '
+        "Every reason text in this JSON — uncertain_reasons AND each row's "
+        "uncertain_reason — must be written in Polish, never in English.\n\n"
         "TARGET RULE: when TARGET CONSULTANT is provided or LIST ALL CONSULTANTS is "
         "yes, set the top-level rate_client, rate_unit and md_total to null — with "
         "several people the document-level values mean nothing. The server selects "
@@ -662,7 +667,10 @@ MATCH_JUSTIFICATION = PromptTemplate(
     # generated from the legacy breakdown — so the prose must never state a
     # number (it would contradict the ring). The version is part of the cache
     # hash: stored v1 prose regenerates lazily on the next view.
-    version=2,
+    # v3 (UAT B59): the candidate's location, work modes and availability and
+    # the offer's location/work mode go in explicitly — without them the prose
+    # called a known location and work mode „unknown”.
+    version=3,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji staffing. Oceniasz "
@@ -685,7 +693,11 @@ MATCH_JUSTIFICATION = PromptTemplate(
         "dopasowania (np. „72/100”) ani procentów dopasowania — ani łącznie, ani "
         "dla pojedynczych obszarów. Liczbę dopasowania pokazuje interfejs i może "
         "się ona różnić od rozbicia punktacji. Rozbicie traktuj wyłącznie jako "
-        "wskazówkę, które obszary są mocne, a które słabe, i opisz to słowami."
+        "wskazówkę, które obszary są mocne, a które słabe, i opisz to słowami.\n"
+        "(7) Lokalizację, tryb pracy i dostępność bierz z sekcji „Lokalizacja i "
+        "tryb pracy” oferty i kandydata. Nie pisz, że dana kandydata jest "
+        "nieznana, jeśli ją podano. Odróżniaj brak danych kandydata od braku "
+        "wymagania w ofercie — to dwie różne rzeczy do potwierdzenia."
     ),
     template=(
         "OFERTA\n"
@@ -695,9 +707,11 @@ MATCH_JUSTIFICATION = PromptTemplate(
         "  {job_requirements}\n"
         "  ---\n"
         "  Kontekst od klienta / Profil Championa:\n"
-        "  {champion_context}\n\n"
+        "  {champion_context}\n"
+        "  Lokalizacja i tryb pracy oferty: {job_work_facts}\n\n"
         "KANDYDAT\n"
         "  Kategoria kompetencji: {competence_category}\n"
+        "  Lokalizacja i tryb pracy (z profilu): {candidate_work_facts}\n"
         "  Podsumowanie AI: {candidate_summary}\n"
         "  Umiejętności (z profilu): {candidate_skills}\n"
         "  Treść CV (skrócona):\n"

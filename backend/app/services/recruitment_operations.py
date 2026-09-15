@@ -59,7 +59,10 @@ from app.schemas.recruitment_operations import (
     RecruitmentOperationsSummary,
     SimilarityStatus,
 )
-from app.services.client_identity import client_display_name_expression
+from app.services.client_identity import (
+    client_display_name_expression,
+    job_client_listed_clause,
+)
 from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.services.similar_job_candidates import SimilarJobRef, fetch_similar_jobs
 
@@ -155,7 +158,11 @@ def _job_filters(
     category_id: int | None = None,
     mine_only: bool = False,
 ) -> list[object]:
-    filters: list[object] = [Job.status == JobStatus.published]
+    filters: list[object] = [
+        Job.status == JobStatus.published,
+        # Techniczny kubeł importu nie jest procesem rekrutacyjnym (UAT B73).
+        job_client_listed_clause(Job.client_id),
+    ]
     if scope.preset == "finance":
         # Finance has an explicit organization-wide read preset.  Keep this
         # separate from ownership-based command policy: seeing a process here

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -318,6 +318,12 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
     expect(recruitment).toHaveValue("");
     expect(
       screen.queryByRole("button", { name: "Wyczyść rekrutację" }),
+    ).not.toBeInTheDocument();
+
+    // Po wyborze innego klienta lista nie oferuje rekrutacji poprzedniego
+    // (retest UAT B24: dało się ją wybrać ponownie z listy).
+    expect(
+      within(recruitment).queryByRole("option", { name: "Backend Engineer" }),
     ).not.toBeInTheDocument();
 
     // Rekrutacja bez klienta nie jest sprzeczna z żadnym — zostaje.

@@ -90,6 +90,47 @@ _TARGET_CONTEXT_RADII = (1800, 900, 450, 180)
 # Poniżej tego progu ufności pole współtworzy „uncertain".
 _LOW_CONFIDENCE = 0.6
 
+# Powód niepewności modelu trafia do polskiego interfejsu. Prompt wymaga
+# polskiego, ale wierszowy `uncertain_reason` wracał po angielsku („kept as
+# printed”, UAT B77). Tekst z angielskimi słowami i bez polskich zastępujemy
+# ogólną wskazówką — sama niepewność zostaje.
+_ENGLISH_REASON_WORDS = re.compile(
+    r"\b(?:the|as|is|are|was|not|no|and|of|with|without|printed|kept|unclear|"
+    r"missing|ambiguous|binding|found|value|values|row|rows|rate|gross|net|"
+    r"marked|stated|unit|period|name|could|cannot)\b",
+    re.IGNORECASE,
+)
+_POLISH_REASON_WORDS = re.compile(
+    r"(?:[ąćęłńóśźż]|\b(?:nie|brak|jest|stawk\w*|dat\w*|okres\w*|zamówi\w*|"
+    r"zamowi\w*|osob\w*|nazwisk\w*|kwot\w*|odczyt\w*|wiersz\w*|dokument\w*)\b)",
+    re.IGNORECASE,
+)
+MODEL_REASON_FALLBACK_PL = "Sprawdź wartości odczytane z dokumentu"
+
+
+def _polish_model_reason(reason: Optional[str]) -> Optional[str]:
+    """Powód modelu po polsku; angielski zastąpiony ogólną wskazówką."""
+    if not reason:
+        return reason
+    if _ENGLISH_REASON_WORDS.search(reason) and not _POLISH_REASON_WORDS.search(reason):
+        return MODEL_REASON_FALLBACK_PL
+    return reason
+
+
+def polish_gate_reason(reason: str) -> str:
+    """Zapisany powód bramki („Odczyt niepewny: …”) z tekstem modelu po polsku.
+
+    Kolejka czyta `gate_reasons` zapisane przy odczycie maila — dokumenty
+    przeczytane przed poprawką promptu niosą angielski tekst i bez tego
+    pokazywałyby go do ponownego przeliczenia planu.
+    """
+    prefix = "Odczyt niepewny: "
+    if reason.startswith(prefix):
+        rest = _polish_model_reason(reason[len(prefix) :]) or ""
+        return prefix + rest
+    return reason
+
+
 # Etykiety PL pól — do komunikatów „Sprawdź dane!".
 _FIELD_LABELS_PL: dict[str, str] = {
     "title": "tytuł/numer zamówienia",
@@ -429,8 +470,8 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
             consultant_name = _clean_str(raw_row.get("consultant_name"))
             if not consultant_name:
                 continue
-            row_uncertain_reason = _clean_str(
-                raw_row.get("uncertain_reason"), max_len=200
+            row_uncertain_reason = _polish_model_reason(
+                _clean_str(raw_row.get("uncertain_reason"), max_len=200)
             )
             consultant_rows.append(
                 ConsultantOrderRow(
@@ -468,7 +509,9 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
     # Cap ilości (6) ORAZ długości pojedynczego powodu (200) — swobodny tekst
     # od Claude bywa długi i trafia wprost do listy w banerze na FE.
     llm_reasons = (
-        [str(r)[:200] for r in reasons if r][:6] if isinstance(reasons, list) else []
+        [_polish_model_reason(str(r)[:200]) for r in reasons if r][:6]
+        if isinstance(reasons, list)
+        else []
     )
     uncertain, extra = _assess_uncertainty(result, llm_flag=bool(data.get("uncertain")))
     result.uncertain = uncertain

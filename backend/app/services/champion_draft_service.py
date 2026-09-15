@@ -913,6 +913,31 @@ def _merge_section(section: str, current: Any, proposed: Any) -> Any:
     return current
 
 
+def _sync_job_columns_from_applied_sections(job: Job, sections: list[str]) -> None:
+    """Przenieś zaakceptowany stack i podstawy do kolumn oferty (UAT B62).
+
+    Lustro `update_champion_profile`: kolumny `must_skills`/`nice_skills` oraz
+    `rate_budget_hourly`/`onsite_days_per_week`/`remote_policy`/`location`
+    czytają AI Matching, dealbreakery i bramka handoffu. Akceptacja szkicu
+    zapisywała sam profil, więc rekrutacja z uzupełnionym Championem pokazywała
+    „Musi mieć · 0” i „budżet nieokreślony”. Czytamy profil PO zapisie, bo
+    `user_edit` go normalizuje; stawka i dni wypełniają tylko puste kolumny.
+    """
+    from app.services.champion_intake import sync_skill_column
+    from app.services.champion_job_sync import fill_job_columns_from_champion
+
+    profile = ChampionProfile.model_validate(job.champion_profile or {})
+    if "stack" in sections:
+        for key in ("must", "nice"):
+            items = [
+                {"name": item.name, "level": None}
+                for item in getattr(profile.stack, key)
+            ]
+            sync_skill_column(job, key, items)
+    if "basics" in sections:
+        fill_job_columns_from_champion(job, profile.basics.model_dump())
+
+
 async def apply_suggestion(
     db: AsyncSession,
     *,
@@ -983,6 +1008,7 @@ async def apply_suggestion(
         "champion_profile",
         user_edit(job.champion_profile, validated.model_dump(mode="json"), user_id),
     )
+    _sync_job_columns_from_applied_sections(job, merged_sections)
 
     # Status: full accept iff all sections with value=non-null were accepted,
     # otherwise partially_accepted.
