@@ -80,14 +80,17 @@ export function OrderChangesPanel({
 
   return (
     <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Poniżej `xl` podzakładki idą w osobnym wierszu nad miesiącem i eksportem —
+          w jednym wierszu na laptopie (~1000 px) „Braki" chowały się za
+          przewijaniem, czyli akurat podzakładka, o którą chodzi. */}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <TabbedNav
           tabs={tabs}
           value={subTab}
           onValueChange={(next) => onSubTabChange(next as OrderChangesSubTab)}
           ariaLabel="Rodzaj zmian w zamówieniach"
           overflow="scroll"
-          className="w-auto min-w-0 flex-1"
+          className="min-w-0 xl:w-auto xl:flex-1"
           listClassName="w-auto"
         />
         <div className="flex flex-wrap items-center gap-2">

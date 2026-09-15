@@ -243,10 +243,13 @@ export function gapDetails(item: OrderGapItem): string {
 
 export function gapStatusLabel(item: OrderGapItem): string {
   if (item.status === "open") return "Brak zamówienia";
+  const days = item.delay_days;
   const delay =
-    item.delay_days === null || item.delay_days === undefined
+    days === null || days === undefined
       ? ""
-      : ` (${item.delay_days} ${item.delay_days === 1 ? "dzień" : "dni"} po terminie)`;
+      : days === 0
+        ? " (w dniu wykrycia braku)"
+        : ` (${days} ${days === 1 ? "dzień" : "dni"} po terminie)`;
   return `Uzupełnione z opóźnieniem: zam. ${item.resolved_order_number ?? "—"}${delay}`;
 }
 
