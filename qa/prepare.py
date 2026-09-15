@@ -25,6 +25,15 @@ def stack_url() -> str:
     return url
 
 
+def write_private_json(path: Path, value: dict) -> None:
+    with open(
+        path, "w", opener=lambda name, flags: os.open(name, flags, 0o600)
+    ) as handle:
+        # A previous interrupted run may have left a file with wider permissions.
+        os.fchmod(handle.fileno(), 0o600)
+        json.dump(value, handle)
+
+
 def main() -> None:
     base = stack_url()
     password = os.environ["E2E_USER_PASSWORD"]
@@ -158,10 +167,7 @@ def main() -> None:
     }
     path = Path(".qa/workload.json")
     path.parent.mkdir(exist_ok=True)
-    with path.open(
-        "w", opener=lambda name, flags: os.open(name, flags, 0o600)
-    ) as handle:
-        json.dump(result, handle)
+    write_private_json(path, result)
     # Separate public metadata, with neither tokens nor individual records.
     Path("qa/reports").mkdir(parents=True, exist_ok=True)
     Path("qa/reports/workload.json").write_text(
