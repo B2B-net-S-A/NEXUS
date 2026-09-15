@@ -37,6 +37,12 @@ class _FakeDB:
     async def commit(self) -> None:
         self.commits += 1
 
+    async def rollback(self) -> None:
+        pass
+
+    async def refresh(self, instance) -> None:
+        pass
+
 
 class _FakeGraphClient:
     def __init__(self, conn, db):  # noqa: D107 — atrapa
