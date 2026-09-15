@@ -379,7 +379,9 @@ function RateSchedule({
   // ostatni — więc wcześniejszy krok z tą samą datą nigdy nie obowiązuje.
   const sorted = [...entries].sort((a, b) => a.effective_from.localeCompare(b.effective_from));
   const past = sorted.filter((entry) => entry.effective_from <= today);
-  const currentId = (past.length ? past[past.length - 1] : sorted[0]).id;
+  // Gdy żaden krok jeszcze nie obowiązuje, żaden nie jest „aktualny” — dotąd
+  // etykietę dostawał pierwszy PRZYSZŁY krok (retest prod 15.09.2026, B53).
+  const currentId = past.length ? past[past.length - 1].id : null;
   const supersededIds = new Set(
     sorted
       .filter((entry, index) => sorted[index + 1]?.effective_from === entry.effective_from)
@@ -398,6 +400,7 @@ function RateSchedule({
           <span>
             od {formatDate(entry.effective_from)}
             {entry.id === currentId && <span className="ml-1 opacity-70">(aktualna)</span>}
+            {entry.effective_from > today && <span className="ml-1 opacity-70">(zaplanowana)</span>}
             {showSource && (
               <span className="ml-1 opacity-70" data-testid={`${testIdPrefix}-${entry.id}-source`}>
                 · {entry.source_order_id != null ? "z zamówienia" : "ręcznie / aneks"}

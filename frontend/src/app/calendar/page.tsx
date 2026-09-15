@@ -46,6 +46,7 @@ import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackM
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { layoutOverlappingEvents } from "@/lib/calendar-overlap";
+import { attendeeAddress, attendeeLabel, type CalendarAttendee } from "@/lib/calendar-attendees";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ type CalendarEvent = {
   job_title?: string;
   client_id?: number;
   client_name?: string;
-  attendees?: string[];
+  attendees?: CalendarAttendee[];
   location?: string;
   teams_link?: string;
   // Phase 7.1 — Graph-generated Teams meeting join URL (distinct from the
@@ -1347,14 +1348,22 @@ function EventDetailModal({
               <div className="flex items-start gap-3 text-sm text-foreground">
                 <Users className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                 <div className="flex flex-wrap gap-1">
-                  {event.attendees.map((email, i) => (
-                    <span
-                      key={i}
-                      className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs"
-                    >
-                      {email}
-                    </span>
-                  ))}
+                  {/* Uczestnik z M365 to obiekt {address, name} — renderowany wprost
+                      wywracał cały kalendarz (React #31). */}
+                  {event.attendees.map((attendee, i) => {
+                    const label = attendeeLabel(attendee);
+                    if (!label) return null;
+                    const address = attendeeAddress(attendee);
+                    return (
+                      <span
+                        key={i}
+                        title={address && address !== label ? address : undefined}
+                        className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs"
+                      >
+                        {label}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
