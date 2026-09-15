@@ -455,3 +455,72 @@ async def test_page_cursor_does_not_mark_backfill_complete(monkeypatch):
     await sync_mod._sync_messages(_FakeDB(), None, conn, result)
     assert conn.backfill_completed_at is not None
     assert conn.synced_through is not None
+
+
+async def test_progress_confirms_only_committed_checkpoints(monkeypatch):
+    monkeypatch.setattr(sync_mod, "_upsert_message", _upsert_failing_on(set()))
+    conn = _conn()
+    db = _CheckpointDB(conn, fail_commit_on=2)
+    records = []
+    marker = "SyntheticPrivateCVText"
+    next_link = _NEXT_PAGE + "&secret=" + marker
+
+    def record(_message, *, extra):
+        records.append(extra)
+        if extra.get("checkpoint_saved"):
+            # The log must never claim progress before the durable commit.
+            assert db.committed["delta_token_inbox"] == next_link
+
+    monkeypatch.setattr(sync_mod.logger, "info", record)
+    pages = [
+        {"value": [{"id": marker, "body": marker}], "@odata.nextLink": next_link},
+        {"value": [{"id": "rollback"}], "@odata.nextLink": _LATER_PAGE},
+        {"value": [{"id": "later"}], "@odata.deltaLink": _NEW_LINK},
+    ]
+    result = await _run_folder(db, conn, pages)
+    assert result.errors == 1
+    committed = [r for r in records if r["phase"] == "page_committed"]
+    assert [r["page_number"] for r in committed] == [1, 3]
+    assert [r["checkpoint_saved"] for r in committed] == [True, False]
+    assert all(r["messages_seen"] == 1 and r["elapsed_ms"] >= 0 for r in committed)
+    assert not any(r["phase"] == "folder_completed" for r in records)
+    assert len({r["operation_id"] for r in records}) == 1
+    assert len(records[0]["operation_id"]) == 36
+    assert marker not in repr(records)
+    assert "graph.microsoft.com" not in repr(records)
+
+
+async def test_progress_confirms_completed_folder_after_delta_commit(monkeypatch):
+    monkeypatch.setattr(sync_mod, "_upsert_message", _upsert_failing_on(set()))
+    conn = _conn()
+    db = _CheckpointDB(conn)
+    records = []
+
+    def record(_message, *, extra):
+        records.append(extra)
+        if extra["phase"] == "folder_completed":
+            assert db.committed["delta_token_inbox"] == _NEW_LINK
+
+    monkeypatch.setattr(sync_mod.logger, "info", record)
+    await _run_folder(db, conn, [{"value": [], "@odata.deltaLink": _NEW_LINK}])
+    assert records[0]["resume_kind"] == "delta"
+    assert records[-1]["phase"] == "folder_completed"
+    assert records[-1]["checkpoint_saved"] is True
+    assert records[-1]["pages_seen"] == 1
+
+
+async def test_cancelled_page_has_no_committed_progress(monkeypatch):
+    async def interrupted(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(sync_mod, "_upsert_message", interrupted)
+    records = []
+    monkeypatch.setattr(
+        sync_mod.logger, "info", lambda _message, *, extra: records.append(extra)
+    )
+    conn = _conn()
+    db = _CheckpointDB(conn)
+    with pytest.raises(asyncio.CancelledError):
+        await _run_folder(db, conn, [{"value": [{"id": "interrupted"}]}])
+    assert [r["phase"] for r in records] == ["folder_started", "page_started"]
+    assert db.commits == 0
