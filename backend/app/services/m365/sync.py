@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -438,8 +441,45 @@ async def _sync_messages_for_folder(
     # różnicę, nie wartość bezwzględną.
     errors_before = result.errors
     connection_id = conn.id
+    progress = {
+        "event_kind": "m365_progress",
+        "job": "m365_sync",
+        "operation": "m365_messages_folder",
+        "operation_id": str(uuid4()),
+        "subject_id": connection_id,
+        "folder": folder if folder in {"Inbox", "SentItems"} else "other",
+        "release": os.getenv("GIT_SHA", "unknown"),
+        "environment": os.getenv("SENTRY_ENVIRONMENT", "production"),
+    }
+    folder_started = time.monotonic()
+    logger.info(
+        "m365_folder_started",
+        extra={
+            **progress,
+            "phase": "folder_started",
+            "resume_kind": (
+                "page"
+                if _is_valid_page_link(existing_cursor)
+                else "delta"
+                if _is_valid_delta_link(existing_cursor)
+                else "initial"
+            ),
+        },
+    )
+    page_number = 0
 
     async for page in gc.paginate(url, params=params):
+        page_number += 1
+        page_started = time.monotonic()
+        page_errors_before = result.errors
+        page_progress = {
+            **progress,
+            "page_number": page_number,
+            "messages_seen": len(page.get("value", [])),
+        }
+        logger.info(
+            "m365_page_started", extra={**page_progress, "phase": "page_started"}
+        )
         for msg in page.get("value", []):
             try:
                 upserted = await _upsert_message(db, gc, conn, msg, folder)
@@ -463,7 +503,10 @@ async def _sync_messages_for_folder(
             # any error in this folder, retain the last clean page so retry
             # cannot skip a failed message, even if later pages succeed.
             next_link = page.get("@odata.nextLink")
-            if result.errors == errors_before and _is_valid_page_link(next_link):
+            checkpoint_saved = result.errors == errors_before and _is_valid_page_link(
+                next_link
+            )
+            if checkpoint_saved:
                 setattr(conn, cursor_attr, next_link)
             await db.commit()
         except Exception as exc:  # noqa: BLE001
@@ -477,6 +520,19 @@ async def _sync_messages_for_folder(
             result.errors += 1
             if len(result.error_samples) < 20:
                 result.error_samples.append(f"page-commit: {exc!r}")
+        else:
+            # A started page is not proof of progress. Emit this only after
+            # commit, and distinguish persisted rows from an advanced cursor.
+            logger.info(
+                "m365_page_committed",
+                extra={
+                    **page_progress,
+                    "phase": "page_committed",
+                    "checkpoint_saved": checkpoint_saved,
+                    "page_errors": result.errors - page_errors_before,
+                    "elapsed_ms": round((time.monotonic() - page_started) * 1000),
+                },
+            )
         if page.get("@odata.deltaLink"):
             last_delta_link = page["@odata.deltaLink"]
 
@@ -494,6 +550,16 @@ async def _sync_messages_for_folder(
     if last_delta_link and _is_valid_delta_link(last_delta_link):
         setattr(conn, cursor_attr, last_delta_link)
         await db.commit()
+        logger.info(
+            "m365_folder_completed",
+            extra={
+                **progress,
+                "phase": "folder_completed",
+                "pages_seen": page_number,
+                "checkpoint_saved": True,
+                "elapsed_ms": round((time.monotonic() - folder_started) * 1000),
+            },
+        )
 
 
 async def _upsert_message(
