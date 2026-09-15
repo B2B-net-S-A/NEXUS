@@ -39,6 +39,7 @@ import type {
   RequestHistoryResponse,
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
+import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
@@ -451,7 +452,7 @@ function candidateToForm(c: any): CandidateFormData {
     notice_period_unit: c.notice_period_unit ?? (c.notice_period != null ? "days" : "days"),
     status: c.status ?? "active",
     availability_status: c.availability_status ?? "unknown",
-    tags: Array.isArray(c.tags) ? c.tags.join(", ") : (c.tags ?? ""),
+    tags: editableTagText(c.tags),
     notes: "",
     years_it_experience: c.years_it_experience != null ? String(c.years_it_experience) : "",
     champion: !!c.champion,
@@ -538,6 +539,7 @@ function CandidateFormFields({
   onMulti,
   users,
   clients,
+  importedTagLabels = [],
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -545,6 +547,8 @@ function CandidateFormFields({
   onMulti: (k: "pref_remote_modes" | "pref_contract_types", v: string, on: boolean) => void;
   users: { id: number; full_name?: string; email?: string }[];
   clients: { id: number; name: string }[];
+  /** Tagi z importu (np. źródło z Traffita) — zapis ich nie zmienia (UAT B60). */
+  importedTagLabels?: string[];
 }) {
   const CB = ({
     field,
@@ -659,14 +663,19 @@ function CandidateFormFields({
         </FieldGroup>
         <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
           <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
-            Oznacz w zakładce <strong>Konflikty</strong> w profilu —
-            typ <code>current_employment</code>. Dzięki temu karta dostanie
-            burgundowy alert „U KLIENTA”.
+            W profilu kandydata: <strong>Podsumowanie → Dane handlowe → Dodaj konflikt</strong>,
+            typ <strong>Obecne zatrudnienie</strong> (albo „Oznacz jako zatrudnionego”
+            w szybkim podglądzie). Dzięki temu karta dostanie burgundowy alert „U KLIENTA”.
           </div>
         </FieldGroup>
       </div>
       <FieldGroup label="Tagi (rozdzielone przecinkami)">
         <Input value={form.tags} onChange={e => onChange("tags", e.target.value)} placeholder="React, TypeScript, Remote..." />
+        {importedTagLabels.length > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Tagi z importu zostają bez zmian: {importedTagLabels.join(", ")}
+          </p>
+        )}
       </FieldGroup>
       <FieldGroup label="Notatki">
         <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
@@ -975,10 +984,13 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
         ...nonIdentityPayload
       } =
         candidateFormToPayload(form);
-      const profilePayload: typeof nonIdentityPayload & {
+      const profilePayload: Omit<typeof nonIdentityPayload, "tags"> & {
         name?: string;
         lastname?: string;
-      } = { ...nonIdentityPayload };
+        tags?: unknown[];
+      } = { ...nonIdentityPayload, tags: mergeEditedTags(form.tags, candidate.tags) };
+      // Niezmienione tagi nie jadą w PATCH (backend zastępuje całą listę).
+      if (profilePayload.tags === undefined) delete profilePayload.tags;
       // Nie wysyłaj pól tożsamości tylko dlatego, że pełny modal zawsze je
       // renderuje. W przeciwnym razie nocny sync między otwarciem a zapisem
       // telefonu zamieniłby starą wartość formularza w fałszywy manual lock.
@@ -1016,6 +1028,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           onMulti={onMulti}
           users={users}
           clients={clients}
+          importedTagLabels={structuredTagLabels(candidate.tags)}
         />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>

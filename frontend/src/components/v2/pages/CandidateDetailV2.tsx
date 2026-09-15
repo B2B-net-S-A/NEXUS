@@ -79,6 +79,7 @@ import {
 import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
+import { CvReparseAction } from "@/components/candidates/CvReparseAction";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
 import {
   activityActionLabel,
@@ -2580,7 +2581,12 @@ function ProfilTab({
  )}
  >
  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
- <span>{cvProjectionNotice.text}</span>
+ <span className="space-y-2">
+ <span className="block">{cvProjectionNotice.text}</span>
+ {cvProjectionNotice.kind === "not_parsed" && !readOnly && (
+ <CvReparseAction candidateId={candidate.id} />
+ )}
+ </span>
  </p>
  )}
  </section>
