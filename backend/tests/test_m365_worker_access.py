@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.recruitment_pipeline import PipelineStage
@@ -24,7 +25,7 @@ from app.services.section_permissions import (
     DEFAULT_ROLE_SECTION_ACCESS,
     ProductSection,
 )
-from app.tasks import microsoft365_sync
+from app.tasks import m365_cv_parse, microsoft365_sync
 
 
 def _user(role: UserRole) -> User:
@@ -75,6 +76,58 @@ def _policy_db() -> AsyncMock:
 
     db.scalars.side_effect = _scalars
     return db
+
+
+@pytest.mark.asyncio
+async def test_cv_worker_commits_result_outside_graph_sync(monkeypatch) -> None:
+    """The durable worker owns paid parsing after the Graph page is committed."""
+    attachment = SimpleNamespace(
+        id=91,
+        email_id=72,
+        parsed_candidate_id=None,
+    )
+    email = SimpleNamespace(id=72, candidate_id=37)
+    db = AsyncMock()
+    db.scalar.return_value = attachment
+    db.get.return_value = email
+
+    @asynccontextmanager
+    async def _session():
+        yield db
+
+    async def _parse(_db, claimed, email_row):
+        assert _db is db
+        assert claimed is attachment
+        claimed.parsed_candidate_id = email_row.candidate_id
+
+    outcome = MagicMock()
+    monkeypatch.setattr(m365_cv_parse, "AsyncSessionLocal", _session)
+    monkeypatch.setattr(m365_cv_parse.attachment_handler, "try_parse_cv", _parse)
+    monkeypatch.setattr(m365_cv_parse, "record_job_outcome", outcome)
+    monkeypatch.setattr(m365_cv_parse.settings, "M365_INTEGRATION_ENABLED", True)
+    monkeypatch.setattr(m365_cv_parse.settings, "M365_AUTO_PARSE_CV", True)
+
+    assert await m365_cv_parse.run_m365_cv_parse_once() is True
+    claim = db.scalar.await_args.args[0]
+    claim_sql = str(claim.compile(dialect=postgresql.dialect()))
+    assert "IS DISTINCT FROM" in claim_sql
+    assert "FOR UPDATE OF email_attachments SKIP LOCKED" in claim_sql
+    db.commit.assert_awaited_once()
+    outcome.assert_called_once_with(
+        "m365_cv_parse",
+        True,
+        interval_seconds=max(60, m365_cv_parse.settings.M365_CV_PARSE_INTERVAL_SECONDS),
+        subject_id=attachment.id,
+    )
+
+
+def test_graph_sync_does_not_run_cv_parser_inline() -> None:
+    """Regression guard for the eight-minute page timeout."""
+    import inspect
+
+    source = inspect.getsource(sync._upsert_message)
+    assert "download_for_email" in source
+    assert "try_parse_cv" not in source
 
 
 # Finance ma od 19.08 pelny dostep operacyjny (user_can_access_candidate_domain

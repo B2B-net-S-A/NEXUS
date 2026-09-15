@@ -128,3 +128,22 @@ async def test_restored_primary_waits_for_identity_gate(
             assert candidate.raw_cv_text == "Synthetic CV"
             enrichment.assert_called_once()
         # Everything is synthetic and left uncommitted: close rolls it back.
+
+
+@pytest.mark.asyncio
+async def test_already_applied_attachment_is_not_parsed_again(monkeypatch):
+    """Delta pages must not pay for and reapply the same CV on every pass."""
+    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
+    db = AsyncMock()
+    attachment = SimpleNamespace(
+        parsed_candidate_id=37,
+        is_cv_candidate=True,
+        storage_path="already-applied.pdf",
+        cv_parse_attempted_at=datetime.now(timezone.utc),
+    )
+    email = SimpleNamespace(candidate_id=37)
+
+    await attachment_handler.try_parse_cv(db, attachment, email)
+
+    db.scalar.assert_not_awaited()
+    db.get.assert_not_awaited()

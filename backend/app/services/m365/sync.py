@@ -729,10 +729,11 @@ async def _upsert_message(
     # Attachments — only for non-filtered messages and when we actually have any.
     if not is_private and has_attachments:
         try:
-            atts = await attachment_handler.download_for_email(db, gc, row)
-            for att in atts:
-                if att.is_cv_candidate and row.candidate_id is not None:
-                    await attachment_handler.try_parse_cv(db, att, row)
+            # Download and persist the durable attachment row inside the page
+            # transaction.  CV parsing may call external AI providers and used
+            # to keep this Graph page open for minutes.  The dedicated worker
+            # consumes the committed row after the page cursor is durable.
+            await attachment_handler.download_for_email(db, gc, row)
         except Exception:  # noqa: BLE001
             logger.exception("attachment handling failed for email %s", row.id)
 
