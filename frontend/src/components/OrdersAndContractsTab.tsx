@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -51,7 +51,7 @@ import {
   dateOnly,
   fmtDate,
 } from "@/components/orders/InlineOrderFields";
-import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
@@ -394,6 +394,20 @@ interface ContractorOrderCardsProps {
   legacyNullOrderType: LegacyClientOrderType;
   allowedOrderTypes?: readonly OrderType[];
   searching: boolean;
+  /** Deep link z panelu „Moi klienci" (`?order=`): przewiń do karty, podświetl,
+   *  a dla szkicu otwórz „Uzupełnij zamówienie". `nonce` rozróżnia kolejne
+   *  kliknięcia w ten sam link. */
+  focusOrder?: ContractorOrderFocus | null;
+  /** Karta obsłużyła cel — rodzic czyści żądanie, żeby ponowny montaż karty
+   *  (np. przełączenie pigułki) nie otwierał okna edycji drugi raz. */
+  onFocusOrderServed?: () => void;
+}
+
+export interface ContractorOrderFocus {
+  contractId: number;
+  orderId: number;
+  openEditor: boolean;
+  nonce: number;
 }
 
 /**
@@ -411,6 +425,8 @@ export function ContractorOrderCards({
   legacyNullOrderType,
   allowedOrderTypes,
   searching,
+  focusOrder = null,
+  onFocusOrderServed,
 }: ContractorOrderCardsProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -481,6 +497,10 @@ export function ContractorOrderCards({
             suggestedOrderType={suggestedOrderType}
             legacyNullOrderType={legacyNullOrderType}
             searching={searching}
+            focusOrder={
+              focusOrder?.contractId === contractor.contract_id ? focusOrder : null
+            }
+            onFocusOrderServed={onFocusOrderServed}
             onExtend={() => setExtendingContract(contractor)}
             onTerminate={() => setTerminatingContract(contractor)}
             onCloseOrder={(order) => {
@@ -720,6 +740,8 @@ interface ContractorCardProps {
   /** Aktywne wyszukiwanie — wymusza rozwinięcie historii, żeby trafienie
       w historycznym zamówieniu nie było schowane za zwiniętym togglem. */
   searching: boolean;
+  focusOrder?: ContractorOrderFocus | null;
+  onFocusOrderServed?: () => void;
   onExtend: () => void;
   onTerminate: () => void;
   /** Zakończenie POJEDYNCZEGO zamówienia — bez wypowiadania umowy. */
@@ -739,6 +761,8 @@ function ContractorCard({
   suggestedOrderType,
   legacyNullOrderType,
   searching,
+  focusOrder = null,
+  onFocusOrderServed,
   onExtend,
   onTerminate,
   onCloseOrder,
@@ -748,6 +772,9 @@ function ContractorCard({
   onSuccess,
 }: ContractorCardProps) {
   const [showHistory, setShowHistory] = useState(false);
+  const cardRef = useRef<HTMLLIElement | null>(null);
+  const servedFocusRef = useRef<number | null>(null);
+  const [highlighted, setHighlighted] = useState(false);
   const historyOpen = searching ? true : showHistory;
   // „Część umowy" — uzupełnianie/edycja bezpośrednio na karcie (to jest
   // powierzchnia kompletacji draftu ClientOrder); tylko Centrum e-Zdrowia.
@@ -954,6 +981,35 @@ function ContractorCard({
     await createDraftOrder(patch, opts);
   }
 
+  // Deep link `?order=` z panelu „Moi klienci": karta ma się pokazać sama
+  // (przewinięcie + chwilowe podświetlenie), a szkic — od razu w oknie
+  // uzupełniania. Obsłużone żądanie jest zapamiętane, więc odświeżenie listy
+  // nie przewija ekranu drugi raz.
+  useEffect(() => {
+    if (!focusOrder || servedFocusRef.current === focusOrder.nonce) return;
+    const order = contractor.orders.find((item) => item.id === focusOrder.orderId);
+    if (!order) return;
+    servedFocusRef.current = focusOrder.nonce;
+    if (historyOrders.some((item) => item.id === order.id)) setShowHistory(true);
+    cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    setHighlighted(true);
+    if (focusOrder.openEditor && canManageOrders) openOrderDialog(order);
+    onFocusOrderServed?.();
+  }, [
+    focusOrder,
+    contractor.orders,
+    historyOrders,
+    canManageOrders,
+    openOrderDialog,
+    onFocusOrderServed,
+  ]);
+
+  useEffect(() => {
+    if (!highlighted) return;
+    const timer = window.setTimeout(() => setHighlighted(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [highlighted]);
+
   const expiringWarn =
     contractor.days_to_latest_end !== null &&
     contractor.days_to_latest_end >= 0 &&
@@ -984,7 +1040,15 @@ function ContractorCard({
     // Kafelek jest KOMPAKTOWY świadomie: lista klienta pokazuje kilkudziesięciu
     // kontraktorów, więc wysokość trzymają `p-3`, trzy krótkie i przewidywalne
     // linie szczegółów oraz przyciski w rozmiarze `text-xs`.
-    <li className="border border-border rounded-lg bg-card p-3 space-y-2">
+    <li
+      ref={cardRef}
+      id={`contractor-order-card-${contractor.contract_id}`}
+      data-focused={highlighted ? "true" : undefined}
+      className={cn(
+        "border border-border rounded-lg bg-card p-3 space-y-2 transition-shadow",
+        highlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+      )}
+    >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         {/* `basis-80` (20rem), nie samo `flex-1 min-w-0`: pasek czterech
             przycisków jest `shrink-0`, więc bez podłogi bazowej kolumna

@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { isClientTab, useClientTab } from "@/lib/client-tab";
+import { isClientTab, positiveIntParam, useClientTab } from "@/lib/client-tab";
 
 describe("useClientTab", () => {
   it("startuje na zakładce z adresu", () => {
@@ -91,5 +91,15 @@ describe("isClientTab", () => {
     expect(isClientTab("zasady")).toBe(true);
     expect(isClientTab("nie-ma-takiej")).toBe(false);
     expect(isClientTab(null)).toBe(false);
+  });
+});
+
+
+describe("positiveIntParam", () => {
+  it("przyjmuje wyłącznie dodatnie liczby całkowite", () => {
+    expect(positiveIntParam("42")).toBe(42);
+    for (const bad of [null, "", "0", "-3", "1.5", "abc", "12abc"]) {
+      expect(positiveIntParam(bad)).toBeNull();
+    }
   });
 });

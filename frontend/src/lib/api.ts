@@ -1604,6 +1604,13 @@ export const notificationsApi = {
           ? { ...(limit ? { limit } : {}), ...(offset ? { offset } : {}) }
           : undefined,
     }),
+  // Widget „Moje zadania": wyłącznie zdarzenia rekrutacyjne. Sprawy klientów
+  // (zamówienia, kontrakty, umowy) mają osobny panel „Moi klienci". Filtr idzie
+  // do serwera, bo tylko wtedy `unread_count` zgadza się z listą.
+  listRecruitment: (limit: number) =>
+    api.get<NotificationListResponse>("/api/notifications", {
+      params: { limit, exclude_section: "delivery" },
+    }),
   count: () => api.get("/api/notifications/count"),
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
   markAllRead: () => api.patch("/api/notifications/read-all"),

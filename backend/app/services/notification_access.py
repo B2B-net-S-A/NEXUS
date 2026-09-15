@@ -101,6 +101,22 @@ CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 )
 
 
+def notification_types_for_sections(
+    sections: Iterable[ProductSection],
+) -> frozenset[NotificationType]:
+    """Typy powiadomień przypisane na stałe do wskazanych sekcji produktu.
+
+    Typy kontekstowe (czat rekrutacji, wzmianki, weryfikacja) nie mają sekcji
+    w mapie i nigdy nie trafiają do wyniku — ich sekcję ustala link.
+    """
+    wanted = set(sections)
+    return frozenset(
+        ntype
+        for ntype, section in NOTIFICATION_SECTION_BY_TYPE.items()
+        if section in wanted
+    )
+
+
 def _has_section_read(user: User, section: ProductSection) -> bool:
     return section_access_for_user(user, section) >= SectionAccess.read
 

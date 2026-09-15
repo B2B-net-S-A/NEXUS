@@ -34,6 +34,9 @@ vi.mock("@/components/v2/dashboard/RecruitmentActivityDashboard", () => ({
 vi.mock("@/components/v2/dashboard/MyTasksDashboard", () => ({
   MyTasksDashboard: () => <div>my-tasks</div>,
 }))
+vi.mock("@/components/v2/dashboard/MyClientsAlertsPanel", () => ({
+  MyClientsAlertsPanel: () => <div>my-clients</div>,
+}))
 vi.mock("@/components/candidate-contact/ContactOversightPanel", () => ({
   ContactOversightPanel: () => <div>contact-oversight</div>,
 }))
@@ -198,6 +201,39 @@ describe("RoleDashboard — unified recruitment view", () => {
       expect(container.firstChild).toHaveAttribute("data-show-period", "false")
     },
   )
+
+  it("shows the Moi klienci panel right under Moje zadania only for Delivery Lead", () => {
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "delivery_lead",
+          roles: ["delivery_lead"],
+          available_dashboard_presets: ["delivery-lead"],
+          default_dashboard_preset: "delivery-lead",
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams("preset=delivery-lead&period=month")
+    const { unmount } = render(<RoleDashboard />)
+
+    const tasks = screen.getByText("my-tasks")
+    const clients = screen.getByText("my-clients")
+    const processes = screen.getByText("recruitment-processes")
+    expect(
+      tasks.compareDocumentPosition(clients) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      clients.compareDocumentPosition(processes) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    unmount()
+
+    act(() => useAuthStore.setState({ user: recruiter(), hydrated: true }))
+    navigation.params = new URLSearchParams("preset=my-work&period=day")
+    render(<RoleDashboard />)
+    expect(screen.queryByText("my-clients")).toBeNull()
+  })
 
   it("preserves and opens the contact oversight deep link", () => {
     act(() => {

@@ -20,6 +20,20 @@ numer okna wchodzi w skład ``dedupe_key``.
 
 Nowa SPRAWA (inne zamówienie, inna linia) ma inny klucz encji, więc alarmuje
 od nowa niezależnie od tego, co obsłużono wcześniej.
+
+**Panel „Moi klienci" (09.2026) — sprawa, etap, epizod.**
+
+* ``event_key = {typ}:{encja}:{odbiorca}`` identyfikuje SPRAWĘ, czyli jedną
+  kartę panelu. Wszystkie wiersze powtórek niosą ten sam klucz, więc lista
+  składa je w jedną kartę, a odhaczenie zamyka je naraz.
+* ``stage`` zastępuje numer okna tam, gdzie próg ma nazwę: ``t14`` (mail),
+  ``t7`` i ``high`` (wysoki priorytet + mail). Bez ``stage`` klucz dostaje
+  numer tygodnia jak dotąd — istniejące klucze się nie zmieniają.
+* Przyczyna ustąpiła bez odhaczenia → ``resolve_stale`` stawia wierszom
+  ``status='resolved'``. To NIE jest odhaczenie DL (``handled_by`` pusty).
+  Każde takie zamknięcie kończy EPIZOD: jeśli warunek wróci, sprawa alarmuje
+  od nowa z prefiksem ``e{n}`` w kluczu (inaczej ``ON CONFLICT`` zdusiłby
+  pierwsze przypomnienie nowego epizodu, bo klucz ``…:0`` już istnieje).
 """
 
 from __future__ import annotations
@@ -48,10 +62,15 @@ from app.models.dl_alert import (
     ALERT_COST_ORDER_EXHAUSTED,
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_MD_CONSULTANT_ENDED,
+    ALERT_NEW_CONTRACTOR_DRAFT,
+    DL_ALERT_PRIORITY_HIGH,
+    DL_ALERT_PRIORITY_STANDARD,
     DL_ALERT_STATUS_HANDLED,
     DL_ALERT_STATUS_NEW,
+    DL_ALERT_STATUS_RESOLVED,
     DlAlert,
 )
+from app.models.user import User
 from app.services.client_identity import client_display_name_expression
 from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
@@ -98,24 +117,44 @@ def repeat_window(first_seen: datetime, now: datetime, *, every_days: int) -> in
     return max(0, delta.days // every_days)
 
 
-async def _first_seen_and_handled(
-    db: AsyncSession, *, alert_type: str, user_id: int, entity_key: str
-) -> tuple[Optional[datetime], bool]:
-    """(data pierwszego alertu tej sprawy, czy którykolwiek obsłużony)."""
-    prefix = f"{alert_type}:{entity_key}:{user_id}:"
+def event_key_for(alert_type: str, entity_key: str, user_id: int) -> str:
+    """Klucz SPRAWY (jednej karty panelu) — ``dedupe_key`` bez etapu."""
+    return f"{alert_type}:{entity_key}:{user_id}"
+
+
+async def _episode_state(
+    db: AsyncSession, *, event_key: str
+) -> tuple[Optional[datetime], bool, int]:
+    """(pierwszy alert bieżącego epizodu, czy obsłużony w nim, numer epizodu).
+
+    Epizod kończy ``resolve_stale`` / ``resolve_entity_alerts`` — gdy przyczyna
+    ustąpiła, WSZYSTKIE wiersze sprawy (otwarte i odhaczone) dostają wspólny
+    stempel ``episode_closed_at``. Liczba różnych stempli to numer epizodu,
+    a bieżący epizod to wiersze bez stempla. Bez zamykania odhaczonych wierszy
+    sprawa odhaczona raz nie alarmowałaby już nigdy — nawet gdy problem minął
+    i po miesiącach wrócił (np. pula MD uzupełniona i znów niska).
+
+    Porównujemy stemple, nie znaczniki czasu wierszy: ``created_at`` i moment
+    zamknięcia pochodzą z różnych zegarów (baza vs proces).
+    """
     res = await db.execute(
-        select(DlAlert.created_at, DlAlert.status)
-        # `autoescape` obowiązkowo: typy alertów zawierają `_`, który w LIKE
-        # jest wieloznacznikiem „dowolny znak" — bez escapowania prefiks jednej
-        # sprawy trafiałby w sąsiednie.
-        .where(DlAlert.dedupe_key.startswith(prefix, autoescape=True))
-        .order_by(DlAlert.created_at.asc())
+        select(DlAlert.created_at, DlAlert.status, DlAlert.episode_closed_at)
+        .where(DlAlert.event_key == event_key)
+        .order_by(DlAlert.created_at.asc(), DlAlert.id.asc())
     )
     rows = res.all()
     if not rows:
-        return None, False
-    handled = any(status == DL_ALERT_STATUS_HANDLED for _, status in rows)
-    return rows[0][0], handled
+        return None, False, 0
+    episode = len({closed for _, _, closed in rows if closed is not None})
+    current = [
+        (created_at, status)
+        for created_at, status, closed in rows
+        if closed is None and status != DL_ALERT_STATUS_RESOLVED
+    ]
+    if not current:
+        return None, False, episode
+    handled = any(status == DL_ALERT_STATUS_HANDLED for _, status in current)
+    return current[0][0], handled, episode
 
 
 async def emit(
@@ -133,12 +172,19 @@ async def emit(
     order_id: Optional[int] = None,
     offboarding_case_id: Optional[int] = None,
     repeat_every_days: Optional[int] = None,
+    stage: Optional[str] = None,
+    priority: str = DL_ALERT_PRIORITY_STANDARD,
+    email: bool = False,
     now: Optional[datetime] = None,
 ) -> list[DlAlert]:
     """Wystaw alert każdemu wskazanemu odbiorcy. Zwraca faktycznie utworzone.
 
     ``repeat_every_days=None`` = alert jednorazowy (klucz bez okna); tak działa
     wyczerpanie budżetu, bo samo zdarzenie jest jednorazowe.
+
+    ``stage`` (``t14``/``t7``/``high``) = nazwany próg: jeden wiersz na próg,
+    niezależnie od okna tygodniowego. ``email=True`` zapisuje w payloadzie
+    prośbę o mail — wysyła go ``send_pending_alert_emails`` po skanie.
 
     Zapis idzie przez ``INSERT … ON CONFLICT DO NOTHING`` na ``dedupe_key``,
     a nie przez „SELECT, potem INSERT": ta druga wersja ma okno wyścigu, w
@@ -151,14 +197,19 @@ async def emit(
     moment = now or datetime.now(timezone.utc)
     created: list[DlAlert] = []
 
+    row_payload = dict(payload or {})
+    if email:
+        row_payload["email"] = True
+
     for user_id in user_ids:
-        first_seen, handled = await _first_seen_and_handled(
-            db, alert_type=alert_type, user_id=user_id, entity_key=entity_key
-        )
+        event_key = event_key_for(alert_type, entity_key, user_id)
+        first_seen, handled, episode = await _episode_state(db, event_key=event_key)
         if handled:
             continue
 
-        if repeat_every_days is None:
+        if stage is not None:
+            window = stage
+        elif repeat_every_days is None:
             window = "once"
         else:
             window = str(
@@ -166,7 +217,9 @@ async def emit(
                     first_seen or moment, moment, every_days=repeat_every_days
                 )
             )
-        dedupe_key = f"{alert_type}:{entity_key}:{user_id}:{window}"
+        if episode:
+            window = f"e{episode}:{window}"
+        dedupe_key = f"{event_key}:{window}"
 
         stmt = (
             pg_insert(DlAlert)
@@ -180,8 +233,16 @@ async def emit(
                 title=title[:255],
                 message=message,
                 link=link,
-                payload=payload,
+                payload=row_payload or None,
                 dedupe_key=dedupe_key[:255],
+                # Ten sam zegar co okno powtórki (`moment`), nie `now()` bazy.
+                created_at=moment,
+                event_key=event_key[:255],
+                priority=(
+                    DL_ALERT_PRIORITY_HIGH
+                    if priority == DL_ALERT_PRIORITY_HIGH
+                    else DL_ALERT_PRIORITY_STANDARD
+                ),
             )
             .on_conflict_do_nothing(constraint="uq_dl_alerts_dedupe_key")
             .returning(DlAlert.id)
@@ -193,6 +254,108 @@ async def emit(
         if alert is not None:
             created.append(alert)
     return created
+
+
+async def resolve_stale(
+    db: AsyncSession,
+    *,
+    alert_type: str,
+    live_event_keys: set[str],
+    entity_prefix: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> int:
+    """Zamknij sprawy typu, których warunek już nie zachodzi. Zwraca liczbę
+    zamkniętych OTWARTYCH wierszy (karty zdjęte z panelu).
+
+    ``live_event_keys`` to klucze spraw, które reguła w TYM przebiegu uznała za
+    aktualne (także te, dla których ``emit`` nic nie dopisał, bo wiersz już
+    był). Sprawa odbiorcy, który przestał być DL klienta, też wypada z tego
+    zbioru — i poprawnie się zamyka.
+
+    ``entity_prefix`` zawęża zamykanie do przestrzeni kluczy jednej reguły,
+    gdy ten sam typ emituje kilka ścieżek (``draft_consultant_unassigned``:
+    ``order:`` ze skanera i ``mail-draft:`` z writera maila).
+
+    Dwa kroki, jeden stempel ``episode_closed_at`` na przebieg:
+    otwarte wiersze → ``resolved`` (karta znika, to nie odhaczenie DL);
+    odhaczone wiersze → tylko stempel epizodu, żeby powrót warunku znów
+    alarmował (``_episode_state``).
+    """
+    moment = now or datetime.now(timezone.utc)
+    prefix = f"{alert_type}:{entity_prefix or ''}"
+
+    def _scoped(stmt):
+        stmt = stmt.where(
+            DlAlert.alert_type == alert_type,
+            DlAlert.episode_closed_at.is_(None),
+            # `autoescape`: typy mają `_`, który w LIKE jest wieloznacznikiem.
+            DlAlert.event_key.startswith(prefix, autoescape=True),
+        )
+        if live_event_keys:
+            stmt = stmt.where(DlAlert.event_key.not_in(sorted(live_event_keys)))
+        return stmt.execution_options(synchronize_session=False)
+
+    result = await db.execute(
+        _scoped(
+            update(DlAlert)
+            .where(DlAlert.status == DL_ALERT_STATUS_NEW)
+            .values(
+                status=DL_ALERT_STATUS_RESOLVED,
+                handled_at=moment,
+                episode_closed_at=moment,
+            )
+        )
+    )
+    await db.execute(
+        _scoped(
+            update(DlAlert)
+            .where(
+                DlAlert.status.in_((DL_ALERT_STATUS_HANDLED, DL_ALERT_STATUS_RESOLVED))
+            )
+            .values(episode_closed_at=moment)
+        )
+    )
+    return result.rowcount or 0
+
+
+async def resolve_entity_alerts(
+    db: AsyncSession,
+    *,
+    alert_type: str,
+    entity_key: str,
+    now: Optional[datetime] = None,
+) -> int:
+    """Zamknij natychmiast sprawy JEDNEJ encji (wszyscy odbiorcy).
+
+    Ścieżki zdarzeniowe (zastosowany mail, uzupełniony szkic) nie czekają na
+    dobowy skaner — karta ma zniknąć w chwili, w której przyczyna ustąpiła.
+    """
+    return await resolve_stale(
+        db,
+        alert_type=alert_type,
+        live_event_keys=set(),
+        entity_prefix=f"{entity_key}:",
+        now=now,
+    )
+
+
+def date_cycle_stage(
+    days_left: int,
+) -> tuple[Optional[str], str, bool]:
+    """(etap, priorytet, mail) cyklu „kończy się w dniu X".
+
+    * więcej niż 14 dni → tydzień okna (``None`` = numer tygodnia), standard;
+    * 14…8 dni → ``t14``, standard + mail;
+    * 7…0 dni → ``t7``, wysoki priorytet + mail.
+
+    Liczone z ZAKRESU dni do końca, nie z równości z konkretną datą — dzień
+    bez biegu skanera nie gubi progu (stary skaner dzwonka tak go gubił).
+    """
+    if days_left <= 7:
+        return "t7", DL_ALERT_PRIORITY_HIGH, True
+    if days_left <= 14:
+        return "t14", DL_ALERT_PRIORITY_STANDARD, True
+    return None, DL_ALERT_PRIORITY_STANDARD, False
 
 
 async def emit_md_consultant_ended(
@@ -563,8 +726,12 @@ async def reconcile_mail_new_draft_alerts(
 
 
 def reaction_seconds(alert: DlAlert) -> Optional[int]:
-    """Czas reakcji w sekundach albo ``None`` dla nieobsłużonych."""
-    if alert.handled_at is None:
+    """Czas reakcji w sekundach albo ``None`` dla nieobsłużonych.
+
+    Wiersz zamknięty automatycznie (``resolved``) nie ma czasu reakcji — nikt
+    nie zareagował, przyczyna ustąpiła sama.
+    """
+    if alert.handled_at is None or alert.status != DL_ALERT_STATUS_HANDLED:
         return None
     delta: timedelta = alert.handled_at - alert.created_at
     return max(0, int(delta.total_seconds()))
@@ -586,3 +753,223 @@ def format_reaction(alert: DlAlert) -> str:
     if minutes or not parts:
         parts.append(f"{minutes} min")
     return " ".join(parts)
+
+
+# ── Nowy kontraktor z Generatora umów ───────────────────────────────────────
+
+#: Tytuł-zaślepka szkicu u klienta wielo-konsultantowego / MD / kosztowego.
+ORDER_NUMBER_PLACEHOLDER = "(bez numeru)"
+
+
+def new_contractor_missing_fields(
+    order: ClientOrder, *, candidate_name: Optional[str], job_title: Optional[str]
+) -> list[str]:
+    """Czego brakuje w szkicu zamówienia, żeby DL mógł go aktywować.
+
+    Numer zamówienia NIE ma osobnej kolumny: w widoku jednoosobowym tytuł
+    zamówienia JEST jego numerem. Szkic z podpisu dostaje tytuł-etykietę
+    „Imię Nazwisko — Rekrutacja" albo zaślepkę „(bez numeru)"; dopóki tytuł
+    jest jednym z nich, numeru nikt nie wpisał.
+    """
+    missing: list[str] = []
+    has_revenue_rate = (
+        order.md_rate_revenue is not None
+        if order.order_group_id is not None
+        else order.rate_client is not None
+    )
+    if not has_revenue_rate:
+        missing.append("stawkę przychodową")
+    if order.start_date is None or order.end_date is None:
+        missing.append("okres zamówienia")
+    title = (order.title or "").strip()
+    # Tytuł-etykieta szkicu z podpisu to „Imię Nazwisko — Rekrutacja". Porównanie
+    # po KOŃCÓWCE (tytule rekrutacji), nie po imieniu: korekta nazwiska
+    # kandydata nie może udawać wpisanego numeru.
+    auto_label = bool(
+        title
+        and (
+            title == ORDER_NUMBER_PLACEHOLDER
+            or (job_title and title.endswith(f" — {job_title}"))
+            or (
+                candidate_name
+                and title in {candidate_name, f"{candidate_name} — {job_title}"}
+            )
+        )
+    )
+    if not title or auto_label:
+        missing.append("numer zamówienia")
+    return missing
+
+
+async def emit_new_contractor_draft(
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    candidate_name: str,
+    job_title: Optional[str],
+    user_ids: Optional[Sequence[int]] = None,
+    now: Optional[datetime] = None,
+) -> list[DlAlert]:
+    """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie".
+
+    Jedno źródło treści dla ścieżki podpisu (natychmiast) i dla skanera
+    (powtórka co 7 dni, dopóki czegoś brakuje). Link otwiera TEN szkic
+    (``?order=``), nie samą zakładkę.
+    """
+    missing = new_contractor_missing_fields(
+        order, candidate_name=candidate_name, job_title=job_title
+    )
+    if not missing:
+        return []
+    client_name = (
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == order.client_id)
+        )
+    ) or "Klient"
+    if user_ids is None:
+        user_ids = await dl_user_ids_for_client(db, order.client_id)
+    return await emit(
+        db,
+        alert_type=ALERT_NEW_CONTRACTOR_DRAFT,
+        user_ids=user_ids,
+        client_id=order.client_id,
+        entity_key=f"order:{order.id}",
+        title=f"Nowy kontraktor u {client_name} — uzupełnij zamówienie",
+        message=(
+            f"Nowy kontraktor {candidate_name} — umowa podpisana obustronnie. "
+            f"Uzupełnij: {', '.join(missing)}."
+        ),
+        link=f"/clients/{order.client_id}?tab=zamowienia&order={order.id}",
+        payload={
+            "candidate_name": candidate_name,
+            "missing_fields": missing,
+            "source": "b2b_generator",
+        },
+        order_id=order.id,
+        repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+        now=now,
+    )
+
+
+# ── Mail z progów ───────────────────────────────────────────────────────────
+
+_EMAIL_CLAIM_STALE_MIN = 30
+_EMAIL_BATCH = 200
+
+
+async def send_pending_alert_emails(db: AsyncSession) -> int:
+    """Wyślij maile dla wierszy z ``payload.email=true``. Zwraca liczbę wysłanych.
+
+    Claim → wysyłka → stempel, jak w ``job_deadline_alerts``: dwa równoległe
+    przebiegi (deploy) nie wyślą tego samego maila dwa razy. Odbiorca jest
+    sprawdzany PONOWNIE (aktywne konto, nadal odbiorca spraw klienta) — mail
+    niesie nazwisko kontraktora, a przypisanie mogło zniknąć od emisji.
+    Wiersz już zamknięty (odhaczony / rozwiązany) nie dostaje maila.
+    """
+    if not (settings.DL_ALERTS_ENABLED and settings.DL_ALERT_EMAIL_ENABLED):
+        return 0
+    from sqlalchemy import or_
+
+    from app.services.email import email_channel_enabled, send_email
+    from app.services.m365.system_mail import (
+        get_system_sender_connection,
+        send_system_email,
+    )
+
+    connection = await get_system_sender_connection(db)
+    if connection is None and not email_channel_enabled():
+        return 0
+
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=_EMAIL_CLAIM_STALE_MIN
+    )
+    rows = (
+        await db.execute(
+            select(DlAlert, User)
+            .join(User, User.id == DlAlert.user_id)
+            .where(
+                DlAlert.status == DL_ALERT_STATUS_NEW,
+                DlAlert.email_sent_at.is_(None),
+                DlAlert.payload["email"].as_boolean().is_(True),
+                or_(
+                    DlAlert.email_send_started_at.is_(None),
+                    DlAlert.email_send_started_at <= stale_cutoff,
+                ),
+                User.is_active.is_(True),
+                # Bez adresu nie ma czego wysłać — takie wiersze nie mogą
+                # zająć paczki i zagłodzić kolejki.
+                User.email.isnot(None),
+                User.email != "",
+            )
+            .order_by(DlAlert.created_at.asc())
+            .limit(_EMAIL_BATCH)
+        )
+    ).all()
+    if not rows:
+        return 0
+
+    scope = await load_delivery_alert_recipient_scope(db)
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    sent = 0
+    for alert, user in rows:
+        alert_id = alert.id
+        if not user.email or alert.user_id not in scope.for_client(alert.client_id):
+            continue
+        claimed = await db.execute(
+            update(DlAlert)
+            .where(
+                DlAlert.id == alert_id,
+                # Odhaczona albo zamknięta w międzyczasie — bez maila.
+                DlAlert.status == DL_ALERT_STATUS_NEW,
+                DlAlert.email_sent_at.is_(None),
+                or_(
+                    DlAlert.email_send_started_at.is_(None),
+                    DlAlert.email_send_started_at <= stale_cutoff,
+                ),
+            )
+            .values(email_send_started_at=func.now())
+            .returning(DlAlert.id)
+        )
+        won = claimed.scalar_one_or_none() is not None
+        await db.commit()
+        if not won:
+            continue
+
+        link = f"{base}{alert.link}" if base and alert.link else (alert.link or "/")
+        subject = f"[Nexus] {alert.title}"
+        text_body = (
+            f"Cześć {user.name or user.email},\n\n"
+            f"{alert.message}\n\n"
+            f"Otwórz w Nexusie: {link}\n\n"
+            "Powiadomienie z panelu „Moi klienci”. Odhacz je w panelu, gdy "
+            "sprawa jest załatwiona — przypomnienia przestaną przychodzić.\n\n"
+            "— Nexus ATS"
+        )
+        ok = False
+        try:
+            if connection is not None:
+                ok = await send_system_email(
+                    db, connection, to=user.email, subject=subject, text_body=text_body
+                )
+            else:
+                ok = await asyncio.to_thread(
+                    send_email, user.email, subject, text_body, None
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "dl_alerts email failed alert=%d: %s", alert_id, type(exc).__name__
+            )
+        await db.execute(
+            update(DlAlert)
+            .where(DlAlert.id == alert_id)
+            .values(
+                email_sent_at=func.now() if ok else None,
+                email_send_started_at=func.now() if ok else None,
+            )
+        )
+        await db.commit()
+        if ok:
+            sent += 1
+    return sent

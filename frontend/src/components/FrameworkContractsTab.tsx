@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -26,6 +26,9 @@ import type {
 
 interface FrameworkContractsTabProps {
   clientId: number;
+  /** `?framework=` z panelu „Moi klienci" — umowa do pokazania. */
+  focusContractId?: number | null;
+  onFocusHandled?: () => void;
 }
 
 const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
@@ -57,11 +60,17 @@ const STATUS_COLORS: Record<FrameworkContractStatus, string> = {
   superseded: "bg-zinc-200 text-zinc-700",
 };
 
-export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) {
+export function FrameworkContractsTab({
+  clientId,
+  focusContractId = null,
+  onFocusHandled,
+}: FrameworkContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [expandedFcId, setExpandedFcId] = useState<number | null>(null);
+  const [highlightedFcId, setHighlightedFcId] = useState<number | null>(null);
+  const focusServed = useRef<number | null>(null);
 
   const canEdit = useCanEditLegalDocs();
 
@@ -81,6 +90,35 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
     },
     onError: () => showToast("Nie udało się usunąć", "error"),
   });
+
+  // Deep link z panelu „Moi klienci" (`?framework=`): rozwiń i pokaż umowę,
+  // której dotyczy przypomnienie. Raz na wartość parametru.
+  useEffect(() => {
+    if (!focusContractId) {
+      focusServed.current = null;
+      return;
+    }
+    if (!data || focusServed.current === focusContractId) return;
+    focusServed.current = focusContractId;
+    if (data.items.some((item) => item.id === focusContractId)) {
+      setExpandedFcId(focusContractId);
+      setHighlightedFcId(focusContractId);
+      window.requestAnimationFrame(() =>
+        document
+          .getElementById(`framework-contract-${focusContractId}`)
+          ?.scrollIntoView?.({ behavior: "smooth", block: "center" }),
+      );
+    } else {
+      showToast("Umowa ramowa nie jest już widoczna na liście tego klienta.", "error");
+    }
+    onFocusHandled?.();
+  }, [data, focusContractId, onFocusHandled, showToast]);
+
+  useEffect(() => {
+    if (highlightedFcId === null) return;
+    const timer = window.setTimeout(() => setHighlightedFcId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [highlightedFcId]);
 
   if (isLoading) {
     return <div className="text-muted-foreground">Ładowanie umów ramowych...</div>;
@@ -144,6 +182,7 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
               fc={fc}
               clientId={clientId}
               expanded={expandedFcId === fc.id}
+              highlighted={highlightedFcId === fc.id}
               onToggle={() => setExpandedFcId(expandedFcId === fc.id ? null : fc.id)}
               onDelete={() => {
                 if (confirm(`Usunąć "${fc.name}"?`)) deleteMutation.mutate(fc.id);
@@ -171,6 +210,7 @@ interface FrameworkContractRowProps {
   fc: FrameworkContractRead;
   clientId: number;
   expanded: boolean;
+  highlighted?: boolean;
   onToggle: () => void;
   onDelete: () => void;
 }
@@ -179,6 +219,7 @@ function FrameworkContractRow({
   fc,
   clientId,
   expanded,
+  highlighted = false,
   onToggle,
   onDelete,
 }: FrameworkContractRowProps) {
@@ -203,7 +244,14 @@ function FrameworkContractRow({
   };
 
   return (
-    <li className="border border-border rounded-lg overflow-hidden bg-card">
+    <li
+      id={`framework-contract-${fc.id}`}
+      data-focused={highlighted ? "true" : undefined}
+      className={
+        "border border-border rounded-lg overflow-hidden bg-card transition-shadow" +
+        (highlighted ? " ring-2 ring-primary ring-offset-2 ring-offset-background" : "")
+      }
+    >
       <div className="p-4 hover:bg-accent/30 cursor-pointer" onClick={onToggle}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">

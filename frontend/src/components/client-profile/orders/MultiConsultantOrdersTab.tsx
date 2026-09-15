@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
-import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
+import {
+  ContractorOrderCards,
+  type ContractorOrderFocus,
+} from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
@@ -33,6 +36,7 @@ import {
   filterAndSortContractors,
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
+  resolveOrderFocus,
   orderGroupMatchesPill,
   sortUnifiedOrderItems,
   visibleLegacyOrderIds,
@@ -129,6 +133,12 @@ interface Props {
   /** Wywoływane, gdy dokument z maila jest obsłużony albo porzucony
    *  (strona zdejmuje wtedy parametr z adresu). */
   onOrderMailDocDone?: () => void;
+  /** Deep link z panelu „Moi klienci": konkretne zamówienie okresowe albo
+   *  linia grupy (`?order=`) i zamówienie MD/kosztowe (`?group=`). */
+  focusOrderId?: number | null;
+  focusGroupId?: number | null;
+  /** Cel obsłużony (albo niewidoczny) — strona zdejmuje parametry z adresu. */
+  onFocusHandled?: () => void;
 }
 
 /** PDF dokumentu z maila otwarty w oknie zamówienia. */
@@ -152,6 +162,9 @@ export function MultiConsultantOrdersTab({
   legacyNullOrderType = "periodic",
   orderMailDocId = null,
   onOrderMailDocDone,
+  focusOrderId = null,
+  focusGroupId = null,
+  onFocusHandled,
 }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -784,6 +797,61 @@ export function MultiConsultantOrdersTab({
   );
   const resultCount = visibleGroups.length + visibleContractors.length;
 
+  // Deep link z panelu „Moi klienci" (`?order=` / `?group=`). Czeka na obie
+  // listy, zdejmuje filtry (cel mógłby być schowany pod pigułką albo
+  // wyszukiwaniem), a potem przewija do grupy (istniejący mechanizm
+  // `focusRequest`) albo do karty kontraktora. Raz na wartość parametru —
+  // odświeżenie listy nie przewija ekranu drugi raz. Cel, którego nie ma,
+  // dostaje komunikat zamiast cichego „nic się nie stało".
+  const [contractorFocus, setContractorFocus] =
+    useState<ContractorOrderFocus | null>(null);
+  const focusServed = useRef<string | null>(null);
+  const clearContractorFocus = useCallback(() => setContractorFocus(null), []);
+  useEffect(() => {
+    const key = focusGroupId ? `group:${focusGroupId}` : focusOrderId ? `order:${focusOrderId}` : null;
+    if (!key) {
+      focusServed.current = null;
+      return;
+    }
+    if (!query.isSuccess || !contractorQuery.isSuccess) return;
+    if (focusServed.current === key) return;
+    focusServed.current = key;
+    const target = resolveOrderFocus(groups, contractors, {
+      orderId: focusOrderId,
+      groupId: focusGroupId,
+    });
+    if (target === null) {
+      showToast("Zamówienie nie jest już widoczne na liście tego klienta.", "error");
+    } else {
+      setPill("all");
+      setSearch("");
+      setFilters({ ...DEFAULT_ORDER_LIST_FILTERS });
+      if (target.kind === "group") {
+        setFocusRequest((previous) => ({
+          groupId: target.groupId,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
+      } else {
+        setContractorFocus((previous) => ({
+          contractId: target.contractId,
+          orderId: target.orderId,
+          openEditor: target.isDraft,
+          nonce: (previous?.nonce ?? 0) + 1,
+        }));
+      }
+    }
+    onFocusHandled?.();
+  }, [
+    focusGroupId,
+    focusOrderId,
+    query.isSuccess,
+    contractorQuery.isSuccess,
+    groups,
+    contractors,
+    showToast,
+    onFocusHandled,
+  ]);
+
   async function exportVisible() {
     setExporting(true);
     try {
@@ -1063,6 +1131,12 @@ export function MultiConsultantOrdersTab({
                     legacyNullOrderType={legacyNullOrderType}
                     allowedOrderTypes={allowedOrderTypes}
                     searching={search.trim().length > 0}
+                    focusOrder={
+                      contractorFocus?.contractId === item.contractor.contract_id
+                        ? contractorFocus
+                        : null
+                    }
+                    onFocusOrderServed={clearContractorFocus}
                   />
                 ),
               )}

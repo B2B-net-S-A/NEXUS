@@ -3992,10 +3992,13 @@ _COLUMN_STATEMENTS = [
             'cost_order_exhausted', 'draft_consultant_unassigned',
             'md_budget_low', 'missing_revenue_rate',
             'md_consultant_ended', 'order_mail_review',
-            'order_missing_successor')),
-        CONSTRAINT ck_dl_alerts_status CHECK (status IN ('new', 'handled')),
+            'order_missing_successor',
+            'periodic_order_ending', 'framework_contract_expiring',
+            'contract_ending', 'cost_budget_low', 'new_contractor_draft')),
+        CONSTRAINT ck_dl_alerts_status
+            CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
-            CHECK (status <> 'handled' OR handled_at IS NOT NULL)
+            CHECK (status = 'new' OR handled_at IS NOT NULL)
     )""",
     # 0249: order owns a finance snapshot. Add nullable first; the data phase
     # below deterministically fills every existing row before the constraint
@@ -4071,6 +4074,20 @@ _COLUMN_STATEMENTS = [
     )""",
     "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
     "offboarding_case_id INTEGER NULL",
+    # 0310: panel „Moi klienci" — klucz sprawy (karta), priorytet, claim maila.
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS event_key VARCHAR(255) NULL",
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
+    "priority VARCHAR(16) NOT NULL DEFAULT 'standard'",
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
+    "email_send_started_at TIMESTAMPTZ NULL",
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ NULL",
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
+    "episode_closed_at TIMESTAMPTZ NULL",
+    # Backfill idempotentny: wiersze sprzed 0310 dostają klucz sprawy z
+    # `dedupe_key` bez ostatniego segmentu (okna powtórki).
+    "UPDATE dl_alerts SET event_key = left(dedupe_key, "
+    "length(dedupe_key) - position(':' in reverse(dedupe_key))) "
+    "WHERE event_key IS NULL AND position(':' in dedupe_key) > 0",
     # Dziennik obserwacji poziomu seniority (0261). Lustro DDL, bo alembic na
     # prodzie bywa osierocony — bez tego pętla dobowa wywalałaby się na
     # nieistniejącej tabeli, a `/api/insights/seniority` oddawałby 500.
@@ -6152,8 +6169,32 @@ _CONSTRAINT_STATEMENTS = [
                 'cost_order_exhausted', 'draft_consultant_unassigned',
                 'md_budget_low', 'missing_revenue_rate',
                 'md_consultant_ended', 'order_mail_review',
-                'order_missing_successor'
+                'order_missing_successor',
+                'periodic_order_ending', 'framework_contract_expiring',
+                'contract_ending', 'cost_budget_low', 'new_contractor_draft'
             ));
+    END $$""",
+    # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i
+    # priorytet. Poszerzenie domeny = jawny DROP+ADD w jednym bloku; lustro
+    # `DlAlert.__table_args__`, pilnuje `test_entrypoint_dl_alerts_check_mirror.py`.
+    """DO $$ BEGIN
+        ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_status;
+        ALTER TABLE dl_alerts
+            ADD CONSTRAINT ck_dl_alerts_status
+            CHECK (status IN ('new', 'handled', 'resolved'));
+        ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_handled_coherence;
+        ALTER TABLE dl_alerts
+            ADD CONSTRAINT ck_dl_alerts_handled_coherence
+            CHECK (status = 'new' OR handled_at IS NOT NULL);
+    END $$""",
+    # Osobny blok: padnięty `ADD COLUMN priority` (np. timeout zamka) nie może
+    # cofnąć poszerzenia statusu — bez `resolved` każda reguła skanera padałaby
+    # na CHECK-u w `resolve_stale`.
+    """DO $$ BEGIN
+        ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_priority;
+        ALTER TABLE dl_alerts
+            ADD CONSTRAINT ck_dl_alerts_priority
+            CHECK (priority IN ('standard', 'high'));
     END $$""",
     # Detect the FK structurally rather than by name: metadata.create_all may
     # have installed an automatically named equivalent after an earlier boot.
@@ -6811,6 +6852,8 @@ _INDEX_STATEMENTS = [
     "ON dl_alerts (alert_type, user_id, client_id, created_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_user_status "
     "ON dl_alerts (user_id, status, created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_event_key "
+    "ON dl_alerts (event_key)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notifications_related_entity_id ON notifications (related_entity_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_stage_defs_external_id ON pipeline_stage_defs (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_pipeline_templates_external_id ON pipeline_templates (external_id)",

@@ -203,7 +203,14 @@ function NotificationList({
   )
 }
 
-export function MyTasksDashboard() {
+export function MyTasksDashboard({
+  recruitmentNotificationsOnly = false,
+}: {
+  /** Pulpit Delivery Leada: sprawy zamówień i kontraktów mają osobny panel
+   *  „Moi klienci", więc tu zostają wyłącznie zdarzenia rekrutacyjne. Inne
+   *  pulpity tego panelu nie mają i widzą powiadomienia jak dotąd. */
+  recruitmentNotificationsOnly?: boolean
+} = {}) {
   const authUser = useAuthStore((state) => state.user)
   const scopeCacheKey = `${authUser?.id ?? "anonymous"}:${authUser?.authorization_version ?? "none"}`
   const [open, setOpen] = useState(true)
@@ -238,13 +245,18 @@ export function MyTasksDashboard() {
     refetchOnWindowFocus: true,
   })
   const notificationsQuery = useQuery({
-    // The shell bell uses the same key and limit, so the dashboard reuses its
-    // fresh response instead of polling the same feed a second time.
-    // Bez własnego `refetchInterval`: react-query bierze NAJKRÓTSZY interwał
-    // spośród obserwatorów klucza, więc 30 s tutaj nadpisywało politykę
-    // dzwonka (rzadko przy zdrowym WS, minuta bez niego).
-    queryKey: ["notifications", scopeCacheKey, 20],
-    queryFn: () => notificationsApi.list(20).then((response) => response.data),
+    // Własny klucz (bez spraw klientów), ale pod prefiksem `["notifications"]`,
+    // więc inwalidacja z WebSocketu i z dzwonka nadal go odświeża.
+    // Bez własnego `refetchInterval`: to siatka pod WebSocketem, nie źródło
+    // świeżości (polityka w `lib/polling.ts`).
+    queryKey: recruitmentNotificationsOnly
+      ? ["notifications", scopeCacheKey, 20, "recruitment-only"]
+      : ["notifications", scopeCacheKey, 20],
+    queryFn: () =>
+      (recruitmentNotificationsOnly
+        ? notificationsApi.listRecruitment(20)
+        : notificationsApi.list(20)
+      ).then((response) => response.data),
     staleTime: 15_000,
   })
   const deadlines =
@@ -279,7 +291,9 @@ export function MyTasksDashboard() {
                     Moje zadania
                   </span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Deadline’y, spotkania i powiadomienia na dziś
+                    {recruitmentNotificationsOnly
+                      ? "Deadline’y, spotkania i powiadomienia rekrutacyjne na dziś"
+                      : "Deadline’y, spotkania i powiadomienia na dziś"}
                   </span>
                 </span>
               </span>
