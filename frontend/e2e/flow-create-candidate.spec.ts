@@ -41,11 +41,14 @@ test.describe("Kandydat @stack", () => {
     await expectStatus(duplicate, 409, "duplikat e-maila");
     expect((await duplicate.json()).detail).toBe("Kandydat z tym adresem e-mail już istnieje.");
 
-    const search = await jsonOf<{ items: Array<{ id: number }>; total: number }>(
-      await admin.api.get(`/api/candidates?q=${encodeURIComponent(first.email)}`),
+    // `q` to wyszukiwanie rozmyte (zwraca też podobnych kandydatów), więc
+    // liczymy wyłącznie rekordy z DOKŁADNIE tym adresem.
+    const search = await jsonOf<{ items: Array<{ id: number; email: string | null }> }>(
+      await admin.api.get(`/api/candidates?q=${encodeURIComponent(first.email)}&page_size=100`),
       200,
       "GET /api/candidates?q"
     );
-    expect(search.items.map((item) => item.id)).toEqual([first.id]);
+    const sameEmail = search.items.filter((item) => item.email === first.email);
+    expect(sameEmail.map((item) => item.id)).toEqual([first.id]);
   });
 });
