@@ -29,7 +29,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: nexus
-      POSTGRES_PASSWORD: nexus-e2e-password
+      POSTGRES_PASSWORD: nexus-ci-password
       POSTGRES_DB: nexus
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexus"]
@@ -51,7 +51,7 @@ services:
         BUILT_AT: ${BUILT_AT:-e2e}
     environment:
       <<: *test-secrets
-      DATABASE_URL: postgresql+asyncpg://nexus:nexus-e2e-password@postgres:5432/nexus
+      DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@postgres:5432/nexus
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       CORS_ORIGINS: '["http://localhost:3000"]'
