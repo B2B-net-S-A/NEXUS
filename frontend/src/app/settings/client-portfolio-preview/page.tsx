@@ -9,6 +9,7 @@ import {
   CopyCheck,
   FileSpreadsheet,
   Link2,
+  Loader2,
   Users,
 } from "lucide-react";
 
@@ -16,6 +17,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { resolveViewState } from "@/lib/view-state";
 import { countPl } from "@/lib/plural-pl";
 
@@ -102,7 +104,11 @@ export default function ClientPortfolioPreviewPage() {
     queryKey: ["admin-client-portfolio-preview"],
     queryFn: () =>
       api
-        .get<ImportPlan>("/api/admin/client-portfolio/import-preview")
+        // Plan liczy zależności każdej tabeli od klientów — to nie jest
+        // zwykły CRUD i przy zajętej bazie przekracza 30 s.
+        .get<ImportPlan>("/api/admin/client-portfolio/import-preview", {
+          timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+        })
         .then((response) => response.data),
     retry: false,
   });
@@ -124,7 +130,15 @@ export default function ClientPortfolioPreviewPage() {
           Ustawienia
         </Link>
         {viewState === "loading" ? (
-          <div className="h-48 animate-pulse rounded-xl bg-muted" />
+          // Widoczny stan zamiast szkieletu w kolorze tła — pusta strona
+          // czytała się jak awaria (UAT B67).
+          <div
+            role="status"
+            className="flex h-48 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card text-sm text-muted-foreground"
+          >
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            Buduję plan importu portfela — to może potrwać do minuty.
+          </div>
         ) : (
           <QueryStateNotice
             state={viewState === "empty" ? "not_found" : viewState}

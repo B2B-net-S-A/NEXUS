@@ -45,7 +45,7 @@ import {
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
-import { layoutOverlappingEvents } from "@/lib/calendar-overlap";
+import { layoutOverlappingEvents, limitVisibleLanes } from "@/lib/calendar-overlap";
 import { attendeeAddress, attendeeLabel, type CalendarAttendee } from "@/lib/calendar-attendees";
 import { htmlToPlainText } from "@/lib/plain-text";
 
@@ -578,17 +578,22 @@ function WeekGrid({
         // Nachodzące wydarzenia dzielą szerokość dnia na pasy — bez tego
         // kafle o tej samej godzinie leżały dokładnie na sobie (UAT M03-B11).
         // Przedziały w pikselach, z minimalną wysokością kafla (28 px).
-        const overlapSlots = layoutOverlappingEvents(
-          dayEvents.map((ev) => {
-            const evStart = parseTime(ev.start_time);
-            const evEnd = ev.end_time ? parseTime(ev.end_time) : null;
-            const evTop = getEventTop(evStart);
-            return {
-              id: ev.id,
-              start: evTop,
-              end: evTop + Math.max(28, getEventHeight(evStart, evEnd)),
-            };
-          })
+        const overlapInputs = dayEvents.map((ev) => {
+          const evStart = parseTime(ev.start_time);
+          const evEnd = ev.end_time ? parseTime(ev.end_time) : null;
+          const evTop = getEventTop(evStart);
+          return {
+            id: ev.id,
+            start: evTop,
+            end: evTop + Math.max(28, getEventHeight(evStart, evEnd)),
+          };
+        });
+        // Najwyżej dwa pasy — przy trzech i więcej kafle robiły się wąskie
+        // jak ikona, a tytuły skracały się do „Sp…” (UAT B08). Reszta grupy
+        // trafia do chipa „+N”.
+        const { slots: overlapSlots, overflow } = limitVisibleLanes(
+          overlapInputs,
+          layoutOverlappingEvents(overlapInputs),
         );
 
         return (
@@ -637,7 +642,13 @@ function WeekGrid({
               const conflictTooltip = hasConflict
                 ? `Konflikt z: ${conflictTitles.join(", ")}`
                 : undefined;
-              const slot = overlapSlots.get(ev.id) ?? { column: 0, columns: 1 };
+              const slot = overlapSlots.get(ev.id) ?? {
+                column: 0,
+                columns: 1,
+                cluster: -1,
+                hidden: false,
+              };
+              if (slot.hidden) return null;
 
               return (
                 <div
@@ -672,7 +683,13 @@ function WeekGrid({
                       ⚠
                     </span>
                   )}
-                  <div className={cn("text-xs font-semibold truncate leading-tight", cfg.color)}>
+                  <div
+                    className={cn(
+                      "text-xs font-semibold truncate leading-tight",
+                      hasConflict && "pr-3",
+                      cfg.color,
+                    )}
+                  >
                     {ev.title}
                   </div>
                   {height > 40 && (
@@ -690,9 +707,71 @@ function WeekGrid({
                 </div>
               );
             })}
+
+            {overflow.map((group) => (
+              <OverflowEventsChip
+                key={group.cluster}
+                top={group.top}
+                events={group.ids
+                  .map((id) => dayEvents.find((ev) => ev.id === id))
+                  .filter((ev): ev is CalendarEvent => Boolean(ev))}
+                onEventClick={onEventClick}
+              />
+            ))}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function OverflowEventsChip({
+  top,
+  events,
+  onEventClick,
+}: {
+  top: number;
+  events: CalendarEvent[];
+  onEventClick: (ev: CalendarEvent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="absolute right-1 z-10" style={{ top: `${top}px` }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        aria-expanded={open}
+        aria-label={`Pokaż ${events.length} kolejne wydarzenia w tym czasie`}
+        title={events.map((ev) => ev.title).join(", ")}
+        className="rounded-full border border-border bg-card px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-xs hover:bg-muted"
+      >
+        +{events.length}
+      </button>
+      {open && (
+        <ul
+          className="absolute right-0 mt-1 w-48 space-y-0.5 rounded-lg border border-border bg-card p-1 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {events.map((ev) => (
+            <li key={ev.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onEventClick(ev);
+                }}
+                className="w-full truncate rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
+              >
+                {parseTime(ev.start_time).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}{" "}
+                {ev.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
