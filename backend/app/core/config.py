@@ -770,6 +770,9 @@ class Settings(BaseSettings):
     M365_MAX_ATTACHMENT_MB: int = 25
     # Whether to auto-parse CV attachments via cv_parser (Claude calls = $$).
     M365_AUTO_PARSE_CV: bool = True
+    # Durable attachment worker cadence. Parsing is deliberately outside the
+    # Graph page transaction so an LLM call cannot consume the sync timeout.
+    M365_CV_PARSE_INTERVAL_SECONDS: int = 15
     # Phase 5.2 — hourly background loop that retries `matcher.match` on emails
     # synced before the candidate row existed in the DB. Cheap (LIMIT 500, single
     # SELECT + per-row UPDATEs) but kept behind a flag so it stays off until the
