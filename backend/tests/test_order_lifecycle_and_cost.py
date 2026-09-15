@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from hypothesis import HealthCheck, given, settings, strategies as st
 
 from app.core.scheduling import business_today
 
@@ -707,8 +708,21 @@ async def test_invoice_import_reduces_the_shared_budget(
     assert body["lines"][0]["invoiced_total"] == pytest.approx(20000.0)
 
 
+# Every generated example creates its own client/contracts/group. The HTTP
+# client and monkeypatch are shared fixtures, but no business state is reused.
+@settings(
+    max_examples=6,
+    deadline=None,
+    derandomize=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(invoice_amount=st.integers(1, 40_000), repetitions=st.integers(2, 4))
 async def test_reimporting_the_same_month_does_not_subtract_twice(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    invoice_amount: int,
+    repetitions: int,
 ):
     """Klucz idempotencji `(linia, miesiąc)` — nie ostrożność w kodzie."""
     client_id, contracts, names = await _seed_client_with_contracts(1)
@@ -724,16 +738,17 @@ async def test_reimporting_the_same_month_does_not_subtract_twice(
         budget_amount=50000,
     )
     finance = await _finance_headers(app_client)
-    payload = _sheet([(names[0], 10, "SAP 4500719651", 20000)])
+    payload = _sheet([(names[0], 10, "SAP 4500719651", invoice_amount)])
 
-    await _import_sheet(app_client, finance, payload)
-    await _import_sheet(app_client, finance, payload)
+    for _ in range(repetitions):
+        await _import_sheet(app_client, finance, payload)
 
     listing = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
     )
     body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
-    assert body["budget_remaining"] == pytest.approx(30000.0)
+    assert body["budget_remaining"] == pytest.approx(50000 - invoice_amount)
+    assert body["budget_used"] == pytest.approx(invoice_amount)
 
 
 async def test_two_rows_for_one_person_are_summed_not_overwritten(

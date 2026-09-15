@@ -75,3 +75,8 @@ frontend/e2e/.auth/
 
 # UAT: wyniki i zgłoszenia zostają lokalnie — repo jest publiczne
 docs/uat/wyniki/
+
+# Generated QA credentials, schemas, reports and Hypothesis examples
+.qa/
+.hypothesis/
+qa/reports/*
