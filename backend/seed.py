@@ -135,11 +135,6 @@ async def seed():
                 role=ud["role"],
                 is_active=True,
             )
-            # Bez tego `roles` zostaje `[]`, a CHECK
-            # ck_users_exclusive_finance_viewer_roles wymaga dla roli `user`
-            # dokładnie `["user"]` — seed padał na KAŻDEJ świeżej bazie
-            # (wykryte przez stack E2E, plan poprawy QA 15.09.2026).
-            u.ensure_roles_invariant()
             db.add(u)
             users.append(u)
         await db.flush()

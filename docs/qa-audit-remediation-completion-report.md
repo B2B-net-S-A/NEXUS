@@ -25,7 +25,7 @@ Wykonanie: 15.09.2026, dwa PR-y — hotfix bezpieczeństwa [#1543](https://githu
 
 1. **Duplikat e-maila kandydata → 500** (IntegrityError bez obsługi). Teraz 409 z komunikatem; test `test_candidate_create_duplicate_email.py`.
 2. **Backend nie startuje na pustej bazie**: manifest portfela (`--apply-once`, fail-closed) blokuje entrypoint. Dla stacku E2E jawny przełącznik `CLIENT_PORTFOLIO_MANIFEST_SKIP=1` (kontrakt zabrania go w compose produkcyjnych). Instalacja od zera poza stackiem nadal wymaga świadomej decyzji.
-3. **`seed.py` padał na każdej świeżej bazie** — użytkownicy bez `ensure_roles_invariant()`.
+3. **`seed.py` pada na każdej świeżej bazie** (użytkownicy bez `ensure_roles_invariant()`) — i **świadomie NIE naprawiony**: entrypoint uruchamia go przy każdym starcie także na produkcji, a jedyną bramką jest istnienie `artur@b2bnet.pl`. Gdyby na produkcji tego konta nie było, naprawiony seed zasiałby ją kontami demo z domyślnym hasłem. Dziś chroni przed tym wyłącznie to, że seed się wywraca. Do decyzji: usunąć `python seed.py` z entrypointu (stack E2E zakłada konta przez `backend/scripts/seed_e2e.py`) i dopiero potem naprawić seed dla lokalnego dev.
 4. **`global-error.tsx` bez strażnika błędu chunka** — stara karta po deployu kończyła na ekranie awarii zamiast przeładowania.
 5. **Formularz aplikacji bez CV** pokazywał „zły format” zamiast „Dodaj swoje CV”.
 6. **`auth.setup.ts` celował w nieistniejący placeholder** i niejednoznaczny przycisk — setup E2E nie mógł się zalogować nawet z sekretami.
