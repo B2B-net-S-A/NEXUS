@@ -159,6 +159,7 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
  candidateRowTestId,
  focusCandidateRow,
+ formatProfileRate,
  formatCandidateLocation,
  getCandidateInitials,
  getCurrentCompany,
@@ -480,6 +481,8 @@ interface Candidate {
  last_note_preview?: string | null;
  last_rejection_reason?: string | null;
  last_rate?: string | null;
+ expected_rate_hourly?: number | string | null;
+ expected_rate_currency?: string | null;
  contact_case?: CandidateContactSummary | null;
 }
 
@@ -975,8 +978,11 @@ function CandidateCell({
  <span className="text-xs text-muted-foreground">Brak aktywności</span>
  )}
  {(candidate.updated_at ?? candidate.created_at) && (
+ // Czas modyfikacji rekordu, nie czas aktywności — podpisany
+ // wprost, żeby nie stał obok „Brak aktywności” jak data
+ // aktywności (UAT B66).
  <p className="mt-1 text-[11px] text-muted-foreground">
- {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
+ Aktualizacja: {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
  </p>
  )}
  </div>
@@ -1136,19 +1142,36 @@ function CandidateCell({
  );
  }
  case "rate": {
- const rate = candidate.last_rate;
- if (!rate) {
+ // Kolumna pokazuje stawkę z profilu — tę, po której filtruje lista.
+ // Stawka z procesu rekrutacji jest osobną informacją (UAT B58).
+ const profileRate = formatProfileRate(candidate);
+ const processRate = candidate.last_rate;
+ if (!profileRate && !processRate) {
  return <span className="text-xs text-muted-foreground">—</span>;
  }
  return (
+ <div className="min-w-0">
+ {profileRate ? (
  <div className="flex items-center gap-1.5 min-w-0">
  <Banknote className="h-3 w-3 shrink-0 text-success" />
  <span
  className="truncate text-sm font-semibold text-success-muted-foreground"
- title={rate}
+ title="Stawka z profilu kandydata"
  >
- {rate}
+ {profileRate}
  </span>
+ </div>
+ ) : (
+ <span className="text-xs text-muted-foreground">Brak w profilu</span>
+ )}
+ {processRate && processRate !== profileRate && (
+ <p
+ className="mt-0.5 truncate text-[11px] text-muted-foreground"
+ title="Ostatnia stawka zapisana w procesie rekrutacji"
+ >
+ w procesie: {processRate}
+ </p>
+ )}
  </div>
  );
  }
@@ -2329,7 +2352,10 @@ export function CandidatesListV2() {
                 setSortBy(value as CandidateFilters["sort"])
               }
             >
-              <SelectTrigger className="w-[160px] h-9 rounded-md shadow-xs font-medium">
+              <SelectTrigger
+                aria-label="Sortowanie kandydatów"
+                className="w-[160px] h-9 rounded-md shadow-xs font-medium"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

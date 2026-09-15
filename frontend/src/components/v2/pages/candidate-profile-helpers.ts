@@ -149,6 +149,8 @@ export function formatExperienceDate(value: unknown): string {
 export interface CvProjectionNotice {
   tone: "warning" | "info";
   text: string;
+  /** `not_parsed` = plik jest, danych brak — profil proponuje ponowny odczyt (UAT B12). */
+  kind: "quarantine" | "not_parsed";
 }
 
 /** Czy wgrane CV zasiliło profil — sygnał dla sekcji „CV” (UAT M01-B01).
@@ -172,6 +174,7 @@ export function getCvProjectionNotice(candidate: {
   if (extracted._identity_quarantine_source) {
     return {
       tone: "warning",
+      kind: "quarantine",
       text:
         "Wgrane CV nie zasiliło profilu: imię i nazwisko w dokumencie nie " +
         "zgadzają się z kandydatem. Plik zostaje w zakładce „Pliki i umowy”; " +
@@ -181,10 +184,12 @@ export function getCvProjectionNotice(candidate: {
   if (candidate.cv_filename && !candidate.cv_parsed_at) {
     return {
       tone: "info",
+      kind: "not_parsed",
       text:
         "Dane z tego CV (umiejętności, doświadczenie) nie są jeszcze w " +
         "profilu. Świeżo wgrany plik odczytujemy zwykle w ciągu minuty — jeśli " +
-        "nic się nie zmieni, odczyt się nie powiódł.",
+        "nic się nie zmieni, odczyt się nie powiódł (np. plik jest skanem) " +
+        "albo plik przyszedł z importu bez odczytu. Możesz uruchomić odczyt ponownie.",
     };
   }
   return null;

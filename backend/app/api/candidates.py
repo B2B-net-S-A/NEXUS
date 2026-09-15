@@ -38,6 +38,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -2468,8 +2469,28 @@ async def create_candidate(
         overwrite_existing=True,
     )
     candidate.created_by = current_user.id
-    db.add(candidate)
-    await db.flush()
+    # `candidates.email` ma unikalny indeks. Bez tej obsługi duplikat kończył się
+    # IntegrityError przy flush → 500 („nieoczekiwany błąd serwera"), a scenariusz
+    # E2E „duplikat e-maila" przechodził tylko dlatego, że akceptował każdy status
+    # poniżej 500 (audyt QA 14.09.2026). Sprawdzenie przed zapisem daje czytelną
+    # odmowę; SAVEPOINT łapie wyścig dwóch równoległych zapisów tego samego adresu.
+    duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
+    if candidate.email and await db.scalar(
+        select(Candidate.id).where(Candidate.email == candidate.email)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+        )
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()
+    except IntegrityError as exc:
+        if candidate.email and "email" in str(exc.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            ) from exc
+        raise
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -4163,6 +4184,51 @@ async def update_candidate_document(
         )
 
     return doc
+
+
+@router.post("/{candidate_id}/cv/reparse", status_code=202)
+@limiter.limit("10/minute")
+async def reparse_primary_cv(
+    request: Request,
+    candidate_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ponów odczyt głównego CV do profilu (UAT B12).
+
+    Odczyt po wgraniu idzie w tle i przy pustym tekście, błędzie parsera albo
+    imporcie bez parsowania kończy się po cichu. Profil mówił wtedy „dane
+    z CV nie są jeszcze w profilu” bez żadnego następnego kroku. To ta sama
+    ścieżka co wgranie pliku i ustawienie go jako głównego — bramka tożsamości
+    i kwota AI działają bez zmian.
+    """
+
+    if (
+        await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    document = await db.scalar(
+        select(CandidateDocument).where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            CandidateDocument.is_primary.is_(True),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+    )
+    if document is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Kandydat nie ma głównego pliku CV do odczytania.",
+        )
+    background_tasks.add_task(
+        _enrich_candidate_from_document_task,
+        candidate_id,
+        document.id,
+        document.content_sha256,
+    )
+    return {"status": "queued", "document_id": document.id}
 
 
 @router.get("/{candidate_id}/documents/{doc_id}/content")

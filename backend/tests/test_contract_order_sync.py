@@ -560,9 +560,16 @@ async def _load_contract(contract_id: int) -> Contract:
 
 
 async def test_filling_the_order_updates_the_contract_through_the_api(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, contract_order_sync_mode: str
 ):
-    """Uzupełnienie zamówienia w UI = kontrakt Aktywny z okresem i przychodem."""
+    """Uzupełnienie zamówienia w UI = kontrakt Aktywny z okresem i przychodem.
+
+    Macierz bramki (`contract_order_sync_mode`): bez markera korekty system
+    zachowuje się jak przed wdrożeniem — zamówienie się zapisuje, kontrakt
+    zostaje nietknięty. Inaczej padnięta korekta w entrypoincie + zapisy
+    zamówień zatarłyby niezgodności, które migawka z następnego deployu miała
+    pokazać. Zapis idzie przez `commit_order_write` (PATCH zamówienia).
+    """
     ids = await _seed_signed_contractor()
 
     resp = await app_client.patch(
@@ -579,6 +586,26 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
     )
 
     assert resp.status_code == 200, resp.text
+    if contract_order_sync_mode == "disabled":
+        # Zamówienie zapisane dokładnie tak, jak je wysłano — łącznie z ręcznym
+        # kosztem, którego bez synchronizacji nikt nie nadpisuje.
+        body = resp.json()
+        assert (body["start_date"], body["end_date"]) == ("2026-09-15", "2026-12-31")
+        assert body["rate_unit"] == "daily"
+        assert Decimal(str(body["rate_client"])) == Decimal("1340")
+        assert Decimal(str(body["rate_candidate"])) == Decimal("999")
+        contract = await _load_contract(ids["contract_id"])
+        assert contract.status == ContractStatus.draft
+        assert contract.rate_unit == RateUnit.hourly
+        assert contract.billing_hours_per_month == 160
+        assert (contract.client_order_start_date, contract.client_order_end_date) == (
+            None,
+            None,
+        )
+        assert contract.client_rate_schedule == []
+        assert contract.rate_client is None
+        assert contract.effective_candidate_rate(date(2026, 10, 1)) == Decimal("120")
+        return
     assert Decimal(str(resp.json()["rate_candidate"])) == Decimal("960")
     contract = await _load_contract(ids["contract_id"])
     assert contract.status == ContractStatus.active
@@ -602,8 +629,9 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
 
 
 async def test_contract_cost_change_reaches_the_order_through_the_api(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, contract_order_sync_mode: str
 ):
+    """Kierunek kontrakt → zamówienie; bez markera zamówienie zostaje nietknięte."""
     ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
 
     resp = await app_client.patch(
@@ -615,9 +643,12 @@ async def test_contract_cost_change_reaches_the_order_through_the_api(
     assert resp.status_code == 200, resp.text
     from app.core.database import AsyncSessionLocal
 
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.effective_candidate_rate(date.today()) == Decimal("130")
     async with AsyncSessionLocal() as db:
         order = await db.get(ClientOrder, ids["order_id"])
-        assert order.rate_candidate == Decimal("130.000")
+        expected = "130.000" if contract_order_sync_mode == "enabled" else "120.000"
+        assert order.rate_candidate == Decimal(expected)
 
 
 async def test_sync_failure_never_blocks_the_order_write(
@@ -981,40 +1012,6 @@ async def test_cancelling_the_order_clears_a_backfilled_period():
 
 
 # ── Poprawki po przeglądzie adwersarialnym ──────────────────────────────────
-
-
-async def test_order_writes_do_not_sync_before_the_repair_marker(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
-    """Bez markera korekty system zachowuje się jak przed wdrożeniem.
-
-    Inaczej padnięta korekta w entrypoincie + zapisy zamówień zatarłyby
-    niezgodności, które migawka z następnego deployu miała pokazać.
-    """
-    from app.services import contract_order_sync
-
-    async def _disabled(_db) -> bool:
-        return False
-
-    monkeypatch.setattr(contract_order_sync, "sync_enabled", _disabled)
-    ids = await _seed_signed_contractor()
-
-    resp = await app_client.patch(
-        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
-        json={
-            "start_date": "2026-09-15",
-            "end_date": "2026-12-31",
-            "rate_unit": "daily",
-            "rate_client": "1340",
-        },
-        headers=app_auth_headers,
-    )
-
-    assert resp.status_code == 200, resp.text
-    contract = await _load_contract(ids["contract_id"])
-    assert contract.status == ContractStatus.draft
-    assert contract.client_order_start_date is None
-    assert contract.rate_unit == RateUnit.hourly
 
 
 async def test_foreign_order_does_not_relabel_the_contract_own_revenue():

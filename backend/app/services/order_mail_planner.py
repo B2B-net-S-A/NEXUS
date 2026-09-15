@@ -115,6 +115,11 @@ class DocumentProposal:
         return bool(self.rows) and all(r.action in AUTO_ACTIONS for r in self.rows)
 
 
+def renewal_gap_phrase(days: int) -> str:
+    """„Powrót po 1 dniu” / „po 32 dniach” — miejscownik (UAT B76)."""
+    return f"Powrót po {days} {'dniu' if days == 1 else 'dniach'}"
+
+
 def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
@@ -309,7 +314,8 @@ def plan_document(
             rp.target_order_id = target.id
             rp.previous_end_date = _iso(target.end_date)
             rp.reasons.append(
-                f"Powrót po {(new_start - target.end_date).days} dniach od zakończenia poprzedniego zamówienia"
+                f"{renewal_gap_phrase((new_start - target.end_date).days)} "
+                "od zakończenia poprzedniego zamówienia"
             )
             proposal.rows.append(rp)
             continue

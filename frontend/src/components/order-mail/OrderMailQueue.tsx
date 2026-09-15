@@ -108,7 +108,9 @@ export function MailboxCheckPanel(p: MailboxCheckProps) {
     detail =
       last.status === "error"
         ? `Sprawdzenie nie powiodło się: ${last.error ?? "błąd bez opisu"}`
-        : `${formatLastRunSummary(last)}${last.status === "partial" && last.error ? ` · ${last.error}` : ""} — liczby dla całej skrzynki, kolejka pokazuje Twój zakres.`;
+        : // Wynik OSTATNIEGO sprawdzenia, nie stan kolejki — zakładki niżej
+          // liczą bieżące zaległości (UAT B75: „0 do weryfikacji” obok „(2)”).
+          `W ostatnim sprawdzeniu: ${formatLastRunSummary(last)}${last.status === "partial" && last.error ? ` · ${last.error}` : ""}. Bieżące zaległości pokazują zakładki kolejki (w Twoim zakresie).`;
   } else {
     title = `Skrzynka sprawdzana automatycznie co ${p.status.interval_minutes} min · jeszcze nie sprawdzana`;
     detail = "Pierwsze sprawdzenie uruchomi się samo albo po kliknięciu przycisku.";

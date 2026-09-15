@@ -16,7 +16,7 @@ Stan na 15.09.2026. Audyt wskazał 12 ustaleń. Pięć było już naprawionych w
 | **MON-04** zawieszone pętle | **Kod gotowy** — 14 pętli krytycznych, reszta w `EXEMPT` z powodem | `services/loop_heartbeat.py` |
 | **MON-01** monitor Sentry | Kod gotowy (issue przy awarii); **brak sekretów** | `sentry-daily-monitor.yml` |
 | **OPS-01** backup/restore | Kod gotowy (issue przy nieświeżej kopii); **brak sekretów w GitHub** | `uptime-probe.yml`, `backup-drill.yml` |
-| **MON-02** E2E po zalogowaniu | Kod gotowy (smoke `@readonly` po deployu); **brak konta E2E** | `e2e.yml`, `frontend/e2e/*.spec.ts` |
+| **MON-02** E2E po zalogowaniu | Kod gotowy (`prod-smoke` po deployu); **brak konta E2E** | `e2e.yml` |
 | **MON-05** sonda co minutę | **Do założenia** w Grafana Synthetic Monitoring | — |
 
 ## Co zmienia kod
@@ -58,9 +58,7 @@ Test kontraktowy wymusza decyzję dla każdej nowej pętli. Po tygodniu bez fał
 
 ### MON-02: E2E po deployu
 
-Po każdym udanym Deploy biegną wyłącznie testy oznaczone `@readonly` (14 przypadków: logowanie, lista i profil kandydata, filtry dopasowań). Działa to tylko przy zmiennej repo `E2E_POST_DEPLOY_ENABLED=true`. Włącz ją dopiero po założeniu konta E2E — bez niego każdy deploy dawałby czerwony bieg.
-
-Testy zapisujące biegną tylko nocą albo ręcznie: tworzenie kandydata, notatki, ruch w pipeline, zapis wyszukiwania, eksport.
+Po każdym udanym Deploy biegnie projekt Playwright `prod-smoke`: odczyty po zalogowaniu, bez scenariuszy `@stack` i `@writes`, które od #1544 biegną na efemerycznym stacku w PR-ach. Działa to tylko przy zmiennej repo `E2E_POST_DEPLOY_ENABLED=true`. Włącz ją dopiero po założeniu konta E2E — bez niego każdy deploy dawałby czerwony bieg.
 
 ## Kroki właściciela (bez nich kod nie zamknie MON-01 / OPS-01 / MON-02 / MON-05)
 

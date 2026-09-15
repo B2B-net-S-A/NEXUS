@@ -171,6 +171,28 @@ export function candidateRowTestId(candidateId: number): string {
   return `candidate-row-${candidateId}`;
 }
 
+/**
+ * Atrybut fokusowalnego elementu kafelka — kafelek jest `div`-em, więc fokus
+ * wraca na przycisk z nazwiskiem (UAT B22: widok kafelków gubił fokus).
+ */
+export const CANDIDATE_FOCUS_ATTR = "data-candidate-focus";
+
+/**
+ * Stawka z profilu kandydata — ta sama, po której filtruje lista (UAT B58).
+ * `last_rate` to stawka z ostatniego etapu rekrutacji; lista pokazywała ją jako
+ * „Stawka”, więc kandydat trafiony filtrem 70–70 PLN/h miał w kolumnie „—”.
+ */
+export function formatProfileRate(candidate: {
+  expected_rate_hourly?: number | string | null;
+  expected_rate_currency?: string | null;
+}): string | null {
+  const raw = candidate.expected_rate_hourly;
+  const amount = typeof raw === "string" ? Number(raw) : raw;
+  if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
+  const currency = (candidate.expected_rate_currency || "PLN").trim().toUpperCase();
+  return `${amount.toLocaleString("pl-PL", { maximumFractionDigits: 2 })} ${currency}/h`;
+}
+
 /** Enter/Spacja na wierszu z `role="button"` otwiera podgląd jak kliknięcie. */
 export function isRowActivationKey(key: string): boolean {
   return key === "Enter" || key === " ";
@@ -187,9 +209,9 @@ export function focusCandidateRow(
   root: ParentNode = document,
 ): boolean {
   if (candidateId == null) return false;
-  const row = root.querySelector<HTMLElement>(
-    `[data-testid="${candidateRowTestId(candidateId)}"]`,
-  );
+  const row =
+    root.querySelector<HTMLElement>(`[data-testid="${candidateRowTestId(candidateId)}"]`) ??
+    root.querySelector<HTMLElement>(`[${CANDIDATE_FOCUS_ATTR}="${candidateId}"]`);
   if (!row) return false;
   row.focus();
   return document.activeElement === row;

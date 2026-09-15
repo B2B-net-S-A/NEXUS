@@ -7844,9 +7844,19 @@ python seed.py || echo "seed.py failed (likely pre-existing schema drift from un
 # set before its advisory lock — `client_portfolio_import.POSTGRES_LOCK_TIMEOUT`),
 # and the applied-hash path takes no lock that pg_dump's ACCESS SHARE blocks.
 # It stays fail-closed on purpose: a half-known portfolio must not go live.
+#
+# CLIENT_PORTFOLIO_MANIFEST_SKIP=1 istnieje WYŁĄCZNIE dla efemerycznego stacku
+# E2E (docker-compose.e2e.yml): na pustej bazie manifest nie znajduje żadnego
+# z zatwierdzonych aliasów klientów i — zgodnie z projektem — zatrzymuje start.
+# Kontrakt w backend/tests/test_ci_deploy_workflows_contract.py pilnuje, że
+# produkcyjny docker-compose.yml tej zmiennej nie ustawia.
 startup_phase "client-portfolio-manifest"
-echo "Applying client portfolio manifest (transactional apply-once)..."
-python -m app.cli.client_portfolio_import --apply-once
+if [ "${CLIENT_PORTFOLIO_MANIFEST_SKIP:-0}" = "1" ]; then
+  echo "Client portfolio manifest SKIPPED (CLIENT_PORTFOLIO_MANIFEST_SKIP=1 — tylko stack testowy)."
+else
+  echo "Applying client portfolio manifest (transactional apply-once)..."
+  python -m app.cli.client_portfolio_import --apply-once
+fi
 
 # Start the application
 startup_phase ""

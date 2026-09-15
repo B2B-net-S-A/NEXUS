@@ -255,6 +255,42 @@ describe("EditCandidateModal — profile rate boundary", () => {
     expect(payload).not.toHaveProperty("lastname");
   });
 
+  it("keeps imported object tags intact and shows only text tags in the field (UAT B60)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const sourceTag = { type: "traffit_source", source_id: 3, value: "LinkedIn", domain: "linkedin.com" };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 12, name: "Jan", lastname: "Kowalski", tags: ["Remote", sourceTag] }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    const field = screen.getByPlaceholderText("React, TypeScript, Remote...") as HTMLInputElement;
+    expect(field.value).toBe("Remote");
+    expect(screen.queryByDisplayValue(/object Object/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Tagi z importu zostają bez zmian: LinkedIn/)).toBeInTheDocument();
+
+    // Zapis bez zmian nie dotyka kolumny tagów.
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.patch).mock.calls[0]?.[1]).not.toHaveProperty("tags");
+
+    // Edycja tekstu zapisuje napisy i zachowuje obiekt importu.
+    await user.type(field, ", Java");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
+    const payload = vi.mocked(api.patch).mock.calls[1]?.[1] as Record<string, unknown>;
+    expect(payload.tags).toEqual(["Remote", "Java", sourceTag]);
+  });
+
   it("sends the office-presence rubric with explicit nulls for cleared preference keys (0278)", async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [] });
     vi.mocked(phase5Api.clientsLookup).mockResolvedValue({

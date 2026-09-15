@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppModal } from "@/components/ds/AppModal";
+import { splitTemplateVariables } from "@/lib/template-variables";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,33 @@ const AVAILABLE_PLACEHOLDERS = [
   { key: "{{application_date}}", desc: "Data aplikacji" },
 ];
 
+const PLACEHOLDER_LABELS = new Map(AVAILABLE_PLACEHOLDERS.map(({ key, desc }) => [key, desc]));
+
+/** Tekst podglądu ze zmiennymi jako opisanymi etykietami (UAT B14). */
+function TemplatePreviewText({ text }: { text: string | null | undefined }) {
+  return (
+    <>
+      {splitTemplateVariables(text, PLACEHOLDER_LABELS).map((part, index) =>
+        part.kind === "text" ? (
+          <span key={index}>{part.value}</span>
+        ) : (
+          <span
+            key={index}
+            title={part.token}
+            className={
+              part.label
+                ? "mx-0.5 inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-px text-xs font-medium text-primary"
+                : "mx-0.5 inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-px text-xs font-medium text-destructive"
+            }
+          >
+            {part.label ?? `nieznana zmienna ${part.token}`}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
 // ── Preview Modal ─────────────────────────────────────────────────────────────
 
 function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose: () => void }) {
@@ -118,17 +146,17 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
             <div className="space-y-4">
               <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Temat</p>
-                <p className="text-sm font-semibold text-foreground dark:text-foreground">{preview?.subject}</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground"><TemplatePreviewText text={preview?.subject} /></p>
               </div>
               <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Treść</p>
                 <pre className="text-sm text-foreground dark:text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                  {preview?.body}
+                  <TemplatePreviewText text={preview?.body} />
                 </pre>
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
                 <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  ℹ️ Zmienne w nawiasach {"{{…}}"} nie są podstawiane w podglądzie — to pola do uzupełnienia przed wysłaniem wiadomości.
+                  ℹ️ Wyróżnione etykiety to zmienne — w wiadomości pojawią się tam dane kandydata i rekrutacji. Podgląd nie podstawia przykładowych wartości.
                 </p>
               </div>
             </div>
@@ -465,17 +493,17 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Temat</p>
-                <p className="text-sm font-semibold text-foreground dark:text-foreground">{preview.subject}</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground"><TemplatePreviewText text={preview.subject} /></p>
               </div>
               <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Treść</p>
                 <pre className="text-sm text-foreground dark:text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                  {preview.body}
+                  <TemplatePreviewText text={preview.body} />
                 </pre>
               </div>
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
                 <p className="text-xs text-amber-700 dark:text-amber-400">
-                  ℹ️ Zmienne w nawiasach {"{{…}}"} nie są podstawiane w podglądzie — to pola do uzupełnienia przed wysłaniem wiadomości.
+                  ℹ️ Wyróżnione etykiety to zmienne — w wiadomości pojawią się tam dane kandydata i rekrutacji. Podgląd nie podstawia przykładowych wartości.
                 </p>
               </div>
             </div>

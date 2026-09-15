@@ -109,10 +109,11 @@ export default function MyRelationshipsPage() {
           {isFinance
             ? "Wszystkie oznaczone relacje z klientami w organizacji. "
             : "Osoby u klientów, z którymi DL/TAC ma zbudowaną relację. "}
-          Oznaczone jako{" "}
-          <Star className="w-3 h-3 inline text-yellow-500 fill-yellow-500" /> w
-          zakładce Zespół klienta. Sortowanie: najpilniejsze (najstarszy
-          personal touchpoint) na górze.
+          Oznaczasz je w profilu klienta: <strong>Kontakty klienta</strong> → ikona{" "}
+          <Heart className="w-3 h-3 inline text-pink-600" aria-label="serca" /> →
+          „Kluczowa relacja”. Oznaczony kontakt dostaje{" "}
+          <Star className="w-3 h-3 inline text-yellow-500 fill-yellow-500" aria-label="gwiazdkę" />.
+          Sortowanie: najpilniejsze (najstarszy personal touchpoint) na górze.
         </p>
       </header>
 
@@ -121,7 +122,7 @@ export default function MyRelationshipsPage() {
           <Heart className="w-12 h-12 mx-auto mb-2 opacity-40" />
           {isFinance
             ? "W organizacji nie ma jeszcze oznaczonych kluczowych relacji."
-            : "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w klienta → Zespół → Kontakty i kliknij ikonę serca, aby oznaczyć."}
+            : "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w profil klienta → Kontakty klienta, kliknij ikonę serca przy osobie i zaznacz „Kluczowa relacja”."}
         </div>
       ) : (
         <ul className="space-y-3">

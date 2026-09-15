@@ -163,7 +163,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   z powodem (`test_loop_heartbeat.py`). Progi obejmują najdłuższy bieg (Traffit
   full: 12 h ponad interwał).
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`. GitHub uruchamia „godzinowy” cron co 1–6 h, więc to NIE jest sonda dostępności — od tego jest zewnętrzna sonda Grafana Synthetic Monitoring (MON-05). Awaria joba `probe` albo `backup-freshness` z crona otwiera issue (job `alert`), tak jak `health-checks`, restore drill i digest Sentry.
-- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z `--grep @readonly` (bez zapisów w bazie, bez płatnych wywołań AI), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue). Test zapisujący NIE może dostać tagu `@readonly`.
+- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue).
 - **GIT_SHA / BUILT_AT:** SHA pochodzi z tagu obrazu budowanego przez Coolify (`release.sh` → `/app/.nexus-build-sha`, #1524), nie z env `$SOURCE_COMMIT`.
 
 ## Env vars (build-time vs runtime)
@@ -189,8 +189,10 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Najsilniejsze CI w stacku** (gitleaks + ruff + alembic + pytest + ESLint + tsc + Vitest + Codecov).
 - **`needs: secret-scan`** — gitleaks musi przejść przed innymi jobami (świadomy guard).
 - **Pytest selective:** wskazane konkretne pliki testów (5 plików), nie `pytest .` — bo cały suite ma live-server tests które są skipowane (`RUN_LIVE_TESTS=0`).
-- **Lista `--ignore` w `ci.yml` = `_FAILING` w `test_ci_coverage_contract.py`** (kontrakt czyta workflow). Od 14.09.2026 (QA-06) `_FAILING` jest PUSTA — 12 czerwonych plików naprawiono (11 nieaktualnych kontraktów testów + 1 błąd produktu: dedup dzienny powiadomień targu wywracał cały skan). Zostaje 6 wykluczeń: 2 kolekcyjne + 4 live. Nowy czerwony test = napraw albo dopisz do `_FAILING` Z POWODEM, nigdy samo `--ignore`.
-- **Pokrycie backendu scala job `backend-coverage-combine`** (QA-01): shardy piszą `.coverage.shard-N` jako artefakt, combine daje tabelę + `::warning::` poniżej 80% (report-only); Codecov tylko gdy `CODECOV_TOKEN` ustawiony (jawny `::notice::` bez tokena).
+- **Lista `--ignore` w `ci.yml` = suma `_COLLECTION_ERRORS | _LIVE | _FAILING` w `test_ci_coverage_contract.py`** (kontrakt czyta workflow). Od 14.09.2026 (QA-06) `_FAILING` jest PUSTA — 12 czerwonych plików naprawiono (11 nieaktualnych kontraktów testów + 1 błąd produktu: dedup dzienny powiadomień targu wywracał cały skan). Od 15.09.2026 **0 wykluczeń**: 4 pliki live (`test_auth/candidates/jobs/pipeline`) przeniesione na in-process `app_client` z własnymi danymi, 2 „kolekcyjne” (`test_backfill_*`) zbierały się i przechodziły — powód był nieaktualny. Nowy czerwony test = napraw albo dopisz do właściwej kategorii Z POWODEM, nigdy samo `--ignore`. Test skryptu z `backend/scripts` importuj przez `from scripts import …`, nie przez `sys.path.insert(…/scripts)` — zagnieżdżony katalog `scripts/scripts/` trafia wtedy na początek ścieżki pakietu `scripts` i np. `scripts.eval_matching` ładuje się z niego.
+- **Pokrycie backendu scala job `backend-coverage-combine`** (QA-01): shardy piszą `.coverage.shard-N` (linie **i gałęzie**, `--cov-branch` + `branch = True` w `.coveragerc`) jako artefakt; combine wymaga kompletu `EXPECTED_SHARDS` i porównuje wynik z **`.github/coverage-baseline.json`** skryptem `.github/scripts/coverage_gate.py` — spadek poniżej baseline − tolerancji = czerwony job, a wymagany kontekst „Backend (pytest)” czyta jego wynik. 80% zostaje progiem RAPORTOWYM. Frontend: `coverage.thresholds` w `vitest.config.ts` (Vitest sam kończy się błędem) + artefakt `frontend-coverage`. **Ratchet:** `::notice::` o wzroście = podbij baseline/progi w tym samym PR; obniżenie tylko z uzasadnieniem. Codecov tylko gdy `CODECOV_TOKEN` ustawiony.
+- **Trivy blokuje** (QA-05, 15.09.2026): znalezisko HIGH/CRITICAL z dostępną poprawką (podatność zależności ALBO błędna konfiguracja Dockerfile — liczone są `Total:` i `Failures:`) = czerwony job „Trivy + hadolint”. Wyjątki WYŁĄCZNIE w `.trivyignore` z uzasadnieniem i `exp:RRRR-MM-DD` (pilnuje kontrakt). DS-0002 w `backend/Dockerfile` to fałszywy alarm (entrypoint robi `exec gosu appuser`). Hadolint zostaje advisory. Job nie jest jeszcze wymaganym kontekstem rulesetu — dopisuje go Artur.
+- **E2E ma dwa cele** (QA-02/03, 15.09.2026): job `stack` w `e2e.yml` (PR + nocny) stawia `docker-compose.e2e.yml` (te same Dockerfile'e, pusta baza, konta ról z `backend/scripts/seed_e2e.py`) i uruchamia projekt `ci-chromium` = scenariusze z tagiem **`@stack`**; pominięty przypadek = czerwony bieg. Nocny job produkcyjny uruchamia `prod-smoke` (bez `@stack`/`@writes`) i `preview-chromium`. Wywołania API w scenariuszach idą przez `e2e/helpers/api.ts` (Bearer) — fixture `request` Playwrighta NIE niesie tokena z localStorage, więc dawne `request.post` dostawały 401, które przechodziły `status < 500`. Każdy scenariusz zakłada własne dane (`helpers/entities.ts`); asercja = dokładny status + ponowny odczyt. Otwarte przepływy: `docs/uat/09-backlog-scenariuszy-e2e.md` (zamiast `test.fixme`).
 - **Testy generatora CV mają fixture `pipeline_mode` (`legacy`/`v10`)** (QA-07) dla trzech kontraktów; `test_cv_generator_legacy_v7.py` pilnuje domyślnego trybu produkcji.
 - **M365 webhook: klucz replay = (subskrypcja, id zasobu, `changeType`), TTL 10 min, wpis PO udanym spawnie** (INT-02) — `created` i `updated` tej samej wiadomości oba przechodzą; padnięty spawn = brak wpisu, ponowienie Grapha zadziała.
 - **Codecov flags:** `backend` + `frontend` — separate uploads.
@@ -232,7 +234,7 @@ git push origin main
 - **Vector search (Qdrant):** używamy do matching kandydat ↔ stanowisko. Score harness: `scripts/eval_matching.py` lokalnie (waliduj precision/recall przed/po zmianach scoringu).
 - **Migracje (Alembic):** `alembic upgrade head` na startup (Coolify entrypoint). Migracje testowane w CI (`alembic upgrade head` na test DB w `backend-lint-test` job).
 - **Backup drill:** `.github/workflows/backup-drill.yml` — periodic test pg_dump → pg_restore. Działa, nie ruszamy w fazach 0-4.
-- **E2E:** Playwright lokalnie + osobny workflow `e2e.yml`.
+- **E2E:** Playwright — stack w CI (`docker-compose.e2e.yml`, scenariusze `@stack`) + nocny `prod-smoke`; szczegóły w „CI gotchas”.
 - **40+ feature branches:** historyczne, niektóre stale. Przed merge nowej feature branchy — sprawdź czy nie ma duplikatów.
 
 ## Po Fazie 1
@@ -1598,6 +1600,49 @@ web — jeden przegląd naraz, ~3 min.
   nowy kanał operacyjny: logika w `scripts/`, w komendzie tylko argumenty.
 - **Surowy SQL (`text()`) musi przejść `PREPARE`** — `= ANY(:ids)`, nie
   rozwijane `IN :ids` (strażnik `test_raw_sql_prepares`).
+
+## Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć
+
+Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
+
+- **Budżet PLN/h rekrutacji ma JEDNO pole do wyświetlania:
+  `JobResponse.effective_budget_hourly`** (`resolve_job_budget_hourly` — jawne
+  pole albo stawka Championa, ta sama funkcja co filtr). Nagłówek, pasek AI
+  Matching i dok oferty czytają je przez `lib/job-budget.ts`. Pole jest
+  redagowane dla viewera i zdejmowane z listy rekrutacji (wyliczane także ze
+  stawki Championa). `budget_max_at_move` w doku to migawka MIESIĘCZNYCH
+  widełek z chwili ruchu — podpisana jako taka, nigdy jako budżet (B62/B72).
+- **Akceptacja szkicu Championa synchronizuje kolumny rekrutacji** jak zapis
+  z edytora (`_sync_job_columns_from_applied_sections`): stack → `must_skills`/
+  `nice_skills`, podstawy → `rate_budget_hourly` itd. (FILL_EMPTY).
+- **„W procesie” w AI Matching = `countInProcess` z kanbana** (bez odrzuconych).
+  `pipeline_candidate_ids` obejmuje też etapy końcowe i służy wyłącznie
+  plakietce „już w pipeline” (B71).
+- **Prep kit opisuje stack z wymagań roli** (`job_skill_requirements`), nie
+  z `ClientKnowledge.tech_stack`; pytania z poziomów 1–3 (podobne rekrutacje,
+  wiedza klienta) o technologie spoza wymagań odpadają (`_fits_job`) (B70).
+- **Rekrutacje klienta `hidden` albo `deleted_at` nie trafiają do rejestru,
+  dashboardu procesów ani dashboardu Delivery** (`job_client_listed_clause`,
+  EXISTS z `correlate_except(Client)`). Świadomie BEZ `archived_at` —
+  archiwalny prawdziwy klient ma historyczne rekrutacje (B73).
+- **Edycja kandydata edytuje wyłącznie tagi-napisy** (`lib/candidate-tags.ts`);
+  obiekty importu (`traffit_source`) wracają do zapisu nietknięte, a
+  niezmienione tagi w ogóle nie jadą w PATCH (backend zastępuje listę) (B60).
+- **Kolumna „Stawka” listy kandydatów = stawka z profilu**
+  (`expected_rate_hourly`, ta, po której filtruje lista); `last_rate` z etapu
+  to druga linia „w procesie” (B58).
+- **Powody niepewności odczytu PDF zamówień są po polsku**: prompt v7 +
+  `_polish_model_reason` przy parsowaniu i `polish_gate_reason` przy
+  wyświetlaniu zapisanych `gate_reasons` (stare dokumenty) (B77).
+- **Karta M365 pokazuje `last_error_code`** (`services/m365/error_codes.py`,
+  klasyfikacja przy odczycie, bez migracji); surowy `last_error` tylko
+  w „Szczegółach technicznych” (B61).
+- **`Button asChild` renderuje sam `Slot` z jednym dzieckiem** — loader obok
+  children rzucał wyjątek Radix (B74).
+- **Pasek boczny: pionowe wymiary identyczne w obu stanach**
+  (`SIDEBAR_VERTICAL_LAYOUT`), a rozwinięcie pod kursorem to nakładka nad
+  treścią. Nie przywracaj nagłówka sekcji zależnego od stanu ani różnych
+  `space-y` — klik trafiał w sąsiedni link (B57).
 
 ## Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 
@@ -3039,8 +3084,10 @@ historię"; DL dostaje alert DL + dzwonek. Pełny opis:
   (00:30 Warszawa + start), `detected_on = koniec + 1`, od
   `ORDER_GAP_TRACKING_START` (domyślnie 2026-08-01) i najwyżej
   `ORDER_GAP_LOOKBACK_DAYS` (45) wstecz — zamknięty miesiąc nie dostaje po
-  tygodniach nowych braków. Następca utworzony PO początku dnia wykrycia = od
-  razu `filled_late`. **Aktywna linia MD z niewyczerpanym budżetem nie kończy
+  tygodniach nowych braków. Następca utworzony do końca dnia wykrycia jest NA
+  CZAS (decyzja 15.09.2026, UAT B69): brak nie powstaje, a brak założony rano
+  i uzupełniony tego samego dnia zostaje w bazie, ale raport Finansów go nie
+  pokazuje (`delay_days == 0`). Następca z kolejnego dnia = `filled_late`. **Aktywna linia MD z niewyczerpanym budżetem nie kończy
   się datą** (skaner wygasania też jej nie domyka) — nie jest brakiem, a
   w Zejściach ma werdykt „trwa do wyczerpania budżetu MD". Każdy brak w
   osobnym savepoincie (awaria powiadomienia nie cofa przebiegu). Dzwonek tylko

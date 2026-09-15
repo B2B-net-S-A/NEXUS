@@ -26,14 +26,10 @@ from app.services.cv_generator_b2b.legacy_v7.champion import (
     build_champion_section as build_legacy_champion_section,
 )
 from tests.test_cv_generator_content_mode import (
+    _CV_TEXT,
     captured_prompt,  # noqa: F401 — pytest fixture
 )
-from tests.test_cv_generator_legacy_v7 import (
-    _CV_TEXT as LEGACY_CV_TEXT,
-    _champion,
-    _run as run_legacy,
-    defaults,  # noqa: F401 — pytest fixture
-)
+from tests.test_cv_generator_legacy_v7 import _champion
 
 NOTES = "Kandydat potwierdził znajomość Pythona."
 
@@ -90,43 +86,10 @@ def test_one_long_paragraph_is_cut_between_words() -> None:
     assert section[len(capped)].isspace()
 
 
-# ── Legacy v7 (production default) ───────────────────────────────────────────
+# ── Oba przepływy: legacy_v7 (domyślny na produkcji) i v10 ──────────────────
 
 
-def test_legacy_prompt_caps_a_huge_champion_and_warns(defaults) -> None:  # noqa: F811
-    champion = huge_champion()
-    assert len(build_legacy_champion_section(champion, "pl")) > 50_000
-
-    result = run_legacy("tailored", champion=champion)
-
-    block = champion_block(defaults["calls"][0]["user"])
-    assert len(block) <= MAX_TEXT
-    assert block.startswith("PROFIL CHAMPIONA:\n\nMUST-HAVE: Kubernetes")
-    full = build_legacy_champion_section(champion, "pl").strip()
-    assert full.startswith(block) and full[len(block)].isspace()
-    assert CHAMPION_PROMPT_CAP_WARNING in result.warnings
-
-
-def test_legacy_prompt_is_byte_identical_for_a_normal_champion(defaults) -> None:  # noqa: F811
-    result = run_legacy("tailored", champion=_champion())
-
-    section = build_legacy_champion_section(_champion(), "pl").strip()
-    notes = build_screening_notes_section(NOTES, "pl").strip()
-    assert defaults["calls"][0]["user"] == (
-        f"<cv>\n{LEGACY_CV_TEXT.strip()}\n</cv>\n\n"
-        f"<screening_notes>\n{notes}\n</screening_notes>\n\n"
-        f"<champion_profile>\n{section}\n</champion_profile>\n\n"
-        # M05-B01: dzisiejsza data dla liczenia „obecnie" (poza cache'owanym
-        # promptem systemowym).
-        + legacy_pipeline.build_generation_date_block("pl", date.today())
-    )
-    assert CHAMPION_PROMPT_CAP_WARNING not in result.warnings
-
-
-# ── Rebuilt pipeline (CV_GENERATION_PIPELINE=v10) ────────────────────────────
-
-
-def _run_v10(champion: ChampionProfileForPrompt):
+def _run_tailored(champion: ChampionProfileForPrompt):
     return svc._run_generation_pipeline(
         cv_bytes=b"x",
         cv_filename="cv.pdf",
@@ -143,24 +106,54 @@ def _run_v10(champion: ChampionProfileForPrompt):
     )
 
 
-def test_v10_prompt_caps_a_huge_champion_and_warns(captured_prompt) -> None:  # noqa: F811
-    champion = huge_champion()
+def _full_section(pipeline_mode: str, champion: ChampionProfileForPrompt) -> str:
+    """Każdy przepływ ma własny builder sekcji Championa (v7 zamrożony)."""
+    builder = (
+        build_legacy_champion_section
+        if pipeline_mode == "legacy"
+        else build_champion_section
+    )
+    return builder(champion, "pl").strip()
 
-    result = _run_v10(champion)
+
+def test_prompt_caps_a_huge_champion_and_warns(
+    captured_prompt,  # noqa: F811
+    pipeline_mode: str,
+) -> None:
+    champion = huge_champion()
+    full = _full_section(pipeline_mode, champion)
+    assert len(full) > 50_000
+
+    result = _run_tailored(champion)
 
     block = champion_block(captured_prompt["user"])
     assert len(block) <= MAX_TEXT
     assert block.startswith("PROFIL CHAMPIONA:\n\nMUST-HAVE: Kubernetes")
-    full = build_champion_section(champion, "pl").strip()
     assert full.startswith(block) and full[len(block)].isspace()
     assert CHAMPION_PROMPT_CAP_WARNING in result.warnings
+    # Ścieżka faktycznie przeszła przez przepływ z flagi, nie przez drugi.
+    assert ("extraction_sources" in captured_prompt) is (pipeline_mode == "v10")
 
 
-def test_v10_champion_block_is_byte_identical_for_a_normal_champion(
+def test_prompt_is_byte_identical_for_a_normal_champion(
     captured_prompt,  # noqa: F811
+    pipeline_mode: str,
 ) -> None:
-    result = _run_v10(_champion())
+    result = _run_tailored(_champion())
 
-    expected = build_champion_section(_champion(), "pl").strip()
-    assert champion_block(captured_prompt["user"]) == expected
+    section = _full_section(pipeline_mode, _champion())
+    if pipeline_mode == "legacy":
+        # v7 czyta surowe CV: cała wiadomość użytkownika jest deterministyczna.
+        notes = build_screening_notes_section(NOTES, "pl").strip()
+        assert captured_prompt["user"] == (
+            f"<cv>\n{_CV_TEXT.strip()}\n</cv>\n\n"
+            f"<screening_notes>\n{notes}\n</screening_notes>\n\n"
+            f"<champion_profile>\n{section}\n</champion_profile>\n\n"
+            # M05-B01: dzisiejsza data dla liczenia „obecnie" (poza cache'owanym
+            # promptem systemowym).
+            + legacy_pipeline.build_generation_date_block("pl", date.today())
+        )
+    else:
+        # v10 składa wiadomość z faktów źródłowych — porównujemy sam blok.
+        assert champion_block(captured_prompt["user"]) == section
     assert CHAMPION_PROMPT_CAP_WARNING not in result.warnings

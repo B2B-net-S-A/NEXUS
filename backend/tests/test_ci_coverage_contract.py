@@ -22,7 +22,7 @@ written reason, nor linger in the baseline after the debt is paid. Categories:
   stale: the test never ran, so nobody noticed when a schema column went NOT
   NULL or a request contract gained a required field underneath it.
 
-Status 2026-09-14: 892 test modules on disk, 6 excluded, 886 run — measured
+Status 2026-09-15: 922 test modules on disk, 0 excluded, 922 run — measured
 with this file's own `_disk_files()` / `_ci_ignored_files()`, not counted by
 hand. (2026-08-21 read 548 on disk, 19 excluded, 529 run.) The line before it read "2026-08-11: 439 on disk, 23 excluded, 416 run";
 the exclusion count was right, the disk count had drifted by 109 modules in ten
@@ -34,6 +34,22 @@ shrinking.
 carried forward, since the whole point of the number is to be measurable.)
 
 History of the burn-down:
+    0 excluded → the last six burned down. The four LIVE files (`test_auth`,
+                 `test_candidates`, `test_jobs`, `test_pipeline`) were ported to
+                 the in-process `app_client` with their own seeded data; cases
+                 already covered by an active test elsewhere were dropped
+                 rather than duplicated. The two "COLLECTION_ERRORS"
+                 (`test_backfill_candidate_experience`, `test_backfill_talent_pools`)
+                 turned out to collect and pass on the spot — the recorded
+                 reason ("needs eval/backfill fixture data") was stale. One
+                 hazard was removed on the way in: the experience test
+                 prepended `backend/scripts` to `sys.path`, which puts the
+                 nested `backend/scripts/scripts/` FIRST on the `scripts`
+                 namespace path, so a later `scripts.eval_matching` or
+                 `scripts.backfill_job_criteria` import would load the nested
+                 file instead. It now imports `scripts.backfill_candidate_experience`
+                 like its sibling. The categories stay, empty, so the next
+                 exclusion still has to be argued here.
   115 unwired  → measured file-by-file in the prod image against a migrated
                  database; the 89 confirmed-green ones were wired in.
    32 excluded → 2 collection errors + 4 live + 22 failing + 4 suite-interference.
@@ -208,21 +224,13 @@ def _disk_files() -> set[str]:
 
 # Files CI does not run. Categorised so the reason is argued here, not hidden.
 # Burn these down — do not add to them without cause.
-_COLLECTION_ERRORS = {
-    # Cannot be collected without eval/backfill fixture data present. Not yet
-    # wired into CI; the three eval/merge siblings ARE in CI (they have the data
-    # there) so they are deliberately absent from this list.
-    "test_backfill_candidate_experience.py",
-    "test_backfill_talent_pools.py",
-}
+_COLLECTION_ERRORS: set[str] = set()
+# The file cannot even be collected (import-time failure, missing fixture
+# data). Emptied 2026-09-15 — both former entries collected and passed.
 
-_LIVE = {
-    # Uses the live-server `client` fixture (skipped unless RUN_LIVE_TESTS=1).
-    "test_auth.py",
-    "test_candidates.py",
-    "test_jobs.py",
-    "test_pipeline.py",
-}
+_LIVE: set[str] = set()
+# Uses the live-server `client` fixture (skipped unless RUN_LIVE_TESTS=1).
+# Emptied 2026-09-15 — the four files were ported to `app_client`.
 
 # Red on their own. Burned down to zero 2026-09-14 (QA-06, audyt Codexa):
 # every file measured in the prod image against a freshly migrated database

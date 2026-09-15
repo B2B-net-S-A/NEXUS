@@ -223,6 +223,8 @@ def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict
 _LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
     "champion_profile",
     "close_notes",
+    # Wyliczany także ze stawki Championa — lista nie jest jego powierzchnią.
+    "effective_budget_hourly",
 )
 
 
@@ -483,8 +485,11 @@ def jobs_register_base_clause():
 
     Od migracji 0120 (2026-05-27) baza ma na tej kolumnie NOT NULL — filtr
     zostaje jako defense-in-depth, gdyby ktoś kiedyś ograniczenie zdjął.
+    Klient ukryty albo usunięty nie wnosi rekrutacji do rejestru (UAT B73).
     """
-    return Job.client_id.is_not(None)
+    from app.services.client_identity import job_client_listed_clause
+
+    return and_(Job.client_id.is_not(None), job_client_listed_clause(Job.client_id))
 
 
 def jobs_mine_clause(current_user: User):

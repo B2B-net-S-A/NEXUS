@@ -225,6 +225,15 @@ def test_return_after_gap_is_planned_even_with_same_number_and_actual_gap():
     assert verdict.is_auto
 
 
+def test_renewal_gap_uses_polish_locative_for_one_day():
+    """UAT B76: „Powrót po 1 dniach” → „po 1 dniu”."""
+    from app.services.order_mail_planner import renewal_gap_phrase
+
+    assert renewal_gap_phrase(1) == "Powrót po 1 dniu"
+    assert renewal_gap_phrase(2) == "Powrót po 2 dniach"
+    assert renewal_gap_phrase(32) == "Powrót po 32 dniach"
+
+
 def test_completed_md_group_line_is_never_a_renewal_target():
     """Linia grupy MD ma własny cykl życia — nie jest „poprzednim zamówieniem"."""
     prop, _ = plan(
