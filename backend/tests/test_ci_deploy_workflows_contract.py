@@ -7,7 +7,9 @@ cichym refaktorem:
 * QA-01 — każdy shard pytest pisze własny plik danych pokrycia i wysyła go
   jako artefakt (z ``include-hidden-files``, bo plik zaczyna się od kropki),
   a job ``backend-coverage-combine`` scala je i wysyła do Codecov WYŁĄCZNIE
-  przy ustawionym tokenie (``env.CODECOV_TOKEN != ''``);
+  przy ustawionym tokenie (``env.CODECOV_TOKEN != ''``); od planu poprawy
+  (15.09) mierzy też gałęzie i blokuje spadek poniżej baseline'u z repo;
+* QA-05 — Trivy blokuje znaleziska HIGH/CRITICAL z poprawką, wyjątki z terminem;
 * DEP-03 — smoke deployu ma krok porównujący ``version.json`` frontendu
   z targetem tą samą regułą (równość albo potomek) co backend;
 * DEP-01 — job deploy kończy się krokiem podsumowania wersji, który biegnie
@@ -71,9 +73,6 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
     combine = _step(steps, "Combine shards + report")
     assert "coverage combine" in combine["run"]
     assert "coverage xml" in combine["run"]
-    assert "::warning::" in combine["run"] and "exit 1" not in combine["run"], (
-        "Próg pokrycia jest raportowy: ostrzeżenie, nigdy czerwony job."
-    )
     codecov = _step(steps, "Upload backend coverage to Codecov")
     assert "env.CODECOV_TOKEN != ''" in codecov["if"]
     frontend_codecov = _step(
@@ -81,6 +80,66 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
         "Upload frontend coverage to Codecov",
     )
     assert "env.CODECOV_TOKEN != ''" in frontend_codecov["if"]
+
+
+def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
+    """Plan poprawy QA (15.09): pomiar gałęzi + bramka „bez spadku".
+
+    Próg 80% zostaje raportowy, ale spadek poniżej baseline'u z repo i
+    niekompletny zestaw shardów kończą job czerwienią, a wymagany kontekst
+    „Backend (pytest)" czyta wynik tego joba.
+    """
+    ci = _load("ci.yml")
+    pytest_run = _step(
+        ci["jobs"]["backend-lint-test"]["steps"],
+        "Pytest (unit + in-process integration)",
+    )["run"]
+    assert "--cov-branch" in pytest_run
+
+    shards = ci["jobs"]["backend-lint-test"]["strategy"]["matrix"]["shard"]
+    job = ci["jobs"]["backend-coverage-combine"]
+    assert int(job["env"]["EXPECTED_SHARDS"]) == len(shards), (
+        "EXPECTED_SHARDS musi odpowiadać matrixowi — inaczej bramka kompletności "
+        "odrzuci każdy bieg albo przepuści niepełny."
+    )
+    combine = _step(job["steps"], "Combine shards + report")["run"]
+    assert "coverage_gate.py" in combine and "coverage-baseline.json" in combine
+    assert '"$EXPECTED_SHARDS"' in combine and "exit 1" in combine
+
+    gate = ci["jobs"]["backend-pytest-gate"]
+    assert "backend-coverage-combine" in gate["needs"]
+    assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
+
+    frontend_steps = ci["jobs"]["frontend-lint-build"]["steps"]
+    artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
+    assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
+    vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert "thresholds:" in vitest_config, "Progi Vitest są bramką frontendu."
+
+
+def test_trivy_blocks_findings_and_exceptions_have_expiry() -> None:
+    """QA-05: Trivy czerwony przy HIGH/CRITICAL z poprawką; wyjątki z terminem."""
+    ci = _load("ci.yml")
+    steps = ci["jobs"]["security-scan"]["steps"]
+    scan = _step(steps, "Trivy filesystem scan (deps + Dockerfile misconfig)")
+    assert scan["with"]["trivyignores"] == ".trivyignore"
+    publish = _step(steps, "Publish Trivy findings")["run"]
+    assert "(Total|Failures)" in publish, (
+        "Licznik musi obejmować też błędną konfigurację."
+    )
+    assert "exit 1" in publish
+
+    ignore = (_WORKFLOWS.parents[1] / ".trivyignore").read_text(encoding="utf-8")
+    entries = [
+        line
+        for line in ignore.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert entries, "Pusty .trivyignore nie potrzebuje kontraktu — usuń plik."
+    for entry in entries:
+        assert " exp:" in entry, f"Wyjątek bez terminu: {entry!r}"
 
 
 # ── DEP-03 / DEP-01 ───────────────────────────────────────────────────────
@@ -127,3 +186,108 @@ def test_deploy_version_summary_runs_always_and_leaves_precheck_alone() -> None:
         'if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then' in precheck["run"]
     )
     assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 2
+
+
+# ── QA-02 / QA-03 ─────────────────────────────────────────────────────────
+
+
+def test_e2e_stack_job_runs_stack_scenarios_and_fails_on_skips() -> None:
+    """Plan poprawy QA (15.09): zapisujące E2E tylko na efemerycznym stacku."""
+    e2e = _load("e2e.yml")
+    stack = e2e["jobs"]["stack"]
+    runs = "\n".join(str(step.get("run", "")) for step in stack["steps"])
+    assert "docker-compose.e2e.yml" in runs
+    assert "scripts/seed_e2e.py" in runs and "E2E_SEED_CONFIRM=nexus-e2e" in runs
+    assert "--project=ci-chromium" in runs
+    assert "r.skipped > 0" in runs, "Pominięty przypadek na stacku ma być czerwony."
+    assert stack["env"]["E2E_REQUIRE_AUTH"] == "1"
+    assert any(
+        step.get("if") == "always()" and "down -v" in str(step.get("run", ""))
+        for step in stack["steps"]
+    ), "Stack musi być zatrzymany niezależnie od wyniku."
+
+    prod = e2e["jobs"]["playwright"]
+    assert "pull_request" in prod["if"], "Bieg produkcyjny nie może chodzić na PR-ach."
+    prod_runs = "\n".join(str(step.get("run", "")) for step in prod["steps"])
+    assert "--project=prod-smoke" in prod_runs
+    assert "test:e2e" not in prod_runs, (
+        "`npm run test:e2e` odpaliłby też scenariusze @stack."
+    )
+
+
+def test_playwright_projects_separate_stack_from_production() -> None:
+    config = (_WORKFLOWS.parents[1] / "frontend" / "playwright.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert 'name: "ci-chromium",\n      grep: /@stack/' in config
+    assert 'name: "prod-smoke",\n      grepInvert: /@stack|@writes/' in config
+
+
+def test_e2e_specs_have_no_weak_assertions_or_parked_cases() -> None:
+    """Audyt QA 14.09: `< 500` przyjmowało 401/403/404/422, a `fixme`/`skip(true)`
+    zawyżały licznik przypadków, których nikt nie wykonywał."""
+    e2e_dir = _WORKFLOWS.parents[1] / "frontend" / "e2e"
+    offenders: list[str] = []
+    for spec in sorted(e2e_dir.rglob("*.ts")):
+        text = spec.read_text(encoding="utf-8")
+        for needle in ("toBeLessThan(500)", "test.fixme(", "test.skip(true"):
+            if needle in text:
+                offenders.append(f"{spec.name}: {needle}")
+    assert offenders == []
+
+
+def test_every_run_block_in_quality_workflows_is_valid_bash() -> None:
+    """Niezbalansowany cudzysłów w komunikacie `::error::` wywalił job zbiorczy
+    „Backend (pytest)" kodem 2 przy dwóch zielonych wejściach (PR planu poprawy
+    QA, 15.09.2026). `bash -n` łapie to przed wypchnięciem."""
+    import re
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    assert bash, "bash jest wymagany do kontroli składni workflowów"
+    broken: list[str] = []
+    for name in ("ci.yml", "e2e.yml"):
+        for job_id, job in _load(name)["jobs"].items():
+            for step in job.get("steps", []):
+                script = step.get("run")
+                if not script:
+                    continue
+                # Wyrażenia GitHuba nie są bashem — zastępujemy je słowem.
+                script = re.sub(r"\$\{\{.*?\}\}", "EXPR", script)
+                result = subprocess.run(
+                    [bash, "-n"], input=script, capture_output=True, text=True
+                )
+                if result.returncode != 0:
+                    broken.append(
+                        f"{name}:{job_id}:{step.get('name')}: {result.stderr.strip()}"
+                    )
+    assert broken == []
+
+
+def test_manifest_skip_switch_is_limited_to_the_e2e_stack() -> None:
+    """Stack E2E wykazał, że backend nie startuje na pustej bazie (manifest
+    portfela jest fail-closed). Przełącznik pominięcia istnieje tylko dla
+    stacku testowego — w compose czytanych przez Coolify nie może się pojawić."""
+    repo = _WORKFLOWS.parents[1]
+    entrypoint = (repo / "backend" / "entrypoint.sh").read_text(encoding="utf-8")
+    assert '"${CLIENT_PORTFOLIO_MANIFEST_SKIP:-0}" = "1"' in entrypoint
+
+    stack = yaml.safe_load(
+        (repo / "docker-compose.e2e.yml").read_text(encoding="utf-8")
+    )
+    assert (
+        stack["services"]["backend"]["environment"]["CLIENT_PORTFOLIO_MANIFEST_SKIP"]
+        == "1"
+    )
+
+    for name in (
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.override.yml",
+    ):
+        path = repo / name
+        if path.exists():
+            assert "CLIENT_PORTFOLIO_MANIFEST_SKIP" not in path.read_text(
+                encoding="utf-8"
+            ), name

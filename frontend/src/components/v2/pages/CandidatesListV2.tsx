@@ -2352,7 +2352,10 @@ export function CandidatesListV2() {
                 setSortBy(value as CandidateFilters["sort"])
               }
             >
-              <SelectTrigger className="w-[160px] h-9 rounded-md shadow-xs font-medium">
+              <SelectTrigger
+                aria-label="Sortowanie kandydatów"
+                className="w-[160px] h-9 rounded-md shadow-xs font-medium"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

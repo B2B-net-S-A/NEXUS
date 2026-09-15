@@ -6,6 +6,30 @@ import pytest
 
 from app.services.cv_generator_b2b import standalone_service as svc
 from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
+from app.services.cv_generator_b2b.legacy_v7 import (
+    legacy_pipeline_enabled,
+    pipeline as legacy_pipeline,
+)
+
+
+@pytest.fixture
+def generation_entry(pipeline_mode, monkeypatch):
+    """Atrapa PIERWSZEGO kroku przepływu wybranego flagą (`pipeline_mode`).
+
+    legacy_v7 (domyślny na produkcji): prawdziwy `_run_generation_pipeline`
+    kieruje wywołanie do `run_legacy_generation` — atrapa stoi tam, więc test
+    dowodzi, że bramki workera i przekazane argumenty docierają do przepływu
+    produkcyjnego. v10 nie ma szwu poniżej `_run_generation_pipeline`
+    (ekstrakcja faktów idzie w jego ciele), więc atrapa zastępuje sam dispatcher.
+    """
+    sentinel = SimpleNamespace(warnings=[])
+    entry = Mock(return_value=sentinel)
+    assert legacy_pipeline_enabled() is (pipeline_mode == "legacy")
+    if pipeline_mode == "legacy":
+        monkeypatch.setattr(legacy_pipeline, "run_legacy_generation", entry)
+    else:
+        monkeypatch.setattr(svc, "_run_generation_pipeline", entry)
+    return entry
 
 
 BASE = svc.RecruitmentReadiness(
@@ -125,8 +149,9 @@ async def test_readiness_resolves_published_mode_then_client_cap(
     ],
 )
 async def test_worker_matches_mode_readiness_without_notes(
-    monkeypatch, mode, required_champion, error
+    monkeypatch, mode, required_champion, error, generation_entry
 ):
+    """Bramki workera (Champion, tryb) działają PRZED przepływem — w obu."""
     job = SimpleNamespace(
         id=2,
         client_id=None,
@@ -146,9 +171,8 @@ async def test_worker_matches_mode_readiness_without_notes(
         SimpleNamespace(first=lambda: doc),
     ]
     monkeypatch.setattr(svc, "collect_screening_notes_text", AsyncMock(return_value=""))
-    sentinel = SimpleNamespace()
-    pipeline = Mock(return_value=sentinel)
-    monkeypatch.setattr(svc, "_run_generation_pipeline", pipeline)
+    pipeline = generation_entry
+    sentinel = pipeline.return_value
     rule = CvRuleSnapshot(
         None, False, None, False, False, require_champion=required_champion
     )

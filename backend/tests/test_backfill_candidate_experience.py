@@ -15,16 +15,14 @@ Sprawdzamy że parsery:
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
-# scripts/ nie jest packagem — dodaj parent do sys.path
-_BACKEND_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_BACKEND_DIR / "scripts"))
-
-import backfill_candidate_experience as bf  # noqa: E402
+# Import through the `scripts` namespace package, like the other script tests.
+# Prepending `backend/scripts` to `sys.path` (the old approach) put the nested
+# `backend/scripts/scripts/` first on the `scripts` namespace path, so modules
+# collected later that import `scripts.eval_matching` would get the nested file.
+from scripts import backfill_candidate_experience as bf
 
 
 # ── TalentRadar (string variant) ──────────────────────────────────────────────
