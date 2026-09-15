@@ -7,6 +7,10 @@
 # z czyjegoś środowiska (lokalny Docker, inny runner) mapują się na `app/`.
 [run]
 relative_files = True
+# Pomiar gałęzi (QA-01): audyt 14.09 nie miał żadnego pomiaru decyzji w kodzie
+# backendu. Musi być włączony we WSZYSTKICH shardach, inaczej `coverage combine`
+# odmówi scalenia danych z pomiarem gałęzi i bez niego.
+branch = True
 
 [paths]
 source =

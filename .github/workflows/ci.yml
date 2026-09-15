@@ -180,7 +180,7 @@ jobs:
                  --ignore=tests/test_jobs.py \
                  --ignore=tests/test_pipeline.py \
                  -v --tb=short \
-                 --cov=app --cov-report=term-missing
+                 --cov=app --cov-branch --cov-report=term-missing
       # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
       # zsumować 4 shardy w jeden raport. `include-hidden-files` jest
       # load-bearing — od upload-artifact v4.4 pliki z kropką są domyślnie
@@ -197,9 +197,10 @@ jobs:
           retention-days: 7
 
   backend-coverage-combine:
-    # QA-01: jeden raport pokrycia z 4 shardów. Report-only — próg jest
-    # informacją w podsumowaniu biegu (`::warning::` poniżej progu), NIE
-    # bramką; wymagane konteksty branch protection zostają bez zmian.
+    # QA-01: jeden raport pokrycia (linie + gałęzie) z 4 shardów i bramka
+    # „bez spadku": wynik poniżej `.github/coverage-baseline.json` minus
+    # tolerancja kończy job czerwienią, a job zbiorczy „Backend (pytest)"
+    # (wymagany kontekst) czyta jego wynik. Próg 80% zostaje RAPORTOWY.
     # `!cancelled()` zamiast `always()`: scalamy także po czerwonym shardzie
     # (częściowe pokrycie jest lepsze niż żadne), ale nie po anulowaniu biegu.
     name: Backend (coverage combine)
@@ -217,6 +218,9 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       # Próg RAPORTOWY (nie blokujący). Zmiana progu = zmiana tej jednej linii.
       COVERAGE_REPORT_THRESHOLD: "80"
+      # Liczba shardów w matrixie `backend-lint-test` — kontrakt w
+      # tests/test_ci_deploy_workflows_contract.py pilnuje zgodności.
+      EXPECTED_SHARDS: "4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -238,17 +242,24 @@ jobs:
           shopt -s nullglob
           files=(.coverage.shard-*)
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::warning::Brak plików .coverage.shard-* — żaden shard nie zostawił danych pokrycia (pytest nie doszedł do końca?)."
+            echo "::error::Brak plików .coverage.shard-* — żaden shard nie zostawił danych pokrycia (pytest nie doszedł do końca?)."
             echo "### Pokrycie backendu" >> "$GITHUB_STEP_SUMMARY"
             echo "Brak danych z shardów — raport nie powstał." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
+          fi
+          # Komplet wejść: scalenie 3 z 4 shardów daje zaniżony wynik, który
+          # bramka „bez spadku" wzięłaby za regresję — albo, gorzej, wynik
+          # z niepełnego mianownika uznany za prawdziwy.
+          if [ "${#files[@]}" -ne "$EXPECTED_SHARDS" ]; then
+            echo "::error::Scalono ${#files[@]} z $EXPECTED_SHARDS shardów — raport pokrycia byłby niekompletny."
+            exit 1
           fi
           echo "Scalam ${#files[@]} plik(ów): ${files[*]}"
           coverage combine "${files[@]}"
           coverage xml -o coverage.xml
           # `--format=total` daje samą liczbę (coverage ≥ 7.0); bez `|| true`
           # brak wsparcia formatu w przyszłej wersji wywaliłby krok raportujący.
-          total=$(coverage report --format=total 2>/dev/null || echo "")
+          total=$(coverage report --format=total --precision=2 2>/dev/null || echo "")
           {
             echo "### Pokrycie backendu (4 shardy scalone: ${#files[@]} plik/ów)"
             echo
@@ -260,12 +271,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$total" ]; then
-            echo "::warning::Nie udało się odczytać łącznego pokrycia (coverage report --format=total)."
-          elif [ "$total" -lt "$COVERAGE_REPORT_THRESHOLD" ]; then
-            echo "::warning::Pokrycie backendu ${total}% jest poniżej progu raportowego ${COVERAGE_REPORT_THRESHOLD}% (report-only, nie blokuje)."
-          else
-            echo "Pokrycie backendu: ${total}% (próg raportowy ${COVERAGE_REPORT_THRESHOLD}%)."
+            echo "::error::Nie udało się odczytać łącznego pokrycia (coverage report --format=total)."
+            exit 1
           fi
+          if python3 -c "import sys; sys.exit(0 if float('$total') < float('$COVERAGE_REPORT_THRESHOLD') else 1)"; then
+            echo "::warning::Pokrycie backendu ${total}% jest poniżej progu raportowego ${COVERAGE_REPORT_THRESHOLD}% (raport, nie blokuje)."
+          fi
+          # Bramka „bez spadku" (QA-01): baseline i tolerancja w jednym pliku
+          # w repo, żeby podbicie progu było zwykłą, przeglądaną zmianą w PR.
+          python3 ../.github/scripts/coverage_gate.py \
+            --baseline ../.github/coverage-baseline.json \
+            --key backend_line_branch_percent \
+            --actual "$total" \
+            --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload combined coverage.xml
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -298,15 +316,20 @@ jobs:
     # jawnej czerwieni.
     name: Backend (pytest)
     runs-on: ubuntu-latest
-    needs: backend-lint-test
+    needs: [backend-lint-test, backend-coverage-combine]
     if: ${{ always() }}
     steps:
-      - name: Zbierz wyniki shardów
+      - name: Zbierz wyniki shardów i bramki pokrycia
         run: |
           result="${{ needs.backend-lint-test.result }}"
-          echo "Łączny wynik shardów: $result"
+          coverage="${{ needs.backend-coverage-combine.result }}"
+          echo "Łączny wynik shardów: $result; bramka pokrycia: $coverage"
           if [ "$result" != "success" ]; then
             echo "::error::Co najmniej jeden shard pytest nie przeszedł (result=$result)"
+            exit 1
+          fi
+          if [ "$coverage" != "success" ]; then
+            echo "::error::Bramka pokrycia backendu nie przeszła (result=$coverage) — szczegóły w jobie „Backend (coverage combine)"."
             exit 1
           fi
 
@@ -347,7 +370,17 @@ jobs:
         run: npm run lint
       - run: npm run type-check
       - name: Vitest with coverage
+        # Progi w vitest.config.ts (`coverage.thresholds`) = bramka „bez spadku"
+        # frontendu (QA-01); Vitest kończy się błędem poniżej nich.
         run: npm run test:coverage
+      - name: Upload frontend coverage (artifact)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload frontend coverage to Codecov
         if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -363,14 +396,16 @@ jobs:
         run: npm run build
 
   security-scan:
-    name: Trivy + hadolint (report-only)
+    name: Trivy + hadolint
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Advisory (nie blokuje merge'a) — ale każdy skaner tutaj MUSI zostawić
-      # ślad, który da się przeczytać. Hadolint wystawia adnotacje `##[error]`
+      # Hadolint zostaje advisory. Trivy od QA-05 (plan poprawy po audycie
+      # 14.09.2026) BLOKUJE: każde znalezisko HIGH/CRITICAL z dostępną poprawką
+      # kończy job czerwienią; świadome wyjątki tylko w `.trivyignore` z terminem
+      # (`exp:`). Każdy skaner tutaj MUSI zostawić ślad, który da się przeczytać. Hadolint wystawia adnotacje `##[error]`
       # w UI i to jest wzorzec; Trivy do 2026-08 nie zostawiał nic (patrz niżej).
       - name: Hadolint (backend)
         uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
@@ -407,6 +442,9 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           skip-dirs: .claude,node_modules
+          trivyignores: .trivyignore
+          # Skan zawsze kończy się 0, żeby raport powstał w całości; o wyniku
+          # joba decyduje krok niżej, który liczy znaleziska i wyjątki.
           exit-code: '0'
           format: table
           output: trivy-report.txt
@@ -418,13 +456,15 @@ jobs:
           if [ ! -s "$report" ]; then
             echo "Trivy: brak znalezisk HIGH/CRITICAL z dostępną poprawką." > "$report"
           fi
-          # `Total: N` występuje raz na przeskanowany cel (lockfile, Dockerfile).
-          # `|| true` jest konieczne: grep bez trafienia kończy się kodem 1,
-          # a `set -e` ubiłby wtedy krok raportujący ZERO znalezisk.
-          count=$(grep -oE 'Total: [0-9]+' "$report" | awk '{s+=$2} END {print s+0}' || true)
+          # `Total: N` (podatności zależności) i `Failures: N` (błędna
+          # konfiguracja, np. Dockerfile) występują raz na przeskanowany cel.
+          # Do 09.2026 liczono tylko `Total:`, więc HIGH w Dockerfile nie
+          # trafiał do licznika ostrzeżenia. `|| true` jest konieczne: grep bez
+          # trafienia kończy się kodem 1, a `set -e` ubiłby krok przy ZERZE.
+          count=$(grep -oE '(Total|Failures): [0-9]+' "$report" | awk '{s+=$2} END {print s+0}' || true)
           [ -n "$count" ] || count=0
           {
-            echo "### Trivy — HIGH/CRITICAL z dostępną poprawką (advisory)"
+            echo "### Trivy — HIGH/CRITICAL z dostępną poprawką"
             echo
             echo '```'
             # Sufit podsumowania biegu to 1 MB; obcinamy, żeby duży raport nie
@@ -435,7 +475,8 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$count" -gt 0 ]; then
-            echo "::warning::Trivy: $count znalezisk HIGH/CRITICAL z dostępną poprawką — tabela w podsumowaniu biegu, pełny raport w artefakcie trivy-report."
+            echo "::error::Trivy: $count znalezisk HIGH/CRITICAL z dostępną poprawką — tabela w podsumowaniu biegu, pełny raport w artefakcie trivy-report. Napraw zależność albo dodaj uzasadniony wyjątek z terminem do .trivyignore."
+            exit 1
           else
             echo "Trivy: brak znalezisk HIGH/CRITICAL z dostępną poprawką."
           fi

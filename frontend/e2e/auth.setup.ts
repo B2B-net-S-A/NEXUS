@@ -17,6 +17,12 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 export const AUTH_STATE_PATH = path.join(__dirname, ".auth", "state.json");
 
 setup("authenticate", async ({ page }) => {
+  // Na stacku E2E w CI brak hasła jest BŁĘDEM konfiguracji, nie powodem do
+  // pominięcia: pominięty setup zostawiał wszystkie scenariusze po zalogowaniu
+  // niewykonane przy zielonym biegu (audyt QA 14.09.2026).
+  if (process.env.E2E_REQUIRE_AUTH === "1") {
+    expect(PASSWORD, "E2E_REQUIRE_AUTH=1 wymaga E2E_USER_PASSWORD").not.toBe("");
+  }
   setup.skip(!PASSWORD, "Set E2E_USER_PASSWORD to enable auth-setup");
 
   fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });

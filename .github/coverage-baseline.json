@@ -1,0 +1,5 @@
+{
+  "_opis": "Bramka „pokrycie bez spadku” (QA-01). Czyta ją .github/scripts/coverage_gate.py w jobie „Backend (coverage combine)”. Ratchet: gdy CI zgłasza ::notice:: o wzroście, podbij wartość w tym samym PR. Obniżenie tylko z uzasadnieniem w opisie PR.",
+  "backend_line_branch_percent": 60.0,
+  "tolerance_pp": 0.5
+}

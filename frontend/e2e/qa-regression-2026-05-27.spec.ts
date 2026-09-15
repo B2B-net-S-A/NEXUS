@@ -6,19 +6,22 @@
  * dokumentuje ORYGINALNY bug w komentarzu + checkuje REGRESJĘ-specific assertion
  * (nie "happy path" smoke test).
  *
- * Auth: korzysta z state.json wytworzonego przez auth.setup.ts. Bez
- * E2E_USER_PASSWORD secret setup-step zostanie skipped → te testy też skipują.
+ * `@stack` (plan poprawy QA, 15.09.2026): wywołania API idą przez sesję
+ * z tokenem (`helpers/api.ts`). Dawniej fixture `request` nie niósł tokena,
+ * więc każdy test dostawał 401 — asercje `toBe(200)` nie mogły przejść, a
+ * `< 500` przechodziła zawsze.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, expectStatus } from "./helpers/api";
+import { createClient } from "./helpers/entities";
 
-test.describe("QA regression 2026-05-27 — 5 fixów (PR #332/#352/#353)", () => {
+test.describe("QA regression 2026-05-27 — 5 fixów (PR #332/#352/#353) @stack", () => {
   test("BE-V: DR Delivery Lead Dashboard z date filter zwraca 200 (nie stuck 503)", async ({
-    request,
+    admin,
   }) => {
     // Bug: asyncpg infers DATE type z `k.report_month >= :start_date` bez CAST,
     // string '2026-05-01' wywalało DataError "'str' object has no attribute toordinal".
     // Po fix: parse str → datetime.date przed bind, expect 200.
-    const r = await request.get(
+    const r = await admin.api.get(
       "/api/dynareporter/delivery-lead-dashboard/dashboard?start_date=2026-05-01&end_date=2026-05-30",
     );
     expect(r.status(), `pre-fix zwracało 503, fix #V w PR #332`).toBe(200);
@@ -28,21 +31,22 @@ test.describe("QA regression 2026-05-27 — 5 fixów (PR #332/#352/#353)", () =>
   });
 
   test("BE-8: GET /api/reports/clients/1/trend zwraca 200 (nie KeyError close_reasons)", async ({
-    request,
+    admin,
   }) => {
     // Bug: reports.py:946 drugi bucket init dla klientów z active_jobs ale 0
     // closed nie miał klucza "close_reasons" → KeyError przy render.
     // Po fix: dodać "close_reasons": {} do drugiego bucket init.
-    const r = await request.get("/api/reports/clients/1/trend?months=6");
+    const client = await createClient(admin.api);
+    const r = await admin.api.get(`/api/reports/clients/${client.id}/trend?months=6`);
     expect(r.status(), `pre-fix KeyError → 503, fix #8 w PR #332`).toBe(200);
   });
 
   test("#28: GET /api/dr/placements/stats/by-client zwraca client_name (nie tylko id)", async ({
-    request,
+    admin,
   }) => {
     // Bug: endpoint zwracał tylko `client_id`, frontend pokazywał "Klient #13"
     // zamiast "Nordea Bank AB". Po fix: LEFT JOIN Client + client_name field.
-    const r = await request.get("/api/dr/placements/stats/by-client?days=90&limit=10");
+    const r = await admin.api.get("/api/dr/placements/stats/by-client?days=90&limit=10");
     expect(r.status()).toBe(200);
     const body = await r.json();
     if (body.length > 0) {
@@ -83,7 +87,7 @@ test.describe("QA regression 2026-05-27 — 5 fixów (PR #332/#352/#353)", () =>
   });
 
   test("BE-1N: enum userrole zawiera head_of_recruitment (nie 'manager')", async ({
-    request,
+    admin,
   }) => {
     // Bug: candidates.py:1519 query używała `User.role.in_(["admin", "manager"])`
     // ale enum `userrole` ma `head_of_recruitment` (nie `manager`) — wywalało
@@ -91,7 +95,7 @@ test.describe("QA regression 2026-05-27 — 5 fixów (PR #332/#352/#353)", () =>
     // Po fix: "manager" → "head_of_recruitment".
     // Smoke test: lista userów z role=head_of_recruitment musi działać (proof
     // że enum value valid). Jeśli ktoś przywróci "manager", filtr zwróci 500.
-    const r = await request.get("/api/users?roles=head_of_recruitment");
-    expect(r.status(), `enum head_of_recruitment musi być valid`).toBeLessThan(500);
+    const r = await admin.api.get("/api/users?roles=head_of_recruitment");
+    await expectStatus(r, 200, "enum head_of_recruitment musi być valid");
   });
 });

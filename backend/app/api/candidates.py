@@ -38,6 +38,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -2468,8 +2469,26 @@ async def create_candidate(
         overwrite_existing=True,
     )
     candidate.created_by = current_user.id
-    db.add(candidate)
-    await db.flush()
+    # `candidates.email` ma unikalny indeks. Bez tej obsługi duplikat kończył się
+    # IntegrityError przy flush → 500 („nieoczekiwany błąd serwera"), a scenariusz
+    # E2E „duplikat e-maila" przechodził tylko dlatego, że akceptował każdy status
+    # poniżej 500 (audyt QA 14.09.2026). Sprawdzenie przed zapisem daje czytelną
+    # odmowę; SAVEPOINT łapie wyścig dwóch równoległych zapisów tego samego adresu.
+    duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
+    if candidate.email and await db.scalar(
+        select(Candidate.id).where(Candidate.email == candidate.email)
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=duplicate_message)
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()
+    except IntegrityError as exc:
+        if candidate.email and "email" in str(exc.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            ) from exc
+        raise
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,

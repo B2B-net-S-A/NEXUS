@@ -22,6 +22,16 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/**/types/**",
       ],
+      // Bramka „bez spadku" (QA-01, plan poprawy po audycie 14.09.2026).
+      // Wartości = zmierzony baseline zaokrąglony W DÓŁ; `npm run test:coverage`
+      // w CI kończy się błędem poniżej nich. Ratchet: gdy pokrycie wyraźnie
+      // wzrośnie, podbij progi w tym samym PR; obniżenie wymaga uzasadnienia.
+      thresholds: {
+        lines: 49,
+        statements: 49,
+        branches: 78,
+        functions: 53,
+      },
     },
   },
   resolve: {

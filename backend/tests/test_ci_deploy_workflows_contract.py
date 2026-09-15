@@ -7,7 +7,9 @@ cichym refaktorem:
 * QA-01 — każdy shard pytest pisze własny plik danych pokrycia i wysyła go
   jako artefakt (z ``include-hidden-files``, bo plik zaczyna się od kropki),
   a job ``backend-coverage-combine`` scala je i wysyła do Codecov WYŁĄCZNIE
-  przy ustawionym tokenie (``env.CODECOV_TOKEN != ''``);
+  przy ustawionym tokenie (``env.CODECOV_TOKEN != ''``); od planu poprawy
+  (15.09) mierzy też gałęzie i blokuje spadek poniżej baseline'u z repo;
+* QA-05 — Trivy blokuje znaleziska HIGH/CRITICAL z poprawką, wyjątki z terminem;
 * DEP-03 — smoke deployu ma krok porównujący ``version.json`` frontendu
   z targetem tą samą regułą (równość albo potomek) co backend;
 * DEP-01 — job deploy kończy się krokiem podsumowania wersji, który biegnie
@@ -71,9 +73,6 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
     combine = _step(steps, "Combine shards + report")
     assert "coverage combine" in combine["run"]
     assert "coverage xml" in combine["run"]
-    assert "::warning::" in combine["run"] and "exit 1" not in combine["run"], (
-        "Próg pokrycia jest raportowy: ostrzeżenie, nigdy czerwony job."
-    )
     codecov = _step(steps, "Upload backend coverage to Codecov")
     assert "env.CODECOV_TOKEN != ''" in codecov["if"]
     frontend_codecov = _step(
@@ -81,6 +80,59 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
         "Upload frontend coverage to Codecov",
     )
     assert "env.CODECOV_TOKEN != ''" in frontend_codecov["if"]
+
+
+def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
+    """Plan poprawy QA (15.09): pomiar gałęzi + bramka „bez spadku".
+
+    Próg 80% zostaje raportowy, ale spadek poniżej baseline'u z repo i
+    niekompletny zestaw shardów kończą job czerwienią, a wymagany kontekst
+    „Backend (pytest)" czyta wynik tego joba.
+    """
+    ci = _load("ci.yml")
+    pytest_run = _step(
+        ci["jobs"]["backend-lint-test"]["steps"], "Pytest (unit + in-process integration)"
+    )["run"]
+    assert "--cov-branch" in pytest_run
+
+    shards = ci["jobs"]["backend-lint-test"]["strategy"]["matrix"]["shard"]
+    job = ci["jobs"]["backend-coverage-combine"]
+    assert int(job["env"]["EXPECTED_SHARDS"]) == len(shards), (
+        "EXPECTED_SHARDS musi odpowiadać matrixowi — inaczej bramka kompletności "
+        "odrzuci każdy bieg albo przepuści niepełny."
+    )
+    combine = _step(job["steps"], "Combine shards + report")["run"]
+    assert "coverage_gate.py" in combine and "coverage-baseline.json" in combine
+    assert '"$EXPECTED_SHARDS"' in combine and "exit 1" in combine
+
+    gate = ci["jobs"]["backend-pytest-gate"]
+    assert "backend-coverage-combine" in gate["needs"]
+    assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
+
+    frontend_steps = ci["jobs"]["frontend-lint-build"]["steps"]
+    artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
+    assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
+    vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert "thresholds:" in vitest_config, "Progi Vitest są bramką frontendu."
+
+
+def test_trivy_blocks_findings_and_exceptions_have_expiry() -> None:
+    """QA-05: Trivy czerwony przy HIGH/CRITICAL z poprawką; wyjątki z terminem."""
+    ci = _load("ci.yml")
+    steps = ci["jobs"]["security-scan"]["steps"]
+    scan = _step(steps, "Trivy filesystem scan (deps + Dockerfile misconfig)")
+    assert scan["with"]["trivyignores"] == ".trivyignore"
+    publish = _step(steps, "Publish Trivy findings")["run"]
+    assert "(Total|Failures)" in publish, "Licznik musi obejmować też błędną konfigurację."
+    assert "exit 1" in publish
+
+    ignore = (_WORKFLOWS.parents[1] / ".trivyignore").read_text(encoding="utf-8")
+    entries = [line for line in ignore.splitlines() if line.strip() and not line.startswith("#")]
+    assert entries, "Pusty .trivyignore nie potrzebuje kontraktu — usuń plik."
+    for entry in entries:
+        assert " exp:" in entry, f"Wyjątek bez terminu: {entry!r}"
 
 
 # ── DEP-03 / DEP-01 ───────────────────────────────────────────────────────
