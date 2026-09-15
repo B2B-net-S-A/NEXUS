@@ -1254,6 +1254,7 @@ async def list_contracts(
     page_size: int = Query(20, ge=1, le=100),
     q: Optional[str] = Query(
         None,
+        pattern=r"^[^\x00]*$",
         description=(
             "Free-text search — case-insensitive substring match across "
             "candidate name + lastname, client name and job title."

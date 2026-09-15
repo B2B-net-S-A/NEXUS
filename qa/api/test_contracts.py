@@ -46,9 +46,6 @@ for path, identifiers in PATHS.items():
             for arm in parameter["schema"].get("anyOf", [parameter["schema"]]):
                 if arm.get("type") == "string":
                     arm["maxLength"] = 64
-                    # PostgreSQL text cannot represent NUL, which FastAPI
-                    # currently does not constrain. Leave it generated: a 500
-                    # here is a real input-validation bug, not a skipped case.
         else:
             if parameter.get("required"):
                 raise RuntimeError(
@@ -59,6 +56,7 @@ for path, identifiers in PATHS.items():
     operation["parameters"] = parameters
     projected["paths"][path] = {"get": operation}
 SCHEMA = schemathesis.openapi.from_dict(projected)
+SCHEMA.config.update(base_url=BASE_URL)
 
 
 @pytest.mark.parametrize("path", list(PATHS))
@@ -66,13 +64,12 @@ SCHEMA = schemathesis.openapi.from_dict(projected)
 @given(data=st.data())
 def test_valid_requests_obey_response_contract(path, data):
     case = data.draw(SCHEMA[path]["GET"].as_strategy(), label="OpenAPI request")
-    response = case.call(
+    response = case.call_and_validate(
         base_url=BASE_URL,
         headers={"Authorization": f"Bearer {WORKLOAD['sessions']['admin']['token']}"},
         timeout=15,
         allow_redirects=False,
     )
-    case.validate_response(response)
     assert response.status_code == 200, (
         f"Valid request to {path} returned {response.status_code}"
     )
@@ -80,15 +77,22 @@ def test_valid_requests_obey_response_contract(path, data):
 
 @pytest.mark.parametrize("path", ["/api/candidates", "/api/contracts"])
 @pytest.mark.parametrize(
-    "query", [{"page": 0}, {"page_size": 0}, {"page_size": 101}, {"page": "abc"}]
+    "query",
+    [
+        {"page": 0},
+        {"page_size": 0},
+        {"page_size": 101},
+        {"page": "abc"},
+        {"q": "\x00"},
+        {"q": "Ewa\x00QA"},
+    ],
 )
-def test_invalid_pagination_is_rejected(path, query):
+def test_invalid_search_parameters_are_rejected(path, query):
     case = SCHEMA[path]["GET"].Case(query=query)
-    response = case.call(
+    response = case.call_and_validate(
         base_url=BASE_URL,
         headers={"Authorization": f"Bearer {WORKLOAD['sessions']['admin']['token']}"},
         timeout=15,
         allow_redirects=False,
     )
-    case.validate_response(response)
     assert response.status_code == 422

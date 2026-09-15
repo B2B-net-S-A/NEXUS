@@ -18,9 +18,9 @@
   `page` (1–3), `page_size` (1–25); szczegóły używają istniejących identyfikatorów.
   Pozostałe opcjonalne filtry nie są objęte tym pierwszym zestawem.
   Pełne schematy odpowiedzi pozostają niezmienione. Do 30 przykładów na endpoint
-  (generator może wyczerpać skończoną przestrzeń wcześniej), plus 8 przypadków
-  odrzucenia błędnej paginacji. Poprawne żądanie musi zwrócić 200, błędna
-  paginacja 422. Zniknięcie endpointu lub danych powoduje błąd, nie pominięcie.
+  (generator może wyczerpać skończoną przestrzeń wcześniej), plus 12 przypadków
+  odrzucenia błędnej paginacji i znaków NUL w wyszukiwaniu. Poprawne żądanie musi zwrócić 200, błędna
+  paginacja lub znak NUL w `q` 422. Zniknięcie endpointu lub danych powoduje błąd, nie pominięcie.
 - **k6:** trzy równoległe scenariusze HTTP: rekrutacja (lista → wyszukiwanie →
   profil → pipeline), operacje (kontrakty → szczegóły → zamówienia), raportowanie
   (dashboard pracy własnej i finansów). `smoke` = po 1 VU na scenariusz przez
@@ -85,3 +85,11 @@ Dockera ani obciążenia produkcji.
 Wersje: Hypothesis 6.168.0, time-machine 3.5.1, Schemathesis 4.27.1, k6 2.2.0.
 Archiwum k6 w CI jest weryfikowane SHA-256. Przy aktualizacji zmień wersję i
 sumę razem, a następnie sprawdź raporty i wszystkie trzy ścieżki.
+
+## Regresja znaleziona podczas uruchomienia
+
+Pierwszy rzeczywisty bieg Schemathesis wykrył HTTP 500 dla `q` zawierającego
+NUL (`%00`) na liście kandydatów. Parametr był dopuszczony przez OpenAPI, ale
+PostgreSQL nie może reprezentować NUL w typie `text`. API kandydatów i kontraktów
+teraz odrzuca ten znak walidacją 422; ograniczenie jest również w schemacie.
+Jawne przypadki negatywne pozostają w zestawie HTTP i testach backendu.

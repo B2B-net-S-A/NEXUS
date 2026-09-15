@@ -1319,7 +1319,8 @@ async def list_candidates(
         ),
     ),
     location: Optional[str] = None,
-    q: Optional[str] = None,
+    # PostgreSQL text rejects NUL; reject the request before binding SQL.
+    q: Optional[str] = Query(None, pattern=r"^[^\x00]*$"),
     skills: Optional[list[str]] = Query(
         None,
         description=(
