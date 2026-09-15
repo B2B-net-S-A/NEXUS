@@ -382,4 +382,3 @@ jobs:
             notify "Kopia off-site NEXUS nieświeża lub niekompletna" \
               "\`LATEST.json\` kopii off-site jest nieczytelny, za stary albo brakuje w nim artefaktu (postgres / uploads / cv_corpus / qdrant). Procedura: \`docs/runbook-backup-201.md\`."
           fi
-
