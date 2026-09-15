@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.deps import (
     HeadOfRecruitmentOnly,
     OperationalUser,
@@ -85,7 +86,7 @@ from app.services.priority_work_service import (
     utcnow,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 WARSAW = ZoneInfo("Europe/Warsaw")
 
 

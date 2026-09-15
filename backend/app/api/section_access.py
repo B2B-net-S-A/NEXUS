@@ -129,6 +129,39 @@ def require_section_access_any_read(*sections: ProductSection):
     return _check
 
 
+def require_section_access_any(*sections: ProductSection):
+    """Jak ``require_section_access``, ale wystarcza DOWOLNA z sekcji.
+
+    Poziom (odczyt/zapis) wynika z metody HTTP. Dla powierzchni, której
+    zapisujący siedzą w różnych sekcjach — np. przypisania DL↔klient edytuje
+    Delivery Lead (Delivery) i Head of Recruitment (bez Delivery, z Pipeline).
+    """
+    if not sections:
+        raise ValueError("At least one section is required")
+
+    async def _check(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        is_read = is_read_only_http_request(request.method, request.url.path)
+        required = SectionAccess.read if is_read else SectionAccess.write
+        if not any(
+            section_access_for_user(current_user, section) >= required
+            for section in sections
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "section_access_denied",
+                    "required": required.name,
+                    "any_section": [section.value for section in sections],
+                },
+            )
+        return current_user
+
+    return _check
+
+
 DELIVERY_SECTION_DEPENDENCIES = [
     Depends(require_section_access(ProductSection.delivery))
 ]

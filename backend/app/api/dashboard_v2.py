@@ -12,6 +12,11 @@ from app.analytics.capabilities import (
     user_has_capability,
 )
 from app.analytics.periods import Period, PeriodError, resolve_period
+from app.api.section_access import (
+    DELIVERY_SECTION_DEPENDENCIES,
+    INSIGHTS_SECTION_DEPENDENCIES,
+    PIPELINE_SECTION_DEPENDENCIES,
+)
 from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
     ROLE_DENIED_DETAIL,
@@ -62,6 +67,10 @@ from app.services.recruitment_activity import (
 )
 from app.services.kpi_engine import WARSAW
 
+# Bramki sekcji per trasa (F02, audyt 14.09.2026): pulpity czytają dane różnych
+# sekcji, więc jedna bramka na routerze odcięłaby np. Delivery Leada bez
+# Insights od jego własnego pulpitu. `/admin-ops` (admin) i `/finance`
+# (capability liczona z sekcji Finance) są już zawężone.
 router = APIRouter()
 
 Database = Annotated[AsyncSession, Depends(get_db)]
@@ -165,7 +174,11 @@ async def admin_ops_dashboard(
     return await build_admin_ops_dashboard(request, current_user, db)
 
 
-@router.get("/delivery-lead", response_model=DeliveryLeadDashboardResponse)
+@router.get(
+    "/delivery-lead",
+    response_model=DeliveryLeadDashboardResponse,
+    dependencies=DELIVERY_SECTION_DEPENDENCIES,
+)
 async def delivery_lead_dashboard(
     current_user: DeliveryLeadPlus,
     db: Database,
@@ -177,6 +190,7 @@ async def delivery_lead_dashboard(
 @router.get(
     "/head-of-recruitment",
     response_model=HeadOfRecruitmentDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
 )
 async def head_of_recruitment_dashboard(
     current_user: HeadOfRecruitmentDashboardUser,
@@ -186,7 +200,11 @@ async def head_of_recruitment_dashboard(
     return await build_head_of_recruitment_dashboard(current_user, db, period)
 
 
-@router.get("/my-work", response_model=MyWorkDashboardResponse)
+@router.get(
+    "/my-work",
+    response_model=MyWorkDashboardResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def my_work_dashboard(
     current_user: MyWorkUser,
     db: Database,
@@ -198,6 +216,7 @@ async def my_work_dashboard(
 @router.get(
     "/recruitment-stats",
     response_model=RecruitmentStatsDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
 )
 async def recruitment_stats_dashboard(
     current_user: OperationalUser,
@@ -225,6 +244,7 @@ async def recruitment_stats_dashboard(
 @router.get(
     "/recruitment-operations",
     response_model=RecruitmentOperationsListResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def recruitment_operations_list(
     current_user: RecruitmentOperationsUser,
@@ -252,6 +272,7 @@ async def recruitment_operations_list(
 @router.get(
     "/recruitment-activity",
     response_model=RecruitmentActivitySummaryResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def recruitment_activity_summary(
     current_user: RecruitmentOperationsUser,
@@ -278,6 +299,7 @@ async def recruitment_activity_summary(
 @router.get(
     "/recruitment-activity/details",
     response_model=RecruitmentActivityDetailResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def recruitment_activity_details(
     current_user: RecruitmentOperationsUser,
@@ -312,6 +334,7 @@ async def recruitment_activity_details(
 @router.get(
     "/recruitment-operations/{job_id}",
     response_model=RecruitmentOperationsDetailResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def recruitment_operations_detail(
     job_id: int,
@@ -338,6 +361,7 @@ async def recruitment_operations_detail(
 @router.put(
     "/recruitment-operations/{job_id}/favorite",
     response_model=RecruitmentOperationsFavorite | None,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def recruitment_operations_favorite(
     job_id: int,

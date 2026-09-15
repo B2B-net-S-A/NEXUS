@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
@@ -38,7 +39,7 @@ from app.schemas.dr_kpi_body_leasing import (
     DrKpiBodyLeasingSummary,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:

@@ -8,7 +8,7 @@
    The gate lives in the function body (it needs job.client_id), so it is checked
    structurally with ast — a dropped call is a silent regression.
 
-2. M6-P0.11 — GET /api/fireflies/sync MUTATES (writes meeting notes, calls the
+2. M6-P0.11 — POST (dawniej GET) /api/fireflies/sync MUTATES (writes meeting notes, calls the
    external Fireflies API). It must not be reachable by the read-only ``user``
    viewer. Asserted by proving the route no longer depends on the permissive
    ``get_current_user`` (which admits every authenticated account); it now uses

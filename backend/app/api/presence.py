@@ -8,12 +8,27 @@ Source of truth is the in-memory ConnectionManager in `app.api.ws`.
 
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.recruitment_access import RecruitmentReadAccess
+from app.api.section_access import require_section_access_any_read
 from app.api.ws import manager
+from app.services.section_permissions import ProductSection
 
-router = APIRouter(prefix="/api/presence", tags=["presence"])
+# Lustro bramki WebSocketu (`presence_subscribe_allowed`): obecność widać z
+# profilu kandydata (Sourcing) i z rekrutacji (Pipeline) — ale nie bez żadnej
+# z tych sekcji (F02, audyt 14.09.2026).
+router = APIRouter(
+    prefix="/api/presence",
+    tags=["presence"],
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.sourcing, ProductSection.pipeline
+            )
+        )
+    ],
+)
 
 
 ResourceType = Literal["candidate", "job"]

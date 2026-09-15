@@ -1,6 +1,6 @@
 """
 Fireflies Integration API.
-GET /api/fireflies/sync        — trigger manual transcript sync
+POST /api/fireflies/sync       — trigger manual transcript sync (zapis notatek)
 GET /api/fireflies/transcripts — list recent meeting notes from Fireflies
 GET /api/fireflies/status      — current integration status
 """
@@ -11,15 +11,18 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.note import Note, NoteType
 from app.api.deps import OperationalUser
 from app.services.fireflies_sync import sync_fireflies_transcripts, get_sync_status
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
-@router.get("/fireflies/sync")
+# POST, nie GET: synchronizacja ZAPISUJE notatki kandydatów, więc musi przejść
+# bramkę zapisu sekcji Sourcing i tryb podglądu tylko do odczytu (F02).
+@router.post("/fireflies/sync")
 async def trigger_fireflies_sync(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),

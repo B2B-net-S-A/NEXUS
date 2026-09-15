@@ -15,6 +15,11 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.activity import Activity
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    require_section_access_any_read,
+)
+from app.services.section_permissions import ProductSection
 from app.api.deps import CurrentUser, OperationalUser
 from app.api.financial_access import has_financial_access, redact_feed_activity
 from app.analytics.capabilities import (
@@ -42,7 +47,7 @@ def _period_start(period: str) -> datetime:
         return now - timedelta(days=30)
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 async def get_activity_stats(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -179,7 +184,20 @@ def _entity_link(entity_type: str, entity_id: int) -> Optional[str]:
     return links.get(entity_type)
 
 
-@router.get("/feed")
+# Dziennik zdarzeń kandydatów, rekrutacji i klientów — wystarcza którakolwiek
+# z tych sekcji; zakres i redakcja kwot działają dalej w handlerze (F02).
+@router.get(
+    "/feed",
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.sourcing,
+                ProductSection.pipeline,
+                ProductSection.delivery,
+            )
+        )
+    ],
+)
 async def get_activity_feed(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),

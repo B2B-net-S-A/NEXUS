@@ -17,13 +17,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
 from app.services.match_score_cache import mark_stale_for_profile
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

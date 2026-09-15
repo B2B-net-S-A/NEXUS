@@ -316,4 +316,76 @@ describe("RoleDashboard — unified recruitment view", () => {
       "/dashboard?preset=finance&period=quarter",
     )
   })
+
+  it("does not mount recruitment widgets when the Pipeline section was revoked", () => {
+    // F02 (audyt 14.09.2026): backend odmawia 403 bez sekcji Pipeline, więc
+    // zamontowane widżety dałyby serię kart błędu zamiast jednego komunikatu.
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "delivery_lead",
+          roles: ["delivery_lead"],
+          available_dashboard_presets: ["delivery-lead"],
+          default_dashboard_preset: "delivery-lead",
+          effective_section_access: { delivery: "write", pipeline: "none" },
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams("preset=delivery-lead&period=month")
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByTestId("dashboard-pipeline-access-notice")).toBeVisible()
+    expect(screen.queryByText("recruitment-activity")).toBeNull()
+    expect(screen.queryByText("my-assigned-recruitments")).toBeNull()
+    expect(screen.queryByText("recruitment-processes")).toBeNull()
+    expect(screen.getByText("dl-alerts")).toBeInTheDocument()
+    expect(screen.getByText("my-clients")).toBeInTheDocument()
+  })
+
+  it("hides Delivery Lead client panels when the Delivery section was revoked", () => {
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "delivery_lead",
+          roles: ["delivery_lead"],
+          available_dashboard_presets: ["delivery-lead"],
+          default_dashboard_preset: "delivery-lead",
+          effective_section_access: { delivery: "none", pipeline: "write" },
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams("preset=delivery-lead&period=month")
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByText("recruitment-activity")).toBeInTheDocument()
+    expect(screen.queryByText("dl-alerts")).toBeNull()
+    expect(screen.queryByText("my-clients")).toBeNull()
+  })
+
+  it("keeps the Moi klienci panel for an admin viewing the Delivery Lead preset", () => {
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "admin",
+          roles: ["admin"],
+          available_dashboard_presets: ["admin-ops", "delivery-lead"],
+          default_dashboard_preset: "admin-ops",
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams("preset=delivery-lead&period=month")
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByText("my-clients")).toBeInTheDocument()
+    expect(screen.queryByText("dl-alerts")).toBeNull()
+  })
 })

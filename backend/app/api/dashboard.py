@@ -6,6 +6,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.analytics.capabilities import (
     AnalyticsCapability,
     user_has_capability,
@@ -22,7 +23,7 @@ from app.services.access_scope import apply_activity_feed_scope
 from app.services.dashboard_metrics import compute_kpi_snapshot
 from app.services.contractor_identity import summarize_active_contracts
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 _legacy_organization_dashboard_guard = require_roles(
     UserRole.admin,

@@ -410,6 +410,30 @@ def _status_after_end_date_change(
     return status
 
 
+def _status_after_termination(
+    current: ContractStatus, end_date: Optional[date], today: date
+) -> ContractStatus:
+    """Status po zakończeniu współpracy (``/terminate``, aneks ``early_termination``).
+
+    Do 09.2026 obie ścieżki liczyły status z samej daty końca, bez patrzenia na
+    stan umowy (audyt 14.09.2026, F03):
+
+    * ``void`` jest terminalny — jedno „Zakończ współpracę” wskrzeszało
+      unieważnioną umowę na ``ended``/``active``. Teraz 409 z maszyny stanów.
+    * ``draft``/``ready_for_signature`` z datą końca w przyszłości dostawały
+      ``active`` z pominięciem bramki aktywacji. Teraz status zostaje, a dzień
+      po dacie końca nadal można je zakończyć (``→ ended`` jest legalne).
+    """
+    target = _status_after_end_date_change(ContractStatus.ended, end_date, today)
+    if current in (
+        ContractStatus.draft,
+        ContractStatus.ready_for_signature,
+    ) and target in (ContractStatus.active, ContractStatus.ending):
+        return current
+    assert_transition(current, target)
+    return target
+
+
 async def _sync_client_orders_to_contract_end(
     db: AsyncSession,
     contract_id: int,
@@ -2367,7 +2391,14 @@ async def bulk_extend_contracts(
     """
     if not contract_ids:
         raise HTTPException(status_code=422, detail="No contract ids provided")
-    result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
+    # FOR UPDATE w stałej kolejności (jak `/bulk-mark-ended`): `reopen_contract`
+    # ocenia status z pamięci, a równoległy `void` nie może zostać nadpisany (F03).
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id.in_(contract_ids))
+        .order_by(Contract.id.asc())
+        .with_for_update()
+    )
     contracts = list(result.scalars().all())
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
@@ -3134,6 +3165,8 @@ async def activate_contract(
     and for ``ready_for_signature`` contracts. It returns 409 with the stable
     missing-fields list when the operational data is incomplete.
     """
+    # FOR UPDATE: status oceniany niżej musi być tym po commicie ewentualnego
+    # równoległego `void` (F03) — inaczej unieważniona umowa wraca na `active`.
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -3145,6 +3178,7 @@ async def activate_contract(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if not contract:
@@ -3203,8 +3237,16 @@ async def _load_contract_with_relations(
     db: AsyncSession,
     contract_id: int,
     current_user: User,
+    *,
+    for_update: bool = False,
 ) -> Contract:
-    contract = await db.scalar(
+    """Kontrakt z relacjami; ``for_update=True`` dla handlerów zmieniających status.
+
+    Blokada wiersza jest potrzebna wszędzie, gdzie maszyna stanów ocenia
+    ``contract.status``: bez niej równoległy ``void`` commitowany po naszym
+    odczycie zostałby nadpisany (F03, audyt 14.09.2026).
+    """
+    stmt = (
         select(Contract)
         .where(Contract.id == contract_id)
         .options(
@@ -3217,6 +3259,9 @@ async def _load_contract_with_relations(
             selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    contract = await db.scalar(stmt)
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
@@ -3524,7 +3569,9 @@ async def finalize_contract_draft(
     missing-field list. No `contract_signed` side effect fires here — the
     contract is not signed yet.
     """
-    contract = await _load_contract_with_relations(db, contract_id, current_user)
+    contract = await _load_contract_with_relations(
+        db, contract_id, current_user, for_update=True
+    )
     await _assert_contract_document_client_access(contract, current_user, db)
 
     if contract.status != ContractStatus.draft:
@@ -3615,6 +3662,8 @@ async def reopen_contract_endpoint(
     to go back to editing. Terminal metadata is cleared. Illegal transitions
     (e.g. reopening a `void`) return 409.
     """
+    # FOR UPDATE: bez blokady cofnięcie czyta `active` sprzed commitu
+    # równoległego `void` i przepycha `active → void → draft` (F03).
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -3626,6 +3675,7 @@ async def reopen_contract_endpoint(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if not contract:
@@ -4064,6 +4114,8 @@ async def create_contract_amendment(
         supplied_fields.add("rate_change")
     _assert_contract_finance_write_allowed(current_user, supplied_fields)
 
+    # FOR UPDATE: aneks przedłużający i wcześniejsze zakończenie zmieniają
+    # status — oceniany musi być ten po commicie równoległego `void` (F03).
     contract_res = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -4071,6 +4123,7 @@ async def create_contract_amendment(
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
         )
+        .with_for_update()
     )
     contract = contract_res.scalar_one_or_none()
     if not contract:
@@ -4220,14 +4273,14 @@ async def create_contract_amendment(
 
     elif data.amendment_type == ContractAmendmentType.early_termination:
         end = data.new_end_date or data.effective_date
+        # Odmowa przed zapisem daty: aneks nie wskrzesza unieważnionej umowy.
+        new_status = _status_after_termination(contract.status, end, business_today())
         contract.end_date = end
         # An early-termination amendment can be recorded ahead of its effective
         # date. Until that date arrives, the contract is still running and must
         # remain visible as active; the daily status job progresses it according
         # to the end-date lifecycle (P0.7 — future termination must not end now).
-        contract.status = _status_after_end_date_change(
-            ContractStatus.ended, end, business_today()
-        )
+        contract.status = new_status
         await _sync_client_orders_to_contract_end(
             db,
             contract.id,
@@ -4537,6 +4590,7 @@ async def terminate_contract(
     If the effective date is earlier than the current end_date, an
     `early_termination` amendment is also recorded for audit.
     """
+    # FOR UPDATE: zakończenie ocenia bieżący status (F03).
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -4548,6 +4602,7 @@ async def terminate_contract(
             selectinload(Contract.client_rate_schedule),
             selectinload(Contract.framework_rate_schedule),
         )
+        .with_for_update()
     )
     contract = result.scalar_one_or_none()
     if not contract:
@@ -4556,6 +4611,16 @@ async def terminate_contract(
 
     when = data.terminated_at or business_today()
     previous_end_date = contract.end_date
+    # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
+    # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
+    effective_end = (
+        when
+        if contract.end_date is None or contract.end_date > when
+        else contract.end_date
+    )
+    new_status = _status_after_termination(
+        contract.status, effective_end, business_today()
+    )
 
     # Idempotentny replay (double-submit / retry): identyczna dyspozycja nie
     # dokłada drugiej Activity ani aneksu — dotąd każdy resubmit dopisywał
@@ -4589,10 +4654,9 @@ async def terminate_contract(
     # P0.7: a future-dated termination must NOT flip the contract to `ended`
     # today. It stays active/ending until the effective end date; the daily
     # status job materializes `ended` on/after that date. Derived from the
-    # (already coherent) end_date, not from raw ContractStatus.ended.
-    contract.status = _status_after_end_date_change(
-        ContractStatus.ended, contract.end_date, business_today()
-    )
+    # (already coherent) end_date, not from raw ContractStatus.ended — and
+    # validated against the CURRENT status (see `_status_after_termination`).
+    contract.status = new_status
 
     synced_orders = await _sync_client_orders_to_contract_end(
         db,

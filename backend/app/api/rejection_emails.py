@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.recruitment_access import (
     RecruitmentReadAccess,
     user_has_rejection_email_oversight,
@@ -36,7 +37,7 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 # ── Response schemas ────────────────────────────────────────────────────────
