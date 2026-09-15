@@ -27,10 +27,18 @@ setup("authenticate", async ({ page }) => {
 
   fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
 
+  // Przewodnik onboardingowy zapamiętuje zamknięcie w localStorage — ustawiamy
+  // go przed pierwszym renderem zamiast ścigać się z nakładką.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("onboarding_completed", "true");
+  });
   await page.goto("/login");
-  await page.getByPlaceholder("rekruter@firma.pl").fill(EMAIL);
-  await page.getByPlaceholder("••••••••").fill(PASSWORD);
-  await page.getByRole("button", { name: /zaloguj/i }).click();
+  // Selektory po `id` pól i DOKŁADNEJ nazwie przycisku: placeholder e-maila
+  // zmienił się z `rekruter@firma.pl`, a `/zaloguj/i` łapał też przycisk
+  // „Zaloguj się przez Microsoft".
+  await page.locator("#login-email").fill(EMAIL);
+  await page.locator("#login-password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Zaloguj się", exact: true }).click();
 
   // Wait until we are out of /login (dashboard redirect).
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 20_000 });
