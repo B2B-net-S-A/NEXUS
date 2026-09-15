@@ -161,8 +161,10 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Najsilniejsze CI w stacku** (gitleaks + ruff + alembic + pytest + ESLint + tsc + Vitest + Codecov).
 - **`needs: secret-scan`** — gitleaks musi przejść przed innymi jobami (świadomy guard).
 - **Pytest selective:** wskazane konkretne pliki testów (5 plików), nie `pytest .` — bo cały suite ma live-server tests które są skipowane (`RUN_LIVE_TESTS=0`).
-- **Lista `--ignore` w `ci.yml` = `_FAILING` w `test_ci_coverage_contract.py`** (kontrakt czyta workflow). Od 14.09.2026 (QA-06) `_FAILING` jest PUSTA — 12 czerwonych plików naprawiono (11 nieaktualnych kontraktów testów + 1 błąd produktu: dedup dzienny powiadomień targu wywracał cały skan). Zostaje 6 wykluczeń: 2 kolekcyjne + 4 live. Nowy czerwony test = napraw albo dopisz do `_FAILING` Z POWODEM, nigdy samo `--ignore`.
-- **Pokrycie backendu scala job `backend-coverage-combine`** (QA-01): shardy piszą `.coverage.shard-N` jako artefakt, combine daje tabelę + `::warning::` poniżej 80% (report-only); Codecov tylko gdy `CODECOV_TOKEN` ustawiony (jawny `::notice::` bez tokena).
+- **Lista `--ignore` w `ci.yml` = suma `_COLLECTION_ERRORS | _LIVE | _FAILING` w `test_ci_coverage_contract.py`** (kontrakt czyta workflow). Od 14.09.2026 (QA-06) `_FAILING` jest PUSTA — 12 czerwonych plików naprawiono (11 nieaktualnych kontraktów testów + 1 błąd produktu: dedup dzienny powiadomień targu wywracał cały skan). Od 15.09.2026 **0 wykluczeń**: 4 pliki live (`test_auth/candidates/jobs/pipeline`) przeniesione na in-process `app_client` z własnymi danymi, 2 „kolekcyjne” (`test_backfill_*`) zbierały się i przechodziły — powód był nieaktualny. Nowy czerwony test = napraw albo dopisz do właściwej kategorii Z POWODEM, nigdy samo `--ignore`. Test skryptu z `backend/scripts` importuj przez `from scripts import …`, nie przez `sys.path.insert(…/scripts)` — zagnieżdżony katalog `scripts/scripts/` trafia wtedy na początek ścieżki pakietu `scripts` i np. `scripts.eval_matching` ładuje się z niego.
+- **Pokrycie backendu scala job `backend-coverage-combine`** (QA-01): shardy piszą `.coverage.shard-N` (linie **i gałęzie**, `--cov-branch` + `branch = True` w `.coveragerc`) jako artefakt; combine wymaga kompletu `EXPECTED_SHARDS` i porównuje wynik z **`.github/coverage-baseline.json`** skryptem `.github/scripts/coverage_gate.py` — spadek poniżej baseline − tolerancji = czerwony job, a wymagany kontekst „Backend (pytest)” czyta jego wynik. 80% zostaje progiem RAPORTOWYM. Frontend: `coverage.thresholds` w `vitest.config.ts` (Vitest sam kończy się błędem) + artefakt `frontend-coverage`. **Ratchet:** `::notice::` o wzroście = podbij baseline/progi w tym samym PR; obniżenie tylko z uzasadnieniem. Codecov tylko gdy `CODECOV_TOKEN` ustawiony.
+- **Trivy blokuje** (QA-05, 15.09.2026): znalezisko HIGH/CRITICAL z dostępną poprawką (podatność zależności ALBO błędna konfiguracja Dockerfile — liczone są `Total:` i `Failures:`) = czerwony job „Trivy + hadolint”. Wyjątki WYŁĄCZNIE w `.trivyignore` z uzasadnieniem i `exp:RRRR-MM-DD` (pilnuje kontrakt). DS-0002 w `backend/Dockerfile` to fałszywy alarm (entrypoint robi `exec gosu appuser`). Hadolint zostaje advisory. Job nie jest jeszcze wymaganym kontekstem rulesetu — dopisuje go Artur.
+- **E2E ma dwa cele** (QA-02/03, 15.09.2026): job `stack` w `e2e.yml` (PR + nocny) stawia `docker-compose.e2e.yml` (te same Dockerfile'e, pusta baza, konta ról z `backend/scripts/seed_e2e.py`) i uruchamia projekt `ci-chromium` = scenariusze z tagiem **`@stack`**; pominięty przypadek = czerwony bieg. Nocny job produkcyjny uruchamia `prod-smoke` (bez `@stack`/`@writes`) i `preview-chromium`. Wywołania API w scenariuszach idą przez `e2e/helpers/api.ts` (Bearer) — fixture `request` Playwrighta NIE niesie tokena z localStorage, więc dawne `request.post` dostawały 401, które przechodziły `status < 500`. Każdy scenariusz zakłada własne dane (`helpers/entities.ts`); asercja = dokładny status + ponowny odczyt. Otwarte przepływy: `docs/uat/09-backlog-scenariuszy-e2e.md` (zamiast `test.fixme`).
 - **Testy generatora CV mają fixture `pipeline_mode` (`legacy`/`v10`)** (QA-07) dla trzech kontraktów; `test_cv_generator_legacy_v7.py` pilnuje domyślnego trybu produkcji.
 - **M365 webhook: klucz replay = (subskrypcja, id zasobu, `changeType`), TTL 10 min, wpis PO udanym spawnie** (INT-02) — `created` i `updated` tej samej wiadomości oba przechodzą; padnięty spawn = brak wpisu, ponowienie Grapha zadziała.
 - **Codecov flags:** `backend` + `frontend` — separate uploads.
@@ -204,7 +206,7 @@ git push origin main
 - **Vector search (Qdrant):** używamy do matching kandydat ↔ stanowisko. Score harness: `scripts/eval_matching.py` lokalnie (waliduj precision/recall przed/po zmianach scoringu).
 - **Migracje (Alembic):** `alembic upgrade head` na startup (Coolify entrypoint). Migracje testowane w CI (`alembic upgrade head` na test DB w `backend-lint-test` job).
 - **Backup drill:** `.github/workflows/backup-drill.yml` — periodic test pg_dump → pg_restore. Działa, nie ruszamy w fazach 0-4.
-- **E2E:** Playwright lokalnie + osobny workflow `e2e.yml`.
+- **E2E:** Playwright — stack w CI (`docker-compose.e2e.yml`, scenariusze `@stack`) + nocny `prod-smoke`; szczegóły w „CI gotchas”.
 - **40+ feature branches:** historyczne, niektóre stale. Przed merge nowej feature branchy — sprawdź czy nie ma duplikatów.
 
 ## Po Fazie 1
@@ -248,7 +250,24 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   przy każdym deployu. Pilnuje tego `test_delivery_contract.py`.
 - **Czas faz startu backendu jest w logach kontenera** (`[startup-timing]` z
   `entrypoint.sh`, także podfazy siatki DDL). Zanim skrócisz start, sprawdź tam,
-  co naprawdę trwa.
+  co naprawdę trwa. Deploy sam je odczytuje (krok „Czasy faz startu backendu”,
+  notice „Start backendu”), a ręcznie: `coolify-ops.yml` → `startup-timing`
+  (skrypt przepuszcza WYŁĄCZNIE linie `[startup-timing]` — logi Actions są publiczne).
+- **Raport przerwy (`.github/scripts/deploy_downtime_report.py`) podaje frontend
+  i API osobno oraz „Postgres restartował”** — porównanie
+  `postgres_started_at` z `/api/health/deep` przed webhookiem i po smoke teście.
+  To pole jest informacją, nie sondą: nie wchodzi do `checks`.
+- **Backend zamyka się łagodnie przy deployu:** `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN=8`
+  (uvicorn czyta opcje z env) + `stop_grace_period: 15s`. Nie wydłużaj limitu:
+  stary kontener czekający na długie żądanie wydłuża przerwę wszystkim.
+- **Odczyt bez odpowiedzi widocznej dla przeglądarki ponawia się ≈ 22 s**
+  (`NETWORK_READ_RETRY_MAX` w `lib/api.ts`, tylko GET/HEAD/OPTIONS i tylko online) —
+  tak wygląda restart API. Zapisy i odpowiedzi 5xx z CORS zostają przy dwóch próbach.
+- **`runtime_metrics` co minutę w Loki** (`app/tasks/runtime_metrics_monitor.py`):
+  opóźnienie pętli zdarzeń, szczyt wypożyczonych połączeń, czas wypożyczenia
+  jednego połączenia. To dane do decyzji o puli i procesach (F06) — zanim
+  zmienisz `pool_size`/`max_overflow`, spójrz na nie. Połączenia mają
+  `application_name=nexus-backend` w `pg_stat_activity`.
 - **Błąd ładowania chunka JS przeładowuje stronę raz** (`lib/chunk-reload.ts`,
   `ChunkReloadGuard` w layoucie + `app/error.tsx`) — stara karta po deployu.
 

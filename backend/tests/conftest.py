@@ -182,14 +182,38 @@ def _enable_contract_order_sync(monkeypatch):
     """Na produkcji synchronizacja rusza po markerze jednorazowej korekty.
 
     Świeża baza testowa go nie ma, a większość testów opisuje zachowanie PO
-    wdrożeniu. Sama bramka ma własny test (``test_contract_order_sync``),
-    który przywraca ją lokalnie; przebieg dobowy sprawdza marker sam.
+    wdrożeniu. Zachowanie bez markera sprawdzają testy biorące fixture
+    ``contract_order_sync_mode`` (niżej); przebieg dobowy sprawdza marker sam.
     """
 
     async def _enabled(_db) -> bool:
         return True
 
     monkeypatch.setattr("app.services.contract_order_sync.sync_enabled", _enabled)
+
+
+@pytest.fixture(params=("enabled", "disabled"), ids=("sync-enabled", "sync-disabled"))
+def contract_order_sync_mode(request, monkeypatch) -> str:
+    """Macierz bramki synchronizacji kontrakt ↔ zamówienia (QA-07).
+
+    Autouse ``_enable_contract_order_sync`` przypina stan PO korekcie (marker
+    jest), więc bez tego fixture'u suite nigdy nie widzi zachowania sprzed
+    markera — a tak stoi każda baza, na której blok w ``entrypoint.sh`` padł.
+    Test, który bierze ten fixture, biegnie dwa razy: ``enabled`` (marker
+    jest, synchronizacja działa) i ``disabled`` (markera brak — zapis
+    zamówienia przechodzi, a kontrakt zostaje nietknięty: bez okresu
+    zamówienia, bez kroku stawki przychodowej). Nadpisuje autouse przez ten
+    sam ``monkeypatch`` (autouse biegnie pierwszy). Prawdziwy odczyt markera
+    z ``AppSetting`` sprawdza przebieg dobowy w ``test_contract_order_sync.py``.
+    """
+
+    enabled = request.param == "enabled"
+
+    async def _gate(_db) -> bool:
+        return enabled
+
+    monkeypatch.setattr("app.services.contract_order_sync.sync_enabled", _gate)
+    return request.param
 
 
 # ── CV generator: existing suite covers the rebuilt pipeline, strictly ──────
@@ -216,8 +240,12 @@ def pipeline_mode(request, monkeypatch) -> str:
     przebudowanym (``v10`` + ścisłe dowody — tak, jak przypina resztę suite'u
     ``_pin_cv_generator_rebuilt_pipeline``). Nadpisuje tamten pin, bo oba
     fixture'y dzielą jeden ``monkeypatch``, a autouse biegnie pierwszy.
-    Wchodzą tu WYŁĄCZNIE kontrakty obowiązujące w obu trybach; różnice trybów
-    opisuje ``test_cv_generator_legacy_v7.py`` (strażnik domyślnego).
+    Wchodzą tu WYŁĄCZNIE kontrakty sensowne w obu trybach. Gdzie tryby
+    legalnie się różnią, test rozgałęzia się jawnie i ma asercję dla KAŻDEGO
+    trybu — nigdy nie luzuje asercji tak, żeby przeszła w obu. Testy maszynerii
+    istniejącej tylko w v10 (ekstrakcja faktów źródłowych, płatna kontrola
+    treści w kolejce) zostają na pinie z komentarzem dlaczego. Pełne różnice
+    trybów opisuje ``test_cv_generator_legacy_v7.py`` (strażnik domyślnego).
     """
 
     if request.param == "legacy":

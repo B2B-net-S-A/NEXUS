@@ -78,7 +78,10 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  }, []);
 
  const validateCv = (file: File | undefined | null): string | null => {
- if (!file) return"Dodaj swoje CV (PDF, DOC lub DOCX).";
+ // Przeglądarka przy braku wyboru wstawia do FormData pusty File bez nazwy.
+ if (!file || (!file.name && file.size === 0)) {
+ return"Dodaj swoje CV (PDF, DOC lub DOCX).";
+ }
  const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ??"";
  if (!ALLOWED_CV_EXT.includes(ext as (typeof ALLOWED_CV_EXT)[number])) {
  return"CV musi być w formacie PDF, DOC lub DOCX.";

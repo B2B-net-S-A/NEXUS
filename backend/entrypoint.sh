@@ -33,7 +33,13 @@ if [ "$(id -u)" = "0" ]; then
         /tmp/nexus/uploads/candidate_documents \
         /tmp/nexus/uploads/finance_imports \
         || echo "WARN: mkdir /tmp/nexus/uploads/* failed"
-    if chown -R appuser:appgroup /tmp/nexus; then
+    # Tylko wpisy z obcym właścicielem (plan skracania przerwy, Etap 3):
+    # `chown -R` przepisywał i-węzeł KAŻDEGO pliku wolumenu uploadów przy
+    # każdym starcie, choć po pierwszym uzdrowieniu nic się nie zmienia —
+    # a ten czas liczy się do przerwy API przy deployu. `find` tylko czyta
+    # metadane i zmienia to, co naprawdę trzeba (wynik ten sam co `chown -R`).
+    if find /tmp/nexus \( ! -user appuser -o ! -group appgroup \) \
+        -exec chown -h appuser:appgroup {} +; then
         echo "chown /tmp/nexus ok"
     else
         echo "WARN: chown /tmp/nexus failed (volume read-only?); appuser may not be able to upload"
@@ -7818,9 +7824,19 @@ python seed.py || echo "seed.py failed (likely pre-existing schema drift from un
 # set before its advisory lock — `client_portfolio_import.POSTGRES_LOCK_TIMEOUT`),
 # and the applied-hash path takes no lock that pg_dump's ACCESS SHARE blocks.
 # It stays fail-closed on purpose: a half-known portfolio must not go live.
+#
+# CLIENT_PORTFOLIO_MANIFEST_SKIP=1 istnieje WYŁĄCZNIE dla efemerycznego stacku
+# E2E (docker-compose.e2e.yml): na pustej bazie manifest nie znajduje żadnego
+# z zatwierdzonych aliasów klientów i — zgodnie z projektem — zatrzymuje start.
+# Kontrakt w backend/tests/test_ci_deploy_workflows_contract.py pilnuje, że
+# produkcyjny docker-compose.yml tej zmiennej nie ustawia.
 startup_phase "client-portfolio-manifest"
-echo "Applying client portfolio manifest (transactional apply-once)..."
-python -m app.cli.client_portfolio_import --apply-once
+if [ "${CLIENT_PORTFOLIO_MANIFEST_SKIP:-0}" = "1" ]; then
+  echo "Client portfolio manifest SKIPPED (CLIENT_PORTFOLIO_MANIFEST_SKIP=1 — tylko stack testowy)."
+else
+  echo "Applying client portfolio manifest (transactional apply-once)..."
+  python -m app.cli.client_portfolio_import --apply-once
+fi
 
 # Start the application
 startup_phase ""

@@ -21,6 +21,10 @@ import pytest
 
 from app.services.cv_generator_b2b import standalone_service as svc
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
+from app.services.cv_generator_b2b.legacy_v7 import pipeline as legacy
+from app.services.cv_generator_b2b.legacy_v7.prompts import (
+    get_prompt as legacy_prompt,
+)
 from app.services.cv_generator_b2b.prompts import get_prompt
 from app.services.cv_generator_b2b.standalone_service import (
     CONTENT_MODES,
@@ -69,12 +73,18 @@ def captured_prompt(monkeypatch: pytest.MonkeyPatch) -> dict:
     """
     seen: dict = {}
 
-    def fake_analyze(user_content: str, request_id: str, system: str = "") -> str:
+    def fake_analyze(
+        user_content: str, request_id: str, system: str = "", **kwargs
+    ) -> str:
         seen["user"] = user_content
         seen["system"] = system
         return json.dumps(_AI_JSON)
 
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+    # Te same szwy w przepływie legacy_v7 (testy z `pipeline_mode` biegną w obu).
+    monkeypatch.setattr(legacy, "extract_text_from_file", lambda *a, **k: _CV_TEXT)
+    monkeypatch.setattr(legacy, "analyze_with_ai", fake_analyze)
+    monkeypatch.setattr(legacy, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
 
     def facts(**kwargs):
         seen["extraction_sources"] = kwargs
@@ -265,11 +275,15 @@ def test_filler_quotas_are_gone_from_every_mode(language: str) -> None:
 
 
 # ── Zachowanie pipeline'u (obserwowalne efekty, nie wywołania wewnętrzne) ──
+#
+# Testy z `pipeline_mode` biegną w obu przepływach: legacy_v7 (domyślny na
+# produkcji) i v10. Gdzie przepływy legalnie się różnią, gałąź ma własną
+# asercję dla każdego z nich.
 
 
 @pytest.mark.parametrize("mode", ["basic", "polished"])
 def test_lower_modes_never_send_the_job_ad_to_the_model(
-    mode: str, captured_prompt: dict
+    mode: str, captured_prompt: dict, pipeline_mode: str
 ) -> None:
     """Wymagania klienta NIE mogą trafić do modelu poniżej "tailored".
 
@@ -280,14 +294,24 @@ def test_lower_modes_never_send_the_job_ad_to_the_model(
     assert "<champion_profile>" not in seen["user"]
     assert "Kubernetes" not in seen["user"]
     assert "Utrzymanie klastrów produkcyjnych" not in seen["user"]
-    # Both sources reach full extraction; editing receives the extracted facts.
-    assert seen["extraction_sources"]["cv_text"] == _CV_TEXT
-    assert "potwierdził" in seen["extraction_sources"]["screening_notes"]
-    assert "<source_facts>" in seen["user"]
-    assert "<screening_notes>" not in seen["user"]
+    if pipeline_mode == "legacy":
+        # Jedno wywołanie na surowym CV i notatkach — bez ekstrakcji faktów.
+        assert "extraction_sources" not in seen
+        assert seen["user"].startswith(f"<cv>\n{_CV_TEXT.strip()}\n</cv>")
+        assert "<screening_notes>" in seen["user"]
+        assert "potwierdził" in seen["user"]
+        assert "<source_facts>" not in seen["user"]
+    else:
+        # Both sources reach full extraction; editing receives the extracted facts.
+        assert seen["extraction_sources"]["cv_text"] == _CV_TEXT
+        assert "potwierdził" in seen["extraction_sources"]["screening_notes"]
+        assert "<source_facts>" in seen["user"]
+        assert "<screening_notes>" not in seen["user"]
 
 
-def test_tailored_still_sends_the_champion_profile(captured_prompt: dict) -> None:
+def test_tailored_still_sends_the_champion_profile(
+    captured_prompt: dict, pipeline_mode: str
+) -> None:
     """Regresja w drugą stronę: "tailored" ma działać jak dotąd."""
     _, seen = _run("tailored", captured_prompt)
     assert "<champion_profile>" in seen["user"]
@@ -295,18 +319,27 @@ def test_tailored_still_sends_the_champion_profile(captured_prompt: dict) -> Non
 
 
 @pytest.mark.parametrize("mode", CONTENT_MODES)
-def test_default_highlighting_uses_candidate_technologies_in_every_mode(
-    mode, captured_prompt
+def test_highlighting_never_carries_the_job_ad_below_tailored(
+    mode, captured_prompt, pipeline_mode
 ):
     result, _ = _run(mode, captured_prompt)
-    assert result.render_payload["highlight_keywords"] == ["Python", "PostgreSQL"]
-    # The job advert must not inject technologies absent from the source.
-    assert "Kubernetes" not in result.render_payload["highlight_keywords"]
+    payload = result.render_payload
+    if pipeline_mode == "legacy":
+        # 2bc6b14f: pogrubia WYŁĄCZNIE listę MUST/NICE Championa i tylko w
+        # "tailored"; poniżej nie ma pogrubień wcale.
+        if mode == "tailored":
+            assert payload["highlight_keywords"] == ["Kubernetes", "Terraform"]
+        else:
+            assert "highlight_keywords" not in payload
+    else:
+        assert payload["highlight_keywords"] == ["Python", "PostgreSQL"]
+        # The job advert must not inject technologies absent from the source.
+        assert "Kubernetes" not in payload["highlight_keywords"]
 
 
 @pytest.mark.parametrize("mode", CONTENT_MODES)
 def test_header_keeps_the_candidates_own_position_in_every_mode(
-    mode: str, captured_prompt: dict
+    mode: str, captured_prompt: dict, pipeline_mode: str
 ) -> None:
     """Nagłówek CV nie może twierdzić, że kandydat jest tym, kogo szuka klient.
 
@@ -322,7 +355,7 @@ def test_header_keeps_the_candidates_own_position_in_every_mode(
 
 @pytest.mark.parametrize("mode", CONTENT_MODES)
 def test_used_mode_is_recorded_in_the_saved_payload(
-    mode: str, captured_prompt: dict
+    mode: str, captured_prompt: dict, pipeline_mode: str
 ) -> None:
     """Bez tego nie da się wykazać, jakim trybem powstało wysłane CV."""
     result, _ = _run(mode, captured_prompt)
@@ -330,14 +363,20 @@ def test_used_mode_is_recorded_in_the_saved_payload(
 
 
 @pytest.mark.parametrize("mode", CONTENT_MODES)
-def test_each_mode_gets_its_own_system_prompt(mode: str, captured_prompt: dict) -> None:
+def test_each_mode_gets_its_own_system_prompt(
+    mode: str, captured_prompt: dict, pipeline_mode: str
+) -> None:
     _, seen = _run(mode, captured_prompt)
-    assert seen["system"] == get_prompt("pl", False, mode)
+    if pipeline_mode == "legacy":
+        assert seen["system"] == legacy_prompt("pl", False, mode)
+        assert seen["system"] != get_prompt("pl", False, mode)
+    else:
+        assert seen["system"] == get_prompt("pl", False, mode)
 
 
 @pytest.mark.parametrize("mode", ["basic", "polished", "tailored"])
 def test_champion_does_not_prioritize_trimmed_technologies_below_tailored(
-    captured_prompt, monkeypatch, mode
+    captured_prompt, monkeypatch, mode, pipeline_mode
 ):
     technologies = [
         "Python",
@@ -359,6 +398,7 @@ def test_champion_does_not_prioritize_trimmed_technologies_below_tailored(
         "experience": [{**_AI_JSON["experience"][0], "technologies": technologies}],
     }
     monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    monkeypatch.setattr(legacy, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
     result, _ = _run(mode, captured_prompt)
     selected = result.render_payload["experience"][0]["technologies"]
     assert len(selected) == 12

@@ -1,0 +1,96 @@
+# Efemeryczny stack E2E (QA-02, plan poprawy po audycie 14.09.2026).
+#
+# Osobny plik, NIE nakładka na docker-compose.yml: bazowy compose jest strojony
+# pod produkcję (postgres z shared_buffers=8GB i mem_limit 12g, env_file .env
+# wymagany przez Coolify), a runner GitHub Actions ma 16 GB RAM na wszystko.
+# Obrazy backendu i frontendu budują się z TYCH SAMYCH Dockerfile'i co na
+# produkcji, więc entrypoint (alembic + siatka DDL + manifest portfela) jest
+# dokładnie ten sam kod, który startuje na prodzie.
+#
+# Wszystkie wartości poniżej są jawnie testowe — ten stack nigdy nie dotyka
+# żadnych danych ani usług zewnętrznych. Integracje są wyłączone przez brak
+# kluczy i jawne kill-switche.
+#
+# Użycie (lokalnie i w .github/workflows/e2e.yml):
+#   docker compose -f docker-compose.e2e.yml up -d --build
+#   docker compose -f docker-compose.e2e.yml exec -T backend python scripts/seed_e2e.py
+#   cd frontend && E2E_BASE_URL=http://localhost:3000 E2E_API_URL=http://localhost:8000 \
+#     npx playwright test --project=ci-chromium
+#   docker compose -f docker-compose.e2e.yml down -v
+name: nexus-e2e
+
+x-test-secrets: &test-secrets
+  SECRET_KEY: e2e-only-not-for-production-use-at-least-48-characters-long
+  CANDIDATE_IDENTITY_FINGERPRINT_KEY: e2e-only-distinct-candidate-identity-key-at-least-48-chars
+  M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus-ci-password
+      POSTGRES_DB: nexus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-e2e}
+        BUILT_AT: ${BUILT_AT:-e2e}
+    environment:
+      <<: *test-secrets
+      DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@postgres:5432/nexus
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      CORS_ORIGINS: '["http://localhost:3000"]'
+      # Pusta baza nie ma klientów z manifestu portfela — bez tego entrypoint
+      # (świadomie fail-closed) zatrzymuje start backendu.
+      CLIENT_PORTFOLIO_MANIFEST_SKIP: "1"
+      # Integracje i pętle tła, które bez kluczy tylko hałasują w logach albo
+      # próbowałyby sięgać do usług zewnętrznych.
+      TRAFFIT_SYNC_ENABLED: "false"
+      ORDER_MAIL_INGEST_ENABLED: "false"
+      COMPASS_LIFECYCLE_ENABLED: "false"
+      COMPASS_WORKDAYS_ENABLED: "false"
+      CLOUDTALK_ENABLED: "false"
+      SIGNING_ENABLED: "false"
+      SMTP_ENABLED: "false"
+      SELF_REGISTRATION_ENABLED: "false"
+      SENTRY_DSN: ""
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      start_period: 600s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-e2e}
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      INTERNAL_API_URL: http://backend:8000
+    ports:
+      - "3000:3000"
