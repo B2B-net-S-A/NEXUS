@@ -41,6 +41,7 @@ from app.services.autenti.client import (
     AutentiNotFoundError,
 )
 from app.services.notification_triggers import emit as emit_notification
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,12 @@ async def autenti_sweeper_loop() -> None:
     interval = _interval_seconds()
     logger.info("Autenti sweeper starting; interval=%ds", interval)
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "autenti_sweeper", max_silence_seconds=interval + 1800
+    )
     while True:
+        beat.tick()
         try:
             try:
                 expired = await _sweep_expired()

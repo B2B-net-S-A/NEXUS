@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import seconds_until_local_time
 from app.services.order_gaps import GapRunResult, run_order_gaps
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,10 @@ async def order_gaps_loop() -> None:
     if not settings.ORDER_GAPS_ENABLED:
         logger.info("order_gaps_loop disabled (ORDER_GAPS_ENABLED=false)")
         return
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register("order_gaps", max_silence_seconds=27 * 3600)
     while True:
+        beat.tick()
         try:
             await run_once()
         except asyncio.CancelledError:

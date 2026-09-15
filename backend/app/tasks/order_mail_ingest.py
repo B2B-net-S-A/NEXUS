@@ -28,6 +28,7 @@ from app.services.order_mail_ingest import (
     read_state,
     run_order_mail_ingest,
 )
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,12 @@ async def order_mail_ingest_loop() -> None:
         "order_mail_ingest_loop started (every %s min)", poll_interval_minutes()
     )
     await asyncio.sleep(90)  # bootstrap grace, staggered vs. other loops
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "order_mail_ingest", max_silence_seconds=_CHECK_INTERVAL_SECONDS + 3 * 3600
+    )
     while True:
+        beat.tick()
         try:
             if not settings.ORDER_MAIL_INGEST_ENABLED:
                 await asyncio.sleep(_CHECK_INTERVAL_SECONDS)

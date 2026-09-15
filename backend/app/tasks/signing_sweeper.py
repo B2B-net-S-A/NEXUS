@@ -27,6 +27,7 @@ from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.notification import NotificationType
 from app.services.notification_triggers import emit as emit_notification
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,12 @@ async def signing_sweeper_loop() -> None:
         return
     interval = max(300, settings.SIGNING_SWEEPER_INTERVAL_SECONDS)
     logger.info("signing_sweeper: started (interval=%ds)", interval)
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "signing_sweeper", max_silence_seconds=interval + 1800
+    )
     while True:
+        beat.tick()
         try:
             touched = await _expire_overdue()
             if touched:
