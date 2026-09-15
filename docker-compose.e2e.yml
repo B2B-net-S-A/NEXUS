@@ -55,6 +55,9 @@ services:
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
       CORS_ORIGINS: '["http://localhost:3000"]'
+      # Pusta baza nie ma klientów z manifestu portfela — bez tego entrypoint
+      # (świadomie fail-closed) zatrzymuje start backendu.
+      CLIENT_PORTFOLIO_MANIFEST_SKIP: "1"
       # Integracje i pętle tła, które bez kluczy tylko hałasują w logach albo
       # próbowałyby sięgać do usług zewnętrznych.
       TRAFFIT_SYNC_ENABLED: "false"

@@ -263,3 +263,31 @@ def test_every_run_block_in_quality_workflows_is_valid_bash() -> None:
                         f"{name}:{job_id}:{step.get('name')}: {result.stderr.strip()}"
                     )
     assert broken == []
+
+
+def test_manifest_skip_switch_is_limited_to_the_e2e_stack() -> None:
+    """Stack E2E wykazał, że backend nie startuje na pustej bazie (manifest
+    portfela jest fail-closed). Przełącznik pominięcia istnieje tylko dla
+    stacku testowego — w compose czytanych przez Coolify nie może się pojawić."""
+    repo = _WORKFLOWS.parents[1]
+    entrypoint = (repo / "backend" / "entrypoint.sh").read_text(encoding="utf-8")
+    assert '"${CLIENT_PORTFOLIO_MANIFEST_SKIP:-0}" = "1"' in entrypoint
+
+    stack = yaml.safe_load(
+        (repo / "docker-compose.e2e.yml").read_text(encoding="utf-8")
+    )
+    assert (
+        stack["services"]["backend"]["environment"]["CLIENT_PORTFOLIO_MANIFEST_SKIP"]
+        == "1"
+    )
+
+    for name in (
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.override.yml",
+    ):
+        path = repo / name
+        if path.exists():
+            assert "CLIENT_PORTFOLIO_MANIFEST_SKIP" not in path.read_text(
+                encoding="utf-8"
+            ), name
