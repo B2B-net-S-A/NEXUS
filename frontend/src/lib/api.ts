@@ -1018,7 +1018,6 @@ export const reportsApi = {
     api.get("/api/reports/delivery-leads", { params }),
   tenders: (params: { period?: string }) =>
     api.get("/api/reports/tenders", { params }),
-  board: () => api.get("/api/reports/board"),
   inviteLinks: (params: { period?: string }) =>
     api.get("/api/reports/invite-links", { params }),
 };
@@ -5750,6 +5749,13 @@ export interface SourceReportResponse {
   period_start: string;
   period_end: string;
   rows: SourceFunnelRow[];
+  /** Kandydat liczony w każdym kanale z kontaktem w oknie — wiersze się nie sumują. */
+  attribution_model?: "multi_touch";
+  unique_candidates?: number;
+  new_candidates_total?: number;
+  new_candidates_without_source?: number;
+  /** Źródła z importu bez prawdziwej daty (cała baza) — pominięte w oknie. */
+  undated_source_events?: number;
 }
 
 export const candidateSourcesApi = {

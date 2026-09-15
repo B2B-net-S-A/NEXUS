@@ -37,6 +37,7 @@ from sqlalchemy.orm import selectinload
 from app.analytics.periods import Period
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate_source_event import UNDATED_IMPORT_NOTE_MARK
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job, JobStatus
@@ -199,6 +200,11 @@ async def sources(db: AsyncSession, period: Period) -> dict[str, Any]:
 
     hire_rate <= 100% z konstrukcji: licznik to podzbiór mianownika
     (kandydaci first-touched w okresie, którzy osiągnęli hired).
+
+    Pierwsze zdarzenie z importu bez prawdziwej daty nie wchodzi do okresu:
+    jego ``captured_at`` to data importu (audyt statystyk 14.09.2026, A05).
+    Takie „pierwsze” zdarzenie znaczy, że pierwszego kontaktu nie znamy —
+    kandydat wypada z podziału, zamiast udawać pozyskanie w dniu importu.
     """
     rows = (
         await db.execute(
@@ -209,14 +215,21 @@ async def sources(db: AsyncSession, period: Period) -> dict[str, Any]:
                     COUNT(DISTINCT fs.candidate_id) AS candidates,
                     COUNT(DISTINCT fm.candidate_id) AS hired
                 FROM analytics_candidate_first_sources fs
+                JOIN candidate_source_events cse
+                    ON cse.id = fs.source_event_id
                 LEFT JOIN analytics_first_milestones fm
                     ON fm.candidate_id = fs.candidate_id
                     AND fm.stage = 'hired'
                 WHERE fs.captured_at >= :start AND fs.captured_at < :end
+                  AND COALESCE(cse.note, '') NOT LIKE :undated_pattern
                 GROUP BY fs.channel
                 """
             ),
-            {"start": period.start, "end": period.end},
+            {
+                "start": period.start,
+                "end": period.end,
+                "undated_pattern": f"%{UNDATED_IMPORT_NOTE_MARK}",
+            },
         )
     ).all()
     out = []

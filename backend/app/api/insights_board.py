@@ -1,8 +1,8 @@
 """Insights → Zarząd: dashboard rady na danych natywnych NEXUSA.
 
-Następca `GET /api/reports/board` (`reports.py:1512`). Stary endpoint ZOSTAJE
-nietknięty za `FinanceReadUser` — jest wołany spoza /insights i poszerzenie
-jego guardu wyciekłoby P&L na powierzchnie, których właściciel nie otwierał.
+Następca `GET /api/reports/board`, usuniętego 15.09.2026 (liczył powtórne
+zatrudnienia z surowych wierszy etapów i nie miał już konsumenta — audyt
+statystyk 14.09). Numery linii `reports.py` niżej opisują kod sprzed usunięcia.
 Tutaj obowiązuje D7: KAŻDA zalogowana rola, bez redakcji kwot.
 
 Sześć defektów oryginału, których ten moduł NIE portuje:
