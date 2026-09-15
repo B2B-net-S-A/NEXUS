@@ -19,6 +19,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.client_identity import job_client_listed_clause
 from app.analytics import metrics
 from app.analytics.periods import Period
 from app.services.traffit_status import read_traffit_status
@@ -187,7 +188,10 @@ def _delivery_job_conditions(
     user: User,
     scope: ResolvedDashboardScope,
 ) -> list[Any]:
-    conditions: list[Any] = [Job.status == JobStatus.published]
+    conditions: list[Any] = [
+        Job.status == JobStatus.published,
+        job_client_listed_clause(Job.client_id),
+    ]
     if scope.payload.kind == "organization":
         return conditions
 

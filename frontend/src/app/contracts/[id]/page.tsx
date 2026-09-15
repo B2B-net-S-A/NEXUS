@@ -49,6 +49,8 @@ import {
 import { celebrate } from "@/lib/celebrate";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
   canManageCandidateFinance,
   canManageContractStatus,
@@ -482,10 +484,20 @@ export default function ContractDetailPage() {
   const canEditContractDocuments = canEditContract && canViewContractDocuments;
 
   // Fetch activity timeline (lazy)
-  const { data: activities } = useQuery<ActivityEntry[]>({
+  const activitiesQuery = useQuery<ActivityEntry[]>({
     queryKey: ["contract-activities", id],
     queryFn: () => contractsApi.activities(id).then((r) => r.data),
     enabled: !Number.isNaN(id) && activeTab === "timeline",
+  });
+  const activities = activitiesQuery.data;
+  // Ładowanie i błąd to nie „brak wpisów” (retest UAT B23: pusta historia
+  // kontraktu przy znanych zdarzeniach).
+  const activitiesViewState = resolveViewState({
+    isLoading: activitiesQuery.isLoading,
+    isError: activitiesQuery.isError,
+    error: activitiesQuery.error,
+    isSuccess: activitiesQuery.isSuccess,
+    isEmpty: (activities ?? []).length === 0,
   });
 
   // Fetch rate history (lazy)
@@ -2234,7 +2246,16 @@ export default function ContractDetailPage() {
       {/* Tab: Timeline (activity log) */}
       {activeTab === "timeline" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-          {!activities || activities.length === 0 ? (
+          {activitiesViewState === "loading" ? (
+            <div role="status" className="text-center text-sm text-muted-foreground py-6">
+              Wczytuję historię…
+            </div>
+          ) : isBlockingViewState(activitiesViewState) ? (
+            <QueryStateNotice
+              state={activitiesViewState as "forbidden" | "not_found" | "error"}
+              onRetry={() => void activitiesQuery.refetch()}
+            />
+          ) : !activities || activities.length === 0 ? (
             <div className="text-center text-sm text-muted-foreground dark:text-muted-foreground py-6">
               Brak wpisów w historii.
             </div>

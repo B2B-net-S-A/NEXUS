@@ -1,59 +1,51 @@
-"""Tests for auth API — runs against live backend."""
+"""Password login — in-process client, own seeded user.
 
-import pytest
+Ported from the live-server suite, which logged in as a hard-coded account on
+a running backend. `/api/auth/me` cases are covered elsewhere:
+authenticated → `test_api_integration.py::test_auth_me_with_token_ok`,
+missing token → `test_auth_missing_credentials.py` (exact 401 contract).
+"""
+
+from __future__ import annotations
+
+import uuid
+
 from httpx import AsyncClient
 
+LOGIN = "/api/auth/login"
 
-async def test_login_success(client: AsyncClient):
-    resp = await client.post(
-        "/api/auth/login",
-        json={
-            "email": "artur@b2bnet.pl",
-            "password": "admin123",
-        },
-    )
-    assert resp.status_code == 200
+
+async def test_login_success(app_client: AsyncClient):
+    email = app_client.headers["X-Test-Admin-Email"]
+    password = app_client.headers["X-Test-Admin-Password"]
+    resp = await app_client.post(LOGIN, json={"email": email, "password": password})
+    assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert "access_token" in data
+    assert data["access_token"]
     assert data["token_type"] == "bearer"
 
+    me = await app_client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {data['access_token']}"}
+    )
+    assert me.status_code == 200
+    assert me.json()["email"] == email
 
-async def test_login_wrong_password(client: AsyncClient):
-    resp = await client.post(
-        "/api/auth/login",
-        json={
-            "email": "artur@b2bnet.pl",
-            "password": "wrong",
-        },
+
+async def test_login_wrong_password(app_client: AsyncClient):
+    email = app_client.headers["X-Test-Admin-Email"]
+    resp = await app_client.post(
+        LOGIN, json={"email": email, "password": f"wrong-{uuid.uuid4().hex}"}
     )
     assert resp.status_code == 401
+    assert "access_token" not in resp.json()
 
 
-async def test_login_nonexistent_user(client: AsyncClient):
-    resp = await client.post(
-        "/api/auth/login",
+async def test_login_nonexistent_user(app_client: AsyncClient):
+    resp = await app_client.post(
+        LOGIN,
         json={
-            "email": "nobody@test.pl",
-            "password": "test123",
+            "email": f"nobody-{uuid.uuid4().hex[:10]}@example.com",
+            "password": "test123-Password!",
         },
     )
-    assert resp.status_code == 401
-
-
-async def test_me_authenticated(client: AsyncClient, auth_headers: dict):
-    resp = await client.get("/api/auth/me", headers=auth_headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["email"] == "artur@b2bnet.pl"
-    assert data["role"] == "admin"
-
-
-async def test_me_unauthenticated(client: AsyncClient):
-    # MUSI być dokładnie 401, nie „401 albo 403".
-    # Frontend wylogowuje i przekierowuje na /login wyłącznie na 401
-    # (frontend/src/lib/api.ts); 403 znaczy „jesteś zalogowany, ale nie wolno ci"
-    # i celowo NIE wylogowuje. Gdy brak nagłówka Authorization zwracał 403,
-    # wygasła sesja zostawiała użytkownika w powłoce aplikacji z widgetami
-    # „Brak uprawnień do tego widoku" zamiast na ekranie logowania.
-    resp = await client.get("/api/auth/me")
     assert resp.status_code == 401

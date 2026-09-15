@@ -479,6 +479,20 @@ function NavLink({
   );
 }
 
+/**
+ * Pionowe wymiary szyny są takie same w stanie zwiniętym i rozwiniętym (UAT B57).
+ *
+ * Rozwinięcie pod kursorem zamieniało kreskę sekcji (17 px) na nagłówek (29 px)
+ * i `space-y-1` na `space-y-0.5`, więc ikony przesuwały się w dół w trakcie
+ * kliknięcia i klik trafiał w sąsiedni link. Nagłówek sekcji ma teraz stały
+ * slot, a odstępy nie zależą od stanu — zmienia się tylko szerokość.
+ */
+export const SIDEBAR_VERTICAL_LAYOUT = {
+  navSpacing: "space-y-0.5",
+  itemSpacing: "space-y-0.5",
+  sectionSlot: "h-7 flex items-end",
+} as const;
+
 export function SidebarV2({
   mobileOpen,
   onClose,
@@ -654,7 +668,10 @@ export function SidebarV2({
         .toUpperCase()
     : "?";
 
-  return (
+  // Rozwinięcie pod kursorem (bez przypięcia) idzie NAD treścią — miejsce
+  // w układzie zajmuje tylko szyna 60 px, więc strona nie przeskakuje w bok.
+  const overlayExpanded = !mobileOpen && hovered && !pinned;
+  const rail = (
     <aside
       aria-label="Nawigacja boczna"
       onMouseEnter={() => !mobileOpen && setHovered(true)}
@@ -665,6 +682,8 @@ export function SidebarV2({
         "transition-[width] duration-200 ease-in-out",
         "border-r border-sidebar-border",
         mobileOpen ? "w-64" : collapsed ? "w-[60px]" : "w-60",
+        !mobileOpen && "absolute inset-y-0 left-0 z-40",
+        overlayExpanded && "shadow-xl",
       )}
     >
       <div
@@ -724,10 +743,7 @@ export function SidebarV2({
 
       <nav
         aria-label="Nawigacja główna"
-        className={cn(
-          "flex-1 overflow-y-auto py-3",
-          collapsed && !mobileOpen ? "px-2 space-y-1" : "px-2 space-y-0.5",
-        )}
+        className={cn("flex-1 overflow-y-auto py-3 px-2", SIDEBAR_VERTICAL_LAYOUT.navSpacing)}
       >
         {navSections.map((section) => {
           // Filtr ról i bramka kolejki telefonów siedzą w `visibleNavSections`
@@ -735,19 +751,16 @@ export function SidebarV2({
           const visibleItems = section.items;
           return (
             <div key={section.title} className="mb-3">
-              {(!collapsed || mobileOpen) && (
-                <p className="px-3 pt-2 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none">
-                  {section.title}
-                </p>
-              )}
-              {collapsed && !mobileOpen && (
-                <div className="my-2 border-t border-sidebar-border mx-2" />
-              )}
-              <div
-                className={cn(
-                  collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5",
+              <div className={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}>
+                {!collapsed || mobileOpen ? (
+                  <p className="w-full truncate px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none">
+                    {section.title}
+                  </p>
+                ) : (
+                  <div className="mx-2 mb-3 w-full border-t border-sidebar-border" />
                 )}
-              >
+              </div>
+              <div className={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}>
                 {visibleItems.map(
                   ({ href, label, icon, badgeKey, external }) => {
                     const resolvedHref =
@@ -868,5 +881,16 @@ export function SidebarV2({
         )}
       </div>
     </aside>
+  );
+  if (mobileOpen) return rail;
+  return (
+    <div
+      className={cn(
+        "relative h-full shrink-0 transition-[width] duration-200 ease-in-out",
+        pinned ? "w-60" : "w-[60px]",
+      )}
+    >
+      {rail}
+    </div>
   );
 }

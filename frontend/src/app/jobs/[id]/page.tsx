@@ -7,6 +7,8 @@ import { SavedRequestRequirements } from "@/components/talent-radar/SavedRequest
 import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
 import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
+import { jobBudgetHourly } from "@/lib/job-budget";
+import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
@@ -598,11 +600,18 @@ function AIMatchingSection({
   job,
   readOnly = false,
   isAdmin = false,
+  inProcessCount,
 }: {
   jobId: number;
   job: any;
   readOnly?: boolean;
   isAdmin?: boolean;
+  /**
+   * Aktywni w pipeline — `countInProcess` z kanbana rodzica, ta sama liczba
+   * co na listwie kroków. `pipeline_candidate_ids` obejmuje też odrzuconych,
+   * więc nadaje się tylko do plakietki „już w procesie” (UAT B71).
+   */
+  inProcessCount?: number;
 }) {
   const canEditRequirements = useCapability("job.update") && !readOnly;
   const canVerify = useCanVerifyRequirements() && !readOnly;
@@ -781,7 +790,19 @@ function AIMatchingSection({
   // (rekrutacja nie ma jeszcze trafień w indeksie) — dla rekrutera to dwie
   // różne instrukcje, więc nie zlewamy ich w jeden komunikat.
   const degradedReason = data?.meta?.reason;
-  const requiredSkills = data?.required_skills ?? [];
+  // Zanim przegląd zwróci stronę wyników, pasek pokazuje zapisany kontrakt
+  // wymagań — ten sam, który edytor „Wymagania wyszukiwania” wyżej ładuje tym
+  // samym kluczem. Bez tego rekrutacja z uzupełnionym Championem pokazywała
+  // „Musi mieć · 0” do pierwszego pełnego skanu (UAT B62).
+  const savedRequirementsQuery = useQuery({
+    queryKey: ["matching-requirements", jobId],
+    queryFn: () => matchingRequirementsApi.get(jobId),
+  });
+  // Przegląd w toku zwraca stronę bez `criteria` — wtedy adapter daje [],
+  // a to nie znaczy „brak wymagań”.
+  const requiredSkills = data?.required_skills?.length
+    ? data.required_skills
+    : requirementLabels(savedRequirementsQuery.data, "must");
   // Server echoes the effective location filter it applied (param, or the
   // job's own location). Non-empty → results are location-restricted.
   const locationActive = Boolean(data?.location_filter);
@@ -799,8 +820,10 @@ function AIMatchingSection({
     .filter(([reason]) => (hiddenMeta?.[reason] ?? 0) > 0)
     .map(([reason, label]) => `${label}: ${hiddenMeta?.[reason]}`)
     .join(", ");
-  const niceSkills: string[] = data?.nice_skills ?? [];
-  const budgetHourly = data?.meta?.budget_hourly ?? null;
+  const niceSkills: string[] = data?.nice_skills?.length
+    ? data.nice_skills
+    : requirementLabels(savedRequirementsQuery.data, "nice");
+  const budgetHourly = data?.meta?.budget_hourly ?? jobBudgetHourly(job);
 
   // Same default threshold as Radar; unknown measurements stay in the result.
   const baseThresholdPct = 0;
@@ -809,7 +832,6 @@ function AIMatchingSection({
   // All search filters run against the complete snapshot before LIMIT/OFFSET.
   const filtered = matches;
   const strongCount = searchSummary?.strong;
-  const inProcessCount = pipelineSet.size;
 
   // Zaznaczenie do doku liczy się WZGLĘDEM widocznej listy: kandydat
   // odfiltrowany nie może zostać w doku bez podświetlonego wiersza (review
@@ -914,7 +936,7 @@ function AIMatchingSection({
               </div>
               <div>
                 <div className="text-base font-bold tabular-nums text-foreground">
-                  {inProcessCount}
+                  {inProcessCount ?? "—"}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   w procesie
@@ -2180,7 +2202,7 @@ export default function JobDetailPage() {
     return buildJobHeaderSubtitle({
       location: job.location,
       remotePolicy: job.remote_policy,
-      rateBudgetHourly: job.rate_budget_hourly,
+      rateBudgetHourly: jobBudgetHourly(job),
       salaryMin: job.salary_min,
       salaryMax: job.salary_max,
       deadline: job.deadline,
@@ -2484,6 +2506,7 @@ export default function JobDetailPage() {
             job={job}
             readOnly={!canWritePipeline}
             isAdmin={isAdmin}
+            inProcessCount={kanban ? countInProcess(kanbanColumns) : undefined}
           />
         </SourcingHub>
       )}
@@ -2607,6 +2630,7 @@ export default function JobDetailPage() {
           columnsSuccess={kanbanIsSuccess}
           onColumnsRetry={() => void refetchKanban()}
           readOnly={!canWritePipeline}
+          budgetHourly={jobBudgetHourly(job)}
         />
       )}
 

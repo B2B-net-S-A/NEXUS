@@ -22,6 +22,11 @@ export function requirementDraft(contract: MatchingRequirements): RequirementDra
   ])) as RequirementDraft;
 }
 
+/** Etykiety grup jednego poziomu — ten sam zapis „a lub b” co `criteria` wyników wyszukiwania. */
+export function requirementLabels(contract: MatchingRequirements | null | undefined, level: RequirementLevel): string[] {
+  return (contract?.all_of ?? []).filter(g => g.level === level).map(g => g.any_of.join(" lub "));
+}
+
 export function reviewedRequirements(draft: RequirementDraft, original: MatchingRequirements, policy: MatchingRequirements["missing_evidence_policy"]): MatchingRequirements {
   const all_of = requirementLevels.flatMap(level => draft[level].split(/[,;\n]/).map(s => s.trim()).filter(Boolean).map(label => {
     const any_of = [...new Set(label.split(/\s+(?:lub|albo|or)\s+/i).map(s => s.trim().toLowerCase()))];

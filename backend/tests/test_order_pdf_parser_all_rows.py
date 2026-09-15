@@ -18,9 +18,9 @@ from app.services.order_pdf_parser import parse_order_document
 # ── prompt v5 ────────────────────────────────────────────────────────────────
 
 
-def test_prompt_is_v6_and_knows_the_all_rows_switch_and_document_vat():
+def test_prompt_is_v7_and_knows_the_all_rows_switch_and_document_vat():
     """Bump wersji jest kluczem cache'u; brak placeholdera = render() rzuca."""
-    assert ORDER_EXTRACTION.version == 6
+    assert ORDER_EXTRACTION.version == 7
     rendered = ORDER_EXTRACTION.render(
         document_text="x",
         target_consultant="(not provided)",
@@ -39,6 +39,8 @@ def test_prompt_is_v6_and_knows_the_all_rows_switch_and_document_vat():
     # pula MD) i nie zeruje stawki wiersza.
     assert "MISSING MAN-DAYS" in rendered
     assert "never a reason to null a row's" in rendered
+    # v7 (UAT B77): każdy powód niepewności — także wierszowy — po polsku.
+    assert "must be written in Polish, never in English" in rendered
 
 
 def test_prompt_renders_without_all_rows_placeholder_missing():

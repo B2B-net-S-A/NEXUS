@@ -28,6 +28,9 @@ from app.services.cv_approval_queue import enqueue_review
 from app.services.cv_approval_worker import execute_review_job
 
 
+# Bez `pipeline_mode` (QA-07): trwała kolejka płatnej kontroli treści powstaje
+# tylko przy ścisłych dowodach (v10) — przy doradczych `enqueue_review` nie
+# zakłada zadania — więc ten test zostaje na pinie v10 z `conftest`.
 @pytest.mark.parametrize("edit_during_review", [False, True])
 async def test_durable_review_reuses_exact_result_and_does_not_lock_editor(
     monkeypatch, edit_during_review
@@ -167,15 +170,19 @@ async def test_durable_review_reuses_exact_result_and_does_not_lock_editor(
             await db.commit()
 
 
-async def test_legacy_generation_without_docx_is_approved_and_frozen(monkeypatch):
+async def test_legacy_generation_without_docx_is_approved_and_frozen(pipeline_mode):
     """Rows generated before #1444 have NULL docx_content/docx_sha256 (0292 had
     no backfill). Approval renders the file from render_payload once, freezes
-    it on the row under the approval lock and every later read uses it."""
+    it on the row under the approval lock and every later read uses it.
+
+    Macierz (`pipeline_mode`): tak działa przy dowodach doradczych (legacy,
+    domyślne na produkcji). Przy ścisłych (v10) taki wiersz nie ma kontroli
+    treści, więc zatwierdzenie odmawia 409 ZANIM cokolwiek odtworzy — plik
+    nie zostaje zamrożony, a wersja nie powstaje."""
     from app.api import cv_generator_b2b as api
     from app.models.activity import Activity
     from app.services.cv_generated_approval import approved_version_for_generation
 
-    monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
     payload = {
         "name": "Synthetic Legacy",
         "first_name": "Synthetic",
@@ -216,6 +223,26 @@ async def test_legacy_generation_without_docx_is_approved_and_frozen(monkeypatch
         user_id, document_id = user.id, document.id
         await db.commit()
     try:
+        if pipeline_mode == "v10":
+            async with AsyncSessionLocal() as db:
+                with pytest.raises(HTTPException) as error:
+                    await api.approve_generated_cv(
+                        document_id, await db.get(User, user_id), db
+                    )
+                assert error.value.status_code == 409
+                await db.rollback()
+            async with AsyncSessionLocal() as db:
+                document = await db.get(CvGeneratedDocument, document_id)
+                assert (document.docx_content, document.docx_sha256) == (None, None)
+                assert (
+                    await db.scalar(
+                        select(CvDocumentVersion.id).where(
+                            CvDocumentVersion.generated_owner_id == document_id
+                        )
+                    )
+                    is None
+                )
+            return
         async with AsyncSessionLocal() as db:
             stored = await db.get(CvGeneratedDocument, document_id)
             assert (stored.docx_content, stored.docx_sha256) == (None, None)

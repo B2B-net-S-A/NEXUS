@@ -1,73 +1,54 @@
 /**
- * E2E flow: ręczne dodanie kandydata przez API + verify w UI + cleanup.
+ * Kandydat: utworzenie przez API → ponowny odczyt → widoczny w UI → duplikat.
  *
- * Pokrywa:
- * - POST /api/candidates (BE-1N regression: enum head_of_recruitment OK)
- * - Notification fan-out do admin+head_of_recruitment (2026-05-27 fix)
- * - Frontend renders kandydata w `/candidates` lista
- *
- * Cleanup: DELETE candidate po każdym teście (EntityTracker).
+ * `@stack` — działa wyłącznie na efemerycznym stacku E2E (zapisuje dane).
+ * Dawna wersja wołała API bez tokena (401 spełniało `status < 500`) i
+ * akceptowała dowolny kod poniżej 500 dla duplikatu, który w rzeczywistości
+ * kończył się 500. Backend zwraca teraz 409 (test pytest obok tej poprawki).
  */
-import { test, expect } from "@playwright/test";
-import { EntityTracker, uniqueName } from "./helpers/test-entities";
+import { test, expect, expectStatus, jsonOf } from "./helpers/api";
+import { createCandidate } from "./helpers/entities";
 
-const tracker = new EntityTracker();
+test.describe("Kandydat @stack", () => {
+  test("utworzony kandydat zgadza się przy ponownym odczycie i otwiera się w UI", async ({
+    admin,
+    page,
+  }) => {
+    const created = await createCandidate(admin.api, { phone: "+48500000099" });
 
-test.afterEach(async ({ request }) => {
-  const { deleted, failed } = await tracker.cleanup(request);
-  if (failed > 0) {
-    console.warn(`[cleanup] ${deleted} deleted, ${failed} FAILED — possible orphan`);
-  }
-});
-
-test.describe("Flow: create candidate", () => {
-  test("POST /api/candidates → 201 + visible in list", async ({ request, page }) => {
-    const name = uniqueName("candidate");
-    const email = `qa-e2e-${Date.now()}@test.local`;
-
-    // 1. Create via API
-    const create = await request.post("/api/candidates", {
-      data: {
-        name: name.split(" ")[0],
-        lastname: name.split(" ").slice(1).join(" "),
-        email,
-        phone: "+48500000099",
-        source: "manual",
-        status: "active",
-        availability_status: "unknown",
-      },
+    const reread = await jsonOf<{ id: number; email: string; lastname: string; phone: string }>(
+      await admin.api.get(`/api/candidates/${created.id}`),
+      200,
+      "GET /api/candidates/{id}"
+    );
+    expect(reread).toMatchObject({
+      id: created.id,
+      email: created.email,
+      lastname: created.lastname,
+      phone: "+48500000099",
     });
-    expect(create.status(), "BE-1N regression: enum head_of_recruitment musi być valid").toBeLessThan(500);
-    expect([200, 201]).toContain(create.status());
-    const candidate = await create.json();
-    expect(candidate).toHaveProperty("id");
-    tracker.track("/api/candidates", candidate.id);
 
-    // 2. Verify w UI
-    await page.goto(`/candidates/${candidate.id}`);
-    // Wait for drawer or detail page render. Adjust selector based on actual route.
-    await expect(page.getByText(email, { exact: false }).first()).toBeVisible({
-      timeout: 10_000,
-    });
+    await page.goto(`/candidates/${created.id}`);
+    await expect(page.getByText(created.lastname).first()).toBeVisible();
   });
 
-  test("POST z duplicate email → 409 (no silent insert)", async ({ request }) => {
-    const email = `qa-e2e-dup-${Date.now()}@test.local`;
-    const data = {
-      name: "Dup",
-      lastname: "Test",
-      email,
-      source: "manual",
-      status: "active",
-      availability_status: "unknown",
-    };
+  test("drugi kandydat z tym samym e-mailem dostaje 409 i nie powstaje", async ({ admin }) => {
+    const first = await createCandidate(admin.api);
 
-    const first = await request.post("/api/candidates", { data });
-    expect([200, 201]).toContain(first.status());
-    const cand = await first.json();
-    tracker.track("/api/candidates", cand.id);
+    const duplicate = await admin.api.post("/api/candidates", {
+      data: { name: "Ewa", lastname: "Duplikat", email: first.email },
+    });
+    await expectStatus(duplicate, 409, "duplikat e-maila");
+    expect((await duplicate.json()).detail).toBe("Kandydat z tym adresem e-mail już istnieje.");
 
-    const second = await request.post("/api/candidates", { data });
-    expect(second.status(), "Email unique constraint powinien zwrócić 409").toBe(409);
+    // `q` to wyszukiwanie rozmyte (zwraca też podobnych kandydatów), więc
+    // liczymy wyłącznie rekordy z DOKŁADNIE tym adresem.
+    const search = await jsonOf<{ items: Array<{ id: number; email: string | null }> }>(
+      await admin.api.get(`/api/candidates?q=${encodeURIComponent(first.email)}&page_size=100`),
+      200,
+      "GET /api/candidates?q"
+    );
+    const sameEmail = search.items.filter((item) => item.email === first.email);
+    expect(sameEmail.map((item) => item.id)).toEqual([first.id]);
   });
 });

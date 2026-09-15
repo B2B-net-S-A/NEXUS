@@ -604,6 +604,10 @@ PHASE_NAMES: tuple[str, ...] = (
 #   i bywa ucięta deployem w połowie → luźniej, 72 h;
 # - kadencja pełna (`__full__`) to tydzień → tydzień + doba zapasu
 #   (Coolify restartuje kontener przy pushu, a pełny bieg trwa godziny);
+# - tygodniowy pomiar jakości wyszukiwania (`weekly_eval`) zapisuje swój stan
+#   w tej samej tabeli, więc trafia do tej samej odpowiedzi — też tydzień.
+#   Z progiem 36 h lądował w `phases_stale` pięć dni w tygodniu (odczyt
+#   produkcji 15.09), czyli lista uczyła ignorować siebie samą;
 # - fazy DORADCZE (`ADVISORY_PHASES`) nie blokują watermarku, więc ich
 #   opóźnienie nie zatrzymuje importu — werdykt `advisory`, nie `stale`,
 #   i nie liczą się do `phases_stale`.
@@ -617,7 +621,10 @@ _FULL_CADENCE_STALE_HOURS = 8 * 24
 _CURSORED_PHASES = frozenset(
     _BUDGETED_SWEEP_PHASES + ("candidates", "candidate_activities", "pipelines")
 )
-_FULL_CADENCE_PHASES = frozenset({FULL_MARKER})
+# Nazwa stanu wprost, nie import z `app.tasks.weekly_eval`: ten moduł jest
+# importowany przy starcie, a test pilnuje, że stała się nie rozjechała.
+WEEKLY_EVAL_STATE_PHASE = "weekly_eval"
+_FULL_CADENCE_PHASES = frozenset({FULL_MARKER, WEEKLY_EVAL_STATE_PHASE})
 
 FRESHNESS_FRESH = "fresh"
 FRESHNESS_STALE = "stale"

@@ -4715,6 +4715,15 @@ export interface M365ConnectionStatus {
   synced_through?: string | null;
   last_sync_status?: string | null;
   last_error?: string | null;
+  /** Kod błędu do polskiego komunikatu (UAT B61); `last_error` = szczegół techniczny. */
+  last_error_code?:
+    | "graph_throttled"
+    | "reauth_required"
+    | "timeout"
+    | "import_errors"
+    | "delta_reset"
+    | "unknown"
+    | null;
   backfill_in_progress?: boolean;
   // True when a previously-connected mailbox needs the user to re-run OAuth
   // (e.g. server-side encryption key rotated). Renders an amber CTA banner.

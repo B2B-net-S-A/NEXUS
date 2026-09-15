@@ -44,6 +44,30 @@ def visible_client_predicates(model: type[Client] = Client) -> tuple[Any, ...]:
     )
 
 
+def job_client_listed_clause(job_client_id: Any) -> Any:
+    """EXISTS: rekrutacja należy do klienta, którego pokazujemy w UI (UAT B73).
+
+    Techniczny kubeł importu Traffita (`__traffit_orphans`), klient scalony
+    z innym i klient cofniętego importu mają `hidden`; klient usunięty ręcznie
+    ma `deleted_at`. Ich rekrutacje trafiały do rejestru i dashboardów jak
+    zwykła, aktywna praca. Świadomie BEZ `archived_at`: archiwalny prawdziwy
+    klient ma historyczne rekrutacje, które mają zostać widoczne.
+    """
+
+    return (
+        select(Client.id)
+        .where(
+            Client.id == job_client_id,
+            Client.hidden.is_(False),
+            Client.deleted_at.is_(None),
+        )
+        # Zapytania dashboardu same dołączają `clients`; bez tego podzapytanie
+        # skorelowałoby się z ICH wierszem klienta zamiast mieć własny FROM.
+        .correlate_except(Client)
+        .exists()
+    )
+
+
 def is_client_visible(client: Client) -> bool:
     """In-memory equivalent of :func:`visible_client_predicates`."""
 

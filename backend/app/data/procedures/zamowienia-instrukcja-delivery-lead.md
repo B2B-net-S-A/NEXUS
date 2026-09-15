@@ -821,11 +821,12 @@ znowu 30 dni przed nową datą.
 **Brak kolejnego zamówienia widzi też dział finansowy** (Finanse → Zmiany
 w zamówieniach → Braki). Nie powstaje, gdy koniec był świadomy: wypowiedziana
 umowa („Zakończ współpracę"), zamiana kontraktora, decyzja o MD po zakończeniu
-współpracy albo „Zostaw jako historię". Dodanie zamówienia po fakcie zamyka
-kartę od razu, ale **wpis w Brakach zostaje** jako „Uzupełnione z opóźnieniem"
-z liczbą dni po terminie — dział finansowy widzi, że temat nie był dopilnowany
-na czas. Żeby brak w ogóle nie powstał, dodaj następne zamówienie (wystarczy
-szkic) **najpóźniej w dniu końca obecnego**.
+współpracy albo „Zostaw jako historię". Zamówienie dodane do końca dnia
+następującego po końcu obecnego liczy się jako terminowe i w Brakach nie
+zostaje. Dodanie go później zamyka kartę od razu, ale **wpis w Brakach zostaje**
+jako „Uzupełnione z opóźnieniem" z liczbą dni po terminie — dział finansowy
+widzi, że temat nie był dopilnowany na czas. Najbezpieczniej dodaj następne
+zamówienie (wystarczy szkic) **najpóźniej w dniu końca obecnego**.
 
 > **Uwaga na dziurę:** alert o drafcie przypomina o zamówieniach w statusie
 > **Draft**, a nie o osobach, które zamówienia **w ogóle nie mają**. Konsultant

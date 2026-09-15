@@ -1,81 +1,123 @@
 /**
- * E2E flow: stage transition w pipeline kandydata.
+ * Pipeline: kandydat w rekrutacji → screening → konflikt wersji → odrzucenie.
  *
- * Pokrywa:
- * - POST /api/candidate-stages (move kandydata między stages)
- * - Notification triggered per stage rule (per memory `[[project_stage_notif_rules]]`)
- * - Frontend kanban update w real-time
- * - Rejection flow z reason text
- *
- * Setup: tworzy test kandydata + test job (lub używa Senior Angular Developer
- * job=1), assign kandydata, robi 3 transitions (Nowi→Screening→Interview Wew),
- * potem reject z reason → verify Notification w bazie.
- *
- * Cleanup: usuwa kandydata (cascade usunie candidate_stages).
+ * `@stack` — zakłada własnego klienta, rekrutację i kandydata. Dawna wersja
+ * celowała w `SAMPLE_JOB_ID = 1`, wołała nieistniejące endpointy
+ * (`POST /api/jobs/{id}/candidates`, `POST /api/candidate-stages`), pomijała
+ * się przy każdym błędzie i akceptowała 401/403/404/422 jako sukces.
  */
-import { test, expect } from "@playwright/test";
-import { EntityTracker, uniqueName } from "./helpers/test-entities";
+import { test, expect, expectStatus, jsonOf } from "./helpers/api";
+import { createCandidate, createClient, createJob } from "./helpers/entities";
 
-const tracker = new EntityTracker();
-const SAMPLE_JOB_ID = 1; // Senior Angular Developer (per 2026-05-27 sesja, stable)
+interface StageResponse {
+  candidate_id: number;
+  stage: string;
+  process_state_version: number;
+}
 
-test.afterEach(async ({ request }) => {
-  await tracker.cleanup(request);
-});
+interface KanbanView {
+  columns: Array<{ stage: string; items: Array<{ candidate_id: number }> }>;
+}
 
-test.describe("Flow: stage transition + rejection", () => {
-  test("create candidate → assign do job → transition 3 stages → reject z reason", async ({
-    request,
+function stageOf(kanban: KanbanView, candidateId: number): string | undefined {
+  return kanban.columns.find((column) =>
+    column.items.some((item) => item.candidate_id === candidateId)
+  )?.stage;
+}
+
+test.describe("Pipeline rekrutacji @stack", () => {
+  test("ruch na screening, odmowa przy nieaktualnej wersji i odrzucenie z powodem", async ({
+    admin,
+    page,
   }) => {
-    // 1. Stwórz test candidate
-    const create = await request.post("/api/candidates", {
-      data: {
-        name: uniqueName("stage").split(" ")[0],
-        lastname: "Transition",
-        email: `qa-e2e-stage-${Date.now()}@test.local`,
-        source: "manual",
-        status: "active",
-        availability_status: "unknown",
-      },
-    });
-    expect([200, 201]).toContain(create.status());
-    const candidate = await create.json();
-    tracker.track("/api/candidates", candidate.id);
+    const client = await createClient(admin.api);
+    const job = await createJob(admin.api, client.id);
+    const candidate = await createCandidate(admin.api);
+    const fullName = `${candidate.name} ${candidate.lastname}`;
 
-    // 2. Assign do job (przez POST /api/candidate-stages lub /api/jobs/{id}/candidates)
-    const assign = await request.post(`/api/jobs/${SAMPLE_JOB_ID}/candidates`, {
-      data: { candidate_ids: [candidate.id], stage: "new" },
-    });
-    // Może być 200/201 lub 404 jeśli endpoint differ — tolerujemy fallback.
-    if (!assign.ok()) {
-      test.skip(true, `endpoint /api/jobs/${SAMPLE_JOB_ID}/candidates returned ${assign.status()}; needs different mount path`);
-    }
+    const screening = await jsonOf<StageResponse>(
+      await admin.api.post("/api/pipeline/move", {
+        data: { candidate_id: candidate.id, job_id: job.id, stage: "screening" },
+      }),
+      200,
+      "ruch na screening"
+    );
+    expect(screening.stage).toBe("screening");
 
-    // 3. Transition: new → screening
-    const moveToScreening = await request.post("/api/candidate-stages", {
-      data: { candidate_id: candidate.id, job_id: SAMPLE_JOB_ID, stage: "screening" },
-    });
-    expect(moveToScreening.status(), "stage transition powinno przejść").toBeLessThan(500);
+    const kanbanAfterMove = await jsonOf<KanbanView>(
+      await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+      200,
+      "kanban po ruchu"
+    );
+    expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
-    // 4. Transition: screening → interview_internal
-    const moveToInterview = await request.post("/api/candidate-stages", {
+    // Karta jest w kolumnie także po przeładowaniu widoku rekrutacji.
+    await page.goto(`/jobs/${job.id}`);
+    await page.reload();
+    const board = page.getByTestId("pipeline-board");
+    await expect(board.getByRole("link", { name: fullName })).toBeVisible();
+
+    // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
+    const stale = await admin.api.post("/api/pipeline/move", {
       data: {
         candidate_id: candidate.id,
-        job_id: SAMPLE_JOB_ID,
-        stage: "interview_internal",
+        job_id: job.id,
+        stage: "prep_call",
+        expected_state_version: screening.process_state_version + 1,
       },
     });
-    expect(moveToInterview.status()).toBeLessThan(500);
+    await expectStatus(stale, 409, "ruch z nieaktualną wersją");
+    expect((await stale.json()).detail.code).toBe("PIPELINE_VERSION_CONFLICT");
 
-    // 5. Reject z reason
-    const reject = await request.post("/api/candidate-stages", {
-      data: {
-        candidate_id: candidate.id,
-        job_id: SAMPLE_JOB_ID,
-        stage: "rejected",
-        rejection_reason: "qa-e2e: test rejection workflow",
-      },
+    const template = await jsonOf<{
+      rejection_reasons: Array<{ id: number; category: string }>;
+    }>(
+      await admin.api.get(`/api/pipeline-templates/${job.pipeline_template_id}`),
+      200,
+      "szablon pipeline'u"
+    );
+    const reason = template.rejection_reasons.find((item) => item.category === "rejected");
+    expect(reason, "szablon domyślny ma powód odrzucenia").toBeDefined();
+
+    const rejected = await jsonOf<StageResponse>(
+      await admin.api.post("/api/pipeline/move", {
+        data: {
+          candidate_id: candidate.id,
+          job_id: job.id,
+          stage: "rejected",
+          rejection_reason_id: reason!.id,
+          expected_state_version: screening.process_state_version,
+        },
+      }),
+      200,
+      "odrzucenie"
+    );
+    expect(rejected.stage).toBe("rejected");
+
+    const kanbanAfterReject = await jsonOf<KanbanView>(
+      await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+      200,
+      "kanban po odrzuceniu"
+    );
+    expect(stageOf(kanbanAfterReject, candidate.id)).toBe("rejected");
+  });
+
+  test("rekruter spoza zespołu rekrutacji nie przesunie kandydata", async ({ admin, apiAs }) => {
+    const client = await createClient(admin.api);
+    const job = await createJob(admin.api, client.id);
+    const candidate = await createCandidate(admin.api);
+    const recruiter = await apiAs("recruiter");
+
+    const move = await recruiter.api.post("/api/pipeline/move", {
+      data: { candidate_id: candidate.id, job_id: job.id, stage: "screening" },
     });
-    expect(reject.status()).toBeLessThan(500);
+    await expectStatus(move, 403, "ruch rekrutera spoza zespołu");
+
+    const kanban = await jsonOf<KanbanView>(
+      await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+      200,
+      "kanban po odmowie"
+    );
+    expect(stageOf(kanban, candidate.id)).toBeUndefined();
   });
 });

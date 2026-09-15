@@ -8,6 +8,23 @@ from fastapi import HTTPException
 from app.services import cv_approval_review as review
 from app.services.cv_generator_b2b.factual_verification import FactualVerificationError
 
+# Macierz flag (QA-07): testy z `pipeline_mode` biegną też z dowodami
+# doradczymi (legacy_v7, domyślne na produkcji), gdzie edytowana treść NIE
+# przechodzi płatnej kontroli AI i dostaje uczciwe „unverified". Testy bez
+# `pipeline_mode` opisują samą maszynerię płatnej kontroli (paragony, kolejka,
+# awaria dostawcy) — istnieje ona tylko przy ścisłych dowodach, więc zostają na
+# pinie v10 z `conftest`.
+
+
+def _assert_advisory_approval(result, *, load, admission, verification=None):
+    """Dowody doradcze: bez źródeł, bez kwoty, bez wywołania modelu."""
+    assert result["status"] == "unverified"
+    assert result["method"] == "evidence_enforcement_off"
+    load.assert_not_awaited()
+    admission.assert_not_called()
+    if verification is not None:
+        verification.assert_not_called()
+
 
 async def inline_review_for_test(db, draft, content, user_id):
     prepared = await review.prepare_approval_review(db, draft, content)
@@ -72,7 +89,7 @@ async def test_prepared_review_survives_draft_changes_without_reading_them(monke
 
 @pytest.mark.parametrize("unsupported", [False, True])
 async def test_edited_content_is_reviewed_against_frozen_source(
-    monkeypatch, unsupported
+    monkeypatch, unsupported, pipeline_mode
 ):
     source = SimpleNamespace(
         cv_bytes=b"original",
@@ -81,7 +98,8 @@ async def test_edited_content_is_reviewed_against_frozen_source(
         identity="Person",
         snapshot_sha256="hash",
     )
-    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    load = AsyncMock(return_value=source)
+    monkeypatch.setattr(review, "load_review_source", load)
     monkeypatch.setattr(
         review, "extract_text_from_file", Mock(return_value="original source text")
     )
@@ -92,7 +110,8 @@ async def test_edited_content_is_reviewed_against_frozen_source(
         events.append("admitted")
         yield
 
-    monkeypatch.setattr(review, "ai_feature", quota)
+    admission = Mock(side_effect=quota)
+    monkeypatch.setattr(review, "ai_feature", admission)
 
     def verify(content, **kwargs):
         assert events == ["admitted"]
@@ -103,10 +122,21 @@ async def test_edited_content_is_reviewed_against_frozen_source(
             raise FactualVerificationError(reason="semantic_rejection")
         return {"version": 2, "prompt_sha256": "prompt"}
 
-    monkeypatch.setattr(review, "verify_editor_content", verify)
+    verification = Mock(side_effect=verify)
+    monkeypatch.setattr(review, "verify_editor_content", verification)
     csv = SimpleNamespace(
         id=1, edit_revision=3, generated_document_id=11, branded_render_metadata={}
     )
+    if pipeline_mode == "legacy":
+        # Treść, której model by nie potwierdził, i tak nie jest mu wysyłana.
+        result = await inline_review_for_test(
+            AsyncMock(), csv, "<p>Changed claim</p>", 7
+        )
+        _assert_advisory_approval(
+            result, load=load, admission=admission, verification=verification
+        )
+        assert result["html_sha256"]
+        return
     if unsupported:
         with pytest.raises(HTTPException) as error:
             await inline_review_for_test(AsyncMock(), csv, "<p>Changed claim</p>", 7)
@@ -177,8 +207,9 @@ async def test_provider_failure_does_not_approve_document(monkeypatch):
 
 
 async def test_unchanged_verified_content_does_not_charge_or_reload_sources(
-    monkeypatch,
+    monkeypatch, pipeline_mode
 ):
+    """Niezmieniona, zweryfikowana generacja — ten sam wynik w obu trybach."""
     import hashlib
     import json
     from app.services.cv_approval_provenance import capture_editor_origin
@@ -277,7 +308,9 @@ async def test_only_exact_current_source_review_can_be_reused(monkeypatch, chang
         assert "reused" not in receipt
 
 
-async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatch):
+async def test_unreadable_frozen_source_does_not_consume_review_quota(
+    monkeypatch, pipeline_mode
+):
     source = SimpleNamespace(
         cv_bytes=b"invalid",
         cv_filename="cv.docx",
@@ -285,7 +318,8 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
         identity="Person",
         snapshot_sha256="hash",
     )
-    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    load = AsyncMock(return_value=source)
+    monkeypatch.setattr(review, "load_review_source", load)
     monkeypatch.setattr(
         review,
         "extract_text_from_file",
@@ -301,6 +335,15 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
         generated_document_id=11,
         branded_render_metadata={},
     )
+    if pipeline_mode == "legacy":
+        # Źródło nie jest nawet czytane, więc jego nieczytelność nie blokuje.
+        result = await inline_review_for_test(
+            AsyncMock(), draft, "<p>Changed claim</p>", 7
+        )
+        _assert_advisory_approval(
+            result, load=load, admission=admission, verification=verification
+        )
+        return
     with pytest.raises(HTTPException) as error:
         await inline_review_for_test(AsyncMock(), draft, "<p>Changed claim</p>", 7)
     assert error.value.status_code == 422
@@ -310,18 +353,22 @@ async def test_unreadable_frozen_source_does_not_consume_review_quota(monkeypatc
 
 @pytest.mark.parametrize("generated_id", [None, 11])
 async def test_missing_source_returns_recovery_code_without_charging(
-    monkeypatch, generated_id
+    monkeypatch, generated_id, pipeline_mode
 ):
-    monkeypatch.setattr(
-        review,
-        "load_review_source",
-        AsyncMock(side_effect=review.ReviewSourceMissing("Wygeneruj CV ponownie.")),
-    )
+    load = AsyncMock(side_effect=review.ReviewSourceMissing("Wygeneruj CV ponownie."))
+    monkeypatch.setattr(review, "load_review_source", load)
     admission = Mock()
     monkeypatch.setattr(review, "ai_feature", admission)
     draft = SimpleNamespace(
         generated_document_id=generated_id, branded_render_metadata={}
     )
+    if pipeline_mode == "legacy":
+        # Bez płatnej kontroli brak zapisanych źródeł nie wymusza regeneracji.
+        result = await inline_review_for_test(
+            AsyncMock(), draft, "<p>Changed claim</p>", 7
+        )
+        _assert_advisory_approval(result, load=load, admission=admission)
+        return
     with pytest.raises(HTTPException) as error:
         await inline_review_for_test(AsyncMock(), draft, "<p>Changed claim</p>", 7)
     assert error.value.status_code == 409
