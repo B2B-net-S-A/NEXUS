@@ -193,6 +193,19 @@ describe("Champion validation panel — kotwice ostrzeżeń", () => {
     await waitFor(() => expect(screen.getByLabelText("Maksymalna stawka")).toHaveFocus());
   });
 
+  it("pole głównego edytora (`data-champion-field`) wygrywa z pierwszym polem sekcji", async () => {
+    render(<>
+      <ChampionValidationPanel validation={validation} />
+      <section id="champion-section-basics">
+        <label data-champion-field="basics.role_name">Nazwa roli<input /></label>
+        <label data-champion-field="basics.rate_value">Stawka<input /></label>
+      </section>
+    </>);
+    expect(resolveChampionIssueTarget("basics.rate_value")?.getAttribute("data-champion-field")).toBe("basics.rate_value");
+    fireEvent.click(screen.getByRole("link", { name: "Maksymalna stawka PLN/h" }));
+    await waitFor(() => expect(screen.getByLabelText("Stawka")).toHaveFocus());
+  });
+
   it("pole z okna importu ma pierwszeństwo przed sekcją", () => {
     render(<>
       <div id="champion-field-basics.rate_value" />

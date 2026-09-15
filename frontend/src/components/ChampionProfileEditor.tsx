@@ -435,7 +435,7 @@ export function ChampionProfileEditor({
         state={championSectionState("basics", draft)}
       >
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Labeled label="Nazwa roli">
+          <Labeled label="Nazwa roli" field="basics.role_name">
             <input
               type="text"
               disabled={disabled}
@@ -445,7 +445,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Doświadczenie łącznie w IT (lata)">
+          <Labeled label="Doświadczenie łącznie w IT (lata)" field="basics.seniority_min_years">
             <input
               type="number"
               min={0}
@@ -464,7 +464,7 @@ export function ChampionProfileEditor({
           {/* Ta stawka nie jest opisem — filtr odrzuca po niej kandydatów
               powyżej progu, bez marginesu. Podpis mówi o tym wprost, bo pole
               wyglądające jak notatka, a działające jak filtr, jest pułapką. */}
-          <Labeled label="Maksymalna stawka PLN/h — twardy sufit">
+          <Labeled label="Maksymalna stawka PLN/h — twardy sufit" field="basics.rate_value">
             <input
               type="number"
               min={0}
@@ -481,14 +481,14 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Tryb pracy">
+          <Labeled label="Tryb pracy" field="basics.work_mode">
             <select disabled={disabled} value={draft.basics.work_mode ?? ""} onChange={e => patchBasics({work_mode: e.target.value || null})} className={inputClass}>
               <option value="">Wybierz tryb pracy</option>
               <option value="zdalnie">Zdalnie</option><option value="hybrydowo">Hybrydowo</option><option value="stacjonarnie">Stacjonarnie</option>
               {draft.basics.work_mode && !["zdalnie", "hybrydowo", "stacjonarnie"].includes(draft.basics.work_mode) && <option value={draft.basics.work_mode}>{draft.basics.work_mode} — zapis wcześniejszy</option>}
             </select>
           </Labeled>
-          <Labeled label="Dni stacjonarne / tydzień">
+          <Labeled label="Dni stacjonarne / tydzień" field="basics.onsite_days_per_week">
             <input
               type="number"
               min={0}
@@ -504,7 +504,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Lokalizacja biura">
+          <Labeled label="Lokalizacja biura" field="basics.candidate_location_pref">
             <input
               type="text"
               disabled={disabled}
@@ -516,7 +516,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Język pracy (od kandydata)">
+          <Labeled label="Język pracy (od kandydata)" field="basics.language">
             <input
               type="text"
               disabled={disabled}
@@ -526,7 +526,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Start">
+          <Labeled label="Start" field="basics.start_date">
             <input
               type="text"
               disabled={disabled}
@@ -536,7 +536,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Deadline na kandydatów">
+          <Labeled label="Deadline na kandydatów" field="basics.deadline">
             <input
               type="text"
               disabled={disabled}
@@ -564,7 +564,7 @@ export function ChampionProfileEditor({
               )}
             </div>
           </Labeled>
-          <Labeled label="Długość kontraktu">
+          <Labeled label="Długość kontraktu" field="basics.contract_length">
             <input
               type="text"
               disabled={disabled}
@@ -600,6 +600,7 @@ export function ChampionProfileEditor({
           <StackField
             label={`Musi mieć · ${(draft.stack.must || []).length}`}
             testId="champion-stack-must"
+            field="stack.must"
             value={draft.stack.must}
             disabled={disabled}
             onChange={(items) => patchStack({ must: items })}
@@ -607,13 +608,14 @@ export function ChampionProfileEditor({
           <StackField
             label={`Mile widziane · ${(draft.stack.nice || []).length}`}
             testId="champion-stack-nice"
+            field="stack.nice"
             value={draft.stack.nice}
             disabled={disabled}
             onChange={(items) => patchStack({ nice: items })}
           />
         </div>
         <div className="mt-3">
-          <Labeled label="Niuanse wersji / zakresu">
+          <Labeled label="Niuanse wersji / zakresu" field="stack.notes">
             <input
               type="text"
               disabled={disabled}
@@ -658,7 +660,7 @@ export function ChampionProfileEditor({
               aria-hidden="true"
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Frazy do searchu">
+              <Labeled label="Frazy do searchu" field="search.keywords">
                 <textarea
                   disabled={disabled}
                   value={draft.search.keywords}
@@ -669,7 +671,7 @@ export function ChampionProfileEditor({
                   data-testid="champion-search-keywords"
                 />
               </Labeled>
-              <Labeled label="O projekcie (2 zdania)">
+              <Labeled label="O projekcie (2 zdania)" field="project.about">
                 <textarea
                   disabled={disabled}
                   value={draft.project.about}
@@ -702,7 +704,7 @@ export function ChampionProfileEditor({
         nested
       >
         <div className="space-y-3">
-          <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz">
+          <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz" field="search.keywords">
             <textarea
               disabled={disabled}
               value={draft.search.keywords}
@@ -714,7 +716,7 @@ export function ChampionProfileEditor({
             />
           </Labeled>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Labeled label="Firmy docelowe">
+            <Labeled label="Firmy docelowe" field="search.target_companies">
               <textarea
                 disabled={disabled}
                 value={draft.search.target_companies}
@@ -723,7 +725,7 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
-            <Labeled label="Kogo odrzucamy od razu (jeden na linię)">
+            <Labeled label="Kogo odrzucamy od razu (jeden na linię)" field="search.disqualifiers">
               <textarea
                 disabled={disabled}
                 value={(draft.search.disqualifiers || []).join("\n")}
@@ -736,7 +738,7 @@ export function ChampionProfileEditor({
               />
             </Labeled>
           </div>
-          <Labeled label="Uwagi / plan działania">
+          <Labeled label="Uwagi / plan działania" field="search.notes">
             <textarea
               disabled={disabled}
               value={draft.search.notes}
@@ -757,7 +759,7 @@ export function ChampionProfileEditor({
         nested
       >
         <div className="space-y-3">
-          <Labeled label="Czym jest projekt — maksymalnie 2 zdania">
+          <Labeled label="Czym jest projekt — maksymalnie 2 zdania" field="project.about">
             <textarea
               disabled={disabled}
               value={draft.project.about}
@@ -778,7 +780,7 @@ export function ChampionProfileEditor({
               </span>
             )}
           </p>
-          <Labeled label="Obowiązki na stanowisku">
+          <Labeled label="Obowiązki na stanowisku" field="project.responsibilities">
             <textarea
               disabled={disabled}
               value={draft.project.responsibilities}
@@ -905,7 +907,7 @@ export function ChampionProfileEditor({
             źródłem. */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="space-y-3">
-            <Labeled label="Co przekona kandydata do TEJ rekrutacji">
+            <Labeled label="Co przekona kandydata do TEJ rekrutacji" field="client.selling_points">
               <textarea
                 disabled={disabled}
                 value={draft.client.selling_points}
@@ -914,7 +916,7 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
-            <Labeled label="Insight od naszego konsultanta u klienta">
+            <Labeled label="Insight od naszego konsultanta u klienta" field="client.consultant_insight">
               <textarea
                 disabled={disabled}
                 value={draft.client.consultant_insight}
@@ -923,7 +925,7 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
-            <Labeled label="Historyczne pytania klienta">
+            <Labeled label="Historyczne pytania klienta" field="client.historical_questions">
               <textarea
                 disabled={disabled}
                 value={draft.client.historical_questions}
@@ -936,7 +938,7 @@ export function ChampionProfileEditor({
                 z reguł klienta, bo to ich słucha generator. Wartość sparsowana
                 ze starego dokumentu zostaje w danych, ale nie jest przepisywana
                 ręcznie, żeby nie powstały dwie prawdy o jednym fakcie. */}
-            <Labeled label="Branże">
+            <Labeled label="Branże" field="client.sectors">
               <input
                 type="text"
                 disabled={disabled}
@@ -1142,17 +1144,19 @@ function StackField({
   disabled,
   onChange,
   testId,
+  field,
 }: {
   label: string;
   value: StackItem[];
   disabled: boolean;
   onChange: (items: StackItem[]) => void;
   testId: string;
+  field: string;
 }) {
   const asText = (value || []).map((item) => item.name).join(", ");
   return (
     <div>
-      <Labeled label={label}>
+      <Labeled label={label} field={field}>
         <textarea
           disabled={disabled}
           value={asText}
@@ -1187,13 +1191,16 @@ function StackField({
 
 function Labeled({
   label,
+  field,
   children,
 }: {
   label: string;
+  /** Ścieżka pola z walidacji (`basics.rate_value`) — cel odnośnika ostrzeżenia (audyt B47). */
+  field?: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
+    <label className="block" data-champion-field={field}>
       <span className="block text-[10px] uppercase tracking-wide text-muted-foreground dark:text-muted-foreground mb-1">
         {label}
       </span>

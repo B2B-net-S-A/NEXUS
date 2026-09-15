@@ -47,6 +47,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { layoutOverlappingEvents } from "@/lib/calendar-overlap";
 import { attendeeAddress, attendeeLabel, type CalendarAttendee } from "@/lib/calendar-attendees";
+import { htmlToPlainText } from "@/lib/plain-text";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1226,6 +1227,7 @@ function EventDetailModal({
 
   const start = new Date(event.start_time);
   const end = event.end_time ? new Date(event.end_time) : null;
+  const descriptionText = htmlToPlainText(event.description);
 
   // Radix `Dialog` (jak każde okno w aplikacji): `role="dialog"`,
   // `aria-modal`, Escape (UAT M03-B11), a od audytu B34 także pułapka fokusu
@@ -1245,9 +1247,12 @@ function EventDetailModal({
         className="p-0 gap-0 rounded-2xl"
       >
         {/* Header stripe */}
-        <div className={cn("h-1.5 rounded-t-2xl", cfg.dotColor)} />
+        <div className={cn("h-1.5 shrink-0 rounded-t-2xl", cfg.dotColor)} />
 
-        <div className="p-6">
+        {/* Treść przewija się W OKNIE: `DialogContent` ma `max-h-[90vh]
+            overflow-hidden`, więc długi opis z Outlooka ucinał przyciski,
+            a Tab do nich przesuwał ukryty kontener i znikał nagłówek. */}
+        <div className="p-6 min-h-0 overflow-y-auto" data-testid="calendar-event-detail-body">
           {/* Title + close */}
           <div className="flex items-start justify-between gap-3 mb-4">
             <div>
@@ -1368,10 +1373,14 @@ function EventDetailModal({
               </div>
             )}
 
-            {/* Description */}
-            {event.description && (
-              <p className="text-sm text-muted-foreground bg-muted rounded-lg p-3 leading-relaxed">
-                {event.description}
+            {/* Description — wydarzenie z M365 niesie w opisie pełny dokument
+                HTML maila; pokazujemy sam tekst, nigdy `dangerouslySetInnerHTML`. */}
+            {descriptionText && (
+              <p
+                className="text-sm text-muted-foreground bg-muted rounded-lg p-3 leading-relaxed whitespace-pre-line break-words"
+                data-testid="calendar-event-description"
+              >
+                {descriptionText}
               </p>
             )}
           </div>

@@ -266,6 +266,73 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
     expect(screen.getByText("Anna Testowa")).toHaveAttribute("title", "rekruter@example.com");
   });
 
+  // Retest produkcji 15.09.2026 (wydarzenie z Outlooka): opis to pełny
+  // dokument HTML maila, a okno pokazywało go jako tekst ze znacznikami i CSS.
+  function outlookEvent(id: number) {
+    const paragraph = "<p class=\"MsoNormal\">Szczegóły projektu&nbsp;i agenda rozmowy.</p>";
+    return {
+      ...eventOn(id, "Rozmowa z Outlooka", "2031-03-10T09:00:00.000Z"),
+      candidate_name: "Jan Przykładowy",
+      teams_link: "https://teams.example.com/meet/1",
+      online_meeting_url: "https://teams.example.com/meet/1",
+      end_time: "2031-03-10T10:00:00.000Z",
+      attendees: [
+        { address: "rekruter@example.com", name: "Anna Testowa" },
+        { address: "kandydat@example.com", name: null },
+      ],
+      description:
+        "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">" +
+        "<style>P {margin-top:0;margin-bottom:0;}</style></head><body>" +
+        "<div>Dzień dobry,<br>zapraszam na rozmowę.</div>" +
+        paragraph.repeat(80) +
+        "</body></html>",
+    };
+  }
+
+  it("opis z HTML-em maila pokazuje sam tekst — bez znaczników i CSS", async () => {
+    mocks.search = "event=44";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({ data: outlookEvent(44) });
+    renderPage();
+
+    const dialog = await screen.findByRole("dialog", { name: "Rozmowa z Outlooka" });
+    const description = screen.getByTestId("calendar-event-description");
+    expect(description).toHaveTextContent("Dzień dobry, zapraszam na rozmowę.");
+    expect(description.textContent).toContain("Dzień dobry,\nzapraszam na rozmowę.");
+    expect(dialog.textContent).not.toMatch(/<html|<style|<p|margin-top|Content-Type/);
+    expect(description).toHaveClass("whitespace-pre-line");
+    // Długi opis przewija się w oknie, zamiast ucinać przyciski akcji.
+    expect(screen.getByTestId("calendar-event-detail-body")).toHaveClass("overflow-y-auto");
+  });
+
+  it("Escape zamyka okno wydarzenia z uczestnikami M365 i długim opisem — także z fokusem wewnątrz", async () => {
+    mocks.search = "event=44";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({ data: outlookEvent(44) });
+    renderPage();
+
+    const dialog = await screen.findByRole("dialog", { name: "Rozmowa z Outlooka" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Fokus na elemencie głęboko w oknie (ostatni przycisk pod długim opisem).
+    const inner = screen.getAllByRole("button", { name: "Zamknij" }).at(-1)!;
+    inner.focus();
+    expect(inner).toHaveFocus();
+    fireEvent.keyDown(inner, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar");
+  });
+
+  it("Escape na samym oknie wydarzenia z M365 też je zamyka", async () => {
+    mocks.search = "event=44";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({ data: outlookEvent(44) });
+    renderPage();
+
+    const dialog = await screen.findByRole("dialog", { name: "Rozmowa z Outlooka" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("zamknięcie okna z linku zdejmuje parametr z adresu", async () => {
     mocks.search = "event=42";
     mocks.listEvents.mockResolvedValue({ data: [] });

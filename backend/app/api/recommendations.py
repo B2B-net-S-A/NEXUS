@@ -11,6 +11,7 @@ skills via Ollama) and `POST /api/jobs/{id}/recompute-scores` (batch rescoring).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import List, Optional
@@ -62,6 +63,7 @@ from app.services.embedding_service import (
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
+    build_jobs_scoring_contexts,
     rank_jobs_for_candidate,
     resolve_active_profile,
 )
@@ -1461,6 +1463,12 @@ def _shape_seek_job(j: Job, *, include_finance: bool = False) -> dict:
     }
 
 
+# Ile wyszukiwań semantycznych (embedding Voyage + Qdrant) strona „Szukają
+# projektu" puszcza naraz. Po kolei 50 wierszy × ~150 ms to ~7,5 s; bez limitu
+# 200 wierszy (sufit `page_size`) waliłoby w Voyage 200 równoległymi żądaniami.
+_SEEKING_SEMANTIC_CONCURRENCY = 8
+
+
 def seeking_priority(
     candidate_id: int, ending_meta: dict[int, dict]
 ) -> tuple[int, str, int]:
@@ -1550,6 +1558,7 @@ async def seeking_contractors(
     from app.services.recommendation_filters import (
         RecommendationFilters,
         apply_user_filters,
+        load_active_conflicts_bulk,
     )
 
     _assert_salary_filter_access(
@@ -1703,28 +1712,47 @@ async def seeking_contractors(
         industry_blocklist=industry_blocklist,
     )
 
-    items: list[dict] = []
-    bulk_degraded = False
-    for cand in candidates:
+    # UAT B06: strona liczyła się ~10 s niezależnie od `offset` — pula (dwa
+    # lekkie zapytania i sort liczb) nie była problemem. Koszt siedział w pętli
+    # po 50 wierszach strony: embedding + Qdrant PO KOLEI (50 × ~150 ms) oraz
+    # ~6 100 zapytań SQL (2 na kandydata w filtrach + 2 na każdą ocenianą parę
+    # kandydat × oferta). Teraz: wyszukiwanie semantyczne dla całej strony idzie
+    # równolegle (nie dotyka sesji bazy), a konflikty i kontekst scoringu są
+    # ładowane hurtowo raz na stronę. Kolejność wierszy i wyniki bez zmian.
+    page_candidate_ids = [c.id for c in candidates]
+    conflicts_by_candidate = await load_active_conflicts_bulk(db, page_candidate_ids)
+    scoring_contexts = await build_jobs_scoring_contexts(
+        db, all_open_jobs, page_candidate_ids
+    )
+
+    semantic_slots = asyncio.Semaphore(_SEEKING_SEMANTIC_CONCURRENCY)
+
+    async def _retrieve(cand: Candidate) -> tuple[list[dict], bool]:
         # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
         # Wide pool BEFORE the published-intersection (M3-JOB-01): the jobs
         # index holds all statuses (mostly closed), so a narrow top-N could be
         # 100% closed and the published intersection starved to zero.
-        query_text = _candidate_query_text(cand)
         # Jak wyżej: awaria providera nie może udawać „nic nie znaleziono", bo
         # fallback niżej dolewa 50 arbitralnych ofert scorowanych bez warstwy
-        # semantycznej. Tu dodatkowo idziemy w PĘTLI po kandydatach — jedna
-        # awaria zamieniłaby cały kokpit w listę losowych par.
-        try:
-            hits = await search_jobs_semantic(
-                query_text,
-                top_k=settings.JOB_SEMANTIC_POOL_SIZE,
-                raise_on_error=True,
-            )
-            cand_semantic_ok = True
-        except SemanticSearchUnavailable:
-            hits = []
-            cand_semantic_ok = False
+        # semantycznej. Awaria jest liczona PER KANDYDAT — jedna nie zamienia
+        # całego kokpitu w listę losowych par.
+        async with semantic_slots:
+            try:
+                hits = await search_jobs_semantic(
+                    _candidate_query_text(cand),
+                    top_k=settings.JOB_SEMANTIC_POOL_SIZE,
+                    raise_on_error=True,
+                )
+                return hits, True
+            except SemanticSearchUnavailable:
+                return [], False
+
+    retrievals = await asyncio.gather(*(_retrieve(c) for c in candidates))
+
+    items: list[dict] = []
+    bulk_degraded = False
+    for cand, (hits, cand_semantic_ok) in zip(candidates, retrievals):
+        if not cand_semantic_ok:
             bulk_degraded = True
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
 
@@ -1745,7 +1773,11 @@ async def seeking_contractors(
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(
-            cand, scoring_pool, user_filters, db
+            cand,
+            scoring_pool,
+            user_filters,
+            db,
+            conflicts=conflicts_by_candidate.get(cand.id),
         )
         warning_by_job = {fj.job.id: fj.warning for fj in filtered}
 
@@ -1754,6 +1786,7 @@ async def seeking_contractors(
             [fj.job for fj in filtered],
             db,
             similarity_map=similarity_map,
+            contexts=scoring_contexts,
         )
 
         above = [b for b in breakdowns if b.total >= threshold]

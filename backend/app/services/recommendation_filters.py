@@ -159,41 +159,60 @@ def _competence_category_matches(job: Job, targets: Union[str, Sequence[str]]) -
 # ── Conflict resolution (industry blocklist) ────────────────────────────────
 
 
-async def _load_active_conflicts(
-    db: AsyncSession, candidate_id: int
-) -> dict[int, ConflictType]:
-    """Return {client_id: ConflictType} for the candidate's active, unexpired conflicts.
+async def load_active_conflicts_bulk(
+    db: AsyncSession, candidate_ids: Iterable[int]
+) -> dict[int, dict[int, ConflictType]]:
+    """Return ``{candidate_id: {client_id: ConflictType}}`` for a whole page.
 
     Active = `active=True` AND (`expires_at` is NULL OR `expires_at > now()`).
+
+    One SELECT for any number of candidates. „Szukają projektu" filtrowało
+    stronę 50 kandydatów, wołając `_load_active_conflicts` po kolei — 100
+    zapytań na stronę, zanim w ogóle zaczął się scoring (UAT B06). Każdy
+    przekazany kandydat jest w wyniku, także bez konfliktów (pusty słownik),
+    więc „nie ma wpisu" nie myli się z „nie sprawdzono".
+
+    Semantyka jest dokładnie ta sama co dawnej wersji dwuzapytaniowej: klient,
+    dla którego istnieje choć jeden AKTYWNY wiersz po terminie, wypada ze
+    słownika, a przy kilku aktywnych wierszach tego samego klienta wygrywa
+    ostatni (teraz jawnie: po `id`, zamiast w nieokreślonej kolejności).
     """
+    ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
+    out: dict[int, dict[int, ConflictType]] = {cid: {} for cid in ids}
+    if not ids:
+        return out
     now = datetime.now(timezone.utc)
     rows = (
         await db.execute(
-            select(CandidateConflict.client_id, CandidateConflict.type).where(
-                CandidateConflict.candidate_id == candidate_id,
+            select(
+                CandidateConflict.candidate_id,
+                CandidateConflict.client_id,
+                CandidateConflict.type,
+                CandidateConflict.expires_at,
+            )
+            .where(
+                CandidateConflict.candidate_id.in_(ids),
                 CandidateConflict.active.is_(True),
             )
+            .order_by(CandidateConflict.id)
         )
     ).all()
 
-    out: dict[int, ConflictType] = {}
-    for client_id, ctype in rows:
-        # `expires_at` filtered in Python because rows is a small per-candidate set.
-        out[client_id] = ctype
-    # Re-query to also drop those expired (small list, two-pass keeps the SQL simple)
-    expired_rows = (
-        await db.execute(
-            select(CandidateConflict.client_id).where(
-                CandidateConflict.candidate_id == candidate_id,
-                CandidateConflict.active.is_(True),
-                CandidateConflict.expires_at.is_not(None),
-                CandidateConflict.expires_at <= now,
-            )
-        )
-    ).all()
-    for (cid,) in expired_rows:
-        out.pop(cid, None)
+    expired: set[tuple[int, int]] = set()
+    for cand_id, client_id, ctype, expires_at in rows:
+        out[cand_id][client_id] = ctype
+        if expires_at is not None and expires_at <= now:
+            expired.add((cand_id, client_id))
+    for cand_id, client_id in expired:
+        out[cand_id].pop(client_id, None)
     return out
+
+
+async def _load_active_conflicts(
+    db: AsyncSession, candidate_id: int
+) -> dict[int, ConflictType]:
+    """Return {client_id: ConflictType} for the candidate's active, unexpired conflicts."""
+    return (await load_active_conflicts_bulk(db, [candidate_id]))[candidate_id]
 
 
 def _conflict_decision(
@@ -225,6 +244,8 @@ async def apply_user_filters(
     jobs: Iterable[Job],
     filters: RecommendationFilters,
     db: AsyncSession,
+    *,
+    conflicts: Optional[dict[int, ConflictType]] = None,
 ) -> tuple[list[FilteredJob], FilterStats]:
     """Filter `jobs` for `candidate` according to `filters`.
 
@@ -235,14 +256,18 @@ async def apply_user_filters(
     Hard conflicts (blacklist/competitor/nda) are ALWAYS loaded and enforced —
     `filters.industry_blocklist=False` only suppresses the soft
     `current_employment` warning annotation, never the hard exclusion set.
+
+    ``conflicts`` lets a batch caller pass the set it already loaded for the
+    whole page (`load_active_conflicts_bulk`) — it must be the COMPLETE active
+    set for this candidate, never a subset, or a hard conflict would slip
+    through. ``None`` keeps the per-candidate lookup.
     """
     # Ephemeral candidates (CV-preview, no DB row) have id=None — nothing to
     # look up. Every persisted candidate gets the full fail-closed hard set.
-    conflicts = (
-        await _load_active_conflicts(db, candidate.id)
-        if candidate.id is not None
-        else {}
-    )
+    if candidate.id is None:
+        conflicts = {}
+    elif conflicts is None:
+        conflicts = await _load_active_conflicts(db, candidate.id)
     initial = 0
     dropped_location = 0
     dropped_salary = 0

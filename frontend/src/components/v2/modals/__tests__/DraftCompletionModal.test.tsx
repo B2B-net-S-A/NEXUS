@@ -33,7 +33,7 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-import { DraftCompletionModal } from "@/components/v2/modals/DraftCompletionModal";
+import { DraftCompletionModal, contractorFullName } from "@/components/v2/modals/DraftCompletionModal";
 
 function renderModal(contractorOverrides: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({
@@ -162,6 +162,20 @@ describe("DraftCompletionModal — niezależne waluty stawek", () => {
 
 // UAT B25: formularz aktywacji pokazywał „130" bez jednostki, a szczegóły
 // kontraktu obok mówiły „Godzinowo, 130 PLN/h".
+describe("DraftCompletionModal — tytuł okna (UAT B25)", () => {
+  it("rozdziela imię i nazwisko spacją", () => {
+    renderModal();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Uzupełnij kontrakt — Agnieszka Urbaniak",
+    );
+  });
+
+  it("pusta część nazwy nie zostawia spacji ani „undefined”", () => {
+    expect(contractorFullName({ candidate: { name: "Agnieszka", lastname: "" } } as never)).toBe("Agnieszka");
+    expect(contractorFullName({ candidate: { name: null, lastname: " Urbaniak " } } as never)).toBe("Urbaniak");
+  });
+});
+
 describe("DraftCompletionModal — jednostka stawek (UAT B25)", () => {
   it("pokazuje jednostkę kontraktu przy obu polach stawek i w podpowiedzi", () => {
     renderModal({ rate_unit: "hourly" });

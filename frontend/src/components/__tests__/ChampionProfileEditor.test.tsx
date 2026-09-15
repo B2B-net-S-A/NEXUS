@@ -58,13 +58,13 @@ const recruiter = {
   effective_section_access: { pipeline: "read" },
 } satisfies User;
 
-function renderEditor(jobId: number) {
+function renderEditor(jobId: number, canEdit = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <ChampionProfileEditor jobId={jobId} canEdit={false} clientId={null} />
+      <ChampionProfileEditor jobId={jobId} canEdit={canEdit} clientId={null} />
     </QueryClientProvider>,
   );
 }
@@ -77,6 +77,38 @@ beforeEach(() => {
     realUser: null,
     token: "token",
     hydrated: true,
+  });
+});
+
+// Audyt B47 (retest 15.09.2026): klik w ostrzeżenie o stawce przewijał do
+// sekcji 1, ale fokus lądował na PIERWSZYM polu sekcji („Nazwa roli”).
+describe("ChampionProfileEditor — ostrzeżenie prowadzi do SWOJEGO pola", () => {
+  it("„Maksymalna stawka PLN/h” ustawia fokus na polu stawki, nie na „Nazwa roli”", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 1,
+        champion_profile: {},
+        validation: {
+          status: "draft",
+          blocked_operations: [],
+          issues: [
+            {
+              code: "missing",
+              path: "basics.rate_value",
+              message: "brak stawki",
+              severity: "warning",
+              blocked_operations: [],
+            },
+          ],
+        },
+      },
+    });
+    renderEditor(1, true);
+    const link = await screen.findByRole("link", { name: "Maksymalna stawka PLN/h" });
+    await userEvent.click(link);
+    const rate = screen.getByLabelText(/Maksymalna stawka PLN\/h — twardy sufit/);
+    await waitFor(() => expect(rate).toHaveFocus());
+    expect(screen.getByLabelText("Nazwa roli")).not.toHaveFocus();
   });
 });
 
