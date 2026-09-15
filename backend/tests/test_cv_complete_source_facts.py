@@ -1,4 +1,9 @@
-"""Full history survives editorial limits; evidence validation is not model eval."""
+"""Full history survives editorial limits; evidence validation is not model eval.
+
+Bez `pipeline_mode` (QA-07): ekstrakcja faktów źródłowych istnieje wyłącznie
+w v10 — legacy_v7 czyta surowe CV i nigdy nie woła `extract_source_facts` —
+więc plik zostaje na pinie v10 z `conftest`.
+"""
 
 import copy
 from io import BytesIO

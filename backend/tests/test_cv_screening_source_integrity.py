@@ -1,10 +1,11 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.services.cv_generator_b2b import standalone_service as svc
 from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
+from tests.test_cv_mode_readiness import generation_entry  # noqa: F401 — fixture
 
 
 @pytest.mark.parametrize("language", ["pl", "en"])
@@ -92,8 +93,11 @@ def test_verified_skill_context_and_observed_soft_skills_are_preserved():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("minimum", [0, 100])
 async def test_worker_excludes_ai_only_notes_and_explains_omission(
-    monkeypatch, minimum
+    monkeypatch,
+    minimum,
+    generation_entry,  # noqa: F811
 ):
+    """Odsiew notatek AI i bramka minimum znaków — w obu przepływach."""
     job = SimpleNamespace(
         id=2,
         client_id=None,
@@ -120,8 +124,7 @@ async def test_worker_excludes_ai_only_notes_and_explains_omission(
         SimpleNamespace(first=lambda: document),
         *[SimpleNamespace(all=lambda row=row: row) for row in rows],
     ]
-    pipeline = Mock(return_value=SimpleNamespace(warnings=[]))
-    monkeypatch.setattr(svc, "_run_generation_pipeline", pipeline)
+    pipeline = generation_entry
     rule = CvRuleSnapshot(
         None, False, None, False, False, require_screening_notes_min_chars=minimum
     )
