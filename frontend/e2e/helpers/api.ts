@@ -96,17 +96,19 @@ type ApiFixtures = {
 };
 
 export const test = base.extend<ApiFixtures>({
-  apiAs: async ({}, use) => {
+  // Parametr fixture'a nazwany `provide`, nie `use` — reguła react-hooks
+  // bierze każde `use(...)` za hook Reacta.
+  apiAs: async ({}, provide) => {
     const opened: ApiSession[] = [];
-    await use(async (role) => {
+    await provide(async (role) => {
       const session = await login(role);
       opened.push(session);
       return session;
     });
     await Promise.all(opened.map((session) => session.api.dispose()));
   },
-  admin: async ({ apiAs }, use) => {
-    await use(await apiAs("admin"));
+  admin: async ({ apiAs }, provide) => {
+    await provide(await apiAs("admin"));
   },
 });
 
