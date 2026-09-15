@@ -160,6 +160,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
+      # Łagodne zatrzymanie przy deployu (plan skracania przerwy, Etap 3).
+      # Uvicorn czyta opcje CLI z env z prefiksem UVICORN_ (click
+      # auto_envvar_prefix), więc linia `exec uvicorn` w entrypoint.sh zostaje.
+      # Po SIGTERM nowe połączenia są odrzucane od razu, a trwające żądania
+      # dostają 8 s na dokończenie — zamiast SIGKILL w połowie zapisu po
+      # domyślnych 10 s Dockera. Świadomie KRÓTKO: stary kontener, który czeka
+      # na długie żądanie, wydłuża przerwę dla wszystkich pozostałych.
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+    # 8 s na żądania + zamknięcie lifespanu (anulowanie pętli w tle, dispose
+    # puli). Domyślne 10 s ucinało tę drugą część.
+    stop_grace_period: 15s
     expose:
       - "8000"
     depends_on:
