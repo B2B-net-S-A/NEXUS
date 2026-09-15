@@ -259,3 +259,25 @@ async def test_dry_run_writes_nothing(db) -> None:
         assert await _events(db, cid) == []
     finally:
         await _cleanup(db, [cid])
+
+
+@pytest.mark.asyncio
+async def test_undated_mark_survives_note_truncation(db) -> None:
+    """Raporty rozpoznają zmyśloną datę po SUFIKSIE `note`.
+
+    `note` ma 500 znaków; dopisek przycięty razem z długą nazwą źródła
+    wpuściłby zdarzenie z datą importu do okna raportu źródeł.
+    """
+    ext = _ext()
+    cid = await _mk_candidate(db, ext)
+    traffit = _FakeTraffit([_source(uuid.uuid4().int % 10**9, ext, "X" * 700)])
+    try:
+        progress = await TraffitImporter(traffit, db).import_candidate_sources()
+        assert progress.errors == 0, progress.error_samples
+
+        events = await _events(db, cid)
+        assert len(events) == 1
+        assert len(events[0].note) <= 500
+        assert events[0].note.endswith(TRAFFIT_SOURCE_NO_DATE_MARK)
+    finally:
+        await _cleanup(db, [cid])

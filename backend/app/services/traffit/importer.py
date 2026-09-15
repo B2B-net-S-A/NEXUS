@@ -36,7 +36,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
+from app.models.candidate_source_event import (
+    UNDATED_IMPORT_NOTE_MARK,
+    CandidateSourceEvent,
+    SourceChannel,
+)
 from app.models.client import Client
 from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
@@ -90,7 +94,8 @@ ORPHAN_CLIENT_NAME = "__traffit_orphans"
 # unikalności, więc tożsamość wiersza to prefiks `note`:
 # ``traffit:source:<id>`` — sprawdzany przed INSERT-em.
 TRAFFIT_SOURCE_REF_PREFIX = "traffit:source:"
-TRAFFIT_SOURCE_NO_DATE_MARK = "(bez daty w Traffit — data importu)"
+# Alias historyczny — treść stałej mieszka przy modelu, bo czytają ją też raporty.
+TRAFFIT_SOURCE_NO_DATE_MARK = UNDATED_IMPORT_NOTE_MARK
 
 _TRAFFIT_SOURCE_CHANNEL_RULES: tuple[tuple[tuple[str, ...], SourceChannel], ...] = (
     (("polecen", "referral", "rekomend"), SourceChannel.referral),
@@ -4375,7 +4380,10 @@ class TraffitImporter:
             captured_at = source_dates.get(source_id)
             if captured_at is None:
                 captured_at = imported_at
-                note = f"{note} {TRAFFIT_SOURCE_NO_DATE_MARK}"
+                # Znacznik MUSI przeżyć przycięcie do 500 znaków — raporty
+                # rozpoznają po nim zmyśloną datę (sufiks `note`).
+                keep = 500 - len(TRAFFIT_SOURCE_NO_DATE_MARK) - 1
+                note = f"{note[:keep]} {TRAFFIT_SOURCE_NO_DATE_MARK}"
             self.db.add(
                 CandidateSourceEvent(
                     candidate_id=candidate_id,

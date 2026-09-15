@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TrendingUp, Target, Loader2, AlertCircle } from "lucide-react";
-import { sourcesReportApi, type SourceFunnelRow } from "@/lib/api";
+import {
+  sourcesReportApi,
+  type SourceFunnelRow,
+  type SourceReportResponse,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const PERIOD_OPTIONS: Array<{ days: number; label: string }> = [
@@ -100,6 +104,42 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
   );
 }
 
+/**
+ * Model atrybucji i pokrycie przy tabeli (audyt statystyk 14.09.2026, A05).
+ * Sam podział na kanały nie mówi, że osoba bywa w kilku wierszach ani ilu
+ * nowych kandydatów źródła nie ma. Zero nowych kandydatów to „—”, nie „0%”.
+ */
+export function SourcesCoverageNote({ data }: { data: SourceReportResponse }) {
+  const total = data.new_candidates_total ?? 0;
+  const missing = data.new_candidates_without_source ?? 0;
+  const share = total > 0 ? `${Math.round((missing / total) * 100)}%` : "—";
+  const undated = data.undated_source_events ?? 0;
+
+  return (
+    <div className="mb-3 space-y-1 text-xs text-muted-foreground">
+      <p>
+        Kandydat liczony w każdym kanale, z którego był kontakt w okresie —
+        wiersze się nie sumują. Unikalnych kandydatów:{" "}
+        <span className="font-semibold text-foreground">
+          {data.unique_candidates ?? 0}
+        </span>
+        .
+      </p>
+      <p>
+        Nowi kandydaci bez rozpoznanego źródła:{" "}
+        <span className="font-semibold text-foreground">
+          {total > 0 ? `${missing} z ${total} (${share})` : "—"}
+        </span>
+      </p>
+      {undated > 0 && (
+        <p>
+          {undated} źródeł z Traffita nie ma daty — nie wchodzą do okresu.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function SourcesFunnelSection() {
   const [days, setDays] = useState(30);
   const [groupByUtm, setGroupByUtm] = useState(false);
@@ -157,7 +197,12 @@ export function SourcesFunnelSection() {
         </div>
       )}
 
-      {data && <FunnelTable rows={data.rows} groupByUtm={groupByUtm} />}
+      {data && (
+        <>
+          <SourcesCoverageNote data={data} />
+          <FunnelTable rows={data.rows} groupByUtm={groupByUtm} />
+        </>
+      )}
     </section>
   );
 }
