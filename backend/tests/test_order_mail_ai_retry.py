@@ -223,3 +223,79 @@ async def test_no_retry_when_ai_extraction_is_off(monkeypatch, tmp_path):
         assert stats.ai_retried == 0
         await db.refresh(doc)
         assert "ai_retry_attempts" not in doc.document_meta
+
+
+# ── Odpowiedź modelu otoczona prozą (PKO BP, 15.09: ponowienie też „nie JSON") ──
+
+_OBJECT = '{"title": "1/2031", "consultant_rows": [], "confidence": {}}'
+_TRUNCATED = '{"title": "1/2031", "consultant_rows": ['
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        _OBJECT,
+        f"```json\n{_OBJECT}\n```",
+        f"Oto wynik odczytu:\n{_OBJECT}",
+        f"```json\n{_OBJECT}\n```\nUwaga: stawka oznaczona gwiazdką jest negocjowana.",
+        f'Przykład formatu {{"a": 1}} — właściwy wynik:\n{_OBJECT}\nKoniec.',
+    ],
+)
+def test_model_json_is_found_inside_prose_and_fences(raw):
+    assert parser.parse_model_json(raw)["title"] == "1/2031"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "Nie mogę odczytać dokumentu.", '{"title": "1/2031", "consultant_rows": ['],
+)
+def test_unreadable_or_truncated_answer_is_not_repaired(raw):
+    assert parser.parse_model_json(raw) is None
+
+
+def test_unparsed_shape_describes_without_content():
+    truncated_raw = '{"title": "1893/2031", "consultant_rows": ['
+    shape = parser.describe_unparsed_response(truncated_raw, "max_tokens")
+    assert shape == (
+        f"zaczyna się od {{, {len(truncated_raw)} znaków, ucięta limitem tokenów"
+    )
+    assert "1893" not in shape
+    assert (
+        parser.describe_unparsed_response("Tekst", "end_turn")
+        == "zaczyna się od tekstu, 5 znaków, stop=end_turn"
+    )
+
+
+def _message(text: str, stop_reason: str = "end_turn"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=text)], stop_reason=stop_reason
+    )
+
+
+async def test_answer_with_prose_is_read_by_ai_not_fallback(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", True)
+    monkeypatch.setattr(
+        parser, "call_claude", lambda **_k: _message(f"Wynik:\n{_OBJECT}\nGotowe.")
+    )
+    result = await parse_order_document("Zamówienie nr 1/2031", all_rows=True)
+    assert result.source == "claude" and result.ai_failure is None
+    assert result.title == "1/2031"
+
+
+async def test_truncated_answer_falls_back_with_shape(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", True)
+    monkeypatch.setattr(
+        parser,
+        "call_claude",
+        lambda **_k: _message(_TRUNCATED, "max_tokens"),
+    )
+    result = await parse_order_document("Zamówienie nr 1/2031", all_rows=True)
+    assert result.source == "regex"
+    assert result.ai_failure == (
+        "nieczytelna odpowiedź AI (nie JSON; zaczyna się od {, "
+        f"{len(_TRUNCATED)} znaków, ucięta limitem tokenów)"
+    )
