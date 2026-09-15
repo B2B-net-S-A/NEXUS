@@ -111,3 +111,25 @@ wdrożenia bez rolling update: najdłuższa przerwa API wyniosła 75 s, frontend
 7 s, a kontener Postgresa został odtworzony. To nie wpływa na zaliczenie bramki
 DEP-01, ale pozostaje dowodem ryzyka operacyjnego dla ewentualnej aktualizacji
 Coolify.
+
+## Aktualizacja operacyjna 15.09.2026 (stan na 19:45 CEST)
+
+Ta sekcja zastępuje starsze statusy powyżej. Produkcja serwuje
+`8b6b739ed82d8976002aa6346cc73b8447f48a37` (#1549, zmergowany o 17:17 CEST
+przez inną sesję po wdrożeniu `2542987`). Oba wdrożenia przeszły tę samą
+bramkę DEP-01.
+
+| ID | Stan | Dowód i dalszy krok |
+|---|---|---|
+| DEP-01 | **ZALICZONE** | [Deploy 34985517944](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34985517944) (`2542987`) i [Deploy 34987664618](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34987664618) (`8b6b739`): job `select` — „Wydanie = HEAD maina 8b6b739 z zieloną bramką CI Gate”, smoke — „Produkcja serwuje wydanie 8b6b739”, backend i frontend „zgodny z wydaniem”. |
+| DEP-02 | **ZALICZONE** | Odczyt 19:36 CEST: `/api/health` i `/api/health/deep` zwracają dokładne SHA `8b6b739e…`, `checks.migrations=healthy`. `/api/health/alembic`: DB i kod na `0310_dl_alerts_my_clients_panel`, `orphaned=[]`, `reconcilable=true`. |
+| MON-04 | **ZALICZONE (drugi odczyt)**; podniesienie progu **ZABLOKOWANE CZASOWO do 22.09.2026** | Pierwszy odczyt po wdrożeniu `2542987`: `healthy`. Wdrożenie #1549 zrestartowało backend (Postgres odtworzony 17:23:46 CEST), a restart zeruje rejestr heartbeatów, więc okno 2 h liczono od nowa. Drugi odczyt 19:36:44 CEST, po ponad 2 h bez restartu: `checks.background_tasks=healthy`, żadna sonda nie jest `degraded` ani `unhealthy`. Zmiana `degraded: stalled` → `unhealthy: stalled` (Zadanie D) nie wcześniej niż 22.09.2026: w Codexie nie było automatyzacji dla tego kroku, dlatego założono jednorazowe zadanie zaplanowane w Claude Code na 22.09.2026 09:00 (przegląd ostrzeżeń uptime-probe z tygodnia, PR bez merge'u). |
+| MON-01 | **ZALICZONE** | [Sentry daily monitor 34980098469](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980098469) zakończył się zielono. W Teams, w kanale `NEXUS — alerty`, wizualnie potwierdzono kartę `NEXUS Sentry` z digestem obu projektów i bez komunikatu `MONITORING READ FAILED`. |
+| OPS-01 | **ZABLOKOWANE: właściciel musi dodać trzy sekrety GitHub** | [Coolify Ops 34980172655](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980172655) potwierdził kompletną konfigurację serwerową. Brakuje `BACKUP_AGE_PRIVATE_KEY` (istniejący klucz prywatny pasujący do publicznego w Coolify), `BACKUP_S3_ACCESS_KEY` i `BACKUP_S3_SECRET_KEY` (klucz B2 tylko do odczytu). `BACKUP_MONITORING_ENABLED=false`, restore drill nie został uruchomiony. Śledzenie: [issue #1247](https://github.com/B2B-net-S-A/NEXUS/issues/1247). |
+| MON-02 | **ZABLOKOWANE: konto E2E i logowanie hasłem na produkcji** | [E2E 34986200229](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34986200229) i [E2E 34988319871](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34988319871) (po wdrożeniu #1549, gdy zmienna była jeszcze włączona) zakończyły się błędem bez sekretów konta; alert w [issue #1551](https://github.com/B2B-net-S-A/NEXUS/issues/1551). `E2E_POST_DEPLOY_ENABLED=false` od 17:29:58 CEST (potwierdzone odczytem API). Nowe ustalenie: produkcja ma wyłączone logowanie hasłem (`/api/auth/methods` → `password:false`), a `/login` renderuje formularz hasła tylko przy `password:true`; `frontend/e2e/auth.setup.ts` loguje się właśnie tym formularzem. Same sekrety nie wystarczą. Po stronie właściciela zostają: konto E2E z rolą recruiter i ukończonym onboardingiem, jego adres dopisany do `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` w Coolify (wyjątek działa tylko dla `POST /api/auth/login`) oraz sekrety `E2E_USER_EMAIL` i `E2E_USER_PASSWORD`. Zmiana testów jest w tym PR: przy `password:false` setup loguje się przez API i oddaje token sondzie sesji `/login` (`frontend/e2e/helpers/session.ts`), scenariusz `@stack` `auth-api-session.spec.ts` sprawdza tę ścieżkę na stacku CI, a `auth.spec.ts` w trybie SSO-only oczekuje przycisku Microsoft zamiast formularza. Dopiero zielony ręczny bieg `e2e.yml` pozwala ustawić zmienną z powrotem na `true`. |
+| MON-05 | **ZALICZONE poza Teams**; kanał Teams **ZABLOKOWANE: webhook musi dodać właściciel** | Wybrano wariant bez zmiany planu: oba checki co 120 s z Frankfurtu i Paryża (89 280 wykonań miesięcznie przy limicie 100 000). `nexus-login-http` (ID `89783`) i `nexus-api-live-http` (ID `89793`, walidacja body `"status":"alive"`). Alert per check: co najmniej 3 z 4 nieudanych wykonań w 5 min (reguła `ProbeFailedExecutionsTooHigh [5m]`, `health=ok`), trasa domyślna do punktu kontaktu e-mail z włączonymi powiadomieniami o powrocie; test punktu kontaktu wysłany z sukcesem ok. 19:40 CEST. Obserwacja 17:58–19:37 CEST: oba checki 100% uptime i 100% osiągalności. Szczegóły: `docs/uptime-monitoring.md`. |
+
+Wdrożenie #1549 ponownie pokazało przerwę podczas wymiany kontenerów:
+najdłuższa przerwa widziana przez użytkowników 66 s, kontener Postgresa został
+odtworzony. Aktualizacja Coolify (zadanie E) nie była wykonywana — wymaga
+osobnej, wyraźnej zgody właściciela.
