@@ -11,6 +11,8 @@ import { test as setup, expect } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 
+import { fetchAuthMethods, openSessionViaApi } from "./helpers/session";
+
 const EMAIL = process.env.E2E_USER_EMAIL || "artur@b2bnet.pl";
 const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 
@@ -27,21 +29,29 @@ setup("authenticate", async ({ page }) => {
 
   fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
 
-  // Przewodnik onboardingowy zapamiętuje zamknięcie w localStorage — ustawiamy
-  // go przed pierwszym renderem zamiast ścigać się z nakładką.
-  await page.addInitScript(() => {
-    window.localStorage.setItem("onboarding_completed", "true");
-  });
-  await page.goto("/login");
-  // Selektory po `id` pól i DOKŁADNEJ nazwie przycisku: placeholder e-maila
-  // zmienił się z `rekruter@firma.pl`, a `/zaloguj/i` łapał też przycisk
-  // „Zaloguj się przez Microsoft".
-  await page.locator("#login-email").fill(EMAIL);
-  await page.locator("#login-password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Zaloguj się", exact: true }).click();
+  // Produkcja działa w trybie SSO-only: bez formularza hasła na /login konto E2E
+  // (lista PASSWORD_LOGIN_BREAK_GLASS_EMAILS) loguje się przez API. Stack E2E ma
+  // logowanie hasłem włączone, więc w CI dalej sprawdzamy formularz.
+  const methods = await fetchAuthMethods();
+  if (methods.password) {
+    // Przewodnik onboardingowy zapamiętuje zamknięcie w localStorage — ustawiamy
+    // go przed pierwszym renderem zamiast ścigać się z nakładką.
+    await page.addInitScript(() => {
+      window.localStorage.setItem("onboarding_completed", "true");
+    });
+    await page.goto("/login");
+    // Selektory po `id` pól i DOKŁADNEJ nazwie przycisku: placeholder e-maila
+    // zmienił się z `rekruter@firma.pl`, a `/zaloguj/i` łapał też przycisk
+    // „Zaloguj się przez Microsoft".
+    await page.locator("#login-email").fill(EMAIL);
+    await page.locator("#login-password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Zaloguj się", exact: true }).click();
 
-  // Wait until we are out of /login (dashboard redirect).
-  await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 20_000 });
+    // Wait until we are out of /login (dashboard redirect).
+    await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 20_000 });
+  } else {
+    await openSessionViaApi(page, EMAIL, PASSWORD);
+  }
 
   // Dismiss onboarding overlay if it appears — this is the race that broke
   // the Phase 9 suite.

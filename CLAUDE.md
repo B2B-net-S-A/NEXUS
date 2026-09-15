@@ -106,6 +106,8 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 
 ## Healthcheck endpoint
 
+- **Zewnętrzne sondy i alerty:** stan oraz konfiguracja Grafana Synthetic
+  Monitoring są opisane w `docs/uptime-monitoring.md`.
 - **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
 - **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
 - **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).
@@ -163,7 +165,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   z powodem (`test_loop_heartbeat.py`). Progi obejmują najdłuższy bieg (Traffit
   full: 12 h ponad interwał).
 - **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`. GitHub uruchamia „godzinowy” cron co 1–6 h, więc to NIE jest sonda dostępności — od tego jest zewnętrzna sonda Grafana Synthetic Monitoring (MON-05). Awaria joba `probe` albo `backup-freshness` z crona otwiera issue (job `alert`), tak jak `health-checks`, restore drill i digest Sentry.
-- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue).
+- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue). Produkcja jest SSO-only (`/api/auth/methods` → `password:false`), więc `/login` nie ma formularza hasła: setup loguje się wtedy przez API i oddaje token sondzie sesji (`e2e/helpers/session.ts`), a adres konta E2E musi być na `PASSWORD_LOGIN_BREAK_GLASS_EMAILS`.
 - **GIT_SHA / BUILT_AT:** SHA pochodzi z tagu obrazu budowanego przez Coolify (`release.sh` → `/app/.nexus-build-sha`, #1524), nie z env `$SOURCE_COMMIT`.
 
 ## Env vars (build-time vs runtime)
