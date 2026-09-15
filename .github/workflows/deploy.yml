@@ -31,14 +31,23 @@ name: Deploy
 # failed/cancelled with the server-side log tail, and only then health-check.
 #
 # 2026-08-07 (concurrent deployments): przy serii merge'y każdy push na main
-# odpalał osobny pełny rebuild Coolify, mimo że Coolify klonuje HEAD maina w
-# momencie budowy — pierwszy build z burstu wdraża więc także późniejsze
-# commity, a kolejne buildy tylko mielą kolejkę (429 "queue is full"
-# 2026-07-15/16, disk-fill 2026-05-22). Teraz deploy job najpierw pyta
-# /api/health: jeśli produkcja serwuje już TARGET_SHA lub jego potomka,
-# pomija trigger/rebuild i przechodzi wprost do smoke testu. Deep healthcheck
-# akceptuje potomka TARGET_SHA (tak jak pierwszy smoke od #965) — wcześniej
-# czerwienił się na wyprzedzonych deployach mimo udanego wdrożenia.
+# odpalał osobny pełny rebuild Coolify (429 "queue is full" 2026-07-15/16,
+# disk-fill 2026-05-22). Stąd koalescencja burstów: deploy pomija rebuild,
+# gdy produkcja serwuje już to, co ma wdrożyć.
+#
+# 2026-09-15 (DEP-01, audyt 14.09): Coolify buduje HEAD maina z chwili budowy
+# (4.1.2 ignoruje nawet przypięty `git_commit_sha` — poprawione w 4.2.0), a smoke
+# przyjmował każdego POTOMKA TARGET_SHA. Commit z czerwoną albo trwającą bramką
+# "CI Gate" wjeżdżał więc na produkcję w deployu zielonego commitu obok. Teraz
+# `select_release_sha.py` pilnuje obu końców budowy:
+#   1. job `select`: deploy rusza TYLKO, gdy HEAD maina ma zieloną bramkę
+#      (RELEASE_SHA = HEAD). HEAD z bramką w toku → odroczenie (wdroży go jego
+#      własny przebieg); z czerwoną → wstrzymanie z ostrzeżeniem;
+#   2. smoke: produkcja musi serwować RELEASE_SHA albo potomka z ZIELONĄ
+#      bramką (merge w trakcie budowy; na bramkę w toku czekamy do 10 min).
+#      Potomek z czerwoną bramką = czerwony deploy z instrukcją wycofania.
+# Po aktualizacji Coolify do ≥ 4.2.0 można przypinać `git_commit_sha` i
+# wymagać samej równości.
 #
 # Required GH secrets:
 #   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
@@ -78,10 +87,12 @@ on:
   # `workflow_run` zawsze bierze plik workflow z gałęzi domyślnej (main) i niesie
   # commit wyzwalającego przebiegu jako `github.event.workflow_run.head_sha` —
   # SHA, którego bramkę właśnie zweryfikowaliśmy — wystawiony niżej jako
-  # TARGET_SHA i asertowany przez smoke test.
+  # TARGET_SHA. Smoke test asertuje RELEASE_SHA lub jego zielonego potomka (DEP-01).
   #
   # ROLLBACK (przywrócenie bramki na pełnym CI): zmień `workflows: ["CI Gate"]`
-  # z powrotem na `workflows: ["CI"]`. Deploy znowu poczeka na pytest.
+  # z powrotem na `workflows: ["CI"]` ORAZ `GATE_WORKFLOW` w
+  # `.github/scripts/select_release_sha.py` na `ci.yml` — inaczej wybór wydania
+  # pytałby o inną bramkę niż ta, która wyzwala deploy.
   workflow_run:
     workflows: ["CI Gate"]
     types: [completed]
@@ -90,6 +101,8 @@ on:
 
 permissions:
   contents: read
+  # DEP-01: wybór wydania czyta wyniki "CI Gate" dla commitów maina.
+  actions: read
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -103,21 +116,49 @@ env:
   # The commit the deploy verifies. Under `workflow_run` this is the SHA whose
   # CI passed (head_sha of the triggering run); under manual `workflow_dispatch`
   # there is no workflow_run payload, so we fall back to github.sha (main HEAD
-  # at dispatch). The smoke test asserts /api/health serves this SHA.
+  # at dispatch). DEP-01: the deploy job works on RELEASE_SHA (main HEAD with
+  # a green gate) chosen by the `select` job.
   TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
+  # DEP-01: osobny job, żeby odroczony deploy nie wchodził w żaden krok
+  # triggera ani smoke (jeden `if` na jobie zamiast warunku na każdym kroku).
+  select:
+    name: Wybierz wydanie (HEAD maina z zieloną bramką)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    outputs:
+      release_sha: ${{ steps.release_select.outputs.release_sha }}
+      defer: ${{ steps.release_select.outputs.defer }}
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Wybierz wydanie
+        id: release_select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
+        run: |
+          # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
+          # shellcheck disable=SC2086
+          python3 .github/scripts/select_release_sha.py select \
+            --repo "${{ github.repository }}" --branch main \
+            --target "$TARGET_SHA" $TARGET_UNVERIFIED
+
   deploy:
     name: Deploy + smoke test
+    needs: select
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # Deploy TYLKO gdy "CI Gate" dla tego samego SHA przeszła na main. Ręczny
-    # workflow_dispatch (brak payloadu workflow_run) zostaje jako furtka na
-    # redeploy/rollback (deployment-runbook §4). Czerwony — lub spoza main —
-    # przebieg bramki zostawia to jako false → job pominięty razem ze
-    # smoke-testem, który od 2026-08-07 jest jego częścią → workflow no-op
-    # bez dotykania produkcji.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    timeout-minutes: 45
+    # Bramka zdarzenia (tylko zielone "CI Gate" na main albo ręczny dispatch)
+    # siedzi na jobie `select`; tu dochodzi odroczenie, gdy HEAD maina nie ma
+    # zielonej bramki.
+    if: ${{ needs.select.outputs.defer == 'false' }}
+    env:
+      RELEASE_SHA: ${{ needs.select.outputs.release_sha }}
     steps:
       # Jedyny checkout w tym jobie — i to sparse: potrzebny WYŁĄCZNIE skryptowi
       # podsumowania wersji (DEP-01) na końcu. `workflow_run` zawsze bierze
@@ -128,25 +169,19 @@ jobs:
         with:
           sparse-checkout: .github/scripts
 
-      - name: Skip if target already live (burst coalescing)
+      - name: Skip if release already live (burst coalescing)
         id: precheck
         # Ręczny workflow_dispatch NIGDY nie skipuje — to ścieżka świadomego
         # redeployu (np. po zmianie env varów), gdzie rebuild jest celem.
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
-          # Token przez env, nie inline w skrypcie — interpolacja ${{ }} wkleja
-          # literal do run: (ryzyko przy set -x / echo), env tego unika.
-          GH_TOKEN: ${{ github.token }}
         run: |
-          # Coolify klonuje HEAD maina w momencie budowy, nie TARGET_SHA — przy
-          # burstach merge'y wcześniejszy deployment zwykle wdrożył już nasz
-          # commit razem z nowszymi. Kolejny pełny rebuild niczego wtedy nie
-          # zmienia na produkcji, a to właśnie rebuild-churn zapychał kolejkę
-          # Coolify (HTTP 429) i dysk serwera. Jeżeli /api/health serwuje już
-          # TARGET_SHA albo jego POTOMKA — skip=true i job przechodzi od razu
-          # do smoke testu. Każdy błąd tej sondy = fail-open do normalnego
-          # deployu (skip tylko przy twardym dowodzie, że kod już stoi).
+          # Przy burstach merge'y wcześniejszy przebieg zwykle wdrożył już ten
+          # sam RELEASE_SHA (HEAD z zieloną bramką). Kolejny pełny rebuild
+          # niczego wtedy nie zmienia, a rebuild-churn zapychał kolejkę Coolify
+          # (HTTP 429) i dysk serwera. Skip WYŁĄCZNIE przy równości z
+          # RELEASE_SHA. Każdy błąd sondy = fail-open do deployu.
           echo "skip=false" >> "$GITHUB_OUTPUT"
           if [ -z "$APP_URL" ]; then
             echo "APP_URL unset — deploying normally"
@@ -154,25 +189,11 @@ jobs:
           fi
           response=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null || echo '')
           version=$(echo "$response" | jq -r '.version // ""' 2>/dev/null || echo '')
-          if [ -z "$version" ] || [ ${#version} -lt 7 ]; then
-            echo "No usable live version — deploying normally"
-            exit 0
-          fi
-          if [ "$version" = "$TARGET_SHA" ]; then
+          if [ "$version" = "$RELEASE_SHA" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Produkcja już serwuje $TARGET_SHA — pomijam redundantny rebuild."
-            exit 0
-          fi
-          rel=$(curl -fsSL \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
-          if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Produkcja serwuje $version (pokrewieństwo=$rel wobec targetu) — nasz kod już wdrożony, pomijam rebuild."
+            echo "✅ Produkcja już serwuje wydanie $RELEASE_SHA — pomijam redundantny rebuild."
           else
-            echo "Live=$version, target=$TARGET_SHA, pokrewieństwo=$rel — deploying normally"
+            echo "Live=${version:-brak}, wydanie=$RELEASE_SHA — deploying normally"
           fi
 
       - name: Configure release metadata from actual Coolify image tags
@@ -356,6 +377,10 @@ jobs:
             case "$status" in
               finished)
                 echo "✅ Deployment $DEPLOYMENT_UUID finished after ~$((i * 5))s"
+                # DEP-01: tylko informacyjnie — bramkę zbudowanego commitu
+                # rozstrzyga smoke (`select_release_sha.py accept`).
+                built=$(echo "$resp" | jq -r '.commit // ""' 2>/dev/null || echo '')
+                echo "Commit zgłoszony przez Coolify: ${built:-brak pola} (wydanie $RELEASE_SHA)"
                 exit 0
                 ;;
               failed|cancelled*|cancelled-by-user)
@@ -397,12 +422,13 @@ jobs:
       - name: Healthcheck (standard shape + version match)
         env:
           APP_URL: ${{ vars.APP_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$APP_URL" ]; then
             echo "::error::vars.APP_URL not set in repo settings"
             exit 1
           fi
-          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
+          EXPECTED_SHA=$(echo "$RELEASE_SHA" | cut -c1-7)
           # The deploy job already confirmed the deployment FINISHED server-side,
           # so this only needs to absorb the container swap + app boot —
           # 20 × 15s = 5 min is plenty (was: blind sleep 180 + 6 min).
@@ -413,38 +439,24 @@ jobs:
               version=$(echo "$response" | jq -r '.version // "missing"')
               version_short=$(echo "$version" | cut -c1-7)
               if [ "$status" != "unhealthy" ] && [ "$status" != "missing" ]; then
-                if [ "$version_short" = "$EXPECTED_SHA" ]; then
+                # DEP-01: RELEASE_SHA albo jego potomek z ZIELONĄ bramką (merge
+                # między wyborem wydania a klonem w Coolify). Potomek z bramką
+                # czerwoną = twardy błąd; na bramkę w toku skrypt czeka ≤ 10 min.
+                # Przyjęta wersja trafia do ACCEPTED_SHA (GITHUB_ENV) i wiąże
+                # kolejne kroki smoke.
+                set +e
+                python3 .github/scripts/select_release_sha.py accept \
+                  --repo "${{ github.repository }}" --release "$RELEASE_SHA" --live "$version"
+                verdict=$?
+                set -e
+                if [ "$verdict" = "0" ]; then
                   echo "✅ Pass: status=$status version=$version"
                   exit 0
                 fi
-                # Coolify klonuje main HEAD w momencie budowania, a ten job
-                # porównuje z SHA, który deploy WYWOŁAŁ. Przy serii merge'y to
-                # rozjeżdża się z definicji: deploy dla commitu N zastaje na
-                # produkcji commit N+1, czeka na wersję, która nigdy się nie
-                # pojawi, i po 5 minutach czerwienieje — mimo że wdrożenie się
-                # UDAŁO, tylko nowszym kodem. 27.07: 6 z 10 przebiegów padło
-                # wyłącznie z tego powodu, co uczy ignorować czerwony Deploy.
-                #
-                # Rozstrzygamy pokrewieństwem, nie równością: jeśli wersja na
-                # produkcji jest POTOMKIEM naszego SHA, nasz kod tam jest —
-                # razem z czymś nowszym. To sukces, nie awaria. Każdy inny
-                # wynik ("behind", "diverged", błąd API) leci dalej w pętlę
-                # ponowień, więc prawdziwie nieudany deploy nadal czerwienieje.
-                if [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
-                  rel=$(curl -fsSL \
-                        -H "Authorization: Bearer ${{ github.token }}" \
-                        -H "Accept: application/vnd.github+json" \
-                        "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                        2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
-                  if [ "$rel" = "ahead" ]; then
-                    echo "✅ Pass: na produkcji $version_short — potomek $EXPECTED_SHA."
-                    echo "   Deploy wyprzedzony przez nowszy merge; nasz kod jest wdrożony."
-                    exit 0
-                  fi
-                  echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA, pokrewieństwo=$rel), retrying in 15s..."
-                else
-                  echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
+                if [ "$verdict" = "1" ]; then
+                  exit 1
                 fi
+                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA or its green descendant), retrying in 15s..."
               else
                 echo "Attempt $i: status=$status, retrying in 15s..."
               fi
@@ -533,8 +545,8 @@ jobs:
       # przed `next build`; SHA z build arga NEXT_PUBLIC_GIT_SHA = ${GIT_SHA}
       # z Coolify — to samo zrodlo, co `version` backendu).
       #
-      # Ta sama regula akceptacji, co w smoke backendu: rownosc prefiksu ALBO
-      # potomek targetu (koalescencja burstow). `sha: "unknown"` = build bez
+      # Ta sama wersja, ktora przyjal smoke backendu: RÓWNOŚĆ z ACCEPTED_SHA
+      # (RELEASE_SHA albo jego potomek z zielona bramka — DEP-01). `sha: "unknown"` = build bez
       # build arga i jest odrzucane wprost, nie przepuszczane jako „cos”.
       # Middleware nie dotyka sciezek z kropka (`matcher` wyklucza `.*\..*`),
       # wiec plik jest publiczny bez logowania. Outputs zasilaja podsumowanie
@@ -543,15 +555,13 @@ jobs:
         id: frontend_version
         env:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$FRONTEND_URL" ]; then
             echo "::error::vars.FRONTEND_URL nie jest ustawione — smoke test nie ma czego sprawdzic"
             exit 1
           fi
-          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
+          EXPECTED_SHA=$(echo "$ACCEPTED_SHA" | cut -c1-7)
           sha=""
-          rel="n/a"
           started=$SECONDS
           for i in $(seq 1 12); do
             body=$(curl -sSL --max-time 15 -A "$SMOKE_UA" "$FRONTEND_URL/version.json" 2>/tmp/fe_ver_err || true)
@@ -559,26 +569,12 @@ jobs:
             sha=$(printf '%s' "$body" | jq -r '.sha // ""' 2>/dev/null || true)
             sha_short=$(printf '%s' "$sha" | cut -c1-7)
             if [ -n "$sha" ] && [ "$sha" != "unknown" ] && [ ${#sha} -ge 7 ]; then
-              if [ "$sha_short" = "$EXPECTED_SHA" ]; then
-                rel="identical"
-              else
-                rel=$(curl -fsSL \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${sha}" \
-                      2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
-              fi
-              if [ "$rel" = "identical" ] || [ "$rel" = "ahead" ]; then
-                echo "frontend_sha=$sha" >> "$GITHUB_OUTPUT"
-                echo "frontend_rel=$rel" >> "$GITHUB_OUTPUT"
-                if [ "$rel" = "identical" ]; then
-                  echo "✅ Frontend: version.json sha=$sha_short == oczekiwane $EXPECTED_SHA"
-                else
-                  echo "✅ Frontend: version.json sha=$sha_short — potomek $EXPECTED_SHA (deploy wyprzedzony przez nowszy merge; nasz kod jest wdrozony)."
-                fi
+              echo "frontend_sha=$sha" >> "$GITHUB_OUTPUT"
+              if [ "$sha" = "$ACCEPTED_SHA" ]; then
+                echo "✅ Frontend: version.json sha=$sha_short == wydanie $EXPECTED_SHA"
                 exit 0
               fi
-              echo "Proba $i: frontend sha=$sha_short, oczekiwano $EXPECTED_SHA (pokrewienstwo=$rel), ponawiam za 15s..."
+              echo "Proba $i: frontend sha=$sha_short, oczekiwano $EXPECTED_SHA, ponawiam za 15s..."
             elif [ "$sha" = "unknown" ]; then
               echo "::error::Frontend release metadata missing: version.json sha=unknown"
               exit 1
@@ -588,14 +584,12 @@ jobs:
             sleep 15
           done
           echo "frontend_sha=${sha}" >> "$GITHUB_OUTPUT"
-          echo "frontend_rel=${rel}" >> "$GITHUB_OUTPUT"
-          echo "::error::Frontend nie serwuje oczekiwanej wersji po $i probach ($((SECONDS-started))s): version.json sha='${sha:-brak}' vs oczekiwane $EXPECTED_SHA (pokrewienstwo=$rel). Frontend odpowiada, ale STARYM buildem — sprawdz log builda frontendu w Coolify i czy GIT_SHA (is_buildtime) jest ustawione."
+          echo "::error::Frontend nie serwuje oczekiwanej wersji po $i probach ($((SECONDS-started))s): version.json sha='${sha:-brak}' vs wydanie $EXPECTED_SHA. Frontend odpowiada, ale STARYM buildem — sprawdz log builda frontendu w Coolify i czy GIT_SHA (is_buildtime) jest ustawione."
           exit 1
 
       - name: Deep healthcheck (core modules not 503)
         env:
           APP_URL: ${{ vars.APP_URL }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           # /api/health only pings `SELECT 1`, so a core module can 503 for real
           # users while the deploy ships green (it never touched that endpoint).
@@ -619,31 +613,17 @@ jobs:
             echo "::error::vars.APP_URL not set in repo settings"
             exit 1
           fi
-          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
+          EXPECTED_SHA=$(echo "$ACCEPTED_SHA" | cut -c1-7)
           for i in $(seq 1 6); do
             response=$(curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
             if [ -n "$response" ]; then
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')
               version_short=$(echo "$version" | cut -c1-7)
-              # Jak w pierwszym smoke tescie (#965): przy burście merge'y prod
-              # może już serwować POTOMKA naszego SHA — nasz kod (i migracje)
-              # tam są, więc deep health na nowszym buildzie to pełnoprawna
-              # weryfikacja. Bez tego deep step czerwienił wyprzedzone deploye,
-              # które pierwszy smoke właśnie uznał za sukces.
+              # DEP-01: deep health liczy się wyłącznie na przyjętej wersji.
               ok_version=false
-              if [ "$version_short" = "$EXPECTED_SHA" ]; then
+              if [ "$version" = "$ACCEPTED_SHA" ]; then
                 ok_version=true
-              elif [ "$version" != "missing" ] && [ ${#version} -ge 7 ]; then
-                rel=$(curl -fsSL \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${version}" \
-                      2>/dev/null | jq -r '.status // "unknown"' || echo unknown)
-                if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then
-                  ok_version=true
-                  echo "Attempt $i: prod serwuje $version_short — potomek $EXPECTED_SHA; sprawdzam deep health na nowszym buildzie."
-                fi
               fi
               if [ "$ok_version" != "true" ]; then
                 echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
@@ -683,8 +663,8 @@ jobs:
           # ma wyladowac w logu. Ponowienia lapia chwilowa niedostepnosc bazy
           # (`db_error`) i restart kontenera; realny rozjazd rewizji jest
           # deterministyczny i wyczerpuje petle → czerwony deploy.
-          # Deep health w kroku wyzej juz potwierdzil, ze na prodzie stoi NASZ
-          # build (albo jego potomek) — tu nie powtarzamy logiki wersji.
+          # Deep health w kroku wyzej juz potwierdzil, ze na prodzie stoi
+          # przyjeta wersja (ACCEPTED_SHA) — tu nie powtarzamy logiki wersji.
           if [ -z "$APP_URL" ]; then
             echo "::error::vars.APP_URL not set in repo settings"
             exit 1
@@ -715,52 +695,38 @@ jobs:
           echo "Last /api/health/alembic response: $(echo "${response:-}" | head -c 600)"
           exit 1
 
-      # DEP-01 (audyt Codexa, 14.09.2026): koalescencja burstów jest DECYZJĄ
-      # (nagłówek tego pliku, CLAUDE.md „CI gotchas”), nie błędem — ale bez
-      # śladu w podsumowaniu biegu nie da się po fakcie odczytać, CO naprawdę
-      # wylądowało na produkcji po TYM deployu. Ten krok WYŁĄCZNIE loguje:
-      # TARGET_SHA obok SHA serwowanego przez /api/health i version.json
-      # frontendu, z adnotacją „koalescencja burstów”, gdy się różnią, a
-      # produkcja serwuje potomka. Logika skip/rebuild wyżej jest nietknięta.
+      # DEP-01 (audyt 14.09.2026): podsumowanie mówi, CO naprawdę stoi na
+      # produkcji po TYM deployu: TARGET_SHA (commit, którego bramka wyzwoliła
+      # bieg), RELEASE_SHA (HEAD maina z zieloną bramką), ACCEPTED_SHA (wersja
+      # przyjęta przez smoke) i SHA serwowane przez backend oraz frontend.
       # `always()`: rozjazd jest najciekawszy właśnie wtedy, gdy smoke padł.
       # Każde wywołanie jest fail-open, a krok nigdy nie zmienia wyniku joba.
-      - name: Podsumowanie wersji (TARGET_SHA vs produkcja)
+      - name: Podsumowanie wersji (wydanie vs produkcja)
         if: ${{ always() }}
         env:
           APP_URL: ${{ vars.APP_URL }}
-          GH_TOKEN: ${{ github.token }}
           REBUILD_SKIPPED: ${{ steps.precheck.outputs.skip == 'true' }}
           FRONTEND_SHA: ${{ steps.frontend_version.outputs.frontend_sha }}
-          FRONTEND_REL: ${{ steps.frontend_version.outputs.frontend_rel }}
         run: |
           set +e
-          EXPECTED_SHA=$(echo "$TARGET_SHA" | cut -c1-7)
           live=""
-          rel=""
           if [ -n "$APP_URL" ]; then
             live=$(curl -fsSL --max-time 15 -A "$SMOKE_UA" "$APP_URL/api/health" 2>/dev/null | jq -r '.version // ""' 2>/dev/null)
-            live_short=$(printf '%s' "$live" | cut -c1-7)
-            if [ -n "$live" ] && [ ${#live} -ge 7 ] && [ "$live_short" != "$EXPECTED_SHA" ]; then
-              rel=$(curl -fsSL \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    "${{ github.api_url }}/repos/${{ github.repository }}/compare/${TARGET_SHA}...${live}" \
-                    2>/dev/null | jq -r '.status // "unknown"' 2>/dev/null)
-              [ -n "$rel" ] || rel="unknown"
-            fi
           fi
           if [ ! -f .github/scripts/deploy_version_summary.py ]; then
-            echo "::warning::Brak .github/scripts/deploy_version_summary.py (checkout nie zaszedł?) — podsumowanie wersji pominięte. target=$EXPECTED_SHA live=${live:-brak} rel=${rel:-n/a}"
+            echo "::warning::Brak .github/scripts/deploy_version_summary.py (checkout nie zaszedł?) — podsumowanie wersji pominięte. release=${RELEASE_SHA:-brak} live=${live:-brak}"
             exit 0
           fi
           python3 .github/scripts/deploy_version_summary.py \
             --target "$TARGET_SHA" \
-            --backend-live "$live" --backend-relation "$rel" \
-            --frontend-live "$FRONTEND_SHA" --frontend-relation "$FRONTEND_REL" \
+            --release "${RELEASE_SHA:-}" \
+            --accepted "${ACCEPTED_SHA:-}" \
+            --backend-live "$live" \
+            --frontend-live "$FRONTEND_SHA" \
             --rebuild-skipped "$REBUILD_SKIPPED" \
             --summary-out "$RUNNER_TEMP/version-summary.md" \
             --notice-out "$RUNNER_TEMP/version-notice.txt" \
-            || { echo "::warning::Skrypt podsumowania wersji padł — target=$EXPECTED_SHA live=${live:-brak} rel=${rel:-n/a}"; exit 0; }
+            || { echo "::warning::Skrypt podsumowania wersji padł — release=${RELEASE_SHA:-brak} live=${live:-brak}"; exit 0; }
           cat "$RUNNER_TEMP/version-summary.md" >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/version-notice.txt"
           exit 0
@@ -778,7 +744,7 @@ jobs:
             echo "::warning::Sonda przerwy nie zebrała próbek — brak pomiaru dla tego deployu."
             exit 0
           fi
-          python3 - "$samples" "$TARGET_SHA" "$probe_dir/worst" <<'PY_REPORT' >> "$GITHUB_STEP_SUMMARY"
+          python3 - "$samples" "${RELEASE_SHA:-$TARGET_SHA}" "$probe_dir/worst" <<'PY_REPORT' >> "$GITHUB_STEP_SUMMARY"
           import csv, sys
           from collections import defaultdict
           from datetime import datetime, timezone

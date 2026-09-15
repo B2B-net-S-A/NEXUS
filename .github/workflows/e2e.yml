@@ -5,6 +5,13 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"  # nightly at 03:17 UTC
+  # MON-02 (audyt 14.09.2026): po każdym udanym deployu biegną WYŁĄCZNIE testy
+  # oznaczone `@readonly` (bez zapisów w bazie produkcji, bez płatnych wywołań
+  # AI). Nie blokuje deployu — to osobny workflow; czerwień zakłada issue.
+  workflow_run:
+    workflows: ["Deploy"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -18,6 +25,15 @@ jobs:
   playwright:
     name: Playwright against production
     runs-on: ubuntu-latest
+    # Po deployu tylko przy włączniku repo — bez konta E2E każdy udany deploy
+    # dawałby czerwony bieg i komentarz w issue (zmęczenie alarmami, zanim konto
+    # w ogóle powstanie). Włącz: `gh variable set E2E_POST_DEPLOY_ENABLED --body true`.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && vars.E2E_POST_DEPLOY_ENABLED == 'true') }}
+    # Współbieżność na JOBIE, nie na workflow: pominięty bieg (deploy odroczony,
+    # anulowany) nie może anulować trwającego smoke po ostatnim prawdziwym deployu.
+    concurrency:
+      group: e2e-${{ github.event_name }}
+      cancel-in-progress: ${{ github.event_name == 'workflow_run' }}
     defaults:
       run:
         working-directory: frontend
@@ -68,6 +84,32 @@ jobs:
           read -r total_cases total_specs <<< "$(count_tests)"
           total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
 
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            # Smoke po deployu: tylko `@readonly`. Brak konta = CZERWONO, nie
+            # „zielony częściowy” — ten bieg istnieje wyłącznie po to, żeby
+            # sprawdzić przepływy po zalogowaniu na wdrożonej wersji.
+            be_sha=$(curl -fsS --max-time 15 "https://api.nexus.dynaminds.pl/api/health" 2>/dev/null | jq -r '.version // "brak"' || echo brak)
+            fe_sha=$(curl -fsSL --max-time 15 "${E2E_BASE_URL%/}/version.json" 2>/dev/null | jq -r '.sha // "brak"' || echo brak)
+            read -r ro_cases ro_specs <<< "$(count_tests --project=chromium --grep @readonly)"
+            {
+              echo "### E2E po deployu — testy \`@readonly\`"
+              echo ""
+              echo "| | wartość |"
+              echo "|---|---|"
+              echo "| backend \`/api/health\` | \`${be_sha:0:7}\` |"
+              echo "| frontend \`version.json\` | \`${fe_sha:0:7}\` |"
+              echo "| przypadki \`@readonly\` | ${ro_cases:-0} (z ${total_cases} wylistowanych, pliki: ${ro_specs:-0}/${total_specs}) |"
+              echo ""
+              echo "Testy zapisujące dane (tworzenie kandydata, notatki, ruch w pipeline, zapis wyszukiwania) biegną tylko nocą/ręcznie."
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ -z "$E2E_USER_PASSWORD" ]; then
+              echo "::error::Brak sekretów E2E_USER_EMAIL/E2E_USER_PASSWORD — smoke po deployu nie może sprawdzić przepływów po zalogowaniu."
+              exit 1
+            fi
+            npx playwright test --project=chromium --grep @readonly
+            exit 0
+          fi
+
           if [ -z "$E2E_USER_PASSWORD" ]; then
             read -r ran_cases ran_specs <<< "$(count_tests --project=preview-chromium)"
             ran_cases="${ran_cases:-0}"; ran_specs="${ran_specs:-0}"
@@ -116,7 +158,7 @@ jobs:
           retention-days: 7
 
       - name: Open or refresh alert issue
-        if: ${{ failure() && github.event_name == 'schedule' }}
+        if: ${{ failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_run') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -124,6 +166,9 @@ jobs:
         run: |
           set -eu
           marker="Nocny E2E przeciw produkcji jest czerwony"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            marker="E2E po deployu (@readonly) jest czerwony"
+          fi
           existing=$(gh issue list --repo "$REPO" --state open \
             --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
           body=$(printf '%s\n' \

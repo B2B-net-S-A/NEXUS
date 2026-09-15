@@ -89,11 +89,37 @@ done
 startup_phase "alembic-upgrade"
 echo "Running database migrations..."
 cd /app
-# Tolerate alembic failures in dev: multiple in-flight feature branches can
-# produce duplicate-revision or multi-head states. In DEBUG mode the app
-# falls back to Base.metadata.create_all() on startup, so tables still exist.
-# Production should never hit this path (clean single-head chain on main).
-alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
+# Tolerate alembic failures: multiple in-flight feature branches can produce
+# duplicate-revision or multi-head states, and on production a hard exit is a
+# restart loop (Coolify compose has no rolling update — deploy #702, 07.2026).
+# NIE dopisuj tu `exit`. DEP-02 (audyt 14.09.2026): wynik idzie do pliku
+# statusu, z którego aplikacja robi `logger.error` przy starcie (→ Sentry)
+# i `checks.migrations` w /api/health (→ issue z uptime-probe), więc nieudany
+# upgrade nie jest już tylko linią w logu kontenera.
+ALEMBIC_STATUS_FILE="${ALEMBIC_STATUS_FILE:-/tmp/nexus-alembic-status.json}"
+export ALEMBIC_STATUS_FILE
+ALEMBIC_LOG=$(mktemp)
+set +e
+alembic -c alembic/alembic.ini upgrade heads 2>&1 | tee "$ALEMBIC_LOG"
+ALEMBIC_RC=${PIPESTATUS[0]}
+set -e
+python - "$ALEMBIC_RC" "$ALEMBIC_LOG" "$ALEMBIC_STATUS_FILE" <<'ALEMBIC_STATUS' || echo "WARN: could not write alembic status file"
+import json, sys, datetime
+rc, log_path, out_path = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+with open(log_path, encoding="utf-8", errors="replace") as fh:
+    tail = "".join(fh.readlines()[-20:])[-4000:]
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump({
+        "ok": rc == 0,
+        "exit_code": rc,
+        "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "tail": "" if rc == 0 else tail,
+    }, fh)
+ALEMBIC_STATUS
+rm -f "$ALEMBIC_LOG"
+if [ "$ALEMBIC_RC" -ne 0 ]; then
+    echo "ERROR: alembic upgrade heads failed (exit $ALEMBIC_RC); continuing via entrypoint safety-net — see checks.migrations in /api/health"
+fi
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
 # multi-head graph (see project_alembic_state memory). The ORM expects

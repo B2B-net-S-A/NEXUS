@@ -28,6 +28,7 @@ from app.services.cv_generator_b2b.job_snapshot import (
     deserialize_job_inputs,
     serialize_job_inputs,
 )
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,10 @@ async def recovery_loop():
 
     active = set()
     try:
+        # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+        beat = loop_heartbeat.register("cv_generation", max_silence_seconds=1800)
         while True:
+            beat.tick()
             try:
                 async with AsyncSessionLocal() as db:
                     expired = await interrupt_expired_jobs(db)

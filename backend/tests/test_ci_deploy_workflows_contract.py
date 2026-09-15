@@ -9,9 +9,10 @@ cichym refaktorem:
   a job ``backend-coverage-combine`` scala je i wysyła do Codecov WYŁĄCZNIE
   przy ustawionym tokenie (``env.CODECOV_TOKEN != ''``);
 * DEP-03 — smoke deployu ma krok porównujący ``version.json`` frontendu
-  z targetem tą samą regułą (równość albo potomek) co backend;
-* DEP-01 — job deploy kończy się krokiem podsumowania wersji, który biegnie
-  ``always()`` i nie może zmienić logiki skip/rebuild (precheck nietknięty).
+  z wersją przyjętą przez smoke backendu (ACCEPTED_SHA);
+* DEP-01 — deploy rusza tylko przy zielonej bramce HEAD maina (RELEASE_SHA),
+  a smoke przyjmuje RELEASE_SHA albo potomka z ZIELONĄ bramką (ACCEPTED_SHA);
+  podsumowanie wersji biegnie ``always()`` i nie zmienia wyniku joba.
 """
 
 from __future__ import annotations
@@ -97,33 +98,49 @@ def test_deploy_smoke_asserts_frontend_version_json() -> None:
     assert step["id"] == "frontend_version"
     run = step["run"]
     assert "/version.json" in run
-    assert '"$rel" = "ahead"' in run, (
-        "Potomek targetu = sukces (koalescencja burstów), jak w smoke backendu."
-    )
+    assert '[ "$sha" = "$ACCEPTED_SHA" ]' in run
     assert '"$sha" != "unknown"' in run, (
         "Build bez GIT_SHA nie może przejść jako „jakaś wersja”."
     )
     assert run.rstrip().endswith("exit 1"), "Wyczerpanie ponowień = czerwony deploy."
 
 
-def test_deploy_version_summary_runs_always_and_leaves_precheck_alone() -> None:
+def test_deploy_requires_green_head_and_green_accepted_version() -> None:
+    deploy = _load("deploy.yml")
+    assert deploy["permissions"]["actions"] == "read"
+    select = deploy["jobs"]["select"]
+    assert "workflow_run.conclusion == 'success'" in select["if"]
+    select_step = _step(select["steps"], "Wybierz wydanie")
+    assert "select_release_sha.py select" in select_step["run"]
+    assert "--target-unverified" in select_step["env"]["TARGET_UNVERIFIED"]
+    job = deploy["jobs"]["deploy"]
+    assert job["needs"] == "select"
+    assert job["if"] == "${{ needs.select.outputs.defer == 'false' }}"
+    assert job["env"]["RELEASE_SHA"] == "${{ needs.select.outputs.release_sha }}"
+    steps = job["steps"]
+    health = _step(steps, "Healthcheck (standard shape + version match)")["run"]
+    assert "select_release_sha.py accept" in health
+    assert '[ "$verdict" = "1" ]' in health, "Potomek z czerwoną bramką = twardy błąd."
+    raw = (_WORKFLOWS / "deploy.yml").read_text(encoding="utf-8")
+    assert "/compare/" not in raw, "Pokrewieństwo liczy wyłącznie skrypt z bramką."
+    deep = _step(steps, "Deep healthcheck (core modules not 503)")["run"]
+    assert '[ "$version" = "$ACCEPTED_SHA" ]' in deep
+
+
+def test_deploy_version_summary_runs_always() -> None:
     deploy = _load("deploy.yml")
     steps = deploy["jobs"]["deploy"]["steps"]
-    summary = _step(steps, "Podsumowanie wersji (TARGET_SHA vs produkcja)")
+    summary = _step(steps, "Podsumowanie wersji (wydanie vs produkcja)")
     assert summary["if"] == "${{ always() }}"
     assert "deploy_version_summary.py" in summary["run"]
+    assert '--accepted "${ACCEPTED_SHA:-}"' in summary["run"]
     assert "GITHUB_STEP_SUMMARY" in summary["run"]
     assert summary["run"].rstrip().endswith("exit 0"), (
         "Podsumowanie nigdy nie zmienia wyniku joba."
     )
-    # Checkout jest sparse i służy tylko skryptowi — job deploy nie buduje nic.
     checkout = _step(steps, "Checkout (tylko .github/scripts)")
     assert checkout["with"]["sparse-checkout"] == ".github/scripts"
-    # Koalescencja burstów NIETKNIĘTA: precheck nadal pisze skip=true przy
-    # `ahead`/`identical` i nadal biegnie tylko poza workflow_dispatch.
-    precheck = _step(steps, "Skip if target already live (burst coalescing)")
+    precheck = _step(steps, "Skip if release already live (burst coalescing)")
     assert precheck["if"] == "${{ github.event_name != 'workflow_dispatch' }}"
-    assert (
-        'if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then' in precheck["run"]
-    )
-    assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 2
+    assert '[ "$version" = "$RELEASE_SHA" ]' in precheck["run"]
+    assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 1

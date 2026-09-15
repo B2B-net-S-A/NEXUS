@@ -6,14 +6,14 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 test.describe("Authentication", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run auth tests");
 
-  test("login page renders", async ({ page }) => {
+  test("login page renders @readonly", async ({ page }) => {
     await page.goto("/login");
     await expect(page.getByRole("heading", { name: /Nexus/i }).first()).toBeVisible();
     await expect(page.getByLabel(/email/i)).toBeVisible();
     await expect(page.getByLabel(/hasło/i).or(page.getByLabel(/password/i))).toBeVisible();
   });
 
-  test("valid login redirects to dashboard", async ({ page }) => {
+  test("valid login redirects to dashboard @readonly", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill(EMAIL);
     await page

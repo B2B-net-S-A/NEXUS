@@ -39,6 +39,7 @@ from app.services.cortex import runs as cortex_runs
 from app.services.cortex.extractor_traffit import import_cortex_facts
 from app.services.traffit.client import TraffitClient, TraffitConfig
 from app.services.traffit.importer import PhaseProgress, TraffitImporter
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -1176,7 +1177,12 @@ async def traffit_daily_sync_loop() -> None:
     logger.info("traffit_daily_sync_loop started (check every %ds)", check_interval)
     await asyncio.sleep(60)  # bootstrap grace
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "traffit_sync", max_silence_seconds=check_interval + 24 * 3600
+    )
     while True:
+        beat.tick()
         try:
             if not settings.TRAFFIT_SYNC_ENABLED:
                 await asyncio.sleep(check_interval)

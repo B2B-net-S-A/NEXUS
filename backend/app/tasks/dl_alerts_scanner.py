@@ -108,6 +108,7 @@ from app.services.order_burn_rate import (
     md_burn_rate,
 )
 from app.services.shared_md_orders import uses_shared_md_pool
+from app.services import loop_heartbeat
 
 #: Activity szkicu zamówienia założonego po obustronnym podpisie umowy
 #: w Generatorze B2B (``b2b_contract_automation._ensure_open_order``).
@@ -1124,7 +1125,10 @@ async def dl_alerts_loop() -> None:
         logger.info("dl_alerts_loop disabled (DL_ALERTS_ENABLED=false)")
         return
     interval = max(1.0, float(settings.DL_ALERTS_INTERVAL_HOURS)) * 3600
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register("dl_alerts", max_silence_seconds=interval + 2 * 3600)
     while True:
+        beat.tick()
         try:
             summary = await run_once()
             if summary:

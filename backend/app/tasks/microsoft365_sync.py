@@ -38,6 +38,7 @@ from app.services.m365 import webhooks as m365_webhooks
 from app.services.m365.graph_client import GraphClient
 from app.services.m365.matcher import IncomingMessage
 from app.services.m365.onedrive import find_meeting_recording
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,12 @@ async def microsoft365_sync_loop() -> None:
     # Give the rest of the app a head start.
     await asyncio.sleep(45)
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "microsoft365_sync", max_silence_seconds=interval + 2 * 3600
+    )
     while True:
+        beat.tick()
         try:
             await _tick(interval)
         except asyncio.CancelledError:

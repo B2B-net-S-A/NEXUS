@@ -16,6 +16,7 @@ import logging
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services import index_outbox_service as outbox
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,10 @@ async def index_outbox_loop() -> None:
         "[index-outbox] worker started (interval=%ss, batch=%s)", interval, batch
     )
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register("index_outbox", max_silence_seconds=interval + 1800)
     while True:
+        beat.tick()
         delay = interval
         try:
             async with AsyncSessionLocal() as db:

@@ -17,7 +17,7 @@ async function login(page: Page) {
 test.describe("Candidates flow", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run candidates tests");
 
-  test("lista kandydatów ładuje się z talent-radar importu", async ({ page }) => {
+  test("lista kandydatów ładuje się z talent-radar importu @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
     await expect(page.getByRole("heading", { name: /Kandydaci/i })).toBeVisible();
@@ -29,7 +29,7 @@ test.describe("Candidates flow", () => {
     expect(totalText).toBeTruthy();
   });
 
-  test("eksport wyników i import są dostępne z hierarchicznego toolbaru", async ({ page }) => {
+  test("eksport wyników i import są dostępne z hierarchicznego toolbaru @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
     await page.getByRole("button", { name: "Więcej" }).click();
@@ -42,13 +42,13 @@ test.describe("Candidates flow", () => {
     await expect(page.getByRole("link", { name: "Bulk CV" })).toBeVisible();
   });
 
-  test("SavedSearchPicker Filtry button widoczny", async ({ page }) => {
+  test("SavedSearchPicker Filtry button widoczny @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
     await expect(page.getByRole("button", { name: /Filtry/i })).toBeVisible();
   });
 
-  test("quick view zachowuje listę, przechodzi przez granicę strony i oddaje fokus", async ({ page }) => {
+  test("quick view zachowuje listę, przechodzi przez granicę strony i oddaje fokus @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates?view=list");
 
@@ -81,7 +81,7 @@ test.describe("Candidates flow", () => {
     await expect(trigger).toBeFocused();
   });
 
-  test("pełny profil ma pięć sekcji i obsługuje legacy chat link", async ({ page }) => {
+  test("pełny profil ma pięć sekcji i obsługuje legacy chat link @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates?view=list");
 
@@ -113,7 +113,7 @@ test.describe("Candidates flow", () => {
     expect(download.suggestedFilename()).toMatch(/\.csv$/);
   });
 
-  test("quick view rozróżnia 403, 404 i pozwala ponowić po 500", async ({ page }) => {
+  test("quick view rozróżnia 403, 404 i pozwala ponowić po 500 @readonly", async ({ page }) => {
     await login(page);
     await page.goto("/candidates?view=list");
 

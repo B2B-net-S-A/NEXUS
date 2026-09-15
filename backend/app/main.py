@@ -560,6 +560,27 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
+    # DEP-02: entrypoint nie zatrzymuje startu przy nieudanym `alembic upgrade`
+    # (brak rolling update = exit 1 to przerwa), więc błąd MUSI trafić do
+    # Sentry, a nie tylko do logu kontenera. `checks.migrations` w /api/health
+    # trzyma ten sam stan dla uptime-probe.
+    from app.services.migration_health import (
+        read_startup_status,
+        startup_failure_message,
+    )
+
+    _migration_failure = startup_failure_message(read_startup_status())
+    if _migration_failure:
+        logger.error(_migration_failure)
+    try:
+        # Rozgrzanie cache grafu rewizji: pierwszy odczyt parsuje wszystkie
+        # pliki migracji, a /api/health liczy go pod 2-sekundowym timeoutem.
+        from app.services.migration_health import code_revisions
+
+        code_revisions()
+    except Exception as exc:  # noqa: BLE001 — diagnostyka nie blokuje startu
+        logger.warning("[startup] alembic revision graph unavailable: %s", exc)
+
     # The legacy entrypoint fallback bounds the hot-table INTEGER -> NUMERIC
     # conversion so a deploy cannot wait indefinitely for ACCESS EXCLUSIVE.
     # A timed-out fallback must not let the application serve decimal writes
@@ -2258,6 +2279,27 @@ async def api_health_check():
         logger.warning("[health] fx check failed: %s", exc)
         checks["fx"] = "unknown"
 
+    # DEP-02: stan migracji. Informacyjny (nie przewraca `overall`), ale
+    # `unhealthy` (rozjazd bookmarku bazy z heads kodu) otwiera issue
+    # w uptime-probe, a nieudany upgrade przy starcie daje co najmniej `degraded`.
+    try:
+        from app.services.migration_health import (
+            alembic_revision_state,
+            migrations_verdict,
+            read_startup_status,
+        )
+
+        async with AsyncSessionLocal() as session:
+            _migration_state = await asyncio.wait_for(
+                alembic_revision_state(session), timeout=2.0
+            )
+        checks["migrations"] = migrations_verdict(
+            _migration_state, read_startup_status()
+        )
+    except Exception as exc:
+        logger.warning("[health] migrations check failed: %s", exc)
+        checks["migrations"] = "unknown"
+
     # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Dodatkowo:
     # krytyczne alarmy Slack (ochrona budżetu AI) bramkowane configiem — gdy
     # SLACK_WEBHOOK_URL JEST ustawiony, a pętla i tak wyszła czysto, to realny
@@ -2287,7 +2329,15 @@ async def api_health_check():
                     "ustawionego SLACK_WEBHOOK_URL"
                 )
             else:
-                checks["background_tasks"] = "healthy"
+                # MON-04: zadanie żyje, ale jego pętla nie zaczęła iteracji dłużej
+                # niż próg (zawieszony await). `degraded` = ostrzeżenie w
+                # uptime-probe; podniesienie do `unhealthy` po tygodniu obserwacji.
+                from app.services.loop_heartbeat import heartbeats
+
+                _stalled = heartbeats.stalled(running=set(_cls["tasks"]))
+                checks["background_tasks"] = (
+                    f"degraded: stalled {','.join(_stalled)}" if _stalled else "healthy"
+                )
     except Exception as exc:
         logger.warning("[health] background_tasks check failed: %s", exc)
         checks["background_tasks"] = "unknown"
@@ -2341,50 +2391,16 @@ async def api_health_alembic():
     so it can be reconciled deliberately. Auth-free by design — leaks only alembic
     revision ids, never data.
     """
-    import os
-
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
-    from sqlalchemy import text as _sql_text
 
     from app.core.database import AsyncSessionLocal
+    from app.services.migration_health import alembic_revision_state
 
-    out: dict = {}
-
-    # The DB's bookmark(s). Multiple rows == the chronic multi-head state.
-    try:
-        async with AsyncSessionLocal() as session:
-            rows = (
-                (
-                    await session.execute(
-                        _sql_text("SELECT version_num FROM alembic_version")
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        out["db_versions"] = list(rows)
-    except Exception as exc:  # noqa: BLE001 — diagnostic must not raise
-        out["db_versions"] = []
-        out["db_error"] = type(exc).__name__
-
-    # The code's revision graph (best-effort; alembic runs on prod).
-    try:
-        from alembic.config import Config
-        from alembic.script import ScriptDirectory
-
-        script_location = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic"
-        )
-        cfg = Config()
-        cfg.set_main_option("script_location", script_location)
-        script = ScriptDirectory.from_config(cfg)
-        known = {rev.revision for rev in script.walk_revisions()}
-        out["code_heads"] = list(script.get_heads())
-        out["orphaned"] = [v for v in out.get("db_versions", []) if v not in known]
-        out["reconcilable"] = not out["orphaned"]
-    except Exception as exc:  # noqa: BLE001 — diagnostic must not raise
-        out["code_error"] = type(exc).__name__
+    # Ta sama funkcja co `checks.migrations` w /api/health — jedna logika
+    # porównania rewizji (DEP-02). Nigdy nie rzuca; błędy jako nazwy klas.
+    async with AsyncSessionLocal() as session:
+        out = await alembic_revision_state(session)
 
     return JSONResponse(content=out, status_code=http_status.HTTP_200_OK)
 

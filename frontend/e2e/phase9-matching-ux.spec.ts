@@ -22,14 +22,14 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 test.describe("Phase 9 — matching UX", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run");
 
-  test("match stats badge renders with include_match_stats=true", async ({ page }) => {
+  test("match stats badge renders with include_match_stats=true @readonly", async ({ page }) => {
     await page.goto("/candidates?match_threshold=35");
     // Badge text pattern: "N otwarte · top XX"
     const badge = page.getByText(/\d+\s+otwarte\s+·\s+top\s+\d+/i).first();
     await expect(badge).toBeVisible({ timeout: 15_000 });
   });
 
-  test("clicking match badge opens breakdown popover", async ({ page }) => {
+  test("clicking match badge opens breakdown popover @readonly", async ({ page }) => {
     await page.goto("/candidates?match_threshold=35");
     const badge = page.getByText(/\d+\s+otwarte\s+·\s+top\s+\d+/i).first();
     await badge.click();
@@ -48,7 +48,7 @@ test.describe("Phase 9 — matching UX", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("AdvancedFilterBar autocompletes skills and narrows results", async ({ page }) => {
+  test("AdvancedFilterBar autocompletes skills and narrows results @readonly", async ({ page }) => {
     await page.goto("/candidates");
     const input = page.getByPlaceholder(/Umiejętności/i);
     await input.fill("pyth");
@@ -60,13 +60,13 @@ test.describe("Phase 9 — matching UX", () => {
     await expect(page.getByText(/^python$/i)).toBeVisible();
   });
 
-  test("remote filter button toggles and reflects in URL", async ({ page }) => {
+  test("remote filter button toggles and reflects in URL @readonly", async ({ page }) => {
     await page.goto("/candidates");
     await page.getByRole("button", { name: /^Zdalna$/i }).click();
     await expect(page).toHaveURL(/remote=remote/);
   });
 
-  test("threshold slider + profile selector in URL", async ({ page }) => {
+  test("threshold slider + profile selector in URL @readonly", async ({ page }) => {
     await page.goto(
       "/candidates?match_threshold=55&profile_id=1"
     );
@@ -74,7 +74,7 @@ test.describe("Phase 9 — matching UX", () => {
     await expect(page).toHaveURL(/profile_id=1/);
   });
 
-  test("SuggestedJobsWidget appears in candidate profile header", async ({ page }) => {
+  test("SuggestedJobsWidget appears in candidate profile header @readonly", async ({ page }) => {
     await page.goto("/candidates/1");
     await expect(
       page.getByText(/SUGEROWANE REKRUTACJE/i).first()
