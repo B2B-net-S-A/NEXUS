@@ -1173,7 +1173,7 @@ export function OrderGroupCard({
                               automatyczne, nie brak danych: każdy handler
                               z użytkownikiem stempluje `created_by_user_id`. */}
                           <span
-                            className="w-32 shrink-0 truncate text-muted-foreground"
+                            className="w-32 shrink-0 break-words text-muted-foreground"
                             title={eventAuthor(ev)}
                           >
                             {eventAuthor(ev)}

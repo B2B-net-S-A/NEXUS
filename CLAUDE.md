@@ -386,6 +386,10 @@ cofnąć „przy okazji”:
   `monthly_revenue`/`result_after_other_costs` tylko legacy); trend kotwiczony
   na końcu okresu (`end=`), a `source_watermarks`/`quality` czytają świeżość
   syncu Traffita (36 h jak `checks.traffit`).
+- **Uczestnik wydarzenia kalendarza ma DWA kształty:** tekst (wydarzenia z NEXUS)
+  albo `{address, name}` (synchronizacja M365). Renderuj wyłącznie przez
+  `lib/calendar-attendees.ts` (`attendeeLabel`) — obiekt wstawiony wprost wywracał
+  cały kalendarz (React #31) dla każdego wydarzenia z Outlooka (retest 15.09.2026).
 - **Listy z „Pokaż więcej" idą po `offset` w API** (dzwonek, Targ, pule
   talentów): dzwonek podnosi `limit` zamiast doklejać strony — „nieprzeczytane
   najpierw" przetasowuje kolejność po kliknięciu, więc doklejanie dawało
