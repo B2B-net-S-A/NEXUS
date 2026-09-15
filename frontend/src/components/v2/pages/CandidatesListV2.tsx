@@ -70,6 +70,7 @@ import {
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
 import {
   fetchCandidateListPage,
+  getCandidateListErrorMessage,
   getCandidateListIncludeFlags,
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
@@ -2155,10 +2156,11 @@ export function CandidatesListV2() {
  setPage(1);
  };
 
- const queryErrorDetail =
- (candidatesError as { response?: { data?: { detail?: string } } } | null)
- ?.response?.data?.detail ??
- "Nie udało się pobrać kandydatów. Sprawdź połączenie i spróbuj ponownie.";
+ // Memo: extractErrorMsg loguje surowy detail — raz na błąd, nie przy każdym renderze.
+ const queryErrorDetail = useMemo(
+ () => getCandidateListErrorMessage(candidatesError),
+ [candidatesError],
+ );
  const queryErrorPanel = (
  <div
  role="alert"
