@@ -439,6 +439,58 @@ def _normalize_dedup_key(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
+def job_requirement_names(job: Job) -> set[str]:
+    """Kanoniczne technologie MUST i NICE tej rekrutacji (małe litery).
+
+    Ta sama interpretacja co scoring i bramka (`job_skill_requirements`):
+    zapisany kontrakt, kolumny, stack Championa, a na końcu proza i tytuł.
+    Grupa „a lub b” daje obie nazwy.
+    """
+    from app.services.scoring_service import (
+        canonical_skill_names,
+        job_skill_requirements,
+    )
+
+    labels = job_skill_requirements(job)
+    names: list[str] = []
+    for level in ("must", "nice"):
+        for label in labels.get(level, []):
+            names.extend(part.strip() for part in label.split(" lub ") if part.strip())
+    return set(canonical_skill_names(names))
+
+
+def mentioned_technologies(text: str, tags: Optional[list[str]] = None) -> set[str]:
+    """Technologie, o które pyta pytanie: tagi plus nazwy z taksonomii w treści.
+
+    Słowa roli („developer”, „konsultant”) są w taksonomii, ale nie mówią nic
+    o stacku — odsiewamy je jak przy wywodzeniu wymagań z tytułu.
+    """
+    from app.services.scoring_service import (
+        _ROLE_WORDS,
+        _alias_pattern,
+        _strip_role_words,
+        canonical_skill_names,
+    )
+
+    raw: list[str] = [t for t in (tags or []) if isinstance(t, str)]
+    pattern = _alias_pattern()
+    if pattern is not None and text:
+        raw.extend(m.group(1) for m in pattern.finditer(_strip_role_words(text)))
+    return {name for name in canonical_skill_names(raw) if name not in _ROLE_WORDS}
+
+
+def _fits_job(question: SuggestedQuestion, requirement_names: set[str]) -> bool:
+    """Pytanie z cudzej rekrutacji albo z wiedzy klienta pasuje do tej roli?
+
+    UAT B70: rola Power Platform bez opisu dostawała pytania Angular i Java,
+    bo poziomy 1–3 dobierały pytania po kliencie i kategorii kompetencji, nie
+    po wymaganiach. Pytanie bez technologii (motywacja, współpraca) zostaje;
+    pytanie o technologię zostaje tylko wtedy, gdy ta rola jej wymaga.
+    """
+    mentioned = mentioned_technologies(question.text, question.skill_tags)
+    return not mentioned or bool(mentioned & requirement_names)
+
+
 @dataclass
 class PrepSuggestions:
     """Pytania + informacja, czy wynik jest KOMPLETNY.
@@ -490,9 +542,11 @@ async def suggest_questions_for_prep(
             current_unique.add(_normalize_dedup_key(q.text))
 
     degraded = False
+    requirement_names = job_requirement_names(job)
 
     if len(current_unique) < target_count:
         tier1, tier1_degraded = await _tier_same_cc_similar(db, job)
+        tier1 = [q for q in tier1 if _fits_job(q, requirement_names)]
         degraded = degraded or tier1_degraded
         buckets.append(tier1)
         for q in tier1:
@@ -500,13 +554,18 @@ async def suggest_questions_for_prep(
 
     if len(current_unique) < target_count:
         tier2, tier2_degraded = await _tier_secondary_cc(db, job)
+        tier2 = [q for q in tier2 if _fits_job(q, requirement_names)]
         degraded = degraded or tier2_degraded
         buckets.append(tier2)
         for q in tier2:
             current_unique.add(_normalize_dedup_key(q.text))
 
     if len(current_unique) < target_count:
-        tier3 = await _tier_client_knowledge(db, job)
+        tier3 = [
+            q
+            for q in await _tier_client_knowledge(db, job)
+            if _fits_job(q, requirement_names)
+        ]
         buckets.append(tier3)
         for q in tier3:
             current_unique.add(_normalize_dedup_key(q.text))

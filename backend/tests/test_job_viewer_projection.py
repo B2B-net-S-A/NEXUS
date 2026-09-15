@@ -181,6 +181,23 @@ def test_has_budget_bool_survives_viewer_redaction_without_amount() -> None:
     assert redacted["has_budget_hourly"] is True
 
 
+def test_effective_budget_amount_mirrors_resolver_and_is_redacted(monkeypatch) -> None:
+    """UAT B62/B72: nagłówek, AI Matching i dok oferty czytają JEDNĄ kwotę —
+    tę samą, której używa filtr. Viewer jej nie dostaje, lista jej nie wozi."""
+    from app.api.jobs import _strip_champion_payload_from_list_row
+    from app.core.config import settings
+
+    assert _job_response().effective_budget_hourly is None
+    assert _job_response(rate_budget_hourly=155).effective_budget_hourly == 155
+    monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True, raising=False)
+    champion_only = _job_response(champion_profile={"rate_value": 160})
+    assert champion_only.effective_budget_hourly == 160
+
+    dumped = champion_only.model_dump()
+    assert redact_job_for_viewer(dict(dumped), _viewer())["effective_budget_hourly"] is None
+    assert _strip_champion_payload_from_list_row(dict(dumped))["effective_budget_hourly"] is None
+
+
 def test_redaction_list_covers_known_sensitive_schema_fields() -> None:
     """Guardrail: if a plausibly-sensitive field is added to JobResponse and not
     redacted, this fails so the omission is a conscious decision, not an oversight."""

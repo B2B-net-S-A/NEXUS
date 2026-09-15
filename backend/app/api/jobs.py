@@ -223,6 +223,8 @@ def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict
 _LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
     "champion_profile",
     "close_notes",
+    # Wyliczany także ze stawki Championa — lista nie jest jego powierzchnią.
+    "effective_budget_hourly",
 )
 
 

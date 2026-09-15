@@ -563,6 +563,21 @@ describe("JobInterviewsTab", () => {
     expect(await screen.findByTestId("prep-invite-stub")).toBeTruthy();
   });
 
+  it("dok oferty pokazuje ten sam budżet godzinowy co nagłówek rekrutacji (UAT B72)", async () => {
+    renderTab({ budgetHourly: 155 });
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    await userEvent.click(screen.getByRole("tab", { name: "Oferta" }));
+    expect(screen.getByText("do 155,00 PLN/h")).toBeTruthy();
+  });
+
+  it("bez budżetu godzinowego dok podpisuje migawkę jako miesięczną z chwili ruchu", async () => {
+    renderTab({ columns: columns([{ items: [item({ budget_max_at_move: 20000 })] }]) });
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    await userEvent.click(screen.getByRole("tab", { name: "Oferta" }));
+    expect(screen.getByText(/PLN\/mies\./)).toBeTruthy();
+    expect(screen.getByText("(w chwili przesunięcia)")).toBeTruthy();
+  });
+
   it("dok wypisuje reguły odrzucenia i regułę konfetti, zamiast kazać ich pamiętać", async () => {
     renderTab();
     await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
