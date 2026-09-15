@@ -94,6 +94,31 @@ def test_full_marker_is_weekly_plus_slack():
     )
 
 
+def test_weekly_eval_state_uses_the_weekly_threshold():
+    """Tygodniowy pomiar jakości nie jest „nieaktualny” dzień po biegu.
+
+    Jego stan leży w tej samej tabeli co fazy Traffita, więc jedzie w tej
+    samej odpowiedzi `/sync/status`. Z progiem dziennym był w `phases_stale`
+    przez większość tygodnia.
+    """
+    from app.tasks import weekly_eval
+    from app.tasks.traffit_sync import WEEKLY_EVAL_STATE_PHASE
+
+    assert weekly_eval.STATE_PHASE == WEEKLY_EVAL_STATE_PHASE
+    assert (
+        phase_freshness(
+            WEEKLY_EVAL_STATE_PHASE, finished_at=_NOW - timedelta(days=6), now=_NOW
+        )
+        == "fresh"
+    )
+    assert (
+        phase_freshness(
+            WEEKLY_EVAL_STATE_PHASE, finished_at=_NOW - timedelta(days=9), now=_NOW
+        )
+        == "stale"
+    )
+
+
 def test_daily_marker_mirrors_the_health_probe_threshold():
     """`checks.traffit` degraduje po 36 h — ten sam próg dla `__daily__`."""
     assert phase_stale_after(DAILY_MARKER) == timedelta(hours=36)
