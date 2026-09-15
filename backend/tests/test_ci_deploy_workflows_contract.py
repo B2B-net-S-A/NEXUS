@@ -127,3 +127,29 @@ def test_deploy_version_summary_runs_always_and_leaves_precheck_alone() -> None:
         'if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then' in precheck["run"]
     )
     assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 2
+
+
+# ── F03: pomiar przerwy (plan skracania przerwy, Etap 0) ──────────────────
+
+
+def test_downtime_report_splits_targets_and_reads_postgres_start() -> None:
+    deploy = _load("deploy.yml")
+    steps = deploy["jobs"]["deploy"]["steps"]
+    names = [s.get("name") for s in steps]
+    probe = _step(steps, "Start user-facing downtime probe")
+    assert names.index("Start user-facing downtime probe") < names.index(
+        "Trigger deployment"
+    ), "Sonda i odczyt startu Postgresa muszą być PRZED webhookiem."
+    assert "/api/health/deep" in probe["run"] and "postgres_started_at" in probe["run"]
+    assert "pg_before" in probe["run"]
+
+    report = _step(steps, "Report user-facing downtime")
+    assert report["if"] == "${{ always() && steps.downtime_meter.outcome == 'success' }}"
+    run = report["run"]
+    assert "deploy_downtime_report.py" in run
+    assert "--postgres-before" in run and "--postgres-after" in run
+    assert "GITHUB_STEP_SUMMARY" in run
+    assert run.rstrip().endswith("exit 0"), "Pomiar nigdy nie zmienia wyniku deployu."
+    assert names[-1] == "Report user-facing downtime", (
+        "Raport zatrzymuje sondę — musi być ostatnim krokiem joba."
+    )

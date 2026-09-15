@@ -27,6 +27,18 @@ def _json_serializer(value: Any) -> str:
     return json.dumps(jsonable_encoder(value))
 
 
+def _connect_args(url: str) -> dict[str, Any]:
+    """`application_name` odróżnia połączenia NEXUSA w `pg_stat_activity`.
+
+    Audyt F06: bez tego nie da się policzyć, ile ze 100 połączeń Postgresa
+    zajmuje aplikacja, a ile backup, alembic czy ręczna sesja. Tylko asyncpg —
+    inne sterowniki (testowe SQLite) nie znają `server_settings`.
+    """
+    if not url.startswith("postgresql+asyncpg://"):
+        return {}
+    return {"server_settings": {"application_name": "nexus-backend"}}
+
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
@@ -34,6 +46,7 @@ engine = create_async_engine(
     pool_size=20,
     max_overflow=40,
     json_serializer=_json_serializer,
+    connect_args=_connect_args(settings.DATABASE_URL),
 )
 
 AsyncSessionLocal = async_sessionmaker(

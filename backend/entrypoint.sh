@@ -33,7 +33,13 @@ if [ "$(id -u)" = "0" ]; then
         /tmp/nexus/uploads/candidate_documents \
         /tmp/nexus/uploads/finance_imports \
         || echo "WARN: mkdir /tmp/nexus/uploads/* failed"
-    if chown -R appuser:appgroup /tmp/nexus; then
+    # Tylko wpisy z obcym właścicielem (plan skracania przerwy, Etap 3):
+    # `chown -R` przepisywał i-węzeł KAŻDEGO pliku wolumenu uploadów przy
+    # każdym starcie, choć po pierwszym uzdrowieniu nic się nie zmienia —
+    # a ten czas liczy się do przerwy API przy deployu. `find` tylko czyta
+    # metadane i zmienia to, co naprawdę trzeba (wynik ten sam co `chown -R`).
+    if find /tmp/nexus \( ! -user appuser -o ! -group appgroup \) \
+        -exec chown -h appuser:appgroup {} +; then
         echo "chown /tmp/nexus ok"
     else
         echo "WARN: chown /tmp/nexus failed (volume read-only?); appuser may not be able to upload"

@@ -229,6 +229,25 @@ async def test_api_health_deep_returns_shape(env_with_metadata):
         "error",
     }
     assert len(body["client_portfolio_import"]["expected_source_sha256"] or "") == 64
+    # Informacja dla raportu przerwy w deployu — nigdy sonda w `checks`.
+    assert "postgres_started_at" in body
+    assert "postgres_started_at" not in body["checks"]
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_reports_postgres_start_time(env_with_metadata):
+    """Deploy porównuje ten czas przed i po, żeby wiedzieć, czy baza restartowała."""
+    from datetime import datetime
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health/deep")
+
+    started = response.json()["postgres_started_at"]
+    # Baza CI jest osiągalna — czas musi być prawdziwym znacznikiem ISO 8601.
+    assert started is not None
+    assert datetime.fromisoformat(started).tzinfo is not None
 
 
 @pytest.mark.asyncio
