@@ -14,6 +14,7 @@ older than ``_ERROR_BACKOFF_SECONDS``, is re-selected by ``_tick`` on the normal
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -22,12 +23,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.user import User, UserRole
 from app.tasks import microsoft365_sync
+from app.services.m365 import sync as sync_mod
 
 pytestmark = pytest.mark.asyncio
 
@@ -187,5 +190,81 @@ async def test_timeout_no_longer_a_fatal_marker() -> None:
     assert not any("timeout" in m.lower() for m in markers), (
         "'timeout' must not be a fatal marker — it strands transient flakes"
     )
-    # The genuinely-fatal markers stay.
     assert "M365ReauthRequired" in markers
+
+
+@pytest.mark.parametrize("failure", [asyncio.TimeoutError, RuntimeError])
+async def test_failed_transaction_records_failure_and_allows_recovery(
+    monkeypatch, seeded_connections, failure
+):
+    """A real failed flush must not strand the durable status at running."""
+    from app.core import operation_telemetry
+
+    graph = MagicMock()
+    graph.return_value.__aenter__ = AsyncMock(return_value=SimpleNamespace())
+    graph.return_value.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(sync_mod, "GraphClient", graph)
+    monkeypatch.setattr(sync_mod, "_sync_events", AsyncMock())
+    outcome = MagicMock()
+    monkeypatch.setattr(operation_telemetry, "record_job_outcome", outcome)
+    connection_id = seeded_connections["timeout_id"]
+
+    async def poison_transaction(db, gc, conn, result):
+        # Duplicate the seeded user's primary key: flush really aborts the
+        # SQLAlchemy transaction, as cancellation during a production flush did.
+        db.add(
+            User(
+                id=conn.user_id,
+                email=f"m365-collision-{uuid.uuid4().hex}@example.com",
+                password_hash="synthetic",
+                name="Synthetic collision",
+                role=UserRole.admin,
+                is_active=True,
+            )
+        )
+        conn.delta_token_inbox = "synthetic-uncommitted-cursor"
+        with pytest.raises(IntegrityError):
+            await db.flush()
+        assert db.is_active is False
+        raise failure("synthetic sync failure")
+
+    monkeypatch.setattr(sync_mod, "_sync_messages", poison_transaction)
+    started = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, connection_id)
+        conn.delta_token_inbox = "synthetic-committed-cursor"
+        await db.commit()
+        result = await sync_mod._sync_connection_locked(
+            db, conn, sync_mod.SyncResult(connection_id=connection_id)
+        )
+        assert result.errors == 1
+        assert db.is_active is True
+
+    outcome.assert_called_once_with(
+        "m365_sync",
+        False,
+        interval_seconds=max(60, sync_mod.settings.M365_SYNC_INTERVAL_SECONDS),
+        subject_id=connection_id,
+    )
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, connection_id)
+        assert conn.last_sync_status == M365SyncStatus.error
+        assert conn.last_sync_at >= started
+        assert conn.last_error
+        assert conn.delta_token_inbox == "synthetic-committed-cursor"
+
+        monkeypatch.setattr(sync_mod, "_sync_messages", AsyncMock())
+        recovered = await sync_mod._sync_connection_locked(
+            db, conn, sync_mod.SyncResult(connection_id=connection_id)
+        )
+        assert recovered.errors == 0
+
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, connection_id)
+        assert conn.last_sync_status == M365SyncStatus.idle
+        assert conn.last_error is None
+        assert conn.delta_token_inbox == "synthetic-committed-cursor"
+    assert [call.args for call in outcome.call_args_list] == [
+        ("m365_sync", False),
+        ("m365_sync", True),
+    ]

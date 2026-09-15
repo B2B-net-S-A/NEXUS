@@ -169,6 +169,10 @@ async def _sync_connection_locked(
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
+        # Cancellation can leave a flush transaction unusable. Roll it back
+        # before recording failure, then reload attributes expired by rollback.
+        await db.rollback()
+        await db.refresh(conn)
         logger.warning("m365 sync_connection TIMEOUT for %s", conn.id)
         conn.last_sync_status = M365SyncStatus.error
         conn.last_error = f"timeout after {_SYNC_TIMEOUT_SECONDS}s"
@@ -208,6 +212,8 @@ async def _sync_connection_locked(
         )
         return result
     except Exception as exc:  # noqa: BLE001
+        await db.rollback()
+        await db.refresh(conn)
         logger.exception("m365 sync_connection failed for %s", conn.id)
         conn.last_sync_status = M365SyncStatus.error
         conn.last_error = f"{exc!r}"[:2000]
