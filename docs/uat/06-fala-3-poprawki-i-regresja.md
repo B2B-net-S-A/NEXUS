@@ -39,17 +39,20 @@
 
 ## 4. Przepływy MUST → Playwright (agent e2e, ostatnie 2 dni fali)
 
-Docelowo w `frontend/e2e/` (istniejące: `flow-create-candidate`, `flow-stage-transition`, `flow-write-note-mention`;
-28 stubów w `flow-stubs-todo.spec.ts`). Zasady:
+Docelowo w `frontend/e2e/` jako scenariusze `@stack` (istniejące od 15.09.2026: `flow-create-candidate`,
+`flow-stage-transition`, `flow-write-note-mention`, `rbac-deny`, `contract-order`, `a11y`; otwarte pozycje
+w [09-backlog-scenariuszy-e2e.md](09-backlog-scenariuszy-e2e.md)). Zasady:
 
-- Każdy spec używa `EntityTracker` i prefiksu `[QA-E2E-…]`; `afterAll` sprząta; cleanup FAIL = test FAIL.
+- Scenariusze zapisujące biegną WYŁĄCZNIE na efemerycznym stacku (`docker-compose.e2e.yml`, job `stack`
+  w `e2e.yml`) i zakładają własne dane (`e2e/helpers/entities.ts`) — bez sprzątania, bez rekordów na produkcji.
+- Dokładny status odpowiedzi (`expectStatus`) i ponowny odczyt po zapisie; nigdy `status < 500`, nigdy `test.skip` przy błędzie endpointu.
 - Specy odpowiadające P1–P4 (pełne przepływy lub ich kluczowe szwy):
   - `flow-p1-cv-to-hm-verdict.spec.ts`: kandydat z CV → notatka → dodanie do rekrutacji → 2 ruchy → werdykt HM (bez generacji CV — koszt AI; CV mockowane istniejącym dokumentem testowym lub krok pominięty).
   - `flow-p2-hire-to-active-contract.spec.ts`: `hired` → szkic zamówienia → umowa B2B → 409 conflicts → keep terms → kontrakt `active`, `end_date null` → PATCH zamówienia → `client_order_*` + krok harmonogramu.
   - `flow-p3-md-order-import.spec.ts`: grupa MD 2 linie → import (fixture xlsx w repo — fikcyjne nazwiska) → `md_remaining` → idempotencja → korekta → eksport Excel filtr „dziś”.
   - `flow-p4-terminate.spec.ts`: wypowiedzenie z datą wczoraj → `ended` → zamówienie `completed` → profil „Zakończeni” → MRR bez osoby.
-- Wszystkie przez API (`request`) dla zapisu + UI (`page`) dla weryfikacji — kanban D&D w Playwright bywa flaky.
-- Uruchomienie: `E2E_USER_PASSWORD=… npx playwright test flow-p*.spec.ts`; potem w `e2e.yml` (nocny; issue przy czerwieni już jest).
+- Zapis przez API z tokenem (`e2e/helpers/api.ts` — fixture `request` Playwrighta NIE niesie tokena z localStorage) + UI (`page`) dla weryfikacji — kanban D&D w Playwright bywa flaky.
+- Uruchomienie lokalne: patrz nagłówek `docker-compose.e2e.yml`; w CI job `stack` w `e2e.yml` (PR + nocny; issue przy czerwieni nocnego biegu).
 - Konto do nocnego biegu: dedykowane `e2e@…` z rolą admin? — **decyzja**: admin jest poza rankingami (placementy testowe nie płacą nagród), ale ma pełne prawa; alternatywa: rekruter + sprzątanie przed północą. Domyślnie admin + sprzątanie w `afterAll`.
 
 ## 5. Kryteria wyjścia z Fali 3

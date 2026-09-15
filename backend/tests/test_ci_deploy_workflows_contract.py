@@ -91,7 +91,8 @@ def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
     """
     ci = _load("ci.yml")
     pytest_run = _step(
-        ci["jobs"]["backend-lint-test"]["steps"], "Pytest (unit + in-process integration)"
+        ci["jobs"]["backend-lint-test"]["steps"],
+        "Pytest (unit + in-process integration)",
     )["run"]
     assert "--cov-branch" in pytest_run
 
@@ -125,11 +126,17 @@ def test_trivy_blocks_findings_and_exceptions_have_expiry() -> None:
     scan = _step(steps, "Trivy filesystem scan (deps + Dockerfile misconfig)")
     assert scan["with"]["trivyignores"] == ".trivyignore"
     publish = _step(steps, "Publish Trivy findings")["run"]
-    assert "(Total|Failures)" in publish, "Licznik musi obejmować też błędną konfigurację."
+    assert "(Total|Failures)" in publish, (
+        "Licznik musi obejmować też błędną konfigurację."
+    )
     assert "exit 1" in publish
 
     ignore = (_WORKFLOWS.parents[1] / ".trivyignore").read_text(encoding="utf-8")
-    entries = [line for line in ignore.splitlines() if line.strip() and not line.startswith("#")]
+    entries = [
+        line
+        for line in ignore.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
     assert entries, "Pusty .trivyignore nie potrzebuje kontraktu — usuń plik."
     for entry in entries:
         assert " exp:" in entry, f"Wyjątek bez terminu: {entry!r}"
@@ -179,3 +186,51 @@ def test_deploy_version_summary_runs_always_and_leaves_precheck_alone() -> None:
         'if [ "$rel" = "ahead" ] || [ "$rel" = "identical" ]; then' in precheck["run"]
     )
     assert precheck["run"].count('echo "skip=true" >> "$GITHUB_OUTPUT"') == 2
+
+
+# ── QA-02 / QA-03 ─────────────────────────────────────────────────────────
+
+
+def test_e2e_stack_job_runs_stack_scenarios_and_fails_on_skips() -> None:
+    """Plan poprawy QA (15.09): zapisujące E2E tylko na efemerycznym stacku."""
+    e2e = _load("e2e.yml")
+    stack = e2e["jobs"]["stack"]
+    runs = "\n".join(str(step.get("run", "")) for step in stack["steps"])
+    assert "docker-compose.e2e.yml" in runs
+    assert "scripts/seed_e2e.py" in runs and "E2E_SEED_CONFIRM=nexus-e2e" in runs
+    assert "--project=ci-chromium" in runs
+    assert "r.skipped > 0" in runs, "Pominięty przypadek na stacku ma być czerwony."
+    assert stack["env"]["E2E_REQUIRE_AUTH"] == "1"
+    assert any(
+        step.get("if") == "always()" and "down -v" in str(step.get("run", ""))
+        for step in stack["steps"]
+    ), "Stack musi być zatrzymany niezależnie od wyniku."
+
+    prod = e2e["jobs"]["playwright"]
+    assert "pull_request" in prod["if"], "Bieg produkcyjny nie może chodzić na PR-ach."
+    prod_runs = "\n".join(str(step.get("run", "")) for step in prod["steps"])
+    assert "--project=prod-smoke" in prod_runs
+    assert "test:e2e" not in prod_runs, (
+        "`npm run test:e2e` odpaliłby też scenariusze @stack."
+    )
+
+
+def test_playwright_projects_separate_stack_from_production() -> None:
+    config = (_WORKFLOWS.parents[1] / "frontend" / "playwright.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert 'name: "ci-chromium",\n      grep: /@stack/' in config
+    assert 'name: "prod-smoke",\n      grepInvert: /@stack|@writes/' in config
+
+
+def test_e2e_specs_have_no_weak_assertions_or_parked_cases() -> None:
+    """Audyt QA 14.09: `< 500` przyjmowało 401/403/404/422, a `fixme`/`skip(true)`
+    zawyżały licznik przypadków, których nikt nie wykonywał."""
+    e2e_dir = _WORKFLOWS.parents[1] / "frontend" / "e2e"
+    offenders: list[str] = []
+    for spec in sorted(e2e_dir.rglob("*.ts")):
+        text = spec.read_text(encoding="utf-8")
+        for needle in ("toBeLessThan(500)", "test.fixme(", "test.skip(true"):
+            if needle in text:
+                offenders.append(f"{spec.name}: {needle}")
+    assert offenders == []

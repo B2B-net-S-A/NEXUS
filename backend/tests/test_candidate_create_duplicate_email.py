@@ -48,5 +48,7 @@ async def test_candidates_without_email_are_not_duplicates(
 ) -> None:
     body = {"name": "BezMaila", "lastname": uuid.uuid4().hex[:8]}
     for _ in range(2):
-        response = await app_client.post("/api/candidates", json=body, headers=app_auth_headers)
+        response = await app_client.post(
+            "/api/candidates", json=body, headers=app_auth_headers
+        )
         assert response.status_code == 201, response.text

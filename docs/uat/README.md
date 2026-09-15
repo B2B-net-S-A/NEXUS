@@ -144,5 +144,5 @@ Nieobjęte Falą 1: karta C (Sentry — brak dostępu agentów), M13 S20–S25 (
 
 - [docs/qa-process-runbook.md](../qa-process-runbook.md) — metoda „najpierw Sentry, potem klikanie”; ten plan ją rozszerza.
 - [docs/qa-session-2026-05-27.md](../qa-session-2026-05-27.md) — poprzednia sesja QA: 30 zgłoszeń, 3 false positive.
-- [frontend/e2e/](../../frontend/e2e/) — istniejące testy Playwright; `flow-stubs-todo.spec.ts` zawiera 28 przepływów czekających na implementację.
+- [frontend/e2e/](../../frontend/e2e/) — testy Playwright; scenariusze `@stack` biegną na efemerycznym stacku w CI, a przepływy czekające na automatyzację są w [09-backlog-scenariuszy-e2e.md](09-backlog-scenariuszy-e2e.md).
 - [CLAUDE.md](../../CLAUDE.md) — decyzje produktowe; karty modułów cytują z niego konkretne reguły jako oczekiwane zachowanie.

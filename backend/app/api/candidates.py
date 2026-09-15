@@ -2478,7 +2478,9 @@ async def create_candidate(
     if candidate.email and await db.scalar(
         select(Candidate.id).where(Candidate.email == candidate.email)
     ):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=duplicate_message)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+        )
     try:
         async with db.begin_nested():
             db.add(candidate)

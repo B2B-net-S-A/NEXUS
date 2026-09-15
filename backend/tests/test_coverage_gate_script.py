@@ -53,8 +53,16 @@ def test_main_fails_with_error_annotation_and_writes_summary(
     summary = tmp_path / "summary.md"
 
     code = gate.main(
-        ["--baseline", str(baseline), "--key", "backend", "--actual", "59.2",
-         "--summary", str(summary)]
+        [
+            "--baseline",
+            str(baseline),
+            "--key",
+            "backend",
+            "--actual",
+            "59.2",
+            "--summary",
+            str(summary),
+        ]
     )
 
     assert code == 1
@@ -68,7 +76,9 @@ def test_main_passes_and_hints_ratchet(
     baseline = tmp_path / "baseline.json"
     baseline.write_text(json.dumps({"backend": 60.0, "tolerance_pp": 0.5}))
 
-    code = gate.main(["--baseline", str(baseline), "--key", "backend", "--actual", "62"])
+    code = gate.main(
+        ["--baseline", str(baseline), "--key", "backend", "--actual", "62"]
+    )
 
     assert code == 0
     assert "::notice::" in capsys.readouterr().out
@@ -82,7 +92,9 @@ def test_missing_key_is_an_error(tmp_path: Path) -> None:
 
 
 def test_repo_baseline_file_is_well_formed() -> None:
-    data = json.loads((_REPO / ".github/coverage-baseline.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (_REPO / ".github/coverage-baseline.json").read_text(encoding="utf-8")
+    )
     value = data["backend_line_branch_percent"]
     assert isinstance(value, (int, float)) and 0 < value <= 100
     assert 0 <= data["tolerance_pp"] <= 2, "szeroka tolerancja zamienia bramkę w raport"

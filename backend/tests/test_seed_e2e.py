@@ -22,7 +22,9 @@ from scripts import seed_e2e
 def _unique_accounts() -> tuple[seed_e2e.E2EAccount, ...]:
     suffix = uuid.uuid4().hex[:8]
     return (
-        seed_e2e.E2EAccount(f"e2e-admin-{suffix}@example.com", "E2E Admin", UserRole.admin),
+        seed_e2e.E2EAccount(
+            f"e2e-admin-{suffix}@example.com", "E2E Admin", UserRole.admin
+        ),
         seed_e2e.E2EAccount(
             f"e2e-recruiter-{suffix}@example.com", "E2E Rekruter", UserRole.recruiter
         ),
