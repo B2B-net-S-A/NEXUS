@@ -89,6 +89,18 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   - `docker-compose.prod.yml` — prod overlay (ports/env/healthchecks — referencja do ręcznej symulacji prod; BEZ limitów zasobów).
 - **Auto-deploy:** ✅ **TAK** — `git push origin main` → `.github/workflows/deploy.yml` (unified template, PR #68 merged 2026-05-04) → Coolify webhook → build + restart → smoke test.
 - **Trigger:** push `main` → `.github/workflows/deploy.yml`.
+- **Na produkcję wchodzi tylko commit z zieloną bramką (DEP-01, od 15.09.2026).**
+  Coolify 4.1.2 buduje ZAWSZE HEAD maina — ignoruje nawet przypięty
+  `git_commit_sha` (`check_git_if_build_needed` nadpisuje go `git ls-remote`;
+  poprawione w 4.2.0), więc przypinanie nic nie daje. Zamiast tego
+  `.github/scripts/select_release_sha.py`: job `select` puszcza deploy tylko
+  przy zielonym „CI Gate” HEAD maina (bramka w toku = odroczenie, wdroży go
+  jego własny przebieg; czerwona = wstrzymanie z ostrzeżeniem, ręczny dispatch =
+  błąd), a smoke przyjmuje RELEASE_SHA albo jego POTOMKA z zieloną bramką
+  (merge w trakcie budowy, czeka ≤ 10 min na bramkę w toku). Potomek z czerwoną
+  bramką = czerwony deploy z instrukcją wycofania. Czerwony HEAD maina
+  wstrzymuje deploye do następnego zielonego commitu — to zamierzone. Zmiana
+  bramki deployu z „CI Gate” na „CI” wymaga zmiany `GATE_WORKFLOW` w skrypcie.
 - **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy.
 - **Standardy + procedury:** patrz `~/.claude/rules/deployment.md` + `~/.claude/rules/deployment-runbook.md`.
 
@@ -131,12 +143,28 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   wyłącznie `__daily__` — to sonda świeżości importu, nie kompletności.
 - **Deploy sprawdza wersję FRONTENDU** (DEP-03): `frontend/public/version.json`
   pisany przez `scripts/write-version.mjs` przed `next build` (SHA z build arga
-  `NEXT_PUBLIC_GIT_SHA`), smoke akceptuje równość albo potomka jak backend;
-  `sha: "unknown"` = build bez arga = czerwony deploy. Podsumowanie joba
-  (DEP-01) pokazuje `TARGET_SHA` vs serwowany SHA z werdyktem „koalescencja
-  burstów" — logika skip/rebuild nietknięta.
-- **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
-- **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
+  `NEXT_PUBLIC_GIT_SHA`), smoke wymaga równości z wersją przyjętą przez smoke
+  backendu (ACCEPTED_SHA); `sha: "unknown"` = build bez arga = czerwony deploy.
+  Podsumowanie joba pokazuje TARGET_SHA, RELEASE_SHA, ACCEPTED_SHA i SHA
+  serwowane przez backend/frontend.
+- **`checks.migrations` (DEP-02, od 15.09.2026):** `entrypoint.sh` zapisuje wynik
+  `alembic upgrade heads` do `/tmp/nexus-alembic-status.json` i NADAL nie
+  zatrzymuje startu (brak rolling update = exit 1 to pętla restartów). Nieudany
+  upgrade daje `logger.error` przy starcie (→ Sentry) i `checks.migrations`
+  `degraded` (gdy siatka domknęła schemat i rewizje się zgadzają) albo
+  `unhealthy` (rozjazd bookmarku bazy z heads kodu → issue z uptime-probe). Logika porównania rewizji jest JEDNA (`services/migration_health.py`) —
+  czyta ją również `/api/health/alembic`. Nie dopisuj `exit` do bloku alembica
+  (test `test_migration_health.py` go wykonuje).
+- **`checks.background_tasks` zna zawieszone pętle (MON-04, od 15.09.2026):**
+  krytyczne pętle robią `beat.tick()` na początku iteracji
+  (`services/loop_heartbeat.py`, w pamięci procesu — backend to jeden uvicorn);
+  cisza dłuższa niż próg pętli = `degraded: stalled a,b`. Nowa pętla w
+  `app.state.background_tasks` musi mieć heartbeat albo wpis w `EXEMPT`
+  z powodem (`test_loop_heartbeat.py`). Progi obejmują najdłuższy bieg (Traffit
+  full: 12 h ponad interwał).
+- **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`. GitHub uruchamia „godzinowy” cron co 1–6 h, więc to NIE jest sonda dostępności — od tego jest zewnętrzna sonda Grafana Synthetic Monitoring (MON-05). Awaria joba `probe` albo `backup-freshness` z crona otwiera issue (job `alert`), tak jak `health-checks`, restore drill i digest Sentry.
+- **E2E po deployu (MON-02):** `e2e.yml` biegnie po każdym udanym Deploy z projektem `prod-smoke` (odczyty po zalogowaniu, bez `@stack`/`@writes`), gdy zmienna repo `E2E_POST_DEPLOY_ENABLED=true` (włączyć PO założeniu konta E2E; bez konta bieg jest czerwony + issue).
+- **GIT_SHA / BUILT_AT:** SHA pochodzi z tagu obrazu budowanego przez Coolify (`release.sh` → `/app/.nexus-build-sha`, #1524), nie z env `$SOURCE_COMMIT`.
 
 ## Env vars (build-time vs runtime)
 
@@ -171,7 +199,7 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
 - **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).
 - **40+ feature branches w remote** — przy `git checkout` weryfikuj że `main` pociągnięty (`git fetch && git log origin/main..HEAD`).
-- **Wiele PR-ów naraz = merge train, nie ręczne klikanie.** Branch protection `strict=true` + ~22-min CI → każdy merge flipuje resztę PR-ów w `BEHIND`, a auto-merge NIE aktualizuje gałęzi sam; GitHub merge queue niedostępny (repo prywatne na koncie osobistym). Użyj `scripts/merge-train.sh <pr> <pr>...` (lokalnie — update z PAT-a triggeruje CI, z GITHUB_TOKEN by nie triggerował): uzbraja auto-merge i aktualizuje JEDEN PR na raz, sekwencyjnie. NIE zdejmuj `strict` — squash stalej gałęzi cicho cofa cudze merge'e (incydent 27.07: -6 merge'y na prodzie). Deploye z burstu koalesują się same: deploy job skipuje rebuild, gdy prod serwuje już TARGET_SHA/potomka (deploy.yml 2026-08-07) — to gasi dawne zapychanie kolejki Coolify (429).
+- **Wiele PR-ów naraz = merge train, nie ręczne klikanie.** Branch protection `strict=true` + ~22-min CI → każdy merge flipuje resztę PR-ów w `BEHIND`, a auto-merge NIE aktualizuje gałęzi sam; GitHub merge queue niedostępny (repo prywatne na koncie osobistym). Użyj `scripts/merge-train.sh <pr> <pr>...` (lokalnie — update z PAT-a triggeruje CI, z GITHUB_TOKEN by nie triggerował): uzbraja auto-merge i aktualizuje JEDEN PR na raz, sekwencyjnie. NIE zdejmuj `strict` — squash stalej gałęzi cicho cofa cudze merge'e (incydent 27.07: -6 merge'y na prodzie). Deploye z burstu koalesują się same: deploy rusza tylko przy zielonym HEAD maina i skipuje rebuild, gdy prod serwuje już dokładnie ten commit (deploy.yml 2026-08-07, bramka HEAD 2026-09-15) — to gasi dawne zapychanie kolejki Coolify (429).
 
 ## Manual ops cheat sheet
 

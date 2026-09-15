@@ -159,6 +159,8 @@ jobs:
         run: ruff check app/
       - name: Release configuration and remote build wrapper tests (native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
+      - name: Release selection tests (DEP-01, native only)
+        run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_select_release_sha.py'
       # Osobna bramka od `ruff check` — sam lint NIE łapie fail-i formatowania
       # (ruff 0.15.22).
       - name: Ruff format check

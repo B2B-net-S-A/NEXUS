@@ -21,6 +21,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.services.insights_workdays import sync_workdays
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,12 @@ async def compass_workdays_sync_loop() -> None:
     )
     lookback = max(1, int(settings.COMPASS_WORKDAYS_LOOKBACK_MONTHS))
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "compass_workdays_sync", max_silence_seconds=interval + 3600
+    )
     while True:
+        beat.tick()
         try:
             await _stamp(
                 last_run_started_at=datetime.now(timezone.utc),

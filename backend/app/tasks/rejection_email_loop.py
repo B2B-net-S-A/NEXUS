@@ -28,6 +28,7 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 from app.services.rejection_email_scheduler import dispatch
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,12 @@ async def rejection_email_loop() -> None:
     # Give lifespan startup a moment (migrations, connection pools).
     await asyncio.sleep(GRACE_PERIOD_SECONDS)
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "rejection_email", max_silence_seconds=TICK_INTERVAL_SECONDS + 1800
+    )
     while True:
+        beat.tick()
         try:
             await _tick()
         except asyncio.CancelledError:

@@ -42,6 +42,8 @@ jobs:
       BACKUP_S3_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
       BACKUP_S3_REGION: ${{ vars.BACKUP_S3_REGION }}
       BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX || 'nexus' }}
+      # Ten sam próg co `backup-freshness` w uptime-probe.yml (A4, audyt 14.09);
+      BACKUP_MAX_AGE_HOURS: ${{ vars.BACKUP_MAX_AGE_HOURS || '30' }}
       # rclone is configured entirely from the environment, so no config file
       # (and no secret) is ever written to the runner's disk.
       RCLONE_CONFIG_OFFSITE_TYPE: s3

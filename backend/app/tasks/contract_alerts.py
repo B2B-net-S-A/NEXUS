@@ -43,6 +43,7 @@ from app.services.contract_order_offboarding import (
 from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
 )
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -656,7 +657,12 @@ async def contract_alerts_loop(interval_hours: float = _DEFAULT_INTERVAL_HOURS) 
     logger.info("contract_alerts: started interval=%.1f h", interval_hours)
     # Initial delay so app startup isn't slowed
     await asyncio.sleep(120)
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "contract_alerts", max_silence_seconds=interval_hours * 3600 + 2 * 3600
+    )
     while True:
+        beat.tick()
         try:
             await run_contract_alerts_cycle()
         except Exception:  # noqa: BLE001

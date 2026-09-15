@@ -50,6 +50,7 @@ from app.services.candidate_contact_hooks import (
     maybe_remove_calendar_handoff,
     maybe_sync_calendar_handoff,
 )
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -1137,7 +1138,10 @@ async def calendar_reminder_loop():
     restarcie dogania wszystko, co przespał. Duplikatów to nie tworzy:
     at-most-once gwarantuje trwały stempel + `FOR UPDATE SKIP LOCKED`.
     """
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register("calendar_reminder", max_silence_seconds=1800)
     while True:
+        beat.tick()
         try:
             now = datetime.now(timezone.utc)
             window_end = now + timedelta(minutes=16)
