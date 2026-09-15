@@ -226,6 +226,61 @@ def _strip_json_fences(raw: str) -> str:
     return s.strip()
 
 
+#: Klucze, po których rozpoznajemy obiekt odczytu zamówienia wśród innych
+#: nawiasów w odpowiedzi (przykład w prozie, fragment tabeli).
+_EXTRACTION_KEYS = frozenset({"title", "consultant_rows", "start_date", "rate_client"})
+
+
+def parse_model_json(raw: str) -> Optional[dict]:
+    """Obiekt odczytu z odpowiedzi modelu — także otoczony prozą albo fence'em.
+
+    Do 09.2026 przechodziła wyłącznie odpowiedź będąca samym JSON-em (z
+    ewentualnym fence'em NA POCZĄTKU). Zdanie przed obiektem albo komentarz po
+    zamykającym fence'u kończyły się odczytem awaryjnym przy każdej próbie tego
+    samego dokumentu (PKO BP, 14–15.09). Wzorzec z ``uop_check._extract_json``:
+    ``raw_decode`` od kolejnych ``{`` ignoruje tekst po obiekcie; wygrywa
+    pierwszy kompletny obiekt z kluczami odczytu. Ucięta odpowiedź nadal
+    zwraca ``None`` — nie domykamy JSON-a zgadywaniem.
+    """
+    raw = raw or ""
+    try:
+        data = json.loads(_strip_json_fences(raw))
+    except (json.JSONDecodeError, ValueError):
+        data = None
+    if isinstance(data, dict):
+        return data
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    decoder = json.JSONDecoder()
+    for candidate in (*fenced, raw):
+        for match in re.finditer(r"\{", candidate):
+            try:
+                value, _end = decoder.raw_decode(candidate, match.start())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and _EXTRACTION_KEYS & value.keys():
+                return value
+    return None
+
+
+def describe_unparsed_response(raw: str, stop_reason: Optional[str]) -> str:
+    """Kształt nieczytelnej odpowiedzi — bez jej treści (trafia na wpis w kolejce)."""
+    stripped = (raw or "").lstrip()
+    if not stripped:
+        start = "pusta"
+    elif stripped.startswith("{"):
+        start = "zaczyna się od {"
+    elif stripped.startswith("```"):
+        start = "zaczyna się od bloku kodu"
+    else:
+        start = "zaczyna się od tekstu"
+    parts = [start, f"{len(raw or '')} znaków"]
+    if stop_reason == "max_tokens":
+        parts.append("ucięta limitem tokenów")
+    elif stop_reason:
+        parts.append(f"stop={stop_reason}")
+    return ", ".join(parts)
+
+
 def _clean_str(value: Any, *, max_len: int = 255) -> Optional[str]:
     if not isinstance(value, str):
         return None
@@ -856,14 +911,11 @@ async def _call_extraction(
     raw = "".join(
         getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
     )
-    try:
-        data = json.loads(_strip_json_fences(raw))
-    except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("[order_parser] JSON parse failed: %r; raw=%.200s", exc, raw)
-        _AI_FAILURE.set("nieczytelna odpowiedź AI (nie JSON)")
-        return None
-    if not isinstance(data, dict):
-        _AI_FAILURE.set("nieczytelna odpowiedź AI (nie obiekt JSON)")
+    data = parse_model_json(raw)
+    if data is None:
+        shape = describe_unparsed_response(raw, getattr(message, "stop_reason", None))
+        logger.warning("[order_parser] JSON parse failed (%s); raw=%.200s", shape, raw)
+        _AI_FAILURE.set(f"nieczytelna odpowiedź AI (nie JSON; {shape})")
         return None
     result = _normalize(data, source="claude")
     # Bez osoby docelowej `_document_text_for_prompt` tnie po cichu do
