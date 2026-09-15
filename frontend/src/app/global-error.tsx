@@ -9,6 +9,7 @@
 // store, no api client. Anything that can throw belongs in deeper layers.
 import { useEffect } from 'react'
 import * as Sentry from '@sentry/nextjs'
+import { reloadOnceForChunkError } from '@/lib/chunk-reload'
 
 interface GlobalErrorProps {
     error: Error & { digest?: string }
@@ -17,6 +18,8 @@ interface GlobalErrorProps {
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
     useEffect(() => {
+        // Stara karta po deployu: brakujący chunk naprawia jedno przeładowanie.
+        if (reloadOnceForChunkError(error)) return
         Sentry.captureException(error, {
             tags: {
                 boundary: 'global',
