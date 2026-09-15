@@ -19,8 +19,9 @@
   Pozostałe opcjonalne filtry nie są objęte tym pierwszym zestawem.
   Pełne schematy odpowiedzi pozostają niezmienione. Do 30 przykładów na endpoint
   (generator może wyczerpać skończoną przestrzeń wcześniej), plus 12 przypadków
-  odrzucenia błędnej paginacji i znaków NUL w wyszukiwaniu. Poprawne żądanie musi zwrócić 200, błędna
-  paginacja lub znak NUL w `q` 422. Zniknięcie endpointu lub danych powoduje błąd, nie pominięcie.
+  odrzucenia błędnej paginacji i znaków NUL w wyszukiwaniu oraz 2 przypadki NUL
+  w `location` i `q_all` listy kandydatów. Poprawne żądanie musi zwrócić 200, błędna
+  paginacja lub znak NUL w parametrze 422. Zniknięcie endpointu lub danych powoduje błąd, nie pominięcie.
 - **k6:** trzy równoległe scenariusze HTTP: rekrutacja (lista → wyszukiwanie →
   profil → pipeline), operacje (kontrakty → szczegóły → zamówienia), raportowanie
   (dashboard pracy własnej i finansów). `smoke` = po 1 VU na scenariusz przez
@@ -93,3 +94,10 @@ NUL (`%00`) na liście kandydatów. Parametr był dopuszczony przez OpenAPI, ale
 PostgreSQL nie może reprezentować NUL w typie `text`. API kandydatów i kontraktów
 teraz odrzuca ten znak walidacją 422; ograniczenie jest również w schemacie.
 Jawne przypadki negatywne pozostają w zestawie HTTP i testach backendu.
+
+Ten sam błąd miały pozostałe filtry tekstowe (`location`, `q_all`, `q_any`,
+`q_none` — potwierdzone testami na PostgreSQL). Od tej zmiany NUL odrzuca jedno
+middleware dla całej aplikacji (`backend/app/core/null_character_guard.py`):
+query string, ścieżka i ciała JSON dostają 422 w kształcie błędu walidacji
+FastAPI (`type: "null_character"`). `pattern=` przy `q` zostaje, bo opisuje
+kontrakt w OpenAPI, z którego generator Schemathesis bierze dozwolone wartości.
