@@ -151,6 +151,18 @@ _SCHEDULES = (
     "framework_rate_schedule",
 )
 
+# Skalary, na których sync opiera decyzje o statusie (void, autoaktywacja
+# szkicu, okres zamówienia) — odczytywane pod blokadą w `resync_contract`.
+_LIFECYCLE_FIELDS = (
+    "status",
+    "start_date",
+    "end_date",
+    "client_order_start_date",
+    "client_order_end_date",
+    "terminated_at",
+    "termination_reason",
+)
+
 
 # ── Arytmetyka jednostek ────────────────────────────────────────────────────
 
@@ -783,7 +795,12 @@ async def resync_contract(
     # Zawsze ze świeżej bazy: skasowane zamówienie zabrało swój krok stawki
     # kaskadą w bazie, a stara kolekcja w pamięci próbowałaby skasować go
     # drugi raz (StaleDataError przy flushu).
-    await db.refresh(entity, attribute_names=list(_SCHEDULES))
+    # Pola cyklu życia też: obiekt bywa załadowany PRZED blokadą (np. przez
+    # `selectinload(ClientOrder.contract)`), a równoległy `void` commitowany
+    # w tym czasie musi wygrać — inaczej autoaktywacja szkicu nadpisałaby go
+    # (F03, audyt 14.09.2026). Wcześniejszy `flush` utrwalił zmiany tej
+    # transakcji, więc odświeżenie niczego z nich nie gubi.
+    await db.refresh(entity, attribute_names=[*_SCHEDULES, *_LIFECYCLE_FIELDS])
     orders = await _load_orders(db, contract_id)
     outcome = await sync_contract_from_orders(
         db,

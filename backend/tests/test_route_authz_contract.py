@@ -195,26 +195,12 @@ def _routes() -> list[tuple[str, str, str]]:
 # gained a real gate. That is the burn-down, and mutating routes come first.
 _BARE_BASELINE: set[tuple[str, str]] = {
     ("DELETE", "/api/user-email-templates/{template_id}"),
-    ("GET", "/api/activities/stats"),
     ("GET", "/api/autenti/health"),
     ("GET", "/api/auth/me"),
-    ("GET", "/api/clients-lookup"),
     ("GET", "/api/competence-categories"),
     ("GET", "/api/dictionaries/{slug}/items"),
     ("GET", "/api/dynareporter/board-dashboard/monthly"),
     ("GET", "/api/dynareporter/competitions/my-notifications"),
-    ("GET", "/api/dynareporter/kpi/body-leasing/my"),
-    ("GET", "/api/dynareporter/kpi/body-leasing/ranking"),
-    ("GET", "/api/dynareporter/kpi/body-leasing/summary"),
-    ("GET", "/api/dynareporter/kpi/delivery-lead/my"),
-    ("GET", "/api/dynareporter/kpi/delivery-lead/summary"),
-    ("GET", "/api/dynareporter/kpi/sales/my"),
-    ("GET", "/api/dynareporter/kpi/sales/summary"),
-    ("GET", "/api/dynareporter/placements/my"),
-    ("GET", "/api/dynareporter/placements/stats/by-client"),
-    ("GET", "/api/dynareporter/placements/stats/by-user"),
-    ("GET", "/api/dynareporter/profile/me"),
-    ("GET", "/api/dynareporter/upload/history"),
     ("GET", "/api/entity-schema/{entity_type}"),
     ("GET", "/api/fx"),
     # Biblioteka linków do dokumentów firmowych (SharePoint) — odczyt dla
@@ -223,9 +209,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # odcinane po stronie serwera, niezależnie od parametru klienta. Zapisy
     # (POST/PUT/DELETE) mają pełną bramkę AdminUser.
     ("GET", "/api/help-materials"),
-    ("GET", "/api/jobs-lookup"),
-    ("GET", "/api/kpis/me/panel"),
-    ("GET", "/api/kpis/me/today"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/count"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
@@ -237,7 +220,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/signing/health"),
     ("GET", "/api/skills"),
     ("GET", "/api/skills/autocomplete"),
-    ("GET", "/api/team-structure/my-team"),
     ("GET", "/api/user-email-templates"),
     ("GET", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/users/me/preferences"),

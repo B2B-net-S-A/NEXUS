@@ -319,11 +319,35 @@ cofnąć „przy okazji”:
   przechodził bez sprawdzenia. Uczestnik cudzego spotkania MUSI móc zapisać
   feedback — dlatego bramka to odczyt, nie mutacja (`test_interview_feedback_access.py`).
 - **Zmiana statusu kontraktu blokuje wiersz** (`with_for_update()` w
-  `update_contract`, `update_contract_status`, `void_contract_endpoint`). Bez tego
-  `void` i równoległy `revert` na przeterminowanym obiekcie oba przechodziły,
-  a ostatni zapis wygrywał. Znany dług: writery zamówień blokują `client_orders`
-  przed `contracts` — kolejność odwrotna niż w cronie i handlerach; nie
-  „ujednolicaj” jej w jednym z miejsc bez drugiego.
+  `update_contract`, `update_contract_status`, `void_contract_endpoint`,
+  `activate_contract`, `reopen_contract_endpoint`, `terminate_contract`,
+  `create_contract_amendment`, `bulk_mark_ended`, `bulk_extend_contracts`;
+  `finalize_contract_draft` przez `_load_contract_with_relations(for_update=True)`;
+  pilnuje test AST w `test_contract_status_concurrency.py`). Bez tego `void`
+  i równoległy `revert` na przeterminowanym obiekcie oba przechodziły, a ostatni
+  zapis wygrywał. `resync_contract` odświeża pola cyklu życia po blokadzie —
+  obiekt bywa załadowany przed nią. Znany dług: writery zamówień blokują
+  `client_orders` przed `contracts` — kolejność odwrotna niż w cronie
+  i handlerach; nie „ujednolicaj” jej w jednym z miejsc bez drugiego.
+- **Zakończenie współpracy przechodzi przez maszynę stanów**
+  (`_status_after_termination`, `/terminate` i aneks `early_termination`, od
+  15.09.2026). Do tego dnia obie ścieżki liczyły status z samej daty końca:
+  jedno „Zakończ współpracę” wskrzeszało unieważnioną umowę (`void → ended`,
+  przy przyszłej dacie `active`), a szkic z przyszłą datą dostawał `active`
+  z pominięciem bramki aktywacji. Teraz `void` = 409 przed jakimkolwiek zapisem,
+  a szkic/`ready_for_signature` z przyszłą datą zachowuje status.
+- **Każda zalogowana trasa `/api/**` ma bramkę sekcji albo opisany wyjątek**
+  (`test_section_ceiling_contract.py`, F02, 15.09.2026). Bramka roli
+  (`require_roles`, `OperationalUser`, `RecruitmentReadAccess`…) NIE sprawdza
+  sekcji — konto z odebraną sekcją dalej wołało ok. 20 routerów (pulpity, KPI,
+  Cortex, priorytety, maile odmów, obecność, struktura zespołu, stary
+  DynaReporter). Nowy router: `dependencies=` z `app.api.section_access`
+  (`require_section_access`, `_any` gdy zapisujący siedzą w różnych sekcjach,
+  `_any_read` dla wspólnych odczytów) albo wpis do `_SECTIONLESS_ALLOWLIST`
+  z powodem. Front montuje widżety według `hasSectionAccess`, nie samych ról —
+  inaczej odebrana sekcja daje serię kart błędu 403 (`RoleDashboard`,
+  `useMyKpis`, `usePresence`). `POST /api/fireflies/sync` (dawniej GET —
+  zapisuje notatki, więc musi przejść bramkę zapisu).
 - **Usunięcie kandydata NIE kasuje plików w żądaniu.** Klucze magazynu idą do
   rejestru `cv_source_cleanup` (`schedule_source_cleanup`) w TEJ SAMEJ transakcji,
   a kasuje je worker `clean_pending_sources` z ponowieniami. Rollback po

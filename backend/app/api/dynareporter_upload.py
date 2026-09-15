@@ -15,12 +15,19 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import require_section_access_any_read
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.dr_upload import DrUploadHistory
 from app.models.user import User, UserRole
+from app.services.section_permissions import ProductSection
 
-router = APIRouter()
+# Odczyt Insights (F02, audyt 14.09.2026) — także dla POST /excel: trasa jest
+# wygaszona (410) i niczego nie zapisuje, więc bramka zapisu zamieniałaby
+# „wygaszone” na „brak uprawnień”.
+router = APIRouter(
+    dependencies=[Depends(require_section_access_any_read(ProductSection.insights))]
+)
 
 
 class UploadHistoryResponse(BaseModel):

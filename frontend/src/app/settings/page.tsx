@@ -122,6 +122,8 @@ const TABS: TabConfig[] = [
     label: "Historia zdarzeń",
     icon: <History className="w-4 h-4" />,
     roles: ["admin", "finance"],
+    // Backend wymaga sekcji Finanse (F02) — zakładka bez niej kończyłaby się 403.
+    section: "finance",
   },
   { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
   { id: "pomoc", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
@@ -300,7 +302,7 @@ function FirefliesCard() {
   });
 
   const { mutate: sync, isPending: syncing } = useMutation({
-    mutationFn: () => api.get("/api/fireflies/sync").then((r) => r.data),
+    mutationFn: () => api.post("/api/fireflies/sync").then((r) => r.data),
     onSuccess: (data) => {
       setSyncResult(data);
       refetch();
@@ -544,7 +546,9 @@ export default function SettingsPage() {
       {visibleActiveTab === "integracje" && (
         <div className="space-y-4">
           <Microsoft365Card />
-          <FirefliesCard />
+          {/* Synchronizacja zapisuje notatki kandydatów — backend wymaga sekcji
+              Sourcing (F02), więc bez niej karta nie ma czego pokazać. */}
+          {hasSectionAccess(user, "sourcing") && <FirefliesCard />}
           <TeamsNotificationsCard />
           <TraffitSyncCard />
 

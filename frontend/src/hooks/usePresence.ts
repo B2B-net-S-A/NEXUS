@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 import {
   PRESENCE_EVENT,
   WS_OPEN_EVENT,
@@ -50,7 +52,14 @@ export function usePresence(
   resourceType: PresenceResourceType,
   resourceId: number | null | undefined,
 ): UsePresenceResult {
-  const enabled = typeof resourceId === "number" && Number.isFinite(resourceId);
+  const user = useAuthStore((state) => state.user);
+  // Lustro bramki backendu (F02): obecność widać z Sourcing albo Pipeline.
+  const sectionAllowed =
+    hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline");
+  const enabled =
+    sectionAllowed &&
+    typeof resourceId === "number" &&
+    Number.isFinite(resourceId);
   const key = enabled ? `${resourceType}:${resourceId}` : null;
 
   const { data: initial } = useQuery({

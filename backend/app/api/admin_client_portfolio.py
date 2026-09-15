@@ -14,13 +14,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.client_directory import ClientImportRun
 from app.models.user import User, UserRole
 from app.services.client_portfolio_import import build_client_portfolio_plan
 
-router = APIRouter()
+router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 ClientPortfolioReadUser = Annotated[
     User,

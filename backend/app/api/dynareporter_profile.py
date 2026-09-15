@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import CurrentUser
 from app.schemas.dynareporter_profile import DynaReporterProfileResponse
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 @router.get(
