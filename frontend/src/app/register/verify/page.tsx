@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AlertCircle, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
@@ -36,11 +37,12 @@ function VerifyEmailInner() {
         setStatus("success");
         setTimeout(() => router.push("/login"), 2500);
       } catch (err: unknown) {
-        const detail = (err as { response?: { data?: { detail?: string } } })?.response
-          ?.data?.detail;
         setStatus("error");
         setErrorMsg(
-          detail ?? "Link aktywacyjny jest nieprawidłowy lub wygasł. Poproś o nowy.",
+          apiErrorMessage(
+            err,
+            "Link aktywacyjny jest nieprawidłowy lub wygasł. Poproś o nowy.",
+          ),
         );
       }
     })();

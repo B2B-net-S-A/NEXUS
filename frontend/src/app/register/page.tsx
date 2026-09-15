@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, MailCheck } from "lucide-react";
 import api, { authApi } from "@/lib/api";
@@ -12,8 +13,11 @@ import { AuthShell } from "@/components/blocks/AuthShell";
 /** Map backend error responses to a human Polish message.
  *  NB: the backend is anti-enumeration — a duplicate email returns the same
  *  generic 201 as a new one (never 409), so there is no "email taken" branch. */
-function registerErrorMessage(status: number | undefined, detail: string | undefined): string {
-  const d = (detail ?? "").toLowerCase();
+function registerErrorMessage(status: number | undefined, error: unknown): string {
+  // Tekst, nigdy surowy `detail`: 422 z walidacji niesie tablicę, na której
+  // `.toLowerCase()` rzucał wyjątek w bloku catch formularza.
+  const detail = apiErrorMessage(error, "");
+  const d = detail.toLowerCase();
   if (d === "registration_disabled") {
     return "Rejestracja jest obecnie wyłączona. Skontaktuj się z administratorem.";
   }
@@ -111,13 +115,13 @@ function RegisterForm() {
       await authApi.register(name.trim(), email.trim(), password);
       setDone(true);
     } catch (err: unknown) {
-      const e2 = err as { response?: { status?: number; data?: { detail?: string } } };
-      if (e2.response?.status === 503) {
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status === 503) {
         // Wyłączono w międzyczasie — nie zostawiamy formularza z danymi.
         setAvailability("disabled");
         return;
       }
-      setError(registerErrorMessage(e2.response?.status, e2.response?.data?.detail));
+      setError(registerErrorMessage(status, err));
     } finally {
       setLoading(false);
     }

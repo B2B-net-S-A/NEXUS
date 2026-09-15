@@ -28,6 +28,7 @@ import {
   Search,
 } from "lucide-react";
 import api, { calendarApi, candidatesApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
 import { ConfirmButton } from "@/components/ConfirmDialog";
@@ -986,7 +987,7 @@ function CreateEventModal({
       celebrate({ small: true, message: "Wydarzenie zaplanowane! 📅" });
     },
     onError: (e: any) => {
-      setError(e.response?.data?.detail || "Błąd tworzenia wydarzenia");
+      setError(apiErrorMessage(e, "Błąd tworzenia wydarzenia"));
     },
   });
 
@@ -1589,11 +1590,7 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
       );
       onImported();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
-            "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setResult(`Błąd: ${msg}`);
     } finally {
       setBusy(false);

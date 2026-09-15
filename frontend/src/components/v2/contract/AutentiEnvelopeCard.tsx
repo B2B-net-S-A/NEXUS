@@ -23,6 +23,7 @@ import {
   type DocumentSignature,
   type SignatureStatus,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 import { AutentiSendDialog } from "./AutentiSendDialog";
 
@@ -115,9 +116,8 @@ function SignatureRow({
       invalidate();
     },
     onError: (error: unknown) => {
-      const axiosError = error as AxiosError<{ detail?: string }>;
       showError(
-        `Nie udało się wycofać: ${axiosError.response?.data?.detail ?? "spróbuj ponownie"}`,
+        `Nie udało się wycofać: ${apiErrorMessage(error, "spróbuj ponownie")}`,
       );
     },
   });
@@ -129,14 +129,15 @@ function SignatureRow({
       invalidate();
     },
     onError: (error: unknown) => {
-      const axiosError = error as AxiosError<{ detail?: string }>;
-      const detail = axiosError.response?.data?.detail;
+      const axiosError = error as AxiosError;
       if (axiosError.response?.status === 429) {
         showError(
           "Przypomnienie zostało już wysłane w ciągu ostatniej godziny.",
         );
       } else {
-        showError(`Nie udało się przypomnieć: ${detail ?? "spróbuj ponownie"}`);
+        showError(
+          `Nie udało się przypomnieć: ${apiErrorMessage(error, "spróbuj ponownie")}`,
+        );
       }
     },
   });

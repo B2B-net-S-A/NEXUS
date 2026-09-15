@@ -17,6 +17,7 @@ import {
   MinusCircle,
 } from "lucide-react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import {
@@ -389,9 +390,7 @@ function UploadSheet({
       });
       onSuccess();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } }).response?.data
-          ?.detail ?? "Błąd uploadu";
+      const msg = apiErrorMessage(err, "Błąd uploadu");
       setError(msg);
       onError(msg);
     } finally {
@@ -725,9 +724,7 @@ function RequiredDocRow({
       qc.invalidateQueries({ queryKey: ["client-required-docs", clientId] });
       showSuccess("Plik wgrany");
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } }).response?.data
-          ?.detail ?? "Błąd uploadu";
+      const msg = apiErrorMessage(err, "Błąd uploadu");
       showError(msg);
     } finally {
       setUploading(false);

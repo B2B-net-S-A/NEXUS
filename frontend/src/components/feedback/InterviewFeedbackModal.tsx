@@ -14,6 +14,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { calendarApi, candidatesApi, interviewFeedbackApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 type FeedbackSource = "candidate_side" | "client_side";
 
@@ -188,9 +189,7 @@ export function InterviewFeedbackModal({
       setTimeout(() => onOpenChange(false), 900);
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Nie udało się zapisać feedbacku.";
+      const msg = apiErrorMessage(err, "Nie udało się zapisać feedbacku.");
       setError(msg);
     },
   });

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Database } from "lucide-react";
 import { adminApi, type ImportTaskStatus } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export function ImportTab() {
   const [dryRun, setDryRun] = useState(true);
@@ -121,8 +122,7 @@ export function ImportTab() {
 
         {startMutation.isError && (
           <div className="mt-3 text-xs text-destructive bg-destructive/10 rounded p-2">
-            {(startMutation.error as { response?: { data?: { detail?: string } } })?.response?.data
-              ?.detail ?? "Błąd"}
+            {apiErrorMessage(startMutation.error, "Błąd")}
           </div>
         )}
 

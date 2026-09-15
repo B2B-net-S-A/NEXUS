@@ -27,6 +27,7 @@ import api, {
   HIDDEN_LABELS_PL,
   type HiddenReason,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
@@ -452,10 +453,7 @@ function JobAIActions({
       }
       onDone();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setLast(`Błąd: ${msg}`);
     } finally {
       setBusy(null);

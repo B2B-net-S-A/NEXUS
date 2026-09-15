@@ -7,6 +7,7 @@ import {
   type CvUploadPreviewResponse,
   type JobMatch,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 
 const ACCEPTED_EXT = [".pdf", ".docx", ".doc", ".txt"];
@@ -40,11 +41,12 @@ export function CVDropzoneMatch() {
       });
       setResult(res.data);
     } catch (e: unknown) {
-      const msg =
+      const msg = apiErrorMessage(
+        e,
         e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd serwera")
-          : "Nie udało się przetworzyć CV";
+          ? "Błąd serwera"
+          : "Nie udało się przetworzyć CV",
+      );
       setError(msg);
     } finally {
       setLoading(false);

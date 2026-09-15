@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from"react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useState } from"react";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { Plus, UserCog, UserPlus, X } from"lucide-react";
@@ -286,9 +287,5 @@ function AddCollaboratorInner({
 }
 
 function extractDetail(err: unknown): string | null {
- if (err && typeof err === "object" &&"response" in err) {
- const resp = (err as { response?: { data?: { detail?: string } } }).response;
- if (resp?.data?.detail) return resp.data.detail;
- }
- return null;
+ return apiErrorMessage(err, "") || null;
 }

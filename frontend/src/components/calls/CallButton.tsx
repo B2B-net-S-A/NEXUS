@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Phone, Loader2 } from "lucide-react";
 
 import { cloudtalkApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 
 interface CallButtonProps {
@@ -49,9 +50,7 @@ export default function CallButton({
     } catch (err: unknown) {
       const status =
         (err as { response?: { status?: number } })?.response?.status;
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || "Nie udało się zadzwonić";
+      const detail = apiErrorMessage(err, "Nie udało się zadzwonić");
       if (status === 412) {
         showError(detail);
       } else if (status === 503) {

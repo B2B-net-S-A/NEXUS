@@ -20,6 +20,7 @@ import { HighlightedCvText } from "@/components/v2/cv-generator/HighlightedCvTex
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import {
@@ -207,9 +208,7 @@ const STATUS_STYLE: Record<
 };
 
 function getErrorMessage(e: unknown, fallback: string): string {
-  const detail = (e as { response?: { data?: { detail?: string } } })?.response
-    ?.data?.detail;
-  return detail ?? fallback;
+  return apiErrorMessage(e, fallback);
 }
 
 // ── Sekcje dokumentu CV (wspólne dla obu widoków) ───────────────────────────

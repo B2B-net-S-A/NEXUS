@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ClipboardList, Loader2, Plus, Trash2, X, GripVertical, Save } from "lucide-react";
 import { phase3Api, type ScorecardQuestion, type ScorecardSchema } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { ScorecardV2 } from "./v2/modals/ScorecardV2";
 
 interface Props {
@@ -55,11 +56,7 @@ export function ScorecardSchemaBuilder({
         setQuestions(Array.isArray(sch?.questions) ? sch.questions : []);
       } catch (e: unknown) {
         if (!cancel) {
-          const msg =
-            e && typeof e === "object" && "response" in e
-              ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
-                "")
-              : "";
+          const msg = apiErrorMessage(e, "");
           // 404 or empty is fine — start blank
           if (!msg.toLowerCase().includes("not found")) {
             setError(msg || "Błąd pobierania scorecard");
@@ -136,10 +133,7 @@ export function ScorecardSchemaBuilder({
       await phase3Api.setScorecardSchema(stageDefId, schema);
       onSaved();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setError(msg);
     } finally {
       setSaving(false);
