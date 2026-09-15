@@ -21,7 +21,7 @@ from datetime import timedelta
 from typing import Iterable
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +64,9 @@ _DEFAULT_INTERVAL_HOURS = 24.0
 async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
     """Move active→ending and ending→ended based on end_date.
 
+    Także szkic / ``ready_for_signature`` zakończony ręcznie (``terminated_at``)
+    przechodzi na ``ended`` dzień po dacie końca.
+
     `business_today()`, nie `date.today()`: kontener chodzi w UTC (Dockerfile
     nie ustawia TZ), więc między północą warszawską a północą UTC — 2 h latem,
     1 h zimą — `date.today()` zwraca WCZORAJ. Kontrakt kończący się dziś
@@ -88,7 +91,24 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
             await db.execute(
                 select(Contract)
                 .where(
-                    Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+                    or_(
+                        Contract.status.in_(
+                            [ContractStatus.active, ContractStatus.ending]
+                        ),
+                        # Szkic zakończony z datą w przyszłości zachowuje status
+                        # do tej daty (`_status_after_termination`, audyt
+                        # 14.09.2026) — bez tej gałęzi nigdy nie stałby się
+                        # `ended` i nie trafił do „Zakończonych”.
+                        and_(
+                            Contract.status.in_(
+                                [
+                                    ContractStatus.draft,
+                                    ContractStatus.ready_for_signature,
+                                ]
+                            ),
+                            Contract.terminated_at.isnot(None),
+                        ),
+                    ),
                     Contract.end_date.isnot(None),
                     Contract.end_date < today,
                 )

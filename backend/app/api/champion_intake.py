@@ -8,9 +8,22 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, get_db
+from app.api.section_access import require_section_access_any
 from app.core.rate_limit import limiter
+from app.services.section_permissions import ProductSection
 
-router = APIRouter(prefix="/champion")
+# Wspólne dla edytora w rekrutacji (Pipeline) oraz Radaru i generatora CV
+# (Sourcing), więc wystarcza którakolwiek z sekcji (F02). Poziom wynika z metody:
+# `/preview` i `/validate` zużywają płatną kwotę AI, więc wymagają zapisu —
+# konto z sekcją obniżoną do odczytu nie może wydawać budżetu AI.
+router = APIRouter(
+    prefix="/champion",
+    dependencies=[
+        Depends(
+            require_section_access_any(ProductSection.sourcing, ProductSection.pipeline)
+        )
+    ],
+)
 TEMPLATE = (
     Path(__file__).resolve().parents[1]
     / "assets"

@@ -145,7 +145,7 @@ describe("SettingsPage — Historia zdarzeń", () => {
   });
 
   it.each([
-    ["admin", { system_admin: "write" }],
+    ["admin", { system_admin: "write", finance: "write" }],
     ["finance", { finance: "write" }],
   ])("pokazuje zakładkę roli %s", (role, access) => {
     mocks.user = { role, roles: [role], effective_section_access: access };
@@ -155,6 +155,22 @@ describe("SettingsPage — Historia zdarzeń", () => {
     expect(
       screen.getByRole("button", { name: "Historia zdarzeń" }),
     ).toBeInTheDocument();
+  });
+
+  it("nie pokazuje zakładki Finansom z odebraną sekcją Finanse", () => {
+    // Backend historii wymaga sekcji Finanse (F02) — zakładka bez niej
+    // otwierałaby się na błąd 403.
+    mocks.user = {
+      role: "finance",
+      roles: ["finance"],
+      effective_section_access: { finance: "none", pipeline: "write" },
+    };
+
+    renderSettings();
+
+    expect(
+      screen.queryByRole("button", { name: "Historia zdarzeń" }),
+    ).not.toBeInTheDocument();
   });
 
   it.each(["delivery_lead", "recruiter", "head_of_recruitment", "tac"])(

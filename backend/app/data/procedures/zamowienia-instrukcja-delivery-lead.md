@@ -200,6 +200,9 @@ jest istotna:
 * **Zakończ współpracę** — wypowiada **umowę**. Domyka wszystkie zamówienia tego
   kontraktu i — przy zamówieniach MD — otwiera decyzję o niewykorzystanych
   dniach. Tego użyj, gdy konsultant naprawdę odchodzi od klienta.
+  Umowy **unieważnionej** nie da się zakończyć — system odmówi, bo to już
+  stan końcowy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
+  daty, a dzień po niej sam przechodzi do „Zakończonych".
 
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
 niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.

@@ -8,6 +8,7 @@ from app.api.section_access import (
     ProductSection,
     SectionAccess,
     require_section_access,
+    require_section_access_any,
     require_section_access_any_read,
     section_access_for_user,
 )
@@ -478,3 +479,48 @@ async def test_signature_command_is_narrowly_configurable(path, method, section,
         with pytest.raises(HTTPException) as exc:
             await check(_request(method, path), user)
         assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,delivery,pipeline,allowed",
+    [
+        ("GET", 0, 0, False),
+        ("GET", 1, 0, True),
+        ("GET", 0, 1, True),
+        ("POST", 1, 1, False),
+        ("POST", 2, 0, True),
+        ("POST", 0, 2, True),
+        ("DELETE", 1, 2, True),
+    ],
+)
+async def test_any_section_guard_derives_level_from_method(
+    monkeypatch, method, delivery, pipeline, allowed
+):
+    """F02: przypisania DL↔klient edytuje Delivery Lead (Delivery) i Head of
+    Recruitment (bez Delivery). Zapis wymaga zapisu w KTÓREJKOLWIEK sekcji,
+    a nie samego odczytu — inaczej „dowolna z sekcji" otwierałaby mutacje."""
+    import app.api.section_access as access
+
+    user = SimpleNamespace(id=1)
+    levels = {
+        ProductSection.delivery: SectionAccess(delivery),
+        ProductSection.pipeline: SectionAccess(pipeline),
+    }
+    monkeypatch.setattr(
+        access, "section_access_for_user", lambda _user, section: levels[section]
+    )
+    guard = require_section_access_any(ProductSection.delivery, ProductSection.pipeline)
+    request = _request(method, "/api/team-structure/dl-clients")
+    if allowed:
+        assert await guard(request, user) is user
+    else:
+        with pytest.raises(HTTPException) as error:
+            await guard(request, user)
+        assert error.value.status_code == 403
+        assert error.value.detail["any_section"] == ["delivery", "pipeline"]
+
+
+def test_any_section_guard_requires_at_least_one_section() -> None:
+    with pytest.raises(ValueError):
+        require_section_access_any()

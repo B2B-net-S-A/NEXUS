@@ -16,6 +16,7 @@ import {
   type DashboardPeriod,
   type DashboardPreset,
 } from "@/lib/dashboard-presets"
+import { hasSectionAccess } from "@/lib/section-access"
 import { getUserRoles, useAuthStore, type UserRole } from "@/store/auth"
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
 import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQueueWidget"
@@ -145,25 +146,62 @@ function OperationalTools({
   )
 }
 
+function PipelineAccessNotice() {
+  return (
+    <Card data-testid="dashboard-pipeline-access-notice">
+      <CardHeader>
+        <CardTitle>Brak dostępu do sekcji Rekrutacje</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        Widżety tego pulpitu pokazują procesy rekrutacyjne. Twoje konto nie ma
+        dostępu do tej sekcji — jeśli powinno, poproś administratora o zmianę
+        uprawnień.
+      </CardContent>
+    </Card>
+  )
+}
+
 function RecruitmentDashboardContent({
   preset,
   roles,
+  canReadPipeline,
+  canReadDelivery,
 }: {
   preset: DashboardPreset
   roles: UserRole[]
+  canReadPipeline: boolean
+  canReadDelivery: boolean
 }) {
+  // Widżety montujemy według sekcji, a nie samych ról: backend odmawia 403
+  // bez dostępu do sekcji (F02, audyt 14.09.2026), a seria kart błędu
+  // czytałaby się jak awaria pulpitu.
+  // Alerty DL tylko dla roli DL (jak dotąd); panel „Moi klienci” także dla
+  // admina podglądającego preset DL — backend `/api/dl-alerts/cards` go wpuszcza.
+  const showDlAlerts =
+    preset === "delivery-lead" && roles.includes("delivery_lead") && canReadDelivery
+  const showMyClients = preset === "delivery-lead" && canReadDelivery
   return (
     <div className="space-y-6">
       {/* Alerty DL (braki zamówień, niski budżet MD, szkice) — od #1304 sekcja
           nie była montowana nigdzie, więc DL nie widział żadnego z nich. */}
-      {preset === "delivery-lead" && roles.includes("delivery_lead") && <DlAlertsSection />}
-      {preset === "head-of-recruitment" && roles.includes("head_of_recruitment") && <AllocationWorkloadBoard />}
-      <RecruitmentActivityDashboard />
-      <MyAssignedRecruitments preset={preset} />
-      <MyTasksDashboard recruitmentNotificationsOnly={preset === "delivery-lead"} />
-      {preset === "delivery-lead" && <MyClientsAlertsPanel />}
-      <RecruitmentCompetenceDashboard preset={preset} />
-      <OperationalTools preset={preset} roles={roles} />
+      {showDlAlerts && <DlAlertsSection />}
+      {canReadPipeline ? (
+        <>
+          {preset === "head-of-recruitment" && roles.includes("head_of_recruitment") && <AllocationWorkloadBoard />}
+          <RecruitmentActivityDashboard />
+          <MyAssignedRecruitments preset={preset} />
+          <MyTasksDashboard recruitmentNotificationsOnly={preset === "delivery-lead"} />
+        </>
+      ) : (
+        <PipelineAccessNotice />
+      )}
+      {showMyClients && <MyClientsAlertsPanel />}
+      {canReadPipeline && (
+        <>
+          <RecruitmentCompetenceDashboard preset={preset} />
+          <OperationalTools preset={preset} roles={roles} />
+        </>
+      )}
     </div>
   )
 }
@@ -307,6 +345,8 @@ export function RoleDashboard() {
       <RecruitmentDashboardContent
         preset={preset}
         roles={roles}
+        canReadPipeline={hasSectionAccess(user, "pipeline")}
+        canReadDelivery={hasSectionAccess(user, "delivery")}
       />
     </DashboardShell>
   )

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from app.services.section_permissions import ProductSection, SectionAccess
-from tests._route_introspection import iter_api_routes
+from tests._route_introspection import iter_api_routes, iter_dependency_calls
 
 
 def _route(path: str, method: str) -> Any:
@@ -28,18 +28,7 @@ def _route(path: str, method: str) -> Any:
 
 
 def _dependency_calls(route: Any) -> list[Any]:
-    calls: list[Any] = []
-    stack = [route.dependant]
-    seen: set[int] = set()
-    while stack:
-        dependant = stack.pop()
-        if dependant is None or id(dependant) in seen:
-            continue
-        seen.add(id(dependant))
-        if dependant.call is not None:
-            calls.append(dependant.call)
-        stack.extend(dependant.dependencies or ())
-    return calls
+    return iter_dependency_calls(route)
 
 
 def _candidate_access_levels(route: Any) -> set[SectionAccess]:

@@ -126,7 +126,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   { prefix: "/dynareporter", roles: null },
   // Granularne podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAccessRule bierze najdłuższy pasujący prefix.
-  { prefix: "/settings/chats", roles: ["admin", "finance"] },
+  // Backend strumienia czatów wymaga Pipeline i Sourcing (F02); middleware
+  // sprawdza Pipeline, brak Sourcing kończy się komunikatem na stronie.
+  {
+    prefix: "/settings/chats",
+    roles: ["admin", "finance"],
+    section: "pipeline",
+    enforceRoles: true,
+  },
   // Techniczna administracja jest osobną sekcją i zostaje Admin-only.
   // Ustawienia biznesowe niżej zachowują własne, węższe publiczności.
   {
@@ -179,6 +186,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   {
     prefix: "/settings/team-structure",
     roles: ["admin", "head_of_recruitment", "finance"],
+    // Struktura zespołu to Pipeline po stronie API (F02).
+    section: "pipeline",
+    enforceRoles: true,
   },
   {
     prefix: "/settings/linkedin-metrics",

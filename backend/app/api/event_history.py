@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.api.deps import FinanceModuleUser
 from app.core.database import get_db
 from app.core.scheduling import DEFAULT_TZ
@@ -26,7 +27,7 @@ from app.services.critical_events import (
     OUTCOME_LABELS,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 
 class CriticalEventOut(BaseModel):

@@ -15,6 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import (
+    PIPELINE_SECTION_DEPENDENCIES,
+    require_section_access_any,
+    require_section_access_any_read,
+)
+from app.services.section_permissions import ProductSection
 from app.api.deps import OperationalUser, CurrentUser, HeadOfRecruitmentPlus
 from app.core.database import get_db
 from app.models.client import Client
@@ -54,6 +60,22 @@ from app.services.authorization_invalidation import (
 
 router = APIRouter()
 
+# Bramki sekcji per trasa (F02, audyt 14.09.2026). Struktura zespołu to
+# Pipeline; przypisania DL↔klient edytuje także Delivery Lead (Delivery),
+# a Head of Recruitment nie ma Delivery — stąd „dowolna z sekcji”.
+_DL_CLIENTS_SECTION = [
+    Depends(
+        require_section_access_any(ProductSection.delivery, ProductSection.pipeline)
+    )
+]
+_MY_TEAM_SECTION = [
+    Depends(
+        require_section_access_any_read(
+            ProductSection.delivery, ProductSection.pipeline
+        )
+    )
+]
+
 _COMPETENCE_OPERATOR_ROLES = {
     UserRole.sourcer,
     UserRole.tac,
@@ -83,7 +105,11 @@ def _category_brief(c: CompetenceCategory) -> CategoryBrief:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/sourcer-categories", response_model=list[SourcerCategoryRow])
+@router.get(
+    "/sourcer-categories",
+    response_model=list[SourcerCategoryRow],
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def list_sourcer_categories(
     _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -144,6 +170,7 @@ async def list_sourcer_categories(
 @router.post(
     "/sourcer-categories",
     status_code=status.HTTP_201_CREATED,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def assign_sourcer_to_category(
     payload: AssignSourcerPayload,
@@ -234,7 +261,9 @@ async def assign_sourcer_to_category(
     return {"ok": True}
 
 
-@router.put("/operators/{user_id}/competences")
+@router.put(
+    "/operators/{user_id}/competences", dependencies=PIPELINE_SECTION_DEPENDENCIES
+)
 async def replace_operator_competences(
     user_id: int,
     payload: OperatorCompetencesUpdate,
@@ -343,7 +372,9 @@ async def replace_operator_competences(
     }
 
 
-@router.delete("/sourcer-categories/{assignment_id}")
+@router.delete(
+    "/sourcer-categories/{assignment_id}", dependencies=PIPELINE_SECTION_DEPENDENCIES
+)
 async def remove_sourcer_from_category(
     assignment_id: int,
     _user: HeadOfRecruitmentPlus,
@@ -380,7 +411,11 @@ async def remove_sourcer_from_category(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/tac-delivery-leads", response_model=list[DlWithTacsRow])
+@router.get(
+    "/tac-delivery-leads",
+    response_model=list[DlWithTacsRow],
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def list_tac_delivery_leads(
     _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -453,7 +488,11 @@ async def list_tac_delivery_leads(
     ]
 
 
-@router.post("/tac-delivery-leads", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tac-delivery-leads",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def assign_tac_to_dl(
     payload: AssignTacToDlPayload,
     _user: HeadOfRecruitmentPlus,
@@ -493,7 +532,9 @@ async def assign_tac_to_dl(
     return {"ok": True}
 
 
-@router.delete("/tac-delivery-leads/{tac_user_id}")
+@router.delete(
+    "/tac-delivery-leads/{tac_user_id}", dependencies=PIPELINE_SECTION_DEPENDENCIES
+)
 async def unassign_tac_from_dl(
     tac_user_id: int,
     _user: HeadOfRecruitmentPlus,
@@ -513,7 +554,11 @@ async def unassign_tac_from_dl(
     return {"ok": True}
 
 
-@router.post("/tac-linkedin-farming", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tac-linkedin-farming",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def assign_tac_linkedin_farming(
     payload: AssignTacLinkedInFarmingPayload,
     _user: HeadOfRecruitmentPlus,
@@ -540,7 +585,9 @@ async def assign_tac_linkedin_farming(
     return {"ok": True}
 
 
-@router.delete("/tac-linkedin-farming/{assignment_id}")
+@router.delete(
+    "/tac-linkedin-farming/{assignment_id}", dependencies=PIPELINE_SECTION_DEPENDENCIES
+)
 async def remove_tac_linkedin_farming(
     assignment_id: int,
     _user: HeadOfRecruitmentPlus,
@@ -563,7 +610,9 @@ async def remove_tac_linkedin_farming(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/dl-clients", response_model=list[DlClientsRow])
+@router.get(
+    "/dl-clients", response_model=list[DlClientsRow], dependencies=_DL_CLIENTS_SECTION
+)
 async def list_dl_clients(
     _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -655,7 +704,9 @@ async def list_dl_clients(
     return deduped
 
 
-@router.post("/dl-clients", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/dl-clients", status_code=status.HTTP_201_CREATED, dependencies=_DL_CLIENTS_SECTION
+)
 async def assign_dl_to_client(
     payload: AssignDlClientPayload,
     _user: HeadOfRecruitmentPlus,
@@ -716,7 +767,7 @@ async def assign_dl_to_client(
     return {"ok": True}
 
 
-@router.put("/dl-clients/{assignment_id}/toggle-head")
+@router.put("/dl-clients/{assignment_id}/toggle-head", dependencies=_DL_CLIENTS_SECTION)
 async def toggle_dl_client_head(
     assignment_id: int,
     _user: HeadOfRecruitmentPlus,
@@ -755,7 +806,7 @@ async def toggle_dl_client_head(
     return {"ok": True, "is_head": row.is_head}
 
 
-@router.delete("/dl-clients/{assignment_id}")
+@router.delete("/dl-clients/{assignment_id}", dependencies=_DL_CLIENTS_SECTION)
 async def remove_dl_client(
     assignment_id: int,
     _user: HeadOfRecruitmentPlus,
@@ -784,7 +835,11 @@ async def remove_dl_client(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@router.get("/summary", response_model=TeamStructureSummary)
+@router.get(
+    "/summary",
+    response_model=TeamStructureSummary,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def team_structure_summary(
     _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
@@ -828,7 +883,7 @@ _TERMINAL_STAGES = (
 )
 
 
-@router.get("/my-team", response_model=list[MyTeamRow])
+@router.get("/my-team", response_model=list[MyTeamRow], dependencies=_MY_TEAM_SECTION)
 async def list_my_team(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
