@@ -228,3 +228,42 @@ async def test_the_hint_is_sent_once_not_on_every_later_hire(
     assert resp.status_code == 200, resp.text
 
     assert await _hint_count(world["job_id"]) == after_first
+
+
+async def test_same_day_notification_about_a_candidate_with_the_job_id_does_not_break_the_hire(
+    app_client, app_auth_headers
+):
+    """`ix_notif_dedup_daily` nie zna typu encji: powiadomienie „kolejny krok”
+    o KANDYDACIE #N z tego dnia zderzało się z podpowiedzią dla REKRUTACJI #N
+    i wywracało commit zatrudnienia (500). Kolizja ma pominąć jedną
+    podpowiedź, nie zatrudnienie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification, NotificationType
+    from app.models.user import User, UserRole
+
+    world = await _seed(headcount=1)
+    async with AsyncSessionLocal() as db:
+        staff_ids = (
+            await db.execute(
+                select(User.id).where(
+                    User.role.in_([UserRole.admin, UserRole.delivery_lead, UserRole.tac]),
+                    User.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+        assert staff_ids
+        db.add(
+            Notification(
+                user_id=staff_ids[0],
+                title="Kolejny krok po feedbacku",
+                message="x",
+                notification_type=NotificationType.suggest_next_step,
+                related_entity_type="candidate",
+                related_entity_id=world["job_id"],
+            )
+        )
+        await db.commit()
+
+    await _hire(app_client, app_auth_headers, world)
+
+    assert await _hint_count(world["job_id"]) == len(staff_ids) - 1
