@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    ColumnElement,
     DateTime,
     Enum,
     ForeignKey,
@@ -54,6 +55,24 @@ class SourceChannel(str, enum.Enum):
     posting = "posting"  # Application via published job ad
     referral = "referral"  # Referral from another person
     import_csv = "import_csv"  # Bulk import (Traffit / TalentRadar)
+
+
+# Źródło z Traffita bez daty dostaje przy imporcie `captured_at` = początek
+# importu (kolumna jest NOT NULL), a ten dopisek na KOŃCU `note` mówi, że data
+# jest zmyślona. Raporty z oknem czasowym MUSZĄ takie zdarzenia pomijać —
+# inaczej pierwszy pełny sync wrzuca całą historyczną atrybucję w „ostatnie
+# 30 dni" (audyt statystyk 14.09.2026, A05). Stała mieszka tutaj, a nie
+# w importerze, bo czytają ją i importer, i raporty.
+UNDATED_IMPORT_NOTE_MARK = "(bez daty w Traffit — data importu)"
+
+
+def undated_import_event(note_col: ColumnElement[str | None]) -> ColumnElement[bool]:
+    """Warunek SQL: zdarzenie źródła bez prawdziwej daty (z importu).
+
+    `COALESCE`, bo `NULL LIKE …` to NULL, a `NOT NULL` wycina wiersz — zdarzenie
+    bez notatki (formularz, CV upload) ma prawdziwą datę i musi zostać.
+    """
+    return func.coalesce(note_col, "").like(f"%{UNDATED_IMPORT_NOTE_MARK}")
 
 
 CHANNEL_LABELS: dict[SourceChannel, str] = {

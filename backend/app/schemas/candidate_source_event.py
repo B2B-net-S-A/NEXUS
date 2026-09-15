@@ -1,7 +1,7 @@
 """Pydantic schemas for multi-row candidate source attribution (#4)."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -66,3 +66,29 @@ class SourceReportResponse(BaseModel):
     period_start: datetime
     period_end: datetime
     rows: List[SourceFunnelRow]
+    # Audyt statystyk 14.09.2026 (A05): model atrybucji i pokrycie jadą przy
+    # liczbach, bo sam podział na kanały nie mówi, ilu kandydatów źródła NIE ma.
+    attribution_model: Literal["multi_touch"] = Field(
+        "multi_touch",
+        description=(
+            "Kandydat liczony w każdym kanale z kontaktem w oknie — wiersze się "
+            "nie sumują."
+        ),
+    )
+    unique_candidates: int = Field(
+        0, description="Unikalni kandydaci z datowanym zdarzeniem źródła w oknie."
+    )
+    new_candidates_total: int = Field(
+        0, description="Kandydaci dodani do bazy w oknie."
+    )
+    new_candidates_without_source: int = Field(
+        0,
+        description="Z nich bez żadnego datowanego zdarzenia źródła.",
+    )
+    undated_source_events: int = Field(
+        0,
+        description=(
+            "Zdarzenia źródeł z importu bez prawdziwej daty (cała baza) — "
+            "pominięte w oknie."
+        ),
+    )

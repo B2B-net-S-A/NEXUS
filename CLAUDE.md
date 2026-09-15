@@ -393,7 +393,14 @@ cofnąć „przy okazji”:
   więc `None` dla całego klienta zdejmowałoby kwoty z większości rankingu
   i z całego wiersza DL w przeglądzie admina. Źródła
   z Traffita idą jako `candidate_source_events` (`note` = `traffit:source:<id>`,
-  idempotentnie), więc raport źródeł je widzi.
+  idempotentnie), więc raport źródeł je widzi. Źródło bez daty ma
+  `captured_at` = data importu i dopisek `UNDATED_IMPORT_NOTE_MARK` na końcu
+  `note` (przeżywa przycięcie do 500 znaków) — raport źródeł i metryka v1
+  pomijają je w oknie (`undated_import_event`), inaczej pełny sync wrzucałby
+  historię w „ostatnie 30 dni". Raport niesie model atrybucji (`multi_touch`,
+  wiersze się nie sumują), `unique_candidates` i pokrycie nowych kandydatów
+  bez źródła. Stary `GET /api/reports/board` usunięty (15.09) — liczył
+  powtórne zatrudnienia i nie miał konsumenta; kokpit Rady to `/api/insights/board`.
 - **Monitoring nie może być zielony bez odczytu:** `sentry-daily-monitor` bez
   tokenu = `::error::` + `exit 1`, częściowy digest wysyła i kończy `exit 1`;
   deploy ma krok `/api/health/alembic` (bookmark bazy == heads kodu,

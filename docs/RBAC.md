@@ -222,7 +222,6 @@ domyślnie używają `CurrentUser`.
 | `GET /api/reports/sales` | TacPlus |
 | `GET /api/reports/delivery-leads` | TacPlus |
 | `GET /api/reports/tenders` | TacPlus |
-| `GET /api/reports/board` | TacPlus |
 
 ### 4.7 `/api/phase5/*` + `/api/pipeline-templates/*` — DeliveryLeadPlus
 
