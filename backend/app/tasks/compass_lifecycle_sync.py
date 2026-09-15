@@ -19,6 +19,7 @@ from app.services.compass_lifecycle import (
     record_sync_outcome,
     sync_user_lifecycle,
 )
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,12 @@ async def compass_lifecycle_sync_loop() -> None:
         _MIN_INTERVAL_SECONDS, int(settings.COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS)
     )
 
+    # MON-04: tick na początku iteracji; cisza dłuższa niż próg = „stalled”.
+    beat = loop_heartbeat.register(
+        "compass_lifecycle_sync", max_silence_seconds=interval + 3600
+    )
     while True:
+        beat.tick()
         try:
             async with AsyncSessionLocal() as db:
                 result = await sync_user_lifecycle(db)

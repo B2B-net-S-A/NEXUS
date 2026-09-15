@@ -128,6 +128,8 @@ def test_workflow_fails_without_token_instead_of_skipping(monkeypatch):
     source = _WORKFLOW.read_text("utf-8")
     assert "secrets.SENTRY_READ_TOKEN" in source
     assert "secrets.TEAMS_SENTRY_WEBHOOK_URL" in source
-    assert "run: python .github/scripts/sentry_daily_digest.py" in source
+    assert "python .github/scripts/sentry_daily_digest.py" in source
+    # Kod wyjścia skryptu nie może zostać połknięty (job `alert` go czyta).
+    assert "rc=$?" in source and "exit $rc" in source
     monkeypatch.delenv("SENTRY_READ_TOKEN", raising=False)
     assert digest.main() == 1
