@@ -90,3 +90,24 @@ Po każdym udanym Deploy biegnie projekt Playwright `prod-smoke`: odczyty po zal
   - job `select` pokazuje „Wydanie = HEAD maina … z zieloną bramką”;
   - `/api/health.version`, `version.json.sha` i ACCEPTED_SHA są równe;
   - `checks.migrations` i `checks.background_tasks` mają stan `healthy`.
+
+## Stan po domknięciu
+
+Stan dowodów: 15.09.2026, po pierwszym wdrożeniu commitu
+`e55a901984b9b3ff8f658d1c1831e64f7cc7a971`.
+
+| ID | Stan | Dowód |
+|---|---|---|
+| DEP-01 | **ZALICZONE** | [Deploy 34979326940](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34979326940): `select` wybrał HEAD `e55a901` z zieloną bramką, smoke przyjął to samo SHA, backend i frontend były zgodne z wydaniem. |
+| DEP-02 | **ZALICZONE** | Produkcyjne `/api/health`: `version=e55a901984b…`, `checks.migrations=healthy`; `/api/health/alembic`: DB i kod na `0310_dl_alerts_my_clients_panel`, bez osieroconych rewizji. |
+| MON-04 | **ZABLOKOWANE CZASOWO: trwa wymagane okno obserwacji** | Pierwszy pomiar po deployu: `checks.background_tasks=healthy`. Drugi pomiar może być wykonany dopiero po co najmniej 2 godzinach; zmiana klasyfikacji na `unhealthy` nie wcześniej niż po pełnych 7 dniach, czyli 22.09.2026. |
+| MON-01 | **ZABLOKOWANE: brak dostępu do Teams do wizualnego potwierdzenia karty** | [Sentry daily monitor 34980098469](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980098469) zakończył digest i wysyłkę bez ścieżki awaryjnej. Odbiór oraz zawartość karty w Teams wymagają potwierdzenia właściciela. |
+| OPS-01 | **ZABLOKOWANE: właściciel musi ustawić trzy sekrety GitHub** | [Coolify Ops 34980172655](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980172655): konfiguracja serwerowa kompletna, ale brak `BACKUP_AGE_PRIVATE_KEY`, `BACKUP_S3_ACCESS_KEY` i `BACKUP_S3_SECRET_KEY`; monitoring pozostaje poprawnie wyłączony, drill nie został uruchomiony. |
+| MON-02 | **ZABLOKOWANE: właściciel musi włączyć zmienną repo** | Ręczny [E2E 34980234631](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980234631): produkcyjny job `Playwright against production` zielony. Automatyczny [E2E po deployu 34979987249](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34979987249) pominął `prod-smoke`, ponieważ `E2E_POST_DEPLOY_ENABLED` nie jest `true`. |
+| MON-05 | **ZABLOKOWANE: właściciel musi uwierzytelnić sesję Grafana Cloud** | Wejście do `arturt96.grafana.net` kończy się na ekranie logowania. Sondy i test contact point nie zostały utworzone. |
+
+Pierwszy deploy po merge był zielony, ale potwierdził znaną cechę obecnego
+wdrożenia bez rolling update: najdłuższa przerwa API wyniosła 75 s, frontendu
+7 s, a kontener Postgresa został odtworzony. To nie wpływa na zaliczenie bramki
+DEP-01, ale pozostaje dowodem ryzyka operacyjnego dla ewentualnej aktualizacji
+Coolify.
