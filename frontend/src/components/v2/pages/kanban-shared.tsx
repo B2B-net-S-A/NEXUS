@@ -57,6 +57,9 @@ export interface KanbanItem {
   rejection_note?: string | null;
  } | null;
  contact_case?: CandidateContactSummary | null;
+ // F05: `RecruitmentProcess.state_version` z tablicy (0 = brak procesu).
+ // Pojedynczy ruch odsyła ją jako `expected_state_version`.
+ process_state_version?: number | null;
 }
 
 export interface KanbanColumn {

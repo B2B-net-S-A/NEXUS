@@ -21,6 +21,7 @@ from app.models.recruitment_pipeline import (
     VerificationStatus,
 )
 from app.models.recruitment_priority import PriorityChannel
+from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
@@ -225,6 +226,36 @@ def _stage_response(
         "added_to_job_by_name": added_to_job_by_name,
         "added_to_job_at": added_to_job_at,
     }
+
+
+async def _process_state_versions(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, int]:
+    """Wersja najnowszego procesu każdej pary (kandydat, ta rekrutacja).
+
+    F05: klient odsyła ją jako ``expected_state_version`` przy ruchu, a
+    ``transition_process`` porównuje ją z ``state_version`` procesu wskazanego
+    tym samym porządkiem (``attempt_no`` malejąco, potem ``id``). Jedno
+    zapytanie hurtowe dla całej tablicy — bez N+1. Para bez procesu nie trafia
+    do słownika; wołający traktuje brak jako 0 (lustro backendu).
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(RecruitmentProcess.candidate_id, RecruitmentProcess.state_version)
+        .where(
+            RecruitmentProcess.job_id == job_id,
+            RecruitmentProcess.candidate_id.in_(ids),
+        )
+        .order_by(
+            RecruitmentProcess.candidate_id,
+            RecruitmentProcess.attempt_no.desc(),
+            RecruitmentProcess.id.desc(),
+        )
+        .distinct(RecruitmentProcess.candidate_id)
+    )
+    return {cid: int(version or 0) for cid, version in rows.all()}
 
 
 # ── Pending verification helper ─────────────────────────────────────────────
@@ -1089,6 +1120,13 @@ async def move_candidate(
 
     resp = _stage_response(stage)
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
+    # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
+    # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
+    # wersji sprzed własnego ruchu i nie dostał 409 za samego siebie.
+    versions = await _process_state_versions(
+        db, job_id=data.job_id, candidate_ids=[data.candidate_id]
+    )
+    resp["process_state_version"] = versions.get(data.candidate_id, 0)
     return CandidateStageResponse(**resp)
 
 
@@ -1358,6 +1396,11 @@ async def get_kanban(
     manager_verdicts = await load_manager_rejections(
         db, job=job, candidate_ids=candidate_ids
     )
+    # F05: wersja procesu na karcie — front odsyła ją przy ruchu
+    # (`expected_state_version`). Jedno zapytanie dla całej tablicy.
+    process_versions = await _process_state_versions(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
 
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
@@ -1376,6 +1419,7 @@ async def get_kanban(
             added_to_job_at=added_at,
         )
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
+        payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         verdict = manager_verdicts.get(e.candidate_id)
         if verdict is not None:
             payload["hm_veto"] = HiringManagerVetoBrief(
