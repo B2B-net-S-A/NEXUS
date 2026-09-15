@@ -7,7 +7,7 @@
 
 import { api } from "@/lib/api";
 
-export type DlAlertStatus = "new" | "handled";
+export type DlAlertStatus = "new" | "handled" | "resolved";
 
 export type DlAlertType =
   | "cost_order_exhausted"
@@ -17,7 +17,55 @@ export type DlAlertType =
   | "md_consultant_ended"
   | "order_mail_review"
   // Finanse → Braki: zamówienie zakończone, a osoba nie ma kolejnego.
-  | "order_missing_successor";
+  | "order_missing_successor"
+  | "periodic_order_ending"
+  | "framework_contract_expiring"
+  | "contract_ending"
+  | "cost_budget_low"
+  | "new_contractor_draft";
+
+/** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
+export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";
+
+export type DlAlertPriority = "standard" | "high";
+
+/** Jedna karta = jedna sprawa. Powtórki (T-30, T-23, T-14…) są złożone
+ *  serwerowo; `id` to najnowszy wiersz, a odhaczenie zamyka całą sprawę. */
+export interface DlAlertCard {
+  id: number;
+  event_key: string | null;
+  alert_type: DlAlertType;
+  alert_type_label: string;
+  section: DlAlertSection;
+  priority: DlAlertPriority;
+
+  client_id: number;
+  client_name: string;
+  order_group_id: number | null;
+  order_id: number | null;
+
+  title: string;
+  message: string;
+  link: string | null;
+  candidate_name: string | null;
+  end_date: string | null;
+  days_left: number | null;
+  missing_fields: string[];
+  source: string | null;
+  received_at: string | null;
+
+  first_alert_at: string;
+  last_alert_at: string;
+  repeat_count: number;
+  email_sent: boolean;
+  email_requested: boolean;
+  can_mark_handled: boolean;
+}
+
+export interface DlAlertCardsResponse {
+  cards: DlAlertCard[];
+  total: number;
+}
 
 export interface DlAlertRead {
   id: number;
@@ -55,6 +103,8 @@ export interface DlAlertListResponse {
 export const dlAlertsApi = {
   list: (status: DlAlertStatus, limit = 50) =>
     api.get<DlAlertListResponse>("/api/dl-alerts", { params: { status, limit } }),
+
+  cards: () => api.get<DlAlertCardsResponse>("/api/dl-alerts/cards"),
 
   markHandled: (alertId: number) =>
     api.post<DlAlertRead>(`/api/dl-alerts/${alertId}/handled`, {}),

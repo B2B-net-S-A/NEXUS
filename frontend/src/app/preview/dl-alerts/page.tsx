@@ -16,7 +16,15 @@ import { useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { DlAlertsSection } from "@/components/v2/dashboard/DlAlertsSection";
-import type { DlAlertRead, DlAlertStatus } from "@/lib/api/dlAlerts";
+import {
+  MY_CLIENTS_CARDS_QUERY_KEY,
+  MyClientsAlertsPanel,
+} from "@/components/v2/dashboard/MyClientsAlertsPanel";
+import type {
+  DlAlertCard,
+  DlAlertRead,
+  DlAlertStatus,
+} from "@/lib/api/dlAlerts";
 
 function alert(overrides: Partial<DlAlertRead> = {}): DlAlertRead {
   return {
@@ -87,7 +95,11 @@ type CaseKind = "data" | "empty";
 
 // Lista statusów w JEDNYM miejscu — zasiew podgladu iteruje po niej, więc
 // dołożenie trzeciego statusu nie zostawi po cichu klucza strzelającego do API.
-const DL_ALERT_STATUSES: readonly DlAlertStatus[] = ["new", "handled"] as const;
+const DL_ALERT_STATUSES: readonly DlAlertStatus[] = [
+  "new",
+  "handled",
+  "resolved",
+] as const;
 
 function Case({
   title,
@@ -116,8 +128,8 @@ function Case({
     // pamiętał o drugim kluczu.
     const seed: Record<DlAlertStatus, DlAlertRead[]> =
       kind === "data"
-        ? { new: WITH_DATA, handled: HANDLED }
-        : { new: [], handled: [] };
+        ? { new: WITH_DATA, handled: HANDLED, resolved: [] }
+        : { new: [], handled: [], resolved: [] };
     for (const status of DL_ALERT_STATUSES) {
       qc.setQueryData(["dl-alerts", status], {
         alerts: seed[status],
@@ -143,9 +155,167 @@ function Case({
   );
 }
 
+// Zamrożone karty panelu „Moi klienci" — ten sam układ co makieta z ticketu.
+// Dane FIKCYJNE (repo jest publiczne): żadnych prawdziwych nazwisk.
+function card(overrides: Partial<DlAlertCard>): DlAlertCard {
+  return {
+    id: 100,
+    event_key: "periodic_order_ending:order:1:end:2026-10-14:3",
+    alert_type: "periodic_order_ending",
+    alert_type_label: "Kończące się zamówienie okresowe",
+    section: "ending",
+    priority: "standard",
+    client_id: 12,
+    client_name: "Klient Alfa",
+    order_group_id: null,
+    order_id: 1,
+    title: "Klient Alfa — zamówienie kończy się",
+    message: "",
+    link: "/clients/12?tab=zamowienia&order=1",
+    candidate_name: null,
+    end_date: null,
+    days_left: null,
+    missing_fields: [],
+    source: null,
+    received_at: null,
+    first_alert_at: "2026-09-14T08:00:00Z",
+    last_alert_at: "2026-09-14T08:00:00Z",
+    repeat_count: 1,
+    email_sent: false,
+    email_requested: false,
+    can_mark_handled: true,
+    ...overrides,
+  };
+}
+
+const PANEL_CARDS: DlAlertCard[] = [
+  card({
+    id: 101,
+    priority: "high",
+    client_name: "Bank Beta",
+    candidate_name: "Anita Przykładowa",
+    end_date: "2026-10-14",
+    days_left: 7,
+    message:
+      "Zamówienie dla Anita Przykładowa kończy się 2026-10-14. Przygotuj kolejne zamówienie lub przedłużenie.",
+    repeat_count: 4,
+    email_sent: true,
+    email_requested: true,
+  }),
+  card({
+    id: 102,
+    event_key: "periodic_order_ending:order:2:end:2026-10-07:3",
+    client_name: "Grupa Gamma",
+    candidate_name: "Marcin Testowy",
+    end_date: "2026-10-07",
+    days_left: 23,
+    message:
+      "Zamówienie dla Marcin Testowy kończy się 2026-10-07. Skontaktuj się z klientem w sprawie przedłużenia i przygotuj nowe zamówienie.",
+    link: "/clients/13?tab=zamowienia&order=2",
+  }),
+  card({
+    id: 103,
+    event_key: "md_budget_low:order:3:3",
+    alert_type: "md_budget_low",
+    alert_type_label: "Niski poziom MD na zamówieniu",
+    client_name: "Telekom Delta",
+    candidate_name: "Ola Wzorcowa",
+    message: "Zamówieniu MD-445 dla Ola Wzorcowa zostało 18 MD. Zorganizuj nowe zamówienie lub przedłużenie.",
+    link: "/clients/14?tab=zamowienia&order=3",
+    repeat_count: 2,
+  }),
+  card({
+    id: 104,
+    event_key: "new_contractor_draft:order:4:3",
+    alert_type: "new_contractor_draft",
+    alert_type_label: "Nowy kontraktor — draft zamówienia",
+    section: "new_contractor",
+    client_name: "Telekom Delta",
+    candidate_name: "Jan Próbny",
+    message:
+      "Nowy kontraktor Jan Próbny — umowa podpisana obustronnie. Uzupełnij: stawkę przychodową, okres zamówienia, numer zamówienia.",
+    link: "/clients/14?tab=zamowienia&order=4",
+    missing_fields: ["stawkę przychodową", "okres zamówienia", "numer zamówienia"],
+    source: "b2b_generator",
+  }),
+  card({
+    id: 105,
+    event_key: "order_mail_review:order_mail:5:3",
+    alert_type: "order_mail_review",
+    alert_type_label: "Zamówienie z maila do weryfikacji",
+    section: "order_mail",
+    client_name: "Słodycze Epsilon",
+    candidate_name: "Maria Fikcyjna",
+    message:
+      "Zamówienie dla Maria Fikcyjna do Słodycze Epsilon czeka na ręczną weryfikację w zakładce Zamówienia z maila.",
+    link: "/order-mail?doc=5",
+    received_at: "2026-09-13",
+  }),
+];
+
+function PanelCase({
+  title,
+  why,
+  cards,
+}: {
+  title: string;
+  why: string;
+  cards: DlAlertCard[];
+}) {
+  const queryClient = useMemo(() => {
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { staleTime: Infinity, retry: false, refetchOnMount: false },
+      },
+    });
+    // `updatedAt` daleko w przyszłości: panel ma własne `staleTime`, więc
+    // świeży „teraz" zestarzałby się po 30 s i fokus okna wysłałby zapytanie.
+    const future = Date.now() + 10 * 365 * 24 * 3600 * 1000;
+    qc.setQueryData(
+      MY_CLIENTS_CARDS_QUERY_KEY,
+      { cards, total: cards.length },
+      { updatedAt: future },
+    );
+    for (const status of DL_ALERT_STATUSES) {
+      qc.setQueryData(
+        ["dl-alerts", status],
+        {
+          alerts: status === "handled" ? HANDLED : [],
+          total_new: 0,
+          total_handled: HANDLED.length,
+        },
+        { updatedAt: future },
+      );
+    }
+    return qc;
+  }, [cards]);
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div>
+        <h2 className="text-sm font-semibold">{title}</h2>
+        <p className="text-xs text-muted-foreground">{why}</p>
+      </div>
+      <QueryClientProvider client={queryClient}>
+        <MyClientsAlertsPanel refetchIntervalMs={false} />
+      </QueryClientProvider>
+    </section>
+  );
+}
+
 export default function DlAlertsPreview() {
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-8">
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-8 sm:px-8">
+      <PanelCase
+        title="Panel „Moi klienci” — sprawy do zrobienia"
+        why="Wysoki priorytet (≤7 dni), przypomnienie standardowe, draft z Generatora umów i mail do weryfikacji. Checkbox zdejmuje kartę, przycisk prowadzi do konkretnego obiektu."
+        cards={PANEL_CARDS}
+      />
+      <PanelCase
+        title="Panel „Moi klienci” — pusty stan"
+        why="Brak spraw to informacja, nie awaria."
+        cards={[]}
+      />
       <header>
         <h1 className="text-lg font-semibold">
           Harness — sekcja Powiadomienia (dashboard Delivery Lead)

@@ -107,13 +107,18 @@ function AlertRow({
  * Oznaczenie jako obsłużone NIE kasuje wpisu; przenosi go do „Historii”
  * i wstrzymuje dalsze cotygodniowe ponowienia tej samej sprawy.
  */
-export function DlAlertsSection() {
+export function DlAlertsSection({
+  initialTab = "new",
+}: {
+  /** Panel „Moi klienci" otwiera sekcję od razu na historii odhaczonych. */
+  initialTab?: DlAlertStatus;
+} = {}) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
   const canExportAll = hasRole(user, "admin", "finance");
 
-  const [tab, setTab] = useState<DlAlertStatus>("new");
+  const [tab, setTab] = useState<DlAlertStatus>(initialTab);
   const [exporting, setExporting] = useState(false);
 
   const query = useQuery({

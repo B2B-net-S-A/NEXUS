@@ -7,7 +7,9 @@ zamówienie OIT/0189/2026/ITVM miało okres 15.09–31.12.2026 i 1340 PLN/MD.
 Testy opisują reguły z ticketu, każdą na liczbach z ticketu:
 
 * zamówienie → kontrakt: okres zamówienia (osobne pole), stawka przychodowa
-  od daty startu zamówienia, jednostka dopasowana do zamówienia (1 MD = 8 h);
+  od daty startu zamówienia, jednostka dopasowana do zamówienia (1 MD = 8 h),
+  ale kontrakt nigdy nie przechodzi na MD — zamówienie w MD daje zł/h
+  (ticket „Ujednolicenie stawek w module Kontrakty", 14.09.2026);
 * kontrakt → zamówienie: stawka kosztowa z kontraktu, KAŻDA zaplanowana
   podwyżka w swoim dniu;
 * jednorazowo: migawka raportu przed synchronizacją + żaden szkic.
@@ -149,7 +151,7 @@ def test_group_line_revenue_is_per_md():
 
 
 async def test_czapelka_ticket_example_end_to_end_on_the_contract():
-    """Szkic 120 zł/h + zamówienie 1340 PLN/MD → Aktywny, MD, okres zamówienia."""
+    """Szkic 120 zł/h + zamówienie 1340 PLN/MD → Aktywny, zł/h, okres zamówienia."""
     contract = _contract()
     db = _FakeDb()
 
@@ -157,10 +159,14 @@ async def test_czapelka_ticket_example_end_to_end_on_the_contract():
         db, contract, [_order()], actor_id=None, today=date(2026, 9, 20)
     )
 
-    assert contract.rate_unit == RateUnit.daily
-    assert contract.rate_candidate == Decimal("960.000"), "120 zł/h × 8"
-    assert contract.effective_client_rate(date(2026, 9, 20)) == Decimal("1340.000")
-    assert contract.rate_client == Decimal("1340.000")
+    assert contract.rate_unit == RateUnit.hourly, "kontrakt nigdy nie jest w MD"
+    assert contract.rate_candidate == Decimal("120.000"), "koszt z umowy bez zmian"
+    assert contract.effective_client_rate(date(2026, 9, 20)) == Decimal("167.5")
+    assert contract.rate_client == Decimal("167.5"), "1340 zł/MD ÷ 8"
+    # Miesiąc zamówienia w MD = 22 MD = 176 h: przychód miesięczny kontraktu
+    # jest dokładnie tym, co zamówienie (1340 × 22).
+    assert contract.billing_hours_per_month == 176
+    assert contract.monthly_rate(contract.rate_client) == Decimal("1340") * 22
     assert (contract.client_order_start_date, contract.client_order_end_date) == (
         date(2026, 9, 15),
         date(2026, 12, 31),
@@ -168,7 +174,7 @@ async def test_czapelka_ticket_example_end_to_end_on_the_contract():
     # Okres UMOWY nietknięty — okres zamówienia to osobne pole.
     assert (contract.start_date, contract.end_date) == (date(2026, 9, 14), None)
     assert contract.status == ContractStatus.active
-    assert outcome.activated and outcome.unit_switched_to == "daily"
+    assert outcome.activated and outcome.unit_switched_to is None
 
 
 async def test_hourly_order_keeps_the_hourly_contract_unit():
@@ -256,7 +262,7 @@ async def test_order_rate_correction_moves_the_same_step():
     )
 
     assert len(contract.client_rate_schedule) == 1
-    assert contract.rate_client == Decimal("1400.000")
+    assert contract.rate_client == Decimal("175"), "1400 zł/MD ÷ 8"
 
 
 async def test_cancelled_order_takes_its_rate_and_period_back():
@@ -276,8 +282,8 @@ async def test_cancelled_order_takes_its_rate_and_period_back():
     assert contract.client_order_end_date is None
 
 
-async def test_contract_follows_the_unit_of_the_newest_order_back_to_hours():
-    """„Trzyma się MD, dopóki nie napłynie zamówienie w innej jednostce"."""
+async def test_md_then_hourly_orders_keep_the_contract_in_hours():
+    """Kontrakt zostaje w zł/h przy zamówieniu w MD i przy kolejnym godzinowym."""
     contract = _contract()
     md_order = _order(100)
     await sync_contract_from_orders(
@@ -300,7 +306,7 @@ async def test_contract_follows_the_unit_of_the_newest_order_back_to_hours():
     )
 
     assert contract.rate_unit == RateUnit.hourly
-    assert contract.rate_candidate == Decimal("120.000"), "960 zł/MD ÷ 8"
+    assert contract.rate_candidate == Decimal("120.000")
     # Stawka ze starszego zamówienia MD przeliczona na godziny.
     assert contract.effective_client_rate(date(2026, 10, 1)) == Decimal("167.500")
     assert contract.effective_client_rate(date(2027, 1, 1)) == Decimal("170.000")
@@ -576,9 +582,10 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
     assert Decimal(str(resp.json()["rate_candidate"])) == Decimal("960")
     contract = await _load_contract(ids["contract_id"])
     assert contract.status == ContractStatus.active
-    assert contract.rate_unit == RateUnit.daily
-    assert contract.effective_client_rate(date(2026, 10, 1)) == Decimal("1340.000")
-    assert contract.effective_candidate_rate(date(2026, 10, 1)) == Decimal("960.000")
+    assert contract.rate_unit == RateUnit.hourly
+    assert contract.billing_hours_per_month == 176
+    assert contract.effective_client_rate(date(2026, 10, 1)) == Decimal("167.5")
+    assert contract.effective_candidate_rate(date(2026, 10, 1)) == Decimal("120")
     assert (contract.client_order_start_date, contract.client_order_end_date) == (
         date(2026, 9, 15),
         date(2026, 12, 31),
@@ -696,8 +703,8 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
 
     filled_contract = await _load_contract(filled["contract_id"])
     assert filled_contract.status == ContractStatus.active
-    assert filled_contract.rate_unit == RateUnit.daily
-    assert filled_contract.effective_client_rate(today) == Decimal("1340.000")
+    assert filled_contract.rate_unit == RateUnit.hourly
+    assert filled_contract.effective_client_rate(today) == Decimal("167.5")
     assert filled_contract.client_order_end_date == date(2026, 12, 31)
     empty_contract = await _load_contract(empty["contract_id"])
     assert empty_contract.status == ContractStatus.active
@@ -1011,12 +1018,11 @@ async def test_order_writes_do_not_sync_before_the_repair_marker(
 
 
 async def test_foreign_order_does_not_relabel_the_contract_own_revenue():
-    """1000 PLN/MD sprzed zmiany nie może zacząć się czytać jako 1000 EUR/MD."""
+    """125 PLN/h sprzed zmiany nie może zacząć się czytać jako 125 EUR/h."""
     contract = _contract(
         status=ContractStatus.active,
-        rate_unit=RateUnit.daily,
-        rate_candidate=Decimal("800"),
-        rate_client=Decimal("1000"),
+        rate_candidate=Decimal("100"),
+        rate_client=Decimal("125"),
         start_date=date(2026, 1, 1),
     )
     eur_order = _order(
@@ -1028,7 +1034,7 @@ async def test_foreign_order_does_not_relabel_the_contract_own_revenue():
     )
 
     assert contract.resolved_rate_client_currency == "PLN"
-    assert contract.effective_client_rate(date(2026, 3, 1)) == Decimal("1000")
+    assert contract.effective_client_rate(date(2026, 3, 1)) == Decimal("125")
     assert all(step.source_order_id is None for step in contract.client_rate_schedule)
 
 
@@ -1037,8 +1043,8 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
 ):
     """Edycja PM-a nie może dopisać kroku ze starą stawką przychodową.
 
-    Kolumna ``rate_client`` była 1340, a od wczoraj obowiązuje krok 1400.
-    Formularz odsyła wyświetlone 1340 razem z edycją nazwy projektu — to NIE
+    Kolumna ``rate_client`` była 167,5, a od wczoraj obowiązuje krok 175.
+    Formularz odsyła wyświetlone 167,5 razem z edycją nazwy projektu — to NIE
     jest zmiana stawki.
     """
     from app.core.database import AsyncSessionLocal
@@ -1047,18 +1053,17 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
     today = date.today()
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, ids["contract_id"])
-        contract.rate_unit = RateUnit.daily
-        contract.rate_client = Decimal("1340")
+        contract.rate_client = Decimal("167.5")
         db.add_all(
             [
                 ContractClientRate(
                     contract_id=contract.id,
-                    rate=Decimal("1340"),
+                    rate=Decimal("167.5"),
                     effective_from=today - timedelta(days=20),
                 ),
                 ContractClientRate(
                     contract_id=contract.id,
-                    rate=Decimal("1400"),
+                    rate=Decimal("175"),
                     effective_from=today - timedelta(days=1),
                 ),
             ]
@@ -1067,13 +1072,13 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
 
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
-        json={"project_name": "Nowa nazwa", "rate_client": 1340},
+        json={"project_name": "Nowa nazwa", "rate_client": 167.5},
         headers=app_auth_headers,
     )
 
     assert resp.status_code == 200, resp.text
     contract = await _load_contract(ids["contract_id"])
-    assert contract.effective_client_rate(today) == Decimal("1400.000")
+    assert contract.effective_client_rate(today) == Decimal("175")
     assert len(contract.client_rate_schedule) == 2
 
 

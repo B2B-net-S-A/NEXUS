@@ -72,3 +72,14 @@ export function useClientTab(
   // [zakładka, zmiana stanu bez adresu, wybór użytkownika zapisywany w adresie]
   return [activeTab, setActiveTab, selectTab] as const;
 }
+
+/**
+ * Identyfikator z parametru adresu (`?order=`, `?group=`, `?framework=`)
+ * albo `null`. Adres pisze człowiek i linki z powiadomień — „abc", „0",
+ * „-3" czy „1.5" nie są celem, tylko brakiem celu.
+ */
+export function positiveIntParam(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}

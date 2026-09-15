@@ -686,10 +686,13 @@ reguły nie powiodło się…" i można użyć przycisku ręcznie.
   **okres zamówienia** z najnowszego uzupełnionego zamówienia. Stawki, jednostki
   i waluty ten przebieg nie zmienia — przeniesie je dopiero najbliższy zapis
   zamówienia.
-* **Dopasowuje jednostkę umowy do zamówienia** (1 MD = 8 godzin). Umowa z
-  generatora jest godzinowa; pierwsze zamówienie w MD przestawia ją na MD
-  i przelicza stawkę kosztową (120 zł/h → 960 zł/MD). Umowa zostaje w MD, dopóki
-  nie przyjdzie zamówienie w innej jednostce.
+* **Prowadzi stawki umowy w zł/h** (1 MD = 8 godzin). W module Kontrakty
+  stawki są godzinowe: zamówienie w MD **zostaje w MD**, a do umowy trafia jego
+  stawka przeliczona na godzinę (1340 zł/MD → 167,50 zł/h). Umowa z generatora
+  jest godzinowa i taka zostaje; umowa ryczałtowa (zł/mc) przechodzi na zł/h
+  przy pierwszym zamówieniu w MD. Kwoty miesięczne się nie zmieniają — umowa
+  liczy wtedy 176 godzin w miesiącu (22 MD × 8 h). Stawka kosztowa wraca do
+  zamówienia w MD pomnożona przez 8, więc ta sama kwota.
 * **Ustawia stawkę kosztową zamówienia z umowy.** Umowa jest jej jedynym
   źródłem: pole w zamówieniu jest tylko do odczytu (dopisek „z kontraktu"),
   a zaplanowane w umowie zmiany stawki — także kilka naraz, np. od 01.10 i od
@@ -762,95 +765,97 @@ na nocny przebieg.
 
 ## Powiadomienia — co przyjdzie, kiedy i gdzie
 
-**Żadne z tych powiadomień nie przychodzi mailem.** Wszystko dzieje się
-w aplikacji, w dwóch różnych miejscach.
+Sprawy zamówień i kontraktów Twoich klientów mają **własny panel „Moi klienci"**
+na pulpicie Delivery Leada, zaraz pod „Moje zadania". W „Moje zadania →
+Powiadomienia" zostają wyłącznie zdarzenia rekrutacyjne (np. nowy kandydat).
 
-### Miejsce 1: dzwonek w prawym górnym rogu
+### Panel „Moi klienci" — co w nim jest
 
-Trafiają tu powiadomienia o zbliżającym się końcu:
+Każda karta to **jedna sprawa**: nazwa klienta, pigułka (ile dni zostało albo
+czego brakuje), treść z imieniem i nazwiskiem kontraktora, **checkbox „zrobione"**
+i przycisk, który otwiera **konkretne** zamówienie, kontrakt albo dokument —
+nie samą zakładkę. Karty są pogrupowane:
 
-| Powiadomienie | Kiedy |
-|---|---|
-| **Zamówienie [nazwisko] kończy się za N dni** | 30, 14 i 7 dni przed datą zakończenia aktywnego zamówienia |
-| **Umowa ramowa wygasa za N dni** | 30, 14 i 7 dni przed końcem umowy ramowej z klientem |
-| Zbliżający się koniec umowy z konsultantem | 90, 60, 30, 14 i 7 dni przed końcem — umowa B2B ma datę końca dopiero po „Zakończ współpracę" |
-| **Nowy draft kontraktu + zamówienia** | w chwili zatrudnienia kandydata — z prośbą o uzupełnienie stawek, dat i wgranie PDF-a |
-| **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia, gdy osoba nie ma u tego klienta następnego zamówienia (także szkicu) — raz na brak; ta sama sprawa trafia też na pulpit (Miejsce 2) |
+| Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
+|---|---|---|---|
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca | co 7 dni; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
+| | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
+| | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
+| | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
+| | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
+| Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
+| | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
+| | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
+| Zamówienia z maila do weryfikacji | **Zamówienie do [klient] czeka na weryfikację** — z imieniem i nazwiskiem kandydata, gdy dokument je podaje | automat nie zapisał zamówienia i odesłał je do kolejki | co 7 dni |
+| Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
+| | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
 
-Kliknięcie powiadomienia otwiera od razu właściwą zakładkę profilu klienta —
-„Zamówienia” albo „Umowy” (umowy ramowe i aneksy).
+**Tempo zużycia** liczone jest z raportów tego zamówienia: suma zaraportowanych
+MD (albo faktur) podzielona przez dni robocze od startu zamówienia do końca
+ostatniego raportowanego miesiąca. Zamówienie MD bez żadnego raportu przyjmuje
+szacunek 1 MD dziennie na osobę. Zamówienie kosztowe bez faktur nie ma tempa —
+dostaje przypomnienie standardowe, a na końcu alert o wyczerpaniu.
 
-Każdy próg przychodzi raz **dla danej daty zakończenia**. **Zmiana daty
-zakończenia w istniejącym zamówieniu odnawia progi** — jeśli przesuniesz koniec
-o pół roku, ostrzeżenia 30/14/7 dni przyjdą ponownie przed nową datą. To samo
-dotyczy przedłużonej umowy ramowej. Ta sama data nie wywoła drugiego
-ostrzeżenia, nawet gdy skaner przejdzie kilka razy w ciągu dnia.
+**Checkbox „zrobione"** zdejmuje kartę od razu, **zatrzymuje dalsze przypomnienia
+tej sprawy** (także wtedy, gdy problem nadal trwa) i zapisuje w historii, kto
+i kiedy odhaczył sprawę oraz którego zamówienia albo kontraktora dotyczyła
+(wpis trafia też do historii zamówienia). Historię i eksport do Excela z czasem
+reakcji otwiera przycisk **„Historia i eksport"** na dole panelu.
 
-### Miejsce 2: sekcja „Powiadomienia" na pulpicie Delivery Leada
-
-Pulpit w widoku **Delivery Lead**. To lista **spraw do załatwienia**, z przyciskiem
-**Oznacz jako obsłużone**, zakładką **Historia** i eksportem do Excela z czasem
-reakcji. Sześć rodzajów:
-
-| Sprawa | Kiedy powstaje | Czy się powtarza |
-|---|---|---|
-| **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (czeka na uzupełnienie); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni; bez powtarzania alertu dla pierwszego draftu z maila |
-| **[Klient] — brak stawki przychodowej** | zamówienie bez stawki, którą płaci klient | co 7 dni |
-| **[Klient] — mało MD na zamówieniu [numer]** | zostało 15 MD lub mniej — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | co 7 dni |
-| **[Klient] — zamówienie [numer] wyczerpane** | budżet **kosztowy** albo **wspólna pula MD** zeszły do zera | raz |
-| **[Klient] — decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz |
-| **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
+**Karta znika sama, gdy przyczyna ustąpi** — np. zamówienie zostało przedłużone,
+draft uzupełniony, a dokument z maila zweryfikowany. Takie zamknięcie jest
+w historii osobno („Zamknięte automatycznie") i nie liczy się jako Twoje
+odhaczenie. Przedłużenie z nową datą końca to nowa sprawa: przypomnienia ruszą
+znowu 30 dni przed nową datą.
 
 **Brak kolejnego zamówienia widzi też dział finansowy** (Finanse → Zmiany
 w zamówieniach → Braki). Nie powstaje, gdy koniec był świadomy: wypowiedziana
 umowa („Zakończ współpracę"), zamiana kontraktora, decyzja o MD po zakończeniu
 współpracy albo „Zostaw jako historię". Dodanie zamówienia po fakcie zamyka
-alert od razu, ale **wpis w Brakach zostaje** jako „Uzupełnione z opóźnieniem"
+kartę od razu, ale **wpis w Brakach zostaje** jako „Uzupełnione z opóźnieniem"
 z liczbą dni po terminie — dział finansowy widzi, że temat nie był dopilnowany
 na czas. Żeby brak w ogóle nie powstał, dodaj następne zamówienie (wystarczy
 szkic) **najpóźniej w dniu końca obecnego**.
 
-> **Uwaga na dziurę w pierwszym alercie:** przypomina on o zamówieniach
-> w statusie **Draft**, a nie o osobach, które zamówienia **w ogóle nie mają**.
-> Konsultant z umową, ale bez żadnego zamówienia — tak jak u Polkomtela, gdzie
-> zamówienie zakładasz ręcznie — nie wywoła żadnego powiadomienia. Takich osób
-> musisz pilnować sam.
+> **Uwaga na dziurę:** alert o drafcie przypomina o zamówieniach w statusie
+> **Draft**, a nie o osobach, które zamówienia **w ogóle nie mają**. Konsultant
+> z umową, ale bez żadnego zamówienia — tak jak u Polkomtela, gdzie zamówienie
+> zakładasz ręcznie — nie wywoła żadnego powiadomienia. Takich osób musisz
+> pilnować sam.
 
-**Warunek, bez którego nie dostaniesz nic z tej sekcji:** musisz mieć aktywne
+**Warunek, bez którego nie dostaniesz nic z tego panelu:** musisz mieć aktywne
 konto, rolę i dostęp do sekcji Delivery oraz być **przypisany do klienta jako
 Delivery Lead** (profil klienta → zakładka „Delivery Lead"). Bez przypisania sprawy
-z pulpitu dla tego klienta **w ogóle nie powstają — dla nikogo**. To pierwsza
-rzecz do sprawdzenia, gdy „system nic nie przysyła". Wyjątkiem są dwa
-jednorazowe powiadomienia — o pierwszym drafcie z maila i o wyczerpaniu
-budżetu: przyjdą raz, przy najbliższym dobowym przebiegu po przypisaniu, jeśli
-sprawa nadal trwa (draft jest wciąż draftem, zamówienie wciąż wyczerpane). Powiadomienia z dzwonka
-(Miejsce 1) administrator dostaje globalnie, a Delivery Lead tylko dla
-przypisanych klientów i przy aktywnym dostępie do sekcji Delivery.
+dla tego klienta **nie powstają — dla nikogo** (wyjątek: zamówienie z maila do
+weryfikacji trafia wtedy do administratorów). To pierwsza rzecz do sprawdzenia,
+gdy „system nic nie przysyła". Jednorazowe powiadomienia — o pierwszym drafcie
+z maila i o wyczerpaniu budżetu — przyjdą przy najbliższym dobowym przebiegu
+po przypisaniu, jeśli sprawa nadal trwa.
 
-Sekcja pokazuje wyłącznie **Twoje** wpisy — nawet administratorowi. Widać ją
-tylko w widoku pulpitu „Delivery Lead".
+Panel pokazuje wyłącznie **Twoje** sprawy — nawet administratorowi — i jest
+widoczny w widoku pulpitu „Delivery Lead".
 
-**Powtórki wracają co 7 dni jako nowy wpis**, dopóki nie klikniesz **Oznacz jako
-obsłużone** albo przyczyna nie ustąpi. Uwaga: kliknięcie **wycisza sprawę na
-stałe**, także wtedy, gdy problem nadal trwa. Nowa sprawa (inne zamówienie, inna
-osoba) alarmuje od nowa.
+### Maile
 
-**Trzy rzeczy, o których warto wiedzieć zawczasu:**
+Mail przychodzi **tylko na progach**: 14 i 7 dni przed końcem zamówienia, umowy
+ramowej albo kontraktu oraz przy wysokim priorytecie MD i budżetu kosztowego.
+Każdy próg wysyła mail raz. Odhaczona sprawa nie dostaje już maili.
 
-* **Zamówienie kosztowe nie ostrzega wcześniej — tylko po fakcie.** Odpowiednika
-  progu „mało MD" dla puli w złotych nie ma: alert przychodzi dopiero, gdy kwota
-  zejdzie do zera. Wcześniejszy sygnał daje wyłącznie filtr **Bliskie wyczerpania
-  budżetu (≥80%)**, który trzeba sprawdzać samodzielnie.
-* **Alertu „decyzja MD" nie da się odkliknąć.** Zamyka się dopiero, gdy podejmiesz
-  w zamówieniu decyzję o pozostałej puli.
-* **Powiadomienia z pulpitu nie trafiają do dzwonka i odwrotnie.** To dwa osobne
-  miejsca — sprawdzaj oba.
+### Dzwonek w prawym górnym rogu
+
+Dzwonek działa jak dotąd i nadal pokazuje także powiadomienia o końcu zamówień,
+umów ramowych i kontraktów (30, 14 i 7 dni przed datą; kontrakty dodatkowo 90
+i 60 dni), o nowym drafcie kontraktu i zamówienia po zatrudnieniu oraz o braku
+kolejnego zamówienia (raz na brak). Panel
+„Moi klienci" jest miejscem, w którym te sprawy **załatwiasz i odhaczasz**;
+dzwonek — tylko informacją.
 
 Skanery chodzą **raz na dobę, licząc od ostatniego restartu aplikacji** — nie ma
 stałej godziny wysyłki.
 
-Poza aplikację idzie tylko jedna rzecz: zbiorcze podsumowanie wygasających umów
-z konsultantami na Slacka, i to wyłącznie gdy administrator skonfigurował
+Poza aplikację idą: maile z progów opisane wyżej oraz zbiorcze podsumowanie
+wygasających umów z konsultantami na Slacka, gdy administrator skonfigurował
 integrację.
 
 ### Zakończenie współpracy na zamówieniu MD
@@ -1017,7 +1022,7 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   pole do ręcznego wpisania. Zgłosi też **nietypową stawkę za 1 MD** poza
   spodziewanym zakresem — to sygnał, że kwotę odczytano z innej kolumny.
 * **Powiadomienia:** standardowe, plus alert **„mało MD"**, gdy konsultantowi
-  zostanie 15 dni lub mniej.
+  zostanie 21 dni lub mniej.
 
 ### BIK
 
@@ -1063,7 +1068,7 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   **„Przywróć" nie zadziała** na tak zakończonym zamówieniu — zwiększ budżet
   MD konsultanta albo skoryguj zużycie, a zamówienie wróci do „Aktywnych"
   samo; nowy limit to przedłużenie.
-* **Powiadomienia:** jak u BNP — standardowe plus „mało MD" przy 15 dniach.
+* **Powiadomienia:** jak u BNP — standardowe plus „mało MD" przy 21 dniach.
 
 ### Polkomtel
 
@@ -1098,11 +1103,10 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   rozstrzygający.** Gdy wiersz go niesie, decyduje numer, a nie nazwisko — i gdy
   numer nie pasuje do żadnego zamówienia Polkomtela, system **nie próbuje już
   dopasować po nazwisku**, tylko zostawia wiersz niedopasowany.
-* **Powiadomienia:** standardowe, plus alert **„mało MD"** przy 15 dniach na
-  zamówieniach MD. Przy zamówieniu **kosztowym** przyjdzie jednorazowy alert
-  o wyczerpaniu; **wcześniejszego ostrzeżenia o kończącej się kwocie nie ma
-  w ogóle**, więc jedynym sygnałem jest filtr **Bliskie wyczerpania budżetu
-  (≥80%)**, który trzeba sprawdzać samemu.
+* **Powiadomienia:** standardowe, plus alert **„mało MD"** przy 21 dniach na
+  zamówieniach MD. Przy zamówieniu **kosztowym** karta w panelu „Moi klienci"
+  przychodzi, gdy w budżecie zostanie 10 000 zł lub mniej, a na końcu
+  jednorazowy alert o wyczerpaniu.
 
 ### Lotte Wedel
 
@@ -1115,10 +1119,10 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * Wybór trybu budżetu nowych MD jest taki sam jak u wszystkich klientów.
   Lotte Wedel nie ma własnej reguły PDF.
 * **Powiadomienia:** standardowe, a dla wspólnej puli MD dwa własne: **„mało MD"**,
-  gdy w puli zostanie 15 dni lub mniej, oraz jednorazowy alert **o wyczerpaniu**,
+  gdy w puli zostanie 21 dni lub mniej, oraz jednorazowy alert **o wyczerpaniu**,
   gdy zejdzie do zera i zamówienie przestanie przyjmować konsultantów. Przy
-  zamówieniu **kosztowym** przychodzi tylko ten drugi — o kończącej się kwocie
-  nie ostrzega nic poza filtrem „Bliskie wyczerpania budżetu (≥80%)".
+  zamówieniu **kosztowym** karta przychodzi przy 10 000 zł w budżecie, a potem
+  alert o wyczerpaniu.
 
 ### Cyfrowy Polsat
 
@@ -1463,7 +1467,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy
   przeliczenia nie ma. Zawsze zerknij na kwotę brutto pokazaną obok pola.
 * **Powiadomienia:** standardowe, a na zamówieniach MD dodatkowo alert
-  **„mało MD"**, gdy konsultantowi zostanie 15 dni lub mniej.
+  **„mało MD"**, gdy konsultantowi zostanie 21 dni lub mniej.
 
 ---
 
@@ -1520,7 +1524,7 @@ raz porównano z działającym systemem.
 **Zmiana w module zamówień nie może trafić na produkcję, dopóki ktoś nie
 przejrzy tej instrukcji i nie potwierdzi jej nową datą.** Pilnuje tego sama
 aplikacja przy wypuszczaniu zmian — także liczb, które tu padają wprost, jak
-próg „15 MD" i powtórka „co 7 dni". Dzięki temu data u góry nie jest
+próg „21 MD" i powtórka „co 7 dni". Dzięki temu data u góry nie jest
 deklaracją, tylko warunkiem wypuszczenia zmiany.
 
 Jeżeli mimo to zauważysz, że system zachowuje się inaczej, niż tu napisano —

@@ -21,6 +21,7 @@ import {
   isCurrentOrder,
   lacksCurrentOrder,
   orderGroupMatchesPill,
+  resolveOrderFocus,
   sortOrderLinesByConsultant,
   usesSharedMdPool,
   visibleLegacyOrderIds,
@@ -729,3 +730,48 @@ describe("reguła zakładki Zakończeni", () => {
   });
 });
 
+
+
+describe("resolveOrderFocus — deep link z panelu „Moi klienci”", () => {
+  const nested = group(7, "MD-7", { lines: [line(71, "Ola Wzorcowa")] });
+  const groups = [group(1, "MD-1", { future_orders: [nested] })];
+  const contractors = [
+    contractor(40, "Jan Próbny", {
+      orders: [
+        clientOrder(400, "periodic", { status: "draft" }),
+        clientOrder(401, "periodic", { status: "active" }),
+      ],
+    }),
+  ];
+
+  it("?group= trafia także w zagnieżdżone przedłużenie", () => {
+    expect(resolveOrderFocus(groups, contractors, { groupId: 7 })).toEqual({
+      kind: "group",
+      groupId: 7,
+    });
+  });
+
+  it("?order= linii grupy prowadzi do jej zamówienia", () => {
+    expect(resolveOrderFocus(groups, contractors, { orderId: 71 })).toEqual({
+      kind: "group",
+      groupId: 7,
+    });
+  });
+
+  it("?order= zamówienia okresowego wskazuje kartę kontraktora, szkic otwiera edycję", () => {
+    expect(resolveOrderFocus(groups, contractors, { orderId: 400 })).toEqual({
+      kind: "contractor",
+      contractId: 40,
+      orderId: 400,
+      isDraft: true,
+    });
+    expect(resolveOrderFocus(groups, contractors, { orderId: 401 })).toMatchObject({
+      isDraft: false,
+    });
+  });
+
+  it("obiekt, którego nie ma na liście, to null — nie cichy brak reakcji", () => {
+    expect(resolveOrderFocus(groups, contractors, { orderId: 999 })).toBeNull();
+    expect(resolveOrderFocus(groups, contractors, { groupId: 999 })).toBeNull();
+  });
+});

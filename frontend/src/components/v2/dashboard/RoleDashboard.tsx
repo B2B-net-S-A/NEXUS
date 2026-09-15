@@ -34,6 +34,7 @@ import {
   RecruitmentCompetenceDashboard,
 } from "./RecruitmentCompetenceDashboard"
 import { MyTasksDashboard } from "./MyTasksDashboard"
+import { MyClientsAlertsPanel } from "./MyClientsAlertsPanel"
 import { RecruitmentActivityDashboard } from "./RecruitmentActivityDashboard"
 import {
   MyPriorityQueue,
@@ -159,7 +160,8 @@ function RecruitmentDashboardContent({
       {preset === "head-of-recruitment" && roles.includes("head_of_recruitment") && <AllocationWorkloadBoard />}
       <RecruitmentActivityDashboard />
       <MyAssignedRecruitments preset={preset} />
-      <MyTasksDashboard />
+      <MyTasksDashboard recruitmentNotificationsOnly={preset === "delivery-lead"} />
+      {preset === "delivery-lead" && <MyClientsAlertsPanel />}
       <RecruitmentCompetenceDashboard preset={preset} />
       <OperationalTools preset={preset} roles={roles} />
     </div>

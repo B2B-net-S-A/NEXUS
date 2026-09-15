@@ -142,16 +142,17 @@ class Contract(Base, TimestampMixin):
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
-    # Stawki finansowe — Numeric(12,3): stawki godzinowe bywają z groszami/
-    # połówką (np. klient VeloBank 206.25, kandydat Erste 157.5) lub z trzecim
-    # miejscem po przecinku (np. Alior 164.375 / 141.175 zł/h — migracja 0149).
-    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
-    rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
+    # Stawki finansowe — Numeric(16,6) (migracja 0309): stawki w Kontraktach są
+    # godzinowe, a stawka z zamówienia w MD wchodzi jako MD ÷ 8, co ma do
+    # 5 miejsc po przecinku (1001,55 zł/MD = 125,19375 zł/h). Wcześniej
+    # Numeric(12,3) (Alior 164.375 zł/h — migracja 0149).
+    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
+    rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
     # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
     # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
-    # Numeric(12,2): stawki ramowe bywają z groszami (np. 215,60) — Integer
-    # odrzucał je 422-ką na schemacie (migracja 0157).
-    framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    # Numeric(16,6): stawki ramowe bywają z groszami (np. 215,60 — migracja
+    # 0157), a po przeliczeniu MD → godziny mają do 5 miejsc (migracja 0309).
+    framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
     # Waluty są rozdzielone per strona stawki. Kolumny celowo pozostają
     # nullable podczas wdrożenia: starsza wersja aplikacji może jeszcze zapisać
     # wyłącznie legacy ``currency``. Odczyt zawsze przechodzi przez
@@ -174,8 +175,8 @@ class Contract(Base, TimestampMixin):
     )
 
     # Marża — obliczana automatycznie (rate_client - rate_candidate).
-    # Numeric(12,3) bo stawki mogą mieć do 3 miejsc po przecinku (migracja 0149).
-    margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
+    # Numeric(16,6) — ta sama precyzja co stawki (migracja 0309).
+    margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
 
     contract_type: Mapped[ContractType] = mapped_column(
         Enum(ContractType), default=ContractType.b2b, nullable=False
@@ -232,13 +233,13 @@ class Contract(Base, TimestampMixin):
     )
 
     # Desired rate range we want to achieve on this contract (used by benchmark
-    # comparison and by sales during renegotiation). Numeric(12,2) — grosze jak
-    # w framework_rate (migracja 0157).
+    # comparison and by sales during renegotiation). Numeric(16,6) — ta sama
+    # precyzja co framework_rate (migracje 0157, 0309).
     target_rate_min: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(16, 6), nullable=True
     )
     target_rate_max: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(16, 6), nullable=True
     )
 
     # End of the client's purchase order — often earlier than our contract with

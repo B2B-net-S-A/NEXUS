@@ -8,6 +8,7 @@ the transaction and may compose the returned draft with other audit changes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -583,7 +584,39 @@ async def _ensure_open_order(
             },
         )
     )
+    if from_signed_confirmation:
+        await _notify_new_contractor_draft(
+            db, order=order, candidate_name=candidate_name, job_title=job.title
+        )
     return order, True, None
+
+
+async def _notify_new_contractor_draft(
+    db: AsyncSession, *, order: ClientOrder, candidate_name: str, job_title: str | None
+) -> None:
+    """Karta „Nowy kontraktor u klienta — uzupełnij zamówienie" w panelu DL.
+
+    SAVEPOINT i fail-soft: podpis umowy, kontrakt i etap „Zatrudniony" są
+    ważniejsze niż powiadomienie. Padnięta emisja cofa wyłącznie siebie;
+    dobowy skaner (``rule_new_contractor_draft``) wystawi kartę przy następnym
+    przebiegu.
+    """
+    from app.services.dl_alerts import emit_new_contractor_draft
+
+    try:
+        async with db.begin_nested():
+            await emit_new_contractor_draft(
+                db,
+                order=order,
+                candidate_name=candidate_name or "Kontraktor",
+                job_title=job_title,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 — powiadomienie nie może wywrócić podpisu
+        logger.exception(
+            "new_contractor_draft alert failed for order %s", getattr(order, "id", None)
+        )
 
 
 async def _resolve_hired_stage_def(
