@@ -75,8 +75,7 @@ DynaReportera (410) ma bramkę odczytu Insights, żeby dalej odpowiadał „wyga
 
 **Frontend.** Widżety montowane według sekcji: pulpit bez Pipeline pokazuje jeden
 komunikat zamiast serii błędów 403, panele DL wymagają Delivery, KPI w topbarze
-i karta aktywności na profilu wymagają Insights, obecność wymaga Sourcing albo
-Pipeline, karta Fireflies wymaga Sourcing, zakładka „Historia zdarzeń” wymaga
+i karta aktywności na profilu wymagają Insights, karta Fireflies wymaga Sourcing, zakładka „Historia zdarzeń” wymaga
 Finansów; middleware `/settings/chats` i `/settings/team-structure` sprawdza Pipeline.
 
 **Testy.** `test_section_ceiling_contract.py` (każda trasa ma bramkę albo wpis

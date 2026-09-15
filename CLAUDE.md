@@ -365,7 +365,7 @@ cofnąć „przy okazji”:
   `_any_read` dla wspólnych odczytów) albo wpis do `_SECTIONLESS_ALLOWLIST`
   z powodem. Front montuje widżety według `hasSectionAccess`, nie samych ról —
   inaczej odebrana sekcja daje serię kart błędu 403 (`RoleDashboard`,
-  `useMyKpis`, `usePresence`). `POST /api/fireflies/sync` (dawniej GET —
+  `useMyKpis`). `POST /api/fireflies/sync` (dawniej GET —
   zapisuje notatki, więc musi przejść bramkę zapisu).
 - **Usunięcie kandydata NIE kasuje plików w żądaniu.** Klucze magazynu idą do
   rejestru `cv_source_cleanup` (`schedule_source_cleanup`) w TEJ SAMEJ transakcji,
