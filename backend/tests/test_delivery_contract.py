@@ -110,6 +110,34 @@ def test_frontend_does_not_wait_for_the_backend_to_become_healthy() -> None:
     )
 
 
+def test_backend_graceful_stop_fits_inside_the_container_grace_period() -> None:
+    """Trwające żądania kończą się przy deployu, a nie giną od SIGKILL.
+
+    Uvicorn dostaje limit łagodnego zamknięcia z env (`UVICORN_` = click
+    auto_envvar_prefix). Limit musi być krótszy niż `stop_grace_period`, bo po
+    nim jeszcze zamyka się lifespan (pętle w tle, pula połączeń). Zbyt długi
+    limit z kolei wydłuża przerwę dla wszystkich — stąd górna granica.
+    """
+    backend = _service("backend")
+    env = backend.get("environment") or {}
+    assert "UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN" in env, (
+        "backend bez limitu łagodnego zamknięcia — Docker zabije trwające zapisy"
+    )
+    graceful = float(env["UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN"])
+    grace = _seconds(backend.get("stop_grace_period", "10s"))
+    assert graceful + 5 <= grace, (graceful, grace)
+    assert graceful <= 10, "stary kontener czekający na długie żądanie wydłuża przerwę"
+
+
+def test_entrypoint_does_not_rewrite_ownership_of_every_upload_on_boot() -> None:
+    entrypoint = (_REPO / "backend" / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "chown -R appuser" not in entrypoint, (
+        "rekurencyjny chown przepisuje każdy plik wolumenu przy każdym starcie "
+        "i wydłuża przerwę API przy deployu — zmieniaj tylko obcych właścicieli"
+    )
+    assert "! -user appuser" in entrypoint
+
+
 def test_every_direct_python_dependency_is_pinned_exactly() -> None:
     """Zakres wersji = prod i CI mogą zainstalować różny kod z tego samego SHA.
 

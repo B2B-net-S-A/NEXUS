@@ -245,6 +245,17 @@ const TRANSIENT_RETRY_STATUSES = new Set([502, 503, 504]);
 const NEVER_REACHED_APP_STATUSES = new Set([502, 503]);
 const IDEMPOTENT_METHODS = new Set(["get", "head", "options"]);
 const TRANSIENT_RETRY_MAX = 2;
+/**
+ * Odczyt bez odpowiedzi widocznej dla przeglądarki (brama bez CORS, zerwane
+ * połączenie) dostaje dłuższe okno: 1,5 + 3 + 6 + 12 s ≈ 22 s zamiast ≈ 4,5 s.
+ * Tak wygląda restart API przy deployu (Traefik 502/503 bez nagłówków CORS),
+ * a przerwa API trwa dziś kilkadziesiąt sekund — przy dwóch próbach ekran
+ * pokazywał błąd, choć po chwili API wracało (plan skracania przerwy, Etap 3).
+ * Tylko ODCZYTY (idempotentne) i tylko przy sieci online. 502/503/504 Z
+ * odpowiedzią (aplikacja albo brama z CORS) zostają przy dwóch próbach —
+ * np. funkcja wyłączona flagą zwraca 503 i nie ma sensu czekać na nią 22 s.
+ */
+const NETWORK_READ_RETRY_MAX = 4;
 const TRANSIENT_RETRY_BASE_MS = 1500;
 /** Losowy dodatek, żeby 100 kart po jednym 503 nie wróciło w tej samej ms. */
 const TRANSIENT_RETRY_JITTER_MS = 500;
@@ -284,6 +295,14 @@ function isRetryable(err: AxiosError, method: string): boolean {
   return !!err.response && NEVER_REACHED_APP_STATUSES.has(err.response.status);
 }
 
+function retryLimit(err: AxiosError, method: string): number {
+  const online = typeof navigator === "undefined" || navigator.onLine !== false;
+  if (IDEMPOTENT_METHODS.has(method) && !err.response && online) {
+    return NETWORK_READ_RETRY_MAX;
+  }
+  return TRANSIENT_RETRY_MAX;
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (err: AxiosError) => {
@@ -293,7 +312,7 @@ api.interceptors.response.use(
     const attempts = config._transientRetryCount ?? 0;
     // Axios domyślnie wysyła GET, gdy `method` nie podano.
     const method = (config.method ?? "get").toLowerCase();
-    if (!isRetryable(err, method) || attempts >= TRANSIENT_RETRY_MAX) {
+    if (!isRetryable(err, method) || attempts >= retryLimit(err, method)) {
       return Promise.reject(err);
     }
 
@@ -4695,6 +4714,15 @@ export interface M365ConnectionStatus {
   synced_through?: string | null;
   last_sync_status?: string | null;
   last_error?: string | null;
+  /** Kod błędu do polskiego komunikatu (UAT B61); `last_error` = szczegół techniczny. */
+  last_error_code?:
+    | "graph_throttled"
+    | "reauth_required"
+    | "timeout"
+    | "import_errors"
+    | "delta_reset"
+    | "unknown"
+    | null;
   backfill_in_progress?: boolean;
   // True when a previously-connected mailbox needs the user to re-run OAuth
   // (e.g. server-side encryption key rotated). Renders an amber CTA banner.

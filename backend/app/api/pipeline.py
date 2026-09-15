@@ -996,22 +996,30 @@ async def move_candidate(
                         User.is_active.is_(True),
                     )
                 )
-                for (uid,) in staff_rows.all():
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=f"Rekrutacja '{job.title}' ma komplet obsady",
-                            message=(
-                                f"Obsadzono {filled} z {job.headcount or 1} "
-                                "etatów. Jeśli to koniec — zamknij rekrutację "
-                                "z powodem „Obsadzone przez nas”, żeby raport "
-                                "wygranych i przegranych miał z czego liczyć."
-                            ),
-                            link=f"/jobs/{job.id}",
-                            notification_type=NotificationType.suggest_next_step,
-                            related_entity_type="job",
-                            related_entity_id=job.id,
-                        )
+                from app.services.notification_triggers import emit
+
+                title = f"Rekrutacja '{job.title}' ma komplet obsady"
+                message = (
+                    f"Obsadzono {filled} z {job.headcount or 1} "
+                    "etatów. Jeśli to koniec — zamknij rekrutację "
+                    "z powodem „Obsadzone przez nas”, żeby raport "
+                    "wygranych i przegranych miał z czego liczyć."
+                )
+                job_id = job.id
+                # `emit` zapisuje w savepoincie. `ix_notif_dedup_daily` nie zna
+                # typu encji, więc powiadomienie o KANDYDACIE #N z tego dnia
+                # blokowało podpowiedź dla REKRUTACJI #N — a `db.add` bez flush
+                # wywracał dopiero commit zatrudnienia (500 na /move).
+                for uid in [row[0] for row in staff_rows.all()]:
+                    await emit(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        ntype=NotificationType.suggest_next_step,
+                        related_entity_type="job",
+                        related_entity_id=job_id,
+                        link=f"/jobs/{job_id}",
                     )
         except Exception as _exc:  # noqa: BLE001
             # Podpowiedź nie może wywrócić zatrudnienia.

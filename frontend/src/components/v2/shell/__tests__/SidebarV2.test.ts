@@ -202,3 +202,11 @@ describe("visibleNavSections", () => {
     expect(hrefs("recruiter")).not.toContain("/candidates/contact-queue");
   });
 });
+
+describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
+  it("nie zawiera klas zależnych od stanu — pozycje ikon są te same po rozwinięciu", async () => {
+    const { SIDEBAR_VERTICAL_LAYOUT } = await import("@/components/v2/shell/SidebarV2");
+    expect(SIDEBAR_VERTICAL_LAYOUT.navSpacing).toBe(SIDEBAR_VERTICAL_LAYOUT.itemSpacing);
+    expect(SIDEBAR_VERTICAL_LAYOUT.sectionSlot).toMatch(/\bh-\d+\b/);
+  });
+});

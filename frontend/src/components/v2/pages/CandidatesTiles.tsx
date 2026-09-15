@@ -12,7 +12,9 @@ import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import {
+ CANDIDATE_FOCUS_ATTR,
  formatCandidateLocation,
+ formatProfileRate,
  getCandidateInitials,
 } from"@/components/v2/pages/candidate-list-helpers";
 
@@ -26,6 +28,8 @@ interface TileCandidate {
  status?: "active" | "passive" | "blacklisted";
  availability_status?: string | null;
  last_rate?: string | null;
+ expected_rate_hourly?: number | string | null;
+ expected_rate_currency?: string | null;
  last_note_preview?: string | null;
  last_rejection_reason?: string | null;
  updated_at?: string | null;
@@ -170,6 +174,7 @@ export function CandidatesTiles({
  const lastActivity =
  candidate.last_note_preview ?? candidate.last_rejection_reason ?? null;
  const updatedAt = candidate.updated_at ?? candidate.created_at ?? null;
+ const profileRate = formatProfileRate(candidate);
  return (
  <div
  key={candidate.id}
@@ -203,6 +208,7 @@ export function CandidatesTiles({
  <button
  type="button"
  onClick={() => onOpenDetail(candidate.id)}
+ {...{ [CANDIDATE_FOCUS_ATTR]: candidate.id }}
  className="flex min-w-0 w-full items-start gap-3 pl-7 pr-8 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
  >
  <Avatar size="md">
@@ -254,10 +260,13 @@ export function CandidatesTiles({
  </span>
  </div>
  <div className="min-w-0 rounded-md bg-muted/60 px-2.5 py-2">
- <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Stawka / match</span>
+ <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Stawka</span>
+ {/* Stawka z profilu — ta, po której filtruje lista. Dopasowanie ma
+ własną plakietkę w stopce, więc tu nie zastępuje stawki (UAT B58). */}
  <span className="mt-0.5 flex items-center gap-1 truncate text-foreground">
- {candidate.last_rate ? <Banknote className="h-3 w-3 shrink-0" /> : null}
- {candidate.last_rate ?? (showMatch ? `${Math.round(topScore)}/100` : "Brak danych")}
+ {profileRate ? <Banknote className="h-3 w-3 shrink-0" /> : null}
+ {profileRate ??
+ (candidate.last_rate ? `w procesie: ${candidate.last_rate}` : "Brak danych")}
  </span>
  </div>
  </div>
@@ -287,7 +296,10 @@ export function CandidatesTiles({
  />
  )}
  {!showMatch && updatedAt && (
- <span className="shrink-0">{formatRelativeTime(updatedAt)}</span>
+ // Czas modyfikacji rekordu, nie aktywności (UAT B66).
+ <span className="shrink-0" title="Ostatnia aktualizacja profilu">
+ Aktualizacja: {formatRelativeTime(updatedAt)}
+ </span>
  )}
  </div>
  </div>

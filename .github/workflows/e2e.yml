@@ -1,7 +1,11 @@
 name: E2E (Playwright)
 
 on:
-  # Only run on demand + nightly — not blocking PR-level CI
+  # Efemeryczny stack (QA-02, plan poprawy po audycie 14.09.2026) chodzi na
+  # każdym PR-ze, ale NIE jest wymaganym checkiem — dopisanie go do rulesetu
+  # to decyzja po ~2 tygodniach stabilności (historia w zakładce Actions).
+  pull_request:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"  # nightly at 03:17 UTC
@@ -14,9 +18,121 @@ permissions:
   # wzorzec co w disk-alert.yml: cichy kanał zamieniony w pingnięcie.
   issues: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  stack:
+    # Scenariusze `@stack` na świeżym stacku z docker-compose.e2e.yml: te same
+    # Dockerfile'e i ten sam entrypoint co produkcja, pusta baza, konta ról
+    # z backend/scripts/seed_e2e.py. Tu wolno zapisywać dane — stack znika po
+    # biegu. Każdy przypadek ma się WYKONAĆ: pominięty test to czerwony bieg.
+    name: E2E stack (ci-chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_URL: http://localhost:8000
+      E2E_USER_EMAIL: e2e-admin@example.com
+      E2E_REQUIRE_AUTH: "1"
+      GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Jednorazowe hasło kont E2E
+        # Generowane per bieg i maskowane — nie jest sekretem repozytorium,
+        # bo stack i jego baza istnieją wyłącznie w tym jobie.
+        run: |
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "E2E_USER_PASSWORD=$password" >> "$GITHUB_ENV"
+      - name: Zbuduj i uruchom stack
+        working-directory: .
+        run: docker compose -f docker-compose.e2e.yml up -d --build
+      - name: Czekaj na backend i frontend
+        working-directory: .
+        run: |
+          deadline=$(( $(date +%s) + 900 ))
+          until curl -fsS http://localhost:8000/api/health/live >/dev/null 2>&1 \
+             && curl -fsS -o /dev/null http://localhost:3000/login; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Stack E2E nie wstał w 15 minut."
+              docker compose -f docker-compose.e2e.yml ps
+              docker compose -f docker-compose.e2e.yml logs --tail 200 backend frontend
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Stack gotowy."
+      - name: Zasiej konta ról
+        working-directory: .
+        run: |
+          docker compose -f docker-compose.e2e.yml exec -T \
+            -e E2E_SEED_CONFIRM=nexus-e2e -e E2E_SEED_PASSWORD="$E2E_USER_PASSWORD" \
+            backend python scripts/seed_e2e.py
+      - name: Playwright — scenariusze @stack
+        run: |
+          set -o pipefail
+          npx playwright test --project=ci-chromium --reporter=list,json \
+            | tee playwright-output.txt
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-results.json
+      - name: Podsumowanie i kontrola pominięć
+        if: ${{ !cancelled() }}
+        run: |
+          set -eu
+          if [ ! -s playwright-results.json ]; then
+            echo "::error::Brak wyników Playwrighta — scenariusze nie wystartowały."
+            exit 1
+          fi
+          node -e '
+            const r = require("./playwright-results.json").stats;
+            const rows = [["zaliczone", r.expected], ["niezaliczone", r.unexpected],
+                          ["niestabilne (przeszły po ponowieniu)", r.flaky], ["pominięte", r.skipped]];
+            const fs = require("fs");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              "### E2E stack (ci-chromium)\n\n| | liczba |\n|---|---|\n" +
+              rows.map(([k, v]) => `| ${k} | ${v} |`).join("\n") + "\n");
+            if (r.skipped > 0) {
+              console.log(`::error::${r.skipped} przypadków pominiętych — na stacku każdy scenariusz ma się wykonać.`);
+              process.exit(1);
+            }
+            if (r.flaky > 0) console.log(`::warning::${r.flaky} przypadków niestabilnych — przeszły dopiero po ponowieniu.`);
+          '
+      - name: Logi stacku przy porażce
+        if: failure()
+        working-directory: .
+        run: docker compose -f docker-compose.e2e.yml logs --tail 400 backend frontend > frontend/stack-logs.txt 2>&1 || true
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-stack-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            frontend/stack-logs.txt
+          retention-days: 7
+      - name: Zatrzymaj stack
+        if: always()
+        working-directory: .
+        run: docker compose -f docker-compose.e2e.yml down -v || true
+
   playwright:
     name: Playwright against production
+    # Tylko odczyty na produkcji: projekt `prod-smoke` wyklucza `@stack` i `@writes`.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,45 +150,32 @@ jobs:
       - name: Run tests
         env:
           E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://nexus.dynaminds.pl' }}
+          E2E_API_URL: ${{ secrets.E2E_API_URL || 'https://api.nexus.dynaminds.pl' }}
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
-        # 2026-07-16 (analytics plan PR 0): without E2E_USER_PASSWORD the auth
-        # setup project SKIPS, e2e/.auth/state.json is never written, and every
-        # `chromium` spec dies on ENOENT loading storageState. Do czasu
-        # sprovisionowania E2E_USER_* (działanie operatorskie — potrzebne
-        # dedykowane prodowe konto E2E) chodzi wyłącznie publiczny projekt
-        # `preview-chromium`.
+        # Bez E2E_USER_PASSWORD (dedykowane prodowe konto E2E — działanie
+        # operatorskie) chodzi wyłącznie publiczny projekt `preview-chromium`.
         #
-        # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Chodzi
-        # 1 z 12 plików spec. Pierwotny komentarz twierdził, że zawężenie
-        # zakresu utrzymuje nocny bieg „green and honest" — zielony przy
-        # kilkunastu procentach pokrycia nie jest uczciwy, tylko cichy, i jest
-        # dokładnie tą samą klasą co awaria udająca pustkę: sygnał, który
-        # wygląda na potwierdzenie, a niczego nie potwierdza. Dlatego bieg
-        # WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
-        # „zielone" dało się przeczytać razem z „ile z czego".
+        # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Dlatego
+        # bieg WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
+        # „zielone" dało się przeczytać razem z „ile z czego". Przepływy
+        # zapisujące dane są sprawdzane w jobie `stack`, nie na produkcji.
         run: |
           # Liczby bierzemy z narzędzia, które te testy URUCHAMIA, a nie z grepa
-          # po źródle. Pierwsza wersja tego kroku liczyła LINIE `test(` i przez to
-          # kłamała w trzech miejscach naraz: pętle w spec-ach rozwijają się na
-          # wiele przypadków (6 linii -> 13 testów), `test.fixme(` w ogóle nie
-          # miało linii z `test(`, a `auth.setup.ts` nie jest `*.spec.ts`. Raport
-          # pokazywał 6/46 tam, gdzie Playwright widzi 13/81 — czyli podsumowanie
-          # zbudowane po to, by „zielone" dało się przeczytać razem z „ile z
-          # czego", samo podawało złe „ile z czego".
+          # po źródle (pętle w spec-ach rozwijają się na wiele przypadków).
           count_tests() {
             npx playwright test --list "$@" 2>/dev/null \
               | sed -n 's/^Total: \([0-9]*\) tests* in \([0-9]*\) files*$/\1 \2/p' \
               | tail -1
           }
-          read -r total_cases total_specs <<< "$(count_tests)"
+          read -r total_cases total_specs <<< "$(count_tests --project=prod-smoke --project=preview-chromium)"
           total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
 
           if [ -z "$E2E_USER_PASSWORD" ]; then
             read -r ran_cases ran_specs <<< "$(count_tests --project=preview-chromium)"
             ran_cases="${ran_cases:-0}"; ran_specs="${ran_specs:-0}"
             {
-              echo "### E2E — bieg CZĘŚCIOWY"
+              echo "### E2E produkcja — bieg CZĘŚCIOWY"
               echo ""
               echo "| | wykonane | wszystkie |"
               echo "|---|---|---|"
@@ -80,31 +183,21 @@ jobs:
               echo "| przypadki | $ran_cases | $total_cases |"
               echo ""
               echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc projekt"
-              echo "\`chromium\` (wszystkie przepływy po zalogowaniu) NIE został uruchomiony."
+              echo "\`prod-smoke\` (odczyty po zalogowaniu) NIE został uruchomiony."
               echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning::E2E CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD, więc przepływy po zalogowaniu nie są weryfikowane. Zielony wynik NIE znaczy, że E2E przechodzi."
+            echo "::warning::E2E produkcja CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
             npx playwright test --project=preview-chromium
           else
-            # Tu też TABELA, nie zapewnienie. Poprzednia wersja pisała
-            # „Uruchomiono wszystkie N przypadków" — nieprawda niezależnie od
-            # licznika, bo `test.fixme(` Playwright LISTUJE, ale nie wykonuje
-            # (dziś 27 sztuk w flow-stubs-todo.spec.ts). Zapewnienie o
-            # kompletności znikało dokładnie wtedy, gdy zaczynało być
-            # weryfikowalne — czyli po dodaniu sekretów.
-            parked=$(grep -rch "^[[:space:]]*test\.fixme(" e2e/*.spec.ts 2>/dev/null | awk "{s+=\$1} END {print s+0}")
             {
-              echo "### E2E — bieg PEŁNY"
+              echo "### E2E produkcja — prod-smoke + preview"
               echo ""
               echo "| | liczba |"
               echo "|---|---|"
               echo "| przypadki wylistowane | $total_cases |"
-              echo "| w tym zaparkowane (\`test.fixme\`) | $parked |"
               echo "| pliki spec | $total_specs |"
-              echo ""
-              echo "Zaparkowane przypadki są listowane, ale NIE wykonywane."
             } >> "$GITHUB_STEP_SUMMARY"
-            npm run test:e2e
+            npx playwright test --project=prod-smoke --project=preview-chromium
           fi
 
       - name: Upload report on failure
@@ -138,6 +231,30 @@ jobs:
             "Zamknij to zgłoszenie dopiero, gdy bieg jest zielony." \
             "" \
             "_Wygenerowane przez .github/workflows/e2e.yml._")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "⚠️ ${marker}" --body "$body"
+          fi
+
+  stack-alert:
+    # Nocny bieg stacku też woła o uwagę — ten sam wzorzec co bieg produkcyjny.
+    name: Alert nocnego stacku
+    needs: stack
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or refresh alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          marker="Nocny E2E na stacku testowym jest czerwony"
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
+          body="Nocny bieg scenariuszy @stack (docker-compose.e2e.yml) nie przeszedł. Log: ${RUN_URL}"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --repo "$REPO" --body "$body"
           else

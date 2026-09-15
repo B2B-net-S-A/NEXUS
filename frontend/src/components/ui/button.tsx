@@ -51,9 +51,23 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     { className, variant, size, asChild = false, loading = false, children, disabled, ...props },
     ref
   ) => {
-    const Comp = asChild ? Slot : "button";
+    if (asChild) {
+      // Slot przyjmuje DOKŁADNIE jedno dziecko. Węzeł loadera obok children
+      // (nawet `null`) rzucał „Slot failed to slot onto its children” i np.
+      // stan 404 profilu kandydata kończył się globalnym błędem (UAT B74).
+      return (
+        <Slot
+          ref={ref}
+          className={cn(buttonVariants({ variant, size }), className)}
+          aria-disabled={disabled || loading || undefined}
+          {...props}
+        >
+          {children}
+        </Slot>
+      );
+    }
     return (
-      <Comp
+      <button
         ref={ref}
         className={cn(buttonVariants({ variant, size }), className)}
         disabled={disabled || loading}
@@ -61,7 +75,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
         {children}
-      </Comp>
+      </button>
     );
   }
 );

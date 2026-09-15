@@ -1,0 +1,9 @@
+# Wyjątki Trivy (QA-05). Każdy wpis MUSI mieć uzasadnienie i termin `exp:`
+# (RRRR-MM-DD) — po terminie wyjątek przestaje działać i job znów jest czerwony.
+
+# DS-0002 „brak USER w Dockerfile" — fałszywy alarm dla backend/Dockerfile.
+# Obraz startuje jako root WYŁĄCZNIE po to, żeby entrypoint wykonał `chown`
+# wolumenu uploadów, po czym `exec gosu appuser:appgroup` (backend/entrypoint.sh)
+# oddaje uprawnienia przed uvicornem. Proces aplikacji nie działa jako root.
+# Przegląd przy następnym przebudowaniu Dockerfile'a.
+DS-0002 exp:2027-03-15

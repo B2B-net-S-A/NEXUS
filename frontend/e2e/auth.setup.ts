@@ -17,14 +17,28 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 export const AUTH_STATE_PATH = path.join(__dirname, ".auth", "state.json");
 
 setup("authenticate", async ({ page }) => {
+  // Na stacku E2E w CI brak hasła jest BŁĘDEM konfiguracji, nie powodem do
+  // pominięcia: pominięty setup zostawiał wszystkie scenariusze po zalogowaniu
+  // niewykonane przy zielonym biegu (audyt QA 14.09.2026).
+  if (process.env.E2E_REQUIRE_AUTH === "1") {
+    expect(PASSWORD, "E2E_REQUIRE_AUTH=1 wymaga E2E_USER_PASSWORD").not.toBe("");
+  }
   setup.skip(!PASSWORD, "Set E2E_USER_PASSWORD to enable auth-setup");
 
   fs.mkdirSync(path.dirname(AUTH_STATE_PATH), { recursive: true });
 
+  // Przewodnik onboardingowy zapamiętuje zamknięcie w localStorage — ustawiamy
+  // go przed pierwszym renderem zamiast ścigać się z nakładką.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("onboarding_completed", "true");
+  });
   await page.goto("/login");
-  await page.getByPlaceholder("rekruter@firma.pl").fill(EMAIL);
-  await page.getByPlaceholder("••••••••").fill(PASSWORD);
-  await page.getByRole("button", { name: /zaloguj/i }).click();
+  // Selektory po `id` pól i DOKŁADNEJ nazwie przycisku: placeholder e-maila
+  // zmienił się z `rekruter@firma.pl`, a `/zaloguj/i` łapał też przycisk
+  // „Zaloguj się przez Microsoft".
+  await page.locator("#login-email").fill(EMAIL);
+  await page.locator("#login-password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Zaloguj się", exact: true }).click();
 
   // Wait until we are out of /login (dashboard redirect).
   await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 20_000 });

@@ -34,6 +34,8 @@ name: Coolify Ops
 #  14. action=candidate-index-repair → enqueue the exact reviewed audit manifest.
 #  12. action=migration-receipts  → paragony jednorazowych migracji naprawczych
 #                                   (read-only; liczniki i ID, zero kwot i nazwisk).
+#  15. action=startup-timing      → czasy faz startu backendu z logów kontenera
+#                                   (read-only; wyłącznie linie `[startup-timing]`).
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.
@@ -44,7 +46,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs]
+        options: [release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -226,7 +228,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    if: ${{ inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1496,3 +1498,17 @@ jobs:
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: python3 .github/scripts/cv-generation-logs.py
+
+  startup-timing:
+    name: Read backend startup phase timings
+    if: inputs.action == 'startup-timing'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read `[startup-timing]` lines of the last backend boot
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: python3 .github/scripts/startup-timing-logs.py

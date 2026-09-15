@@ -8,7 +8,7 @@ wraca jako „regresja" w kodzie, którego nikt nie ruszał.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from httpx import AsyncClient
 
@@ -125,3 +125,56 @@ async def test_export_carries_the_email_that_compass_is_missing(
     api_key = await _key(app_client, app_auth_headers)
     rows = await _fetch_all(app_client, api_key)
     assert "@" in (rows[seeded["contract_id"]]["candidate"]["email"] or "")
+
+
+async def test_paging_survives_an_edit_between_pages(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Edycja kontraktu między stronami nie gubi ani nie dubluje wierszy.
+
+    COMPASS czyta eksport strona po stronie w jednym biegu. Przy sortowaniu po
+    `updated_at` kontrakt poprawiony w trakcie biegu skakał na pierwszą stronę:
+    sam wypadał z eksportu, a ostatni wiersz pierwszej strony przychodził drugi
+    raz. Odbiorca zapisywał wtedy „brak w NEXUS" osobie, która w nim jest.
+    """
+    from sqlalchemy import update
+
+    async with AsyncSessionLocal() as db:
+        for i in range(3):
+            await _seed_contract(db, with_current_order=False, tag=f"paging{i}")
+
+    api_key = await _key(app_client, app_auth_headers)
+    everyone = set(await _fetch_all(app_client, api_key))
+    page_size = max(1, len(everyone) // 2)
+
+    async def _page(page: int) -> dict:
+        r = await app_client.get(
+            EXPORT,
+            headers={"X-API-Key": api_key},
+            params={"page": page, "page_size": page_size},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    first = await _page(1)
+    seen = [item["nexus_contract_id"] for item in first["items"]]
+    later = sorted(everyone - set(seen))
+    assert later, "test potrzebuje kontraktu spoza pierwszej strony"
+
+    # Kontrakt z dalszej strony zostaje „poprawiony" w trakcie biegu.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == later[-1])
+            .values(updated_at=datetime.now(timezone.utc) + timedelta(days=3650))
+        )
+        await db.commit()
+
+    page, body = 1, first
+    while body["has_more"]:
+        page += 1
+        body = await _page(page)
+        seen.extend(item["nexus_contract_id"] for item in body["items"])
+
+    assert len(seen) == len(set(seen)), "wiersz przyszedł dwa razy"
+    assert set(seen) == everyone, "wiersz wypadł z eksportu"

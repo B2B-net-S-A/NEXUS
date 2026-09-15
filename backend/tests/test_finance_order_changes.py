@@ -464,6 +464,53 @@ async def test_successor_added_after_the_day_of_detection_is_recorded_as_late(
     assert gap.resolved_order_id == late_id
 
 
+async def test_successor_added_on_the_day_of_detection_is_on_time(monkeypatch):
+    """UAT B69: następca z dnia wykrycia to nie opóźnienie „0 dni po terminie”."""
+    from app.services.order_gaps import local_day_start
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _add_order(
+        ids,
+        start=end + timedelta(days=1),
+        end=end + timedelta(days=90),
+        created_at=local_day_start(end + timedelta(days=1)) + timedelta(hours=15),
+    )
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=5))
+
+    assert await _gap_for(ids["order_id"]) is None
+
+
+async def test_gap_filled_on_the_day_of_detection_is_not_reported(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """Pętla założyła brak rano, DL dodał zamówienie tego samego dnia — raport
+    Finansów nie pokazuje tego jako opóźnienia (UAT B69)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.order_gap import OrderGap
+    from app.services.order_gaps import local_day_start
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    open_gap = await _gap_for(ids["order_id"])
+    assert open_gap is not None and open_gap.status == "open"
+    async with AsyncSessionLocal() as db:
+        gap = await db.get(OrderGap, open_gap.id)
+        gap.status = "filled_late"
+        gap.resolved_order_number = "NB-SAME-DAY"
+        gap.resolved_at = local_day_start(gap.detected_on) + timedelta(hours=11)
+        await db.commit()
+
+    detected = end + timedelta(days=1)
+    resp = await app_client.get(
+        f"/api/finance/order-changes?year={detected.year}&month={detected.month}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert ids["order_id"] not in {g["order_id"] for g in resp.json()["gaps"]}
+
+
 async def test_adding_the_order_later_keeps_the_gap_as_filled_late(
     monkeypatch, app_client: AsyncClient, app_auth_headers: dict
 ):

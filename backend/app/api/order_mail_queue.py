@@ -55,6 +55,7 @@ from app.services.order_mail_ingest import (
     sync_snapshot,
 )
 from app.services.order_mail_planner import DECIDE_PERSON_ORDER_TYPES, titles_collide
+from app.services.order_pdf_parser import polish_gate_reason
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -236,7 +237,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "gate_reasons": (
             ["Sprawdź odczytane dane przed zapisem."]
             if read_only_tcm and doc.gate_reasons
-            else (doc.gate_reasons or [])
+            else [polish_gate_reason(r) for r in doc.gate_reasons or []]
         ),
         "document_meta": doc.document_meta,
         "extraction": _redact_extraction(doc.extraction, show_finance=show_finance),

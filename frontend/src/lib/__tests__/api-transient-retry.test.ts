@@ -51,10 +51,10 @@ async function run(
       () => "rejected" as const,
     );
 
-  // Interceptor śpi 1,5 s i 3 s między próbami — na realnym zegarze test
+  // Interceptor śpi 1,5/3/6/12 s między próbami — na realnym zegarze test
   // ocierałby się o domyślny limit vitest. Kilka przewinięć, bo każda próba
   // planuje kolejny timer dopiero po odrzuceniu poprzedniej.
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     await vi.advanceTimersByTimeAsync(5_000);
   }
 
@@ -148,10 +148,55 @@ describe("api — powtarzanie żądań przejściowych", () => {
     expect(attempts).toBe(1);
   });
 
-  it("powtarza GET-a po bezcielesnym błędzie sieci — odczyt jest idempotentny", async () => {
+  it("powtarza GET-a po bezcielesnym błędzie sieci dłużej — tak wygląda restart API przy deployu", async () => {
     const { attempts } = await run(
       { url: "/api/candidates", method: "get" },
       (_n, config) => Promise.reject(bodilessNetworkError(config)),
+    );
+
+    expect(attempts).toBe(5); // pierwsza próba + NETWORK_READ_RETRY_MAX
+  });
+
+  it("odczyt bez odpowiedzi czeka na API ≈ 22 s, a nie ≈ 4,5 s", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const delays: number[] = [];
+    const originalSetTimeout = globalThis.setTimeout;
+    const spy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((fn: () => void, ms?: number) => {
+        delays.push(ms ?? 0);
+        return originalSetTimeout(fn, ms);
+      }) as typeof setTimeout);
+
+    const { outcome, attempts } = await run(
+      { url: "/api/candidates", method: "get" },
+      (n, config) =>
+        n < 5
+          ? Promise.reject(bodilessNetworkError(config))
+          : { data: [], status: 200, statusText: "", headers: {}, config, request: {} },
+    );
+
+    spy.mockRestore();
+    expect(delays.filter((d) => d >= 1_000)).toEqual([1_500, 3_000, 6_000, 12_000]);
+    expect(attempts).toBe(5);
+    expect(outcome).toBe("fulfilled");
+  });
+
+  it("offline NIE wydłuża czekania — brak sieci to nie deploy", async () => {
+    const onLine = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const { attempts } = await run(
+      { url: "/api/candidates", method: "get" },
+      (_n, config) => Promise.reject(bodilessNetworkError(config)),
+    );
+    onLine.mockRestore();
+
+    expect(attempts).toBe(3);
+  });
+
+  it("GET z odpowiedzią 503 (np. funkcja wyłączona flagą) zostaje przy dwóch ponowieniach", async () => {
+    const { attempts } = await run(
+      { url: "/api/cloudtalk/agents", method: "get" },
+      (_n, config) => Promise.reject(httpError(config, 503)),
     );
 
     expect(attempts).toBe(3);

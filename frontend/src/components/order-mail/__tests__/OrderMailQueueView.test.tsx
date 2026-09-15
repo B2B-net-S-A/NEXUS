@@ -134,6 +134,9 @@ describe("OrderMailQueueView", () => {
     render(<OrderMailQueueView {...base} mailbox={{ ...mailbox, onCheckNow }} state="ready" items={[doc()]} />);
     expect(screen.getByTestId("mailbox-check")).toHaveTextContent("co 60 min");
     expect(screen.getByTestId("mailbox-check")).toHaveTextContent("5 min temu (ręcznie)");
+    // UAT B75: liczby opisują OSTATNIE sprawdzenie, nie bieżące zaległości.
+    expect(screen.getByTestId("mailbox-check-result")).toHaveTextContent("W ostatnim sprawdzeniu:");
+    expect(screen.getByTestId("mailbox-check-result")).not.toHaveTextContent("całej skrzynki");
     expect(screen.getByTestId("mailbox-check-result")).toHaveTextContent(
       "2 nowe wiadomości · 1 zapisane automatycznie · 1 do weryfikacji",
     );
