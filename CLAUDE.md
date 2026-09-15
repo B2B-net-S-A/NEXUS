@@ -106,6 +106,8 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 
 ## Healthcheck endpoint
 
+- **Zewnętrzne sondy i alerty:** stan oraz konfiguracja Grafana Synthetic
+  Monitoring są opisane w `docs/uptime-monitoring.md`.
 - **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
 - **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
 - **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).

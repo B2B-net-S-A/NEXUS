@@ -111,3 +111,23 @@ wdrożenia bez rolling update: najdłuższa przerwa API wyniosła 75 s, frontend
 7 s, a kontener Postgresa został odtworzony. To nie wpływa na zaliczenie bramki
 DEP-01, ale pozostaje dowodem ryzyka operacyjnego dla ewentualnej aktualizacji
 Coolify.
+
+## Aktualizacja operacyjna 15.09.2026
+
+Ta sekcja zastępuje starsze statusy powyżej tam, gdzie wykonano dalszą
+weryfikację. Stan wdrożenia odnosi się do commitu
+`2542987220f708421f69b41baecd9217025928c4` na `main`.
+
+| ID | Stan | Dowód i dalszy krok |
+|---|---|---|
+| DEP-01 | **ZALICZONE** | [Deploy 34985517944](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34985517944): job `select` przeszedł, backend, frontend i zaakceptowane wydanie wskazały dokładnie `2542987220f708421f69b41baecd9217025928c4`. |
+| DEP-02 | **ZALICZONE** | Produkcyjne `/api/health` i `/api/health/deep` zwróciły dokładne SHA; `checks.migrations=healthy`. `/api/health/alembic`: DB i kod na `0310_dl_alerts_my_clients_panel`, brak osieroconych rewizji, `reconcilable=true`. |
+| MON-04 | **ZABLOKOWANE CZASOWO** | Pierwszy pomiar produkcyjny: `checks.background_tasks=healthy`. Drugi odczyt jest miarodajny najwcześniej 2 h po deployu, czyli po 19:06 CEST. Podniesienie `stalled` do błędu pozostaje zaplanowane nie wcześniej niż 22.09.2026, po tygodniu obserwacji. |
+| MON-01 | **ZALICZONE** | [Sentry daily monitor 34980098469](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980098469) zakończył się zielono. W Teams, w kanale `NEXUS — alerty`, wizualnie potwierdzono kartę `NEXUS Sentry` z digestem obu projektów i bez komunikatu `MONITORING READ FAILED`. |
+| OPS-01 | **ZABLOKOWANE: brak trzech sekretów GitHub** | [Coolify Ops 34980172655](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34980172655) potwierdził kompletną konfigurację serwerową. Brakuje `BACKUP_AGE_PRIVATE_KEY`, `BACKUP_S3_ACCESS_KEY` i `BACKUP_S3_SECRET_KEY`; `BACKUP_MONITORING_ENABLED=false`, restore drill nie został uruchomiony. Śledzenie: [issue #1247](https://github.com/B2B-net-S-A/NEXUS/issues/1247). |
+| MON-02 | **ZABLOKOWANE: brak danych konta E2E** | Ponowienie [E2E 34986200229](https://github.com/B2B-net-S-A/NEXUS/actions/runs/34986200229) uruchomiło produkcyjny job, który poprawnie zakończył się błędem: wszystkie 34 testy `prod-smoke` zostały pominięte z powodu braku `E2E_USER_PASSWORD`. Alert: [issue #1551](https://github.com/B2B-net-S-A/NEXUS/issues/1551). Do czasu bezpiecznego dodania `E2E_USER_EMAIL` i `E2E_USER_PASSWORD` automatyczny job produkcyjny pozostaje wyłączony. |
+| MON-05 | **ZABLOKOWANE: limit planu i brak Teams** | Check `nexus-login-http` (ID `89783`) działa co 60 s z Frankfurtu i Paryża. Drugi check przeszedł test z obu lokalizacji, lecz zapis został odrzucony: `check executions quota exceeded (current: 86400, max: 100000)`. Wymagane 172 800 wykonań miesięcznie nie mieści się w planie. Brakuje też punktu kontaktu Teams; alertów i testu kontaktu nie aktywowano. Szczegóły: `docs/uptime-monitoring.md`. |
+
+Ostatnie wdrożenie ponownie pokazało przerwę podczas wymiany kontenerów: API 67 s,
+frontend 7 s, kontener Postgresa został odtworzony. Aktualizacja Coolify nie była
+wykonywana, ponieważ zadanie E wymaga osobnej, wyraźnej zgody.
