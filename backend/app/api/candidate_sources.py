@@ -26,6 +26,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_source_event import (
     CHANNEL_LABELS,
     CandidateSourceEvent,
+    undated_import_event,
 )
 from app.schemas.candidate_source_event import (
     CandidateSourceEventCreate,
@@ -151,6 +152,12 @@ async def report_sources(
     Joins ``candidate_source_events`` to ``candidate_stages`` to compute the
     "hired" count: a candidate is counted as hired if ANY of their stages
     reached PipelineStage.hired within the window.
+
+    Model atrybucji: KAŻDY kontakt (multi-touch) — osoba z kontaktem w dwóch
+    kanałach jest w obu wierszach, więc wiersze się nie sumują; liczbę osób
+    niesie ``unique_candidates``. Zdarzenia z importu bez prawdziwej daty
+    (``undated_import_event``) nie wchodzą do okna — ich ``captured_at`` to data
+    importu, nie pozyskania (audyt statystyk 14.09.2026, A05).
     """
     period_end = datetime.now(timezone.utc)
     period_start = period_end - timedelta(days=days)
@@ -178,6 +185,12 @@ async def report_sources(
         else_=None,
     )
 
+    dated_in_window = (
+        CandidateSourceEvent.captured_at >= period_start,
+        CandidateSourceEvent.captured_at <= period_end,
+        ~undated_import_event(CandidateSourceEvent.note),
+    )
+
     if group_by_utm:
         group_cols = [
             CandidateSourceEvent.channel,
@@ -195,8 +208,7 @@ async def report_sources(
             ),
             func.count(func.distinct(hired_candidate)).label("hired"),
         )
-        .where(CandidateSourceEvent.captured_at >= period_start)
-        .where(CandidateSourceEvent.captured_at <= period_end)
+        .where(*dated_in_window)
         .group_by(*group_cols)
         .order_by(func.count(func.distinct(CandidateSourceEvent.candidate_id)).desc())
     )
@@ -228,8 +240,52 @@ async def report_sources(
             )
         )
 
+    unique_candidates = (
+        await db.scalar(
+            select(func.count(func.distinct(CandidateSourceEvent.candidate_id))).where(
+                *dated_in_window
+            )
+        )
+    ) or 0
+
+    # Pokrycie: nowi kandydaci w oknie bez ŻADNEGO datowanego zdarzenia źródła.
+    # Zdarzenie bez daty nie liczy się jako rozpoznane źródło — nie wiadomo,
+    # kiedy i czy dotyczyło tego pozyskania.
+    has_dated_source = (
+        select(CandidateSourceEvent.id)
+        .where(
+            CandidateSourceEvent.candidate_id == Candidate.id,
+            ~undated_import_event(CandidateSourceEvent.note),
+        )
+        .exists()
+    )
+    new_row = (
+        await db.execute(
+            select(
+                func.count(Candidate.id),
+                func.count(Candidate.id).filter(~has_dated_source),
+            ).where(
+                Candidate.created_at >= period_start,
+                Candidate.created_at <= period_end,
+            )
+        )
+    ).one()
+
+    undated_source_events = (
+        await db.scalar(
+            select(func.count(CandidateSourceEvent.id)).where(
+                undated_import_event(CandidateSourceEvent.note)
+            )
+        )
+    ) or 0
+
     return SourceReportResponse(
         period_start=period_start,
         period_end=period_end,
         rows=rows,
+        attribution_model="multi_touch",
+        unique_candidates=int(unique_candidates),
+        new_candidates_total=int(new_row[0] or 0),
+        new_candidates_without_source=int(new_row[1] or 0),
+        undated_source_events=int(undated_source_events),
     )

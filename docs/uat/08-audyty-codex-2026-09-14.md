@@ -89,7 +89,8 @@ i scalenie), QA-06 (burn-down 12 plików testów z listy `_FAILING`), QA-07 (mac
 | — | `fix/deploy-source-commit-gate` | scalony 14.09 (#1519) — odblokowanie deployów zablokowanych przez #1515 (API Coolify: 422) |
 | — | `fix/compose-git-sha-arg` | scalony 14.09 (#1520) — nie usunął `version: unknown`; zrobiły to #1521/#1524 |
 | — | `fix/f05-pipeline-version-fe` | #1535 — front wysyła `expected_state_version`, obsługa 409 (F05) |
-| — | `fix/audit-retest-residue` | ten PR — resztki z retestu produkcji + awaria kalendarza przy uczestnikach z M365 |
+| — | `fix/audit-retest-residue` | resztki z retestu produkcji + awaria kalendarza przy uczestnikach z M365 |
+| — | `fix/statistics-audit-closeout` | domknięcie audytu statystyk: A05 (źródła bez daty poza oknem, model atrybucji i pokrycie w raporcie), usunięty `GET /api/reports/board`; A06 nie naprawiamy |
 
 ### Retesty produkcji (wyniki poza gitem, `wyniki/codex-2026-09-14/`)
 
@@ -102,6 +103,16 @@ i scalenie), QA-06 (burn-down 12 plików testów z listy `_FAILING`), QA-07 (mac
 
 Nie do sprawdzenia na produkcji: A07–A09 (`ANALYTICS_V1_MODE=off`), A05 (do odczytu po syncu
 Traffita), B12 (ponowne wgranie CV dwóch kandydatów testowych — dane, nie kod).
+
+Audyt statystyk — domknięcie (15.09):
+- **A05:** import zapisywał źródło Traffita bez daty z datą importu, a raport źródeł liczył je
+  w oknie — pierwszy pełny sync wrzuciłby historię w „ostatnie 30 dni". Raport i metryka v1
+  pomijają takie zdarzenia; raport pokazuje model atrybucji (każdy kontakt), liczbę unikalnych
+  kandydatów, nowych kandydatów bez źródła i liczbę źródeł bez daty.
+- **A06 CloudTalk: nie naprawiamy** — z CloudTalka nie korzystamy (decyzja 15.09, integracja
+  uśpiona od 28.07). Przy ewentualnym powrocie telefonii naprawić przed włączeniem.
+- **`GET /api/reports/board`** usunięty: liczył powtórne zatrudnienia (klasa A02/A03), bez
+  konsumenta — kokpit Rady czyta `/api/insights/board`.
 
 Znalezione podczas retestów i poprawione w tym PR:
 - **awaria kalendarza**: uczestnik z M365 (`{address, name}`) renderowany wprost wywracał
