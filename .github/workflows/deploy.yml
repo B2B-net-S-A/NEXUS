@@ -281,6 +281,12 @@ jobs:
             > "$probe_dir/probe.log" 2>&1 &
           echo $! > "$probe_dir/pid"
           echo "Downtime probe started (pid $(cat "$probe_dir/pid"))."
+          # Czas startu Postgresa PRZED webhookiem (pole informacyjne deep health).
+          # Porównany po deployu mówi, czy Coolify odtworzył kontener bazy.
+          # Fail-open: brak odczytu = „nieznane” w raporcie, nigdy czerwony krok.
+          curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/deep" 2>/dev/null \
+            | jq -r '.postgres_started_at // ""' > "$probe_dir/pg_before" 2>/dev/null || true
+          echo "Postgres started_at before deploy: $(cat "$probe_dir/pg_before" 2>/dev/null || echo brak)"
 
       - name: Trigger deployment
         id: trigger
@@ -731,10 +737,32 @@ jobs:
           cat "$RUNNER_TEMP/version-notice.txt"
           exit 0
 
+      # Plan skracania przerwy (Etap 0): bez czasu każdej fazy startu nie wiadomo,
+      # co skracać. Świeży kontener ma w logu mało linii, więc odczyt zaraz po
+      # smoke teście trafia w start TEGO deployu. Wyłącznie linie
+      # `[startup-timing]` (logi Actions są publiczne); fail-open.
+      - name: Czasy faz startu backendu
+        if: ${{ always() && steps.trigger.outcome == 'success' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set +e
+          out=$(python3 .github/scripts/startup-timing-logs.py 2>/dev/null)
+          echo "$out"
+          total=$(printf '%s' "$out" | jq -r '.total_seconds // "brak"' 2>/dev/null)
+          top=$(printf '%s' "$out" | jq -r '[.top_phases[:3][] | "\(.phase) \(.seconds)s"] | join(", ")' 2>/dev/null)
+          echo "::notice title=Start backendu::przed uvicornem: ${total:-brak} s; najdłuższe fazy: ${top:-brak odczytu}"
+          exit 0
+
       - name: Report user-facing downtime
         # `always()`: przerwa jest najciekawsza właśnie wtedy, gdy smoke test padł.
         if: ${{ always() && steps.downtime_meter.outcome == 'success' }}
+        env:
+          APP_URL: ${{ vars.APP_URL }}
         run: |
+          set +e
           probe_dir="$RUNNER_TEMP/downtime-probe"
           touch "$probe_dir/stop"
           sleep 3
@@ -744,52 +772,15 @@ jobs:
             echo "::warning::Sonda przerwy nie zebrała próbek — brak pomiaru dla tego deployu."
             exit 0
           fi
-          python3 - "$samples" "${RELEASE_SHA:-$TARGET_SHA}" "$probe_dir/worst" <<'PY_REPORT' >> "$GITHUB_STEP_SUMMARY"
-          import csv, sys
-          from collections import defaultdict
-          from datetime import datetime, timezone
-
-          samples_path, target_sha, worst_path = sys.argv[1], sys.argv[2], sys.argv[3]
-          rows = defaultdict(list)
-          with open(samples_path) as fh:
-              for ts, target, code in csv.reader(fh):
-                  rows[target].append((int(ts), code))
-
-          def fmt(ts):
-              return datetime.fromtimestamp(ts, timezone.utc).strftime("%H:%M:%S UTC")
-
-          def outages(samples):
-              """(start, end) każdej ciągłej serii próbek bez 200; koniec = pierwsza dobra próbka."""
-              found, start = [], None
-              for ts, code in sorted(samples):
-                  if code != "200" and start is None:
-                      start = ts
-                  elif code == "200" and start is not None:
-                      found.append((start, ts))
-                      start = None
-              if start is not None:
-                  found.append((start, sorted(samples)[-1][0]))
-              return found
-
-          print(f"### Przerwa widziana przez użytkowników — deploy `{target_sha[:8]}`\n")
-          print("| Cel | Próbki | Bez 200 | Najdłuższa przerwa | Od | Do | Kody |")
-          print("|---|---:|---:|---:|---|---|---|")
-          worst = 0
-          for target in ("frontend", "api"):
-              samples = rows.get(target, [])
-              bad_codes = sorted({code for _, code in samples if code != "200"})
-              runs = outages(samples)
-              longest = max(runs, key=lambda r: r[1] - r[0], default=None)
-              seconds = (longest[1] - longest[0]) if longest else 0
-              worst = max(worst, seconds)
-              frm = fmt(longest[0]) if longest else "—"
-              to = fmt(longest[1]) if longest else "—"
-              bad = sum(1 for _, code in samples if code != "200")
-              print(f"| {target} | {len(samples)} | {bad} | {seconds} s | {frm} | {to} | {', '.join(bad_codes) or '—'} |")
-          print("\nPróbki co ~2 s z runnera GitHub. Długość przerwy liczona od pierwszej "
-                "złej do pierwszej dobrej próbki — przybliżenie, nie pomiar ciągły.")
-          with open(worst_path, "w") as fh:
-              fh.write(str(worst))
-          PY_REPORT
-          worst=$(cat "$probe_dir/worst" 2>/dev/null || echo "?")
-          echo "::notice::Najdłuższa przerwa widziana przez użytkowników w tym deployu: ${worst} s (szczegóły w podsumowaniu biegu)."
+          pg_after=$(curl -sSL --max-time 25 -A "$SMOKE_UA" "$APP_URL/api/health/deep" 2>/dev/null \
+            | jq -r '.postgres_started_at // ""' 2>/dev/null)
+          python3 .github/scripts/deploy_downtime_report.py \
+            --samples "$samples" --target "${RELEASE_SHA:-$TARGET_SHA}" \
+            --postgres-before "$(cat "$probe_dir/pg_before" 2>/dev/null)" \
+            --postgres-after "$pg_after" \
+            --summary-out "$probe_dir/summary.md" \
+            --notice-out "$probe_dir/notices.txt" \
+            || { echo "::warning::Skrypt raportu przerwy padł — brak pomiaru dla tego deployu."; exit 0; }
+          cat "$probe_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$probe_dir/notices.txt"
+          exit 0

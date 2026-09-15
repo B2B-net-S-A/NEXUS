@@ -278,7 +278,24 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   przy każdym deployu. Pilnuje tego `test_delivery_contract.py`.
 - **Czas faz startu backendu jest w logach kontenera** (`[startup-timing]` z
   `entrypoint.sh`, także podfazy siatki DDL). Zanim skrócisz start, sprawdź tam,
-  co naprawdę trwa.
+  co naprawdę trwa. Deploy sam je odczytuje (krok „Czasy faz startu backendu”,
+  notice „Start backendu”), a ręcznie: `coolify-ops.yml` → `startup-timing`
+  (skrypt przepuszcza WYŁĄCZNIE linie `[startup-timing]` — logi Actions są publiczne).
+- **Raport przerwy (`.github/scripts/deploy_downtime_report.py`) podaje frontend
+  i API osobno oraz „Postgres restartował”** — porównanie
+  `postgres_started_at` z `/api/health/deep` przed webhookiem i po smoke teście.
+  To pole jest informacją, nie sondą: nie wchodzi do `checks`.
+- **Backend zamyka się łagodnie przy deployu:** `UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN=8`
+  (uvicorn czyta opcje z env) + `stop_grace_period: 15s`. Nie wydłużaj limitu:
+  stary kontener czekający na długie żądanie wydłuża przerwę wszystkim.
+- **Odczyt bez odpowiedzi widocznej dla przeglądarki ponawia się ≈ 22 s**
+  (`NETWORK_READ_RETRY_MAX` w `lib/api.ts`, tylko GET/HEAD/OPTIONS i tylko online) —
+  tak wygląda restart API. Zapisy i odpowiedzi 5xx z CORS zostają przy dwóch próbach.
+- **`runtime_metrics` co minutę w Loki** (`app/tasks/runtime_metrics_monitor.py`):
+  opóźnienie pętli zdarzeń, szczyt wypożyczonych połączeń, czas wypożyczenia
+  jednego połączenia. To dane do decyzji o puli i procesach (F06) — zanim
+  zmienisz `pool_size`/`max_overflow`, spójrz na nie. Połączenia mają
+  `application_name=nexus-backend` w `pg_stat_activity`.
 - **Błąd ładowania chunka JS przeładowuje stronę raz** (`lib/chunk-reload.ts`,
   `ChunkReloadGuard` w layoucie + `app/error.tsx`) — stara karta po deployu.
 

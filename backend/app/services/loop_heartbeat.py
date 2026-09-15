@@ -66,6 +66,7 @@ EXEMPT: dict[str, str] = {
     "workforce_availability": "ma własną sondę świeżości w checks.workforce_availability",
     "recruitment_allocation": "ma własną sondę świeżości w checks.recruitment_allocation",
     "allocation_matching": "część alokacji; świeżość w checks.recruitment_allocation",
+    "runtime_metrics": "sam jest pomiarem (lag pętli, pula) w logach; brak wpisów widać w Loki",
 }
 
 

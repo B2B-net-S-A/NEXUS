@@ -658,6 +658,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.notification_volume_monitor import notification_volume_monitor_loop
+    from app.tasks.runtime_metrics_monitor import runtime_metrics_monitor_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.m365_cv_parse import m365_cv_parse_loop
@@ -749,6 +750,9 @@ async def lifespan(app: FastAPI):
         "notification_volume_monitor": asyncio.create_task(
             notification_volume_monitor_loop()
         ),
+        # Opóźnienie pętli zdarzeń + obciążenie puli połączeń co minutę
+        # (`runtime_metrics` w Loki) — pomiar przed zmianą puli/procesów (F06).
+        "runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop()),
         "rejection_email": asyncio.create_task(rejection_email_loop()),
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
@@ -3359,6 +3363,24 @@ async def api_health_deep_check():
         collation_report = {"error": type(exc).__name__}
         logger.warning("health/deep: db_collation probe failed: %r", exc)
 
+    # Czas startu Postgresa — WYŁĄCZNIE informacja, nie sonda (nie trafia do
+    # `checks`, więc nie zmienia statusu ani wyniku deployu). Deploy odczytuje
+    # go przed webhookiem i po smoke teście: zmiana = Coolify odtworzył kontener
+    # bazy przy deployu (np. przez `env_file: .env`), czyli przerwa API rośnie
+    # o restart Postgresa, a `shared_buffers` startuje zimne (reaudyt v2,
+    # 14.09.2026, plan skracania przerwy — Etap 0).
+    postgres_started_at: str | None = None
+    try:
+        async with AsyncSessionLocal() as session:
+            started = await asyncio.wait_for(
+                session.scalar(text("SELECT pg_postmaster_start_time()")),
+                timeout=3.0,
+            )
+        if started is not None:
+            postgres_started_at = started.isoformat()
+    except Exception as exc:  # noqa: BLE001 — informacja, nie może wywrócić sondy
+        logger.warning("health/deep: postgres start time probe failed: %r", exc)
+
     all_healthy = all(v == "healthy" for v in checks.values())
 
     body: dict = {
@@ -3367,6 +3389,7 @@ async def api_health_deep_check():
         "checks": checks,
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
+        "postgres_started_at": postgres_started_at,
     }
     if errors:
         body["errors"] = errors
