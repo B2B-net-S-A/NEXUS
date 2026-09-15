@@ -145,10 +145,12 @@ async def export_contractors(
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar() or 0
 
-    # `Contract.id` jako ostatni klucz sortowania jest OBOWIĄZKOWY: bez
-    # unikalnego rozstrzygnięcia remisu stronicowanie gubi i dubluje wiersze
-    # (ta sama pułapka co w `/api/contractors`).
-    query = query.order_by(Contract.updated_at.desc(), Contract.id.desc())
+    # Sortowanie po NIEZMIENNYM kluczu. COMPASS przechodzi wszystkie strony
+    # w jednym biegu, a stronicowanie jest po offsecie — przy `updated_at desc`
+    # edycja kontraktu w trakcie biegu przesuwała go na pierwszą stronę:
+    # jeden wiersz wypadał z eksportu (u odbiorcy fałszywe „brak w NEXUS"),
+    # a inny przychodził dwa razy (audyt integracji 14.09, INT-06/INT-07).
+    query = query.order_by(Contract.id)
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     contracts = (await db.execute(query)).scalars().all()
