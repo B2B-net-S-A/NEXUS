@@ -100,6 +100,7 @@ import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 function renderDialog({
   canManageFinance = true,
   baseWorkMode = "remote" as string | null,
+  baseRateUnit = "monthly",
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -116,7 +117,7 @@ function renderDialog({
           id: 10,
           client_id: 1,
           contract_type: "b2b",
-          rate_unit: "monthly",
+          rate_unit: baseRateUnit,
           currency: "PLN",
           billing_hours_per_month: 160,
           work_mode: baseWorkMode,
@@ -148,6 +149,22 @@ beforeEach(() => {
 });
 
 describe("AddProjectDialog", () => {
+  it("nie przenosi MD z kontraktu bazowego — nowy projekt jest w zł/h", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderDialog({ baseRateUnit: "daily" });
+
+    expect(screen.queryByText("Dziennie")).not.toBeInTheDocument();
+    await selectClient(user);
+    await user.type(screen.getByPlaceholderText("np. 125,00"), "125,00");
+    await user.type(screen.getByPlaceholderText("np. 175,00"), "175,00");
+    await user.click(screen.getByRole("button", { name: "Dodaj projekt" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ rate_unit: "hourly" }),
+    );
+  });
+
   it("zapisuje aktywny projekt bez daty zakończenia jako bezterminowy", async () => {
     const user = userEvent.setup({ delay: null });
     renderDialog();

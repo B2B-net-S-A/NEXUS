@@ -9,7 +9,7 @@ from app.models.order_mail import OrderMailDocument
 from app.models.activity import Activity
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.core.scheduling import business_today
-from app.services.order_rate_snapshots import convert_order_rate
+from app.services.order_rate_snapshots import contract_rate_in_unit
 
 
 def contract_was_terminated(contract) -> bool:
@@ -135,11 +135,8 @@ async def complete_signed_mail_drafts(db, contract_id, *, actor_id=None):
         if effective.get("rate_candidate") is None:
             continue
         order.contract = contract
-        order.rate_candidate = convert_order_rate(
-            effective["rate_candidate"],
-            contract.rate_unit,
-            order.rate_unit,
-            order.billing_hours_per_month,
+        order.rate_candidate = contract_rate_in_unit(
+            effective["rate_candidate"], contract, order.rate_unit
         )
         order.rate_candidate_currency = effective.get("rate_candidate_currency")
         if _activate_complete_draft(order):

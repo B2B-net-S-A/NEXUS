@@ -70,6 +70,10 @@ from app.services.order_document_text import OrderDocumentText, extract_order_te
 from app.services.order_mail_gate import GateInput, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import load_roster, resolve_rows
+from app.services.order_rate_snapshots import (
+    contract_rate_in_unit,
+    order_unit_for_contract,
+)
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
@@ -839,12 +843,17 @@ async def current_proposal(db, extraction, client_id):
         for c in contracts:
             try:
                 eff = effective_rate_fields(c, today)
-                raw_unit = eff.get("rate_unit") or c.rate_unit
-                unit = raw_unit.value if hasattr(raw_unit, "value") else str(raw_unit)
-                unit_key = {"hourly": "hour", "daily": "day", "monthly": "month"}.get(
-                    unit, unit
+                # Kontrakt przeliczony z MD jest w zł/h, a zamówienia tej osoby
+                # w MD — bramka porównuje stawki tylko w tej samej jednostce, więc
+                # stawka bieżąca idzie w jednostce zamówień (ticket 14.09.2026).
+                order_unit = order_unit_for_contract(c)
+                unit_key = {"hourly": "hour", "daily": "day", "monthly": "month"}[
+                    order_unit.value
+                ]
+                current_rates[c.id] = (
+                    contract_rate_in_unit(eff.get("rate_client"), c, order_unit),
+                    unit_key,
                 )
-                current_rates[c.id] = (eff.get("rate_client"), unit_key)
             except Exception:  # noqa: BLE001 — stawka bieżąca jest tylko kontrolą
                 continue
     proposal = plan_document(
