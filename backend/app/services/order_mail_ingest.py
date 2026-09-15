@@ -198,6 +198,12 @@ class IngestStats:
     #: (``replan_outdated_documents``) i ile z nich zapisało się automatem.
     replanned: int = 0
     replanned_auto_applied: int = 0
+    #: Wpisy z odczytem awaryjnym (bez AI), dla których ponowiono odczyt AI
+    #: (``retry_ai_fallback_documents``): ile prób, ile się udało, ile z nich
+    #: zapisało się automatem.
+    ai_retried: int = 0
+    ai_recovered: int = 0
+    ai_recovered_auto_applied: int = 0
     max_received_at: Optional[datetime] = None
     errors: list[str] = field(default_factory=list)
 
@@ -383,6 +389,20 @@ def _stamp_rule_versions(row: OrderMailDocument, policies: list) -> None:
         **(row.document_meta or {}),
         "rule_versions": rule_versions(policies),
     }
+
+
+#: Klucze ``document_meta`` prowadzone przez ponowny odczyt AI — przeżywają
+#: „Przelicz plan", który przepisuje resztę metadanych dokumentu od zera.
+_AI_RETRY_META_KEYS = (
+    "ai_retry_attempts",
+    "ai_retry_last_at",
+    "ai_retry_last_failure",
+    "ai_recovered_at",
+)
+
+
+def _ai_retry_meta(meta: Optional[dict[str, Any]]) -> dict[str, Any]:
+    return {k: v for k, v in (meta or {}).items() if k in _AI_RETRY_META_KEYS}
 
 
 def document_meta_to_json(
@@ -642,7 +662,10 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         extraction.consultant_rows = policy_by_key("nordea").extract_rows(doc.text)
     extraction = apply_rate_kind(extraction, doc.text, policies)
     row.extraction = extraction_to_json(extraction)
-    row.document_meta = document_meta_to_json(doc, extraction)
+    row.document_meta = {
+        **_ai_retry_meta(getattr(row, "document_meta", None)),
+        **document_meta_to_json(doc, extraction),
+    }
     _stamp_rule_versions(row, policies)
     await _plan_and_gate(
         db,
@@ -701,6 +724,178 @@ def _replannable(row: OrderMailDocument) -> bool:
     ):
         return False
     return storage_service.get_order_mail_attachment_path(row.storage_path).is_file()
+
+
+#: Ile razy ponawiamy odczyt AI dla jednego wpisu z odczytem awaryjnym. Bieg
+#: skrzynki jest co godzinę, więc to kilka godzin na przejściową awarię
+#: dostawcy albo restart kontenera w trakcie odczytu — trwale nieczytelny
+#: dokument nie może płacić za model w każdym biegu.
+MAX_AI_RETRY_ATTEMPTS = 3
+
+
+def ai_extraction_available() -> bool:
+    """Czy odczyt AI w ogóle może się udać (klucz + włącznik funkcji)."""
+    key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
+    return bool(key) and bool(settings.ORDER_EXTRACTION_ENABLED)
+
+
+def _needs_ai_retry(row: Optional[OrderMailDocument]) -> bool:
+    if row is None or row.outcome != OUTCOME_NEEDS_REVIEW or not row.client_id:
+        return False
+    if (row.extraction or {}).get("source") != "regex":
+        return False
+    attempts = int((row.document_meta or {}).get("ai_retry_attempts") or 0)
+    return attempts < MAX_AI_RETRY_ATTEMPTS and _replannable(row)
+
+
+async def _reread_document_text(row: OrderMailDocument) -> OrderDocumentText:
+    path = storage_service.get_order_mail_attachment_path(row.storage_path)
+    return await run_in_threadpool(
+        extract_order_text, str(path), row.attachment_name or "zamowienie.pdf"
+    )
+
+
+async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> None:
+    """Ponów odczyt AI dla wpisów w kolejce, które dostały odczyt awaryjny.
+
+    Odczyt awaryjny (bez AI) nigdy nie zapisuje się automatem, a jego pola są
+    zgadywane — do 09.2026 taki wpis czekał na człowieka, choć przyczyną była
+    zwykle chwilowa awaria: przeciążenie dostawcy albo restart kontenera przy
+    deployu w chwili odczytu maila (PKO BP, 14.09). Każdy bieg skrzynki próbuje
+    ponownie, najwyżej ``MAX_AI_RETRY_ATTEMPTS`` razy na wpis. Udany odczyt
+    przechodzi dokładnie tę ścieżkę co nowy mail: reguły klienta, rodzaj stawki,
+    plan i bramka — pewny plan zapisuje się automatem (gdy automat włączony).
+    Nieudana próba zapisuje powód na wpisie, więc widać go w kolejce.
+
+    Wywołanie modelu idzie POZA blokadą wiersza (trwa do minut); zapis
+    sprawdza warunki ponownie pod ``FOR UPDATE``. Każdy wpis to osobna
+    transakcja.
+    """
+    if not ai_extraction_available():
+        return
+    ids = list(
+        (
+            await db.scalars(
+                select(OrderMailDocument.id)
+                .where(
+                    OrderMailDocument.outcome == OUTCOME_NEEDS_REVIEW,
+                    OrderMailDocument.client_id.is_not(None),
+                    OrderMailDocument.applied_order_id.is_(None),
+                )
+                .order_by(OrderMailDocument.id)
+            )
+        ).all()
+    )
+    for doc_id in ids:
+        row = await db.get(OrderMailDocument, doc_id)
+        if not _needs_ai_retry(row):
+            continue
+        extraction_before = row.extraction
+        policies = active_policies(row.client_id)
+        await db.commit()  # oddaj połączenie na czas wywołania modelu
+        try:
+            doc = await _reread_document_text(row)
+            doc = dataclasses.replace(
+                doc, text=prepare_document_text(doc.text, policies)
+            )
+            parsed = await parse_order_document(
+                prepare_parser_text(doc.text, policies), all_rows=True
+            )
+        except Exception as exc:  # noqa: BLE001 — jeden wpis nie wywraca biegu
+            logger.exception("order_mail: AI re-read failed for doc %s", doc_id)
+            parsed = None
+            failure = f"błąd ponownego odczytu ({type(exc).__name__})"
+        else:
+            failure = parsed.ai_failure if parsed.source != "claude" else None
+
+        row = await db.get(
+            OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
+        )
+        if not _needs_ai_retry(row) or row.extraction != extraction_before:
+            await db.commit()  # ktoś zdążył wpis zastosować, odrzucić albo przeliczyć
+            continue
+        stats.ai_retried += 1
+        attempts = int((row.document_meta or {}).get("ai_retry_attempts") or 0) + 1
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            if parsed is None or parsed.source != "claude":
+                await _record_failed_ai_retry(db, row, attempts, now, failure)
+            else:
+                await _apply_recovered_ai_read(
+                    db, row, parsed, doc, policies, attempts, now
+                )
+                stats.ai_recovered += 1
+                if row.outcome == OUTCOME_AUTO_APPLIED:
+                    stats.ai_recovered_auto_applied += 1
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — jeden wpis nie wywraca biegu
+            logger.exception("order_mail: AI re-read apply failed for doc %s", doc_id)
+            await db.rollback()
+            row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+            row.document_meta = {
+                **(row.document_meta or {}),
+                "ai_retry_attempts": attempts,
+                "ai_retry_last_at": now,
+                "ai_retry_last_failure": f"błąd zapisu ({type(exc).__name__})",
+            }
+            await db.commit()
+            stats.errors.append(f"ai retry doc {doc_id}: {exc!r}"[:300])
+
+
+async def _record_failed_ai_retry(
+    db: AsyncSession,
+    row: OrderMailDocument,
+    attempts: int,
+    now: str,
+    failure: Optional[str],
+) -> None:
+    """Nieudana próba: powód na odczycie i w metadanych, plan przeliczony bez AI."""
+    stored = restore_extraction(row.extraction)
+    stored.ai_failure = failure or stored.ai_failure
+    row.extraction = extraction_to_json(stored)
+    row.document_meta = {
+        **(row.document_meta or {}),
+        "ai_retry_attempts": attempts,
+        "ai_retry_last_at": now,
+        "ai_retry_last_failure": failure,
+    }
+    await refresh_review_plan(db, row)
+    if attempts >= MAX_AI_RETRY_ATTEMPTS:
+        row.gate_reasons = [
+            *(row.gate_reasons or []),
+            f"Ponowny odczyt AI nie powiódł się {attempts}× — sprawdź pola z PDF "
+            "i zastosuj ręcznie albo odrzuć",
+        ]
+
+
+async def _apply_recovered_ai_read(
+    db: AsyncSession,
+    row: OrderMailDocument,
+    extraction: OrderExtraction,
+    doc: OrderDocumentText,
+    policies: list,
+    attempts: int,
+    now: str,
+) -> None:
+    """Udany odczyt AI: ta sama ścieżka co nowy mail, potem plan i ewentualny zapis."""
+    extraction, applied = apply_policies(
+        extraction,
+        PolicyContext(document_text=doc.text, filename=row.attachment_name),
+        policies,
+    )
+    extraction = apply_rate_kind(extraction, doc.text, policies)
+    row.client_policy = " + ".join(applied) or None
+    row.extraction = extraction_to_json(extraction)
+    row.document_meta = {
+        **(row.document_meta or {}),
+        **document_meta_to_json(doc, extraction),
+        "ai_retry_attempts": attempts,
+        "ai_retry_last_at": now,
+        "ai_retry_last_failure": None,
+        "ai_recovered_at": now,
+    }
+    _stamp_rule_versions(row, policies)
+    await replan_and_apply(db, row, actor_user_id=None)
 
 
 async def replan_outdated_documents(db: AsyncSession, stats: IngestStats) -> None:
@@ -1271,6 +1466,11 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
             "failed": int(stats.get("failed") or 0),
             "replanned": int(stats.get("replanned") or 0),
             "replanned_auto_applied": int(stats.get("replanned_auto_applied") or 0),
+            "ai_retried": int(stats.get("ai_retried") or 0),
+            "ai_recovered": int(stats.get("ai_recovered") or 0),
+            "ai_recovered_auto_applied": int(
+                stats.get("ai_recovered_auto_applied") or 0
+            ),
             "errors": list(stats.get("errors") or []),
         }
     return {
@@ -1320,6 +1520,14 @@ async def run_order_mail_ingest(
                 logger.exception("order_mail: replan of outdated documents failed")
                 await db.rollback()
                 stats.errors.append(f"replan: {exc!r}"[:300])
+            # Potem wpisy z odczytem awaryjnym (AI niedostępne przy odczycie
+            # maila) — też lokalnie, z zachowanego PDF-a.
+            try:
+                await retry_ai_fallback_documents(db, stats)
+            except Exception as exc:  # noqa: BLE001 — ponowienie nie wywraca biegu
+                logger.exception("order_mail: AI re-read of fallback documents failed")
+                await db.rollback()
+                stats.errors.append(f"ai retry: {exc!r}"[:300])
             # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
             # otwiera pulę httpx, więc między nim a `async with` nie może stać
             # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).

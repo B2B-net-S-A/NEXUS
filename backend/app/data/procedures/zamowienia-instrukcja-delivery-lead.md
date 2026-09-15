@@ -666,6 +666,15 @@ rozpoznaje jako duplikat i pomija. Jeśli automatyczne przeliczenie się nie
 powiedzie, wpis zostaje z komunikatem „Automatyczne przeliczenie po zmianie
 reguły nie powiodło się…" i można użyć przycisku ręcznie.
 
+**Wpis z odczytem awaryjnym (AI było chwilowo niedostępne przy odczycie maila)
+system próbuje przeczytać AI ponownie sam** — przy kolejnych sprawdzeniach
+skrzynki, najwyżej 3 razy. Gdy się uda, wpis przechodzi zwykłą ścieżkę: pewny
+plan zapisuje się automatycznie, plan z wątpliwością zostaje w weryfikacji z
+aktualnymi powodami. Powód awarii AI widać w banerze, np. „Odczyt awaryjny (AI:
+przekroczony czas odpowiedzi AI) — sprawdź zgodność pól z PDF". Po trzech
+nieudanych próbach dochodzi komunikat „Ponowny odczyt AI nie powiódł się 3×" —
+wtedy sprawdź pola z PDF i zastosuj ręcznie albo odrzuć.
+
 ## Co system robi sam
 
 * **Zakłada umowę i szkic zamówienia** po potwierdzeniu obustronnie podpisanej

@@ -119,6 +119,11 @@ class CandidateStageResponse(BaseModel):
     # recruiter learns *before* dragging the card rather than from a 409.
     hm_veto: Optional["HiringManagerVetoBrief"] = None
     contact_case: Optional[ContactCaseSummaryResponse] = None
+    # F05: `RecruitmentProcess.state_version` najnowszego procesu pary
+    # (0 = proces jeszcze nie istnieje). Wypełniane przez tablicę kanbanu
+    # i odpowiedź `POST /pipeline/move`; front odsyła ją jako
+    # `expected_state_version`. `None` = endpoint jej nie liczy (np. historia).
+    process_state_version: Optional[int] = None
 
     # ── Pending verification (migracja 0056) ──────────────────────────────
     verification_status: VerificationStatus = VerificationStatus.active

@@ -23,6 +23,7 @@ niepewności (brak wartości, kilku kandydatów, nietypowy zapis) ustawiamy
 from __future__ import annotations
 
 import calendar
+import contextvars
 import json
 import logging
 import os
@@ -43,6 +44,34 @@ from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
+
+#: Powód ostatniej nieudanej próby odczytu AI w bieżącym kontekście wywołania.
+#: ContextVar zamiast zwracania krotki: ``_extract_with_claude`` i
+#: ``_extract_all_rows_with_claude`` są podmieniane w testach funkcjami
+#: zwracającymi samo ``None``.
+_AI_FAILURE: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "order_parser_ai_failure", default=None
+)
+
+
+def describe_ai_failure(exc: BaseException) -> str:
+    """Rodzaj błędu wywołania AI po polsku — bez treści komunikatu dostawcy."""
+    import anthropic
+
+    from app.services.claude_client import ClaudeOverloaded
+
+    if isinstance(exc, ClaudeOverloaded):
+        return "dostawca AI przeciążony"
+    if isinstance(exc, anthropic.APITimeoutError):
+        return "przekroczony czas odpowiedzi AI"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "brak połączenia z dostawcą AI"
+    if isinstance(exc, anthropic.RateLimitError):
+        return "limit zapytań u dostawcy AI (HTTP 429)"
+    if isinstance(exc, anthropic.APIStatusError):
+        return f"błąd dostawcy AI (HTTP {exc.status_code})"
+    return f"błąd wywołania AI ({type(exc).__name__})"
+
 
 # Model przez env (spójne z candidate_summary/champion_draft/match_justification),
 # z fallbackiem na typed setting.
@@ -176,6 +205,13 @@ class OrderExtraction:
     uncertain: bool = True
     uncertain_reasons: list[str] = field(default_factory=list)
     source: str = "none"  # "claude" | "regex" | "none"
+    ai_failure: Optional[str] = None
+    """Dlaczego odczyt AI nie wyszedł, gdy ``source == "regex"`` (fallback).
+
+    Zapisywane na dokumencie z maila i pokazywane w powodzie weryfikacji — do
+    09.2026 powód szedł wyłącznie do logu kontenera, który znika przy każdym
+    deployu, więc „czemu AI padło" było nie do ustalenia. Tylko rodzaj błędu
+    (klasa wyjątku, status HTTP) — nigdy treść odpowiedzi ani dokumentu."""
 
 
 # ── Normalizacja pól ────────────────────────────────────────────────────────
@@ -772,7 +808,11 @@ async def _call_extraction(
     # Typed field w Settings — dostęp wprost (getattr z defaultem cicho
     # re-enable'owałby kill-switch, gdyby pole zniknęło z config.py).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
-    if not api_key or not settings.ORDER_EXTRACTION_ENABLED:
+    if not api_key:
+        _AI_FAILURE.set("brak klucza API AI")
+        return None
+    if not settings.ORDER_EXTRACTION_ENABLED:
+        _AI_FAILURE.set("odczyt AI wyłączony (ORDER_EXTRACTION_ENABLED)")
         return None
 
     # W trybie targetowanym przeglądamy cały wielostronicowy tekst. To CPU-bound
@@ -810,6 +850,7 @@ async def _call_extraction(
         )
     except Exception as exc:  # noqa: BLE001 — degradujemy do regex fallbacku
         logger.warning("[order_parser] Claude call failed: %r", exc)
+        _AI_FAILURE.set(describe_ai_failure(exc))
         return None
 
     raw = "".join(
@@ -819,8 +860,10 @@ async def _call_extraction(
         data = json.loads(_strip_json_fences(raw))
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning("[order_parser] JSON parse failed: %r; raw=%.200s", exc, raw)
+        _AI_FAILURE.set("nieczytelna odpowiedź AI (nie JSON)")
         return None
     if not isinstance(data, dict):
+        _AI_FAILURE.set("nieczytelna odpowiedź AI (nie obiekt JSON)")
         return None
     result = _normalize(data, source="claude")
     # Bez osoby docelowej `_document_text_for_prompt` tnie po cichu do
@@ -2819,6 +2862,7 @@ async def parse_order_document(
             uncertain=True, uncertain_reasons=["Pusty dokument"], source="none"
         )
 
+    _AI_FAILURE.set(None)
     if all_rows:
         result = await _extract_all_rows_with_claude(text)
     else:
@@ -2832,6 +2876,7 @@ async def parse_order_document(
         # zbiór z `source="regex"`, a to jest dla bramki automatu wystarczający
         # powód, żeby dokument poszedł do człowieka.
         result = _extract_with_regex(text)
+        result.ai_failure = _AI_FAILURE.get() or "nieznany powód"
     if consultant_name:
         # Model dostaje nazwę w prompcie, więc jego własna lista wierszy nie jest
         # dowodem obecności osoby. Gdy pełny tekst nie zawiera nawet bezpiecznego
