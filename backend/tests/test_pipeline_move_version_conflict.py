@@ -216,3 +216,112 @@ async def test_first_move_treats_missing_process_as_version_zero():
         assert await _state_version(cand_id, job_id) >= 1
     finally:
         await _cleanup(cand_id, job_id)
+
+
+def _kanban_card(view: dict, candidate_id: int) -> dict:
+    """Karta kandydata z odpowiedzi `GET /pipeline/kanban` (kolumny + kubełek)."""
+    buckets = list(view["columns"])
+    if view.get("off_template"):
+        buckets.append(view["off_template"])
+    cards = [
+        item
+        for bucket in buckets
+        for item in bucket["items"]
+        if item["candidate_id"] == candidate_id
+    ]
+    assert len(cards) == 1, cards
+    return cards[0]
+
+
+async def test_kanban_card_carries_process_version_that_drives_the_next_move(
+    api_client: AsyncClient,
+):
+    """Tablica wystawia wersję procesu, która rośnie po ruchu; ruch z wersją
+    z BIEŻĄCEJ tablicy przechodzi, a z tablicy sprzed ruchu kolegi — 409 bez
+    zapisu. Odpowiedź ruchu niesie nową wersję (karta podmienia ją od razu)."""
+    recruiter_id, email, pw = await _seed_user(UserRole.recruiter)
+    headers = await _login(api_client, email, pw)
+    cand_id, job_id = await _seed_pair(recruiter_id)
+    try:
+        first = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "new"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["process_state_version"] == await _state_version(
+            cand_id, job_id
+        )
+
+        board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+        assert board.status_code == 200, board.text
+        stale_card = _kanban_card(board.json(), cand_id)
+        seen = stale_card["process_state_version"]
+        assert seen == await _state_version(cand_id, job_id)
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "screening",
+                "expected_state_version": seen,
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        assert moved.json()["process_state_version"] == seen + 1
+
+        refreshed = await api_client.get(
+            f"/api/pipeline/kanban/{job_id}", headers=headers
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        refreshed_card = _kanban_card(refreshed.json(), cand_id)
+        assert refreshed_card["process_state_version"] == seen + 1
+
+        # Karta sprzed ruchu → 409, etap i wersja bez zmian.
+        stale = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "interview",
+                "expected_state_version": stale_card["process_state_version"],
+            },
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["detail"]["code"] == "PIPELINE_VERSION_CONFLICT"
+        assert await _state_version(cand_id, job_id) == seen + 1
+        after = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+        card = _kanban_card(after.json(), cand_id)
+        assert card["stage"] == "screening"
+        assert card["process_state_version"] == seen + 1
+    finally:
+        await _cleanup(cand_id, job_id)
+
+
+async def test_kanban_card_without_process_reports_version_zero(
+    api_client: AsyncClient,
+):
+    """Legacy etap bez procesu = wersja 0 na karcie, czyli dokładnie to, co
+    `transition_process` przyjmuje jako „brak procesu"."""
+    recruiter_id, email, pw = await _seed_user(UserRole.recruiter)
+    headers = await _login(api_client, email, pw)
+    cand_id, job_id = await _seed_pair(recruiter_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    stage=PipelineStage.new,
+                    moved_by=recruiter_id,
+                )
+            )
+            await db.commit()
+        board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+        assert board.status_code == 200, board.text
+        assert _kanban_card(board.json(), cand_id)["process_state_version"] == 0
+    finally:
+        await _cleanup(cand_id, job_id)

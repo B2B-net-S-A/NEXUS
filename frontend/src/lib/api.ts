@@ -2653,6 +2653,8 @@ export const pipelineApi = {
     expected_rate_value?: number | string;
     expected_rate_unit?: RateUnit;
     expected_rate_currency?: string;
+    /** F05: wersja procesu z karty; rozjazd = 409 PIPELINE_VERSION_CONFLICT. */
+    expected_state_version?: number;
   }) => api.post("/api/pipeline/move", data),
   listPendingVerifications: (jobId?: number) =>
     api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {

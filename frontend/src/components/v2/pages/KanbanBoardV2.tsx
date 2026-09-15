@@ -117,6 +117,12 @@ import {
  type NextActionKind,
 } from "@/lib/pipeline-next-action";
 import { useClientPlaybook } from "@/lib/client-playbooks";
+import {
+  PIPELINE_VERSION_CONFLICT_MESSAGE,
+  expectedStateVersionOf,
+  invalidateAfterPipelineVersionConflict,
+  isPipelineVersionConflict,
+} from "@/lib/pipeline-version-conflict";
 
 // Re-eksport — `KanbanColumn`/`KanbanItem`/`colId`/`columnLabel`/`ScoreRing`
 // mieszkają teraz w `kanban-shared.tsx` (dok i lewy rail importują je STAMTĄD,
@@ -1576,6 +1582,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // RAZ, po całej operacji — odświeżenie w środku pętli nadpisywało
  // optymistyczne ruchy kolejnych kart stanem sprzed nich.
  deferCacheSync?: boolean;
+ // F05: pojedynczy ruch z karty odsyła wersję procesu
+ // (`expected_state_version`). Ruchy zbiorcze przekazują `false` — bez
+ // sprawdzenia, jak dotąd.
+ checkVersion?: boolean;
  }
  ): Promise<boolean> => {
  try {
@@ -1583,6 +1593,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  id?: number;
  verification_status?:"active" |"pending" |"rejected";
  scheduled_rejection_email_id?: number | null;
+ process_state_version?: number | null;
  }>("/api/pipeline/move", {
  candidate_id: item.candidate_id,
  job_id: jobId,
@@ -1594,6 +1605,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  send_rejection_email: reason?.sendRejectionEmail ?? undefined,
  candidate_offer_response:
  reason?.candidateOfferResponse ?? undefined,
+ expected_state_version:
+ opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
  });
 
  // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta w
@@ -1601,6 +1614,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // (screening, scorecard, accept/reject) celowały w historyczny rekord.
  const newStageId = response?.data?.id;
  const serverVerifStatus = response?.data?.verification_status;
+ // F05: nowa wersja procesu — kolejny ruch z tej karty przed odświeżeniem
+ // tablicy nie może wysłać wersji sprzed własnego ruchu.
+ const serverVersion = response?.data?.process_state_version;
  if (typeof newStageId === "number" && newStageId !== item.id) {
  setCols((prev) =>
  prev.map((c) => {
@@ -1614,6 +1630,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  id: newStageId,
  verification_status:
  serverVerifStatus ?? i.verification_status,
+ process_state_version:
+ typeof serverVersion === "number"
+ ? serverVersion
+ : i.process_state_version,
  }
  : i
  ),
@@ -1674,6 +1694,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return true;
  } catch (e) {
  console.error("Move failed", e);
+ if (!opts?.silent && isPipelineVersionConflict(e)) {
+ // Ktoś przesunął tę parę po odczycie tablicy: bez ponowienia —
+ // pokazujemy prawdę serwera i dajemy zdecydować jeszcze raz.
+ showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+ invalidateAfterPipelineVersionConflict(
+ queryClient,
+ jobId,
+ item.candidate_id
+ );
+ await refreshBoardAfterMove();
+ return false;
+ }
  if (!opts?.silent) {
  // Wspólny parser zachowuje dotychczasowe szczegóły błędu i dodatkowo
  // rozpoznaje strukturalny PRIORITY_WORK_LOCKED.
@@ -1687,6 +1719,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [
  jobId,
+ queryClient,
  stagesWithScorecard,
  refreshBoardAfterMove,
  syncKanbanCache,
@@ -1811,6 +1844,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  expected_rate_value: payload.rate,
  expected_rate_unit: payload.unit,
  expected_rate_currency: payload.currency,
+ // F05: tylko ruch pojedynczy — kolejka zbiorcza bez sprawdzenia.
+ expected_state_version: isSingleMove
+ ? expectedStateVersionOf(item)
+ : undefined,
  });
  // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
  // item.id), żeby screening zapisał się na świeżym etapie „verified".
@@ -1839,6 +1876,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  expected_rate_unit: payload.unit,
  expected_rate_currency: payload.currency,
  budget_max_at_move: jobBudgetMax,
+ process_state_version:
+ typeof res?.data?.process_state_version === "number"
+ ? res.data.process_state_version
+ : item.process_state_version,
  };
  const items = [...c.items, enriched];
  return { ...c, items, count: items.length };
@@ -1853,7 +1894,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  syncKanbanCache();
  } catch (e) {
  console.error("Move to verified failed", e);
+ if (isPipelineVersionConflict(e)) {
+ showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+ invalidateAfterPipelineVersionConflict(
+ queryClient,
+ jobId,
+ item.candidate_id
+ );
+ await refreshBoardAfterMove();
+ } else {
  showError("Nie udało się przesunąć kandydata.");
+ }
  } finally {
  // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki.
  const [next, ...rest] = verifiedQueue;
@@ -1875,6 +1926,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  verifiedBulkTotal,
  jobId,
  jobBudgetMax,
+ queryClient,
+ refreshBoardAfterMove,
  syncKanbanCache,
  showSuccess,
  showError,
@@ -2281,6 +2334,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const ok = await sendMove(item, destCol, undefined, {
  silent: isBulk,
  deferCacheSync: true,
+ checkVersion: !isBulk,
  });
  if (ok && payload) {
  try {
@@ -2397,6 +2451,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const ok = await sendMove(item, dst, undefined, {
  silent: true,
  deferCacheSync: true,
+ checkVersion: false,
  });
  if (!ok) failures += 1;
  }
@@ -2773,6 +2828,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {
  silent: entries.length > 1,
  deferCacheSync: entries.length > 1,
+ checkVersion: entries.length === 1,
  }
  );
  if (!ok) failures += 1;

@@ -373,7 +373,13 @@ cofnąć „przy okazji”:
 - **Ruch w pipeline ma opcjonalne `expected_state_version`** (`StageMove`,
   F05): rozjazd z `RecruitmentProcess.state_version` pod blokadą = 409
   `PIPELINE_VERSION_CONFLICT` bez zapisu; `None` = bez sprawdzenia (importy,
-  ruchy zbiorcze). Frontend jeszcze wersji nie wysyła — osobny krok.
+  ruchy zbiorcze). Karta kanbanu i odpowiedź ruchu niosą
+  `process_state_version` (0 = brak procesu; jedno zapytanie hurtowe
+  `_process_state_versions`); POJEDYNCZE ruchy z tablicy, doków i warsztatów
+  (screening, CV, rozmowy) ją odsyłają, zbiorcze (`checkVersion: false`) nie.
+  409 = toast „przesunięty przez kogoś innego”, odświeżenie tablicy (oba
+  klucze) i historii doku, BEZ ponowienia (`lib/pipeline-version-conflict.ts`).
+  Karta bez liczby NIE wysyła wersji (zgadnięte 0 = fałszywy konflikt).
   `POST /api/auth/refresh` przyjmuje token WYŁĄCZNIE w ciele (F06).
 - **`finance_trend` nie miesza źródeł:** każdy punkt niesie `basis`
   (`legacy_monthly_report` | `contracts`) i osobne pola (`mrr` tylko live,
@@ -1731,6 +1737,18 @@ nie ma żadnej reguły do utrzymania.
 - Env na prodzie (workflow „Coolify set env", `redeploy=false`, potem jeden
   zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
   `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
+- **Odczyt awaryjny (bez AI) jest ponawiany sam** (`retry_ai_fallback_documents`,
+  bieg skrzynki po `replan_outdated_documents`): wpis `needs_review` z
+  `extraction.source == "regex"` dostaje ponowny odczyt AI z zachowanego PDF-a,
+  najwyżej `MAX_AI_RETRY_ATTEMPTS` (3) razy (`document_meta.ai_retry_*`,
+  przeżywa „Przelicz plan"). Model idzie POZA blokadą wiersza, zapis po
+  ponownym sprawdzeniu pod `FOR UPDATE` (`populate_existing`). Udany odczyt =
+  ścieżka nowego maila (reguły, rodzaj stawki) + `replan_and_apply`. Powód
+  porażki AI (`OrderExtraction.ai_failure`: klasa błędu / HTTP, bez treści)
+  jest na wpisie i w powodzie bramki „Odczyt awaryjny (AI: …)". Do 09.2026
+  szedł tylko do logu kontenera, który znika przy deployu (PKO BP, 14.09:
+  mail odczytany w trakcie deployu). Bez klucza albo przy
+  `ORDER_EXTRACTION_ENABLED=false` ponowienie nic nie robi.
 - **Skrzynka jest sprawdzana co godzinę, nie w slotach.** Do 03.09.2026 pętla
   miała dwa sloty dobowe (08:00/15:00 Europe/Warsaw): zamówienie VeloBank
   przyszło o 08:37 i czekałoby do 15:00. Teraz bieg jest należny, gdy od KOŃCA
