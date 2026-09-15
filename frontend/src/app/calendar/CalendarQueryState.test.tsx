@@ -242,6 +242,30 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
     expect(screen.getByRole("heading", { level: 1, hidden: true })).toHaveTextContent(/marzec 2031/);
   });
 
+  it("wydarzenie z uczestnikami z M365 ({address, name}) otwiera się zamiast wywracać kalendarz", async () => {
+    // Retest produkcji 15.09.2026: obiekt uczestnika renderowany wprost dawał
+    // React #31 i „Coś poszło nie tak” dla każdego wydarzenia z Outlooka.
+    mocks.search = "event=43";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({
+      data: {
+        ...eventOn(43, "Rozmowa z Outlooka", "2031-03-10T09:00:00.000Z"),
+        attendees: [
+          { address: "rekruter@example.com", name: "Anna Testowa" },
+          { address: "kandydat@example.com", name: null },
+          "reczny@example.com",
+        ],
+      },
+    });
+    renderPage();
+
+    const dialog = await screen.findByRole("dialog", { name: "Rozmowa z Outlooka" });
+    expect(dialog).toHaveTextContent("Anna Testowa");
+    expect(dialog).toHaveTextContent("kandydat@example.com");
+    expect(dialog).toHaveTextContent("reczny@example.com");
+    expect(screen.getByText("Anna Testowa")).toHaveAttribute("title", "rekruter@example.com");
+  });
+
   it("zamknięcie okna z linku zdejmuje parametr z adresu", async () => {
     mocks.search = "event=42";
     mocks.listEvents.mockResolvedValue({ data: [] });
