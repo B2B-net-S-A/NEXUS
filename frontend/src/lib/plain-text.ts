@@ -100,3 +100,39 @@ export function stripHtmlTags(value: string | null | undefined): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** Czy pole tekstowe jest w rzeczywistości znacznikami HTML (np. treść maila z Outlooka). */
+export function looksLikeHtml(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /<(?:!doctype|html|head|body|meta|style|div|p|br|span|table|font|a)\b[^>]*>|<\/[a-z][a-z0-9]*\s*>/i.test(
+    value,
+  );
+}
+
+/**
+ * Wieloliniowy tekst z pola, które bywa pełnym dokumentem HTML — opis
+ * wydarzenia zsynchronizowanego z M365 niesie całą treść maila
+ * (`<html><head><meta…><style>…`). W odróżnieniu od `stripHtmlTags` zachowuje
+ * podział na akapity: `<br>` i koniec bloku to nowa linia, a `<head>`,
+ * `<style>`, `<script>` i komentarze znikają RAZEM Z TREŚCIĄ (inaczej CSS
+ * z Outlooka wychodziłby jako tekst). Zwykły tekst (bez znaczników) wraca bez
+ * zmian. Wynik renderujemy jako tekst z `whitespace-pre-line`, nigdy jako HTML.
+ */
+export function htmlToPlainText(value: string | null | undefined): string {
+  if (!value) return "";
+  if (!looksLikeHtml(value)) return value.trim();
+  const text = value
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, "")
+    // Białe znaki w źródle HTML nie znaczą nic — strukturę dają znaczniki.
+    .replace(/\s+/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|tr|h[1-6]|table|blockquote|pre)\s*>/gi, "\n")
+    .replace(/<[^>]*>/g, "");
+  return decodeHtmlEntities(text)
+    .split("\n")
+    .map((line) => line.replace(/[ \t\u00a0]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

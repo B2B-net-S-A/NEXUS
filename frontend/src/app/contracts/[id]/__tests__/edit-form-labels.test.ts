@@ -36,6 +36,20 @@ describe("formularz edycji kontraktu — etykiety dostępności", () => {
     expect(new Set(targets).size).toBe(targets.length);
   });
 
+  it("każdy <select> w pliku ma dostępną nazwę (aria-label, aria-labelledby albo <label htmlFor>)", () => {
+    // Retest 14.09: select „Generuj z szablonu…" nie miał żadnej nazwy —
+    // pierwsza opcja nie jest etykietą kontrolki.
+    const selects = SRC.match(/<select\b[^>]*>/g) ?? [];
+    expect(selects.length).toBeGreaterThanOrEqual(9);
+    const htmlForTargets = new Set([...SRC.matchAll(/htmlFor="([^"]+)"/g)].map((m) => m[1]));
+    const unnamed = selects.filter((tag) => {
+      if (/\baria-label(ledby)?=/.test(tag)) return false;
+      const id = tag.match(/\bid="([^"]+)"/)?.[1];
+      return !(id && htmlForTargets.has(id));
+    });
+    expect(unnamed).toEqual([]);
+  });
+
   it("etykiety grupowe stawek nazywają pojedyncze pole przez aria-labelledby", () => {
     for (const slug of ["framework-rate", "rate-candidate"]) {
       expect(SRC).toContain(`id="contract-edit-${slug}-label"`);

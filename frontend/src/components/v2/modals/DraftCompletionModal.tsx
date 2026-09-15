@@ -29,6 +29,14 @@ import {
  useAuthStore,
 } from"@/store/auth";
 
+/** Imię i nazwisko ze spacją; pusta część nie zostawia podwójnej spacji ani „undefined” (UAT B25). */
+export function contractorFullName(contractor: Pick<ContractorListItem, "candidate">): string {
+ return [contractor.candidate.name, contractor.candidate.lastname]
+ .map((part) => part?.trim())
+ .filter(Boolean)
+ .join(" ");
+}
+
 interface Props {
  contractor: ContractorListItem;
  open: boolean;
@@ -199,8 +207,7 @@ export function DraftCompletionModal({
  <DialogContent size="lg">
  <DialogHeader>
  <DialogTitle>
- Uzupełnij kontrakt — {contractor.candidate.name}{""}
- {contractor.candidate.lastname}
+ Uzupełnij kontrakt — {contractorFullName(contractor)}
  </DialogTitle>
  <DialogDescription>
  {needsAdminFinance

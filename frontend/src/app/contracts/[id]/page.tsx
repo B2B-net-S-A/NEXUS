@@ -261,6 +261,8 @@ function GenerateDocumentButton({
   return (
     <div className="relative">
       <select
+        id="contract-template-render"
+        aria-label="Generuj dokument z szablonu"
         onChange={(e) => {
           const id = Number(e.target.value);
           if (id) openRendered(id);

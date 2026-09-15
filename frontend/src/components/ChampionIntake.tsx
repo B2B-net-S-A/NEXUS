@@ -68,7 +68,8 @@ export function championIssueSectionId(path: string): ChampionSectionId | null {
 
 /**
  * Cel odnośnika ostrzeżenia, szukany W CHWILI KLIKNIĘCIA: najpierw pole
- * (`#champion-field-*` — istnieje tylko w oknie importu), w jego braku sekcja
+ * (`#champion-field-*` — istnieje tylko w oknie importu), potem pole głównego
+ * edytora (`[data-champion-field]`), w ich braku sekcja
  * (`#champion-section-*` — kotwice głównego edytora). Kotwica liczona przy
  * renderze prowadziła w edytorze donikąd: zmieniał się fragment adresu, fokus
  * zostawał na linku (audyt B47).
@@ -77,6 +78,12 @@ export function resolveChampionIssueTarget(path: string): HTMLElement | null {
   if (typeof document === "undefined") return null;
   const field = document.getElementById(`champion-field-${path}`);
   if (field) return field;
+  // Główny edytor znaczy kontrolki pól `data-champion-field` — bez tego fokus
+  // lądował na PIERWSZYM polu sekcji („Nazwa roli”), nie na polu z ostrzeżenia.
+  const editorField = document.querySelector<HTMLElement>(
+    `[data-champion-field="${path.replace(/["\\]/g, "\\$&")}"]`,
+  );
+  if (editorField) return editorField;
   const sectionId = championIssueSectionId(path);
   const anchor = CHAMPION_SECTIONS.find((s) => s.id === sectionId)?.anchor;
   return anchor ? document.getElementById(anchor) : null;

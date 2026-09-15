@@ -1614,6 +1614,84 @@ async def build_job_scoring_context(
     )
 
 
+async def build_jobs_scoring_contexts(
+    db: AsyncSession, jobs: Iterable[Job], candidate_ids: Sequence[int]
+) -> dict[int, JobScoringContext]:
+    """Per-job contexts for a (candidates × jobs) grid in two queries.
+
+    ``build_job_scoring_context`` batches one job over many candidates; the
+    reverse direction (one candidate over many jobs — `rank_jobs_for_candidate`)
+    had no batch at all, so „Szukają projektu" paid two SELECTs per scored
+    pair: ~6 000 round-trips per page of 50 (UAT B06). Every job passed in gets
+    a context, so a missing screening/conflict means "none", never "not looked
+    up" — the per-pair fallback would otherwise query again.
+
+    Row choice mirrors the per-pair path exactly: newest ``moved_at`` (then
+    ``id``) among stages with screening answers, per (candidate, job); a
+    conflict is any active row for (candidate, job.client_id).
+    """
+    from app.models.recruitment_pipeline import CandidateStage
+
+    job_list = list(jobs)
+    ids = sorted({int(c) for c in candidate_ids if c is not None})
+    if not job_list:
+        return {}
+    if not ids:
+        return {j.id: JobScoringContext({}, frozenset()) for j in job_list}
+
+    job_ids = sorted({j.id for j in job_list})
+    stage_rows = (
+        await db.execute(
+            select(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                CandidateStage.screening_answers,
+            )
+            .where(
+                CandidateStage.candidate_id.in_(ids),
+                CandidateStage.job_id.in_(job_ids),
+                CandidateStage.screening_answers.is_not(None),
+            )
+            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+        )
+    ).all()
+    screening_by_job: dict[int, dict[int, Any]] = {}
+    for job_id, cand_id, answers in stage_rows:
+        screening_by_job.setdefault(job_id, {})[cand_id] = answers
+
+    client_ids = {j.client_id for j in job_list if j.client_id}
+    conflicted_by_client: dict[int, set[int]] = {}
+    if client_ids:
+        for cand_id, client_id in (
+            await db.execute(
+                select(
+                    CandidateConflict.candidate_id, CandidateConflict.client_id
+                ).where(
+                    CandidateConflict.candidate_id.in_(ids),
+                    CandidateConflict.client_id.in_(client_ids),
+                    CandidateConflict.active.is_(True),
+                )
+            )
+        ).all():
+            conflicted_by_client.setdefault(client_id, set()).add(cand_id)
+
+    return {
+        j.id: JobScoringContext(
+            screening_by_candidate=screening_by_job.get(j.id, {}),
+            conflicted_candidate_ids=frozenset(
+                conflicted_by_client.get(j.client_id, ()) if j.client_id else ()
+            ),
+        )
+        for j in job_list
+    }
+
+
 def _renormalizing() -> bool:
     return bool(getattr(settings, "SCORE_RENORMALIZE_UNSCORED_LAYERS", False))
 
@@ -1966,15 +2044,25 @@ async def rank_jobs_for_candidate(
     *,
     similarity_map: Optional[dict[int, float]] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
+    contexts: Optional[dict[int, JobScoringContext]] = None,
 ) -> List[ScoreBreakdown]:
-    """Reverse direction — score each job for a given candidate."""
+    """Reverse direction — score each job for a given candidate.
+
+    ``contexts`` (from `build_jobs_scoring_contexts`, keyed by job id) removes
+    the two per-pair SELECTs; a job absent from it keeps the per-pair path.
+    """
     sims = similarity_map or {}
     results: List[ScoreBreakdown] = []
     for j in jobs:
         sim = sims.get(j.id)
         results.append(
             await score_candidate_job(
-                candidate, j, db, semantic_similarity=sim, profile=profile
+                candidate,
+                j,
+                db,
+                semantic_similarity=sim,
+                profile=profile,
+                context=contexts.get(j.id) if contexts is not None else None,
             )
         )
     results.sort(key=lambda r: -r.total)
