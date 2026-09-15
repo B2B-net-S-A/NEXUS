@@ -8,19 +8,20 @@ import { calendarApi, notificationsApi } from "@/lib/api"
 
 vi.mock("@/lib/api", () => ({
   calendarApi: { listEvents: vi.fn() },
-  notificationsApi: { list: vi.fn() },
+  notificationsApi: { list: vi.fn(), listRecruitment: vi.fn() },
 }))
 
 const listEvents = vi.mocked(calendarApi.listEvents)
-const listNotifications = vi.mocked(notificationsApi.list)
+const listNotifications = vi.mocked(notificationsApi.listRecruitment)
+const listAllNotifications = vi.mocked(notificationsApi.list)
 
-function renderDashboard() {
+function renderDashboard(recruitmentNotificationsOnly = true) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
-      <MyTasksDashboard />
+      <MyTasksDashboard recruitmentNotificationsOnly={recruitmentNotificationsOnly} />
     </QueryClientProvider>,
   )
 }
@@ -29,6 +30,7 @@ describe("MyTasksDashboard", () => {
   beforeEach(() => {
     listEvents.mockReset()
     listNotifications.mockReset()
+    listAllNotifications.mockReset()
     listEvents.mockResolvedValue({
       data: [
         {
@@ -107,7 +109,7 @@ describe("MyTasksDashboard", () => {
         ],
         unread_count: 1,
       },
-    } as Awaited<ReturnType<typeof notificationsApi.list>>)
+    } as Awaited<ReturnType<typeof notificationsApi.listRecruitment>>)
   })
 
   it("separates today's deadlines, meetings and notifications", async () => {
@@ -124,7 +126,18 @@ describe("MyTasksDashboard", () => {
         limit: 100,
       }),
     )
+    // Sprawy klientów mają panel „Moi klienci" — widget pyta tylko o rekrutację.
     expect(listNotifications).toHaveBeenCalledWith(20)
+  })
+
+  it("outside the Delivery Lead dashboard keeps the full notification feed", async () => {
+    const response = await listNotifications(20)
+    listNotifications.mockClear()
+    listAllNotifications.mockResolvedValue(response)
+    renderDashboard(false)
+    expect(await screen.findByText("Kandydat czeka na decyzję")).toBeVisible()
+    expect(listAllNotifications).toHaveBeenCalledWith(20)
+    expect(listNotifications).not.toHaveBeenCalled()
   })
 
   it("allows the whole personal-work section to be collapsed", async () => {

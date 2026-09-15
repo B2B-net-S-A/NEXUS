@@ -467,6 +467,19 @@ async def refresh_queue_plan(
     return await _serialize(db, doc, user)
 
 
+async def _close_review_cards(db: AsyncSession, doc_id: int) -> None:
+    """Zdejmij kartę „czeka na weryfikację" z panelu „Moi klienci" od razu.
+
+    Dokument opuścił kolejkę, więc sprawa nie istnieje — nie czekamy na dobowy
+    skaner. Status ``resolved``, nie ``handled``: to nie odhaczenie DL.
+    """
+    from app.services.dl_alerts import resolve_entity_alerts
+
+    await resolve_entity_alerts(
+        db, alert_type="order_mail_review", entity_key=f"order_mail:{doc_id}"
+    )
+
+
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
     doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
@@ -488,6 +501,7 @@ async def apply_queue_item(
     if result.ok:
         doc.outcome = OUTCOME_APPLIED
         doc.error = None
+        await _close_review_cards(db, doc.id)
     else:
         doc.error = (
             result.error or "; ".join(r.error for r in result.rows if r.error)
@@ -616,6 +630,7 @@ async def mark_queue_item_resolved_in_order(
             "resolved_at": now.isoformat(),
         },
     }
+    await _close_review_cards(db, doc.id)
     db.add(
         Activity(
             entity_type="client",
@@ -644,6 +659,7 @@ async def dismiss_queue_item(
     doc.outcome = OUTCOME_DISMISSED
     doc.reviewed_by_user_id = user.id
     doc.reviewed_at = datetime.now(timezone.utc)
+    await _close_review_cards(db, doc.id)
     await db.commit()
     await db.refresh(doc)
     return await _serialize(db, doc, user)

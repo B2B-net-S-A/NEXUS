@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import {
+  ContractorOrderCards,
   OrdersAndContractsTab,
   canTerminateContractor,
   splitOrders,
@@ -1467,5 +1468,53 @@ describe("canTerminateContractor", () => {
     // kontraktora bez jedynej drogi zakończenia — awaria odczytu nie może
     // czytać się jak stan terminalny.
     expect(canTerminateContractor(null)).toBe(true);
+  });
+});
+
+
+describe("ContractorOrderCards — deep link z panelu „Moi klienci”", () => {
+  function renderCards(focusOrder: Parameters<typeof ContractorOrderCards>[0]["focusOrder"]) {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const draft = makeOrder({ id: 77, title: "Tomasz Sadowski — DevOps", status: "draft" });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <ContractorOrderCards
+            clientId={7}
+            contractors={[{ ...structuredClone(CONTRACTOR), orders: [draft] } as never]}
+            canViewFinance
+            canManageFinance
+            canManageOrders
+            suggestedOrderType="periodic"
+            legacyNullOrderType="periodic"
+            searching={false}
+            focusOrder={focusOrder}
+          />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("szkic z linku otwiera się od razu w oknie „Uzupełnij zamówienie” i karta jest podświetlona", async () => {
+    const { container } = renderCards({
+      contractId: 529,
+      orderId: 77,
+      openEditor: true,
+      nonce: 1,
+    });
+    expect(
+      await screen.findByRole("dialog", { name: "Uzupełnij zamówienie" }),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector("#contractor-order-card-529"),
+    ).toHaveAttribute("data-focused", "true");
+  });
+
+  it("bez celu nic się nie otwiera", async () => {
+    renderCards(null);
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull();
   });
 });

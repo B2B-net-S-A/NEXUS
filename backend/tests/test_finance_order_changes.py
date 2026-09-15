@@ -390,7 +390,9 @@ async def test_order_ended_without_successor_becomes_an_open_gap_with_dl_alert(
         ).all()
     assert (
         len(alerts) == 1
-        and alerts[0].link == f"/clients/{ids['client_id']}?tab=zamowienia"
+        # Panel „Moi klienci": CTA prowadzi do konkretnego zamówienia.
+        and alerts[0].link
+        == f"/clients/{ids['client_id']}?tab=zamowienia&order={alerts[0].order_id}"
     )
     assert len(bell) == 1
 

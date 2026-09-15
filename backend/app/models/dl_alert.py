@@ -51,6 +51,12 @@ ALERT_MD_CONSULTANT_ENDED = "md_consultant_ended"
 ALERT_ORDER_MAIL_REVIEW = "order_mail_review"
 # 0308: zamówienie zakończone, a osoba nie ma u klienta następnego zamówienia.
 ALERT_ORDER_MISSING_SUCCESSOR = "order_missing_successor"
+# Panel „Moi klienci" (09.2026).
+ALERT_PERIODIC_ORDER_ENDING = "periodic_order_ending"
+ALERT_FRAMEWORK_CONTRACT_EXPIRING = "framework_contract_expiring"
+ALERT_CONTRACT_ENDING = "contract_ending"
+ALERT_COST_BUDGET_LOW = "cost_budget_low"
+ALERT_NEW_CONTRACTOR_DRAFT = "new_contractor_draft"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -60,6 +66,11 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_MD_CONSULTANT_ENDED,
     ALERT_ORDER_MAIL_REVIEW,
     ALERT_ORDER_MISSING_SUCCESSOR,
+    ALERT_PERIODIC_ORDER_ENDING,
+    ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+    ALERT_CONTRACT_ENDING,
+    ALERT_COST_BUDGET_LOW,
+    ALERT_NEW_CONTRACTOR_DRAFT,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -70,15 +81,60 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_MD_CONSULTANT_ENDED: "Zakończenie współpracy — decyzja MD",
     ALERT_ORDER_MAIL_REVIEW: "Zamówienie z maila do weryfikacji",
     ALERT_ORDER_MISSING_SUCCESSOR: "Brak kolejnego zamówienia",
+    ALERT_PERIODIC_ORDER_ENDING: "Kończące się zamówienie okresowe",
+    ALERT_FRAMEWORK_CONTRACT_EXPIRING: "Wygasająca umowa ramowa",
+    ALERT_CONTRACT_ENDING: "Kończący się kontrakt",
+    ALERT_COST_BUDGET_LOW: "Kończący się budżet zamówienia kosztowego",
+    ALERT_NEW_CONTRACTOR_DRAFT: "Nowy kontraktor — draft zamówienia",
 }
+
+#: Sekcje panelu „Moi klienci". Wyznacza je SERWER z typu — front nie trzyma
+#: drugiej kopii tej mapy, bo rozjechałaby się przy pierwszym nowym typie.
+DL_ALERT_SECTION_ENDING = "ending"
+DL_ALERT_SECTION_NEW_CONTRACTOR = "new_contractor"
+DL_ALERT_SECTION_ORDER_MAIL = "order_mail"
+DL_ALERT_SECTION_DECISION = "decision"
+
+DL_ALERT_SECTION_BY_TYPE: dict[str, str] = {
+    ALERT_PERIODIC_ORDER_ENDING: DL_ALERT_SECTION_ENDING,
+    ALERT_FRAMEWORK_CONTRACT_EXPIRING: DL_ALERT_SECTION_ENDING,
+    ALERT_CONTRACT_ENDING: DL_ALERT_SECTION_ENDING,
+    ALERT_MD_BUDGET_LOW: DL_ALERT_SECTION_ENDING,
+    ALERT_COST_BUDGET_LOW: DL_ALERT_SECTION_ENDING,
+    ALERT_COST_ORDER_EXHAUSTED: DL_ALERT_SECTION_ENDING,
+    ALERT_NEW_CONTRACTOR_DRAFT: DL_ALERT_SECTION_NEW_CONTRACTOR,
+    ALERT_DRAFT_CONSULTANT_UNASSIGNED: DL_ALERT_SECTION_NEW_CONTRACTOR,
+    ALERT_MISSING_REVENUE_RATE: DL_ALERT_SECTION_NEW_CONTRACTOR,
+    ALERT_ORDER_MAIL_REVIEW: DL_ALERT_SECTION_ORDER_MAIL,
+    ALERT_MD_CONSULTANT_ENDED: DL_ALERT_SECTION_DECISION,
+    # Zamówienie zakończone bez następnego (Finanse → Braki) — to kończąca się
+    # współpraca bez papieru, więc sekcja „kończące się".
+    ALERT_ORDER_MISSING_SUCCESSOR: DL_ALERT_SECTION_ENDING,
+}
+
+DL_ALERT_PRIORITY_STANDARD = "standard"
+DL_ALERT_PRIORITY_HIGH = "high"
+DL_ALERT_PRIORITIES: tuple[str, ...] = (
+    DL_ALERT_PRIORITY_STANDARD,
+    DL_ALERT_PRIORITY_HIGH,
+)
 
 DL_ALERT_STATUS_NEW = "new"
 DL_ALERT_STATUS_HANDLED = "handled"
-DL_ALERT_STATUSES: tuple[str, ...] = (DL_ALERT_STATUS_NEW, DL_ALERT_STATUS_HANDLED)
+#: Przyczyna ustąpiła bez odhaczenia (zamówienie przedłużone, draft
+#: uzupełniony, mail zweryfikowany). NIE jest odhaczeniem Delivery Leada:
+#: ``handled_by_user_id`` zostaje pusty, a raport liczy te wiersze osobno.
+DL_ALERT_STATUS_RESOLVED = "resolved"
+DL_ALERT_STATUSES: tuple[str, ...] = (
+    DL_ALERT_STATUS_NEW,
+    DL_ALERT_STATUS_HANDLED,
+    DL_ALERT_STATUS_RESOLVED,
+)
 
 DL_ALERT_STATUS_LABELS: dict[str, str] = {
     DL_ALERT_STATUS_NEW: "Nowe",
     DL_ALERT_STATUS_HANDLED: "Obsłużone",
+    DL_ALERT_STATUS_RESOLVED: "Zamknięte automatycznie",
 }
 
 
@@ -91,15 +147,22 @@ class DlAlert(Base):
             "alert_type IN ('cost_order_exhausted', "
             "'draft_consultant_unassigned', 'md_budget_low', "
             "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review', "
-            "'order_missing_successor')",
+            "'order_missing_successor', "
+            "'periodic_order_ending', 'framework_contract_expiring', "
+            "'contract_ending', 'cost_budget_low', 'new_contractor_draft')",
             name="ck_dl_alerts_type",
         ),
-        CheckConstraint("status IN ('new', 'handled')", name="ck_dl_alerts_status"),
+        CheckConstraint(
+            "status IN ('new', 'handled', 'resolved')", name="ck_dl_alerts_status"
+        ),
         # „Obsłużone" bez znacznika czasu nie da się odróżnić od wiersza
         # sprzed wprowadzenia tej kolumny, a czas reakcji jest treścią raportu.
         CheckConstraint(
-            "status <> 'handled' OR handled_at IS NOT NULL",
+            "status = 'new' OR handled_at IS NOT NULL",
             name="ck_dl_alerts_handled_coherence",
+        ),
+        CheckConstraint(
+            "priority IN ('standard', 'high')", name="ck_dl_alerts_priority"
         ),
         UniqueConstraint("dedupe_key", name="uq_dl_alerts_dedupe_key"),
         Index(
@@ -125,6 +188,7 @@ class DlAlert(Base):
             "created_at",
         ),
         Index("ix_dl_alerts_offboarding_case", "offboarding_case_id"),
+        Index("ix_dl_alerts_event_key", "event_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -157,6 +221,29 @@ class DlAlert(Base):
     payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    """``{typ}:{encja}:{odbiorca}`` — ``dedupe_key`` bez etapu/okna. Wiele
+    wierszy powtórek jednej sprawy składa się po nim w JEDNĄ kartę panelu,
+    a odhaczenie zamyka wszystkie naraz."""
+
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DL_ALERT_PRIORITY_STANDARD
+    )
+    episode_closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """Stempel zamknięcia EPIZODU sprawy (przyczyna ustąpiła). Stawia go
+    ``resolve_stale`` na wszystkich wierszach sprawy naraz — także odhaczonych —
+    więc powrót warunku zaczyna nowy epizod zamiast wisieć pod dawnym
+    odhaczeniem."""
+    email_send_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    email_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """Mail wysyłany tylko dla wierszy z ``payload.email=true`` (T-14, T-7,
+    wysoki priorytet MD/kosztowy). Claim + stempel jak w ``job_deadline_alerts``."""
 
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=DL_ALERT_STATUS_NEW

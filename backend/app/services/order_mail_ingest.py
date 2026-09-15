@@ -911,29 +911,48 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
     }
 
 
-async def notify_review(db, row) -> int:
-    """Alert dla Delivery Leadów klienta (fallback: admini) o zamówieniu do weryfikacji.
+def _mail_candidate_names(row) -> list[str]:
+    """Imiona i nazwiska osób z odczytu dokumentu (bez duplikatów, w kolejności)."""
+    extraction = row.extraction or {}
+    names: list[str] = []
+    candidates = [extraction.get("consultant_name")]
+    for item in extraction.get("consultant_rows") or []:
+        if isinstance(item, dict):
+            candidates.append(item.get("consultant_name"))
+    for raw in candidates:
+        name = " ".join(str(raw).split()) if raw else ""
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+async def notify_review(
+    db,
+    row,
+    *,
+    recipient_scope=None,
+    live_event_keys: Optional[set[str]] = None,
+) -> int:
+    """Karta „Zamówienie do [klient] czeka na weryfikację" w panelu „Moi klienci".
+
+    Odbiorcy: Delivery Leadzi klienta z rolą i dostępem do sekcji Delivery
+    (``dl_user_ids_for_client`` — do 09.2026 surowe przypisania, bez sprawdzenia
+    roli), a gdy klient nie ma DL — aktywni admini, żeby sprawa nie przepadła.
 
     ``dl_alerts``, nie ``notifications``: mierzy kto i kiedy załatwił sprawę,
-    powtórka co 7 dni jest nowym wierszem, bez ``ALTER TYPE`` na enumie.
-    ``emit`` zwraca ``[]`` przy braku DL — dlatego fallback na adminów jest
-    napisany tu wprost, a nie zostawiony przypadkowi.
+    powtórka co 7 dni jest nowym wierszem (ponawia ją dobowy skaner,
+    ``rule_order_mail_review``). ``live_event_keys`` wypełnia skaner, żeby
+    zamknąć karty dokumentów, które opuściły kolejkę.
     """
-    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.client import Client
     from app.models.user import User, UserRole
+    from app.services.client_identity import client_display_name_expression
+    from app.services.dl_alerts import dl_user_ids_for_client, event_key_for
     from app.services.dl_alerts import emit as emit_dl_alert
 
     if row.client_id is None or row.id is None:
         return 0
-    dl_ids = list(
-        (
-            await db.execute(
-                select(DeliveryLeadClientAssignment.delivery_lead_user_id).where(
-                    DeliveryLeadClientAssignment.client_id == row.client_id
-                )
-            )
-        ).scalars()
-    )
+    dl_ids = await dl_user_ids_for_client(db, row.client_id, scope=recipient_scope)
     if not dl_ids:
         dl_ids = list(
             (
@@ -946,20 +965,51 @@ async def notify_review(db, row) -> int:
         )
     if not dl_ids:
         return 0
+    entity_key = f"order_mail:{row.id}"
+    if live_event_keys is not None:
+        live_event_keys.update(
+            event_key_for("order_mail_review", entity_key, uid) for uid in dl_ids
+        )
+    client_name = (
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == row.client_id)
+        )
+    ) or "klienta"
+    people = _mail_candidate_names(row)
+    received = row.received_at.date().isoformat() if row.received_at else None
+    if people:
+        who = ", ".join(people[:3]) + (
+            f" i {len(people) - 3} innych" if len(people) > 3 else ""
+        )
+        message = (
+            f"Zamówienie dla {who} do {client_name} czeka na ręczną weryfikację "
+            "w zakładce Zamówienia z maila."
+        )
+    else:
+        message = (
+            f"Zamówienie do {client_name} czeka na ręczną weryfikację "
+            "w zakładce Zamówienia z maila."
+        )
+    reasons = "; ".join((row.gate_reasons or [])[:3])
+    if reasons:
+        message = f"{message} Powód: {reasons}"
     title = (row.extraction or {}).get("title") or row.attachment_name or "zamówienie"
     created = await emit_dl_alert(
         db,
         alert_type="order_mail_review",
         user_ids=dl_ids,
         client_id=row.client_id,
-        entity_key=f"order_mail:{row.id}",
-        title=f"Sprawdź zamówienie z maila: {title}",
-        message=(
-            "Zamówienie z maila wymaga weryfikacji dopasowania: "
-            + "; ".join((row.gate_reasons or [])[:3])
-        )[:2000],
+        entity_key=entity_key,
+        title=f"Sprawdź zamówienie z maila: {title}"[:255],
+        message=message[:2000],
         link=f"/order-mail?doc={row.id}",
-        payload={"document_id": row.id, "outcome": row.outcome},
+        payload={
+            "document_id": row.id,
+            "outcome": row.outcome,
+            "candidate_name": people[0] if len(people) == 1 else None,
+            "candidate_names": people,
+            "received_at": received,
+        },
         repeat_every_days=7,
     )
     return len(created)

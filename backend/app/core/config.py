@@ -1400,10 +1400,22 @@ class Settings(BaseSettings):
     # Próg „mało MD na zamówieniu". JEDNAKOWY dla wszystkich klientów i
     # zamówień — ticket wprost zabrania konfiguracji per klient, bo próg ma
     # znaczyć to samo w każdym raporcie.
-    DL_ALERT_MD_THRESHOLD: float = 15.0
+    # Panel „Moi klienci" (09.2026): pierwsze przypomnienie przy 21 MD.
+    DL_ALERT_MD_THRESHOLD: float = 21.0
     # Co ile dni ponawiać alert, którego przyczyna nie ustąpiła. Powtórka to
     # NOWY wiersz, nie aktualizacja — patrz `app/services/dl_alerts.py`.
     DL_ALERT_REPEAT_DAYS: int = 7
+    # Pierwsze przypomnienie o zamówieniu KOSZTOWYM: tyle złotych zostało
+    # w budżecie (budget_remaining).
+    DL_ALERT_COST_BUDGET_THRESHOLD: float = 10000.0
+    # Wysoki priorytet + mail dla MD i kosztowych: pozostałość wystarcza na
+    # tyle dni roboczych przy dotychczasowym tempie zużycia zamówienia.
+    DL_ALERT_HIGH_PRIORITY_WORKDAYS: int = 7
+    # Okno przypomnień o zamówieniu okresowym / umowie z datą końca (dni).
+    DL_ALERT_ENDING_WINDOW_DAYS: int = 30
+    # Maile z progów (T-14, T-7, wysoki priorytet MD/kosztowy). `false`
+    # zostawia karty w panelu, ale nie wysyła niczego.
+    DL_ALERT_EMAIL_ENABLED: bool = True
 
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):

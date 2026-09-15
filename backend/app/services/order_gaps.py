@@ -76,8 +76,10 @@ def tracking_start() -> date:
     return settings.ORDER_GAP_TRACKING_START
 
 
-def _link(client_id: int) -> str:
-    return f"/clients/{client_id}?tab=zamowienia"
+def _link(client_id: int, order_id: int | None = None) -> str:
+    # `?order=` — panel „Moi klienci" prowadzi do KONKRETNEGO zamówienia.
+    base = f"/clients/{client_id}?tab=zamowienia"
+    return f"{base}&order={order_id}" if order_id else base
 
 
 def _message(fact: OrderFact) -> str:
@@ -109,7 +111,7 @@ async def _notify(
         entity_key=f"gap:{gap.id}",
         title=title,
         message=message,
-        link=_link(gap.client_id),
+        link=_link(gap.client_id, gap.order_id),
         payload={
             "order_gap_id": gap.id,
             "order_number": fact.number,
@@ -130,7 +132,7 @@ async def _notify(
             user_id=user_id,
             title=title[:255],
             message=message,
-            link=_link(gap.client_id),
+            link=_link(gap.client_id, gap.order_id),
             notification_type=NotificationType.order_missing_successor,
             is_read=False,
             related_entity_type=GAP_ENTITY_TYPE,
@@ -374,7 +376,7 @@ async def remind_open_gaps(
             entity_key=f"gap:{gap.id}",
             title=f"{fact.client_name} — brak kolejnego zamówienia",
             message=_message(fact),
-            link=_link(gap.client_id),
+            link=_link(gap.client_id, gap.order_id),
             payload={
                 "order_gap_id": gap.id,
                 "order_number": fact.number,

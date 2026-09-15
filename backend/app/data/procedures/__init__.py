@@ -155,6 +155,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/tasks/dl_alerts_scanner.py",
     "backend/app/tasks/dl_portal_expiry_scanner.py",
     "backend/app/tasks/contract_alerts.py",
+    # Panel „Moi klienci" (09.2026): tempo zużycia MD/kosztowe dla progu
+    # wysokiego priorytetu i ekran kart z checkboxem.
+    "backend/app/services/order_burn_rate.py",
+    "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx",
     # ── Ekrany, na których Delivery Lead to widzi ───────────────────────
     "frontend/src/components/OrdersAndContractsTab.tsx",
     "frontend/src/components/EditOrderDialog.tsx",

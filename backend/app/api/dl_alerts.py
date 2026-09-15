@@ -24,30 +24,42 @@ Query (ten sam trap co w ``candidate_activity_summary.py``).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_today
+from app.models.activity import Activity
 from app.models.dl_alert import (
+    DL_ALERT_PRIORITY_HIGH,
+    DL_ALERT_SECTION_BY_TYPE,
+    DL_ALERT_SECTION_ENDING,
     DL_ALERT_STATUS_HANDLED,
     DL_ALERT_STATUS_LABELS,
     DL_ALERT_STATUS_NEW,
+    DL_ALERT_STATUS_RESOLVED,
     DL_ALERT_TYPE_LABELS,
     DlAlert,
 )
 from app.models.client_order_offboarding import OFFBOARDING_STATUS_PENDING
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name
-from app.schemas.dl_alert import DlAlertListResponse, DlAlertRead
+from app.schemas.dl_alert import (
+    DlAlertCard,
+    DlAlertCardsResponse,
+    DlAlertListResponse,
+    DlAlertRead,
+)
 from app.services.dl_alerts import format_reaction, reaction_seconds
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -157,8 +169,14 @@ async def list_alerts(
     Zawsze wyłącznie własne — również dla admina. Podgląd cudzych skrzynek nie
     ma tu zastosowania operacyjnego, a raport zbiorczy ma osobną, jawną trasę.
     """
-    if alert_status not in (DL_ALERT_STATUS_NEW, DL_ALERT_STATUS_HANDLED):
-        raise HTTPException(422, detail="Status musi być 'new' albo 'handled'")
+    if alert_status not in (
+        DL_ALERT_STATUS_NEW,
+        DL_ALERT_STATUS_HANDLED,
+        DL_ALERT_STATUS_RESOLVED,
+    ):
+        raise HTTPException(
+            422, detail="Status musi być 'new', 'handled' albo 'resolved'"
+        )
 
     result = await db.execute(
         _base_query()
@@ -179,6 +197,128 @@ async def list_alerts(
         total_new=by_status.get(DL_ALERT_STATUS_NEW, 0),
         total_handled=by_status.get(DL_ALERT_STATUS_HANDLED, 0),
     )
+
+
+def _parse_date(raw: object) -> Optional[date]:
+    if not isinstance(raw, str):
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def _build_cards(alerts: list[DlAlert], today: date) -> list[DlAlertCard]:
+    """Złóż otwarte wiersze w karty — jedna na sprawę (``event_key``)."""
+    grouped: dict[str, list[DlAlert]] = defaultdict(list)
+    for alert in alerts:
+        grouped[alert.event_key or f"row:{alert.id}"].append(alert)
+
+    cards: list[DlAlertCard] = []
+    for key, rows in grouped.items():
+        rows.sort(key=lambda a: (a.created_at, a.id))
+        latest = rows[-1]
+        payload = latest.payload or {}
+        end_date = _parse_date(payload.get("end_date"))
+        missing = payload.get("missing_fields")
+        case = latest.offboarding_case
+        cards.append(
+            DlAlertCard(
+                id=latest.id,
+                event_key=latest.event_key,
+                alert_type=latest.alert_type,
+                alert_type_label=DL_ALERT_TYPE_LABELS.get(
+                    latest.alert_type, latest.alert_type
+                ),
+                section=DL_ALERT_SECTION_BY_TYPE.get(
+                    latest.alert_type, DL_ALERT_SECTION_ENDING
+                ),
+                priority=(
+                    DL_ALERT_PRIORITY_HIGH
+                    if any(r.priority == DL_ALERT_PRIORITY_HIGH for r in rows)
+                    else latest.priority
+                ),
+                client_id=latest.client_id,
+                client_name=(
+                    client_display_name(latest.client) if latest.client else "—"
+                ),
+                order_group_id=latest.order_group_id,
+                order_id=latest.order_id,
+                title=latest.title,
+                message=latest.message,
+                link=latest.link,
+                candidate_name=payload.get("candidate_name")
+                or payload.get("consultant")
+                or payload.get("consultant_name"),
+                end_date=end_date,
+                days_left=(end_date - today).days if end_date else None,
+                missing_fields=[str(m) for m in missing]
+                if isinstance(missing, list)
+                else [],
+                source=payload.get("source"),
+                received_at=payload.get("received_at"),
+                first_alert_at=rows[0].created_at,
+                last_alert_at=latest.created_at,
+                repeat_count=len(rows),
+                email_sent=any(r.email_sent_at is not None for r in rows),
+                email_requested=any(bool((r.payload or {}).get("email")) for r in rows),
+                can_mark_handled=not (
+                    latest.offboarding_case_id is not None
+                    and case is not None
+                    and case.status == OFFBOARDING_STATUS_PENDING
+                ),
+            )
+        )
+
+    cards.sort(
+        key=lambda c: (
+            0 if c.priority == DL_ALERT_PRIORITY_HIGH else 1,
+            c.days_left if c.days_left is not None else 10_000,
+            -c.last_alert_at.timestamp(),
+        )
+    )
+    return cards
+
+
+@router.get("/cards", response_model=DlAlertCardsResponse)
+async def list_cards(
+    user: DlAlertsUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Otwarte sprawy zalogowanego użytkownika jako karty panelu „Moi klienci".
+
+    Wyłącznie własne — jak ``GET ""``. Bez limitu wierszy po stronie klienta:
+    liczba otwartych spraw jednej osoby jest mała, a obcięcie listy chowałoby
+    sprawy bez śladu.
+    """
+    result = await db.execute(
+        _base_query()
+        .where(DlAlert.user_id == user.id, DlAlert.status == DL_ALERT_STATUS_NEW)
+        .order_by(DlAlert.created_at.asc(), DlAlert.id.asc())
+    )
+    cards = _build_cards(list(result.scalars()), business_today())
+    return DlAlertCardsResponse(cards=cards, total=len(cards))
+
+
+_ACTIVITY_ENTITY_BY_PAYLOAD = (
+    ("framework_contract_id", "client_framework_contract"),
+    ("document_id", "order_mail_document"),
+    ("contract_id", "contract"),
+)
+
+
+def _activity_target(alert: DlAlert) -> tuple[str, int]:
+    """Na czym zapisać ślad odhaczenia: zamówienie > grupa > umowa > klient."""
+    payload = alert.payload or {}
+    if alert.order_id is not None:
+        return "client_order", alert.order_id
+    if alert.order_group_id is not None:
+        return "client_order_group", alert.order_group_id
+    for field, entity_type in _ACTIVITY_ENTITY_BY_PAYLOAD:
+        value = payload.get(field)
+        if isinstance(value, int):
+            return entity_type, value
+    return "client", alert.client_id
 
 
 @router.post("/{alert_id}/handled", response_model=DlAlertRead)
@@ -202,13 +342,74 @@ async def mark_handled(
         # istnienia komuś, kto go nie dostał.
         raise HTTPException(404, detail="Powiadomienie nie istnieje")
     _assert_manual_handling_allowed(alert)
-    if alert.status == DL_ALERT_STATUS_HANDLED:
+    if alert.status in (DL_ALERT_STATUS_HANDLED, DL_ALERT_STATUS_RESOLVED):
+        # Już zamknięte (odhaczone albo przyczyna ustąpiła w nocy) — karta
+        # z nieodświeżonego panelu nie może dopisać fałszywego odhaczenia.
         return _to_read(alert)
 
-    alert.status = DL_ALERT_STATUS_HANDLED
-    alert.handled_at = datetime.now(timezone.utc)
-    alert.handled_by_user_id = user.id
+    moment = datetime.now(timezone.utc)
+    # Odhaczenie zamyka CAŁĄ sprawę (wszystkie wiersze powtórek), nie jeden
+    # wiersz — inaczej karta wracałaby z treścią starszej powtórki.
+    if alert.event_key:
+        closed_ids = list(
+            (
+                await db.execute(
+                    update(DlAlert)
+                    .where(
+                        DlAlert.user_id == user.id,
+                        DlAlert.event_key == alert.event_key,
+                        DlAlert.status == DL_ALERT_STATUS_NEW,
+                    )
+                    .values(
+                        status=DL_ALERT_STATUS_HANDLED,
+                        handled_at=moment,
+                        handled_by_user_id=user.id,
+                    )
+                    .returning(DlAlert.id)
+                    .execution_options(synchronize_session=False)
+                )
+            ).scalars()
+        )
+    else:
+        alert.status = DL_ALERT_STATUS_HANDLED
+        alert.handled_at = moment
+        alert.handled_by_user_id = user.id
+        closed_ids = [alert.id]
+
+    if not closed_ids:
+        # Wyścig z nocnym zamknięciem: nic nie odhaczono, więc nie ma śladu.
+        await db.commit()
+        db.expire_all()
+        refreshed = await db.scalar(_base_query().where(DlAlert.id == alert_id))
+        return _to_read(refreshed or alert)
+
+    payload = alert.payload or {}
+    entity_type, entity_id = _activity_target(alert)
+    db.add(
+        Activity(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action="dl_alert_handled",
+            user_id=user.id,
+            details={
+                "alert_type": alert.alert_type,
+                "alert_type_label": DL_ALERT_TYPE_LABELS.get(
+                    alert.alert_type, alert.alert_type
+                ),
+                "event_key": alert.event_key,
+                "client_id": alert.client_id,
+                "order_id": alert.order_id,
+                "order_group_id": alert.order_group_id,
+                "candidate_name": payload.get("candidate_name")
+                or payload.get("consultant"),
+                "title": alert.title,
+                "dl_alert_ids": closed_ids,
+                "handled_at": moment.isoformat(),
+            },
+        )
+    )
     await db.commit()
+    db.expire_all()
     await db.refresh(alert)
     refreshed = await db.scalar(_base_query().where(DlAlert.id == alert_id))
     return _to_read(refreshed or alert)
