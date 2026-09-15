@@ -3533,3 +3533,31 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
+
+## NUL w żądaniach i `detail` błędów API w UI (odbiór #1549, 15.09.2026)
+
+Schemathesis znalazł 500 dla NUL (`%00`) w `q`; odbiór na produkcji pokazał, że
+poprawne 422 wywracało listę kandydatów ekranem „Coś poszło nie tak" (React #31),
+a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten sam
+500 (`asyncpg CharacterNotInRepertoireError`).
+
+- **NUL odrzuca JEDNO middleware** (`app/core/null_character_guard.py`): query
+  string, zdekodowana ścieżka i ciała JSON (także bez Content-Type) na
+  POST/PUT/PATCH/DELETE → 422 `{type: "null_character", loc, msg, input}`.
+  Nie obejmuje formularzy multipart/urlencoded, nagłówków ani WebSocketów.
+  **Kolejność w `main.py` jest load-bearing:** guard tuż nad
+  `UnhandledErrorMiddleware` (ta zostaje najgłębiej), pod korelacją i CORS —
+  odrzucenie bez nagłówków CORS przeglądarka pokazuje jako „Network Error".
+  Pilnuje `test_nul_guard_sits_inside_cors_and_outside_the_unhandled_error_net`.
+  Nie dokładaj `pattern=` NUL do kolejnych parametrów; ten przy `q` zostaje, bo
+  opisuje kontrakt w OpenAPI, z którego generator Schemathesis bierze wartości.
+- **`detail` z FastAPI nigdy nie jest „na pewno stringiem"** — bywa obiektem
+  albo tablicą walidacji. Tekst błędu do stanu, toasta lub alertu budujesz
+  wyłącznie przez `apiErrorMessage(error, fallback)` z `@/lib/api-error`
+  (czysty moduł: bez axios, więc bezpieczny dla stron publicznych i nie ginie
+  pod mockiem `@/lib/api` w testach komponentów). `extractErrorMsg` stoi na tej
+  samej funkcji. Test `api-error-detail-guard.test.ts` czyta źródła i odrzuca
+  `data?.detail ??`/`||` oraz rzutowania `data?: { detail?: string }` — na
+  `origin/main` sprzed zmiany znajdował 117 takich miejsc w 48 plikach.
+  Odczyty strukturalne (`detail?: unknown` + sprawdzenie typu, np.
+  `{missing}`/`{blockers}`) są w porządku.

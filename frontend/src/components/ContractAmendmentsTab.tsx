@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
@@ -114,9 +115,7 @@ export function ContractAmendmentsTab({
       setError("");
     },
     onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(detail ?? (err instanceof Error ? err.message : "Błąd"));
+      setError(apiErrorMessage(err, err instanceof Error ? err.message : "Błąd"));
     },
   });
 

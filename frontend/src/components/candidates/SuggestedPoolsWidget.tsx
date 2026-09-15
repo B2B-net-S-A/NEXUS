@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Sparkles, Check } from "lucide-react";
 import { api } from "@/lib/api";
@@ -57,10 +58,7 @@ export function SuggestedPoolsWidget({ candidateId, canAdd = true }: Props) {
     onError: (err: unknown) => {
       // Bez tego błąd (np. 403 dla cudzej puli osobistej) ginął po cichu:
       // kandydat się nie dodawał, a UI nie dawał żadnej informacji zwrotnej.
-      const detail = (
-        err as { response?: { data?: { detail?: string } } }
-      )?.response?.data?.detail;
-      showError(detail || "Nie udało się dodać kandydata do puli.");
+      showError(apiErrorMessage(err, "Nie udało się dodać kandydata do puli."));
     },
   });
 

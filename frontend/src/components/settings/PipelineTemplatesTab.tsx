@@ -14,6 +14,7 @@ import {
   StageDef,
   RejectionReasonDef,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Plus,
   Copy,
@@ -99,10 +100,7 @@ export function PipelineTemplatesTab() {
       await loadTemplates();
       setSelectedId(res.data.id);
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się utworzyć: ${message}`);
     }
   };
@@ -116,10 +114,7 @@ export function PipelineTemplatesTab() {
       await loadTemplates();
       setSelectedId(res.data.id);
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się sklonować: ${message}`);
     }
   };
@@ -132,10 +127,7 @@ export function PipelineTemplatesTab() {
       setSelectedId(null);
       await loadTemplates();
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się zarchiwizować: ${message}`);
     }
   };
@@ -177,10 +169,7 @@ export function PipelineTemplatesTab() {
       await loadDetail(detail.id);
       await loadTemplates();
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się dodać etapu: ${message}`);
     }
   };
@@ -192,10 +181,7 @@ export function PipelineTemplatesTab() {
       await pipelineTemplatesApi.deleteStage(detail.id, stage.id);
       await loadDetail(detail.id);
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się usunąć: ${message}`);
     }
   };
@@ -260,10 +246,7 @@ export function PipelineTemplatesTab() {
       });
       await loadDetail(detail.id);
     } catch (err: unknown) {
-      const message =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd.")
-          : "Błąd.";
+      const message = apiErrorMessage(err, "Błąd.");
       alert(`Nie udało się dodać powodu: ${message}`);
     }
   };

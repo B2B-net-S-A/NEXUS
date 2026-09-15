@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Copy, Link2, Loader2, Sparkles } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -92,8 +93,7 @@ function CvGeneratedShareModalContent({
       setSelectedVersion(String(res.data.document_version_id));
     },
     onError: (e: unknown) => {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      showToast(detail ?? "Nie udało się zatwierdzić CV", "error");
+      showToast(apiErrorMessage(e, "Nie udało się zatwierdzić CV"), "error");
     },
   });
 
@@ -115,9 +115,7 @@ function CvGeneratedShareModalContent({
       });
     },
     onError: (e: unknown) => {
-      const detail = (e as { response?: { data?: { detail?: string } } })
-        ?.response?.data?.detail;
-      showToast(detail ?? "Nie udało się utworzyć linku", "error");
+      showToast(apiErrorMessage(e, "Nie udało się utworzyć linku"), "error");
     },
   });
 

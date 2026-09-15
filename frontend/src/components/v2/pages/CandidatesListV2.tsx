@@ -46,6 +46,7 @@ import {
  X,
 } from"lucide-react";
 import api, { savedSearchesApi } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
  BulkCvDownloadError,
  downloadBulkCvs,
@@ -70,7 +71,6 @@ import {
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
 import {
   fetchCandidateListPage,
-  getCandidateListErrorMessage,
   getCandidateListIncludeFlags,
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
@@ -1934,8 +1934,7 @@ export function CandidatesListV2() {
  setShowBulkPool(false);
  clearSelection();
  } catch (e) {
- const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??"Nie udało się dodać do puli";
- toastOnSuccess(msg);
+ toastOnSuccess(apiErrorMessage(e, "Nie udało się dodać do puli"));
  } finally {
  setBulkPoolPending(false);
  }
@@ -1984,23 +1983,22 @@ export function CandidatesListV2() {
  : "Eksport wyników został przygotowany.",
  );
  } catch (error) {
- const detail = (
- error as { response?: { data?: { detail?: string } | Blob } }
- ).response?.data;
- let message = "Eksport nie powiódł się. Spróbuj ponownie.";
- if (detail instanceof Blob) {
+ const fallback = "Eksport nie powiódł się. Spróbuj ponownie.";
+ const response = (
+ error as { response?: { status?: number; data?: unknown } }
+ ).response;
+ let message = apiErrorMessage(error, fallback);
+ if (response?.data instanceof Blob) {
  try {
- const payload = JSON.parse(await detail.text()) as { detail?: string };
- if (payload.detail) message = payload.detail;
+ // Eksport pobiera Bloba, więc ciało błędu też jest Blobem — odtwarzamy
+ // odpowiedź, żeby `detail` przeszedł przez to samo tłumaczenie.
+ const data: unknown = JSON.parse(await response.data.text());
+ message = apiErrorMessage({ response: { status: response.status, data } }, fallback);
  } catch {
  // Nieczytelna odpowiedź (np. zerwane połączenie) — zachowaj fallback.
  }
- } else if (detail && typeof detail === "object" && "detail" in detail) {
- message = String(detail.detail);
  }
- toastOnSuccess(
- message,
- );
+ toastOnSuccess(message);
  }
  };
 
@@ -2156,9 +2154,14 @@ export function CandidatesListV2() {
  setPage(1);
  };
 
- // Memo: extractErrorMsg loguje surowy detail — raz na błąd, nie przy każdym renderze.
+ // Memo: tłumaczenie `detail` loguje surowy błąd walidacji — raz na błąd, nie
+ // przy każdym renderze. Tekst, nigdy obiekt: tablica z 422 wywracała listę (React #31).
  const queryErrorDetail = useMemo(
- () => getCandidateListErrorMessage(candidatesError),
+ () =>
+ apiErrorMessage(
+ candidatesError,
+ "Nie udało się pobrać kandydatów. Sprawdź połączenie i spróbuj ponownie.",
+ ),
  [candidatesError],
  );
  const queryErrorPanel = (

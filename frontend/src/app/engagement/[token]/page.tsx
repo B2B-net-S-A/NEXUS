@@ -13,6 +13,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import axios from "axios";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
@@ -74,9 +75,7 @@ export default function EngagementDeclarationPage() {
           open_to_expert_consult: res.data.open_to_expert_consult,
         });
       } catch (e) {
-        const msg =
-          (e as { response?: { data?: { detail?: string } } })?.response?.data
-            ?.detail ?? "Nie udało się pobrać formularza.";
+        const msg = apiErrorMessage(e, "Nie udało się pobrać formularza.");
         setError(msg);
       } finally {
         setLoading(false);
@@ -95,9 +94,10 @@ export default function EngagementDeclarationPage() {
       });
       setSubmitted(true);
     } catch (e) {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Nie udało się zapisać. Spróbuj ponownie lub skontaktuj się z rekruterem.";
+      const msg = apiErrorMessage(
+        e,
+        "Nie udało się zapisać. Spróbuj ponownie lub skontaktuj się z rekruterem.",
+      );
       setError(msg);
     } finally {
       setSubmitting(false);

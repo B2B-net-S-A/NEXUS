@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { hasSectionAccess } from "@/lib/section-access";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   User,
   Mail,
@@ -226,7 +227,7 @@ export default function ProfilePage() {
         }, 1500);
       }
     } catch (err: any) {
-      setPwError(err?.response?.data?.detail || "Błąd zmiany hasła");
+      setPwError(apiErrorMessage(err, "Błąd zmiany hasła"));
     } finally {
       setPwSaving(false);
     }

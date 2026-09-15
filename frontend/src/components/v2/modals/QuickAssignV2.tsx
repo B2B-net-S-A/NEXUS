@@ -8,6 +8,7 @@ import api, {
  type JobMatch,
  type RecommendationMeta,
 } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
  Sheet,
  SheetBody,
@@ -96,9 +97,7 @@ export function QuickAssignV2({
  setRisk(riskRes?.data ?? null);
  } catch (e: unknown) {
  if (cancelled) return;
- const msg =
- e && typeof e === "object" &&"response" in e
- ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??"Błąd") : "Błąd";
+ const msg = apiErrorMessage(e, "Błąd");
  setError(msg);
  } finally {
  if (!cancelled) setLoading(false);
@@ -144,9 +143,7 @@ export function QuickAssignV2({
  setAllJobs(items);
  } catch (e: unknown) {
  if ((e as { name?: string })?.name ==="CanceledError") return;
- const msg =
- e && typeof e === "object" &&"response" in e
- ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??"Nie udało się załadować rekrutacji") : "Nie udało się załadować rekrutacji";
+ const msg = apiErrorMessage(e, "Nie udało się załadować rekrutacji");
  setAllError(msg);
  } finally {
  setAllLoading(false);

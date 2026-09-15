@@ -35,6 +35,7 @@ import {
   type ChampionVerificationMethod,
   type ChampionVerificationRequest,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import AudioPlayer from "@/components/calls/AudioPlayer";
 import { useToast } from "@/components/Toast";
 import {
@@ -186,10 +187,7 @@ export function ChampionVerificationChecklist({
       setBriefingNoteId(null);
     },
     onError: (e: unknown) => {
-      const detail =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || "Nie udało się podpiąć briefingu.";
-      toast.showError(detail);
+      toast.showError(apiErrorMessage(e, "Nie udało się podpiąć briefingu."));
     },
   });
 
@@ -209,10 +207,7 @@ export function ChampionVerificationChecklist({
       setOpenForm(null);
     },
     onError: (e: unknown) => {
-      const detail =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || "Nie udało się zapisać weryfikacji.";
-      toast.showError(detail);
+      toast.showError(apiErrorMessage(e, "Nie udało się zapisać weryfikacji."));
     },
   });
 

@@ -12,6 +12,7 @@ import {
   type EmailMessage,
   type UserEmailTemplate,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Alert } from "@/components/ui/alert";
 import {
   Dialog,
@@ -156,15 +157,12 @@ export default function EmailCompose(props: EmailComposeProps) {
       onClose();
     },
     onError: (err: unknown) => {
+      // Walidacja w przeglądarce rzuca zwykły Error z komunikatem; odpowiedź
+      // HTTP (także AxiosError, który jest Error) niesie tekst w `detail`.
       const msg =
-        err instanceof Error
+        err instanceof Error && !("response" in err)
           ? err.message
-          : typeof err === "object" && err !== null && "response" in err
-            ? (
-                (err as { response?: { data?: { detail?: string } } }).response
-                  ?.data?.detail ?? "Nie udało się wysłać wiadomości."
-              )
-            : "Nie udało się wysłać wiadomości.";
+          : apiErrorMessage(err, "Nie udało się wysłać wiadomości.");
       setError(msg);
     },
   });

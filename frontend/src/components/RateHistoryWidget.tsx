@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { DollarSign, Loader2, Plus, Trash2 } from "lucide-react";
 import { phase5Api, RateHistoryRow } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface Props {
   candidateId: number;
@@ -71,10 +72,7 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
       setShowForm(false);
       await load();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       alert(`Nie zapisano: ${msg}`);
     } finally {
       setSaving(false);

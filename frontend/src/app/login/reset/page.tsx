@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AuthShell } from "@/components/blocks/AuthShell";
@@ -50,12 +51,11 @@ function ResetPasswordForm() {
       setDone(true);
       setTimeout(() => router.push("/login"), 2000);
     } catch (err: unknown) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail;
       setError(
-        detail ??
-          "Nie udało się ustawić nowego hasła. Link mógł wygasnąć — poproś o nowy."
+        apiErrorMessage(
+          err,
+          "Nie udało się ustawić nowego hasła. Link mógł wygasnąć — poproś o nowy.",
+        ),
       );
     } finally {
       setLoading(false);

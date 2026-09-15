@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Loader2, Save, X } from "lucide-react";
 import { api, type RecipientType, type StageNotificationRuleInput } from "@/lib/api";
 
@@ -126,12 +127,7 @@ export function StageRuleForm({
         is_active: isActive,
       });
     } catch (err: unknown) {
-      const detail =
-        err && typeof err === "object" && "response" in err
-          ? (err as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail
-          : null;
-      setError(detail ?? "Nie udało się zapisać reguły.");
+      setError(apiErrorMessage(err, "Nie udało się zapisać reguły."));
     } finally {
       setSaving(false);
     }

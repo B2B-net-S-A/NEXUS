@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { apiErrorMessage } from "@/lib/api-error";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -996,10 +997,7 @@ function PlacementDialog({
           : `Zapisano ustawienie portfela dla „${item.display_name}”.`,
       );
     } catch (err) {
-      const detail = (
-        err as { response?: { data?: { detail?: string } } }
-      )?.response?.data?.detail;
-      setError(detail ?? "Nie udało się zapisać. Spróbuj ponownie.");
+      setError(apiErrorMessage(err, "Nie udało się zapisać. Spróbuj ponownie."));
       setSaving(false);
     }
   };

@@ -1,6 +1,7 @@
 import { forgetCvGenerationRequest } from "./cv-generation-request";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
 import axios, { AxiosError } from "axios";
+import { messageFromApiResponse } from "./api-error";
 import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
@@ -35,6 +36,10 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Etykiety pól kontraktu żyją w `lib/api-error.ts` (czysty moduł tłumaczenia
+// błędów); re-eksport zostaje dla dotychczasowych importów z `@/lib/api`.
+export { CONTRACT_FIELD_LABELS } from "./api-error";
+
 /**
  * Extract user-facing error message from any thrown value.
  *
@@ -52,103 +57,16 @@ export const api = axios.create({
  * Quality check finding MEDIUM #23 — most onError handlers used String(e)
  * which produces "Error: Request failed with status code 422" instead of
  * the actionable Pydantic validation message that the user needs.
+ *
+ * Ciało odpowiedzi tłumaczy `messageFromApiResponse` (`lib/api-error.ts`),
+ * wspólne z `apiErrorMessage` — tam jest też obsługa tablic walidacji i NUL.
  */
-// Polskie etykiety pól kontraktu — wspólne dla formularzy i dla tłumaczenia
-// backendowego 409 {message: "Missing required fields", missing: [...]}
-// (ACTIVATION_REQUIRED_FIELDS w backend/app/services/contract_service.py).
-export const CONTRACT_FIELD_LABELS: Record<string, string> = {
-  candidate_id: "Kandydat",
-  client_id: "Klient",
-  start_date: "Data rozpoczęcia",
-  end_date: "Data zakończenia",
-  rate_candidate: "Stawka kosztowa (kandydata)",
-  rate_client: "Stawka przychodowa (klienta)",
-  contract_type: "Typ kontraktu",
-  work_mode: "Tryb pracy",
-  rate_unit: "Jednostka stawki",
-};
-
 export function extractErrorMsg(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
-    // 429 = limit zapytań. slowapi odpowiada ciałem {"error": "Rate limit
-    // exceeded: N per 1 minute"} — BEZ klucza `detail`, więc bez tej gałęzi
-    // wołający spadał na surowe `error.message` i użytkownik dostawał
-    // „Request failed with status code 429" (zgłoszenie: Wiktoria Denka).
-    if (error.response.status === 429) {
-      console.error("[api] rate limited:", error.response.data);
-      return "Zbyt wiele prób w krótkim czasie — odczekaj minutę i spróbuj ponownie.";
-    }
-    const data = error.response.data;
-    if (data && typeof data === "object") {
-      // `require_roles` (backend/app/api/deps.py) zwraca detail w formie
-      // "Requires one of roles: ['admin', 'tac', ...]" — to nazwy ról z modelu
-      // danych, nie komunikat dla użytkownika. Wyciekał wprost do toasta
-      // (zgłoszenie generatora umów: użytkownik zobaczył surową listę ról).
-      // Tłumimy jak surowe `loc` niżej: raw do konsoli, człowiekowi zdanie.
-      if (
-        error.response.status === 403 &&
-        typeof data.detail === "string" &&
-        data.detail.startsWith("Requires one of roles:")
-      ) {
-        console.error("[api] role gate:", data.detail);
-        return "Nie masz uprawnień do tej operacji — poproś administratora o dostęp.";
-      }
-      // FastAPI HTTPException(detail="...") → string detail
-      if (typeof data.detail === "string") return data.detail;
-      // Lifecycle kontraktu: 409 {message: "Missing required fields",
-      // missing: [...]}. Surowy `message` gubił LISTĘ pól — użytkownik widział
-      // goły angielski banner bez wskazania, czego brakuje (zgłoszenie:
-      // formularz „Nowy kontrakt", Jakub Jedynak / CARDIF). Tłumaczymy nazwy
-      // pól na etykiety z formularza.
-      if (
-        data.detail &&
-        typeof data.detail === "object" &&
-        !Array.isArray(data.detail) &&
-        // Jawny match na message lifecycle'u — sam klucz `missing` mógłby
-        // w przyszłości znaczyć co innego w innym endpointzie.
-        (data.detail as { message?: unknown }).message ===
-          "Missing required fields" &&
-        Array.isArray((data.detail as { missing?: unknown }).missing) &&
-        (data.detail as { missing: unknown[] }).missing.length > 0
-      ) {
-        const missing = (data.detail as { missing: string[] }).missing;
-        const labels = missing.map(
-          (field) => CONTRACT_FIELD_LABELS[field] ?? field,
-        );
-        return `Uzupełnij brakujące pola: ${labels.join(", ")}`;
-      }
-      // Domenowe konflikty mogą zwracać ustrukturyzowany detail, np.
-      // {message, contract_ids}. Użytkownik powinien zobaczyć komunikat, nie
-      // "[object Object]" ani ogólny status HTTP.
-      if (
-        data.detail &&
-        typeof data.detail === "object" &&
-        !Array.isArray(data.detail) &&
-        typeof (data.detail as { message?: unknown }).message === "string"
-      ) {
-        return (data.detail as { message: string }).message;
-      }
-      // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
-      if (Array.isArray(data.detail) && data.detail.length > 0) {
-        const first = data.detail[0];
-        if (typeof first?.msg === "string") {
-          const loc = Array.isArray(first.loc) ? first.loc : [];
-          // Tylko `body` to dane wpisane przez użytkownika — tam nazwa pola
-          // + komunikat są actionable (quality finding MEDIUM #23).
-          if (loc[0] === "body") {
-            const field = loc.slice(1).join(".") || "pole";
-            return `${field}: ${first.msg}`;
-          }
-          // query/path/header ustawia kod aplikacji, nie użytkownik — surowy
-          // loc to wyciek wewnętrznego kontraktu (M3-UI-02, np.
-          // "query.current_user: Field required" na zakładce Dopasowanie).
-          console.error("[api] request contract error:", data.detail);
-          return "Błąd żądania — odśwież stronę lub spróbuj ponownie.";
-        }
-      }
-      if (typeof data.message === "string") return data.message;
-    }
-    return error.message || `HTTP ${error.response.status}`;
+    return (
+      messageFromApiResponse(error.response.status, error.response.data) ??
+      (error.message || `HTTP ${error.response.status}`)
+    );
   }
   if (error instanceof Error) return error.message;
   return String(error);

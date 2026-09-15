@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { championApi, type RecommendedSearch } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   candidateSearchApi,
   type CandidateSearchRequest,
@@ -75,10 +76,7 @@ export function ChampionRecommendedSearches({
     mutationFn: () => championApi.generateRecommendedSearches(jobId),
     onSuccess: invalidate,
     onError: (e: unknown) => {
-      const detail =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || "Nie udało się wygenerować propozycji.";
-      toast.showError(detail);
+      toast.showError(apiErrorMessage(e, "Nie udało się wygenerować propozycji."));
     },
   });
 

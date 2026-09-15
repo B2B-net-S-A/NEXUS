@@ -19,6 +19,7 @@ import {
   type UserEmailTemplate,
   type UserEmailTemplateInput,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -262,15 +263,12 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
     },
     onSuccess: () => onSaved(),
     onError: (err: unknown) => {
+      // Zwykły Error bez odpowiedzi pokazuje własny komunikat; odpowiedź HTTP
+      // (także AxiosError, który jest Error) niesie tekst w `detail`.
       const msg =
-        err instanceof Error
+        err instanceof Error && !("response" in err)
           ? err.message
-          : typeof err === "object" && err !== null && "response" in err
-            ? (
-                (err as { response?: { data?: { detail?: string } } }).response
-                  ?.data?.detail ?? "Nie udało się zapisać szablonu."
-              )
-            : "Nie udało się zapisać szablonu.";
+          : apiErrorMessage(err, "Nie udało się zapisać szablonu.");
       onError(msg);
     },
   });

@@ -18,6 +18,7 @@ import {
   User,
 } from "lucide-react";
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { EmailDraftDialog } from "./EmailDraftDialog";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
@@ -108,11 +109,7 @@ export function ContractorMatchCard({ row }: Props) {
         htmlBody: res.data.draft_email.html_body,
       });
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       alert(`Nie udało się wygenerować propozycji: ${msg}`);
     } finally {
       setActionLoading(null);
@@ -138,11 +135,7 @@ export function ContractorMatchCard({ row }: Props) {
         htmlBody: res.data.html_body,
       });
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       alert(`Nie udało się wygenerować shortlistu: ${msg}`);
     } finally {
       setActionLoading(null);
