@@ -178,7 +178,8 @@ def evaluate(inp: GateInput) -> GateVerdict:
     if not inp.policies_applied:
         reasons.append("Klient nie ma własnej polityki odczytu")
     if ex.source != "claude":
-        reasons.append("Odczyt awaryjny — sprawdź zgodność pól z PDF")
+        failure = f" (AI: {ex.ai_failure})" if ex.ai_failure else ""
+        reasons.append(f"Odczyt awaryjny{failure} — sprawdź zgodność pól z PDF")
 
     # 3) + 4) exact person, or an initial draft; ambiguous people/contracts block
     if not inp.resolved:
