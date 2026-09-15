@@ -343,6 +343,10 @@ async def try_parse_cv(
                 return
             document.document_kind = CandidateDocumentKind.cv
     else:
+        # A deleted, reclassified or rematched source can retain is_primary.
+        # Restore it as non-primary until the identity gate has accepted it;
+        # that gate flushes and must not collide with the current primary CV.
+        document.is_primary = False
         document.document_kind = CandidateDocumentKind.cv
         # Wskrzeszenie miękko usuniętego wpisu: skoro załącznik wrócił
         # w synchronizacji, dokument znów jest aktualny.
