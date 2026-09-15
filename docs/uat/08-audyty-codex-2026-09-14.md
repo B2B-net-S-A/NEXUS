@@ -82,25 +82,35 @@ i scalenie), QA-06 (burn-down 12 plików testów z listy `_FAILING`), QA-07 (mac
 
 | PR | Gałąź | Stan |
 |---|---|---|
-| 1 | `fix/audit-p1` | scalony 14.09 (#1512, prod `75a1b8b3`, retest wykonany) |
+| 1 | `fix/audit-p1` | scalony 14.09 (#1512) |
 | 2 | `fix/audit-ui-p2-p3` | scalony 14.09 (#1516) |
-| 3 | `chore/audit-ops` | PR #1518 — monitoring/CI/QA + poprawki z retestu (B09, B33, B49) |
-| — | `fix/cv-filename-path-guard` | PR #1517 — odczyt CV z dysku nie wychodzi poza `UPLOAD_DIR` (znalezisko z QA-06) |
+| 3 | `chore/audit-ops` | scalony 14.09 (#1518) — monitoring/CI/QA + poprawki z retestu (B09, B33, B49) |
+| — | `fix/cv-filename-path-guard` | scalony 14.09 (#1517) — odczyt CV z dysku nie wychodzi poza `UPLOAD_DIR` (znalezisko z QA-06) |
+| — | `fix/deploy-source-commit-gate` | scalony 14.09 (#1519) — odblokowanie deployów zablokowanych przez #1515 (API Coolify: 422) |
+| — | `fix/compose-git-sha-arg` | scalony 14.09 (#1520) — nie usunął `version: unknown`; zrobiły to #1521/#1524 |
+| — | `fix/f05-pipeline-version-fe` | #1535 — front wysyła `expected_state_version`, obsługa 409 (F05) |
+| — | `fix/audit-retest-residue` | ten PR — resztki z retestu produkcji + awaria kalendarza przy uczestnikach z M365 |
 
-Retest produkcji po PR 1 (`75a1b8b3`): B16 OK; z 19 pozycji naprawionych w UAT
-P1–P3 potwierdzone 16 w interfejsie. Nadal złe: B09 (encje HTML w transkrypcjach),
-B33 (liczniki listy rekrutacji ≠ szczegóły dla etapu spoza standardu) — poprawki
-w PR 3; B49 częściowo (komunikat dwa razy) — PR 3; B12 wymaga ponownego wgrania
-CV dwóch kandydatów testowych (dane, nie kod). Odczyty API A01 (brak zdublowanych
-par, `verifier_anchored_attempts` obecne) i A04 (8 klientów oznaczonych jako
-niepełni, spójnie z kaflem) zgodne z oczekiwaniem; `/api/analytics/v1/*` na
-produkcji wyłączone (`ANALYTICS_V1_MODE=off`), A05 do sprawdzenia po syncu Traffita.
+### Retesty produkcji (wyniki poza gitem, `wyniki/codex-2026-09-14/`)
 
-Poprawki z przeglądu adwersarialnego PR 2 poza tabelą: redakcja kwot także dla
-„Planowanych" na profilu; jedna reguła „obecnego" kontraktu na czterech
-powierzchniach (profil, Analityka, Rada, admin); reset przeniesionego numeru
-zamówienia na ścieżce z kolejki maila; `?event=` zdejmowany po nieudanym linku.
-Poza PR 2 (osobny krok): front nie wysyła jeszcze `expected_state_version`
-w ruchu pipeline'u (F05 działa po stronie serwera, kompatybilnie wstecz).
+| Po | Wersja | Zakres | Wynik |
+|---|---|---|---|
+| PR 1 | `75a1b8b3` | B16 + 19 pozycji z UAT P1–P3 + odczyty API A01–A05 | B16 OK, 16/19 OK; B09, B33, B49 → poprawione w PR 3 |
+| PR 3 | 14.09 17:37 UTC | B09, B33, B49 | OK |
+| PR 2 grupa A | `ea38dbcf` | B07, B13, B14, B19, B21, B22, B27, B28, B29, B34, B35, B37, B38, B39, B40, B42, B43, B44, B45, B47, B48, B51 | wszystkie OK |
+| PR 2 grupa B + PR 3 | `ea38dbcf` | B03, B06, B23, B24, B25, B26, B30 (etykieta), B41, B46, B50, B52, B53, F06; MON-04, INT-09, DEP-01, DEP-03, QA-01 | brak NIE OK; B03, B24, B25, B52 częściowo (bez zapisu — odczyt zgodny) |
 
-Retesty na produkcji: `wyniki/codex-2026-09-14/retest-<sha>.md` (poza gitem).
+Nie do sprawdzenia na produkcji: A07–A09 (`ANALYTICS_V1_MODE=off`), A05 (do odczytu po syncu
+Traffita), B12 (ponowne wgranie CV dwóch kandydatów testowych — dane, nie kod).
+
+Znalezione podczas retestów i poprawione w tym PR:
+- **awaria kalendarza**: uczestnik z M365 (`{address, name}`) renderowany wprost wywracał
+  całą stronę (React #31) — 18 ze 152 wydarzeń tygodnia, w tym każde powiązane z kandydatem,
+- krok stawki z przyszłą datą oznaczony „(aktualna)”, gdy żaden krok jeszcze nie obowiązuje (B53),
+- nieprzetłumaczony klucz `currency` w timeline kontraktu (B23),
+- ucięte „Automatycznie (system)” w historii zamówienia (B50).
+
+Decyzje otwarte po retestach: B44 (próg wyścigu per osoba czy kalendarzowy), B26 (udział
+względem lidera czy sumy), definicja „aktywnego” kontraktu — Kontrakty → „Aktywni” liczą
+kontrakty z przyszłym startem, profil klienta pokazuje je jako „Planowani”; kontrakty bez
+daty startu (np. 3 u jednego klienta) trafiają do „Planowanych”.

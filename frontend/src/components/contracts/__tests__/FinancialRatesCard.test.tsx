@@ -183,6 +183,25 @@ describe("FinancialRatesCard", () => {
     expect(orderRow).not.toHaveTextContent("nieobowiązująca");
     expect(orderRow).toHaveTextContent("(aktualna)");
   });
+
+  it("nie oznacza przyszłego kroku jako aktualnego, gdy żaden jeszcze nie obowiązuje (retest B53)", () => {
+    render(
+      <FinancialRatesCard
+        contract={{
+          ...BASE_CONTRACT,
+          currency: "PLN",
+          rate_client: 150,
+          client_rate_schedule: [
+            { id: 1, rate: 150, effective_from: "2099-01-01", source_order_id: 77 },
+          ],
+        }}
+      />,
+    );
+
+    const row = screen.getByTestId("client-rate-schedule-1-source").parentElement!;
+    expect(row).not.toHaveTextContent("(aktualna)");
+    expect(row).toHaveTextContent("(zaplanowana)");
+  });
 });
 
 // UAT B53: „Historia stawek" odsyła do kroków harmonogramu w tej karcie, a karta

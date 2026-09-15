@@ -95,6 +95,7 @@ const DETAIL_LABELS: Record<string, string> = {
   billing_hours_per_month: "Godziny / miesiąc",
   target_rate_min: "Widełki docelowe (min)",
   target_rate_max: "Widełki docelowe (max)",
+  currency: "Waluta",
   rate_client_currency: "Waluta stawki przychodowej",
   rate_candidate_currency: "Waluta stawki kosztowej",
   order_consumption: "Zużycie zamówienia",
