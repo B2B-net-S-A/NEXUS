@@ -173,12 +173,6 @@ jobs:
           # „CI Gate" (~1,5 min), więc pytest wpływa wyłącznie na czas
           # oczekiwania na PR-ze.
           pytest tests/ \
-                 --ignore=tests/test_auth.py \
-                 --ignore=tests/test_backfill_candidate_experience.py \
-                 --ignore=tests/test_backfill_talent_pools.py \
-                 --ignore=tests/test_candidates.py \
-                 --ignore=tests/test_jobs.py \
-                 --ignore=tests/test_pipeline.py \
                  -v --tb=short \
                  --cov=app --cov-branch --cov-report=term-missing
       # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
