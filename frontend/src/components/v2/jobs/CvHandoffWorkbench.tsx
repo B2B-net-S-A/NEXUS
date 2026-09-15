@@ -88,6 +88,12 @@ import {
   runCvHandoff,
   type CvHandoffPlan,
 } from "@/lib/cv-handoff";
+import {
+  PIPELINE_VERSION_CONFLICT_MESSAGE,
+  expectedStateVersionOf,
+  invalidateAfterPipelineVersionConflict,
+  isPipelineVersionConflict,
+} from "@/lib/pipeline-version-conflict";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
@@ -452,6 +458,7 @@ export function CvHandoffWorkbench({
             job_id: jobId,
             stage: CV_SENT_STAGE,
             stage_def_id: cvSentCol.stage_def_id ?? undefined,
+            expected_state_version: expectedStateVersionOf(selected.item),
           });
         },
       });
@@ -471,6 +478,22 @@ export function CvHandoffWorkbench({
       // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
       // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
       // więc komunikat każe odświeżyć kartę przed ponowieniem.
+      if (
+        e instanceof CvHandoffError &&
+        e.step === "move" &&
+        isPipelineVersionConflict(e.reason)
+      ) {
+        // F05: odmowa ruchu (4xx) — link i stawka nie powstały; bez
+        // ponowienia, kolejka pokaże etap zapisany przez kolegę.
+        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        invalidateAfterPipelineVersionConflict(
+          queryClient,
+          jobId,
+          selected?.item.candidate_id,
+        );
+        onMoved();
+        return;
+      }
       if (e instanceof CvHandoffError) {
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;

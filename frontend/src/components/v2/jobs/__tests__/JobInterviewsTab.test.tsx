@@ -342,6 +342,54 @@ describe("JobInterviewsTab", () => {
     expect(rejected).not.toBeDisabled();
   });
 
+  it("F05: ruch z doku wysyła wersję procesu z karty", async () => {
+    const withVersion = columns();
+    withVersion[0] = { ...withVersion[0], items: [item({ process_state_version: 3 })] };
+    renderTab({ columns: withVersion });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptacja" }));
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({
+          candidate_id: 42,
+          stage: "acceptance",
+          expected_state_version: 3,
+        }),
+      ),
+    );
+  });
+
+  it("F05: 409 PIPELINE_VERSION_CONFLICT — komunikat bez ponowienia", async () => {
+    apiPost.mockImplementation((url: string) =>
+      url === "/api/pipeline/move"
+        ? Promise.reject({
+            response: {
+              status: 409,
+              data: { detail: { code: "PIPELINE_VERSION_CONFLICT", message: "x" } },
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    const withVersion = columns();
+    withVersion[0] = { ...withVersion[0], items: [item({ process_state_version: 3 })] };
+    renderTab({ columns: withVersion });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptacja" }));
+
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "Kandydat został w międzyczasie przesunięty przez kogoś innego — odświeżyłem kartę.",
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      apiPost.mock.calls.filter((c) => c[0] === "/api/pipeline/move"),
+    ).toHaveLength(1);
+    expect(showSuccess).not.toHaveBeenCalled();
+  });
+
   it("karta „Pending” blokuje każdy ruch z powodem — także odrzucenie (serwer odpowiada 409)", async () => {
     const pending = columns();
     pending[0] = {

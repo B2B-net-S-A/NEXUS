@@ -66,6 +66,12 @@ import {
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import {
+  PIPELINE_VERSION_CONFLICT_MESSAGE,
+  expectedStateVersionOf,
+  invalidateAfterPipelineVersionConflict,
+  isPipelineVersionConflict,
+} from "@/lib/pipeline-version-conflict";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import {
   loadJobRejectionReasons,
@@ -263,6 +269,7 @@ export function ScreeningWorkbench({
         expected_rate_value: gate.numericRate,
         expected_rate_unit: unit,
         expected_rate_currency: "PLN",
+        expected_state_version: expectedStateVersionOf(selected.item),
       });
       const moved = res.data as {
         id?: number;
@@ -297,8 +304,20 @@ export function ScreeningWorkbench({
       }
       onMoved();
     },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się przenieść kandydata."),
+    onError: (e) => {
+      if (isPipelineVersionConflict(e)) {
+        // F05: bez ponowienia — kolejka pokaże etap zapisany przez kolegę.
+        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        invalidateAfterPipelineVersionConflict(
+          queryClient,
+          jobId,
+          selected?.item.candidate_id,
+        );
+        onMoved();
+        return;
+      }
+      showError(extractErrorMsg(e) || "Nie udało się przenieść kandydata.");
+    },
   });
 
   /**
@@ -325,6 +344,7 @@ export function ScreeningWorkbench({
         notes: vars.notes,
         send_rejection_email: vars.sendRejectionEmail ?? undefined,
         candidate_offer_response: vars.offerResponse ?? undefined,
+        expected_state_version: expectedStateVersionOf(selected.item),
       });
     },
     onSuccess: (res) => {
@@ -353,8 +373,20 @@ export function ScreeningWorkbench({
       }
       onMoved();
     },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się zapisać decyzji."),
+    onError: (e) => {
+      if (isPipelineVersionConflict(e)) {
+        setRejectOpen(false);
+        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        invalidateAfterPipelineVersionConflict(
+          queryClient,
+          jobId,
+          selected?.item.candidate_id,
+        );
+        onMoved();
+        return;
+      }
+      showError(extractErrorMsg(e) || "Nie udało się zapisać decyzji.");
+    },
   });
 
   // Bramka ruchu — widoczna z powodem, nigdy 409 po kliknięciu. Cel ruchu

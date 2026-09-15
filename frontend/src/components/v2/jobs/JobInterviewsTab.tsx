@@ -37,6 +37,12 @@ import api, {
   type HiringManagerFeedback,
   type HiringManagerFeedbackList,
 } from "@/lib/api";
+import {
+  PIPELINE_VERSION_CONFLICT_MESSAGE,
+  expectedStateVersionOf,
+  invalidateAfterPipelineVersionConflict,
+  isPipelineVersionConflict,
+} from "@/lib/pipeline-version-conflict";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
@@ -249,13 +255,26 @@ export function JobInterviewsTab({
         job_id: jobId,
         stage: vars.col.stage,
         stage_def_id: vars.col.stage_def_id ?? undefined,
+        expected_state_version: expectedStateVersionOf(vars.item),
       }),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
     },
-    onError: (e) => showError(extractErrorMsg(e) || "Nie udało się przenieść"),
+    onError: (e, vars) => {
+      if (isPipelineVersionConflict(e)) {
+        // F05: bez ponowienia — lista pokaże etap zapisany przez kolegę.
+        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        invalidateAfterPipelineVersionConflict(
+          queryClient,
+          jobId,
+          vars.item.candidate_id,
+        );
+        return;
+      }
+      showError(extractErrorMsg(e) || "Nie udało się przenieść");
+    },
   });
 
   const terminalMutation = useMutation({
@@ -278,6 +297,7 @@ export function JobInterviewsTab({
         notes: vars.notes,
         send_rejection_email: vars.sendRejectionEmail ?? undefined,
         candidate_offer_response: vars.offerResponse ?? undefined,
+        expected_state_version: expectedStateVersionOf(vars.item),
       }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -305,7 +325,19 @@ export function JobInterviewsTab({
         });
       }
     },
-    onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać"),
+    onError: (e, vars) => {
+      if (isPipelineVersionConflict(e)) {
+        setPendingTerminal(null);
+        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
+        invalidateAfterPipelineVersionConflict(
+          queryClient,
+          jobId,
+          vars.item.candidate_id,
+        );
+        return;
+      }
+      showError(extractErrorMsg(e) || "Nie udało się zapisać");
+    },
   });
 
   const listViewState = resolveViewState({

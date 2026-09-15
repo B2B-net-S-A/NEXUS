@@ -373,7 +373,13 @@ cofnąć „przy okazji”:
 - **Ruch w pipeline ma opcjonalne `expected_state_version`** (`StageMove`,
   F05): rozjazd z `RecruitmentProcess.state_version` pod blokadą = 409
   `PIPELINE_VERSION_CONFLICT` bez zapisu; `None` = bez sprawdzenia (importy,
-  ruchy zbiorcze). Frontend jeszcze wersji nie wysyła — osobny krok.
+  ruchy zbiorcze). Karta kanbanu i odpowiedź ruchu niosą
+  `process_state_version` (0 = brak procesu; jedno zapytanie hurtowe
+  `_process_state_versions`); POJEDYNCZE ruchy z tablicy, doków i warsztatów
+  (screening, CV, rozmowy) ją odsyłają, zbiorcze (`checkVersion: false`) nie.
+  409 = toast „przesunięty przez kogoś innego”, odświeżenie tablicy (oba
+  klucze) i historii doku, BEZ ponowienia (`lib/pipeline-version-conflict.ts`).
+  Karta bez liczby NIE wysyła wersji (zgadnięte 0 = fałszywy konflikt).
   `POST /api/auth/refresh` przyjmuje token WYŁĄCZNIE w ciele (F06).
 - **`finance_trend` nie miesza źródeł:** każdy punkt niesie `basis`
   (`legacy_monthly_report` | `contracts`) i osobne pola (`mrr` tylko live,
