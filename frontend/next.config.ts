@@ -88,6 +88,9 @@ export default withSentryConfig(nextConfig, {
   disableLogger: true,
   authToken: process.env.SENTRY_AUTH_TOKEN,
   release: { name: process.env.NEXT_PUBLIC_GIT_SHA },
+  // Shared client chunks also contain application frames (for example FE-A).
+  // The SDK's default only uploads pages/app chunks, leaving these minified.
+  widenClientFileUpload: true,
   sourcemaps: {
     // Upload only when auth token is present; otherwise skip so PR builds work.
     disable: !process.env.SENTRY_AUTH_TOKEN,
