@@ -17,14 +17,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
+from app.api.section_access import require_section_access
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_chat import CandidateChatMessage
 from app.models.job import Job
 from app.models.job_chat import JobChatMessage
 from app.models.user import User, UserRole
+from app.services.section_permissions import ProductSection
 
-router = APIRouter()
+# Strumień łączy czaty rekrutacji (Pipeline) i kandydatów (Sourcing), więc
+# wymaga OBU — „dowolna z sekcji” odsłoniłaby czaty sekcji, której brak (F02).
+router = APIRouter(
+    dependencies=[
+        Depends(require_section_access(ProductSection.pipeline)),
+        Depends(require_section_access(ProductSection.sourcing)),
+    ]
+)
 
 GlobalChatsReadUser = Annotated[
     User,

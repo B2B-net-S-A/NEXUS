@@ -37,7 +37,9 @@ from app.services.contract_lifecycle import void_contract
 pytestmark = pytest.mark.asyncio
 
 
-async def _seed_active_contract() -> int:
+async def _seed_active_contract(
+    status: ContractStatus = ContractStatus.active,
+) -> int:
     from app.models.candidate import Candidate
     from app.models.client import Client
 
@@ -55,7 +57,7 @@ async def _seed_active_contract() -> int:
             candidate_id=cand.id,
             client_id=cli.id,
             contract_type=ContractType.b2b,
-            status=ContractStatus.active,
+            status=status,
             start_date=date.today(),
             end_date=date.today() + timedelta(days=90),
             rate_candidate=15000,
@@ -230,7 +232,201 @@ async def test_status_change_after_committed_void_is_409(
     assert await _status_of(cid) == ContractStatus.void
 
 
-# ── Strażnik źródłowy: trzy zapytania mają FOR UPDATE ────────────────────────
+# ── Druga fala (weryfikacja audytu 15.09): pozostałe komendy statusu ─────────
+
+
+@pytest.mark.parametrize(
+    ("seed_status", "method", "suffix", "body"),
+    [
+        (ContractStatus.active, "post", "reopen", {"reason": "wyścig"}),
+        (ContractStatus.draft, "post", "activate", {}),
+        (
+            ContractStatus.active,
+            "post",
+            "terminate",
+            {"termination_reason": "project_ended"},
+        ),
+    ],
+    ids=["reopen", "activate", "terminate"],
+)
+async def test_lifecycle_commands_racing_with_void_see_the_committed_void(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    seed_status: ContractStatus,
+    method: str,
+    suffix: str,
+    body: dict,
+):
+    """`/reopen`, `/activate` i `/terminate` ładowały kontrakt bez blokady:
+    B czytał status sprzed commitu A i wskrzeszał `void` (odpowiednio na
+    `draft`, `active`, `ended`). Z blokadą B czeka, widzi `void` i odmawia."""
+    cid = await _seed_active_contract(seed_status)
+    seen, reached = _observe_loaded_status(monkeypatch)
+
+    resp, _ = await _race_against_uncommitted_void(
+        cid,
+        lambda: getattr(app_client, method)(
+            f"/api/contracts/{cid}/{suffix}",
+            json=body,
+            headers=app_auth_headers,
+        ),
+        seen,
+        reached,
+    )
+
+    assert seen == ["void"], f"B oceniał status z pamięci sprzed commitu A: {seen}"
+    assert resp.status_code == 409, resp.text
+    assert await _status_of(cid) == ContractStatus.void
+
+
+async def _void_now(app_client: AsyncClient, headers: dict, cid: int) -> None:
+    resp = await app_client.post(
+        f"/api/contracts/{cid}/void", json={"reason": "pytest"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_terminate_does_not_resurrect_a_void_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Bez wyścigu: „Zakończ współpracę” na unieważnionej umowie liczyło status
+    z samej daty i zapisywało `ended` (albo `active` przy przyszłej dacie)."""
+    cid = await _seed_active_contract()
+    await _void_now(app_client, app_auth_headers, cid)
+
+    for terminated_at in (date.today(), date.today() + timedelta(days=30)):
+        resp = await app_client.post(
+            f"/api/contracts/{cid}/terminate",
+            json={
+                "termination_reason": "project_ended",
+                "terminated_at": terminated_at.isoformat(),
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["from"] == "void"
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, cid)
+    assert contract.status == ContractStatus.void
+    assert contract.terminated_at is None, "odmowa nie może zostawić śladu zakończenia"
+
+
+async def test_early_termination_amendment_does_not_resurrect_a_void_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    cid = await _seed_active_contract()
+    await _void_now(app_client, app_auth_headers, cid)
+    before = await _end_date_of(cid)
+
+    resp = await app_client.post(
+        f"/api/contracts/{cid}/amendments",
+        json={
+            "amendment_type": "early_termination",
+            "effective_date": (date.today() + timedelta(days=10)).isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert await _status_of(cid) == ContractStatus.void
+    assert await _end_date_of(cid) == before
+
+
+async def test_future_termination_of_a_draft_does_not_activate_it(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Szkic z przyszłą datą zakończenia dostawał `active` — z pominięciem
+    bramki aktywacji. Teraz zostaje szkicem."""
+    cid = await _seed_active_contract(ContractStatus.draft)
+    future = date.today() + timedelta(days=30)
+
+    resp = await app_client.post(
+        f"/api/contracts/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": future.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "draft"
+    assert await _status_of(cid) == ContractStatus.draft
+
+    # Dzień po dacie końca nocny job musi go zakończyć — inaczej szkic
+    # z minioną datą i `terminated_at` wisiałby poza „Zakończonymi” na zawsze.
+    from sqlalchemy import update
+
+    from app.tasks import contract_alerts
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == cid)
+            .values(end_date=date.today() - timedelta(days=1))
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await contract_alerts._promote_statuses(db)
+        await db.commit()
+    assert await _status_of(cid) == ContractStatus.ended
+
+
+async def test_nightly_job_leaves_untouched_drafts_alone():
+    """Szkic bez ręcznego zakończenia z minioną datą NIE jest kończony przez
+    job — to nie jest współpraca, którą ktoś zakończył."""
+    from sqlalchemy import update
+
+    from app.tasks import contract_alerts
+
+    cid = await _seed_active_contract(ContractStatus.draft)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == cid)
+            .values(end_date=date.today() - timedelta(days=1))
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await contract_alerts._promote_statuses(db)
+        await db.commit()
+    assert await _status_of(cid) == ContractStatus.draft
+
+
+async def test_resync_reads_the_status_committed_after_the_object_was_loaded():
+    """`resync_contract` blokował wiersz, ale oceniał obiekt z pamięci — zapis
+    zamówienia załadowany przed równoległym `void` mógł autoaktywować szkic."""
+    from app.services.contract_order_sync import resync_contract
+
+    cid = await _seed_active_contract(ContractStatus.draft)
+    async with AsyncSessionLocal() as session_b:
+        stale = await session_b.get(Contract, cid)
+        assert stale.status == ContractStatus.draft
+
+        async with AsyncSessionLocal() as session_a:
+            locked = await session_a.scalar(
+                select(Contract).where(Contract.id == cid).with_for_update()
+            )
+            await void_contract(session_a, locked, actor_id=None, reason="wyścig")
+            await session_a.commit()
+
+        await resync_contract(session_b, stale, actor_id=None)
+        assert stale.status == ContractStatus.void
+        await session_b.commit()
+
+    assert await _status_of(cid) == ContractStatus.void
+
+
+async def _end_date_of(contract_id: int):
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(Contract.end_date).where(Contract.id == contract_id)
+        )
+
+
+# ── Strażnik źródłowy: zapytania o kontrakt w komendach statusu mają FOR UPDATE ─
 
 _CONTRACTS_API = (
     pathlib.Path(__file__).resolve().parents[1] / "app" / "api" / "contracts.py"
@@ -239,7 +435,16 @@ _LOCKED_HANDLERS = (
     "update_contract",
     "update_contract_status",
     "void_contract_endpoint",
+    "activate_contract",
+    "reopen_contract_endpoint",
+    "terminate_contract",
+    "create_contract_amendment",
+    "bulk_mark_ended",
+    "bulk_extend_contracts",
 )
+# Handlery ładujące przez `_load_contract_with_relations` — muszą podać
+# `for_update=True`.
+_LOCKED_VIA_LOADER = ("finalize_contract_draft",)
 
 
 def _call_chain(node: ast.AST) -> list[str]:
@@ -279,3 +484,24 @@ def test_contract_write_handlers_lock_the_row(handler: str):
         f"{handler}: `select(Contract)` bez `.with_for_update()` — maszyna "
         "stanów ocenia status z pamięci, wyścig z `void` wraca"
     )
+
+
+@pytest.mark.parametrize("handler", _LOCKED_VIA_LOADER)
+def test_loader_based_handlers_request_the_lock(handler: str):
+    tree = ast.parse(_CONTRACTS_API.read_text(encoding="utf-8"))
+    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)}
+    assert handler in funcs, f"handler {handler} zniknął z contracts.py"
+    calls = [
+        node
+        for node in ast.walk(funcs[handler])
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_load_contract_with_relations"
+    ]
+    assert calls, f"{handler} nie ładuje już kontraktu przez loader"
+    assert any(
+        kw.arg == "for_update"
+        and isinstance(kw.value, ast.Constant)
+        and kw.value.value is True
+        for kw in calls[0].keywords
+    ), f"{handler}: loader bez `for_update=True` — wyścig z `void` wraca"

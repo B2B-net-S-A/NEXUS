@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hasSectionAccess } from "@/lib/section-access";
 import api from "@/lib/api";
 import {
   User,
@@ -162,7 +163,9 @@ export default function ProfilePage() {
       api.get("/api/activities/stats", { params: { user_id: user?.id, period: "30d" } })
         .then(r => r.data)
         .catch(() => null),
-    enabled: !!user,
+    // Statystyki aktywności to Insights po stronie API (F02) — bez tej sekcji
+    // zapytanie kończyłoby się 403 przy każdym wejściu na profil.
+    enabled: !!user && hasSectionAccess(user, "insights"),
   });
 
   // Handle avatar file selection

@@ -61,6 +61,26 @@ def iter_api_routes(app) -> Iterator[tuple[str, APIRoute]]:
         yield from walk(route, "")
 
 
+def iter_dependency_calls(route: APIRoute) -> list:
+    """Wszystkie wywoływalne zależności trasy (router, dekorator, parametry).
+
+    Przechodzi całe drzewo ``dependant`` — bramka dołożona na poziomie routera
+    albo ukryta w zależności zależności jest tak samo widoczna jak parametr.
+    """
+    calls: list = []
+    stack = [route.dependant]
+    seen: set[int] = set()
+    while stack:
+        dependant = stack.pop()
+        if dependant is None or id(dependant) in seen:
+            continue
+        seen.add(id(dependant))
+        if dependant.call is not None:
+            calls.append(dependant.call)
+        stack.extend(dependant.dependencies or ())
+    return calls
+
+
 def api_route_methods(app) -> set[tuple[str, str]]:
     """Zbiór ``(METODA, ścieżka)`` dla tras ``/api/**``, bez HEAD i OPTIONS.
 

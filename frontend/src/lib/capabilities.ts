@@ -254,6 +254,8 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "nav.my_relationships": { section: "delivery", required: "read" },
   "nav.contracts": { section: "delivery", required: "read" },
   "nav.cortex": { section: "insights", required: "read" },
+  // `/api/dashboard/v2/recruitment-stats` wymaga Insights (F02).
+  "dashboard.recruitment_stats.view": { section: "insights", required: "read" },
   "nav.manager": { section: "delivery", required: "read" },
   "nav.finance": { section: "finance", required: "read" },
 };

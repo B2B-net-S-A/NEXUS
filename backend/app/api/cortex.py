@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import AdminUser, get_db, require_roles
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -40,7 +41,7 @@ from app.services.cortex.tech_map import compute_tech_map
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CortexUser = Annotated[
     User,

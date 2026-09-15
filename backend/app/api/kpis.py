@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import (
     AdminUser,
     CurrentUser,
@@ -36,7 +37,7 @@ from app.services.kpi_panel import PanelResult, compute_my_panel
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 class KpiResultSchema(BaseModel):

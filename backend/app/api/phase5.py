@@ -23,6 +23,8 @@ from app.api.candidate_access import (
     CandidateFinanceReadAccess,
     require_candidate_write,
 )
+from app.api.section_access import require_section_access_any_read
+from app.services.section_permissions import ProductSection
 from app.api.deps import AdminUser, CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
@@ -353,7 +355,22 @@ async def deactivate_conflict(
 # ── Jobs context for UI dropdowns ───────────────────────────────────────────
 
 
-@router.get("/clients-lookup")
+# Podpowiedzi id+nazwa dla pickerów w każdej sekcji produktu — ale nie dla
+# konta bez żadnej sekcji (F02, audyt 14.09.2026).
+@router.get(
+    "/clients-lookup",
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.sourcing,
+                ProductSection.pipeline,
+                ProductSection.delivery,
+                ProductSection.insights,
+                ProductSection.finance,
+            )
+        )
+    ],
+)
 async def clients_lookup(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -428,7 +445,18 @@ async def clients_lookup(
     return [{"id": r[0], "name": r[1]} for r in rows.all()]
 
 
-@router.get("/jobs-lookup")
+@router.get(
+    "/jobs-lookup",
+    dependencies=[
+        Depends(
+            require_section_access_any_read(
+                ProductSection.pipeline,
+                ProductSection.sourcing,
+                ProductSection.insights,
+            )
+        )
+    ],
+)
 async def jobs_lookup(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),

@@ -15,13 +15,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.dr_placement_details import DrPlacementDetail
 from app.models.user import User, UserRole
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 class PlacementResponse(BaseModel):
