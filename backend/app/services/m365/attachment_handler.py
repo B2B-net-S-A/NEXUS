@@ -207,6 +207,12 @@ async def try_parse_cv(
         return
     if email_row.candidate_id is None:
         return
+    # A delta page contains existing messages as well as new ones.  Re-running
+    # the paid parser for an attachment already applied to the same candidate
+    # made every M365 pass spend minutes on unchanged CVs.  A rematch remains
+    # eligible because its candidate id differs.
+    if attachment.parsed_candidate_id == email_row.candidate_id:
+        return
 
     from datetime import datetime, timezone
 
