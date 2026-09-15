@@ -264,6 +264,21 @@ class JobResponse(BaseModel):
 
         return resolve_job_budget_hourly(self) is not None
 
+    @computed_field
+    @property
+    def effective_budget_hourly(self) -> Optional[float]:
+        """Budżet PLN/h, którego używa wyszukiwanie (jawne pole lub Champion).
+
+        Jedno źródło dla nagłówka rekrutacji, paska AI Matching i doku oferty
+        (UAT B62/B72) — wcześniej każdy ekran czytał inne pole i ta sama
+        rekrutacja miała budżet w nagłówku, a „brak danych” w doku. Pole jest
+        redagowane dla viewera jak `rate_budget_hourly` i zdejmowane z listy
+        razem z Profilem Championa.
+        """
+        from app.services.dealbreaker_filters import resolve_job_budget_hourly
+
+        return resolve_job_budget_hourly(self)
+
 
 class JobList(BaseModel):
     items: list[JobResponse]

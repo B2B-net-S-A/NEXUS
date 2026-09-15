@@ -153,9 +153,10 @@ describe("getCvProjectionNotice (UAT M01-B01)", () => {
   });
 
   it("tells a file without a parse apart from a parsed profile", () => {
-    expect(
-      getCvProjectionNotice({ cv_filename: "cv.pdf", cv_parsed_at: null })?.tone,
-    ).toBe("info");
+    const notParsed = getCvProjectionNotice({ cv_filename: "cv.pdf", cv_parsed_at: null });
+    expect(notParsed?.tone).toBe("info");
+    // UAT B12: ten stan proponuje ponowny odczyt, kwarantanna — nie.
+    expect(notParsed?.kind).toBe("not_parsed");
     expect(
       getCvProjectionNotice({
         cv_filename: "cv.pdf",

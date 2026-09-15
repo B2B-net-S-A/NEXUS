@@ -125,6 +125,27 @@ def _must_have_gaps(job, candidate) -> list[str]:
     ]
 
 
+def _role_stack_summary(job) -> str:
+    """Linia „Stack” przeglądu: wymagania tej rekrutacji albo jawny brak danych."""
+    from app.services.scoring_service import job_skill_requirements
+
+    labels = job_skill_requirements(job)
+    shown = _display_names(job)
+    must = [shown.get(name, name) for name in labels.get("must", [])]
+    nice = [shown.get(name, name) for name in labels.get("nice", [])]
+    if not must and not nice:
+        return (
+            "Wymagania techniczne roli: brak danych — uzupełnij Profil Championa "
+            "albo wymagania rekrutacji."
+        )
+    parts = []
+    if must:
+        parts.append(f"wymagane {', '.join(must[:8])}")
+    if nice:
+        parts.append(f"mile widziane {', '.join(nice[:5])}")
+    return f"Stack technologiczny roli: {'; '.join(parts)}."
+
+
 def _display_names(job) -> dict[str, str]:
     """Kanoniczna nazwa (małe litery) → nazwa tak, jak ją wpisano w rekrutacji."""
     from app.services import champion_view
@@ -259,17 +280,19 @@ async def generate_prep_kit(
         ),
     )
 
-    tech_parts = []
+    # Stack w prep kicie opisuje TĘ rolę. Do 09.2026 brał pięć pierwszych
+    # technologii z wiedzy o kliencie, więc rola Power Platform bez opisu
+    # dostawała Angular/Java/Kafka z innych projektów klienta — w przeglądzie
+    # i jako „luki” (UAT B70). Wiedza o technologiach klienta zostaje na jego
+    # karcie; tu tylko wymagania rekrutacji.
     culture_parts = []
     for entry in knowledge_entries:
-        if entry.category == KnowledgeCategory.tech_stack:
-            tech_parts.extend(_parse_list_content(entry.content))
-        elif entry.category == KnowledgeCategory.culture:
+        if entry.category == KnowledgeCategory.culture:
             culture_parts.extend(_parse_list_content(entry.content))
         elif entry.category == KnowledgeCategory.general:
             culture_parts.append(entry.content.strip())
 
-    tech_summary = ", ".join(tech_parts[:5]) if tech_parts else ""
+    tech_summary = _role_stack_summary(job)
     culture_summary = " ".join(culture_parts[:2]) if culture_parts else ""
 
     overview_lines = [
@@ -277,8 +300,7 @@ async def generate_prep_kit(
         f"Rekrutacja na stanowisko: {job.title}.",
         f"Model pracy: {job_remote}.{salary_info}",
     ]
-    if tech_summary:
-        overview_lines.append(f"Stack technologiczny: {tech_summary}.")
+    overview_lines.append(tech_summary)
     if job.description:
         desc_short = job.description[:300].strip()
         if len(job.description) > 300:
@@ -358,25 +380,8 @@ async def generate_prep_kit(
     # 4. CANDIDATE GAPS
     gaps = []
 
-    # Check required technologies from job vs candidate skills
-    candidate_skill_names = set()
-    for sk in skills if isinstance(skills, list) else []:
-        if isinstance(sk, dict):
-            candidate_skill_names.add(sk.get("name", "").lower())
-        elif isinstance(sk, str):
-            candidate_skill_names.add(sk.lower())
-
     # MUST rekrutacji — najpierw, bo to one decydują o odrzuceniu u klienta.
-    must_gaps = _must_have_gaps(job, candidate)
-    gaps.extend(must_gaps)
-
-    # From tech stack knowledge
-    for tech in tech_parts[:5]:
-        if tech and tech.lower() not in candidate_skill_names:
-            # Technologia, która jest już luką MUST, nie wychodzi drugi raz.
-            if any(g.lower().startswith(f"brak {tech.lower()} (") for g in must_gaps):
-                continue
-            gaps.append(f"Brak {tech} w profilu — może być pytanie")
+    gaps.extend(_must_have_gaps(job, candidate))
 
     # From screening red_flags
     for sn in screening_notes[:2]:

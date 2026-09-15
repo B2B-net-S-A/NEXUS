@@ -240,6 +240,73 @@ def _champion_context_text(job: Job) -> str:
     return _truncate("\n".join(bits), MAX_CHAMPION_CHARS) or "(brak profilu Championa)"
 
 
+_REMOTE_MODE_PL = {
+    "remote": "zdalnie",
+    "hybrid": "hybrydowo",
+    "onsite": "stacjonarnie",
+}
+_NOTICE_UNIT_PL = {"days": "dni", "weeks": "tyg.", "months": "mies."}
+
+
+def _enum_value(value) -> Optional[str]:
+    raw = getattr(value, "value", value)
+    return str(raw) if raw not in (None, "") else None
+
+
+def _candidate_work_facts(candidate: Candidate) -> str:
+    """Znane fakty o miejscu, trybie pracy i dostępności kandydata (UAT B59).
+
+    Bez nich model czytał tylko CV i rozbicie punktacji, więc pisał
+    „lokalizacja i tryb pracy nieznane” przy wypełnionym profilu.
+    """
+    city = (getattr(candidate, "city", None) or "").strip()
+    country = (getattr(candidate, "country", None) or "").strip()
+    location = ", ".join(part for part in (city, country) if part) or (
+        (getattr(candidate, "location", None) or "").strip()
+    )
+    prefs = getattr(candidate, "preferences", None)
+    prefs = prefs if isinstance(prefs, dict) else {}
+    modes = [
+        _REMOTE_MODE_PL.get(str(mode), str(mode))
+        for mode in prefs.get("remote_modes") or []
+        if mode
+    ]
+    bits = [f"lokalizacja: {location or '(brak w profilu)'}"]
+    bits.append(f"tryby pracy: {', '.join(modes) if modes else '(brak w profilu)'}")
+    onsite = getattr(candidate, "max_onsite_days_per_week", None)
+    if onsite is not None:
+        bits.append(f"maks. dni w biurze/tydz.: {onsite}")
+    cities = [str(c) for c in prefs.get("office_cities") or [] if c]
+    if cities:
+        bits.append(f"miasta biur: {', '.join(cities[:5])}")
+    available = getattr(candidate, "availability_date", None)
+    if available:
+        bits.append(f"dostępny od: {available}")
+    notice = getattr(candidate, "notice_period", None)
+    if notice is not None:
+        unit = _NOTICE_UNIT_PL.get(
+            getattr(candidate, "notice_period_unit", None) or "days", "dni"
+        )
+        bits.append(f"okres wypowiedzenia: {notice} {unit}")
+    status = _enum_value(getattr(candidate, "availability_status", None))
+    if status and status != "unknown":
+        bits.append(f"status dostępności: {status}")
+    return "; ".join(bits)
+
+
+def _job_work_facts(job: Job) -> str:
+    location = (getattr(job, "location", None) or "").strip()
+    mode = _enum_value(getattr(job, "remote_policy", None))
+    bits = [
+        f"lokalizacja: {location or '(brak w ofercie)'}",
+        f"tryb: {_REMOTE_MODE_PL.get(mode, mode) if mode else '(brak w ofercie)'}",
+    ]
+    onsite = getattr(job, "onsite_days_per_week", None)
+    if onsite is not None:
+        bits.append(f"dni w biurze/tydz.: {onsite}")
+    return "; ".join(bits)
+
+
 def _format_score_breakdown(bd: dict) -> str:
     """Render the ScoreBreakdown dict as compact, human-readable lines."""
     lines: list[str] = [f"Wynik łączny: {bd.get('total')}/100"]
@@ -285,7 +352,9 @@ def _prompt_inputs(candidate: Candidate, job: Job, breakdown: dict) -> dict:
         job_title=job.title or "(brak tytułu)",
         job_requirements=_job_requirements_text(job),
         champion_context=_champion_context_text(job),
+        job_work_facts=_job_work_facts(job),
         competence_category=candidate.competence_category or "(brak)",
+        candidate_work_facts=_candidate_work_facts(candidate),
         candidate_summary=_truncate(candidate.ai_summary, 1500) or "(brak)",
         candidate_skills=_skills_to_text(sorted(candidate_skill_names(candidate))),
         candidate_cv=_candidate_cv_text(candidate),

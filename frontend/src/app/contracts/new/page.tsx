@@ -181,6 +181,19 @@ function NewContractForm() {
     },
     enabled: !!candidate,
   });
+  // Lista rekrutacji tylko wybranego klienta (albo bez klienta) — inaczej po
+  // zmianie klienta dało się dalej wskazać rekrutację poprzedniego (UAT B24).
+  const visibleRecruitments = useMemo(
+    () =>
+      (recruitmentsQuery.data ?? []).filter(
+        (r) => !clientId || r.client_id == null || String(r.client_id) === clientId,
+      ),
+    [recruitmentsQuery.data, clientId],
+  );
+  useEffect(() => {
+    if (!stageId || !recruitmentsQuery.data) return;
+    if (!visibleRecruitments.some((r) => String(r.stage_id) === stageId)) setStageId("");
+  }, [stageId, visibleRecruitments, recruitmentsQuery.data]);
 
   const filteredClients = useMemo(() => {
     const all = clientsQuery.data ?? [];
@@ -618,7 +631,7 @@ function NewContractForm() {
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {(recruitmentsQuery.data ?? []).map((r) => (
+                    {visibleRecruitments.map((r) => (
                       <SelectItem key={r.stage_id} value={String(r.stage_id)}>
                         {r.job_title}
                       </SelectItem>

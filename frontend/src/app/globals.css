@@ -376,6 +376,9 @@
   }
 
   html.dark[data-soft="true"] {
+    /* Blok jasny wyżej ma wyższą specyficzność niż `.dark`, więc bez tej linii
+       ciemny tryb „Wyraźny” zostawiał jasne płótno pod jasnym tekstem (UAT B56). */
+    --background: 222 24% 6%;
     --card: 222 20% 11%;               /* stronger elevation step vs bg 6% */
     --popover: 222 20% 11%;
     --border: 222 15% 21%;

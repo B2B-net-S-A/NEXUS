@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   deleteContract: vi.fn(),
   forceDeleteSigned: vi.fn(),
   updateContract: vi.fn(),
+  activities: vi.fn(),
   canManageFinance: false,
   deliveryAccess: "write" as "none" | "read" | "write",
   impersonating: false,
@@ -112,7 +113,7 @@ vi.mock("@/lib/api", () => ({
   contractsApi: {
     get: (...args: unknown[]) => mocks.getContract(...args),
     documents: (...args: unknown[]) => mocks.getDocuments(...args),
-    activities: vi.fn(),
+    activities: (...args: unknown[]) => mocks.activities(...args),
     rateHistory: vi.fn(),
     update: (...args: unknown[]) => mocks.updateContract(...args),
     delete: (...args: unknown[]) => mocks.deleteContract(...args),
@@ -378,5 +379,30 @@ describe("ContractDetailPage — wymuszone usunięcie podpisanego kontraktu", ()
     ).not.toBeInTheDocument();
     expect(mocks.forceDeleteSigned).not.toHaveBeenCalled();
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
+  it("błąd pobrania historii nie udaje pustej historii", async () => {
+    mocks.activities.mockRejectedValue({ response: { status: 500 } });
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+
+    expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
+    expect(screen.queryByText("Brak wpisów w historii.")).not.toBeInTheDocument();
+  });
+
+  it("pusta odpowiedź nadal mówi, że historii brak", async () => {
+    mocks.activities.mockResolvedValue({ data: [] });
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+
+    expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
   });
 });

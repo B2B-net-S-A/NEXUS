@@ -179,6 +179,21 @@ describe("CalendarPage — nachodzące wydarzenia i okno podglądu (UAT M03-B11)
     expect(a.style.width).toContain("50%");
   });
 
+  it("trzecie równoległe wydarzenie trafia do chipa „+1” zamiast zwężać pasy (UAT B08)", async () => {
+    mocks.listEvents.mockResolvedValue({
+      data: [eventAt(1, "Spotkanie A"), eventAt(2, "Spotkanie B"), eventAt(3, "Spotkanie C")],
+    });
+    renderPage();
+
+    const a = await screen.findByTestId("calendar-event-1");
+    expect(a.style.width).toContain("50%");
+    expect(screen.queryByTestId("calendar-event-3")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Pokaż 1 kolejne wydarzenia/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Spotkanie C/ }));
+    expect(await screen.findByRole("dialog", { name: "Spotkanie C" })).toBeInTheDocument();
+  });
+
   it("Escape zamyka okno podglądu wydarzenia", async () => {
     mocks.listEvents.mockResolvedValue({ data: [eventAt(1, "Spotkanie A")] });
     renderPage();
