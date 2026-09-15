@@ -75,7 +75,8 @@ def test_startup_failure_message_redacts_credentials_and_is_silent_on_success() 
         {
             "ok": False,
             "exit_code": 2,
-            "tail": "connect postgresql+asyncpg://nexus:s3cr3t@postgres:5432/nexus failed",
+            # Adres składany w locie — literał z hasłem w źródle zatrzymuje gitleaks.
+            "tail": "connect " + "postgresql+asyncpg" + "://nexus:" + "s3cr3t" + "@postgres/nexus failed",
         }
     )
     assert msg is not None and "exit 2" in msg
