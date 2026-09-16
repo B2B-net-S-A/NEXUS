@@ -194,6 +194,31 @@ async def list_assignable_stages(
     ]
 
 
+def _legacy_enum_for(
+    stage_def: Optional[PipelineStageDef],
+    legacy_value: Optional[str],
+    *,
+    has_template: bool,
+) -> PipelineStage:
+    """Legacy-enum etapu zapisywany na `candidate_stages.stage`.
+
+    Z szablonem — enum kolumny, na którą trafił kandydat. Bez szablonu
+    (rekrutacje legacy, kanban z `STAGE_ORDER`) integracje mogą wskazać
+    `posting`: inaczej auto-match z ogłoszeń lądował tam na „Nowi", a na
+    rekrutacjach z szablonem w „Ogłoszeniach" — dwa zachowania jednej
+    integracji. Tylko `posting`: to jedyny etap sprzed lejka, każdy inny
+    legacy bez szablonu nadal daje „Nowi".
+    """
+    if stage_def is not None and stage_def.legacy_enum_value:
+        try:
+            return PipelineStage(stage_def.legacy_enum_value)
+        except ValueError:
+            return PipelineStage.new
+    if not has_template and legacy_value == PipelineStage.posting.value:
+        return PipelineStage.posting
+    return PipelineStage.new
+
+
 async def _resolve_initial_stage(
     db: AsyncSession,
     job: Job,
@@ -319,12 +344,11 @@ async def bulk_add_proposals(
     stage_def = await _resolve_initial_stage(
         db, job, body.initial_stage_def_id, body.initial_stage_legacy
     )
-    legacy_enum = PipelineStage.new
-    if stage_def and stage_def.legacy_enum_value:
-        try:
-            legacy_enum = PipelineStage(stage_def.legacy_enum_value)
-        except ValueError:
-            legacy_enum = PipelineStage.new
+    legacy_enum = _legacy_enum_for(
+        stage_def,
+        body.initial_stage_legacy,
+        has_template=job.pipeline_template_id is not None,
+    )
 
     # Pre-fetch in two batches so we don't issue 100×2 round-trips.
     # Ten sam prefetch jest fazą 1 kolejności blokad: komplet kandydatów rosnąco
