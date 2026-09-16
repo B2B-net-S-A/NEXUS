@@ -729,12 +729,10 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     i okres. Bez modelu; zapis rozstrzyga wywołujący na podstawie werdyktu.
 
     Rozpoznany klient jest zachowywany, ale scalony duplikat NIE jest klientem —
-    dokument przechodzi wtedy na rekord kanoniczny (``_follow_client_merge``).
+    dokument przechodzi wtedy na rekord kanoniczny (``_follow_client_merge``);
+    PFRON tego kroku nie potrzebuje, bo rozpoznaje klienta od nowa.
     """
 
-    # Najpierw klient: reszta przeliczenia (polityki, roster, plan) zależy od
-    # tego, do którego rekordu dokument należy.
-    await _follow_client_merge(db, row)
     extraction = restore_extraction(row.extraction)
     path = storage_service.get_order_mail_attachment_path(row.storage_path)
     doc = await run_in_threadpool(
@@ -760,6 +758,12 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
             active_policies(client_id),
         )
         row.client_policy = " + ".join(applied) or None
+    else:
+        # Poza PFRON-em zachowujemy rozpoznanego klienta — ale scalony duplikat
+        # nie jest klientem. Krok musi wyprzedzić dobór polityk i rostera, bo od
+        # rekordu zależy cała reszta przeliczenia. (PFRON rozpoznaje klienta od
+        # nowa wyżej, więc nie ma tam czego przenosić.)
+        await _follow_client_merge(db, row)
     policies = active_policies(row.client_id)
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
     if reapplies_on_refresh(policies):
