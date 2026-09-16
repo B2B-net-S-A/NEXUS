@@ -44,9 +44,16 @@ _LINE_TRAILING = re.compile(r"[ \t]+\n")
 
 
 def _normalize(text: str) -> str:
-    """Collapse whitespace while preserving paragraph breaks."""
+    """Collapse whitespace while preserving paragraph breaks.
+
+    Drops NUL bytes first: some PDFs (broken font maps, OCR layers) yield
+    ``\x00`` in the extracted text and Postgres rejects it at insert
+    (``invalid byte sequence for encoding "UTF8": 0x00``), so ``/from-cv``
+    answered 500 instead of creating the candidate.
+    """
     if not text:
         return ""
+    text = text.replace("\x00", "")
     text = _HORIZONTAL_WS.sub(" ", text)
     text = _LINE_TRAILING.sub("\n", text)
     text = _MULTI_BLANK_LINE.sub("\n\n", text)

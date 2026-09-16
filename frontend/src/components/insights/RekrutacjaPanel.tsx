@@ -21,6 +21,7 @@ import { RecruitmentConversions } from "@/components/insights/sections/Recruitme
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
 import { InsightsSeniority } from "@/components/insights/sections/InsightsSeniority";
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
+import { InsightsIntegrations } from "@/components/insights/sections/InsightsIntegrations";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import {
   InsightsSection,
@@ -58,6 +59,7 @@ const SECTIONS = [
   { id: "aktywnosc", label: "Power Calling · LinkedIn" },
   { id: "sciezka-rozwoju", label: "Ścieżka rozwoju" },
   { id: "zrodla", label: "Źródła" },
+  { id: "integracje", label: "Integracje" },
 ];
 
 export function RekrutacjaPanel() {
@@ -232,6 +234,15 @@ export function RekrutacjaPanel() {
         <DeferUntilVisible minHeight={240}>
           <SourcesFunnelSection />
           <InsightsInviteLinks period={period} />
+        </DeferUntilVisible>
+      </InsightsSection>
+
+      {/* Integracje: scrapery pracuj.pl / JJIT raportują runy do NEXUS-a
+          (migracja 0314). Sekcja świadomie bez `period` — pytanie „czy
+          integracja żyje" ma własne okno 7/30/90 dni, nie kwartał. */}
+      <InsightsSection id="integracje">
+        <DeferUntilVisible minHeight={240}>
+          <InsightsIntegrations />
         </DeferUntilVisible>
       </InsightsSection>
     </div>
