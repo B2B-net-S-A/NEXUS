@@ -56,6 +56,13 @@ class AIFeatureKey(str, enum.Enum):
     # rekruterów ani nie wymusił podniesienia go do poziomu, na którym przestaje
     # chronić funkcję interaktywną.
     cv_backfill = "cv_backfill"
+    # Dopisywanie DAT do `experience` dla kandydatów, których ATLAS właśnie
+    # pokazał na kartotece firmy (`integrations_companies`). OSOBNY kubełek od
+    # `cv_backfill`, choć wołają ten sam moduł: 16.09 zgaszenie `cv_backfill`
+    # w celu zatrzymania biegu masowego ubiło rykoszetem fazę
+    # `candidates_cv_fields` nocnego syncu Traffita. Ścieżka uruchamiana
+    # ruchem użytkownika musi dać się wyłączyć, nie gasząc nocnej.
+    experience_dates_on_demand = "experience_dates_on_demand"
     # Cykliczna ekstrakcja faktów z notatek (pętla notes_insights_sync) —
     # osobny kubełek z tego samego powodu co cv_backfill.
     notes_extraction = "notes_extraction"
@@ -115,6 +122,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_rule_lint: "Reguły CV klienta — lint instrukcji dla generatora",
     AIFeatureKey.uop_check: "Generator Umów B2B — sprawdzenie znamion umowy o pracę",
     AIFeatureKey.cv_name_backfill: "Uzupełnianie imion z CV (sync Traffita)",
+    AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
 }
 
 
@@ -155,6 +163,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.cv_backfill: [
         "Zapisany tekst CV kandydatów (bieg masowy, tylko puste pola)",
+    ],
+    AIFeatureKey.experience_dates_on_demand: [
+        "Zapisany tekst CV kandydatów pokazanych na kartotece firmy w ATLAS-ie",
+        "(tylko ci bez dat w historii zatrudnienia; zapis wyłącznie dat i ról)",
     ],
     AIFeatureKey.notes_extraction: [
         "Treść wewnętrznych notatek o kandydacie (ekstrakcja strukturalna;",

@@ -158,6 +158,13 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F10. Masowy backfill pól; honoruje CLAUDE_MODEL_CV_BULK (od 16.09 = Sonnet 5), "
         "CV_BACKFILL_MODEL rozdziela od lintu. Haiku wymyślał fakty w 31% CV vs 8%.",
     ),
+    AIFeatureKey.experience_dates_on_demand: ModelChoice(
+        default=SONNET_5,
+        env_vars=("EXPERIENCE_DATES_MODEL",),
+        settings_attr="CLAUDE_MODEL_CV_BULK",
+        rationale="Ta sama robota co F10 (odczyt CV), więc ten sam model — "
+        "osobny klucz jest po to, żeby dało się ją zgasić bez nocnego syncu.",
+    ),
     AIFeatureKey.notes_extraction: ModelChoice(
         default=DEEPSEEK_PRO,
         env_vars=("NOTES_EXTRACTION_MODEL",),
