@@ -971,6 +971,46 @@ async def consumed_md(db: AsyncSession, order_id: int) -> Decimal:
     return Decimal(str(total or 0))
 
 
+def is_line_on_active_roster(
+    order: ClientOrder,
+    group_end_date: Optional[date],
+    today: Optional[date] = None,
+) -> bool:
+    """Czy linia należy do AKTYWNEJ OBSADY zamówienia — reguła PREZENTACJI.
+
+    Karta zamówienia dzieli konsultantów na „Aktywną obsadę" i „Zakończone".
+    Do 09.2026 decydował o tym sam ``ClientOrder.status``, a linia MD **nie
+    kończy się datą, tylko budżetem** (``sync_md_line_status``, skaner
+    ``dl_portal_expiry_scanner._promote_statuses`` wprost pomija linie MD).
+    Osoba z zapisaną datą końca współpracy, której został limit MD, wisiała
+    więc wśród aktywnych.
+
+    Ta funkcja **nie dotyka statusu w bazie i nie wolno jej do tego użyć.**
+    Status rządzi importem zużycia (``active_md_lines`` pyta o ``active``),
+    więc domknięcie linii datą odcięłoby ją od importu za miesiąc, w którym
+    osoba jeszcze pracowała — a taki import przychodzi po jej zejściu
+    (raport za sierpień trafia do systemu w połowie września).
+
+    Data własna linii zdejmuje z obsady tylko wtedy, gdy osoba zeszła
+    WCZEŚNIEJ niż kończy się samo zamówienie: linia dziedziczy ``end_date``
+    grupy (``_build_line``: ``payload.end_date or group.end_date``), więc
+    porównanie z samym „dziś" przerzucałoby całą obsadę wygasłego zamówienia
+    do „Zakończonych" — łącznie z ludźmi, którzy dalej pracują i czekają na
+    przedłużenie. O tym, że skończyło się CAŁE zamówienie, mówi status grupy
+    i jej data zakończenia, nie wiersz przy nazwisku.
+    """
+    if order.status != ClientOrderStatus.active:
+        return False
+    end = order.end_date
+    if end is None:
+        return True
+    # Granica jest WŁĄCZAJĄCA, jak w `is_current_order_period` i froncie
+    # (`isCurrentOrder`): konsultant pracuje do końca swojego ostatniego dnia.
+    if end >= (today or business_today()):
+        return True
+    return group_end_date is not None and end >= group_end_date
+
+
 def line_budget_total(order: ClientOrder) -> Decimal:
     """Cały budżet MD linii: zakres podstawowy + opcjonalny (Faza B, 09.2026).
 
