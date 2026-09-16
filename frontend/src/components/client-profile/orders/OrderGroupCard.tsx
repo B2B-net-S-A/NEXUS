@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds";
+import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import {
@@ -438,7 +439,15 @@ function OrderLineRow({
         </Avatar>
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-            <span className="truncate">{line.consultant_name}</span>
+            {/* Link prowadzi do kontraktu TEJ linii (`line.contract_id`),
+                nie „do kontraktów tej osoby". Nazwiska poprzednika i następcy
+                niżej celowo linkami NIE są — mają wyłącznie `*_order_id`, więc
+                kontrakt trzeba by zgadywać. */}
+            <ContractPersonLink
+              contractId={line.contract_id}
+              name={line.consultant_name}
+              className="truncate"
+            />
             {pendingOffboarding ? (
               <span className="rounded bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
                 Zakończenie współpracy
@@ -844,9 +853,11 @@ function FutureOrders({
                         "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
                     )}
                   >
-                    <span className="truncate font-medium text-foreground">
-                      {line.consultant_name}
-                    </span>
+                    <ContractPersonLink
+                      contractId={line.contract_id}
+                      name={line.consultant_name}
+                      className="truncate font-medium text-foreground"
+                    />
                     <span className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">kosztowa</span>
                       {line.rate_cost == null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
