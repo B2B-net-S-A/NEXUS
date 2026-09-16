@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 EARLY_STAGES: frozenset[PipelineStage] = frozenset(
     {
+        PipelineStage.posting,
         PipelineStage.new,
         PipelineStage.prep_call,
         PipelineStage.screening,

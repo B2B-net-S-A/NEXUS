@@ -77,6 +77,9 @@ export const FUNNEL_GROUP_LABELS: Record<FunnelGroupKey, string> = {
 // grupami (mini-lejek pokazuje postęp, nie odpady); ich sumę liczy
 // `funnelRejectedTotal` osobno, dla dociekliwych.
 const STAGE_TO_GROUP: Record<string, FunnelGroupKey> = {
+  // `posting` (kandydaci z ogłoszeń) w mini-lejku liczy się do „nowi" —
+  // sześć grup to skrót, osobną kolumnę ma pełna tablica.
+  posting: "new",
   new: "new",
   prep_call: "new",
   screening: "screening",

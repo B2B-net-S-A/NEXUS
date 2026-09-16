@@ -736,3 +736,27 @@ describe("groupKanbanColumns — własny etap między etapami klienta (follow-up
     ]);
   });
 });
+
+
+describe("groupKanbanColumns — „Ogłoszenia” (posting) przed „Nowi”", () => {
+  const columns = defaultB2B();
+  const posting: KanbanColumn = {
+    ...columns[0],
+    stage: "posting",
+    name: "Ogłoszenia",
+    stage_def_id: 299,
+    count: 4,
+    items: [],
+    terminal_type: null,
+  };
+  const groups = groupKanbanColumns([posting, ...columns]);
+  const byKey = new Map(groups.map((g) => [g.key, g]));
+
+  it("dostaje własną grupę na początku, nie zlewa się z wejściem", () => {
+    expect(groups.map((g) => g.key)[0]).toBe("posting");
+    expect(byKey.get("posting")?.columns.map((c) => c.name)).toEqual(["Ogłoszenia"]);
+    expect(byKey.get("posting")?.count).toBe(4);
+    expect(byKey.get("intake")?.columns.map((c) => c.name)).toEqual(["Nowi / Analiza CV"]);
+    expect(byKey.get("intake")?.count).toBe(13);
+  });
+});

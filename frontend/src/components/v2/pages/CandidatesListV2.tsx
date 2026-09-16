@@ -496,6 +496,7 @@ interface CandidateListResponse {
 
 /** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
 const STAGE_LABELS: Record<string, string> = {
+ posting: "Ogłoszenia",
  new: "Nowy",
  prep_call: "Prep call",
  screening: "Screening",
