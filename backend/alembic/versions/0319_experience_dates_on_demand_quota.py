@@ -1,7 +1,7 @@
 """Kubełek kwoty dla dat zatrudnienia dopisywanych z kartoteki firmy (ATLAS).
 
-Revision ID: 0318_experience_dates_on_demand
-Revises: 0317_pipeline_stage_posting
+Revision ID: 0319_experience_dates_on_demand
+Revises: 0318_dl_alert_md_base_usage_high
 
 `experience_dates_on_demand` — dopisywanie DAT do `candidates.experience` dla
 osób, które ATLAS właśnie pokazał na kartotece firmy. OSOBNY kubełek od
@@ -19,8 +19,8 @@ alembic bywa orphaned.
 
 from alembic import op
 
-revision = "0318_experience_dates_on_demand"
-down_revision = "0317_pipeline_stage_posting"
+revision = "0319_experience_dates_on_demand"
+down_revision = "0318_dl_alert_md_base_usage_high"
 branch_labels = None
 depends_on = None
 
