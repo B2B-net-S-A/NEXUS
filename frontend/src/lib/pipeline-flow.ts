@@ -20,7 +20,7 @@ import { terminalOf } from "@/lib/kanban-terminal";
 import { formatDate } from "@/lib/utils";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
-/** Poczekalnia kandydatów z ogłoszeń (auto-match) — PRZED „Nowi" (migracja 0316). */
+/** Poczekalnia kandydatów z ogłoszeń (auto-match) — PRZED „Nowi" (migracja 0317). */
 export const POSTING_STAGE = "posting";
 export const SCREENING_STAGE = "screening";
 export const VERIFIED_STAGE = "verified";

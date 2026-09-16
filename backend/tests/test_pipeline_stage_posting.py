@@ -1,4 +1,4 @@
-"""Etap „Ogłoszenia" (`posting`, migracja 0316) — kontrakty.
+"""Etap „Ogłoszenia" (`posting`, migracja 0317) — kontrakty.
 
 1. `posting` jest PIERWSZY w kolejności kanbana, wewnętrzny, z polską etykietą
    i mapowaniem semantycznym (test_workflow_registry pilnuje kompletności).
@@ -48,7 +48,7 @@ def test_posting_is_excluded_from_stuck_candidate_alerts():
 
 def test_entrypoint_mirror_matches_migration():
     migration = (
-        _BACKEND / "alembic" / "versions" / "0316_pipeline_stage_posting.py"
+        _BACKEND / "alembic" / "versions" / "0317_pipeline_stage_posting.py"
     ).read_text(encoding="utf-8")
     entrypoint = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert "ALTER TYPE pipelinestage ADD VALUE IF NOT EXISTS 'posting'" in entrypoint
@@ -57,7 +57,7 @@ def test_entrypoint_mirror_matches_migration():
     normalized = re.sub(r"\s+", " ", body).strip()
     entry_norm = re.sub(r"\s+", " ", entrypoint)
     assert normalized in entry_norm, (
-        "Lustro w entrypoint.sh rozjechało się z migracją 0316"
+        "Lustro w entrypoint.sh rozjechało się z migracją 0317"
     )
 
 

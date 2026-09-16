@@ -24,7 +24,7 @@ class PipelineStage(str, enum.Enum):
     # ── Etapy wewnętrzne ────────────────────────────────
     # Kandydaci z ogłoszeń (pracuj.pl / JJIT, auto-match) — poczekalnia PRZED
     # „Nowi", żeby pipeline dostawał tylko to, co rekruter świadomie wybrał.
-    # Migracja 0316; decyzja 2026-09-16.
+    # Migracja 0317; decyzja 2026-09-16.
     posting = "posting"  # Ogłoszenia — kandydat z portalu, jeszcze nieprzejrzany
     new = "new"  # Nowy kandydat / Analiza CV
     prep_call = "prep_call"  # Preparation Call (pre-screening telefoniczny)

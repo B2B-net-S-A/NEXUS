@@ -4481,7 +4481,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
-    # 0316: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
+    # 0317: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
     # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
     # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
     "ALTER TYPE pipelinestage ADD VALUE IF NOT EXISTS 'posting'",

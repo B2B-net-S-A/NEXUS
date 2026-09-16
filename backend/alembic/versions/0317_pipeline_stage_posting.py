@@ -1,7 +1,7 @@
 """Etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi".
 
-Revision ID: 0316_pipeline_stage_posting
-Revises: 0315_integration_external_items
+Revision ID: 0317_pipeline_stage_posting
+Revises: 0316_order_mail_auto_recheck
 
 Why:
 - Kandydaci z ogłoszeń (pracuj.pl / JJIT, auto-match integracji) wpadali na
@@ -20,8 +20,8 @@ Why:
 
 from alembic import op
 
-revision = "0316_pipeline_stage_posting"
-down_revision = "0315_integration_external_items"
+revision = "0317_pipeline_stage_posting"
+down_revision = "0316_order_mail_auto_recheck"
 branch_labels = None
 depends_on = None
 

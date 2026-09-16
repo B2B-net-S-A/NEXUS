@@ -30,7 +30,7 @@ from app.services.traffit.mappers import TRAFFIT_MAPPED_LEGACY_STAGES
 
 # Etapy SPRZED lejka — nie są etapami lejka rekrutacyjnego, więc pytanie
 # „czy Traffit je zapełnia" nie ma sensu i nie mogą zaniżać pokrycia metryk.
-# `posting` (migracja 0316) to poczekalnia auto-matchu z ogłoszeń: kandydat
+# `posting` (migracja 0317) to poczekalnia auto-matchu z ogłoszeń: kandydat
 # wchodzi do lejka dopiero, gdy rekruter przeniesie go na „Nowi".
 PRE_FUNNEL_STAGES: frozenset[str] = frozenset({PipelineStage.posting.value})
 
