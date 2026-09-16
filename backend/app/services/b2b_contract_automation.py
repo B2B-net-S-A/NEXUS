@@ -31,6 +31,12 @@ from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.contract_candidate_contact import (
+    EMAIL_MAX_LENGTH,
+    PHONE_MAX_LENGTH,
+    normalize_email,
+    normalize_phone,
+)
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
@@ -304,6 +310,35 @@ def _collect_term_conflicts(
     return conflicts
 
 
+def fill_candidate_contact(contract: Contract, payload: Any | None) -> list[str]:
+    """Przepisz kontakt konsultanta z „Danych Partnera" na umowę — fill-only.
+
+    E-mail i telefon wpisane w generatorze są jedynym miejscem, gdzie ta osoba
+    podała kontakt „do tej umowy"; bez tego kroku przeżywały wyłącznie
+    w ``render_payload`` i w treści DOCX, więc karta kontraktu nie miała ich
+    skąd wziąć.
+
+    **Nigdy nie nadpisuje** — także przy ``replace_skeletal_defaults``. Kolumna
+    na umowie jest NADPISANIEM ustawionym przez człowieka albo przez generator;
+    ręczna poprawka Delivery („dzwoniłem, numer jest inny") musi wygrać
+    z dokumentem, który podpisano wcześniej. Pusta kolumna i tak czyta się
+    z profilu kandydata, więc pominięcie niczego nie gubi.
+
+    Zwraca nazwy uzupełnionych pól — do audytu, nie do sterowania przepływem.
+    """
+
+    filled: list[str] = []
+    email = normalize_email(_payload_value(payload, "partner_email"))
+    if email and not (contract.candidate_email or "").strip():
+        contract.candidate_email = email[:EMAIL_MAX_LENGTH]
+        filled.append("candidate_email")
+    phone = normalize_phone(_payload_value(payload, "partner_phone"))
+    if phone and not (contract.candidate_phone or "").strip():
+        contract.candidate_phone = phone[:PHONE_MAX_LENGTH]
+        filled.append("candidate_phone")
+    return filled
+
+
 def _fill_contract_terms(
     contract: Contract,
     payload: Any | None,
@@ -326,6 +361,7 @@ def _fill_contract_terms(
         # the client/revenue alias once that side is populated.
         contract.currency = payload_currency or "PLN"
     contract.rate_unit = RateUnit.hourly
+    fill_candidate_contact(contract, payload)
 
 
 def _complete_absent_terms(contract: Contract, payload: Any | None) -> bool:
@@ -358,6 +394,9 @@ def _complete_absent_terms(contract: Contract, payload: Any | None) -> bool:
     )
     if rate_free:
         contract.rate_candidate = _payload_value(payload, "rate_candidate")
+    # Kontakt jest poza sporem o warunki handlowe — uzupełnia się także wtedy,
+    # gdy operator zachował warunki istniejącej umowy (`keep_existing_terms`).
+    fill_candidate_contact(contract, payload)
     return rate_free
 
 

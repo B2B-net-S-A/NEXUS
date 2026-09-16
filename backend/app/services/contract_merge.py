@@ -158,6 +158,13 @@ _KNOWN_CONTRACT_FKS = {
 # enrichment.  New columns remain untouched until deliberately reviewed.
 _MERGEABLE_FIELDS = (
     "candidate_subject_ref",
+    # Kontakt do konsultanta (migracja 0318) — dokładnie ta sama klasa co
+    # `client_pm_email`: duplikaty opisują TĘ SAMĄ osobę u tego samego klienta,
+    # więc przejęcie wypełnionej wartości od przegranego wiersza jest bezstratne.
+    # Pusta kolumna i tak czyta się z profilu kandydata, więc scalenie nigdy nie
+    # gubi kontaktu — najwyżej przestaje go nadpisywać.
+    "candidate_email",
+    "candidate_phone",
     "job_id",
     "start_date",
     "end_date",
