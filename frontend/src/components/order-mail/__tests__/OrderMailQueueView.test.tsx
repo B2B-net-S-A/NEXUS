@@ -96,6 +96,70 @@ describe("OrderMailQueueView", () => {
     expect(screen.getByTestId("order-mail-list")).toHaveTextContent("03.03.2031");
   });
 
+  it("proposes the person already in the base instead of a new contractor", () => {
+    // Zgłoszenie PKO BP: dokument trafił na zdublowany rekord klienta, więc
+    // osoba wyszła jako „nowy kontraktor". Kolejka ma najpierw powiedzieć,
+    // KOGO znaleziono — etykieta akcji schodzi pod podpowiedź.
+    const reason =
+      "„Piotr Michałowski” (#11) ma kontrakt #456 u klienta „Powszechna Kasa Oszczędności Bank Polski S.A”.";
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[
+          doc({
+            proposal: {
+              client_id: 1,
+              order_number: "1893/2031",
+              is_group_client: false,
+              blocking: [],
+              rows: [
+                {
+                  row_index: 0, row_name: "Piotr Michałowski", action: "new_draft",
+                  candidate_id: null, contract_id: null, target_order_id: null,
+                  title: "1893/2031", start_date: "2031-10-01", end_date: "2031-12-31",
+                  rate_client: null, rate_unit: "day", md_total: null,
+                  reasons: [reason], existing_person_ids: [11],
+                },
+              ],
+            },
+          }),
+        ]}
+      />,
+    );
+    const hint = screen.getByTestId("person-already-in-base");
+    expect(hint).toHaveTextContent("Osoba jest już w bazie — potwierdź tożsamość");
+    expect(hint).toHaveTextContent("kontrakt #456");
+    expect(hint).toHaveTextContent("Po potwierdzeniu: Nowy kontraktor — utworzy draft");
+  });
+
+  it("keeps the plain action label for a genuinely new person", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[
+          doc({
+            proposal: {
+              client_id: 1, order_number: "7/2031", is_group_client: false, blocking: [],
+              rows: [
+                {
+                  row_index: 0, row_name: "Zenon Nowy", action: "new_draft",
+                  candidate_id: null, contract_id: null, target_order_id: null,
+                  title: "7/2031", start_date: "2031-04-01", end_date: "2031-06-30",
+                  rate_client: null, rate_unit: "day", md_total: null,
+                  reasons: [], existing_person_ids: [],
+                },
+              ],
+            },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId("person-already-in-base")).toBeNull();
+    expect(screen.getByText("Nowy kontraktor — utworzy draft")).toBeInTheDocument();
+  });
+
   it("apply is disabled without rights and calls back with rights", () => {
     const onApply = vi.fn();
     const { rerender } = render(<OrderMailQueueView {...base} onApply={onApply} state="ready" items={[doc({ can_apply: false })]} />);

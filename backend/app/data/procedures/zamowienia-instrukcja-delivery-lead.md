@@ -631,6 +631,25 @@ stawek oraz budżety zamówień kosztowych i MD nadal wymagają kontroli.
 Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
 zapis dokumentu i pozostawia konkretny powód weryfikacji.
 
+**Automatycznie zakładany jest tylko kontraktor, którego w bazie NIE MA.**
+Jeżeli osoby nie ma wśród konsultantów tego klienta, ale ktoś o dokładnie tym
+imieniu i nazwisku jest już w bazie, dokument czeka w **„Do weryfikacji”**,
+a kolejka pisze wprost, kogo znalazła — na przykład „Piotr Michałowski (#11)
+ma kontrakt #456 u klienta „Powszechna Kasa Oszczędności Bank Polski S.A””.
+Sprawdź wtedy dwie rzeczy: czy dokument nie dotyczy **tego samego klienta
+zapisanego pod drugim rekordem** (wtedy zamówienie należy do istniejącej
+współpracy, a nie do nowego kontraktora), i czy to na pewno ta sama osoba,
+a nie imiennik. Dopiero potem „Zastosuj” — zapis dopnie istniejącą kartotekę
+zamiast zakładać drugą. Kilku różnych ludzi o tym samym imieniu i nazwisku
+system wypisuje z numerami i **nie wybiera żadnego**.
+
+**Numer NIP prowadzi do klienta kanonicznego.** Scalenie zdublowanego rekordu
+klienta („Scal z…”) działa też na pocztę zamówień: kolejne dokumenty z tym
+numerem trafiają do rekordu, który po scaleniu został, razem z jego listą
+konsultantów. Jeżeli ten sam numer widnieje przy **dwóch osobnych** klientach,
+system nie zgaduje — dokument trafia do „Do weryfikacji” jako nierozpoznany
+klient, dopóki duplikat nie zostanie scalony.
+
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
 Jeśli podpisana umowa była pierwsza, koszt jest uzupełniany już przy odczycie maila.

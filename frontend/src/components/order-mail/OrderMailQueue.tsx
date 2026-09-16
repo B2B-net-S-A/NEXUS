@@ -428,8 +428,27 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
                 )}
               </td>
               <td>
-                <div>{ORDER_MAIL_ACTION_LABEL[r.action]}</div>
-                {r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)}
+                {(r.existing_person_ids?.length ?? 0) > 0 ? (
+                  // Plan nadal zakłada szkic, ale domyślną odpowiedzią nie jest
+                  // „nowy kontraktor": osoba o tym imieniu i nazwisku JEST
+                  // w bazie. Podpowiedź musi być czytelna, nie szara adnotacja.
+                  <div data-testid="person-already-in-base">
+                    <div className="font-medium text-amber-700 dark:text-amber-400">
+                      Osoba jest już w bazie — potwierdź tożsamość
+                    </div>
+                    {r.reasons.map((x) => (
+                      <div key={x} className="text-xs text-amber-700 dark:text-amber-400">{x}</div>
+                    ))}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Po potwierdzeniu: {ORDER_MAIL_ACTION_LABEL[r.action]}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>{ORDER_MAIL_ACTION_LABEL[r.action]}</div>
+                    {r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)}
+                  </>
+                )}
               </td>
             </tr>
           ))}

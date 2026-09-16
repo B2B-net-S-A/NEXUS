@@ -62,6 +62,12 @@ export interface OrderMailProposalRow {
   md_total: string | null;
   reasons: string[];
   order_type?: string;
+  /**
+   * Kandydaci o tym samym imieniu i nazwisku spoza rostera klienta. Niepusta
+   * lista przy `new_draft` znaczy: nie proponuj nowego kontraktora jako
+   * domyślnej opcji — najpierw pokaż, kogo znaleziono (`reasons`).
+   */
+  existing_person_ids?: number[];
 }
 
 /** Dokument rozstrzygnięty w oknie zamówienia klienta (osoba nieaktywna/nieznaleziona). */

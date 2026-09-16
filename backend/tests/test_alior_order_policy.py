@@ -37,6 +37,7 @@ from app.services.order_policies import (
     policy_by_key,
 )
 from app.services.order_policies import alior
+from tests.conftest import db_without_client_merges
 
 POLICIES = [policy_by_key("alior")]
 
@@ -1045,7 +1046,7 @@ async def test_przelicz_plan_reapplies_the_rule_without_the_model(
         return planned, resolved, {7001: (None, "hour")}
 
     monkeypatch.setattr(ingest, "current_proposal", proposal)
-    await ingest.refresh_review_plan(AsyncMock(), row)
+    await ingest.refresh_review_plan(db_without_client_merges(), row)
 
     assert row.extraction["uncertain"] is False
     assert row.extraction["uncertain_reasons"] == []

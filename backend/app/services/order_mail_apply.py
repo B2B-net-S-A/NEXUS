@@ -143,7 +143,12 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         if _names_exactly_equivalent(rp["row_name"], f"{c.name} {c.lastname}")
     ]
     if len(matches) > 1:
-        raise ValueError("Kilka osób o tym imieniu i nazwisku w bazie — wybierz osobę")
+        # Nazwij imienników: „wybierz osobę" bez listy nie mówi, gdzie wybierać.
+        who = ", ".join(f"„{c.name} {c.lastname}” (#{c.id})" for c in matches[:5])
+        raise ValueError(
+            f"Kilka osób o tym imieniu i nazwisku w bazie ({who}) — wskaż osobę "
+            "ręcznie w oknie zamówienia u tego klienta"
+        )
     if matches and actor_user_id is None:
         existing = matches[0]
         raise ValueError(

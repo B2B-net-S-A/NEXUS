@@ -16,6 +16,7 @@ from app.services.order_pdf_parser import (
     apply_pfron_order_policy,
     erste_extract_rows,
 )
+from tests.conftest import db_without_client_merges
 
 
 def extraction(name="Konrada Korcza", rate="100.08", **kwargs):
@@ -216,12 +217,12 @@ async def test_saved_extraction_refresh_preserves_identity_and_never_calls_model
     planner = AsyncMock()
     monkeypatch.setattr(svc, "_plan_and_gate", planner)
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", True)
-    await svc.refresh_review_plan(AsyncMock(), row)
+    await svc.refresh_review_plan(db_without_client_merges(), row)
     assert row.extraction["consultant_rows"][0]["rate_client"] == "81.37"
     assert row.extraction["title"] == saved["title"]
     assert row.client_id == 99
     assert row.error is None
     parser.assert_not_called()
     assert planner.call_args.args[-2:] == (99, "registry_id")
-    await svc.refresh_review_plan(AsyncMock(), row)
+    await svc.refresh_review_plan(db_without_client_merges(), row)
     assert row.extraction["consultant_rows"][0]["rate_client"] == "81.37"
