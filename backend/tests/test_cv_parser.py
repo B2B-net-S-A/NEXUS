@@ -280,7 +280,10 @@ async def test_parse_cv_prefers_claude_over_ollama(monkeypatch):
         "_source": "claude:cv_enrichment:v4",
     }
 
-    async def _claude_mock(_text):  # type: ignore[no-untyped-def]
+    claude_models: list = []
+
+    async def _claude_mock(_text, *, model=None):  # type: ignore[no-untyped-def]
+        claude_models.append(model)
         return claude_payload
 
     async def _ollama_fail(*_a, **_k):  # type: ignore[no-untyped-def]
@@ -292,6 +295,8 @@ async def test_parse_cv_prefers_claude_over_ollama(monkeypatch):
     out = await cvp.parse_cv("cv text")
     assert out["companies"] == ["ClaudeCorp"]
     assert out["_source"] == "claude:cv_enrichment:v4"
+    # Wołający bez `model` zostaje przy modelu parsera CV (domyślna wartość kroku).
+    assert claude_models == [None]
 
 
 @pytest.mark.asyncio
@@ -310,7 +315,7 @@ async def test_parse_cv_falls_back_to_ollama_when_claude_fails(monkeypatch):
         "_source": "ollama:cv_enrichment:v4",
     }
 
-    async def _claude_mock(_text):  # type: ignore[no-untyped-def]
+    async def _claude_mock(_text, *, model=None):  # type: ignore[no-untyped-def]
         return None
 
     async def _ollama_mock(_text):  # type: ignore[no-untyped-def]

@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.m365 import M365Connection
@@ -57,6 +58,7 @@ from app.models.order_mail import (
     OrderMailDocument,
 )
 from app.services import storage_service
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.m365.app_graph_client import AppGraphClient
 from app.services.m365.app_mail import app_only_credentials_configured
 from app.services.m365.graph_client import GraphClient
@@ -538,8 +540,8 @@ async def process_pdf_bytes(
             row.document_meta = {"ignored_non_order": True, "reason": reason}
             return row
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
-    extraction = await parse_order_document(
-        prepare_parser_text(doc.text, policies), all_rows=True
+    extraction = await read_order_with_model(
+        db, prepare_parser_text(doc.text, policies), fallback_when_blocked=True
     )
     extraction, applied = apply_policies(
         extraction,
@@ -739,6 +741,52 @@ def ai_extraction_available() -> bool:
     return bool(key) and bool(settings.ORDER_EXTRACTION_ENABLED)
 
 
+def _quota_block_reason(exc: AIQuotaExceeded) -> str:
+    return f"odczyt AI zablokowany w ustawieniach AI ({exc.reason})"
+
+
+async def read_order_with_model(
+    db: AsyncSession,
+    parser_text: str,
+    *,
+    fallback_when_blocked: bool,
+    release_connection: bool = False,
+) -> OrderExtraction:
+    """Odczyt all-rows modelem pod kwotą ``order_parser`` (aktor: system).
+
+    Do 09.2026 poczta zamówień wołała model POZA bramką: każde wywołanie było
+    „UNGATED”, nie trafiało do ``ai_operations``/``ai_provider_calls``, więc nie
+    widziały go ani wyłącznik funkcji w Ustawieniach → AI, ani limit, ani alarm
+    wydatków — telemetria pokazywała wyłącznie ręczne odczyty z formularzy.
+
+    Operacja powstaje tylko wtedy, gdy model może ruszyć (klucz i
+    ``ORDER_EXTRACTION_ENABLED``); bez tego parser od razu daje odczyt awaryjny
+    z własnym powodem, jak dotąd, i nic nie nalicza.
+
+    Odmowa kwoty (wyłączona funkcja, limit) NIE zatrzymuje poczty: przy
+    ``fallback_when_blocked`` dokument dostaje odczyt awaryjny z powodem
+    widocznym w kolejce, a ponowienie odczytu AI spróbuje, gdy kwota pozwoli.
+    Bez tej flagi wyjątek leci do wołającego (ponowienie nie zużywa wtedy próby).
+
+    ``release_connection`` oddaje połączenie po przyjęciu operacji — ponowienie
+    w tle nie może trzymać transakcji przez minuty odpowiedzi modelu.
+    """
+    if not ai_extraction_available():
+        return await parse_order_document(parser_text, all_rows=True)
+    try:
+        async with ai_feature(db, AIFeatureKey.order_parser):
+            if release_connection:
+                await db.commit()
+            return await parse_order_document(parser_text, all_rows=True)
+    except AIQuotaExceeded as exc:
+        if not fallback_when_blocked:
+            raise
+        logger.warning("order_mail: odczyt AI zablokowany przez kwotę: %s", exc)
+        return await parse_order_document(
+            parser_text, all_rows=True, ai_blocked_reason=_quota_block_reason(exc)
+        )
+
+
 def _needs_ai_retry(row: Optional[OrderMailDocument]) -> bool:
     if row is None or row.outcome != OUTCOME_NEEDS_REVIEW or not row.client_id:
         return False
@@ -798,9 +846,21 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
             doc = dataclasses.replace(
                 doc, text=prepare_document_text(doc.text, policies)
             )
-            parsed = await parse_order_document(
-                prepare_parser_text(doc.text, policies), all_rows=True
+            parsed = await read_order_with_model(
+                db,
+                prepare_parser_text(doc.text, policies),
+                fallback_when_blocked=False,
+                release_connection=True,
             )
+        except AIQuotaExceeded as exc:
+            # Kwota to decyzja administratora, nie awaria dokumentu: próba nie
+            # zużywa limitu ponowień, a pozostałe wpisy poczekają na bieg, w
+            # którym kwota znów pozwoli (ta sama funkcja zablokuje każdy z nich).
+            logger.warning(
+                "order_mail: ponowienie odczytu AI wstrzymane przez kwotę: %s", exc
+            )
+            await db.rollback()
+            break
         except Exception as exc:  # noqa: BLE001 — jeden wpis nie wywraca biegu
             logger.exception("order_mail: AI re-read failed for doc %s", doc_id)
             parsed = None
