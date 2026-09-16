@@ -64,9 +64,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // error -> /login?error=...). Fall back to a friendly login error only if the
   // backend is unreachable. Use the public app URL — req.nextUrl.origin is the
   // container's internal bind (0.0.0.0:3000) behind Coolify/Traefik.
-  const fallback = `${APP_URL}/login?error=${encodeURIComponent(
-    "Logowanie przez Microsoft nie powiodło się — spróbuj ponownie."
-  )}`;
+  // Stabilny kod, nie gotowe zdanie — tłumaczy go `lib/sso-error.ts`, tak samo
+  // jak kody wysyłane przez backend. Dzięki temu wszystkie komunikaty ekranu
+  // logowania mieszkają w jednym miejscu.
+  const fallback = `${APP_URL}/login?error=backend_unreachable`;
 
   return NextResponse.redirect(location ?? fallback, 302);
 }
