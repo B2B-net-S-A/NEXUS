@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 15.09.2026
+> **Zgodność z systemem sprawdzona:** 16.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -677,6 +677,14 @@ aktualnymi powodami. Powód awarii AI widać w banerze, np. „Odczyt awaryjny (
 przekroczony czas odpowiedzi AI) — sprawdź zgodność pól z PDF". Po trzech
 nieudanych próbach dochodzi komunikat „Ponowny odczyt AI nie powiódł się 3×" —
 wtedy sprawdź pola z PDF i zastosuj ręcznie albo odrzuć.
+
+**Gdy odczyt AI jest wyłączony albo wyczerpał miesięczny limit** (Ustawienia →
+AI), poczta działa dalej: mail dostaje odczyt awaryjny z powodem „Odczyt
+awaryjny (AI: odczyt AI zablokowany w ustawieniach AI …)" i czeka w weryfikacji.
+Taka odmowa **nie zużywa** żadnej z trzech prób ponownego odczytu — system
+spróbuje znowu, gdy limit pozwoli. Od 09.2026 odczyty z poczty są też liczone
+w telemetrii AI (Ustawienia → AI pokazuje je jako `order_parser`); wcześniej
+widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
 
 ## Co system robi sam
 
