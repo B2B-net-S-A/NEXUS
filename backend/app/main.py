@@ -57,6 +57,7 @@ from app.api import (
 )
 from app.api import candidate_search, requirement_verifications
 from app.api import activities
+from app.api import integrations_runs as integrations_runs_api
 from app.api import admin
 from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
@@ -678,6 +679,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
+    from app.tasks.integration_stale_alerts import (
+        integration_stale_alerts_loop,
+    )
     from app.tasks.insights_seniority_journal import (
         insights_seniority_journal_loop,
     )
@@ -780,6 +784,11 @@ async def lifespan(app: FastAPI):
         "order_gaps": asyncio.create_task(order_gaps_loop()),
         "insights_seniority_journal": asyncio.create_task(
             insights_seniority_journal_loop()
+        ),
+        # Zastój scraperów pracuj/JJIT → Slack (cooldown w DB). Kill-switch
+        # INTEGRATION_STALE_ALERTS_ENABLED przed pętlą.
+        "integration_stale_alerts": asyncio.create_task(
+            integration_stale_alerts_loop()
         ),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
@@ -1232,6 +1241,18 @@ app.include_router(
 app.include_router(
     insights_charts.router,
     prefix="/api/insights/charts",
+    tags=["insights"],
+)
+# Integracje zewnętrzne (scrapery pracuj.pl / JJIT): zapis runów przez token
+# klienta OAuth, odczyt w Insights → Integracje. Migracja 0312.
+app.include_router(
+    integrations_runs_api.writer,
+    prefix="/api/integrations",
+    tags=["integrations"],
+)
+app.include_router(
+    integrations_runs_api.reader,
+    prefix="/api/insights/integrations",
     tags=["insights"],
 )
 # Uzgodnienie placementów: JEDEN wiersz na placement w OBU rodzinach

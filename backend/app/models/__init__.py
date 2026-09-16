@@ -95,6 +95,11 @@ from app.models.candidate_contact import (
     CandidateContactTraffitLedger,
 )
 from app.models.traffit_sync_state import TraffitSyncState
+from app.models.integration_run import (
+    IntegrationAlertState,
+    IntegrationRun,
+    IntegrationRunEvent,
+)
 from app.models.traffit_integration import (
     IntegrationLease,
     TraffitEntityLink,
@@ -313,6 +318,9 @@ from app.models.match_telemetry import MatchImpression, MatchOutcome  # noqa: F4
 from app.models.index_outbox import IndexOutboxEvent  # noqa: F401
 
 __all__ = [
+    "IntegrationAlertState",
+    "IntegrationRun",
+    "IntegrationRunEvent",
     "CandidateMatchJustification",
     "CandidateActivitySummary",
     "MatchImpression",

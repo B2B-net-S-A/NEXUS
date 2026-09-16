@@ -1392,6 +1392,17 @@ class Settings(BaseSettings):
     # wykryje niczego więcej — zapis powstaje wyłącznie przy ZMIANIE.
     INSIGHTS_SENIORITY_JOURNAL_INTERVAL_HOURS: float = 24.0
 
+    # ── Integracje zewnętrzne (scrapery pracuj.pl / JJIT) ───────────────────
+    # Pętla alertów o zastoju: `false` → kończy się PRZED pętlą, badge „stale"
+    # w Insights liczy się dalej z tej samej reguły (services.integration_runs).
+    INTEGRATION_STALE_ALERTS_ENABLED: bool = True
+    # Doba harmonogramu + 2 h zapasu na launchd/caffeinate na Macu.
+    INTEGRATION_STALE_AFTER_HOURS: float = 26.0
+    INTEGRATION_STALE_CHECK_MINUTES: float = 30.0
+    # Jeden alert Slack na źródło na dobę; stan w `integration_alert_state`,
+    # żeby restart (deploy) nie wysyłał go od nowa.
+    INTEGRATION_ALERT_COOLDOWN_HOURS: float = 24.0
+
     # ── Powiadomienia Delivery Leada ────────────────────────────────────────
     # Kill-switch całej sekcji: `false` → skaner kończy się przed pętlą, a
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
