@@ -30,6 +30,7 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
@@ -158,10 +159,9 @@ async def enrich_candidate_from_cv_bytes(
 
     Does NOT commit — the caller owns the transaction. Never raises on
     extraction/parse failure: those degrade to the filename fallback so a
-    nameless row can still be partially resolved.
+    nameless row can still be partially resolved. The one exception is
+    ``AIQuotaExceeded`` — the run's quota brake, not a broken CV.
     """
-    from app.services.cv_parser import parse_cv
-
     result: dict[str, Any] = {
         "text_extracted": False,
         "parsed": False,
@@ -169,7 +169,13 @@ async def enrich_candidate_from_cv_bytes(
         "resolved": False,
         "email_collision": False,
         "identity_quarantined": False,
+        "skipped_reason": None,
     }
+
+    cv_hash = hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
+    if _model_already_read(candidate, cv_hash):
+        result["skipped_reason"] = "cv_already_read_by_model"
+        return result
 
     raw_text: Optional[str] = None
     if cv_bytes:
@@ -187,17 +193,15 @@ async def enrich_candidate_from_cv_bytes(
     if raw_text and raw_text.strip():
         result["text_extracted"] = True
         try:
-            parsed = (
-                await parse_cv(
-                    raw_text,
-                    prefer_llm=prefer_llm,
-                    model=model_for(AIFeatureKey.cv_name_backfill),
-                )
-                or {}
-            )
+            parsed = await _parse_cv_for_names(db, raw_text, prefer_llm=prefer_llm)
             result["parsed"] = True
             if parsed.get("first_name"):
                 result["name_source"] = "cv"
+        except AIQuotaExceeded:
+            # Hamulec BIEGU, nie zepsute CV: `backfill_missing_names` zatrzymuje
+            # na nim przebieg. Połknięty tutaj zdegradowałby odczyt do imienia
+            # z nazwy pliku pod tym samym stemplem co dobre dane.
+            raise
         except Exception as e:  # noqa: BLE001 — parse is best-effort
             logger.warning("[cv_backfill] parse_cv failed cand=%s: %s", candidate.id, e)
 
@@ -218,7 +222,7 @@ async def enrich_candidate_from_cv_bytes(
             record_detected_identity,
         )
 
-        content_hash = hashlib.sha256(cv_bytes).hexdigest() if cv_bytes else None
+        content_hash = cv_hash
         document_id = (
             await db.scalar(
                 select(CandidateDocument.id).where(
@@ -286,6 +290,57 @@ async def enrich_candidate_from_cv_bytes(
         )
     result["resolved"] = _name_resolved(candidate)
     return result
+
+
+def _model_already_read(candidate: Candidate, cv_hash: Optional[str]) -> bool:
+    """Ten sam plik CV przeszedł już przez Claude'a — drugi odczyt nic nie wniesie.
+
+    Zbiór „?" nie kurczy się sam: CV bez imienia zostaje w nim na zawsze, a
+    pełny bieg Traffita przemiata go co noc, dopóki inne fazy mają zaległy
+    przegląd. Bez tej bramki każdy taki kandydat kosztowałby jedno płatne
+    wywołanie (i ponowny odczyt tekstu, czasem OCR) na KAŻDY bieg — na
+    produkcji (09.2026) cały zbiór „?" wracał w kolejnych nocnych biegach.
+    Wystarcza to, co wzbogacenie już zapisuje w ``cv_highlights``: skrót pliku
+    i wersja ekstraktora. Nowe CV ma inny skrót, więc dostaje nowy odczyt;
+    zapis bez skrótu (inne ścieżki odczytu CV) nie blokuje niczego. Bramka
+    obejmuje też przebieg bez modelu (``prefer_llm=False``): regex nie znajdzie
+    imienia, którego nie znalazł model, a jego wynik nadpisałby
+    ``cv_extracted_data`` odczytem gorszym od zapisanego.
+    """
+    if not cv_hash:
+        return False
+    extracted = candidate.cv_extracted_data
+    highlights = extracted.get("cv_highlights") if isinstance(extracted, dict) else None
+    if not isinstance(highlights, dict) or highlights.get("source_hash") != cv_hash:
+        return False
+    return str(highlights.get("extractor_version") or "").startswith("claude:")
+
+
+def _claude_step_can_run() -> bool:
+    """Te same warunki, pod którymi ``cv_parser._parse_with_claude`` woła model."""
+    return bool(settings.ANTHROPIC_API_KEY) and bool(settings.CV_ENRICHMENT_ENABLED)
+
+
+async def _parse_cv_for_names(
+    db: Optional[AsyncSession], raw_text: str, *, prefer_llm: bool
+) -> dict[str, Any]:
+    """Odczyt CV modelem ``cv_name_backfill`` pod jego kwotą — i tylko wtedy.
+
+    Operacja kwoty powstaje wyłącznie tuż przed płatnym krokiem: jest tekst,
+    jest klucz i włączony odczyt CV. Do 09.2026 bramka otaczała cały wiersz
+    biegu, więc naliczała operację także kandydatom bez pliku albo bez tekstu,
+    a od #1363 wywołanie ``parse_cv(model=…)`` rzucało ``TypeError`` łapany
+    niżej — żadna z operacji tej funkcji nie docierała do modelu, a nazwisko
+    brało się z nazwy pliku. Ollama i regex są darmowe, więc idą bez bramki;
+    bez sesji (testy jednostkowe) operacji nie ma gdzie naliczyć.
+    """
+    from app.services.cv_parser import parse_cv
+
+    model = model_for(AIFeatureKey.cv_name_backfill)
+    if not prefer_llm or db is None or not _claude_step_can_run():
+        return await parse_cv(raw_text, prefer_llm=prefer_llm, model=model) or {}
+    async with ai_feature(db, AIFeatureKey.cv_name_backfill):
+        return await parse_cv(raw_text, prefer_llm=True, model=model) or {}
 
 
 async def backfill_candidate_from_stored_cv(
@@ -399,23 +454,17 @@ async def backfill_missing_names(
         try:
             # Kwota `cv_name_backfill` — OSOBNY kubełek od `cv_backfill`, mimo
             # mylnie podobnych nazw modułów: tamten należy do
-            # `cv_field_backfill.py`. Bramka stoi na poziomie BIEGU, a nie
-            # w `enrich_candidate_from_cv_bytes`, z dwóch powodów. Pierwszy
-            # jest projektowy: hamulec kwotowy dotyczy przebiegu, nie
-            # pojedynczego CV, więc mieszka tam, gdzie przebieg da się
-            # zatrzymać — dokładnie jak w `cv_field_backfill`. Drugi wyszedł
-            # z testów: w funkcji enrichmentu każda awaria bramki wpadałaby
-            # w tamtejsze `except Exception` („parse is best-effort") i CICHO
-            # degradowała odczyt CV do imienia z nazwy pliku.
-            async with ai_feature(db, AIFeatureKey.cv_name_backfill):
-                await backfill_candidate_from_stored_cv(
-                    db, candidate, prefer_llm=prefer_llm
-                )
-                # Commit WEWNĄTRZ bloku: `_persist_token_usage` w `finally`
-                # ai_feature otwiera własną sesję i UPDATE-uje wiersz zużycia —
-                # bez wcześniejszego commitu wiersz check_and_increment jest
-                # niewidoczny (READ COMMITTED) i tokeny przepadają.
-                await db.commit()
+            # `cv_field_backfill.py`. Operację nalicza `_parse_cv_for_names`
+            # tuż przed płatnym krokiem, a nie ta pętla wokół całego wiersza:
+            # kandydat bez pliku albo bez tekstu nie kosztuje nic i nie może
+            # zawyżać zużycia. Hamulec dalej dotyczy BIEGU — `AIQuotaExceeded`
+            # przelatuje przez enrichment (który go celowo nie łapie) i trafia
+            # do `except` niżej. Operacja i odpowiedzi dostawcy zapisują się
+            # we własnych sesjach, więc commit nie musi stać wewnątrz bramki.
+            await backfill_candidate_from_stored_cv(
+                db, candidate, prefer_llm=prefer_llm
+            )
+            await db.commit()
             if _name_resolved(candidate):
                 stats["resolved"] += 1
             else:

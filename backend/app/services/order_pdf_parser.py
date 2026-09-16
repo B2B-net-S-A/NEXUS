@@ -2939,6 +2939,7 @@ async def parse_order_document(
     consultant_given_names: Optional[str] = None,
     consultant_rate_unit_default: Optional[str] = None,
     all_rows: bool = False,
+    ai_blocked_reason: Optional[str] = None,
 ) -> OrderExtraction:
     """Odczytaj pola zamówienia z tekstu dokumentu. Na treści nigdy nie rzuca.
 
@@ -2947,6 +2948,10 @@ async def parse_order_document(
     zwijania do pól dokumentu. Jest wykluczające z ``consultant_name``: tryb
     targetowany wybiera jedną osobę, all-rows żadnej; podanie obu to błąd
     programisty, nie danych, więc ``ValueError``.
+
+    ``ai_blocked_reason`` pomija model i od razu daje odczyt awaryjny z tym
+    powodem — dla wołającego, któremu kwota AI odmówiła (poczta zamówień nie
+    może się przez to zatrzymać, a powód ma być widoczny w kolejce).
     """
     if all_rows and consultant_name:
         raise ValueError("all_rows=True wyklucza consultant_name")
@@ -2958,7 +2963,10 @@ async def parse_order_document(
         )
 
     _AI_FAILURE.set(None)
-    if all_rows:
+    if ai_blocked_reason is not None:
+        _AI_FAILURE.set(ai_blocked_reason)
+        result = None
+    elif all_rows:
         result = await _extract_all_rows_with_claude(text)
     else:
         result = await _extract_with_claude(
