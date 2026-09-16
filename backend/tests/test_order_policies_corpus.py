@@ -12,6 +12,8 @@ Lata w datach: 2031+ (wolny zakres w bazie testowej, patrz CLAUDE.md).
 
 from decimal import Decimal
 
+import pytest
+
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 from app.services.order_policies import (
     PolicyContext,
@@ -247,6 +249,145 @@ class TestPkoBpInlineProfile:
         assert reapplies_on_refresh(policies) is True
         assert "pko_bp" in rule_versions(policies)
         assert parse_plan(policies).all_rows is False
+
+
+def _pko_document(*rows: str) -> str:
+    """Układ pdfplumber: nagłówki tabeli, potem wiersz osoby w JEDNEJ linii."""
+    head = (
+        "PKO Bank Polski SA\n"
+        "Zamówienie nr 1994/2031\n"
+        "Zgodnie z postanowieniem Umowy ramowej numer DIT-2031-0005 …\n"
+        "1. Wykonawcy, Profile, Terminy, Stawki:\n"
+        "Imię i nazwisko Początek Planowany Koniec Stawka\n"
+        "Profil Liczba MD Lokalizacja Numer SSGW\n"
+        "Wykonawców Zaangażowania Zaangażowania PLN/MD netto\n"
+    )
+    body = "".join(f"{row}\n" for row in rows)
+    return head + body + "Łączna wartość zamówienia wynosi: 74 400,00 PLN netto.\n"
+
+
+class TestPkoBpMdRateSplit:
+    """Stawka od 1 000 zł: „58 1 240,00" to 58 MD po 1240 zł, nie 581 MD po 240 zł.
+
+    Do 09.2026 dzielił te liczby jeden regex z nawrotami — wynik szedł do pól
+    dokumentu bez zastrzeżenia, a stawki PKO BP za MD bywają czterocyfrowe.
+    """
+
+    @pytest.mark.parametrize(
+        ("tail", "expected"),
+        [
+            (" 64 900,00 Warszawa 103587-1", (Decimal("64"), Decimal("900.00"))),
+            (" 58 1 240,00 Warszawa 103587-1", (Decimal("58"), Decimal("1240.00"))),
+            (
+                " 58 1\u00a0240,00 Warszawa 103587-1",
+                (Decimal("58"), Decimal("1240.00")),
+            ),
+            (" 58 1 240,00* Warszawa 103587-1", (Decimal("58"), Decimal("1240.00"))),
+            (" 120 1 240,00 Kraków 104214-2", (Decimal("120"), Decimal("1240.00"))),
+            (" 120 1.240,00 Kraków 104214-2", (Decimal("120"), Decimal("1240.00"))),
+            (" 40 1240,00 Warszawa 103587-1", (Decimal("40"), Decimal("1240.00"))),
+            (" 15 12 500,00 Gdańsk 104300-1", (Decimal("15"), Decimal("12500.00"))),
+        ],
+    )
+    def test_md_and_rate_split_without_guessing(self, tail, expected):
+        assert pko_bp.split_md_and_rate(tail) == (*expected, None)
+
+    def test_four_digit_rate_reaches_the_row_and_document(self):
+        text = _pko_document(
+            "Anna Przykładowa 2031-09-01 2031-11-30 58 1 240,00 Warszawa 103587-1"
+        )
+        rows = pko_bp.extract_rows(text)
+        assert [(r.md_total, r.rate_client, r.uncertain) for r in rows] == [
+            (Decimal("58"), Decimal("1240.00"), False)
+        ]
+        r = _run("pko_bp", text)
+        # Stary odczyt dawał tu 581 MD po 240,00 zł — bez żadnego zastrzeżenia.
+        assert (r.md_total, r.rate_client, r.rate_unit) == (
+            Decimal("58"),
+            Decimal("1240.00"),
+            "day",
+        )
+        assert r.uncertain is False
+
+    def test_negotiated_rate_with_profile_in_the_name_column(self):
+        text = _pko_document(
+            "Jan Przykładowy Tester Middle 2031-10-01 2031-12-31 63 1 880,00* "
+            "Warszawa 104214-1"
+        )
+        rows = pko_bp.extract_rows(text)
+        assert [
+            (r.consultant_name, r.md_total, r.rate_client, r.uncertain) for r in rows
+        ] == [("Jan Przykładowy", Decimal("63"), Decimal("1880.00"), False)]
+
+    def test_multi_row_table_keeps_every_person(self):
+        text = _pko_document(
+            "Anna Przykładowa 2031-09-01 2031-11-30 64 900,00 Warszawa 103587-1",
+            "Jan Przykładowy Tester Middle 2031-10-01 2031-12-31 120 1 240,00 "
+            "Kraków 104214-2",
+        )
+        rows = pko_bp.extract_rows(text)
+        assert [(r.consultant_name, r.md_total, r.rate_client) for r in rows] == [
+            ("Anna Przykładowa", Decimal("64"), Decimal("900.00")),
+            ("Jan Przykładowy", Decimal("120"), Decimal("1240.00")),
+        ]
+        r = _run("pko_bp", text)
+        # Kilka osób: okres i stawka są per wiersz, pola dokumentu puste.
+        assert (r.rate_client, r.md_total) == (None, None)
+        assert [row.consultant_name for row in r.consultant_rows] == [
+            "Anna Przykładowa",
+            "Jan Przykładowy",
+        ]
+
+    def test_cell_per_line_layout_reads_a_four_digit_rate(self):
+        text = (
+            "Numer SSGW\nJan Testowy\nTester Middle\n2031-01-01\n2031-03-31\n58\n"
+            "1 240,00*\nWarszawa\nŁączna wartość"
+        )
+        rows = pko_bp.extract_rows(text)
+        assert [(r.md_total, r.rate_client) for r in rows] == [
+            (Decimal("58"), Decimal("1240.00"))
+        ]
+
+    def test_md_with_thousands_separator_is_read_but_flagged(self):
+        # Jedyny możliwy odczyt: 1200 MD po 1240 zł — ale liczba MD ze spacją
+        # jest na tyle nietypowa, że wiersz dostaje ostrzeżenie.
+        md, rate, reason = pko_bp.split_md_and_rate(" 1 200 1 240,00 Warszawa 103587-1")
+        assert (md, rate) == (Decimal("1200"), Decimal("1240.00"))
+        assert reason == pko_bp.REASON_MD_SEPARATED
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            # „2 500 900,00" to 2 MD po 500 900 zł ALBO 2500 MD po 900 zł.
+            " 2 500 900,00 Warszawa 103587-1",
+            " 1 200 900,00 Kraków 104214-2",
+        ],
+    )
+    def test_two_readings_of_the_same_numbers_leave_no_values(self, tail):
+        assert pko_bp.split_md_and_rate(tail) == (
+            None,
+            None,
+            pko_bp.REASON_MD_RATE_AMBIGUOUS,
+        )
+
+    def test_two_readings_reach_the_document_as_a_reason(self):
+        text = _pko_document(
+            "Anna Przykładowa 2031-09-01 2031-11-30 2 500 900,00 Warszawa 103587-1"
+        )
+        r = _run("pko_bp", text)
+        assert (r.rate_client, r.md_total) == (None, None)
+        assert "rate_client" not in r.confidence and "md_total" not in r.confidence
+        assert pko_bp.REASON_MD_RATE_AMBIGUOUS in r.uncertain_reasons
+        assert r.uncertain is True
+        # Osoba i okres zostają — wiersz idzie do sprawdzenia, nie znika.
+        assert [row.consultant_name for row in r.consultant_rows] == [
+            "Anna Przykładowa"
+        ]
+        assert (r.start_date, r.end_date) == ("2031-09-01", "2031-11-30")
+
+    def test_line_without_both_numbers_is_not_a_row(self):
+        text = _pko_document("Anna Przykładowa 2031-09-01 2031-11-30 Warszawa 103587-1")
+        assert pko_bp.extract_rows(text) == []
 
 
 # ── KIR ──────────────────────────────────────────────────────────────────────
