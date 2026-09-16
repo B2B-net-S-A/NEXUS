@@ -335,6 +335,17 @@ def _normalize_experience(value: Any) -> list[dict[str, Optional[str]]]:
     return entries
 
 
+def normalize_experience_entries(value: Any) -> list[dict[str, Optional[str]]]:
+    """Publiczne wejście dla biegów, które dostają SUROWY wynik `parse_cv_with_claude`.
+
+    `_parse_with_claude` nie normalizuje (robi to dopiero `parse_cv` przez
+    `_normalize_cv_output`), więc bieg masowy z własnym szablonem musi sam
+    przepuścić `experience` przez tę samą walidację dat co ścieżka rekrutera —
+    inaczej „06.2023” z modelu trafiłoby do bazy w innym kształcie niż „2023-06”.
+    """
+    return _normalize_experience(value)
+
+
 def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
     """Validate/cap the v5 quick-view facts while preserving legacy fields."""
 
