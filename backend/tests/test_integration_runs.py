@@ -125,7 +125,12 @@ async def test_run_lifecycle_shows_up_in_summary(integ_client: AsyncClient):
     started = await integ_client.post(
         f"{_WRITE}/runs",
         headers=writer,
-        json={"source": "jjit", "mode": "import", "host": "mac-artur", "version": "1.0"},
+        json={
+            "source": "jjit",
+            "mode": "import",
+            "host": "mac-artur",
+            "version": "1.0",
+        },
     )
     assert started.status_code == 201, started.text
     run_id = started.json()["id"]
@@ -141,7 +146,9 @@ async def test_run_lifecycle_shows_up_in_summary(integ_client: AsyncClient):
                 "traffit_id": 62601,
                 "candidate_name": "Jan Testowy",
                 "offer_title": "DevOps Engineer",
-                "matched_jobs": [{"job_id": 3, "title": "DevOps / Cloud Engineer", "score": 71.0}],
+                "matched_jobs": [
+                    {"job_id": 3, "title": "DevOps / Cloud Engineer", "score": 71.0}
+                ],
             },
             {
                 "action": "error",
@@ -167,7 +174,9 @@ async def test_run_lifecycle_shows_up_in_summary(integ_client: AsyncClient):
     assert finished.json()["status"] == "errors"
     assert finished.json()["finished_at"] is not None
 
-    summary = await integ_client.get(f"{_READ}/summary", headers=reader, params={"days": 1})
+    summary = await integ_client.get(
+        f"{_READ}/summary", headers=reader, params={"days": 1}
+    )
     assert summary.status_code == 200, summary.text
     body = summary.json()
     jjit = next(s for s in body["sources"] if s["source"] == "jjit")
@@ -240,4 +249,6 @@ async def test_alert_cooldown_persists_in_db(monkeypatch):
     assert first["pracuj"] in {"stale", "ok"}
     if first["pracuj"] == "stale":
         second = await task.run_once(now=now + timedelta(minutes=30))
-        assert second["pracuj"] == "cooldown", "drugi przebieg w tej samej dobie = cooldown"
+        assert second["pracuj"] == "cooldown", (
+            "drugi przebieg w tej samej dobie = cooldown"
+        )
