@@ -6,6 +6,12 @@ z maila odczytanych modelem, a 24 zmierzone operacje ``order_parser`` pochodził
 wyłącznie z innych ścieżek — poczta nie miała bramki, więc żadna nie była jej).
 Test idzie przez PRAWDZIWE ``call_claude`` z syntetyczną odpowiedzią dostawcy,
 czyli przez tę samą granicę, na której stoją ``_assert_declared`` i zapis tokenów.
+
+Od 16.09.2026 odczyt zamówień idzie na GPT Luna (decyzja F7), więc syntetyczna
+odpowiedź podstawiana jest na transporcie ``llm_providers`` zamiast na kliencie
+SDK Anthropic. Sens testu jest ten sam i mocniejszy: dowodzi, że telemetria
+kosztów widzi wywołanie dostawcy SPOZA Anthropic — a to właśnie ta ścieżka jest
+nowa i mogłaby przestać być liczona po cichu.
 """
 
 import os
@@ -13,12 +19,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import delete, select
 
 from app.models.ai_feature import AIFeatureKey
 from app.models.ai_metering import AIOperation, AIProviderCall
-from app.services import ai_quota, claude_client
+from app.services import ai_models, ai_quota, llm_providers
 from app.services import order_mail_ingest as ingest
 from app.services.order_document_text import OrderDocumentText
 
@@ -29,40 +36,44 @@ pytestmark = pytest.mark.skipif(
 _ANSWER = '{"title": "7/2031", "consultant_rows": [], "confidence": {}}'
 
 
-class _FakeMessages:
-    """Syntetyczna odpowiedź dostawcy; zapamiętuje operację widoczną w chwili wywołania."""
+def _fake_provider_post(seen: list):
+    """Syntetyczna odpowiedź dostawcy; zapamiętuje operację widoczną w chwili wywołania.
 
-    def __init__(self, seen: list):
-        self._seen = seen
+    Podstawiamy HTTP, nie ``chat_complete`` — dzięki temu test przechodzi przez
+    prawdziwe tłumaczenie żądania i odpowiedzi (`build_request`/`parse_response`),
+    czyli przez kod, który liczy tokeny trafiające do telemetrii.
+    """
 
-    def create(self, **kwargs):
+    def post(url, headers=None, json=None, timeout=None):
         call = ai_quota.current_ai_call()
-        self._seen.append(call.state.operation_id if call else None)
-        return SimpleNamespace(
-            id=f"msg_test_{uuid4().hex}",
-            model=kwargs["model"],
-            stop_reason="end_turn",
-            content=[SimpleNamespace(type="text", text=_ANSWER)],
-            usage=SimpleNamespace(
-                input_tokens=321,
-                output_tokens=45,
-                cache_read_input_tokens=0,
-                cache_creation_input_tokens=0,
-            ),
+        seen.append(call.state.operation_id if call else None)
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl_test_{uuid4().hex}",
+                "model": json["model"],
+                "choices": [
+                    {"message": {"content": _ANSWER}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 321, "completion_tokens": 45},
+            },
+            request=httpx.Request("POST", url),
         )
+
+    return post
 
 
 async def test_mail_order_read_is_metered_as_a_system_operation(monkeypatch):
     from app.core.database import AsyncSessionLocal
 
     seen: list = []
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
-    monkeypatch.setattr(
-        claude_client.anthropic,
-        "Anthropic",
-        lambda **_kwargs: SimpleNamespace(messages=_FakeMessages(seen)),
+    assert ai_models.model_for(AIFeatureKey.order_parser) == "gpt-5.6-luna", (
+        "F7: gdy odczyt zamówień wróci na innego dostawcę, ten test musi "
+        "podstawiać JEGO transport — inaczej mierzyłby ścieżkę awaryjną"
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
+    monkeypatch.setattr(llm_providers.httpx, "post", _fake_provider_post(seen))
     monkeypatch.setattr(
         ingest,
         "extract_order_text",
@@ -95,6 +106,8 @@ async def test_mail_order_read_is_metered_as_a_system_operation(monkeypatch):
                 db, row, b"%PDF-1.4 synthetic", registry=None
             )
 
+        # `source="claude"` to historyczna nazwa ścieżki modelowej (kontrast
+        # z "regex"), nie nazwa dostawcy — zostaje, bo czytają ją zapisane wiersze.
         assert row.extraction["source"] == "claude"
         assert len(seen) == 1 and seen[0] is not None
         async with AsyncSessionLocal() as db:

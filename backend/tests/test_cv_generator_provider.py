@@ -134,9 +134,10 @@ def test_default_chain_is_the_quality_pinned_pair(monkeypatch):
 
     analyze_with_ai("dane", "req-1")
 
+    # Decyzja F4 z 16.09.2026: Sonnet 5 (thinking=disabled) + fallback Opus.
     assert [c["model"] for c in seen] == [
-        "claude-sonnet-4-6",
-        "claude-sonnet-4-6",
+        "claude-sonnet-5",
+        "claude-sonnet-5",
         "claude-opus-4-8",
     ]
 
@@ -180,7 +181,7 @@ def test_model_override_does_not_inherit_the_cv_quality_pin(monkeypatch):
 
 def test_empty_model_env_falls_back_to_the_pin(monkeypatch):
     """Pusty CV_B2B_MODEL (typowe wstrzyknięcie Coolify) NIE zdejmuje generatora
-    — spada na pin z rejestru (Sonnet 4.6), zamiast blokować najdroższą funkcję.
+    — spada na pin z rejestru (Sonnet 5), zamiast blokować najdroższą funkcję.
 
     To świadoma zmiana kontraktu z C11: rejestr traktuje pusty env jak brak.
     Stary ai_client odmawiał tu twardo (guard „CV_B2B_MODEL jest pusty")."""
@@ -188,7 +189,7 @@ def test_empty_model_env_falls_back_to_the_pin(monkeypatch):
     called = _install(monkeypatch, [_FakeMessage()])
     analyze_with_ai("dane", "req-5")
     assert called, "wywołanie nie doszło do dostawcy mimo poprawnego pinu"
-    assert called[0]["model"] == "claude-sonnet-4-6"
+    assert called[0]["model"] == "claude-sonnet-5"
 
 
 # ── Mapowanie na typy błędów generatora ──────────────────────────────────────

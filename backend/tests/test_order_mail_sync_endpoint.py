@@ -169,3 +169,148 @@ async def test_sync_status_projection_flags_and_tcm_redaction(
     assert body["started_at"] == (finished_at + timedelta(hours=1)).isoformat()
     assert body["last_completed"]["reason"] == "manual"
     assert body["last_completed"]["finished_at"] == finished_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_recheck_history_numbers_are_counted_from_the_visible_entries(
+    app_client: AsyncClient,
+):
+    """Liczniki liczone z WIDOCZNYCH wpisów, nie przepisane z biegu.
+
+    Delivery Lead ma dostęp operacyjny do wszystkich klientów
+    (``resolve_delivery_lead_client_ids``), ale historia jest zdenormalizowana:
+    wpis może wskazywać klienta, którego już nie ma. Globalne „sprawdzono 3"
+    nad listą z dwoma wierszami to ekran, który sam sobie przeczy.
+    """
+    from app.models.client import Client
+    from app.models.order_mail import OrderMailRecheckRun
+
+    gone_client_id = 2_000_000_000  # klient usunięty od czasu biegu
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Recheck API scope {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        db.add(
+            OrderMailRecheckRun(
+                started_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(timezone.utc),
+                trigger="scheduled",
+                checked=3,
+                applied=2,
+                held=1,
+                details=[
+                    {
+                        "document_id": 901,
+                        "client_id": client.id,
+                        "client_name": client.name,
+                        "order_number": "WIDOCZNE/1",
+                        "people": ["Jan Kowalski"],
+                        "outcome": "applied",
+                        "category": None,
+                        "reasons": [],
+                    },
+                    {
+                        "document_id": 902,
+                        "client_id": client.id,
+                        "client_name": client.name,
+                        "order_number": "WIDOCZNE/2",
+                        "people": ["Anna Nowa"],
+                        "outcome": "held",
+                        "category": "awaiting_contract",
+                        "reasons": ["jest już w bazie, ale bez trwającej współpracy"],
+                    },
+                    {
+                        "document_id": 903,
+                        "client_id": gone_client_id,
+                        "client_name": "Klient, którego już nie ma",
+                        "order_number": "ZNIKNIETE/1",
+                        "people": ["Piotr Obcy"],
+                        "outcome": "applied",
+                        "category": None,
+                        "reasons": [],
+                    },
+                ],
+            )
+        )
+        await db.commit()
+
+    admin = await _headers_for_role(app_client, UserRole.admin)
+    seen = await app_client.get("/api/order-mail/recheck-runs", headers=admin)
+    assert seen.status_code == 200, seen.text
+    assert seen.json()["scoped"] is False
+    run = next(
+        r
+        for r in seen.json()["items"]
+        if any(e["document_id"] == 901 for e in r["entries"])
+    )
+    assert (run["checked"], run["applied"], run["held"]) == (3, 2, 1)
+
+    dl = await _headers_for_role(app_client, UserRole.delivery_lead)
+    scoped = await app_client.get("/api/order-mail/recheck-runs", headers=dl)
+    assert scoped.status_code == 200, scoped.text
+    assert scoped.json()["scoped"] is True
+    dl_run = next(
+        r
+        for r in scoped.json()["items"]
+        if any(e["document_id"] == 901 for e in r["entries"])
+    )
+    assert [e["document_id"] for e in dl_run["entries"]] == [901, 902]
+    assert (dl_run["checked"], dl_run["applied"], dl_run["held"]) == (2, 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_recheck_history_hides_reasons_from_the_read_only_tcm(
+    app_client: AsyncClient,
+):
+    """Powody cytują nazwiska i nazwy załączników — lustro redakcji w kolejce."""
+    from app.models.client import Client
+    from app.models.order_mail import OrderMailRecheckRun
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Recheck API tcm {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        db.add(
+            OrderMailRecheckRun(
+                started_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(timezone.utc),
+                trigger="scheduled",
+                checked=1,
+                applied=0,
+                held=1,
+                details=[
+                    {
+                        "document_id": 911,
+                        "client_id": client.id,
+                        "client_name": client.name,
+                        "order_number": "TCM/1",
+                        "people": ["Jan Kowalski"],
+                        "outcome": "held",
+                        "category": "other",
+                        "reasons": ["„Jan Kowalski”: stawka 12 hour poza pasmem"],
+                    }
+                ],
+            )
+        )
+        await db.commit()
+
+    tcm = await _headers_for_role(app_client, UserRole.talent_community_manager)
+    resp = await app_client.get("/api/order-mail/recheck-runs", headers=tcm)
+    assert resp.status_code == 200, resp.text
+    entry = next(
+        e
+        for r in resp.json()["items"]
+        for e in r["entries"]
+        if e["document_id"] == 911
+    )
+    assert entry["reasons"] == [] and entry["people"] == []
+    assert entry["outcome"] == "held"
+
+
+@pytest.mark.asyncio
+async def test_recheck_history_is_closed_to_roles_outside_the_delivery_queue(
+    app_client: AsyncClient,
+):
+    hor = await _headers_for_role(app_client, UserRole.head_of_recruitment)
+    resp = await app_client.get("/api/order-mail/recheck-runs", headers=hor)
+    assert resp.status_code == 403, resp.text

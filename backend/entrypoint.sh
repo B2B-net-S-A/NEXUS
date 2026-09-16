@@ -4341,6 +4341,25 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0316: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
+    # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
+    # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
+    "ALTER TABLE order_mail_documents "
+    "ADD COLUMN IF NOT EXISTS gate_reason_codes JSONB",
+    """CREATE TABLE IF NOT EXISTS order_mail_recheck_runs (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ,
+        trigger VARCHAR(16) NOT NULL DEFAULT 'scheduled',
+        checked INTEGER NOT NULL DEFAULT 0,
+        applied INTEGER NOT NULL DEFAULT 0,
+        held INTEGER NOT NULL DEFAULT 0,
+        details JSONB,
+        CONSTRAINT ck_order_mail_recheck_runs_trigger
+            CHECK (trigger IN ('scheduled','manual'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_recheck_runs_started "
+    "ON order_mail_recheck_runs (started_at)",
     # 0314: integracje zewnętrzne (scrapery pracuj.pl / JJIT) — runy, zdarzenia
     # per aplikacja, stan alertów o zastoju. Bez tych tabel sekcja Insights →
     # Integracje i pętla `integration_stale_alerts` padają na UndefinedTable.

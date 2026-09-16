@@ -51,6 +51,10 @@ ACTION_SKIP = "skip"
 #: „Nowe zamówienie" i „Uzupełnij zamówienie"), do którego kolejka prowadzi
 #: z tym PDF-em.
 ACTION_DECIDE_PERSON = "decide_person"
+#: Wartości ``RowProposal.decision_kind`` — patrz opis pola.
+DECISION_NEW = "new"
+DECISION_NEW_AMBIGUOUS = "new_ambiguous"
+DECISION_ENDED = "ended"
 #: Typy zamówień, dla których osoba nieaktywna/nieznaleziona czeka na decyzję.
 #: Zamówienie okresowe zostaje przy decyzji z 10.09.2026: powrót po przerwie
 #: to nowe zamówienie, nowa osoba — szkic nowego kontraktora.
@@ -107,6 +111,14 @@ class RowProposal:
     #: przy ``new_draft`` znaczy „nie proponuj nowego kontraktora bez pytania" —
     #: kolejka pokazuje wtedy podpowiedź zamiast samej etykiety akcji.
     existing_person_ids: list[int] = field(default_factory=list)
+    #: Przy ``ACTION_DECIDE_PERSON``: CO dokładnie czeka na człowieka.
+    #: ``new`` — nowy kontraktor bez żywej umowy gdziekolwiek (czeka na podpis),
+    #: ``new_ambiguous`` — osoba jest w bazie z trwającą współpracą albo jest
+    #: kilku imienników (pytanie do człowieka, nie do zegara),
+    #: ``ended`` — współpraca u tego klienta się zakończyła.
+    #: Godzinowa ponowna weryfikacja czyta to pole, więc nie da się go zgadnąć
+    #: z tekstu powodu.
+    decision_kind: Optional[str] = None
 
 
 @dataclass
@@ -283,6 +295,12 @@ def plan_document(
         decision = _person_decision_reason(rp, res)
         if decision is not None:
             rp.action = ACTION_DECIDE_PERSON
+            if res.match_kind != "none":
+                rp.decision_kind = DECISION_ENDED
+            elif res.is_new_without_live_contract:
+                rp.decision_kind = DECISION_NEW
+            else:
+                rp.decision_kind = DECISION_NEW_AMBIGUOUS
             rp.reasons.append(decision)
             # „Nie znaleziono u tego klienta" i „jest w bazie pod innym
             # klientem" to dwa różne zdania — decyzję podejmuje ten sam

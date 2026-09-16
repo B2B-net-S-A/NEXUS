@@ -12,6 +12,12 @@ Lifecycle:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
    - 30/14/7 dni przed ``ClientOrder.end_date`` (status=active)
 
+Progi liczone z ZAKRESU dni do końca (``_threshold_bucket``), nie z równości
+z konkretną datą. Równość gubiła próg bezpowrotnie: dzień bez biegu skanera
+albo zamówienie wpisane/przedłużone na mniej niż 30 dni i uprzedzenie
+30-dniowe nie przychodziło nigdy — pierwszy dzwonek wypadał dopiero na 14 dni.
+Ten sam powód, dla którego ``dl_alerts.date_cycle_stage`` liczy z zakresu.
+
 Odbiorcy: aktywni admini globalnie oraz aktywni Delivery Leadzi wyłącznie dla
 przypisanych klientów i tylko z effective ``delivery >= read``.
 
@@ -71,6 +77,39 @@ _ORDER_NTYPE_BY_DAY = {
     7: NotificationType.client_order_ending_7d,
 }
 
+#: Progi rosnąco — najciaśniejszy pasujący wygrywa.
+_THRESHOLDS_ASC = tuple(sorted(_THRESHOLDS_DAYS))
+#: Najdalszy próg = horyzont zapytania.
+_HORIZON_DAYS = max(_THRESHOLDS_DAYS)
+
+
+def _threshold_bucket(days_left: int) -> int | None:
+    """Najciaśniejszy próg, w który wpada ``days_left`` — albo ``None``.
+
+    Jeden bieg wysyła DOKŁADNIE JEDEN próg na encję: zamówienie przy 22 dniach
+    dostaje próg 30, przy 13 próg 14, przy 6 próg 7 — trzy dzwonki w całym
+    cyklu, tak jak przy równości, tylko bez gubienia ich przy pominiętym dniu.
+    Powtórzeniu w kolejnych biegach tego samego pasma zapobiega
+    :func:`_already_notified` (epizod = odbiorca, encja, próg, data końca).
+    """
+    for threshold in _THRESHOLDS_ASC:
+        if days_left <= threshold:
+            return threshold
+    return None
+
+
+def _lead_phrase(days_left: int) -> str:
+    """„dzisiaj" / „za 1 dzień" / „za 22 dni" — do tytułu powiadomienia.
+
+    Tytuł niesie FAKTYCZNĄ liczbę dni, nie numer progu: przy zakresach próg 30
+    bywa wysłany przy 22 dniach i „za 30 dni" byłoby wtedy nieprawdą. Treść
+    (``message``) zostaje nietknięta — niesie ``_end_phrase``, czyli klucz
+    dedupu.
+    """
+    if days_left <= 0:
+        return "dzisiaj"
+    return f"za {days_left} {'dzień' if days_left == 1 else 'dni'}"
+
 
 def _end_phrase(verb: str, end: date) -> str:
     """Fragment treści niosący datę końca — i zarazem klucz epizodu w dedupie.
@@ -109,10 +148,12 @@ async def _already_notified(
     ``client_order_ending_30d`` z ``related_entity_type='contract'``, więc
     kontrakt #N i zamówienie #N u tego samego odbiorcy w jednej warszawskiej
     dobie to dla indeksu ten sam wpis. To samo przy przesunięciu daty o dzień
-    między biegami (próg liczony od ``date.today()`` w UTC). Taki próg tego
-    dnia odpuszczamy; ostatnia linia obrony to ``ON CONFLICT DO NOTHING`` przy
-    zapisie (:func:`_insert_notification`) — kolizja nie może wycofać całego
-    przebiegu razem z przejściami statusów.
+    między biegami — od 09.2026 próg liczy ``business_today()`` (ten sam zegar
+    co ``_promote_statuses``, koniec rozjazdu UTC/Warszawa), a że progi idą
+    z zakresu, przesunięcie o dzień i tak trafia w to samo pasmo. Taki próg
+    tego dnia odpuszczamy; ostatnia linia obrony to ``ON CONFLICT DO NOTHING``
+    przy zapisie (:func:`_insert_notification`) — kolizja nie może wycofać
+    całego przebiegu razem z przejściami statusów.
     """
     warsaw_day = func.date_trunc(
         "day", func.timezone("Europe/Warsaw", Notification.created_at)
@@ -212,109 +253,113 @@ async def _scan_framework_contracts(
     db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope
 ) -> int:
     """Zwraca # nowych notyfikacji."""
-    today = date.today()
-    sent = 0
-    for days in _THRESHOLDS_DAYS:
-        target_date = today + timedelta(days=days)
-        rows = list(
-            (
-                await db.execute(
-                    select(ClientFrameworkContract).where(
-                        ClientFrameworkContract.status
-                        == FrameworkContractStatus.active,
-                        ClientFrameworkContract.expiry_date == target_date,
-                    )
+    today = business_today()
+    rows = list(
+        (
+            await db.execute(
+                select(ClientFrameworkContract).where(
+                    ClientFrameworkContract.status == FrameworkContractStatus.active,
+                    ClientFrameworkContract.expiry_date >= today,
+                    ClientFrameworkContract.expiry_date
+                    <= today + timedelta(days=_HORIZON_DAYS),
                 )
-            ).scalars()
-        )
+            )
+        ).scalars()
+    )
+    sent = 0
+    for fc in rows:
+        days_left = (fc.expiry_date - today).days
+        days = _threshold_bucket(days_left)
+        if days is None:
+            continue
         ntype = _FC_NTYPE_BY_DAY[days]
-        for fc in rows:
-            end_phrase = _end_phrase("wygasa", fc.expiry_date)
-            for user_id in recipient_scope.for_client(fc.client_id):
-                if await _already_notified(
-                    db,
-                    user_id=user_id,
-                    related_entity_type="client_framework_contract",
-                    related_entity_id=fc.id,
-                    ntype=ntype,
-                    end_phrase=end_phrase,
-                ):
-                    continue
-                if await _insert_notification(
-                    db,
-                    user_id=user_id,
-                    title=f"Umowa ramowa wygasa za {days} dni",
-                    message=(
-                        f"'{fc.name}' {end_phrase}. "
-                        "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
-                    ),
-                    notification_type=ntype,
-                    related_entity_type="client_framework_contract",
-                    related_entity_id=fc.id,
-                    # Klucz z `frontend/src/lib/client-tab.ts`.
-                    link=f"/clients/{fc.client_id}?tab=umowy-ramowe",
-                ):
-                    sent += 1
+        end_phrase = _end_phrase("wygasa", fc.expiry_date)
+        for user_id in recipient_scope.for_client(fc.client_id):
+            if await _already_notified(
+                db,
+                user_id=user_id,
+                related_entity_type="client_framework_contract",
+                related_entity_id=fc.id,
+                ntype=ntype,
+                end_phrase=end_phrase,
+            ):
+                continue
+            if await _insert_notification(
+                db,
+                user_id=user_id,
+                title=f"Umowa ramowa wygasa {_lead_phrase(days_left)}",
+                message=(
+                    f"'{fc.name}' {end_phrase}. "
+                    "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
+                ),
+                notification_type=ntype,
+                related_entity_type="client_framework_contract",
+                related_entity_id=fc.id,
+                # Klucz z `frontend/src/lib/client-tab.ts`.
+                link=f"/clients/{fc.client_id}?tab=umowy-ramowe",
+            ):
+                sent += 1
     return sent
 
 
 async def _scan_orders(
     db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope
 ) -> int:
-    today = date.today()
-    sent = 0
-    for days in _THRESHOLDS_DAYS:
-        target_date = today + timedelta(days=days)
-        # Join Order → Contract → Candidate + Client dla candidate_name + client_name w treści
-        rows = list(
-            (
-                await db.execute(
-                    select(
-                        ClientOrder,
-                        Candidate.name.label("candidate_name"),
-                        client_display_name_expression().label("client_name"),
-                    )
-                    .join(Contract, Contract.id == ClientOrder.contract_id)
-                    .join(Candidate, Candidate.id == Contract.candidate_id)
-                    .join(Client, Client.id == ClientOrder.client_id)
-                    .where(
-                        ClientOrder.status == ClientOrderStatus.active,
-                        ClientOrder.end_date == target_date,
-                    )
-                )
+    today = business_today()
+    # Join Order → Contract → Candidate + Client dla candidate_name + client_name w treści
+    rows = list(
+        await db.execute(
+            select(
+                ClientOrder,
+                Candidate.name.label("candidate_name"),
+                client_display_name_expression().label("client_name"),
+            )
+            .join(Contract, Contract.id == ClientOrder.contract_id)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .join(Client, Client.id == ClientOrder.client_id)
+            .where(
+                ClientOrder.status == ClientOrderStatus.active,
+                ClientOrder.end_date >= today,
+                ClientOrder.end_date <= today + timedelta(days=_HORIZON_DAYS),
             )
         )
+    )
+    sent = 0
+    for row in rows:
+        o: ClientOrder = row[0]
+        days_left = (o.end_date - today).days
+        days = _threshold_bucket(days_left)
+        if days is None:
+            continue
         ntype = _ORDER_NTYPE_BY_DAY[days]
-        for row in rows:
-            o: ClientOrder = row[0]
-            cand_name: str = row.candidate_name or "kontraktor"
-            cli_name: str = row.client_name or "klient"
-            end_phrase = _end_phrase("kończy się", o.end_date)
+        cand_name: str = row.candidate_name or "kontraktor"
+        cli_name: str = row.client_name or "klient"
+        end_phrase = _end_phrase("kończy się", o.end_date)
 
-            for user_id in recipient_scope.for_client(o.client_id):
-                if await _already_notified(
-                    db,
-                    user_id=user_id,
-                    related_entity_type="client_order",
-                    related_entity_id=o.id,
-                    ntype=ntype,
-                    end_phrase=end_phrase,
-                ):
-                    continue
-                if await _insert_notification(
-                    db,
-                    user_id=user_id,
-                    title=f"Zamówienie {cand_name} kończy się za {days} dni",
-                    message=(
-                        f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
-                        "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
-                    ),
-                    notification_type=ntype,
-                    related_entity_type="client_order",
-                    related_entity_id=o.id,
-                    link=f"/clients/{o.client_id}?tab=zamowienia",
-                ):
-                    sent += 1
+        for user_id in recipient_scope.for_client(o.client_id):
+            if await _already_notified(
+                db,
+                user_id=user_id,
+                related_entity_type="client_order",
+                related_entity_id=o.id,
+                ntype=ntype,
+                end_phrase=end_phrase,
+            ):
+                continue
+            if await _insert_notification(
+                db,
+                user_id=user_id,
+                title=f"Zamówienie {cand_name} kończy się {_lead_phrase(days_left)}",
+                message=(
+                    f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
+                    "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
+                ),
+                notification_type=ntype,
+                related_entity_type="client_order",
+                related_entity_id=o.id,
+                link=f"/clients/{o.client_id}?tab=zamowienia",
+            ):
+                sent += 1
     return sent
 
 

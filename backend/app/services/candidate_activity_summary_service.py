@@ -1007,9 +1007,13 @@ async def _call_claude_text(
 ) -> str:
     from app.services.claude_client import call_claude  # local: load only on use
 
+    # Od 16.09.2026 podsumowanie idzie na DeepSeek V4 Pro — sonda pyta o klucz
+    # DOSTAWCY modelu; `api_key` niżej to ścieżka Anthropic (fallback).
+    from app.services.llm_providers import api_key_configured
+
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise CandidateActivitySummaryLLMError("ANTHROPIC_API_KEY not configured")
+    if not api_key_configured(model):
+        raise CandidateActivitySummaryLLMError("brak klucza API dostawcy modelu")
 
     started = time.time()
     try:
@@ -1020,7 +1024,7 @@ async def _call_claude_text(
             thinking={"type": "disabled"},
             system=system_prompt,
             messages=[{"role": "user", "content": prompt}],
-            api_key=api_key,
+            api_key=api_key or None,
         )
     except Exception as exc:  # noqa: BLE001 - map provider details to domain error
         raise CandidateActivitySummaryLLMError(f"LLM request failed: {exc}") from exc

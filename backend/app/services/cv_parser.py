@@ -448,13 +448,15 @@ async def _parse_with_claude(
     zostaje przy dotychczasowych domyślnych. Rozdzielenie per wywołanie, nie
     per proces — obie ścieżki żyją w tym samym backendzie.
     """
-    api_key = settings.ANTHROPIC_API_KEY
-    if not api_key or not settings.CV_ENRICHMENT_ENABLED:
-        return None
-
     from app.services.claude_client import call_claude
+    from app.services.llm_providers import api_key_configured
 
     chosen_model = model or model_for(AIFeatureKey.cv_parser)
+    # Klucz DOSTAWCY wybranego modelu, nie Anthropic na sztywno: bieg masowy
+    # i ścieżka interaktywna mogą stać na różnych dostawcach (rejestr
+    # `ai_models`), a pytanie o cudzy klucz cicho wyłączyłoby wzbogacanie.
+    if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
+        return None
     try:
         user_prompt = template.render(cv_text=cv_text[:8000])
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
@@ -472,7 +474,7 @@ async def _parse_with_claude(
             thinking={"type": "disabled"},
             system=template.system_prompt or "",
             messages=[{"role": "user", "content": user_prompt}],
-            api_key=api_key,
+            api_key=settings.ANTHROPIC_API_KEY or None,
         )
         # Claude 5 models can lead with a non-text block (e.g. a thinking
         # block), so content[0].text may be absent/empty — collect every text

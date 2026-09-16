@@ -42,6 +42,7 @@ from app.models.order_mail import (
     OUTCOME_NEEDS_REVIEW,
     OUTCOMES,
     OrderMailDocument,
+    OrderMailRecheckRun,
 )
 from app.models.user import User, UserRole
 from app.services import storage_service
@@ -323,6 +324,57 @@ async def trigger_sync(_user: OrderMailSyncUser) -> Dict[str, Any]:
         )
     start_ingest_task(reason="manual")
     return {"status": "started"}
+
+
+@router.get("/recheck-runs")
+async def list_recheck_runs(
+    user: OrderMailUser,
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Historia automatycznej weryfikacji — co zrobił każdy godzinowy bieg.
+
+    Zakres jak w kolejce: Delivery Lead widzi wpisy swojego portfela, a liczby
+    są PRZELICZANE z widocznych wpisów. Globalne „sprawdzono 12" nad listą
+    z jednym wierszem to ekran, który sam sobie przeczy.
+
+    TCM dostaje liczby bez powodów — te cytują nazwiska i nazwy załączników
+    (lustro redakcji w ``_serialize`` i w ``/sync/status``).
+    """
+    visible = await _visible_client_ids(db, user)
+    redact = _is_read_only_tcm(user)
+    rows = (
+        await db.execute(
+            select(OrderMailRecheckRun)
+            .order_by(
+                OrderMailRecheckRun.started_at.desc(), OrderMailRecheckRun.id.desc()
+            )
+            .limit(limit)
+        )
+    ).scalars()
+    out: list[Dict[str, Any]] = []
+    for run in rows:
+        entries = [e for e in (run.details or []) if isinstance(e, dict)]
+        if visible is not None:
+            entries = [e for e in entries if e.get("client_id") in visible]
+        scoped = visible is not None
+        if redact:
+            entries = [{**e, "reasons": [], "people": []} for e in entries]
+        applied = sum(1 for e in entries if e.get("outcome") == "applied")
+        held = len(entries) - applied
+        out.append(
+            {
+                "id": run.id,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "trigger": run.trigger,
+                "checked": len(entries) if scoped else run.checked,
+                "applied": applied if scoped else run.applied,
+                "held": held if scoped else run.held,
+                "entries": entries,
+            }
+        )
+    return {"items": out, "scoped": visible is not None}
 
 
 @router.get("/queue")

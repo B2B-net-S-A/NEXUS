@@ -107,8 +107,8 @@ class SemanticSearchUnavailable(RuntimeError):
 
 
 def _voyage_model() -> str:
-    """Read Voyage embedding model from settings (default voyage-3-large)."""
-    return getattr(settings, "VOYAGE_MODEL", None) or "voyage-3-large"
+    """Read Voyage embedding model from settings (default voyage-3)."""
+    return getattr(settings, "VOYAGE_MODEL", None) or "voyage-3"
 
 
 def _collection() -> str:

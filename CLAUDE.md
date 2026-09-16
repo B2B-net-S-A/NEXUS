@@ -1957,7 +1957,7 @@ nie ma żadnej reguły do utrzymania.
   zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
   `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
 - **Odczyt awaryjny (bez AI) jest ponawiany sam** (`retry_ai_fallback_documents`,
-  bieg skrzynki po `replan_outdated_documents`): wpis `needs_review` z
+  bieg skrzynki po ponownej weryfikacji): wpis `needs_review` z
   `extraction.source == "regex"` dostaje ponowny odczyt AI z zachowanego PDF-a,
   najwyżej `MAX_AI_RETRY_ATTEMPTS` (3) razy (`document_meta.ai_retry_*`,
   przeżywa „Przelicz plan"). Model idzie POZA blokadą wiersza, zapis po
@@ -1998,6 +1998,79 @@ nie ma żadnej reguły do utrzymania.
   robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
   a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
   i przesuwał okno wstecz).
+### Godzinowa ponowna weryfikacja wstrzymanych wpisów (0316, 16.09.2026)
+
+- **Wstrzymany wpis nie wracał sam.** Jedyne automatyczne przeliczenie
+  (`replan_outdated_documents`, USUNIĘTE) odpalało się tylko po zmianie
+  `rule_version`. Przyczyna wstrzymania znika najczęściej GDZIE INDZIEJ:
+  po podpisaniu umowy B2B nowego kontraktora albo po uzupełnieniu NIP-u
+  u klienta. Teraz `order_mail_recheck.run_recheck` przelicza KAŻDY wstrzymany
+  wpis w każdym biegu skrzynki — lokalnie i przed Graphem, więc także przy
+  awarii skrzynki. Bez nowej pętli: ta sama kadencja, jeden heartbeat, jedna oś
+  czasu w historii.
+- **Dwie ścieżki.** `needs_review` (ma klienta i odczyt) → `replan_and_apply`,
+  bez modelu AI. `unrecognized_client` → SAMO ponowne rozpoznanie klienta
+  (tekst z PDF-a + rejestr NIP-ów); dopiero rozpoznany klient przechodzi na
+  pierwszą ścieżkę. **Nie wołaj tu `process_pdf_bytes`** — ta funkcja czyta
+  modelem PRZED sprawdzeniem klienta, więc płaciłaby za AI w każdym biegu.
+- **Kody powodów, nie proza** (`order_mail_gate.CODE_*`, kolumna
+  `order_mail_documents.gate_reason_codes`, równoległa do `gate_reasons`).
+  KAŻDE dopisanie powodu MUSI nieść kod — pilnuje tego test czytający AST
+  bramki. Powody wstrzykiwane poza bramką idą przez `set_gate_hold`.
+- **Cicha jest WYŁĄCZNIE kategoria „czeka na podpis" (i wpis bez klienta).**
+  `config` (wyłącznik automatu globalny albo per klient) **eskaluje jak każda
+  inna przyczyna**: wyłącznik gasi tylko zapis automatyczny — ręczne
+  „Zastosuj" go nie czyta — więc taki dokument zapisze WYŁĄCZNIE człowiek.
+  Wyciszenie tej kategorii znaczyłoby, że przestawienie
+  `ORDER_MAIL_AUTOAPPLY_ENABLED` kasuje alarmowanie całej kolejki i zamyka
+  karty już wystawione.
+- **„Czeka na podpis umowy" = `classify_hold` zwraca `awaiting_contract`**:
+  WSZYSTKIE kody dokumentu należą do `{person_decision_new,
+  person_known_elsewhere_idle}`, czyli osoby nie ma na rosterze klienta i nie ma
+  żywej umowy NIGDZIE w systemie. Taki wpis czeka bezterminowo, licznik prób
+  stoi na zerze i **nie wysyła karty do DL nigdy**. Jeden dodatkowy powód
+  (stawka poza pasmem, niepewny odczyt) przesuwa dokument do `other` — to
+  bezpieczny kierunek pomyłki. Świadomie NIE są `awaiting_contract`: zakończona
+  współpraca u tego klienta, imiennicy i osoba z otwartą umową u INNEGO klienta
+  (to pytanie o zdublowany rekord klienta, nie o podpis).
+- **Karta DL wychodzi dopiero po TRZECH nieudanych próbach z rzędu**
+  (`document_meta["recheck"] = {attempts, category, last_at}`; zmiana kategorii
+  zeruje licznik). Do 0316 `notify_review` wołane z `_process_message`
+  wystawiało kartę przy PIERWSZYM wstrzymaniu — to wywołanie zniknęło.
+  Regułę ma JEDNO miejsce: `should_alert` — czyta ją i recheck, i dobowy
+  `rule_order_mail_review` (dwie kopie rozjechałyby się, a skaner wystawiałby
+  nazajutrz karty, które recheck wyciszył). Bezpiecznik: dokument bez ustalonej
+  kategorii (pętla nigdy go nie widziała) **albo ze stemplem `last_at`
+  starszym niż okno** (pętla przestała go widzieć) alarmuje po
+  `ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS` (6 h). Bez DRUGIEGO przypadku pętla
+  zatrzymana po pierwszej próbie zamrażała dokument na `attempts = 1` na
+  zawsze, a dobowy skaner — nie widząc go w `live` — zamykał nawet kartę
+  wystawioną wcześniej. Udany zapis kasuje ślad i zamyka kartę od razu
+  (`resolve_entity_alerts`).
+- **KAŻDY dokument, który zjadł budżet biegu, MUSI dostać stempel `last_at`
+  i wiersz w historii** — także ten, którego nie da się przeliczyć, i ten,
+  na którym bieg padł (stempel idzie wtedy osobną transakcją PO rollbacku).
+  Sortowanie `last_at NULLS FIRST` jest rotacją tylko pod tym warunkiem: wpis
+  bez stempla wraca na czoło w każdym biegu, a sto takich wierszy zatrzymuje
+  całą funkcję — niewidzialnie, bo historia pokazuje wtedy bieg „sprawdzono 0".
+- **`_replannable` ODPOWIADA „nie da się", nie rzuca.** Helper magazynu
+  (`get_order_mail_attachment_path`) rzuca `FileNotFoundError` dla ścieżki,
+  której nie ma; bez przechwycenia recheck wywracał się na takim wpisie
+  w każdym biegu, licznik prób stał w miejscu i karta nie wychodziła nigdy.
+- **Historia: `order_mail_recheck_runs`** (`GET /api/order-mail/recheck-runs`,
+  sekcja na dole `/order-mail`). `details` są ZDENORMALIZOWANE — historia
+  pokazuje powód z chwili biegu, nie dzisiejszy stan dokumentu. DL widzi wpisy
+  swojego portfela, a **liczniki są przeliczane z widocznych wpisów** (globalne
+  „sprawdzono 12" nad listą z jednym wierszem to ekran, który sam sobie
+  przeczy). Retencja `ORDER_MAIL_RECHECK_HISTORY_DAYS` (30 dni).
+- **Sufit `ORDER_MAIL_RECHECK_MAX_DOCS` (100) i rotacja po `last_at NULLS
+  FIRST`** — każdy recheck to ekstrakcja tekstu z PDF-a, a skan idzie przez OCR.
+  Wpisy `unrecognized_client` starsze niż
+  `ORDER_MAIL_RECHECK_UNRECOGNIZED_DAYS` (90) odpadają: znikają z kolejki tylko
+  ręcznie, więc bez sufitu OCR-owalibyśmy je co godzinę bez końca.
+- **Test na wspólnej bazie MUSI asertować po WŁASNYM dokumencie** — bieg
+  przegląda każdy wstrzymany wpis, a baza testowa nie jest czyszczona, więc
+  globalne liczniki i globalny mock `notify_review` mierzą cudze wiersze.
 - **`ORDER_MAIL_AUTOAPPLY_ENABLED` jest żywym wyłącznikiem (od 10.09.2026).**
   #1472 zrobił z niej flagę „legacy” — bramka jej nie czytała, a status zwracał
   na sztywno `true`. Teraz działa w jednym miejscu,
@@ -2625,12 +2698,31 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   epizodu — **także etapy t14/t7/high** (ticket: „zatrzymuje dalsze
   przypomnienia"). Karta mail-review zamyka się od razu przy apply/dismiss.
 - **Cykl datowy** (`date_cycle_stage`): okno 30 dni z ZAKRESU dat, nie równości
-  (dzień bez skanera nie gubi progu) → co 7 dni → T-14 mail → T-7 high + mail.
+  (dzień bez skanera nie gubi progu) → **pierwszy wiersz sprawy = mail** → co 7
+  dni bez maila → T-14 mail → T-7 high + mail.
   Encja niesie datę końca (`order:{id}:end:{data}`), więc przedłużenie = nowy cykl.
   Dotyczy zamówień okresowych (`order_group_id IS NULL`), umów ramowych
   i kontraktów (kontrakt, którego zamówienie okresowe kończy się tego samego
-  dnia, nie dostaje drugiej karty). Stare skanery dzwonka (`dl_portal_expiry_scanner`,
-  `contract_alerts`) działają dalej — decyzja: dzwonek bez zmian.
+  dnia, nie dostaje drugiej karty).
+- **Miesięczne uprzedzenie mailem to `email_on_first` w `emit`, NIE etap `t30`**
+  (09.2026, decyzja Artura: mail + dzwonek, progi 14/7 zostają). Mail idzie przy
+  pierwszym wierszu sprawy — `first_seen is None`, liczone PER ODBIORCA, więc
+  nowy DL przypisany w połowie okna dostaje swój pierwszy mail, a pozostali nie
+  dostają drugiego. Osobny etap `t30` zjadłby powtórki tygodniowe w paśmie
+  30→15 dni (etap i numer okna to ta sama pozycja `dedupe_key`), wysłałby zaraz
+  po wdrożeniu mail każdej sprawie już wiszącej w oknie i **nie objąłby
+  zamówienia wpisanego 20 dni przed końcem** — próg 30-dniowy już by minął.
+  `date_cycle_stage` zostaje nietknięte.
+- **Dzwonek (`dl_portal_expiry_scanner`) liczy progi z ZAKRESU, nie z równości**
+  (09.2026). Do tej zmiany pytał `end_date == today + N` dla `N ∈ (30, 14, 7)`,
+  więc jeden dzień bez biegu — albo zamówienie wpisane/przedłużone na mniej niż
+  30 dni — gubił próg 30-dniowy BEZPOWROTNIE i pierwszy dzwonek wypadał na 14
+  dni. Teraz `_threshold_bucket(days_left)` wybiera najciaśniejszy pasujący próg
+  (jeden na encję na bieg), dedup po `_end_phrase` zostaje bez zmian, a zegar to
+  `business_today()` jak w `_promote_statuses` (koniec rozjazdu UTC/Warszawa).
+  Tytuł niesie FAKTYCZNĄ liczbę dni (`_lead_phrase`), bo próg 30 bywa wysłany
+  przy 22 dniach; `message` nietknięty — to on jest kluczem dedupu.
+  `contract_alerts` (90/60/30/14/7 na kontraktach) bez zmian.
 - **MD** start `DL_ALERT_MD_THRESHOLD=21` (`<=`), **kosztowe** start
   `DL_ALERT_COST_BUDGET_THRESHOLD=10000` (treść bez kwot — panel widzą też
   hybrydy bez finansów). Wysoki priorytet + mail: pozostałość ≤ tempo ×
@@ -3051,16 +3143,10 @@ fail-closed:
   ograniczenie, instrukcja każe dołączyć PDF.
 - **Zmieniasz regułę klienta → PODBIJ `rule_version` w rejestrze.** Dokument
   zapamiętuje wersje reguł, którymi go przeczytano
-  (`document_meta["rule_versions"]`), a każdy bieg skrzynki
-  (`replan_outdated_documents`, przed czytaniem poczty) przelicza RAZ wpisy
-  `needs_review`, których wersja różni się od aktywnej — ta sama funkcja co
-  przycisk „Przelicz plan” (`replan_and_apply`: pewny plan zapisuje się
-  automatem, słucha `ORDER_MAIL_AUTOAPPLY_ENABLED`). Powód (11.09.2026):
-  poprawka Aliora działała tylko dla NOWYCH maili, a wpis sprzed wdrożenia
-  wisiał ze starymi powodami, bo nikt nie kliknął „Przelicz plan” — ponowne
-  wysłanie tego samego PDF-u nic nie daje (duplikat po SHA-256). Znacznik
-  zapisuje się także przy porażce (wpis nie wraca co godzinę). Wersja
-  `None` = bez automatycznego przeliczania.
+  (`document_meta["rule_versions"]`) i stempluje je przy każdym przeliczeniu.
+  Od 0316 wersja NIE jest już warunkiem przeliczenia — wstrzymany wpis wraca
+  w każdym biegu (niżej) — ale stempel zostaje: mówi, którą regułą czytano
+  zapisany odczyt. Wersja `None` = reguła bez wersjonowania.
 - **Domniemanie netto bez reguły klienta** (`_document_marks_only_net`,
   UAT M07-B04): stawka bez oznaczenia przy kwocie jest netto tylko wtedy, gdy
   „netto” stoi przy etykiecie stawki/kwoty W TEJ SAMEJ LINII („Stawka netto
@@ -3637,6 +3723,69 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
+
+## Modele AI per funkcja — decyzja z badania na danych produkcyjnych (16.09.2026)
+
+Badanie siedmiu modeli na WSZYSTKICH funkcjach AI (raport poza repo:
+`outputs/model-matrix-2026-09-15/RAPORT-KONCOWY.md`, identyfikatory F1–F17)
+zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`:
+
+| ID | funkcja | model | ID | funkcja | model |
+|---|---|---|---|---|---|
+| F1 | scoring | Sonnet 5 | F9 | cv_parser | Sonnet 5 |
+| F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
+| F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
+| F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
+| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
+| F7 | order_parser | GPT Luna | F15 | mindy_chat | GPT Luna |
+| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+
+- **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
+  modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →
+  OpenAI, `deepseek*` → DeepSeek). Nie dokładaj literałów modeli ani osobnych
+  klientów w serwisach — `test_ai_models_registry.py` przypina decyzję per ID.
+- **Dostawcy spoza Anthropic idą przez TĘ SAMĄ granicę `claude_client.call_claude`**
+  (`services/llm_providers.py`): ten sam kształt odpowiedzi (`ProviderMessage`
+  = bloki tekstowe, `stop_reason`, `usage`), te same ponowienia, deadline,
+  fallback i telemetria (`ai_metering` z własnym cennikiem i polem `provider`).
+  Błędy są zgłaszane WYJĄTKAMI SDK Anthropic (`RateLimitError`, `APITimeoutError`,
+  `AuthenticationError`…) z prawdziwym `httpx.Response` — na nich stoi
+  klasyfikacja ponowień i mapowanie błędów kilkunastu wołających. Nie zamieniaj
+  tego na osobną hierarchię wyjątków „bo czystsza": zepsuje `except anthropic.*`.
+- **Nieobsługiwane u GPT/DeepSeek: streaming, `tools`, bloki inne niż tekst
+  (obraz, dokument PDF)** — `ValueError` (nieponawialny), nie ciche pominięcie.
+  OpenAI dostaje `reasoning_effort=none`, `store=false`, bez `temperature`
+  (modele rozumujące odrzucają parametr); DeepSeek `thinking=disabled` — czyli
+  konfiguracje, w których model wygrał badanie.
+- **Funkcje na GPT/DeepSeek mają fallback na Sonneta 5** (429/5xx/przeciążenie).
+  **Brak klucza dostawcy = 401 NIEPONAWIALNE, bez kaskady na Claude** — błąd
+  konfiguracji ma być widoczny: `/api/health` → `checks.openai` /
+  `checks.deepseek` (`unconfigured` | `configured` | `degraded` | `unhealthy`).
+  Sondy „brak klucza" u wołających pytają `api_key_configured(model)`, nie o
+  klucz Anthropic. Klucze `OPENAI_API_KEY` i `DEEPSEEK_API_KEY` są w Coolify
+  od badania (16.09.2026).
+- **`settings_attr` wygrywa z `default` rejestru**, więc domyślne wartości
+  legacy pól w `config.py` (`CLAUDE_MODEL_CV`, `CLAUDE_MODEL_CV_BULK`,
+  `ORDER_PARSER_MODEL`) MUSZĄ być tym samym modelem co w rejestrze — pilnuje
+  `test_legacy_settings_defaults_agree_with_the_registry`. Tak Haiku siedziałby
+  w backfillu mimo decyzji. MINDY nie honoruje już legacy `CLAUDE_MODEL_CV`.
+- **F4: Sonnet 5 z `CV_B2B_THINKING=disabled`** (domyślne). Rewert #628 mierzył
+  Sonneta 5 z wymuszonym thinking; badanie z thinking wyłączonym: wymyślone fakty
+  0.20 vs 0.41 u 4.6. Nie przywracaj pinu 4.6 bez ponownego pomiaru.
+- **F2: zmiana modelu parsera Championa zmienia WYNIKI parsowania** — przy
+  kolejnej edycji promptu bump `PARSER_VERSION`; klucz cache nie zawiera nazwy
+  modelu.
+- **F16/F17:** `VOYAGE_MODEL` w kodzie = `voyage-3` (do 16.09 kod mówił
+  `voyage-3-large`, prod `voyage-3` — rozjazd wysyłał eval na ścieżkę
+  referencyjną); `RERANKER_ENABLED=False` — na ścieżce produkcyjnej był no-opem
+  (pula = wynik, `canonical_fit` i tak sortuje), dosypka 500→rerank-3→200
+  n.s. Kod rerankera zostaje; włączenie = env w Coolify.
+- **Dokładając nowy model:** wpis w `ai_models._REGISTRY` z uzasadnieniem
+  (ID + liczba z badania), cena w `ai_metering._PRICES` (dwójka = Anthropic,
+  trójka = dostawca z własną stawką za odczyt cache), przy nowym dostawcy —
+  gałąź w `llm_providers.build_request/parse_response` i etykieta w
+  `HEALTH_LABEL`.
 
 ## NUL w żądaniach i `detail` błędów API w UI (odbiór #1549, 15.09.2026)
 

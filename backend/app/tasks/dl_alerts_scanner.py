@@ -39,7 +39,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable
 
@@ -134,10 +134,6 @@ def _group_link(client_id: int, group_id: int) -> str:
 
 def _live_keys(alert_type: str, entity_key: str, user_ids: list[int]) -> set[str]:
     return {event_key_for(alert_type, entity_key, uid) for uid in user_ids}
-
-
-def _days_word(days: int) -> str:
-    return "dzień" if days == 1 else "dni"
 
 
 def _person(candidate: Candidate | None, fallback: str = "kontraktora") -> str:
@@ -658,6 +654,10 @@ async def _emit_date_cycle(
         stage=stage,
         priority=priority,
         email=email,
+        # Miesięczne uprzedzenie: pierwszy wiersz sprawy idzie mailem, nawet gdy
+        # do końca zostało jeszcze ponad 14 dni. Dalej cykl bez zmian —
+        # powtórki co 7 dni bez maila, `t14` mailem, `t7` mailem i na czerwono.
+        email_on_first=True,
     )
     return len(alerts)
 
@@ -925,11 +925,18 @@ async def rule_order_mail_review(
 ) -> int:
     """Zamówienie z maila utknęło w weryfikacji — powtórka co 7 dni.
 
-    Pierwszą kartę wystawia ``order_mail_ingest.notify_review`` w chwili
-    odczytu. Skaner ponawia ją dopóki dokument jest w kolejce i zamyka, gdy
-    ktoś go zastosował albo odrzucił.
+    Od 0316 karta NIE wychodzi przy pierwszym wstrzymaniu: zamówienie dostaje
+    najpierw trzy godzinowe próby automatycznego dokończenia, a to, które czeka
+    na podpis umowy nowego kontraktora, nie alarmuje nigdy. Kto się kwalifikuje,
+    rozstrzyga ``should_alert`` — TA SAMA funkcja, której używa recheck. Dwie
+    kopie tej reguły rozjechałyby się i skaner wystawiałby nazajutrz karty,
+    które recheck świadomie wyciszył.
+
+    Dokument, który przestał się kwalifikować (np. stał się „czeka na podpis"),
+    nie trafia do ``live`` — ``resolve_stale`` zamyka wtedy jego kartę.
     """
     from app.services.order_mail_ingest import notify_review
+    from app.services.order_mail_recheck_reasons import should_alert
 
     rows = (
         await db.execute(
@@ -941,7 +948,16 @@ async def rule_order_mail_review(
     ).scalars()
     live: set[str] = set()
     created = 0
+    now = datetime.now(timezone.utc)
     for doc in rows:
+        if not should_alert(
+            (doc.document_meta or {}).get("recheck"),
+            waiting_since=doc.received_at or doc.created_at,
+            now=now,
+            after_attempts=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_ATTEMPTS,
+            after_hours=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS,
+        ):
+            continue
         created += await notify_review(
             db, doc, recipient_scope=recipient_scope, live_event_keys=live
         )

@@ -308,7 +308,7 @@ export default function DlAlertsPreview() {
     <main className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-8 sm:px-8">
       <PanelCase
         title="Panel „Moi klienci” — sprawy do zrobienia"
-        why="Wysoki priorytet (≤7 dni), przypomnienie standardowe, draft z Generatora umów i mail do weryfikacji. Checkbox zdejmuje kartę, przycisk prowadzi do konkretnego obiektu."
+        why="Wysoki priorytet (≤7 dni), przypomnienie standardowe, draft z Generatora umów i mail do weryfikacji. Mail do DL leci przy pierwszej karcie (zwykle miesiąc przed końcem) oraz na progach 14 i 7 dni. Checkbox zdejmuje kartę, przycisk prowadzi do konkretnego obiektu."
         cards={PANEL_CARDS}
       />
       <PanelCase
