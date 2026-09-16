@@ -3211,12 +3211,69 @@ poprawny i też kończy się przestemplowaniem — to nie jest obejście.
 ## Finanse → Zmiany w zamówieniach (Zmiany · Wejścia · Zejścia · Braki, 0308)
 
 Comiesięczny audyt zamówień dla działu finansowego (`/finance?view=order-changes`,
-`GET /api/finance/order-changes?year&month` + `/export`, bramka sekcji Finance).
-Decyzje Artura 14.09.2026: zmiany do miesiąca WPROWADZENIA; przedłużenie w
-Wejściach oznaczone jako kontynuacja (nie ukryte); Brakiem nie jest wypowiedziana
-umowa, szkic następnego zamówienia ani decyzja offboardingu MD / „zostaw jako
-historię"; DL dostaje alert DL + dzwonek. Pełny opis:
+`GET /api/finance/order-changes?year&month&q&client_id&date_from&date_to`
++ `/export?…&tab=`, bramka sekcji Finance).
+Decyzje Artura 14.09.2026: zmiany do miesiąca WPROWADZENIA; Brakiem nie jest
+wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
+„zostaw jako historię"; DL dostaje alert DL + dzwonek. Pełny opis:
 `docs/finance-order-changes-completion-report.md`.
+
+- **Zakładka nazywa się tak, jak to, co w niej jest (korekta 16.09.2026).**
+  Do 16.09 Wejścia zbierały KAŻDE zamówienie startujące w miesiącu (osoby już
+  z nami pracujące były tam tylko OZNACZANE jako „Kontynuacja po zam. …" albo
+  „Dodatkowy projekt"), a Zejścia pokazywały wiersze z werdyktem „Kontynuacja",
+  czyli osoby, które akurat NIE schodzą. Finanse czytają te listy jako „kto
+  doszedł" i „kogo zdjąć z rozliczeń", więc obie kłamały. Po korekcie:
+  **Wejścia** = osoba bez żadnego wcześniejszego, niezanulowanego zamówienia
+  u JAKIEGOKOLWIEK klienta; **Zejścia** = osoba, która od kolejnego miesiąca
+  nie świadczy już usług (niezależnie od przyczyny); **Zmiany** = wszystko, co
+  dzieje się w trwającej współpracy; **Braki** bez zmian.
+- **Klasyfikacja wejścia: `_classify_entries`, pierwsze trafienie wygrywa** —
+  `additional_project` (trwające zamówienie u INNEGO klienta w dniu startu) →
+  `order_continuation` (`previous_of`: poprzednie zamówienie u TEGO klienta
+  ≤31 dni przed startem — reguła nietknięta) → `client_change` /
+  `order_continuation` po kliencie OSTATNIEGO wcześniejszego zamówienia osoby
+  (powrót po przerwie, przejście do innego klienta) → `new` (jedyna klasa
+  w Wejściach). Trzy pierwsze to wiersze syntetyczne w Zmianach, liczone przy
+  odczycie — **bez migracji**: CHECK na `order_change_events.field` i dziennik
+  zostają nietknięte. Zamówienie zaczynające się PÓŹNIEJ nie czyni z osoby „już
+  współpracującej"; dwa zamówienia tego samego dnia u dwóch klientów rozstrzyga
+  niższe `order_id` (`_precedes`), żeby osoba naprawdę nowa pokazała się
+  w Wejściach raz, a nie zniknęła z nich całkiem.
+- **„Zmiana klienta" to konsultant przechodzący do innego klienta, nie zmiana
+  pola.** `ClientOrderUpdate` nie ma `client_id` — zamówienia nie da się
+  przepiąć z UI, więc literalna zmiana pola nie istnieje i nie ma czego
+  zapisywać w dzienniku.
+- **Zejście liczy się z FAKTÓW, nie z napisu werdyktu:** wiersz odpada, gdy
+  `fact.works_until_md_exhausted or successor is not None`. Warunek stoi PRZED
+  drabinką werdyktów, bo intencja zakończenia jest w niej sprawdzana pierwsza —
+  rzadkie „wypowiedzenie + żywy następca" zostawałoby inaczej w Zejściach mimo
+  tego, że osoba pracuje dalej. `ExitVerdict` nie ma już `continuation`, a
+  `OrderExitItem` pól o następcy (zawsze puste).
+- **Zmiany stawek NIE mają progu** — do Zmian trafia każda różnica stawki
+  kosztowej i przychodowej. Jedyny filtr jest w `order_change_audit` (pierwsze
+  wpisanie stawki to nie zmiana, szkice i anulowane się nie liczą).
+- **Filtry (szukaj / klient / zakres dat) liczy SERWER, jedną funkcją
+  `apply_filters` na czterech gotowych listach** — ten sam kod obsługuje ekran
+  i eksport, więc plik nie może pokazać czego innego niż lista. Data znaczy
+  w każdej zakładce co innego (zmiana / start / koniec / dzień wykrycia braku),
+  więc etykieta pola zmienia się z zakładką. Liczniki przy podzakładkach liczą
+  się z długości list, czyli po filtrach — badge nie obiecuje wierszy, których
+  pod nim nie ma. Wiersz BEZ daty nie mieści się w żadnym zakresie.
+  `open_gaps_total` zostaje globalne (baner o całej historii).
+- **Eksport bierze aktywną podzakładkę** (`?tab=`) z tymi samymi filtrami;
+  `tab` pominięty = cały audyt (cztery arkusze), zgodność wstecz.
+  `OrderChangesPanel` NIE odpytuje API sam — picker klienta wchodzi slotem
+  `filters.clientPicker`, bo ten sam komponent renderuje publiczny harness
+  `/preview/finance-order-changes`, który musi robić ZERO zapytań.
+- **Pustka po filtrach ma własny komunikat** („Żaden wiersz nie pasuje do
+  ustawionych filtrów") — pustka pod nagłówkiem miesiąca czyta się jak utrata
+  danych. Odwrócony zakres dat nie jedzie do serwera (byłoby 422 w trakcie
+  wpisywania drugiej daty), tylko wyświetla prośbę o poprawę.
+- **Filtry żyją w adresie** (`q`, `client`, `clientName`, `from`, `to` obok
+  `sub`/`month`); `ORDER_CHANGES_URL_KEYS` jest lustrem listy czyszczonej przy
+  wyjściu z widoku w `app/finance/page.tsx`. Nazwa klienta jedzie obok id, żeby
+  po odświeżeniu chip nie mówił „Klient: 18".
 
 - **Stara wartość istnieje TYLKO w `order_change_events`.** Jedna zmiana na
   TRANSAKCJĘ (`services/order_change_audit.py`): `before_flush` zapamiętuje

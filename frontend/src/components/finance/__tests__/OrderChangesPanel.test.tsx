@@ -35,10 +35,6 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       status: "active",
-      is_continuation: false,
-      previous_order_number: null,
-      previous_end_date: null,
-      additional_project: false,
     },
   ],
   exits: [
@@ -55,8 +51,6 @@ const DATA: OrderChangesResponse = {
       order_type: "cost",
       verdict: "no_successor",
       verdict_label: "Brak kolejnego zamówienia — do usunięcia z rozliczeń",
-      successor_order_number: null,
-      successor_start_date: null,
       intent: null,
     },
   ],
@@ -94,17 +88,29 @@ const DATA: OrderChangesResponse = {
 function Harness({
   data = DATA,
   initial = "entries",
+  onExport = vi.fn(),
+  filtersActive = false,
 }: {
   data?: OrderChangesResponse | null;
   initial?: OrderChangesSubTab;
+  onExport?: () => void;
+  filtersActive?: boolean;
 }) {
   const [subTab, setSubTab] = useState<OrderChangesSubTab>(initial);
+  const [search, setSearch] = useState(filtersActive ? "kowalska" : "");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   return (
     <OrderChangesPanel
       data={data}
       body={
         data ? (
-          <OrderChangesList data={data} subTab={subTab} onOpenGaps={() => setSubTab("gaps")} />
+          <OrderChangesList
+            data={data}
+            subTab={subTab}
+            onOpenGaps={() => setSubTab("gaps")}
+            filtersActive={Boolean(search || dateFrom || dateTo)}
+          />
         ) : (
           <p>Wczytywanie</p>
         )
@@ -114,8 +120,28 @@ function Harness({
       month="2026-09"
       months={monthOptions(new Date(2026, 8, 14))}
       onMonthChange={vi.fn()}
-      onExport={vi.fn()}
+      onExport={onExport}
       exporting={false}
+      filters={{
+        search,
+        onSearchChange: setSearch,
+        dateFrom,
+        onDateFromChange: setDateFrom,
+        dateTo,
+        onDateToChange: setDateTo,
+        clientPicker: <span data-testid="client-picker" />,
+        clientLabel: null,
+        onClearClient: vi.fn(),
+        onClearDates: () => {
+          setDateFrom("");
+          setDateTo("");
+        },
+        onClearAll: () => {
+          setSearch("");
+          setDateFrom("");
+          setDateTo("");
+        },
+      }}
     />
   );
 }
@@ -154,5 +180,79 @@ describe("OrderChangesPanel", () => {
   it("tells finance that change history starts with the deployment", () => {
     render(<Harness initial="changes" />);
     expect(screen.getByText(/Dziennik zmian stawek i dat działa od wdrożenia/)).toBeInTheDocument();
+  });
+
+  it("names the date filter after the active sub-tab", () => {
+    render(<Harness initial="entries" />);
+    expect(screen.getByLabelText("Data wejścia od")).toBeInTheDocument();
+
+    // Radix aktywuje zakładkę na `mousedown`, nie na `click`.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Zejścia/ }));
+    expect(screen.getByLabelText("Data zejścia od")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Data wejścia od")).not.toBeInTheDocument();
+  });
+
+  it("exports the sub-tab the user is looking at", () => {
+    const onExport = vi.fn();
+    render(<Harness initial="gaps" onExport={onExport} />);
+
+    const button = screen.getByRole("button", { name: "Eksport do Excela: Braki" });
+    fireEvent.click(button);
+    expect(onExport).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an active filter as a removable chip", () => {
+    render(<Harness filtersActive />);
+    const chip = screen.getByText("Szukaj: kowalska");
+    expect(chip).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń filtr: Szukaj: kowalska" }));
+    expect(screen.queryByText("Szukaj: kowalska")).not.toBeInTheDocument();
+  });
+
+  it("clears both dates in one call, so the URL cannot keep a stale bound", () => {
+    const onClearDates = vi.fn();
+    render(
+      <OrderChangesPanel
+        data={DATA}
+        body={null}
+        subTab="changes"
+        onSubTabChange={vi.fn()}
+        month="2026-09"
+        months={monthOptions(new Date(2026, 8, 14))}
+        onMonthChange={vi.fn()}
+        onExport={vi.fn()}
+        exporting={false}
+        filters={{
+          search: "",
+          onSearchChange: vi.fn(),
+          dateFrom: "2026-09-01",
+          onDateFromChange: vi.fn(),
+          dateTo: "2026-09-30",
+          onDateToChange: vi.fn(),
+          clientPicker: null,
+          clientLabel: null,
+          onClearClient: vi.fn(),
+          onClearDates,
+          onClearAll: vi.fn(),
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Usuń filtr: Data zmiany: od 01.09.2026 do 30.09.2026",
+      }),
+    );
+    expect(onClearDates).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a filter hid the rows instead of claiming the month was empty", () => {
+    const empty = { ...DATA, entries: [], counts: { ...DATA.counts, entries: 0 } };
+    render(<Harness data={empty} filtersActive />);
+    expect(
+      screen.getByText("Żaden wiersz nie pasuje do ustawionych filtrów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Nikt nie rozpoczął z nami współpracy/)).toBeNull();
   });
 });
