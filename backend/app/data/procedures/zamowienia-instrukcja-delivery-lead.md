@@ -57,6 +57,20 @@ Nad listą masz:
 zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**
 pokazuje wyłącznie zamówienia zbiorcze.
 
+**Imię i nazwisko konsultanta jest klikalne — otwiera jego umowę w module
+Kontrakty.** Działa w każdym wierszu: na karcie pojedynczej osoby, na liście
+konsultantów zamówienia zbiorczego (również w części „Zakończone") i na
+wierszach przyszłych zamówień. Otwiera się **ta umowa, która stoi w tym
+wierszu** — jeśli ktoś pracuje u kilku klientów i ma kilka umów, dostaniesz tę
+u klienta, z którego profilu kliknąłeś, a nie listę wszystkich jego umów.
+Wracasz przyciskiem **wstecz** przeglądarki; wrócisz na zakładkę „Zamówienia",
+ale **filtr i wyszukiwarka wracają do ustawień domyślnych** — jeśli szukałeś
+kogoś w długiej liście, wpisz frazę jeszcze raz.
+
+Nieklikalne są dwie nazwy przy historii pozycji: **„zastąpił: …"** oraz nazwa
+następcy przy osobie zastąpionej. System zna tam tylko numer zamówienia, nie
+umowę — żeby do kogoś z nich przejść, kliknij jego własny wiersz na liście.
+
 ---
 
 ## Trzy typy zamówienia
@@ -384,6 +398,31 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
+
+### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
+
+Obsada zamówienia dzieli się na dwie sekcje. **O przejściu do „Zakończonych"
+decyduje data zakończenia współpracy wpisana przy osobie** — wystarczy wpisać ją
+w **Edytuj linię** i zapisać; nie trzeba nic więcej klikać. Od dnia po tej dacie
+osoba schodzi z aktywnej obsady, znika z awatarów w nagłówku i z licznika
+aktywnych konsultantów, a jej wiersz przenosi się niżej, do **„Zakończonych"** —
+z całą historią: okresem udziału, wykorzystanymi MD i kwotami oraz informacją,
+kogo zastąpiła i kto zastąpił ją. **„Zakończeni" są ułożeni datą zejścia,
+od najnowszego.** Osoba, która kogoś zastąpiła, zostaje w aktywnej obsadzie —
+dla niej nic się nie zmienia.
+
+Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
+
+* **Upływ okresu CAŁEGO zamówienia nikogo nie przenosi.** Jeśli zamówienie
+  skończyło się 30.09, a Ty czekasz na przedłużenie, wszyscy zostają w aktywnej
+  obsadzie — o tym, że zamówienie się skończyło, mówi jego własny status i data.
+  Do „Zakończonych" schodzi tylko ten, kto zszedł **wcześniej** niż zamówienie.
+* **Przejście do „Zakończonych" nie zamyka rozliczeń tej osoby.** Raport zużycia
+  za miesiąc, w którym jeszcze pracowała, zaimportowany później — na przykład
+  sierpniowy wrzucony w połowie września — nadal dolicza się do jej historii
+  i do sumy wykorzystania zamówienia. Sumy „Wykorzystano X / Y MD" i
+  „Wykorzystano wartości umowy" liczą się dokładnie tak samo jak przed jej
+  zejściem: wykorzystane MD i kwoty osób zakończonych zawsze się w nich mieszczą.
 
 **Usunięcie i zastąpienie nie zwracają zużycia do puli — u każdego klienta.**
 Osoba bez żadnych rozliczeń znika z zamówienia. Osoba, która ma już

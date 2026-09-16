@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -430,6 +430,36 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.getByText("Specjalista: Engineer DevOps"),
     ).toBeInTheDocument();
+  });
+
+  it("nazwisko w nagłówku kafelka prowadzi do kontraktu z tego wiersza", async () => {
+    // Osoba pracująca u kilku klientów ma kilka kontraktów — kafelek zna ten
+    // jeden, który dotyczy klienta, z którego profilu się w niego kliknęło.
+    renderTab();
+    const heading = await screen.findByRole("heading", {
+      name: /Tomasz Sadowski/,
+    });
+
+    expect(
+      within(heading).getByRole("link", { name: "Tomasz Sadowski" }),
+    ).toHaveAttribute("href", "/contracts/529");
+    // Numer obok zostaje zwykłym tekstem — drugi link do tego samego celu to
+    // zbędny przystanek w nawigacji klawiaturą.
+    expect(
+      screen.queryByRole("link", { name: "Kontrakt #529" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("nazwisko w wierszu przyszłego zamówienia też prowadzi do kontraktu", async () => {
+    renderTab();
+    await screen.findByText(/Przyszłe zamówienie \(1\)/);
+
+    const links = screen
+      .getAllByRole("link", { name: "Tomasz Sadowski" })
+      .map((link) => link.getAttribute("href"));
+    // Kafelek + wiersz przyszłego zamówienia; oba na ten sam kontrakt.
+    expect(links.length).toBeGreaterThan(1);
+    expect(new Set(links)).toEqual(new Set(["/contracts/529"]));
   });
 
   it("trzyma numer, obie stawki i okres w trzech stałych liniach", async () => {

@@ -262,6 +262,55 @@ const CASES: Array<{
     }),
   },
   {
+    title: "Zejście w trakcie zamówienia",
+    why:
+      "Osoba z zapisaną datą końca współpracy schodzi z aktywnej obsady, choć jej " +
+      "linia jest w bazie wciąż aktywna (zamówienie MD kończy budżet, nie kalendarz). " +
+      "„Zakończone” układają się datą zejścia malejąco, a historia — okres, zużycie, " +
+      "kto kogo zastąpił — zostaje przy osobie.",
+    group: group({
+      id: 18,
+      order_number: "CeZ/242/2025",
+      end_date: "2026-12-31",
+      active_consultants: 1,
+      lines: [
+        line({
+          id: 20,
+          consultant_name: "Ewa Aktywna",
+          md_total: 60,
+          md_remaining: 24,
+          md_used: 36,
+        }),
+        line({
+          id: 21,
+          consultant_name: "Zenon Ostatni",
+          status: "active",
+          is_active: false,
+          start_date: "2026-03-01",
+          end_date: "2026-08-31",
+          cooperation_ended_on: "2026-08-31",
+          md_total: 50,
+          md_remaining: 18,
+          md_used: 32,
+        }),
+        line({
+          id: 22,
+          consultant_name: "Anna Wczesna",
+          status: "completed",
+          is_active: false,
+          start_date: "2026-03-01",
+          end_date: "2026-05-31",
+          cooperation_ended_on: "2026-05-31",
+          md_total: 40,
+          md_remaining: 0,
+          md_used: 40,
+          replaced_by_order_id: 20,
+          replaced_by_consultant_name: "Ewa Aktywna",
+        }),
+      ],
+    }),
+  },
+  {
     title: "Zakończone — do przywrócenia",
     why: "Przycisk zakończenia znika, pojawia się przywrócenie; data zakończenia jest w nagłówku.",
     group: group({

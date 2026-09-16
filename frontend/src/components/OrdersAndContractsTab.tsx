@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { countPl } from "@/lib/plural-pl";
@@ -1077,8 +1078,17 @@ function ContractorCard({
               (Wcześniejszy ticket zdjął ten numer w całości; obecny go
               przywraca — to nowsze zamówienie produktowe.) */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Nazwisko prowadzi do kontraktu Z TEGO WIERSZA — osoba pracująca
+                u kilku klientów ma kilka kontraktów, a ten kafelek zna ten
+                jeden właściwy. Numer obok zostaje zwykłym tekstem: drugi link
+                do tego samego celu to zbędny przystanek w nawigacji
+                klawiaturą. */}
             <h3 className="font-semibold text-sm">
-              👤 {contractor.candidate_name}
+              👤{" "}
+              <ContractPersonLink
+                contractId={contractor.contract_id}
+                name={contractor.candidate_name}
+              />
             </h3>
             <span className="text-xs text-muted-foreground">
               Kontrakt #{contractor.contract_id}
@@ -1498,7 +1508,11 @@ function FutureOrderRow({
     <div className="flex items-start justify-between gap-3 text-sm border border-border rounded p-2 bg-background">
       <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{candidateName}</span>
+          <ContractPersonLink
+            contractId={order.contract_id}
+            name={candidateName}
+            className="font-medium"
+          />
           <OrderTypeBadge
             type={effectiveClientOrderType(order, legacyNullOrderType)}
           />

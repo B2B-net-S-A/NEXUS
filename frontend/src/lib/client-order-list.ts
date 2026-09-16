@@ -118,6 +118,36 @@ export function sortOrderLinesByConsultant(
   );
 }
 
+/**
+ * „Zakończone" na karcie zamówienia — najnowsze zejścia na górze.
+ *
+ * Sekcja odpowiada na pytanie „kto ostatnio zszedł z tego zamówienia", więc
+ * alfabet (jak w aktywnej obsadzie) stawiałby sprzed roku obok wczorajszego.
+ * Data zejścia to `cooperation_ended_on` (zdarzenie, sprawa offboardingu albo
+ * zakończona umowa), a w jej braku własna `end_date` linii. Wiersz bez żadnej
+ * daty — usunięty z zamówienia albo anulowany — idzie na koniec: nie ma czym
+ * go umieścić w czasie, a wciśnięty na górę udawałby najświeższy.
+ */
+export function sortOrderLinesByEnd(
+  lines: readonly OrderLineRead[],
+): OrderLineRead[] {
+  const endOf = (line: OrderLineRead): string | null =>
+    dateOnly(line.cooperation_ended_on) ?? dateOnly(line.end_date);
+  return [...lines].sort((left, right) => {
+    const a = endOf(left);
+    const b = endOf(right);
+    if (a !== b) {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a < b ? 1 : -1;
+    }
+    return foldText(left.consultant_name).localeCompare(
+      foldText(right.consultant_name),
+      "pl",
+    );
+  });
+}
+
 const SHARED_MD_POOL_CLIENT_IDS = new Set([155, 38339]);
 
 export function clientUsesSharedMdPool(clientId: number): boolean {
