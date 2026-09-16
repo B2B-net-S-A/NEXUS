@@ -1392,6 +1392,39 @@ class Settings(BaseSettings):
     # wykryje niczego więcej — zapis powstaje wyłącznie przy ZMIANIE.
     INSIGHTS_SENIORITY_JOURNAL_INTERVAL_HOURS: float = 24.0
 
+    # ── Integracje zewnętrzne (scrapery pracuj.pl / JJIT) ───────────────────
+    # Pętla alertów o zastoju: `false` → kończy się PRZED pętlą, badge „stale"
+    # w Insights liczy się dalej z tej samej reguły (services.integration_runs).
+    INTEGRATION_STALE_ALERTS_ENABLED: bool = True
+    # Doba harmonogramu + 2 h zapasu na launchd/caffeinate na Macu.
+    INTEGRATION_STALE_AFTER_HOURS: float = 26.0
+    INTEGRATION_STALE_CHECK_MINUTES: float = 30.0
+    # Jeden alert Slack na źródło na dobę; stan w `integration_alert_state`,
+    # żeby restart (deploy) nie wysyłał go od nowa.
+    INTEGRATION_ALERT_COOLDOWN_HOURS: float = 24.0
+
+    # ── Import JJIT/RocketJobs w NEXUS (etap 2) ─────────────────────────────
+    # Sekrety (JJIT_EMAIL, JJIT_PASSWORD, JJIT_TRAFFIT_CLIENT_ID/SECRET) idą z
+    # env jak TRAFFIT_* — NIE są tu deklarowane. Kill-switch przed pętlą;
+    # `false` → job nie startuje, endpoint admina /run nadal działa (ręcznie).
+    JJIT_ENABLED: bool = False
+    # Tydzień równoległej obserwacji: dry_run = liczy „nowi/duplikaty/błędy",
+    # nic nie zapisuje w Traffit ani w NEXUS poza raportem runu.
+    JJIT_DRY_RUN: bool = True
+    JJIT_RUN_HOUR_LOCAL: int = 13
+    JJIT_RUN_MINUTE_LOCAL: int = 0
+    # Okno aplikacji per run; dedupe po `integration_external_items` i tak
+    # odfiltruje powtórki, więc zapas dwóch dni nic nie kosztuje.
+    JJIT_LOOKBACK_DAYS: int = 2
+    JJIT_STATES: str = "published"
+    # Ta sama reguła co w scraperze na Macu (decyzja 2026-09-16).
+    JJIT_MATCH_MIN_SCORE: float = 65.0
+    JJIT_REQUIRE_MUST_MATCH: bool = True
+    # Loopback do własnego API (jeden worker uvicorna) + nazwa klienta OAuth,
+    # dla którego job mintuje token (migracja 0311, acting_user = sourcer/TCM).
+    JJIT_NEXUS_INTERNAL_URL: str = "http://127.0.0.1:8000"
+    JJIT_OAUTH_CLIENT_NAME: str = "Scrapery pracuj.pl + JJIT"
+
     # ── Powiadomienia Delivery Leada ────────────────────────────────────────
     # Kill-switch całej sekcji: `false` → skaner kończy się przed pętlą, a
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi

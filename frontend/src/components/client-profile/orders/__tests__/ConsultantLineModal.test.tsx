@@ -31,6 +31,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
 
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { orderGroupsApi } from "@/lib/api/orderGroups";
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
 
 const FROM_CLIENT: ConsultantOption = {
   candidate_id: 5,
@@ -87,6 +88,11 @@ const GROUP: OrderGroupRead = {
   size_bytes: null,
   file_uploaded_at: null,
   can_add_consultant: true,
+  executive_contract: null,
+  md_positions_total: null,
+  md_used_total: null,
+  contract_value_pln: null,
+  used_value_pln: null,
   lines: [],
   active_consultants: 0,
   event_count: 0,
@@ -117,6 +123,11 @@ const LINE: OrderLineRead = {
   invoiced_total: null,
   unsettled_total: null,
   missing_consumption_month: null,
+  md_optional_total: null,
+  md_base_used: null,
+  md_optional_used: null,
+  replaced_by_order_id: null,
+  replaced_by_consultant_name: null,
 };
 
 interface RenderModalOptions {
@@ -1569,5 +1580,74 @@ describe("waluty zapisanej linii", () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
       rate_cost: 176, rate_revenue: 218.75, rate_candidate_currency: "EUR", rate_client_currency: "USD",
     }));
+  });
+});
+
+describe("ConsultantLineModal — zakres opcjonalny MD (CeZ)", () => {
+  // Zakres opcjonalny istnieje tylko u Centrum e-Zdrowia (umowa wykonawcza).
+  const CEZ_GROUP: OrderGroupRead = { ...GROUP, client_id: EZDROWIE_CLIENT_ID };
+
+  beforeEach(() => {
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: { options: [FROM_CLIENT, FROM_BASE], total: 2 },
+    } as never);
+  });
+
+  it("u klienta spoza CeZ pola nie ma, a ładunek nie niesie `optional_md`", async () => {
+    // Przegląd adwersarialny 09.2026: pole „Zakres opcjonalny (MD)" pokazywało
+    // się każdemu klientowi MD (BIK/Polkomtel), choć nie mają umów wykonawczych.
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), GROUP);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await fillRates(user);
+    expect(screen.queryByLabelText("Zakres opcjonalny (MD)")).toBeNull();
+    expect(screen.queryByText(/umowy wykonawczej/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    const payload = onSubmit.mock.calls[0][0] as LineFormValues;
+    expect(payload.input_value).toBe(50);
+    expect(payload).not.toHaveProperty("optional_md");
+  });
+
+  it("u klienta spoza CeZ edycja linii z zapisaną opcją (dane historyczne) też jej nie pokazuje", () => {
+    renderModal(vi.fn(), GROUP, { line: { ...LINE, md_optional_total: 40 } });
+    expect(screen.queryByLabelText("Zakres opcjonalny (MD)")).toBeNull();
+  });
+
+  it("opcja jedzie w payloadzie obok podstawy, a podgląd sumuje oba zakresy", async () => {
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), CEZ_GROUP);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await fillRates(user);
+    await user.clear(screen.getByRole("textbox", { name: "Liczba MD" }));
+    await user.type(screen.getByRole("textbox", { name: "Liczba MD" }), "190");
+    await user.type(screen.getByLabelText("Zakres opcjonalny (MD)"), "170");
+
+    expect(screen.getByText("Budżet: 190 + 170 = 360 MD")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    const payload = onSubmit.mock.calls[0][0] as LineFormValues;
+    expect(payload.input_value).toBe(190);
+    expect(payload.optional_md).toBe(170);
+  });
+
+  it("puste pole opcji to `null` (brak opcji), a przy budżecie kwotą pole znika", async () => {
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), CEZ_GROUP);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await fillRates(user);
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).optional_md).toBeNull();
+
+    await user.click(screen.getByRole("radio", { name: "Kwota zamówienia (zł)" }));
+    expect(screen.queryByLabelText("Zakres opcjonalny (MD)")).toBeNull();
+  });
+
+  it("edycja linii wczytuje zapisaną opcję", async () => {
+    renderModal(vi.fn(), CEZ_GROUP, { line: { ...LINE, md_optional_total: 40 } });
+    expect(await screen.findByLabelText("Zakres opcjonalny (MD)")).toHaveValue("40");
   });
 });

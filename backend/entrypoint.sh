@@ -4341,6 +4341,127 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0314: integracje zewnętrzne (scrapery pracuj.pl / JJIT) — runy, zdarzenia
+    # per aplikacja, stan alertów o zastoju. Bez tych tabel sekcja Insights →
+    # Integracje i pętla `integration_stale_alerts` padają na UndefinedTable.
+    """CREATE TABLE IF NOT EXISTS integration_runs (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(32) NOT NULL,
+        mode VARCHAR(16) NOT NULL DEFAULT 'import',
+        status VARCHAR(16) NOT NULL DEFAULT 'running',
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        host VARCHAR(64),
+        version VARCHAR(64),
+        stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error TEXT,
+        oauth_client_id VARCHAR(64),
+        created_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_integration_runs_status
+            CHECK (status IN ('running', 'ok', 'errors', 'failed')),
+        CONSTRAINT ck_integration_runs_mode
+            CHECK (mode IN ('import', 'replay', 'test', 'dry_run'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_runs_source_started "
+    "ON integration_runs (source, started_at)",
+    """CREATE TABLE IF NOT EXISTS integration_run_events (
+        id SERIAL PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES integration_runs(id) ON DELETE CASCADE,
+        source VARCHAR(32) NOT NULL,
+        external_id VARCHAR(128),
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        traffit_id INTEGER,
+        action VARCHAR(32) NOT NULL,
+        candidate_name VARCHAR(255),
+        offer_title VARCHAR(255),
+        matched_jobs JSONB NOT NULL DEFAULT '[]'::jsonb,
+        error TEXT,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_integration_run_events_action
+            CHECK (action IN ('created', 'duplicate', 'cv_refreshed', 'error', 'skipped'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_run "
+    "ON integration_run_events (run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_source_occurred "
+    "ON integration_run_events (source, occurred_at)",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_candidate "
+    "ON integration_run_events (candidate_id)",
+    """CREATE TABLE IF NOT EXISTS integration_alert_state (
+        source VARCHAR(32) PRIMARY KEY,
+        last_alert_at TIMESTAMPTZ,
+        last_alert_reason TEXT
+    )""",
+    # 0315: stan importu JJIT w bazie (zamiast scraper_state.json na Macu).
+    """CREATE TABLE IF NOT EXISTS integration_external_items (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(32) NOT NULL,
+        external_id VARCHAR(128) NOT NULL,
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        traffit_id INTEGER,
+        cv_sha256 VARCHAR(64),
+        offer_title VARCHAR(255),
+        last_action VARCHAR(32),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_integration_external_items UNIQUE (source, external_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_external_items_candidate "
+    "ON integration_external_items (candidate_id)",
+    # ── 0312: umowy wykonawcze Centrum e-Zdrowia (ticket 09.2026) ──────────
+    # Umowa ramowa = część (project_part), pod nią 0..N umów wykonawczych;
+    # zamówienie i karta MD wskazują umowę wykonawczą. Kolejność: kolumna
+    # ramowej → tabela wykonawczych → FK w client_orders / client_order_groups.
+    # Zasiew struktury (5 ramowych + 3 wykonawcze) jest niżej, w bloku Python
+    # po repairach — jedno źródło SQL w app/services/ezdrowie_structure.py.
+    "ALTER TABLE client_framework_contracts ADD COLUMN IF NOT EXISTS project_part VARCHAR(8) NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT ck_client_framework_contracts_project_part
+            CHECK (
+                project_part IS NULL
+                OR project_part IN ('cz1', 'cz2', 'cz4', 'cz5', 'cz6')
+            );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS ux_client_framework_contracts_client_part
+       ON client_framework_contracts (client_id, project_part)
+       WHERE project_part IS NOT NULL""",
+    """CREATE TABLE IF NOT EXISTS client_executive_contracts (
+           id SERIAL PRIMARY KEY,
+           client_id INTEGER NOT NULL REFERENCES clients (id) ON DELETE CASCADE,
+           framework_contract_id INTEGER NOT NULL
+               REFERENCES client_framework_contracts (id) ON DELETE RESTRICT,
+           number VARCHAR(64) NOT NULL,
+           status VARCHAR(16) NOT NULL DEFAULT 'active',
+           notes TEXT NULL,
+           created_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_client_executive_contracts_status
+               CHECK (status IN ('active', 'ended')),
+           CONSTRAINT ck_client_executive_contracts_number_nonempty
+               CHECK (char_length(btrim(number)) > 0),
+           CONSTRAINT ux_client_executive_contracts_client_number
+               UNIQUE (client_id, number)
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_client_executive_contracts_client_id
+       ON client_executive_contracts (client_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_client_executive_contracts_framework
+       ON client_executive_contracts (framework_contract_id)""",
+    """ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS executive_contract_id
+       INTEGER NULL REFERENCES client_executive_contracts (id) ON DELETE RESTRICT""",
+    """CREATE INDEX IF NOT EXISTS ix_client_orders_executive_contract_id
+       ON client_orders (executive_contract_id)""",
+    """ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS executive_contract_id
+       INTEGER NULL REFERENCES client_executive_contracts (id) ON DELETE RESTRICT""",
+    """CREATE INDEX IF NOT EXISTS ix_client_order_groups_executive_contract_id
+       ON client_order_groups (executive_contract_id)""",
+    # ── 0313: zakres opcjonalny linii MD + status rozliczenia miesiąca ──────
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
+    "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
+    "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6765,6 +6886,23 @@ _CONSTRAINT_STATEMENTS = [
                 OR partner_entity_type IN ('sole_trader', 'company')
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0313: zakres opcjonalny tylko obok podstawowego i nigdy ujemny; status
+    # rozliczenia miesiąca z zamkniętego słownika (Faza B CeZ, 09.2026).
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_md_optional
+            CHECK (
+                md_optional_total IS NULL
+                OR (md_optional_total >= 0 AND md_total IS NOT NULL)
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_md_consumptions
+            ADD CONSTRAINT ck_md_consumptions_status
+            CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──
@@ -7680,6 +7818,33 @@ async def resync():
     print(f"pfron revenue resync: {summarize_for_log(summary)}")
 
 asyncio.run(resync())
+PY
+
+# 0312: docelowa struktura umów Centrum e-Zdrowia (5 umów ramowych = części,
+# 3 umowy wykonawcze). Safety-net dla migracji 0312 — jedno źródło SQL w
+# `app/services/ezdrowie_structure.py`; idempotentny (ramowa po części,
+# wykonawcza po numerze), no-op bez klienta 115. Log: tylko liczby.
+startup_phase "seed-ezdrowie-structure"
+echo "Centrum e-Zdrowia: seeding framework parts and executive contracts (idempotent)..."
+python - <<'PY' || echo "ezdrowie structure seed skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.ezdrowie import EZDROWIE_CLIENT_ID
+from app.services.ezdrowie_structure import EZDROWIE_STRUCTURE_SEED_SQL
+
+async def seed():
+    async with engine.begin() as conn:
+        await conn.execute(text(EZDROWIE_STRUCTURE_SEED_SQL))
+        counts = (await conn.execute(text(
+            "SELECT (SELECT count(*) FROM client_framework_contracts "
+            f"WHERE client_id = {int(EZDROWIE_CLIENT_ID)} AND project_part IS NOT NULL), "
+            "(SELECT count(*) FROM client_executive_contracts "
+            f"WHERE client_id = {int(EZDROWIE_CLIENT_ID)})"
+        ))).one()
+    print(f"ezdrowie structure: framework parts={counts[0]} executive contracts={counts[1]}")
+
+asyncio.run(seed())
 PY
 
 # Umowy B2B bezterminowe (09.2026) — jednorazowo: najpierw zakończenia osób ze

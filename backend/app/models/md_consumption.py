@@ -225,6 +225,12 @@ class ClientOrderMdConsumption(Base, TimestampMixin):
             "source IN ('import', 'manual')", name="ck_md_consumptions_source"
         ),
         CheckConstraint(_PERIOD_MONTH_CHECK, name="ck_md_consumptions_period"),
+        # Status rozliczenia miesiąca (Faza B, 09.2026): `protocol` = „Protokół",
+        # `accepted` = „Zaakceptowany"; NULL = wpis z importu bez statusu.
+        CheckConstraint(
+            "status IS NULL OR status IN ('accepted', 'protocol')",
+            name="ck_md_consumptions_status",
+        ),
         Index(
             "ux_md_consumptions_order_month",
             "order_id",
@@ -249,6 +255,12 @@ class ClientOrderMdConsumption(Base, TimestampMixin):
     jego pochodzeniem."""
 
     source: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """``accepted`` | ``protocol`` | NULL. Oba statusy liczą się do
+    „wykorzystano" — status mówi o etapie rozliczenia, nie o tym, czy MD
+    zeszły z budżetu."""
+    note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

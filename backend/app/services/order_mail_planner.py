@@ -9,6 +9,9 @@ draft (same number or overlapping period = its correction). Actual period
 overlaps, ambiguous targets and revisions require review. On MD and cost
 orders a person whose engagement ended, or who is not in the system, waits for
 a human decision (``ACTION_DECIDE_PERSON``) instead of being revived or created.
+A person missing from this client's roster but present in the base keeps the
+initial-draft plan and carries the concrete finding (``existing_person_ids``),
+so the queue proposes an identity to confirm instead of a new contractor.
 """
 
 from __future__ import annotations
@@ -100,6 +103,10 @@ class RowProposal:
     previous_end_date: Optional[str] = None
     order_type: str = "periodic"
     total_value: Optional[str] = None
+    #: Kandydaci o tym imieniu i nazwisku spoza rostera klienta. Niepusta lista
+    #: przy ``new_draft`` znaczy „nie proponuj nowego kontraktora bez pytania" —
+    #: kolejka pokazuje wtedy podpowiedź zamiast samej etykiety akcji.
+    existing_person_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -277,10 +284,24 @@ def plan_document(
         if decision is not None:
             rp.action = ACTION_DECIDE_PERSON
             rp.reasons.append(decision)
+            # „Nie znaleziono u tego klienta" i „jest w bazie pod innym
+            # klientem" to dwa różne zdania — decyzję podejmuje ten sam
+            # człowiek, więc widzi oba.
+            if res.known_elsewhere_ids:
+                rp.existing_person_ids = list(res.known_elsewhere_ids)
+                rp.reasons.append(res.reason)
             proposal.rows.append(rp)
             continue
         if res.match_kind == "none":
             rp.action = ACTION_NEW_DRAFT
+            # Osoba jest w bazie, tylko nie u tego klienta: plan zostaje przy
+            # szkicu (po potwierdzeniu writer dopnie istniejącą kartotekę), ale
+            # Delivery Lead musi zobaczyć KOGO znaleziono, zanim kliknie —
+            # inaczej dokument przypięty do zdublowanego rekordu klienta
+            # wygląda jak zwyczajny nowy kontraktor.
+            if res.known_elsewhere_ids:
+                rp.existing_person_ids = list(res.known_elsewhere_ids)
+                rp.reasons.append(res.reason)
             proposal.rows.append(rp)
             continue
         if not res.is_unique_person or res.contract_id is None:

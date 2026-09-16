@@ -363,6 +363,8 @@ const PUBLIC_PATHS = [
   "/preview/talent-radar",
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
+  "/preview/order-md-scopes",
+  "/preview/ezdrowie-contract-structure",
   "/preview/order-tile",
   "/preview/dl-alerts",
   "/preview/order-mail",

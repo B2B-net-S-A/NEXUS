@@ -111,8 +111,13 @@ export interface ClientOrderRead {
   currency: string | null;
   rate_client_currency?: string | null;
   rate_candidate_currency?: string | null;
-  /** „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — null u innych klientów. */
+  /** „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — null u innych klientów.
+   *  Od struktury umów wykonawczych: wartość pochodna z umowy ramowej. */
   project_part: string | null;
+  /** Umowa wykonawcza e-Zdrowia, do której przypięte jest zamówienie —
+   *  null u innych klientów i w zamówieniach sprzed wdrożenia struktury. */
+  executive_contract_id?: number | null;
+  executive_contract_number?: string | null;
   filename: string | null;
   has_file: boolean;
   content_type: string | null;
@@ -273,6 +278,9 @@ export interface ClientOrderUpdate {
   notes?: string | null;
   /** „Część umowy" e-Zdrowia — walidowana serwerowo (tylko client_id=115). */
   project_part?: string | null;
+  /** Umowa wykonawcza e-Zdrowia — walidowana serwerowo (tylko client_id=115,
+   *  tylko umowa `active`). */
+  executive_contract_id?: number | null;
   /** „Liczba MD zamówienia". Dla jawnego typu MD jest wspólnym budżetem,
    *  który przy aktywacji przechodzi na grupę. `null` z jawnym kluczem czyści
    *  budżet szkicu; walidacja wymaga wcześniej stawki przychodowej. */
@@ -291,7 +299,13 @@ export interface ClientOrderUpdate {
  */
 export type CreateDraftOrder = (
   patch: Partial<ClientOrderUpdate>,
-  opts?: { title?: string; projectPart?: string; file?: File | null },
+  opts?: {
+    title?: string;
+    /** @deprecated e-Zdrowie: zamówienie wisi na umowie wykonawczej, część jest pochodna. */
+    projectPart?: string;
+    executiveContractId?: number;
+    file?: File | null;
+  },
 ) => Promise<number>;
 
 export interface NewContractorOrderRequest {
@@ -314,6 +328,8 @@ export interface NewContractorOrderRequest {
   notes?: string | null;
   /** „Część umowy" e-Zdrowia — wymagana dla client_id=115, zabroniona u innych. */
   project_part?: string | null;
+  /** Umowa wykonawcza e-Zdrowia — wymagana dla client_id=115, zabroniona u innych. */
+  executive_contract_id?: number | null;
 }
 
 export interface NewContractorOrderResponse {

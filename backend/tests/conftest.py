@@ -486,3 +486,21 @@ def pytest_collection_modifyitems(config, items):
             if _client_fixture_is_live_server(item):
                 item.add_marker(skip_live)
     _apply_ci_shard_filter(config, items)
+
+
+def db_without_client_merges():
+    """Sesja-atrapa dla testów „Przelicz plan" bez prawdziwej bazy.
+
+    ``refresh_review_plan`` pyta bazę, czy rekord klienta nie został scalony
+    w inny (``_follow_client_merge``) — to JEDYNE zapytanie na tej ścieżce, gdy
+    ``current_proposal`` / ``_plan_and_gate`` są podstawione. Gołe ``AsyncMock``
+    oddaje na nie korutynę zamiast wierszy, więc test wywracał się na atrapie,
+    a nie na logice. Ta sesja odpowiada uczciwie: „brak takiego wiersza", czyli
+    klient nie jest scalony i dokument zostaje tam, gdzie był.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    db = AsyncMock()
+    db.execute.return_value = SimpleNamespace(all=lambda: [], scalars=lambda: [])
+    return db

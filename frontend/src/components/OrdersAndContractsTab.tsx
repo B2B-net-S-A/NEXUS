@@ -20,7 +20,8 @@ import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { countPl } from "@/lib/plural-pl";
-import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   downloadAuthenticatedFile,
   downloadBlob,
@@ -776,15 +777,19 @@ function ContractorCard({
   const servedFocusRef = useRef<number | null>(null);
   const [highlighted, setHighlighted] = useState(false);
   const historyOpen = searching ? true : showHistory;
-  // „Część umowy" — uzupełnianie/edycja bezpośrednio na karcie (to jest
+  // „Umowa wykonawcza" — uzupełnianie/edycja bezpośrednio na karcie (to jest
   // powierzchnia kompletacji draftu ClientOrder); tylko Centrum e-Zdrowia.
+  // Część umowy jest od struktury umów wartością POCHODNĄ z umowy ramowej.
   const ezdrowie = isEzdrowieClient(clientId);
+  const executiveContracts = useExecutiveContractOptions(clientId);
   const [partSaving, setPartSaving] = useState(false);
-  // Część wybrana ZANIM powstało zamówienie. `POST /orders` wymaga jej dla
-  // e-Zdrowia (`validate_project_part(..., require=True)`), a select renderował
-  // się dotąd tylko przy `activeOrder` — więc kontraktor bez zamówienia nie
-  // miał ani jak jej podać, ani skąd wiedzieć, że jej brakuje.
-  const [pendingPart, setPendingPart] = useState("");
+  // Umowa wybrana ZANIM powstało zamówienie. `POST /orders` wymaga jej dla
+  // e-Zdrowia, a select renderował się dotąd tylko przy `activeOrder` — więc
+  // kontraktor bez zamówienia nie miał ani jak jej podać, ani skąd wiedzieć,
+  // że jej brakuje.
+  const [pendingExecutiveContractId, setPendingExecutiveContractId] = useState<
+    number | null
+  >(null);
   // Id szkicu założonego w TEJ sesji karty. `onChange()` odświeża listę
   // asynchronicznie, więc między utworzeniem szkicu a nadejściem danych
   // `activeOrder` jest jeszcze `null` — bez tej pamięci kolejny zapis w tym
@@ -856,11 +861,16 @@ function ContractorCard({
       const existingId = knownOrderIdRef.current;
       if (existingId !== null && existingId !== undefined) {
         const merged: Partial<ClientOrderUpdate> = { ...patch };
-        // `title` i `project_part` bywają wyłącznie w `opts` (edycja inline
-        // części umowy woła `saveOntoOrder({}, {projectPart})` z PUSTYM patchem).
+        // `title` i `executive_contract_id` bywają wyłącznie w `opts` (edycja
+        // inline umowy woła `saveOntoOrder({}, {executiveContractId})` z PUSTYM
+        // patchem).
         if (opts?.title?.trim()) merged.title = opts.title.trim();
-        if (ezdrowie && merged.project_part == null && opts?.projectPart) {
-          merged.project_part = opts.projectPart;
+        if (
+          ezdrowie &&
+          merged.executive_contract_id == null &&
+          opts?.executiveContractId
+        ) {
+          merged.executive_contract_id = opts.executiveContractId;
         }
         await dlPortalApi.updateOrder(clientId, existingId, merged);
         if (opts?.file) {
@@ -868,20 +878,23 @@ function ContractorCard({
         }
         return existingId;
       }
-      // Centrum e-Zdrowia: bez części umowy `POST /orders` zwraca 422, a
+      // Centrum e-Zdrowia: bez umowy wykonawczej `POST /orders` zwraca 422, a
       // użytkownik zobaczyłby surowe „Request failed with status code 422".
       // Odmawiamy tutaj, własnym zdaniem po polsku, wskazującym pole do
       // uzupełnienia — inaczej ta ścieżka „nie da się nic wpisać" wracałaby
       // u jednego klienta mimo poprawki.
-      const projectPart = opts?.projectPart ?? pendingPart;
-      if (ezdrowie && !projectPart) {
+      const executiveContractId =
+        opts?.executiveContractId ?? pendingExecutiveContractId;
+      if (ezdrowie && !executiveContractId) {
         throw new Error(
-          "Najpierw wybierz część umowy — bez niej nie da się założyć zamówienia u Centrum e-Zdrowia.",
+          "Najpierw wybierz umowę wykonawczą — bez niej nie da się założyć zamówienia u Centrum e-Zdrowia.",
         );
       }
       const form = new FormData();
       form.append("contract_id", String(contractor.contract_id));
-      if (ezdrowie) form.append("project_part", projectPart);
+      if (ezdrowie && executiveContractId) {
+        form.append("executive_contract_id", String(executiveContractId));
+      }
       // Numer bywa nieznany w chwili, gdy uzupełniany jest okres albo stawka.
       // „(bez numeru)" jest uczciwe i widoczne — pusty tytuł odrzuca walidacja,
       // a zmyślony numer wyglądałby jak dane z dokumentu klienta.
@@ -955,7 +968,7 @@ function ContractorCard({
       contractRateClientCurrency,
       contractRateCandidateCurrency,
       ezdrowie,
-      pendingPart,
+      pendingExecutiveContractId,
       suggestedOrderType,
     ],
   );
@@ -976,7 +989,7 @@ function ContractorCard({
   // już istnieje" siedzi w `createDraftOrder`, więc nie da się go ominąć.
   async function saveOntoOrder(
     patch: Partial<ClientOrderUpdate>,
-    opts?: { title?: string; projectPart?: string },
+    opts?: { title?: string; executiveContractId?: number },
   ) {
     await createDraftOrder(patch, opts);
   }
@@ -1124,15 +1137,17 @@ function ContractorCard({
               </span>
               {ezdrowie && (
                 <span className="flex items-center gap-1">
-                  część umowy
+                  umowa wykonawcza
                   <select
                     value={
-                      activeOrder ? (activeOrder.project_part ?? "") : pendingPart
+                      activeOrder
+                        ? String(activeOrder.executive_contract_id ?? "")
+                        : String(pendingExecutiveContractId ?? "")
                     }
-                    aria-label="Część umowy"
+                    aria-label="Umowa wykonawcza"
                     disabled={!canManageOrders || partSaving}
                     onChange={async (e) => {
-                      const value = e.target.value || null;
+                      const value = e.target.value ? Number(e.target.value) : null;
                       // disabled na czas zapisu (bez wyścigu dwóch PATCHy);
                       // po błędzie onChange() re-synchronizuje select z serwera
                       // zamiast zostawiać DOM na niezapisanej wartości (review).
@@ -1140,40 +1155,54 @@ function ContractorCard({
                       try {
                         if (activeOrder) {
                           await dlPortalApi.updateOrder(clientId, activeOrder.id, {
-                            project_part: value,
+                            executive_contract_id: value,
                           });
-                          onSuccess("Część umowy zaktualizowana");
+                          onSuccess("Umowa wykonawcza zaktualizowana");
                         } else if (value) {
-                          // Bez zamówienia część jest tym POLEM, które je zakłada
-                          // — dopiero wtedy numer, okres i stawki mają dokąd
-                          // trafić. Wartość idzie jawnie, bo `pendingPart` nie
-                          // zdąży się jeszcze zaktualizować w tym samym handlerze.
-                          await saveOntoOrder({}, { projectPart: value });
-                          setPendingPart(value);
-                          onSuccess("Część umowy zapisana");
+                          // Bez zamówienia umowa wykonawcza jest tym POLEM, które
+                          // je zakłada — dopiero wtedy numer, okres i stawki mają
+                          // dokąd trafić. Wartość idzie jawnie, bo stan nie zdąży
+                          // się jeszcze zaktualizować w tym samym handlerze.
+                          await saveOntoOrder({}, { executiveContractId: value });
+                          setPendingExecutiveContractId(value);
+                          onSuccess("Umowa wykonawcza zapisana");
                         } else {
-                          setPendingPart("");
+                          setPendingExecutiveContractId(null);
                         }
                       } catch {
-                        onError("Nie udało się zapisać części umowy");
+                        onError("Nie udało się zapisać umowy wykonawczej");
                       } finally {
                         setPartSaving(false);
                         onChange();
                       }
                     }}
                     className={`px-1.5 py-0.5 border rounded bg-background text-xs disabled:opacity-60 ${
-                      (activeOrder ? activeOrder.project_part : pendingPart)
+                      (
+                        activeOrder
+                          ? activeOrder.executive_contract_id
+                          : pendingExecutiveContractId
+                      )
                         ? "border-border"
                         : "border-amber-400 text-amber-700"
                     }`}
                   >
                     <option value="">— uzupełnij —</option>
-                    {PROJECT_PARTS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
+                    {executiveContracts.groups.map((group) => (
+                      <optgroup key={group.framework_contract_id} label={group.label}>
+                        {group.options.map((ec) => (
+                          <option key={ec.id} value={String(ec.id)}>
+                            {ec.number}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
+                  {executiveContracts.isSuccess &&
+                  executiveContracts.groups.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+                    </span>
+                  ) : null}
                 </span>
               )}
             </div>

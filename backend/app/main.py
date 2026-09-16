@@ -57,6 +57,8 @@ from app.api import (
 )
 from app.api import candidate_search, requirement_verifications
 from app.api import activities
+from app.api import integrations_runs as integrations_runs_api
+from app.api import admin_integrations as admin_integrations_api
 from app.api import admin
 from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
@@ -90,6 +92,7 @@ from app.api import insights_team
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
+from app.api import client_executive_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
 from app.api import client_orders as client_orders_api
@@ -678,6 +681,10 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
+    from app.tasks.jjit_import import jjit_import_loop
+    from app.tasks.integration_stale_alerts import (
+        integration_stale_alerts_loop,
+    )
     from app.tasks.insights_seniority_journal import (
         insights_seniority_journal_loop,
     )
@@ -781,6 +788,14 @@ async def lifespan(app: FastAPI):
         "insights_seniority_journal": asyncio.create_task(
             insights_seniority_journal_loop()
         ),
+        # Zastój scraperów pracuj/JJIT → Slack (cooldown w DB). Kill-switch
+        # INTEGRATION_STALE_ALERTS_ENABLED przed pętlą.
+        "integration_stale_alerts": asyncio.create_task(
+            integration_stale_alerts_loop()
+        ),
+        # Import JJIT/RocketJobs (etap 2): codziennie 13:00 Europe/Warsaw,
+        # kill-switch JJIT_ENABLED przed pętlą; ręczny start przez admina.
+        "jjit_import": asyncio.create_task(jjit_import_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
@@ -996,6 +1011,12 @@ app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
     tags=["client-framework-contracts"],
+)
+# Struktura umów wykonawczych Centrum e-Zdrowia (umowa ramowa-część → wykonawcze).
+app.include_router(
+    client_executive_contracts.router,
+    prefix="/api/clients",
+    tags=["client-executive-contracts"],
 )
 app.include_router(
     client_contract_amendments.router,
@@ -1233,6 +1254,23 @@ app.include_router(
     insights_charts.router,
     prefix="/api/insights/charts",
     tags=["insights"],
+)
+# Integracje zewnętrzne (scrapery pracuj.pl / JJIT): zapis runów przez token
+# klienta OAuth, odczyt w Insights → Integracje. Migracja 0314.
+app.include_router(
+    integrations_runs_api.writer,
+    prefix="/api/integrations",
+    tags=["integrations"],
+)
+app.include_router(
+    integrations_runs_api.reader,
+    prefix="/api/insights/integrations",
+    tags=["insights"],
+)
+app.include_router(
+    admin_integrations_api.router,
+    prefix="/api/admin/integrations",
+    tags=["admin"],
 )
 # Uzgodnienie placementów: JEDEN wiersz na placement w OBU rodzinach
 # atrybucji. Read-only — raport ma tłumaczyć rozjazd, nie go usuwać.
@@ -2472,6 +2510,7 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
     from app.models.order_change_event import OrderChangeEvent
@@ -2594,6 +2633,9 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
+        # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
+        ("client_executive_contracts", ClientExecutiveContract),
         # 0303: raport jednorazowego czyszczenia „Nieaktywnych klientów"
         # i nagrobki czytane co noc przez fazę `clients` syncu Traffita.
         ("client_cleanup_runs", ClientCleanupRun),

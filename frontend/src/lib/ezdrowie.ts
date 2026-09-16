@@ -38,3 +38,55 @@ export function filterConsultantsByPart<T extends { project_part?: string | null
   if (part === "all") return consultants;
   return consultants.filter((c) => c.project_part === part);
 }
+
+// ── Struktura umów wykonawczych (ticket 09.2026) ─────────────────────────────
+// Dwupoziomowo: umowa ramowa = część (cz. I/II/IV/V/VI) → 0..N umów
+// wykonawczych. Konsultant jest przypisany do KONKRETNEJ umowy wykonawczej;
+// `project_part` jest od teraz wartością pochodną z jej umowy ramowej.
+
+/** Cyfry rzymskie części — tak nazywa je klient w dokumentach. */
+export const PART_ROMAN: Record<ProjectPart, string> = {
+  cz1: "I",
+  cz2: "II",
+  cz4: "IV",
+  cz5: "V",
+  cz6: "VI",
+};
+
+/**
+ * Filtr sekcji „Obecni konsultanci" po umowie wykonawczej.
+ * "all" = pełna lista; "unassigned" = osoby bez przypisania (legacy, do
+ * przeglądu); obiekt = jedna konkretna umowa wykonawcza.
+ */
+export type ConsultantAssignmentFilter =
+  | "all"
+  | "unassigned"
+  | { executiveContractId: number };
+
+/**
+ * Konsultant bez umowy wykonawczej (NULL — wiersz sprzed wdrożenia albo
+ * nieuzupełniony auto-draft) pokazuje się WYŁĄCZNIE pod „Wszystkie" i pod
+ * „Nieprzypisani": filtr po konkretnej umowie nie może udawać kompletu, a
+ * pustka pod „Nieprzypisani" ma znaczyć „wszyscy są przypisani", nie „nie
+ * policzyliśmy".
+ */
+export function filterConsultantsByExecutiveContract<
+  T extends { executive_contract?: { id: number } | null },
+>(consultants: T[], filter: ConsultantAssignmentFilter): T[] {
+  if (filter === "all") return consultants;
+  if (filter === "unassigned") {
+    return consultants.filter((c) => c.executive_contract == null);
+  }
+  return consultants.filter(
+    (c) => c.executive_contract?.id === filter.executiveContractId,
+  );
+}
+
+/** Porównanie dwóch filtrów — obiektowa wartość nie ma tożsamości referencyjnej. */
+export function isSameAssignmentFilter(
+  a: ConsultantAssignmentFilter,
+  b: ConsultantAssignmentFilter,
+): boolean {
+  if (typeof a === "string" || typeof b === "string") return a === b;
+  return a.executiveContractId === b.executiveContractId;
+}

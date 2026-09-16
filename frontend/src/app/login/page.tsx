@@ -7,6 +7,7 @@ import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
+import { ssoErrorMessage } from "@/lib/sso-error";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,24 +19,6 @@ function safeNextPath(raw: string | null): string {
   if (!raw) return "/";
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
-}
-
-function ssoErrorMessage(rawCode: string | null): string | null {
-  if (!rawCode) return null;
-  const code = rawCode.toLowerCase();
-  if (code === "domain_forbidden") {
-    return "Twoja domena email nie jest dopuszczona do logowania przez Microsoft. Skontaktuj się z administratorem.";
-  }
-  if (code.includes("missing identity claims")) {
-    return "Microsoft nie zwrócił wymaganych danych identyfikacyjnych. Spróbuj ponownie.";
-  }
-  if (code.includes("state expired")) {
-    return "Sesja logowania wygasła. Kliknij ponownie 'Zaloguj się przez Microsoft'.";
-  }
-  if (code.includes("token exchange failed")) {
-    return "Microsoft odrzucił prośbę o token. Spróbuj ponownie lub zgłoś administratorowi.";
-  }
-  return decodeURIComponent(rawCode);
 }
 
 // `?reason=session_expired` is set by the axios interceptor in lib/api.ts when

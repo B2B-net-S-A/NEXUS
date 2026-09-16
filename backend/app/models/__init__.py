@@ -95,6 +95,12 @@ from app.models.candidate_contact import (
     CandidateContactTraffitLedger,
 )
 from app.models.traffit_sync_state import TraffitSyncState
+from app.models.integration_external_item import IntegrationExternalItem
+from app.models.integration_run import (
+    IntegrationAlertState,
+    IntegrationRun,
+    IntegrationRunEvent,
+)
 from app.models.traffit_integration import (
     IntegrationLease,
     TraffitEntityLink,
@@ -269,6 +275,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_contract_amendment import ClientContractAmendment
+from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
 from app.models.client_order_group import (
@@ -313,6 +320,10 @@ from app.models.match_telemetry import MatchImpression, MatchOutcome  # noqa: F4
 from app.models.index_outbox import IndexOutboxEvent  # noqa: F401
 
 __all__ = [
+    "IntegrationAlertState",
+    "IntegrationExternalItem",
+    "IntegrationRun",
+    "IntegrationRunEvent",
     "CandidateMatchJustification",
     "CandidateActivitySummary",
     "MatchImpression",
@@ -539,6 +550,7 @@ __all__ = [
     "FrameworkContractStatus",
     "FrameworkContractSignedVia",
     "ClientContractAmendment",
+    "ClientExecutiveContract",
     "ClientOrder",
     "ClientOrderOffboardingCase",
     "ClientOrderGroup",
