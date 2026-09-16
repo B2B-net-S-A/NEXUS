@@ -25,8 +25,10 @@ from app.services.client_portfolio_import import (
     _direct_client_fk_specs,
     _validate_identifier,
 )
+from app.services.order_mail_gate import CODE_NON_ORDER
 from app.services.order_mail_ingest import (
     hold_when_autoapply_disabled,
+    set_gate_hold,
     refresh_review_plan,
 )
 from app.services.order_policies.registry import is_client_in_policy
@@ -407,7 +409,11 @@ async def apply_cleanup_plan(db, expected_fingerprint):
             doc.extraction = None
             doc.proposal = None
             doc.gate_verdict = None
-            doc.gate_reasons = [item["reason"]]
+            # Powody i kody MUSZĄ iść razem: `gate_hold_pairs` paruje je po
+            # indeksie, więc sam nowy tekst obok starych kodów daje parowanie
+            # BŁĘDNE, nie brakujące — a po tym kodzie klasyfikuje się
+            # ponowna weryfikacja.
+            set_gate_hold(doc, [(CODE_NON_ORDER, item["reason"])])
             doc.document_meta = {"ignored_non_order": True, "reason": item["reason"]}
         elif action in ("refresh", "apply"):
             await refresh_review_plan(db, doc)

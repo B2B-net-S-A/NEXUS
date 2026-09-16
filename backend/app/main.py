@@ -2489,7 +2489,7 @@ async def api_health_deep_check():
         MdConsumptionImportRow,
     )
     from app.models.dl_alert import DlAlert
-    from app.models.order_mail import OrderMailDocument
+    from app.models.order_mail import OrderMailDocument, OrderMailRecheckRun
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
@@ -2576,6 +2576,7 @@ async def api_health_deep_check():
         ("dl_alerts", DlAlert),
         # 0264: zamówienia z maila — dziennik załączników czytany przez kolejkę.
         ("order_mail_documents", OrderMailDocument),
+        ("order_mail_recheck_runs", OrderMailRecheckRun),
         ("candidates", Candidate),
         ("clients", Client),
         # 0255: reguły CV per klient. Brak tabeli nie wywraca generatora —

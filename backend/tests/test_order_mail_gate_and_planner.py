@@ -595,3 +595,65 @@ def test_unused_total_mapping_does_not_block_complete_periodic_order(reason):
     inp.extraction.total_value = None
     inp.extraction.uncertain_reasons = [reason + "; sprzeczne stawki"]
     assert not evaluate(inp).is_auto
+
+
+# ── Kody powodów (0312) ─────────────────────────────────────────────────────
+
+
+def test_every_reason_the_gate_appends_carries_a_code():
+    """Powód bez kodu byłby dla ponownej weryfikacji „inny powód" — czyli alarm.
+
+    Test czyta ŹRÓDŁO bramki, nie jeden przykładowy werdykt: ręczna lista
+    scenariuszy przepuściłaby powód dopisany jutro w gałęzi, o której nikt nie
+    pomyślał, a skutkiem byłaby karta do Delivery Leada o zamówieniu, które
+    tylko czeka na podpis umowy.
+    """
+    import ast
+    import inspect
+
+    from app.services import order_mail_gate
+
+    tree = ast.parse(inspect.getsource(order_mail_gate))
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if not (
+            isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "reasons"
+            and node.func.attr in ("append", "extend")
+        ):
+            continue
+        arg = node.args[0]
+        if node.func.attr == "append":
+            ok = isinstance(arg, ast.Tuple) and len(arg.elts) == 2
+        else:
+            # `extend` bierze generator par albo JEDEN znany helper zwracający
+            # pary. Gołe „dowolne wywołanie" przepuszczałoby dokładnie to,
+            # przed czym ten test broni: helper oddający same napisy.
+            ok = isinstance(arg, ast.GeneratorExp) and isinstance(arg.elt, ast.Tuple)
+            ok = ok or (
+                isinstance(arg, ast.Call)
+                and isinstance(arg.func, ast.Name)
+                and arg.func.id == "_row_evidence_reasons"
+            )
+        if not ok:
+            offenders.append(node.lineno)
+    assert offenders == [], f"powody bez kodu w order_mail_gate.py, linie: {offenders}"
+
+
+def test_verdict_codes_line_up_with_their_reasons():
+    clean = evaluate(_gate_input())
+    assert (clean.reasons, clean.codes) == ([], [])
+    dirty = evaluate(
+        _gate_input(
+            identification_method="marker",
+            policies_applied=(),
+            document_truncated=True,
+            ocr_capped=True,
+            deterministic_rows=(),
+        )
+    )
+    assert dirty.verdict == VERDICT_REVIEW
+    assert len(dirty.codes) == len(dirty.reasons) > 1
+    assert all(dirty.codes)

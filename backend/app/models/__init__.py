@@ -283,7 +283,11 @@ from app.models.md_consumption import (
     MdConsumptionImportRow,
 )
 from app.models.dl_alert import DlAlert
-from app.models.order_mail import OrderMailDocument, OrderMailSyncState
+from app.models.order_mail import (
+    OrderMailDocument,
+    OrderMailRecheckRun,
+    OrderMailSyncState,
+)
 from app.models.finance import (
     FinanceImportRun,
     FinanceImportRunStatus,
@@ -548,6 +552,7 @@ __all__ = [
     "ClientOrderMdConsumption",
     "DlAlert",
     "OrderMailDocument",
+    "OrderMailRecheckRun",
     "OrderMailSyncState",
     "ClientOrderStatus",
     "MdConsumptionImport",

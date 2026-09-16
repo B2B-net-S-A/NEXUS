@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
-import type { OrderMailDocument, OrderMailOutcome, OrderMailSyncStatus } from "@/lib/api/orderMail";
+import type { OrderMailDocument, OrderMailOutcome, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(id: number, over: Partial<OrderMailDocument>): OrderMailDocument {
   return {
@@ -103,9 +103,68 @@ const SYNC_STATUS: OrderMailSyncStatus = {
   last_completed: {
     reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(Date.now() - 12 * 60_000).toISOString(),
     status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
-    unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0, errors: [],
+    unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
+    rechecked: 3, recheck_applied: 1, recheck_held: 2, recheck_alerts: 1, errors: [],
   },
 };
+
+/** Trzy stany sekcji historii obok siebie: zapis, czekanie na podpis, eskalacja. */
+const RECHECK_RUNS: OrderMailRecheckRun[] = [
+  {
+    id: 2,
+    started_at: "2031-03-03T08:02:00Z",
+    finished_at: "2031-03-03T08:02:40Z",
+    trigger: "scheduled",
+    checked: 3,
+    applied: 1,
+    held: 2,
+    entries: [
+      {
+        document_id: 1,
+        client_id: 7,
+        client_name: "Bank Pocztowy S.A.",
+        order_number: "OIT/0189/2031/ITVM",
+        people: ["Jan Kowalski"],
+        outcome: "applied",
+        category: null,
+        reasons: [],
+      },
+      {
+        document_id: 2,
+        client_id: 7,
+        client_name: "Bank Pocztowy S.A.",
+        order_number: "OIT/0190/2031/ITVM",
+        people: ["Anna Nowa"],
+        outcome: "held",
+        category: "awaiting_contract",
+        reasons: [
+          "„Anna Nowa”: „Anna Nowa” (#812) jest już w bazie, ale bez trwającej współpracy u innego klienta. Potwierdź, że to ta sama osoba, i zastosuj ręcznie",
+        ],
+      },
+      {
+        document_id: 3,
+        client_id: 9,
+        client_name: "Nordea Bank Abp",
+        order_number: "Call Off 4711",
+        people: ["Piotr Zając"],
+        outcome: "held",
+        category: "other",
+        reasons: ["„Piotr Zając”: stawka 12 hour poza pasmem 50–500"],
+        alerted: true,
+      },
+    ],
+  },
+  {
+    id: 1,
+    started_at: "2031-03-03T07:02:00Z",
+    finished_at: "2031-03-03T07:02:11Z",
+    trigger: "manual",
+    checked: 2,
+    applied: 0,
+    held: 2,
+    entries: [],
+  },
+];
 
 export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
@@ -134,6 +193,7 @@ export default function OrderMailPreviewPage() {
       onRetry={() => undefined}
       busy={false}
       applyError={null}
+      recheck={{ runs: RECHECK_RUNS, state: "ready", scoped: false, onRetry: () => undefined }}
     />
   );
 }

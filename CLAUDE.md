@@ -1865,7 +1865,7 @@ nie ma żadnej reguły do utrzymania.
   zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
   `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
 - **Odczyt awaryjny (bez AI) jest ponawiany sam** (`retry_ai_fallback_documents`,
-  bieg skrzynki po `replan_outdated_documents`): wpis `needs_review` z
+  bieg skrzynki po ponownej weryfikacji): wpis `needs_review` z
   `extraction.source == "regex"` dostaje ponowny odczyt AI z zachowanego PDF-a,
   najwyżej `MAX_AI_RETRY_ATTEMPTS` (3) razy (`document_meta.ai_retry_*`,
   przeżywa „Przelicz plan"). Model idzie POZA blokadą wiersza, zapis po
@@ -1906,6 +1906,79 @@ nie ma żadnej reguły do utrzymania.
   robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
   a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
   i przesuwał okno wstecz).
+### Godzinowa ponowna weryfikacja wstrzymanych wpisów (0312, 16.09.2026)
+
+- **Wstrzymany wpis nie wracał sam.** Jedyne automatyczne przeliczenie
+  (`replan_outdated_documents`, USUNIĘTE) odpalało się tylko po zmianie
+  `rule_version`. Przyczyna wstrzymania znika najczęściej GDZIE INDZIEJ:
+  po podpisaniu umowy B2B nowego kontraktora albo po uzupełnieniu NIP-u
+  u klienta. Teraz `order_mail_recheck.run_recheck` przelicza KAŻDY wstrzymany
+  wpis w każdym biegu skrzynki — lokalnie i przed Graphem, więc także przy
+  awarii skrzynki. Bez nowej pętli: ta sama kadencja, jeden heartbeat, jedna oś
+  czasu w historii.
+- **Dwie ścieżki.** `needs_review` (ma klienta i odczyt) → `replan_and_apply`,
+  bez modelu AI. `unrecognized_client` → SAMO ponowne rozpoznanie klienta
+  (tekst z PDF-a + rejestr NIP-ów); dopiero rozpoznany klient przechodzi na
+  pierwszą ścieżkę. **Nie wołaj tu `process_pdf_bytes`** — ta funkcja czyta
+  modelem PRZED sprawdzeniem klienta, więc płaciłaby za AI w każdym biegu.
+- **Kody powodów, nie proza** (`order_mail_gate.CODE_*`, kolumna
+  `order_mail_documents.gate_reason_codes`, równoległa do `gate_reasons`).
+  KAŻDE dopisanie powodu MUSI nieść kod — pilnuje tego test czytający AST
+  bramki. Powody wstrzykiwane poza bramką idą przez `set_gate_hold`.
+- **Cicha jest WYŁĄCZNIE kategoria „czeka na podpis" (i wpis bez klienta).**
+  `config` (wyłącznik automatu globalny albo per klient) **eskaluje jak każda
+  inna przyczyna**: wyłącznik gasi tylko zapis automatyczny — ręczne
+  „Zastosuj" go nie czyta — więc taki dokument zapisze WYŁĄCZNIE człowiek.
+  Wyciszenie tej kategorii znaczyłoby, że przestawienie
+  `ORDER_MAIL_AUTOAPPLY_ENABLED` kasuje alarmowanie całej kolejki i zamyka
+  karty już wystawione.
+- **„Czeka na podpis umowy" = `classify_hold` zwraca `awaiting_contract`**:
+  WSZYSTKIE kody dokumentu należą do `{person_decision_new,
+  person_known_elsewhere_idle}`, czyli osoby nie ma na rosterze klienta i nie ma
+  żywej umowy NIGDZIE w systemie. Taki wpis czeka bezterminowo, licznik prób
+  stoi na zerze i **nie wysyła karty do DL nigdy**. Jeden dodatkowy powód
+  (stawka poza pasmem, niepewny odczyt) przesuwa dokument do `other` — to
+  bezpieczny kierunek pomyłki. Świadomie NIE są `awaiting_contract`: zakończona
+  współpraca u tego klienta, imiennicy i osoba z otwartą umową u INNEGO klienta
+  (to pytanie o zdublowany rekord klienta, nie o podpis).
+- **Karta DL wychodzi dopiero po TRZECH nieudanych próbach z rzędu**
+  (`document_meta["recheck"] = {attempts, category, last_at}`; zmiana kategorii
+  zeruje licznik). Do 0312 `notify_review` wołane z `_process_message`
+  wystawiało kartę przy PIERWSZYM wstrzymaniu — to wywołanie zniknęło.
+  Regułę ma JEDNO miejsce: `should_alert` — czyta ją i recheck, i dobowy
+  `rule_order_mail_review` (dwie kopie rozjechałyby się, a skaner wystawiałby
+  nazajutrz karty, które recheck wyciszył). Bezpiecznik: dokument bez ustalonej
+  kategorii (pętla nigdy go nie widziała) **albo ze stemplem `last_at`
+  starszym niż okno** (pętla przestała go widzieć) alarmuje po
+  `ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS` (6 h). Bez DRUGIEGO przypadku pętla
+  zatrzymana po pierwszej próbie zamrażała dokument na `attempts = 1` na
+  zawsze, a dobowy skaner — nie widząc go w `live` — zamykał nawet kartę
+  wystawioną wcześniej. Udany zapis kasuje ślad i zamyka kartę od razu
+  (`resolve_entity_alerts`).
+- **KAŻDY dokument, który zjadł budżet biegu, MUSI dostać stempel `last_at`
+  i wiersz w historii** — także ten, którego nie da się przeliczyć, i ten,
+  na którym bieg padł (stempel idzie wtedy osobną transakcją PO rollbacku).
+  Sortowanie `last_at NULLS FIRST` jest rotacją tylko pod tym warunkiem: wpis
+  bez stempla wraca na czoło w każdym biegu, a sto takich wierszy zatrzymuje
+  całą funkcję — niewidzialnie, bo historia pokazuje wtedy bieg „sprawdzono 0".
+- **`_replannable` ODPOWIADA „nie da się", nie rzuca.** Helper magazynu
+  (`get_order_mail_attachment_path`) rzuca `FileNotFoundError` dla ścieżki,
+  której nie ma; bez przechwycenia recheck wywracał się na takim wpisie
+  w każdym biegu, licznik prób stał w miejscu i karta nie wychodziła nigdy.
+- **Historia: `order_mail_recheck_runs`** (`GET /api/order-mail/recheck-runs`,
+  sekcja na dole `/order-mail`). `details` są ZDENORMALIZOWANE — historia
+  pokazuje powód z chwili biegu, nie dzisiejszy stan dokumentu. DL widzi wpisy
+  swojego portfela, a **liczniki są przeliczane z widocznych wpisów** (globalne
+  „sprawdzono 12" nad listą z jednym wierszem to ekran, który sam sobie
+  przeczy). Retencja `ORDER_MAIL_RECHECK_HISTORY_DAYS` (30 dni).
+- **Sufit `ORDER_MAIL_RECHECK_MAX_DOCS` (100) i rotacja po `last_at NULLS
+  FIRST`** — każdy recheck to ekstrakcja tekstu z PDF-a, a skan idzie przez OCR.
+  Wpisy `unrecognized_client` starsze niż
+  `ORDER_MAIL_RECHECK_UNRECOGNIZED_DAYS` (90) odpadają: znikają z kolejki tylko
+  ręcznie, więc bez sufitu OCR-owalibyśmy je co godzinę bez końca.
+- **Test na wspólnej bazie MUSI asertować po WŁASNYM dokumencie** — bieg
+  przegląda każdy wstrzymany wpis, a baza testowa nie jest czyszczona, więc
+  globalne liczniki i globalny mock `notify_review` mierzą cudze wiersze.
 - **`ORDER_MAIL_AUTOAPPLY_ENABLED` jest żywym wyłącznikiem (od 10.09.2026).**
   #1472 zrobił z niej flagę „legacy” — bramka jej nie czytała, a status zwracał
   na sztywno `true`. Teraz działa w jednym miejscu,
@@ -2959,16 +3032,10 @@ fail-closed:
   ograniczenie, instrukcja każe dołączyć PDF.
 - **Zmieniasz regułę klienta → PODBIJ `rule_version` w rejestrze.** Dokument
   zapamiętuje wersje reguł, którymi go przeczytano
-  (`document_meta["rule_versions"]`), a każdy bieg skrzynki
-  (`replan_outdated_documents`, przed czytaniem poczty) przelicza RAZ wpisy
-  `needs_review`, których wersja różni się od aktywnej — ta sama funkcja co
-  przycisk „Przelicz plan” (`replan_and_apply`: pewny plan zapisuje się
-  automatem, słucha `ORDER_MAIL_AUTOAPPLY_ENABLED`). Powód (11.09.2026):
-  poprawka Aliora działała tylko dla NOWYCH maili, a wpis sprzed wdrożenia
-  wisiał ze starymi powodami, bo nikt nie kliknął „Przelicz plan” — ponowne
-  wysłanie tego samego PDF-u nic nie daje (duplikat po SHA-256). Znacznik
-  zapisuje się także przy porażce (wpis nie wraca co godzinę). Wersja
-  `None` = bez automatycznego przeliczania.
+  (`document_meta["rule_versions"]`) i stempluje je przy każdym przeliczeniu.
+  Od 0312 wersja NIE jest już warunkiem przeliczenia — wstrzymany wpis wraca
+  w każdym biegu (niżej) — ale stempel zostaje: mówi, którą regułą czytano
+  zapisany odczyt. Wersja `None` = reguła bez wersjonowania.
 - **Domniemanie netto bez reguły klienta** (`_document_marks_only_net`,
   UAT M07-B04): stawka bez oznaczenia przy kwocie jest netto tylko wtedy, gdy
   „netto” stoi przy etykiecie stawki/kwoty W TEJ SAMEJ LINII („Stawka netto

@@ -567,18 +567,16 @@ async def test_document_marked_gross_rate_is_converted_and_consultant_matched(
 
 
 @pytest.mark.asyncio
-async def test_notify_failure_rolls_back_session_and_is_recorded(
+async def test_first_hold_no_longer_notifies_the_delivery_lead(
     db_session, monkeypatch, tmp_path
 ):
-    """Padnięte powiadomienie DL (błąd SQL w trakcie) nie może zatruć sesji.
+    """Od 0312 pierwsze wstrzymanie NIE wystawia karty Delivery Leadowi.
 
-    Bez rollbacku każde kolejne zapytanie — także zapis końca biegu — kończy
-    się PendingRollbackError i stan zostaje na „running" bez końca (tak
-    wyglądał bieg 2026-09-03 09:06 na prodzie: dokument w kolejce, stan
-    nigdy niezamknięty).
+    Zamówienie dostaje najpierw trzy godzinowe próby automatycznego
+    dokończenia, a to, które czeka na podpis umowy nowego kontraktora, nie
+    alarmuje nigdy. O karcie decyduje wyłącznie ponowna weryfikacja
+    (``order_mail_recheck``) i dobowy skaner — tą samą regułą ``should_alert``.
     """
-    from sqlalchemy import text as sql_text
-
     from app.services import storage_service
 
     monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
@@ -591,11 +589,11 @@ async def test_notify_failure_rolls_back_session_and_is_recorded(
         row.extraction = {"title": "7/2031", "consultant_rows": []}
         return row
 
-    async def failing_notify(db, row):
-        await db.execute(sql_text("SELECT * FROM order_mail_table_that_does_not_exist"))
+    from unittest.mock import AsyncMock
 
+    notify = AsyncMock(return_value=0)
     monkeypatch.setattr(svc, "process_pdf_bytes", fake_process)
-    monkeypatch.setattr(svc, "notify_review", failing_notify)
+    monkeypatch.setattr(svc, "notify_review", notify)
 
     tag = uuid.uuid4().hex[:8]
     fake = _FakeGraph([], {"graph-nf": [_pdf("nf.pdf", f"%PDF nf {tag}".encode())]})
@@ -609,9 +607,8 @@ async def test_notify_failure_rolls_back_session_and_is_recorded(
         registry=ClientRegistry(by_registry_id={}),
     )
     assert added is True and stats.needs_review == 1
-    assert stats.errors and stats.errors[0].startswith("notify doc ")
-    # Sesja nadaje się do dalszej pracy — bez rollbacku ten SELECT rzuca.
-    assert (await db_session.execute(sql_text("SELECT 1"))).scalar() == 1
+    notify.assert_not_awaited()
+    assert stats.errors == []
 
 
 @pytest.mark.asyncio
@@ -723,8 +720,10 @@ async def test_every_run_replans_outdated_queue_documents_even_without_the_mailb
     """
     from unittest.mock import AsyncMock
 
-    sweep = AsyncMock()
-    monkeypatch.setattr(svc, "replan_outdated_documents", sweep)
+    import app.services.order_mail_recheck as recheck_svc
+
+    sweep = AsyncMock(return_value=recheck_svc.RecheckRunResult())
+    monkeypatch.setattr(recheck_svc, "run_recheck", sweep)
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nexus-zamowienia@example.test")
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
     monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: False)

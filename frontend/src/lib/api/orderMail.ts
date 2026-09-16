@@ -147,7 +147,52 @@ export interface OrderMailLastRun {
   ignored_no_pdf: number;
   ignored_sender: number;
   failed: number;
+  /**
+   * Godzinowa ponowna weryfikacja wstrzymanych wpisów (0312). Opcjonalne:
+   * rekord ostatniego biegu sprzed wdrożenia tych liczników ich nie ma.
+   */
+  rechecked?: number;
+  recheck_applied?: number;
+  recheck_held?: number;
+  recheck_alerts?: number;
   errors: string[];
+}
+
+/** Jeden dokument obejrzany przez ponowną weryfikację. */
+export interface OrderMailRecheckEntry {
+  document_id: number;
+  client_id: number | null;
+  client_name: string | null;
+  order_number: string | null;
+  people: string[];
+  /** `applied` = zapisane automatem, `held` = dalej czeka, `error` = bieg padł. */
+  outcome: "applied" | "held" | "error" | string;
+  /**
+   * `awaiting_contract` = czeka na podpis umowy (bez limitu czasu i bez karty
+   * dla DL), `config` = automat wyłączony, `unrecognized` = brak klienta,
+   * `other` = po trzech próbach idzie karta. `null` przy zapisanych.
+   */
+  category: string | null;
+  reasons: string[];
+  alerted?: boolean;
+}
+
+/** Jeden bieg ponownej weryfikacji — wiersz „Historii automatycznej weryfikacji". */
+export interface OrderMailRecheckRun {
+  id: number;
+  started_at: string | null;
+  finished_at: string | null;
+  trigger: "scheduled" | "manual" | string;
+  checked: number;
+  applied: number;
+  held: number;
+  entries: OrderMailRecheckEntry[];
+}
+
+export interface OrderMailRecheckRunsResponse {
+  items: OrderMailRecheckRun[];
+  /** Liczby policzone z WIDOCZNYCH wpisów (Delivery Lead widzi swój portfel). */
+  scoped: boolean;
 }
 
 export interface OrderMailSyncStatus {
@@ -186,6 +231,10 @@ export const orderMailApi = {
   syncStatus: () => api.get<OrderMailSyncStatus>("/api/order-mail/sync/status"),
   /** Bieg startuje w tle — wynik czyta się z `syncStatus` (patrz `lib/order-mail-sync.ts`). */
   triggerSync: () => api.post<{ status: "started" }>("/api/order-mail/sync"),
+  recheckRuns: (limit = 20) =>
+    api.get<OrderMailRecheckRunsResponse>("/api/order-mail/recheck-runs", {
+      params: { limit },
+    }),
 };
 
 export const ORDER_MAIL_ACTION_LABEL: Record<OrderMailProposalRow["action"], string> = {
