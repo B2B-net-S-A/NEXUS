@@ -317,8 +317,15 @@ def _model_already_read(candidate: Candidate, cv_hash: Optional[str]) -> bool:
 
 
 def _claude_step_can_run() -> bool:
-    """Te same warunki, pod którymi ``cv_parser._parse_with_claude`` woła model."""
-    return bool(settings.ANTHROPIC_API_KEY) and bool(settings.CV_ENRICHMENT_ENABLED)
+    """Te same warunki, pod którymi ``cv_parser._parse_with_claude`` woła model.
+
+    Klucz dotyczy DOSTAWCY modelu z rejestru — lustro warunku w `cv_parser`.
+    """
+    from app.services.llm_providers import api_key_configured
+
+    return bool(api_key_configured(model_for(AIFeatureKey.cv_name_backfill))) and bool(
+        settings.CV_ENRICHMENT_ENABLED
+    )
 
 
 async def _parse_cv_for_names(

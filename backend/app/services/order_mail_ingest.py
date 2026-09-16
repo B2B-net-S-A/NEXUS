@@ -856,9 +856,20 @@ MAX_AI_RETRY_ATTEMPTS = 3
 
 
 def ai_extraction_available() -> bool:
-    """Czy odczyt AI w ogóle może się udać (klucz + włącznik funkcji)."""
-    key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
-    return bool(key) and bool(settings.ORDER_EXTRACTION_ENABLED)
+    """Czy odczyt AI w ogóle może się udać (klucz DOSTAWCY + włącznik funkcji).
+
+    Klucz musi dotyczyć dostawcy modelu z rejestru (od 16.09.2026 odczyt
+    zamówień idzie na GPT Luna), a nie Anthropic na sztywno. Ta funkcja
+    decyduje, czy otworzyć bramkę kwot — pytanie o cudzy klucz kończyło się
+    wywołaniem modelu POZA kwotą: niewidocznym dla wyłącznika, limitu i alarmu
+    wydatków (pod `AI_QUOTA_STRICT` wprost `AIQuotaUngated`).
+    """
+    from app.services.ai_models import model_for
+    from app.services.llm_providers import api_key_configured
+
+    return bool(api_key_configured(model_for(AIFeatureKey.order_parser))) and bool(
+        settings.ORDER_EXTRACTION_ENABLED
+    )
 
 
 def _quota_block_reason(exc: AIQuotaExceeded) -> str:

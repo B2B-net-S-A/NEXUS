@@ -23,6 +23,29 @@ from app.services.llm_providers import (
     provider_of,
 )
 
+
+@pytest.fixture(autouse=True)
+def _declare_provider_calls():
+    """Zadeklaruj wywołania AI na czas testów w tym pliku.
+
+    Testy niżej wchodzą w PRAWDZIWE `call_claude`, więc przechodzą przez
+    `_assert_declared`. CI biegnie z `AI_QUOTA_STRICT=true`, gdzie
+    niezadeklarowane wywołanie rzuca `AIQuotaUngated` — bez tej deklaracji
+    padałyby na bramce kwot zamiast sprawdzać routing dostawcy. Deklaracja,
+    nie wyłączenie STRICT: ta sama ścieżka, którą chodzi produkcja.
+    """
+    from datetime import date
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import QuotaState, declared_call
+
+    with declared_call(
+        AIFeatureKey.order_parser,
+        user_id=None,
+        state=QuotaState(used=1, limit=0, period_start=date(2026, 9, 1)),
+    ):
+        yield
+
 # ── provider_of / klucze ──────────────────────────────────────────────────
 
 
@@ -469,3 +492,43 @@ def test_anthropic_events_keep_their_shape():
     assert event["provider"] == "anthropic"
     assert event["event_key"] == "anthropic:msg_a"
     assert event["estimated_cost_usd"] is not None
+
+
+# ── bramki „czy model może ruszyć" pytają o klucz DOSTAWCY ────────────────
+
+
+def test_availability_gates_follow_the_registrys_provider(monkeypatch):
+    """Regresja: bramka pytająca o cudzy klucz wypuszcza wywołanie POZA kwotę.
+
+    `order_mail_ingest.ai_extraction_available()` decyduje, czy w ogóle otworzyć
+    `ai_feature(order_parser)`. Gdy pytała o `ANTHROPIC_API_KEY`, a model stał
+    już na GPT Luna, na środowisku z kluczem Anthropic i BEZ klucza OpenAI
+    bramka mówiła „tak", kwota się nie otwierała, a samo wywołanie leciało
+    dalej — niewidoczne dla wyłącznika funkcji, limitu i alarmu wydatków
+    (pod `AI_QUOTA_STRICT` wprost `AIQuotaUngated`). Odwrotny rozjazd jest
+    równie zły: sprawny odczyt „wyłączony", bo braknie cudzego klucza.
+    """
+    from app.core.config import settings
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_models, cv_backfill
+    from app.services import order_mail_ingest as ingest
+
+    monkeypatch.setattr(settings, "ORDER_EXTRACTION_ENABLED", True)
+    monkeypatch.setattr(settings, "CV_ENRICHMENT_ENABLED", True)
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(settings, name, "", raising=False)
+
+    # Sam klucz Anthropic nie wystarcza funkcji stojącej na innym dostawcy…
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    assert provider_of(ai_models.model_for(AIFeatureKey.order_parser)) == OPENAI
+    assert ingest.ai_extraction_available() is False
+    # …a klucz właściwego dostawcy — tak.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert ingest.ai_extraction_available() is True
+
+    # Lustro dla ścieżki CV: dziś Anthropic, więc bramka idzie za jego kluczem.
+    assert provider_of(ai_models.model_for(AIFeatureKey.cv_name_backfill)) == "anthropic"
+    assert cv_backfill._claude_step_can_run() is True
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cv_backfill._claude_step_can_run() is False

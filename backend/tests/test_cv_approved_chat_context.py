@@ -42,6 +42,8 @@ async def test_model_prompt_cannot_read_original_payload_for_approved_link(monke
             raise AssertionError("superseded requirements leaked")
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    # F5 (16.09.2026): czat idzie na GPT Luna — sonda pyta o klucz dostawcy.
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
     monkeypatch.setattr(chat, "_history", AsyncMock(return_value=[]))
     monkeypatch.setattr(chat, "_persist_exchange", AsyncMock())
     provider = AsyncMock(
