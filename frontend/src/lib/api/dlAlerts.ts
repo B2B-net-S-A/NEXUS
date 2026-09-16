@@ -22,7 +22,10 @@ export type DlAlertType =
   | "framework_contract_expiring"
   | "contract_ending"
   | "cost_budget_low"
-  | "new_contractor_draft";
+  | "new_contractor_draft"
+  // Zużycie PODSTAWY MD ponad próg procentowy — wczesne ostrzeżenie
+  // niezależne od `md_budget_low` (21 MD pozostałych).
+  | "md_base_usage_high";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
 export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";
