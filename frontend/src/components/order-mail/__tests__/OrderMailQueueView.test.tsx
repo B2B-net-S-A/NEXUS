@@ -14,7 +14,7 @@ const openAuthenticatedFile = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
 
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
-import type { OrderMailDocument, OrderMailSyncStatus } from "@/lib/api/orderMail";
+import type { OrderMailDocument, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
   return {
@@ -39,7 +39,8 @@ function syncStatus(over: Partial<OrderMailSyncStatus> = {}): OrderMailSyncStatu
     last_completed: {
       reason: "manual", started_at: "2031-03-03T08:00:00Z", finished_at: new Date(Date.now() - 5 * 60_000).toISOString(),
       status: "ok", error: null, messages: 3, new_messages: 2, attachments: 2, auto_applied: 1, needs_review: 1,
-      unrecognized: 0, duplicates: 0, skipped_existing: 1, ignored_no_pdf: 0, ignored_sender: 0, failed: 0, errors: [],
+      unrecognized: 0, duplicates: 0, skipped_existing: 1, ignored_no_pdf: 0, ignored_sender: 0, failed: 0,
+      rechecked: 0, recheck_applied: 0, recheck_held: 0, recheck_alerts: 0, errors: [],
     },
     ...over,
   };
@@ -47,10 +48,27 @@ function syncStatus(over: Partial<OrderMailSyncStatus> = {}): OrderMailSyncStatu
 
 const mailbox = { status: syncStatus(), statusError: false, checking: false, checkError: null, onCheckNow: vi.fn() };
 
+const noRecheck = { runs: [], state: "ready" as const, scoped: false, onRetry: vi.fn() };
+
+function recheckRun(over: Partial<OrderMailRecheckRun> = {}): OrderMailRecheckRun {
+  return {
+    id: 5, started_at: "2031-03-03T08:02:00Z", finished_at: "2031-03-03T08:02:30Z",
+    trigger: "scheduled", checked: 2, applied: 1, held: 1,
+    entries: [
+      { document_id: 11, client_id: 1, client_name: "Bank A", order_number: "7/2031", people: ["Jan Kowalski"],
+        outcome: "applied", category: null, reasons: [] },
+      { document_id: 12, client_id: 1, client_name: "Bank A", order_number: "8/2031", people: ["Anna Nowa"],
+        outcome: "held", category: "awaiting_contract", reasons: ["jest już w bazie, ale bez trwającej współpracy"] },
+    ],
+    ...over,
+  };
+}
+
 const base = {
   mailbox,
   outcome: "needs_review" as const, onOutcomeChange: vi.fn(), total: 1, selectedId: 1,
   onSelect: vi.fn(), onApply: vi.fn(), onDismiss: vi.fn(), onRetry: vi.fn(), busy: false, applyError: null,
+  recheck: noRecheck,
 };
 
 describe("OrderMailQueueView", () => {
@@ -267,5 +285,67 @@ describe("OrderMailQueueView", () => {
     fireEvent.click(screen.getByRole("button", { name: /PDF/ }));
     expect(openAuthenticatedFile).toHaveBeenCalledWith("/api/order-mail/queue/47/file", "application/pdf", "z.pdf");
     expect(await screen.findByText("Nie udało się otworzyć pliku PDF.")).toBeInTheDocument();
+  });
+});
+
+
+describe("Historia automatycznej weryfikacji", () => {
+  it("rozwija bieg do konkretnych dokumentów z powodem i linkiem", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ ...noRecheck, runs: [recheckRun()] }}
+      />,
+    );
+    const history = screen.getByTestId("recheck-history");
+    expect(history).toHaveTextContent("Sprawdzonych");
+    expect(screen.queryByTestId("recheck-entries")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż (2)" }));
+    const entries = screen.getByTestId("recheck-entries");
+    expect(entries).toHaveTextContent("Zaakceptowane");
+    expect(entries).toHaveTextContent("Wstrzymane");
+    expect(entries).toHaveTextContent("Czeka na podpis umowy");
+    expect(entries).toHaveTextContent("bez trwającej współpracy");
+    expect(screen.getByRole("link", { name: "8/2031" })).toHaveAttribute("href", "/order-mail?doc=12");
+  });
+
+  it("awaria historii renderuje się jako awaria, nie jako brak biegów", () => {
+    const onRetry = vi.fn();
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ runs: [], state: "error", scoped: false, onRetry }}
+      />,
+    );
+    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak biegów");
+    fireEvent.click(screen.getByRole("button", { name: /ponów|spróbuj/i }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it("przeżywa awarię kolejki — ma własne zapytanie", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="error"
+        items={[]}
+        recheck={{ ...noRecheck, runs: [recheckRun()] }}
+      />,
+    );
+    // To właśnie historia mówi, czy system w ogóle próbuje dokończyć te wpisy —
+    // schowanie jej razem z padniętą listą zabierałoby jedyny sygnał.
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Sprawdzonych");
+  });
+
+  it("pusty stan pojawia się dopiero po udanym odczycie", () => {
+    const { rerender } = render(
+      <OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={{ ...noRecheck, state: "loading" }} />,
+    );
+    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak biegów");
+    rerender(<OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={noRecheck} />);
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Brak biegów");
   });
 });

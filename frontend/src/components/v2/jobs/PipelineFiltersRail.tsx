@@ -40,6 +40,7 @@ const STAGE_DOT_COLOR: Record<string, string> = {
  *   bursztynowa = tu biegnie SLA klienta, czerwona = zamknięci. Reszta jest
  *   neutralna — kolor bez znaczenia byłby szumem. */
 const GROUP_DOT_COLOR: Record<PipelineGroupKey, string> = {
+  posting: "bg-success",
   intake: "bg-success",
   screening: "bg-warning",
   verification: "bg-muted-foreground/50",

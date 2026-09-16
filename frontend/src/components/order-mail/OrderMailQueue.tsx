@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Inbox, FileText, Check, X, ExternalLink, Loader2, MailCheck, UserCog } from "lucide-react";
+import { Inbox, FileText, Check, X, ExternalLink, History, Loader2, MailCheck, UserCog } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -18,6 +18,8 @@ import {
   orderWindowHref,
   type OrderMailDocument,
   type OrderMailOutcome,
+  type OrderMailRecheckEntry,
+  type OrderMailRecheckRun,
   type OrderMailSyncStatus,
 } from "@/lib/api/orderMail";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
@@ -148,6 +150,149 @@ export function MailboxCheckPanel(p: MailboxCheckProps) {
   );
 }
 
+export interface RecheckHistoryProps {
+  runs: OrderMailRecheckRun[];
+  state: OrderMailViewState;
+  /** Liczby policzone z widocznych wpisów (Delivery Lead widzi swój portfel). */
+  scoped: boolean;
+  onRetry: () => void;
+}
+
+const RECHECK_CATEGORY_LABEL: Record<string, string> = {
+  awaiting_contract: "Czeka na podpis umowy",
+  config: "Automatyczny zapis wyłączony",
+  unrecognized: "Nie rozpoznano klienta",
+  other: "Wymaga weryfikacji",
+};
+
+function recheckEntryLabel(e: OrderMailRecheckEntry): string {
+  return e.order_number ?? (e.people.length ? e.people.join(", ") : `Dokument #${e.document_id}`);
+}
+
+/**
+ * „Historia automatycznej weryfikacji" — co zrobił każdy godzinowy bieg.
+ *
+ * Wiersz rozwija się do KONKRETNYCH dokumentów: zaakceptowanych i wstrzymanych
+ * z powodem. Sama liczba „3 wstrzymane" nie mówi, czym się zająć.
+ *
+ * Gałęzie w tej samej kolejności co reszta ekranu: awaria NIE MOŻE renderować
+ * się jako pustka, a pusty stan wisi na `isSuccess` — przerwa między
+ * ponowieniami react-query ma `isLoading === false` i puste `data`.
+ */
+export function RecheckHistoryPanel(p: RecheckHistoryProps) {
+  const [openRun, setOpenRun] = useState<number | null>(null);
+  return (
+    <section className="mt-10" data-testid="recheck-history">
+      <h2 className="text-lg font-semibold">Historia automatycznej weryfikacji</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Co godzinę system sam próbuje dokończyć wstrzymane zamówienia. Zamówienie czekające na
+        podpis umowy nowego kontraktora czeka bez limitu czasu i nie powiadamia Delivery Leada.
+        {p.scoped ? " Liczby dotyczą Twojego portfela klientów." : ""}
+      </p>
+      {p.state === "error" || p.state === "forbidden" ? (
+        <QueryStateNotice
+          state={p.state === "forbidden" ? "forbidden" : "error"}
+          className="mt-4"
+          description="Nie udało się pobrać historii ponownej weryfikacji."
+          onRetry={p.state === "error" ? p.onRetry : undefined}
+        />
+      ) : p.state === "loading" ? (
+        <div className="mt-4 text-muted-foreground">Ładowanie…</div>
+      ) : p.runs.length === 0 ? (
+        <EmptyState
+          className="mt-4"
+          icon={History}
+          title="Brak biegów"
+          description="Pierwszy bieg pojawi się tu po najbliższym sprawdzeniu skrzynki."
+        />
+      ) : (
+        <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 text-left font-medium">Data i godzina</th>
+                <th className="px-4 py-2 text-right font-medium">Sprawdzonych</th>
+                <th className="px-4 py-2 text-right font-medium">Zaakceptowanych</th>
+                <th className="px-4 py-2 text-right font-medium">Wstrzymanych</th>
+                <th className="px-4 py-2 text-left font-medium">Szczegóły</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {p.runs.map((run) => (
+                <Fragment key={run.id}>
+                  <tr data-testid="recheck-run">
+                    <td className="px-4 py-2">
+                      {formatDateTimePl(run.started_at)}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {reasonLabel(run.trigger)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">{run.checked}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{run.applied}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{run.held}</td>
+                    <td className="px-4 py-2">
+                      {run.entries.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <button
+                          className="text-primary underline-offset-2 hover:underline"
+                          aria-expanded={openRun === run.id}
+                          onClick={() => setOpenRun(openRun === run.id ? null : run.id)}
+                        >
+                          {openRun === run.id ? "Zwiń" : `Pokaż (${run.entries.length})`}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {openRun === run.id && (
+                    <tr>
+                      <td colSpan={5} className="bg-muted/40 px-4 py-3">
+                        <ul className="space-y-2" data-testid="recheck-entries">
+                          {run.entries.map((e) => (
+                            <li key={e.document_id} className="text-sm">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant={e.outcome === "applied" ? "success" : e.outcome === "error" ? "danger" : "warning"}>
+                                  {e.outcome === "applied"
+                                    ? "Zaakceptowane"
+                                    : e.outcome === "error"
+                                    ? "Błąd"
+                                    : "Wstrzymane"}
+                                </Badge>
+                                <Link href={`/order-mail?doc=${e.document_id}`} className="font-medium text-primary underline-offset-2 hover:underline">
+                                  {recheckEntryLabel(e)}
+                                </Link>
+                                {e.client_name && (
+                                  <span className="text-muted-foreground">{e.client_name}</span>
+                                )}
+                                {e.category && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {RECHECK_CATEGORY_LABEL[e.category] ?? e.category}
+                                  </span>
+                                )}
+                              </div>
+                              {e.reasons.length > 0 && (
+                                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                                  {e.reasons.map((r, i) => (
+                                    <li key={i}>{r}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export interface OrderMailQueueViewProps {
   mailbox: MailboxCheckProps;
   outcome: OrderMailOutcome;
@@ -163,6 +308,7 @@ export interface OrderMailQueueViewProps {
   onRetry: () => void;
   busy: boolean;
   applyError: string | null;
+  recheck: RecheckHistoryProps;
 }
 
 /** Warstwa prezentacyjna — harness `/preview/order-mail` renderuje ją z mocków. */
@@ -238,6 +384,9 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
           )}
         </div>
       )}
+      {/* Historia ma WŁASNE zapytanie: awaria kolejki nie może jej chować,
+          bo to ona mówi, czy system w ogóle próbuje dokończyć te wpisy. */}
+      <RecheckHistoryPanel {...p.recheck} />
       </>
       )}
     </div>
@@ -255,6 +404,10 @@ export function OrderMailQueue() {
   const list = useQuery({
     queryKey: ["order-mail", "queue", outcome],
     queryFn: async () => (await orderMailApi.listQueue({ outcome, limit: 100 })).data,
+  });
+  const recheck = useQuery({
+    queryKey: ["order-mail", "recheck-runs"],
+    queryFn: async () => (await orderMailApi.recheckRuns()).data,
   });
   const apply = useMutation({
     mutationFn: (id: number) => orderMailApi.apply(id),
@@ -345,6 +498,18 @@ export function OrderMailQueue() {
       onRetry={() => list.refetch()}
       busy={apply.isPending || dismiss.isPending || refreshPlan.isPending}
       applyError={applyError}
+      recheck={{
+        runs: recheck.data?.items ?? [],
+        scoped: recheck.data?.scoped ?? false,
+        state: recheck.isError
+          ? httpStatus(recheck.error) === 403
+            ? "forbidden"
+            : "error"
+          : !recheck.isSuccess
+          ? "loading"
+          : "ready",
+        onRetry: () => recheck.refetch(),
+      }}
     />
   );
 }

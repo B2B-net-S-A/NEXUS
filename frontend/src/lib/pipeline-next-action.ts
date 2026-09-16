@@ -70,6 +70,9 @@ export interface NextActionContext {
 }
 
 const KIND_FOR_GROUP: Record<PipelineGroupKey, NextActionKind> = {
+  // „Ogłoszenia" — kandydat z auto-matchu czeka na tę samą decyzję co na
+  // „Nowi": rekruter ma przejrzeć CV i przenieść dalej albo odrzucić.
+  posting: "analysis",
   intake: "analysis",
   screening: "screening",
   verification: "cv",
