@@ -327,6 +327,17 @@ class Settings(BaseSettings):
     # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
     CV_BACKFILL_MAX_CALLS: int = 45_000
 
+    # ── Daty zatrudnienia na żądanie (kartoteka firmy w ATLAS-ie) ───────────
+    # DOMYŚLNIE WYŁĄCZONE: to jedyna ścieżka w repo, w której ruch użytkownika
+    # w INNEJ aplikacji uruchamia płatne wywołanie modelu. Deploy nie może
+    # zacząć wydawać pieniędzy bez świadomej decyzji — włączenie to zmiana
+    # zmiennej w Coolify, nie merge.
+    EXPERIENCE_DATES_ON_DEMAND_ENABLED: bool = False
+    # Sufit osób na JEDNO zapytanie o firmę. Kartoteka pokazuje kilka-kilkanaście
+    # osób; setka to znak, że ktoś trafił w konglomerat — wtedy lepiej nie
+    # zapłacić za ogon niż uzupełnić wszystko.
+    EXPERIENCE_DATES_ON_DEMAND_MAX_PER_REQUEST: int = 10
+
     # Retencja zamrożonych wejść generatora CV (pełne CV, notatki screeningowe,
     # Champion — obiekt w magazynie plików na zadanie). Wejścia generacji, która
     # NIE dała żadnego dokumentu do użycia (błąd/przerwanie), oraz CV próbnych

@@ -238,6 +238,10 @@ _ENUM_STATEMENTS = [
     # tych wywołaniach => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'uop_check'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_name_backfill'",
+    # 0318: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
+    # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
+    # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -5081,6 +5085,14 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_name_backfill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_name_backfill')",
+    # 0318: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
+    # dopisywane dla osób pokazanych na kartotece firmy w ATLAS-ie). Sam wiersz
+    # NIE włącza wydatku — bramką jest EXPERIENCE_DATES_ON_DEMAND_ENABLED,
+    # domyślnie false.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'experience_dates_on_demand', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'experience_dates_on_demand')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

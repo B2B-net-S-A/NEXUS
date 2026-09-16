@@ -63,6 +63,7 @@ pretending to be complete.
 # wymaga leniwej ewaluacji), a 25 z 28 modułów z limiterem go nie ma. Dołożenie
 # `Annotated`-owego parametru w przyszłości nie powinno wysadzać endpointu.
 
+import logging
 import re
 import unicodedata
 from typing import Annotated, Any, Literal, Optional
@@ -92,6 +93,8 @@ from app.models.contract import Contract
 from app.models.oauth_client import OAuthScope
 from app.services.contract_service import placed_contract_clause
 from app.services.experience_end import is_current_end
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -491,7 +494,7 @@ async def company_people(
         )
 
     try:
-        return await _lookup_company_people(
+        result = await _lookup_company_people(
             db,
             payload=payload,
             raw_names=raw_names,
@@ -511,6 +514,39 @@ async def company_people(
                 "hint": "Lookup exceeded the time budget — retry with a more specific company name.",
             },
         ) from exc
+
+    _schedule_missing_dates(result)
+    return result
+
+
+def _schedule_missing_dates(result: CompanyPeopleResponse) -> None:
+    """Dopisz w tle daty osobom, które właśnie wyszły jako ``unknown``.
+
+    ``unknown`` znaczy „CV wymienia firmę, ale bez dat" — czyli dokładnie te
+    wiersze, które backfill umie naprawić. Robimy to tutaj, a nie biegiem na
+    całej bazie, bo pełny przebieg to ~50 tys. CV i kilkaset dolarów, podczas
+    gdy handlowiec ogląda dziesiątki firm.
+
+    Domyślnie WYŁĄCZONE (``EXPERIENCE_DATES_ON_DEMAND_ENABLED``) — patrz
+    ``experience_backfill.schedule_on_demand``. Każda awaria jest połykana:
+    to jest dodatek do odczytu kartoteki, a nie jego warunek.
+    """
+    unknown_ids = [p.candidate_id for p in result.people if p.relationship == "unknown"]
+    if not unknown_ids:
+        return
+    try:
+        from app.services.experience_backfill import schedule_on_demand
+
+        scheduled = schedule_on_demand(unknown_ids)
+    except Exception:  # noqa: BLE001 — nigdy nie psuj odpowiedzi o ludziach
+        logger.exception("[company-people] nie udało się zakolejkować dat z CV")
+        return
+    if scheduled:
+        logger.info(
+            "[company-people] zakolejkowano daty z CV dla %s z %s osób bez dat",
+            len(scheduled),
+            len(unknown_ids),
+        )
 
 
 def _is_statement_timeout(exc: DBAPIError) -> bool:
