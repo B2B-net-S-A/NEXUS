@@ -15,6 +15,7 @@ from app.core.database import engine, Base
 from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
 from app.core.sentry_privacy import scrub_event
 
@@ -878,6 +879,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
 # do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
 app.add_middleware(UnhandledErrorMiddleware)
+# NUL (U+0000) w query, ścieżce albo ciele JSON → 422 zanim dotknie PostgreSQL-a
+# (asyncpg odrzuca NUL w `text`, bez tego każdy taki parametr kończył się 500).
+# Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
+# CORS i x-request-id, inaczej przeglądarka pokaże „Network Error".
+app.add_middleware(NullCharacterGuardMiddleware)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)

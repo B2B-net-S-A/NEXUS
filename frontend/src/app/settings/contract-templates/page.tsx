@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
@@ -63,9 +64,7 @@ function TemplateEditor({
     },
     onSuccess: () => onSaved(),
     onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(detail ?? (err instanceof Error ? err.message : "Błąd"));
+      setError(apiErrorMessage(err, err instanceof Error ? err.message : "Błąd"));
     },
   });
 

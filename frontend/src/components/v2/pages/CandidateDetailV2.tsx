@@ -54,6 +54,7 @@ import api, {
   callsApi,
   type Call,
 } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { downloadContractDocument } from"@/lib/contract-documents";
 import { celebrate } from"@/lib/celebrate";
 import CallButton from"@/components/calls/CallButton";
@@ -3342,10 +3343,7 @@ function EditableRateCell({
  setEditing(false);
  },
  onError: (e) =>
- showError(
- (e as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Nie udało się zapisać stawki",
- ),
+ showError(apiErrorMessage(e, "Nie udało się zapisać stawki")),
  });
 
  const save = () => {
@@ -3580,10 +3578,7 @@ function RekrutacjaCard({
  setConfirmRefresh(false);
  },
  onError: (e) =>
- showError(
- (e as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Błąd podczas odświeżania snapshotu",
- ),
+ showError(apiErrorMessage(e, "Błąd podczas odświeżania snapshotu")),
  });
 
  const removeMut = useMutation({
@@ -3612,10 +3607,7 @@ function RekrutacjaCard({
  setConfirmRemove(false);
  },
  onError: (e) =>
- showError(
- (e as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Błąd podczas usuwania z rekrutacji",
- ),
+ showError(apiErrorMessage(e, "Błąd podczas usuwania z rekrutacji")),
  });
 
  const brandedStatus =

@@ -4,6 +4,7 @@ import * as React from"react";
 import { useCallback, useEffect, useState } from"react";
 import { ArrowDown, ArrowUp, Plus, Save, Sparkles, X } from"lucide-react";
 import api, { recommendationsApi } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
  Dialog,
  DialogBody,
@@ -67,7 +68,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  void classify([...m, ...n].map((s) => s.name));
  } catch (e: any) {
  if (!cancel) {
- setError(e?.response?.data?.detail ??"Błąd generowania kryteriów.");
+ setError(apiErrorMessage(e, "Błąd generowania kryteriów."));
  }
  } finally {
  if (!cancel) setLoading(false);
@@ -115,7 +116,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  onSaved?.();
  onOpenChange(false);
  } catch (e: any) {
- setError(e?.response?.data?.detail ??"Błąd zapisu.");
+ setError(apiErrorMessage(e, "Błąd zapisu."));
  } finally {
  setSaving(false);
  }

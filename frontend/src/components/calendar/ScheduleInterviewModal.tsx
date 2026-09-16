@@ -10,6 +10,7 @@ import {
   type CalendarEventResponse,
   type FreeBusyResponse,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Dialog,
   DialogContent,
@@ -274,13 +275,7 @@ export default function ScheduleInterviewModal({
       }
     },
     onError: (err: unknown) => {
-      const msg =
-        typeof err === "object" && err !== null && "response" in err
-          ? (
-              (err as { response?: { data?: { detail?: string } } }).response?.data
-                ?.detail ?? "Nie udało się zapisać spotkania."
-            )
-          : "Nie udało się zapisać spotkania.";
+      const msg = apiErrorMessage(err, "Nie udało się zapisać spotkania.");
       setError(msg);
     },
   });

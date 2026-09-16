@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, Send } from "lucide-react";
 import { authApi } from "@/lib/api";
@@ -23,10 +24,9 @@ export default function ForgotPasswordPage() {
       await authApi.forgotPassword(email);
       setSent(true);
     } catch (err: unknown) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail;
-      setError(detail ?? "Nie udało się wysłać linka. Spróbuj ponownie za chwilę.");
+      setError(
+        apiErrorMessage(err, "Nie udało się wysłać linka. Spróbuj ponownie za chwilę."),
+      );
     } finally {
       setLoading(false);
     }

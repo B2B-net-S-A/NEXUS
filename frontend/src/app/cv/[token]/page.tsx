@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import { Printer, AlertCircle, Sparkles } from "lucide-react";
@@ -29,9 +30,7 @@ interface PublicCVView {
 }
 
 function getErrorMessage(e: unknown): string {
-  const detail = (e as { response?: { data?: { detail?: string } } })?.response
-    ?.data?.detail;
-  return detail ?? "Nie udało się wczytać CV.";
+  return apiErrorMessage(e, "Nie udało się wczytać CV.");
 }
 
 export default function PublicCvPage() {

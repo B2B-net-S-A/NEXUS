@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from"react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useState } from"react";
 import { FormProvider, useForm } from"react-hook-form";
 import { useMutation, useQueryClient } from"@tanstack/react-query";
@@ -198,9 +199,5 @@ export function ReassignOwnerV2({
 }
 
 function extractDetail(err: unknown): string | null {
- if (err && typeof err === "object" &&"response" in err) {
- const resp = (err as { response?: { data?: { detail?: string } } }).response;
- if (resp?.data?.detail) return resp.data.detail;
- }
- return null;
+ return apiErrorMessage(err, "") || null;
 }

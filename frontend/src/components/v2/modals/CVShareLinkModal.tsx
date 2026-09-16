@@ -22,6 +22,7 @@ import {
  type CVShareTokenListItem,
  type CVShareTokenResp,
 } from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface Props {
  open: boolean;
@@ -31,10 +32,7 @@ interface Props {
 }
 
 function getErrorMessage(e: unknown): string {
- return (
- (e as { response?: { data?: { detail?: string } } })?.response?.data
- ?.detail ??"Nie udało się wygenerować linku."
- );
+ return apiErrorMessage(e, "Nie udało się wygenerować linku.");
 }
 
 export function CVShareLinkModal({

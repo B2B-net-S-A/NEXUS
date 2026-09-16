@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Inbox, FileText, Check, X, ExternalLink, Loader2, MailCheck, UserCog } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, PageHeader, QueryStateNotice } from "@/components/ds";
 import {
@@ -270,7 +271,7 @@ export function OrderMailQueue() {
   const applyError = refreshPlan.error
     ? errorDetail(refreshPlan.error, "Nie udało się przeliczyć planu")
     : apply.error
-    ? String((apply.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Nie udało się zapisać")
+    ? apiErrorMessage(apply.error, "Nie udało się zapisać")
     : null;
 
   // „Pobierz zamówienia z maila": bieg idzie w tle na serwerze, więc po kliknięciu

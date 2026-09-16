@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 import { phase5Api } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 interface DiagReport {
   voyage: {
@@ -70,10 +71,7 @@ export default function DiagnosticsPage() {
       setInitMsg("Kolekcje utworzone / zweryfikowane.");
       await load();
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setInitMsg(`Błąd: ${msg}`);
     } finally {
       setInitBusy(false);

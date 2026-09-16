@@ -28,6 +28,7 @@ import api, {
   type ChampionVerification,
   type RecommendedSearch,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
 import { canMutateSection } from "@/lib/section-access";
@@ -517,10 +518,7 @@ export function JobReadinessDock({
       toast.showSuccess("Przejęto rekrutację.");
     },
     onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Nie udało się przejąć projektu.";
-      toast.showError(detail);
+      toast.showError(apiErrorMessage(err, "Nie udało się przejąć projektu."));
     },
   });
 

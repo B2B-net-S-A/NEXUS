@@ -17,6 +17,7 @@ import {
   type RecommendationMeta,
   type ScoreBreakdown,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { shortlistApi } from "@/lib/candidate-search-api";
@@ -241,10 +242,7 @@ export function SuggestedCandidatesWidget({
         );
       }
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setLiveError(msg);
     } finally {
       setLiveLoading(false);
@@ -259,10 +257,7 @@ export function SuggestedCandidatesWidget({
       setMode("snapshot");
       await queryClient.invalidateQueries({ queryKey: ["proposal-latest", jobId] });
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
-          : "Błąd";
+      const msg = apiErrorMessage(e, "Błąd");
       setLiveError(msg);
     } finally {
       setRegenerating(false);

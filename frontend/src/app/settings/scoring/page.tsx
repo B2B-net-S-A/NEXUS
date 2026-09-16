@@ -10,6 +10,7 @@ import {
   type ScoringWeightProfile,
   type ScoringWeights,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
@@ -94,12 +95,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
       onSaved();
     },
     onError: (e: unknown) => {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd zapisu")
-          : "Błąd zapisu";
-      setError(String(msg));
+      setError(apiErrorMessage(e, "Błąd zapisu"));
     },
   });
   const updateMut = useMutation({
@@ -113,12 +109,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
       onSaved();
     },
     onError: (e: unknown) => {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
-              ?.detail ?? "Błąd zapisu")
-          : "Błąd zapisu";
-      setError(String(msg));
+      setError(apiErrorMessage(e, "Błąd zapisu"));
     },
   });
 

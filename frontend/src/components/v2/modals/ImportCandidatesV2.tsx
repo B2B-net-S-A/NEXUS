@@ -11,6 +11,7 @@ import {
  XCircle,
 } from"lucide-react";
 import api from"@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from"@/lib/utils";
 import {
  Dialog,
@@ -71,7 +72,7 @@ export function ImportCandidatesV2({ open, onOpenChange, onImported }: Props) {
  onImported?.();
  },
  onError: (err: any) => {
- setError(err?.response?.data?.detail ||"Błąd podczas importu. Sprawdź format pliku.");
+ setError(apiErrorMessage(err, "Błąd podczas importu. Sprawdź format pliku."));
  },
  });
 

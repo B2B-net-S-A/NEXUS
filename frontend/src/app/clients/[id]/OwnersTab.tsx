@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Crown, Plus, Target, Trash2, UserCircle2 } from "lucide-react";
 import api, { clientTeamApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import type { ClientTeamResponse, ClientTeamTacAssignment } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useAuthStore } from "@/store/auth";
@@ -61,7 +62,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       invalidate();
     },
     onError: (e: any) =>
-      toast.showError(e?.response?.data?.detail || "Błąd dodawania TAC"),
+      toast.showError(apiErrorMessage(e, "Błąd dodawania TAC")),
   });
 
   const removeTac = useMutation({
@@ -74,8 +75,10 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     },
     onError: (e: any) =>
       toast.showError(
-        e?.response?.data?.detail ||
+        apiErrorMessage(
+          e,
           "Nie można usunąć TAC-a z jego klienta priorytetowego. Najpierw ustaw innego klienta jako priorytet #1 z jego karty.",
+        ),
       ),
   });
 
@@ -90,7 +93,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     },
     onError: (e: any) =>
       toast.showError(
-        e?.response?.data?.detail || "Błąd zmiany pierwszego priorytetu TAC-a",
+        apiErrorMessage(e, "Błąd zmiany pierwszego priorytetu TAC-a"),
       ),
   });
 
@@ -108,7 +111,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       invalidate();
     },
     onError: (e: any) =>
-      toast.showError(e?.response?.data?.detail || "Błąd dodawania DL"),
+      toast.showError(apiErrorMessage(e, "Błąd dodawania DL")),
   });
 
   const removeDl = useMutation({

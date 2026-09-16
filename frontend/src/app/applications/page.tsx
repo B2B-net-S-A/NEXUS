@@ -34,6 +34,7 @@ import {
   type ApplicationResolveAction,
   type ApplicationSubmission,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
@@ -125,10 +126,7 @@ export default function ApplicationsQueuePage() {
       queryClient.invalidateQueries({ queryKey: ["application-submissions"] });
     },
     onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Nie udało się rozstrzygnąć zgłoszenia.";
-      showError(detail);
+      showError(apiErrorMessage(err, "Nie udało się rozstrzygnąć zgłoszenia."));
     },
     onSettled: () => setBusyId(null),
   });

@@ -96,3 +96,19 @@ def test_invalid_search_parameters_are_rejected(path, query):
         allow_redirects=False,
     )
     assert response.status_code == 422
+
+
+# NUL in filters outside the generated projection used to reach PostgreSQL as
+# well (500); the application-wide guard answers 422 for any query parameter.
+@pytest.mark.parametrize(
+    "query", [{"location": "Warszawa\x00"}, {"q_all": "Java\x00QA"}]
+)
+def test_nul_in_other_candidate_filters_is_rejected(query):
+    case = SCHEMA["/api/candidates"]["GET"].Case(query=query)
+    response = case.call_and_validate(
+        base_url=BASE_URL,
+        headers={"Authorization": f"Bearer {WORKLOAD['sessions']['admin']['token']}"},
+        timeout=15,
+        allow_redirects=False,
+    )
+    assert response.status_code == 422

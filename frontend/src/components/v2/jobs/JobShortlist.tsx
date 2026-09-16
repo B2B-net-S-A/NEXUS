@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowUpRight, Check, Trash2, UserCheck } from "lucide-react";
 
@@ -467,9 +468,7 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
     },
     onError: (e: unknown) => {
       // Bramka dopuszczalności zwraca 409 z powodem po polsku (detail).
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response
-        ?.data?.detail;
-      showError(detail || "Nie udało się przenieść do pipeline.");
+      showError(apiErrorMessage(e, "Nie udało się przenieść do pipeline."));
     },
   });
 
