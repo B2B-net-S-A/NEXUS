@@ -4462,6 +4462,37 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
+    # 0316: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
+    # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
+    # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
+    "ALTER TYPE pipelinestage ADD VALUE IF NOT EXISTS 'posting'",
+    """DO $$
+    DECLARE
+        tpl_id INTEGER;
+    BEGIN
+        FOR tpl_id IN SELECT id FROM pipeline_templates LOOP
+            IF NOT EXISTS (
+                SELECT 1 FROM pipeline_stage_defs
+                WHERE template_id = tpl_id
+                  AND legacy_enum_value = 'posting'
+            ) THEN
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" + 1000
+                 WHERE template_id = tpl_id;
+                INSERT INTO pipeline_stage_defs (
+                    template_id, name, "order", category,
+                    is_terminal, terminal_type, legacy_enum_value
+                ) VALUES (
+                    tpl_id, 'Ogłoszenia', 0, 'internal',
+                    FALSE, NULL, 'posting'
+                );
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" - 999
+                 WHERE template_id = tpl_id
+                   AND "order" >= 1000;
+            END IF;
+        END LOOP;
+    END $$;""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -2505,7 +2505,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // Progi liczone z kolumn SZABLONU — kubełek nie może przestawić układu
  // desktopowego na 1 009 rekrutacjach z sierotami.
- const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 15;
+ // 16, nie 15: domyślny szablon „Default B2B" ma 15 kolumn + „Ogłoszenia"
+ // (migracja 0316) — bez podniesienia progu każda rekrutacja wpadałaby w tryb
+ // przewijania.
+ const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 16;
  // Próg zwężenia karty liczy się z liczby RENDEROWANYCH kolumn, nie z liczby
  // etapów szablonu: po zwinięciu pustych grup „Default B2B" pokazuje dziewięć
  // kolumn zamiast piętnastu, więc na kolumnę wypada ~155 px — tyle, ile

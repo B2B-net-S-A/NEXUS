@@ -123,6 +123,9 @@ SEMANTIC_STATES: dict[str, SemanticState] = {s.key: s for s in _STATES}
 #   obecnym template = przygotowanie startu, nie aktywny placement),
 # - hired → hired (decyzja o zatrudnieniu; placement dopiero w PR-20).
 LEGACY_TO_SEMANTIC: dict[str, str] = {
+    # posting = kandydat z ogłoszenia, jeszcze nieprzejrzany — semantycznie to
+    # wciąż „zidentyfikowany" (jak `new`), różnica jest operacyjna, nie stanowa.
+    "posting": "identified",
     "new": "identified",
     "prep_call": "screening_pending",
     "screening": "screening_completed",

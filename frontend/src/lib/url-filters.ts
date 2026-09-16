@@ -28,6 +28,7 @@ export type AvailabilityFilter =
   | "not_looking"
   | "unknown";
 export type PipelineStageFilter =
+  | "posting"
   | "new"
   | "prep_call"
   | "screening"
@@ -55,6 +56,7 @@ const AVAILABILITY_VALUES: ReadonlySet<string> = new Set([
   "unknown",
 ]);
 const PIPELINE_STAGE_VALUES: ReadonlySet<string> = new Set([
+  "posting",
   "new",
   "prep_call",
   "screening",

@@ -22,6 +22,10 @@ class StageCategory(str, enum.Enum):
 
 class PipelineStage(str, enum.Enum):
     # ── Etapy wewnętrzne ────────────────────────────────
+    # Kandydaci z ogłoszeń (pracuj.pl / JJIT, auto-match) — poczekalnia PRZED
+    # „Nowi", żeby pipeline dostawał tylko to, co rekruter świadomie wybrał.
+    # Migracja 0316; decyzja 2026-09-16.
+    posting = "posting"  # Ogłoszenia — kandydat z portalu, jeszcze nieprzejrzany
     new = "new"  # Nowy kandydat / Analiza CV
     prep_call = "prep_call"  # Preparation Call (pre-screening telefoniczny)
     screening = "screening"  # Screening rekruterski
@@ -57,6 +61,7 @@ class VerificationStatus(str, enum.Enum):
 
 
 STAGE_CATEGORY: dict[PipelineStage, StageCategory] = {
+    PipelineStage.posting: StageCategory.internal,
     PipelineStage.new: StageCategory.internal,
     PipelineStage.prep_call: StageCategory.internal,
     PipelineStage.screening: StageCategory.internal,
@@ -75,6 +80,7 @@ STAGE_CATEGORY: dict[PipelineStage, StageCategory] = {
 
 # Ordered list for kanban display
 STAGE_ORDER: list[PipelineStage] = [
+    PipelineStage.posting,
     PipelineStage.new,
     PipelineStage.prep_call,
     PipelineStage.screening,

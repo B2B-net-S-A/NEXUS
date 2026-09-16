@@ -49,6 +49,7 @@ export const AVAILABILITY_OPTIONS: ReadonlyArray<
 // Backend: OR-combined w GET /api/candidates?pipeline_stage=…
 // Mirror: backend/app/models/recruitment_pipeline.py:PipelineStage enum.
 export type PipelineStageValue =
+  | "posting"
   | "new"
   | "prep_call"
   | "screening"
@@ -66,6 +67,7 @@ export type PipelineStageValue =
 export const PIPELINE_STAGE_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<PipelineStageValue>
 > = [
+  { value: "posting", label: "Ogłoszenia" },
   { value: "new", label: "Nowy" },
   { value: "prep_call", label: "Prep call" },
   { value: "screening", label: "Screening" },
