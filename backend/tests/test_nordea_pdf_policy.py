@@ -25,6 +25,7 @@ from app.services.order_policies import (
     prepare_parser_text,
 )
 from app.services.order_policies import nordea
+from tests.conftest import db_without_client_merges
 
 ORDER = """Call Off Agreement
 Nordea Bank Abp
@@ -333,8 +334,8 @@ async def test_refresh_uses_order_rows_and_restores_raw_net_amount(
     monkeypatch.setattr(ingest, "parse_order_document", parser)
     planner = AsyncMock()
     monkeypatch.setattr(ingest, "_plan_and_gate", planner)
-    await ingest.refresh_review_plan(AsyncMock(), row)
-    await ingest.refresh_review_plan(AsyncMock(), row)
+    await ingest.refresh_review_plan(db_without_client_merges(), row)
+    await ingest.refresh_review_plan(db_without_client_merges(), row)
     assert Decimal(row.extraction["rate_client"]) == Decimal("175")
     assert row.extraction["rate_client_gross"] is None
     assert row.extraction["md_total"] is None
