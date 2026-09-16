@@ -231,6 +231,32 @@ async def _resolve_initial_stage(
     return stage_def
 
 
+def _merge_tags(existing: list, incoming: list[str]) -> list:
+    """Dołóż tagi bez duplikatów, nie psując istniejących wpisów.
+
+    ``candidate.tags`` bywa listą stringów, ale też listą słowników
+    (``{"name": ...}`` z importów/enrichmentu). ``{*existing, *incoming}``
+    rzucało ``TypeError: unhashable type: 'dict'`` i cały bulk-add dostawał 500.
+    Istniejące wpisy zostają w oryginalnej postaci; nowe stringi są dodawane,
+    gdy nie ma ich ani jako string, ani jako ``name``/``label`` słownika.
+    """
+    seen: set[str] = set()
+    for item in existing:
+        if isinstance(item, str):
+            seen.add(item.strip().lower())
+        elif isinstance(item, dict):
+            label = item.get("name") or item.get("label") or item.get("tag")
+            if isinstance(label, str):
+                seen.add(label.strip().lower())
+    merged = list(existing)
+    for tag in incoming:
+        key = tag.strip().lower()
+        if key and key not in seen:
+            merged.append(tag.strip())
+            seen.add(key)
+    return merged
+
+
 @router.post(
     "/jobs/{job_id}/proposals/bulk",
     response_model=BulkProposalsResponse,
@@ -429,7 +455,7 @@ async def bulk_add_proposals(
                 db.add(
                     Note(
                         content=body.note,
-                        note_type=NoteType.private,
+                        note_type=NoteType.general,
                         candidate_id=candidate_id,
                         job_id=job_id,
                         author_id=current_user.id,
@@ -442,13 +468,13 @@ async def bulk_add_proposals(
             if body.tags:
                 existing = candidate.tags
                 if isinstance(existing, list):
-                    merged = list({*existing, *body.tags})
-                    candidate.tags = merged
+                    candidate.tags = _merge_tags(existing, body.tags)
                 elif isinstance(existing, dict) and "items" in existing:
-                    merged = list({*existing.get("items", []), *body.tags})
-                    candidate.tags = {"items": merged}
+                    candidate.tags = {
+                        "items": _merge_tags(existing.get("items") or [], body.tags)
+                    }
                 else:
-                    candidate.tags = list(set(body.tags))
+                    candidate.tags = _merge_tags([], body.tags)
 
             added.append(candidate_id)
 
