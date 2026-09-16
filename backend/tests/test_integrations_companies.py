@@ -167,9 +167,15 @@ class TestMatchExperience:
         assert entry["role"] == "Dev"
 
     def test_empty_string_end_counts_as_current(self):
-        """CV parsers emit "" as often as null for an open-ended stint."""
+        """CV parsers emit "" as often as null for an open-ended stint.
+
+        Od 2026-09-16 pusty koniec liczy się jako „obecnie" tylko przy dacie
+        początku — wpis bez ŻADNEJ daty to `unknown` (patrz TestUnknownPeriod).
+        """
         candidate = _candidate(
-            experience=[{"company": "Nordea", "role": "Lead", "end": ""}]
+            experience=[
+                {"company": "Nordea", "role": "Lead", "start": "2021", "end": ""}
+            ]
         )
         relationship, _ = _match_experience(candidate, {"nordea"})
         assert relationship == "current"
@@ -182,3 +188,86 @@ class TestMatchExperience:
             candidate, {"nordea", "nordea bank abp", "nordea bank"}
         )
         assert relationship == "past"
+
+
+class TestUnknownPeriod:
+    """Wpis bez żadnej daty to „okres nieznany", nie „pracuje tam teraz".
+
+    ~44k wierszy z Traffita ma `experience` z gołej listy pracodawców: każda
+    firma bez `start` i bez `end`. `end IS NULL` = „obecna praca" jest tam
+    artefaktem importu — do 2026-09-16 taki kandydat lądował w „current" dla
+    KAŻDEJ firmy ze swojego CV.
+    """
+
+    def test_undated_entry_is_unknown(self):
+        candidate = _candidate(
+            experience=[
+                {"company": "Sii", "role": None, "start": None, "end": None},
+                {"company": "Shoper", "role": None, "start": None, "end": None},
+            ]
+        )
+        relationship, entry = _match_experience(candidate, {"shoper"})
+        assert relationship == "unknown"
+        assert entry["company"] == "Shoper"
+
+    def test_empty_end_string_without_start_is_unknown(self):
+        candidate = _candidate(
+            experience=[{"company": "Shoper", "role": "Dev", "start": "", "end": ""}]
+        )
+        assert _match_experience(candidate, {"shoper"})[0] == "unknown"
+
+    def test_open_ended_entry_with_start_is_current(self):
+        candidate = _candidate(
+            experience=[
+                {"company": "Shoper", "role": "Dev", "start": "2022-03", "end": None}
+            ]
+        )
+        assert _match_experience(candidate, {"shoper"})[0] == "current"
+
+    @pytest.mark.parametrize("end", ["present", "obecnie", " Obecnie ", "current"])
+    def test_present_word_without_start_is_current(self, end):
+        """CV mówi wprost, że praca trwa — brak daty początku tego nie unieważnia."""
+        candidate = _candidate(
+            experience=[{"company": "Shoper", "role": "Dev", "start": None, "end": end}]
+        )
+        assert _match_experience(candidate, {"shoper"})[0] == "current"
+
+    def test_dated_past_beats_undated_duplicate(self):
+        """Wiemy, że się skończyło — pusty wpis dla tej samej firmy tego nie cofa."""
+        candidate = _candidate(
+            experience=[
+                {"company": "Shoper", "role": None, "start": None, "end": None},
+                {
+                    "company": "Shoper S.A.",
+                    "role": "Dev",
+                    "start": "2019",
+                    "end": "2021",
+                },
+            ]
+        )
+        relationship, entry = _match_experience(candidate, {"shoper"})
+        assert relationship == "past"
+        assert entry["role"] == "Dev"
+
+    def test_current_beats_unknown(self):
+        candidate = _candidate(
+            experience=[
+                {"company": "Shoper", "role": None, "start": None, "end": None},
+                {
+                    "company": "Shoper",
+                    "role": "Lead",
+                    "start": "2023",
+                    "end": "present",
+                },
+            ]
+        )
+        assert _match_experience(candidate, {"shoper"})[0] == "current"
+
+    def test_linkedin_still_wins_over_undated_cv(self):
+        candidate = _candidate(
+            experience=[
+                {"company": "Shoper", "role": None, "start": None, "end": None}
+            ],
+            linkedin_current_company="Shoper S.A.",
+        )
+        assert _match_experience(candidate, {"shoper", "shoper s.a."})[0] == "current"
