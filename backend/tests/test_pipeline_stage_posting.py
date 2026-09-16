@@ -8,6 +8,9 @@
    „Ogłoszenia" szablonu; nieznany legacy → domyślne zachowanie.
 4. `posting` NIE liczy się do alertów „kandydat utknął".
 5. Lustro w `entrypoint.sh` zawiera dokładnie tę samą wstawkę co migracja.
+6. Rekrutacja BEZ szablonu (legacy kanban z `STAGE_ORDER`): integracja z
+   `initial_stage_legacy="posting"` dostaje enum `posting`; ręczne dodanie
+   i każdy inny legacy nadal dają `new`.
 """
 
 from __future__ import annotations
@@ -39,6 +42,25 @@ def test_posting_is_first_internal_stage_with_label_and_semantics():
     assert STAGE_CATEGORY[PipelineStage.posting] is StageCategory.internal
     assert STAGE_LABELS[PipelineStage.posting] == "Ogłoszenia"
     assert LEGACY_TO_SEMANTIC["posting"] == "identified"
+
+
+def test_legacy_job_without_template_gets_posting_only_when_asked():
+    from types import SimpleNamespace
+
+    from app.api.proposals_bulk import _legacy_enum_for
+
+    posting, new = PipelineStage.posting, PipelineStage.new
+    assert _legacy_enum_for(None, "posting", has_template=False) is posting
+    assert _legacy_enum_for(None, None, has_template=False) is new
+    assert _legacy_enum_for(None, "screening", has_template=False) is new
+    # Z szablonem o etapie decyduje kolumna, nie legacy z ciała żądania.
+    assert _legacy_enum_for(None, "posting", has_template=True) is new
+    new_def = SimpleNamespace(legacy_enum_value="new")
+    assert _legacy_enum_for(new_def, "posting", has_template=True) is new
+    posting_def = SimpleNamespace(legacy_enum_value="posting")
+    assert _legacy_enum_for(posting_def, None, has_template=True) is posting
+    bogus_def = SimpleNamespace(legacy_enum_value="bogus")
+    assert _legacy_enum_for(bogus_def, None, has_template=True) is new
 
 
 def test_posting_is_excluded_from_stuck_candidate_alerts():
