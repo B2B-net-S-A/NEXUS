@@ -31,7 +31,11 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client import Client
+from app.schemas.ezdrowie_md_seed import EzdrowieMdSeedManifest
 from app.services.contract_order_sync import sync_pending_order_contracts
+from app.services.ezdrowie import is_ezdrowie_client
+from app.services.ezdrowie_md_seed import EzdrowieMdSeedBlocked, run_ezdrowie_md_seed
+from app.services.order_write_errors import commit_order_write
 from app.services.nordea_order_import import (
     MAX_NORDEA_IMPORT_BYTES,
     NordeaImportError,
@@ -324,3 +328,58 @@ async def import_nordea_client_orders(
     except Exception:
         await db.rollback()
         raise
+
+
+# ── Centrum e-Zdrowia: jednorazowy import zamówień MD z manifestu (Faza C) ────
+
+
+@router.post("/admin/clients/{client_id}/ezdrowie-md-orders/import")
+async def import_ezdrowie_md_orders(
+    client_id: int,
+    manifest: EzdrowieMdSeedManifest,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Podgląd (``dry_run=true``) albo zapis kart zamówień MD z manifestu.
+
+    Manifest (nazwiska, stawki, historia miesięczna) żyje poza repozytorium.
+    Dry-run przechodzi DOKŁADNIE tę samą ścieżką co zapis i kończy się
+    rollbackiem — raport pokazuje dopasowania osób (``ambiguous``/``missing``
+    do rozstrzygnięcia w manifeście) i policzone zużycie. Apply z jakimkolwiek
+    blokerem = 409 i nic nie zapisane.
+    """
+    if manifest.client_id != client_id:
+        raise HTTPException(422, detail="client_id w manifeście różni się od ścieżki")
+    if not is_ezdrowie_client(client_id):
+        raise HTTPException(
+            422,
+            detail="Import zamówień MD z manifestu dotyczy wyłącznie Centrum e-Zdrowia",
+        )
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    if client is None:
+        raise HTTPException(404, detail="Client not found")
+    try:
+        report = await run_ezdrowie_md_seed(
+            db, manifest=manifest, user_id=admin.id, dry_run=dry_run
+        )
+    except EzdrowieMdSeedBlocked as exc:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            detail={
+                "message": (
+                    "Import nie został zapisany: najpierw rozwiąż blokery z podglądu."
+                ),
+                "blockers": exc.report.blockers,
+                "report": exc.report.model_dump(mode="json"),
+            },
+        ) from exc
+    except Exception:
+        await db.rollback()
+        raise
+    if dry_run:
+        await db.rollback()
+        return report.model_dump(mode="json")
+    await commit_order_write(db, actor_id=admin.id)
+    return report.model_dump(mode="json")

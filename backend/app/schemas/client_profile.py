@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.models.contract import ContractTerminationReason
 from app.models.job import JobCloseReason, JobPriority, Seniority
+from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.schemas.money import GroszePLN, WholePLN
 
 
@@ -112,6 +113,9 @@ class ActiveConsultantItem(BaseModel):
     # semantyka co FE splitOrders.activeOrder). NULL u innych klientów i gdy
     # część nieuzupełniona. Napędza filtr części w Profil → Obecni konsultanci.
     project_part: Optional[str] = None
+    # Umowa wykonawcza CeZ z tego samego reprezentatywnego zamówienia (ticket
+    # 09.2026). Gdy jest, ``project_part`` wyżej to część JEJ umowy ramowej.
+    executive_contract: Optional[ExecutiveContractBrief] = None
 
 
 class HistoricalPlacementItem(BaseModel):

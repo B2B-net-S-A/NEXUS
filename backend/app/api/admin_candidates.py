@@ -10,6 +10,11 @@
   background; idempotent + resumable. ``only_missing`` (default true) touches
   only unclassified profiles.
 - ``GET  /api/admin/candidates/backfill-cc/status`` — live progress.
+- ``POST /api/admin/candidates/backfill-experience-dates`` — dopisz DATY do
+  ``experience`` z tekstu CV (wiersze z gołą listą pracodawców Traffita, gdzie
+  każda firma liczyła się jako obecna). Domyślnie ``dry_run=true`` = sam
+  pomiar scope'u; bieg płatny wymaga ``dry_run=false``.
+- ``GET  /api/admin/candidates/backfill-experience-dates/status`` — live progress.
 - ``GET  /api/admin/candidates/suspected-name-overwrites`` — bounded review
   report for current identity values that differ from the latest unresolved
   manual submission or were preserved by the first-sync bootstrap guard. It
@@ -310,6 +315,86 @@ async def trigger_backfill_cv_fields(
 async def backfill_cv_fields_status(_admin: AdminUser) -> dict[str, Any]:
     """Live progress biegu (in-memory; kursor last_id pozwala wznowić po restarcie)."""
     return dict(_CV_FIELDS_JOB)
+
+
+# ── Daty w `experience` z tekstu CV ─────────────────────────────────────────
+# Osobny stan single-flight od Fali 3: inny scope, inny prompt, inny efekt —
+# a status ma być czytelny bez zgadywania, który bieg właśnie się liczy.
+
+_EXP_DATES_JOB: dict[str, Any] = {"running": False}
+
+
+async def _run_experience_dates_backfill(limit: Optional[int], after_id: int) -> None:
+    from app.services.experience_backfill import backfill_experience_dates
+
+    _EXP_DATES_JOB.clear()
+    _EXP_DATES_JOB.update(
+        running=True,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        finished_at=None,
+        limit=limit,
+        after_id=after_id,
+        last_error=None,
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_experience_dates(
+                db, limit=limit, after_id=after_id, progress=_EXP_DATES_JOB
+            )
+    except Exception as e:  # noqa: BLE001 — never crash the background task
+        _EXP_DATES_JOB["last_error"] = repr(e)
+        logger.exception("[experience-dates-backfill] job crashed")
+    finally:
+        _EXP_DATES_JOB["running"] = False
+        _EXP_DATES_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+
+@router.post("/backfill-experience-dates")
+async def trigger_backfill_experience_dates(
+    _admin: AdminUser,
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Sufit wierszy w tym biegu (np. 100 na kalibrację). "
+        "Bez limitu bieg idzie do końca scope'u albo do CV_BACKFILL_MAX_CALLS.",
+    ),
+    after_id: int = Query(
+        default=0,
+        ge=0,
+        description="Wznów od tego candidate_id (kursor z pola last_id statusu).",
+    ),
+    dry_run: bool = Query(
+        default=True,
+        description="Domyślnie TYLKO pomiar scope'u (zero LLM, zero zapisów). "
+        "Bieg płatny wymaga jawnego dry_run=false.",
+    ),
+) -> dict[str, Any]:
+    """Dopisz daty do `experience` z tekstu CV. Admin only.
+
+    Scope: wiersze bez żadnej daty w `experience` (także pusta lista), z tekstem
+    CV, bez ręcznej blokady. Zapis tylko gdy odczyt niesie choć jedną datę;
+    stare firmy nieobecne w odczycie zostają bez dat. Kwota: `cv_backfill`.
+    """
+    if dry_run:
+        from app.services.experience_backfill import count_scope
+
+        async with AsyncSessionLocal() as db:
+            scope = await count_scope(db, after_id=after_id)
+        return {"status": "dry_run", **scope}
+
+    if _EXP_DATES_JOB.get("running"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An experience-dates backfill run is already in progress",
+        )
+    asyncio.create_task(_run_experience_dates_backfill(limit, after_id))
+    return {"status": "started", "limit": limit, "after_id": after_id}
+
+
+@router.get("/backfill-experience-dates/status")
+async def backfill_experience_dates_status(_admin: AdminUser) -> dict[str, Any]:
+    """Live progress biegu (in-memory; kursor last_id pozwala wznowić po restarcie)."""
+    return dict(_EXP_DATES_JOB)
 
 
 # ── Read-only audit: manual identity submissions overwritten later ───────────

@@ -5,7 +5,7 @@ NEXUS knows anyone connected to that company. First real consumer of the
 OAuth2 client_credentials machinery in ``app.api.oauth_token`` — every route
 here is guarded by ``require_scope``, never by a user JWT.
 
-Three relationship buckets, strongest first:
+Four relationship buckets, strongest first:
 
 - ``via_us``  — placed there through us: a ``Contract`` with that client that
   ran (``active``/``ending``/``ended``), or a ``draft`` /
@@ -17,12 +17,20 @@ Three relationship buckets, strongest first:
   a bare draft and a ``void`` contract still do not count — "we placed people
   there" must be a reference we can back up.
 - ``current`` — works there now (``linkedin_current_company``, an
-  ``experience[*]`` entry whose ``end`` marks a current job — empty or
-  "present"/"obecnie"-like, ``experience_end`` — or an ACTIVE
-  ``current_employment`` conflict flag — that flag says "employed there now",
-  not "placed by us").
-- ``past``    — worked there before (any other ``experience[*]`` entry, or a
-  conflict flag that is no longer active).
+  ``experience[*]`` entry whose ``end`` SAYS the job is ongoing —
+  "present"/"obecnie"-like (``experience_end``) — or an open-ended entry that
+  at least carries a ``start`` date, or an ACTIVE ``current_employment``
+  conflict flag — that flag says "employed there now", not "placed by us").
+- ``past``    — worked there before (an ``experience[*]`` entry with a real
+  end date, or a conflict flag that is no longer active).
+- ``unknown`` — the CV names the company but the entry carries NO date at
+  all (no ``start``, empty ``end``). ~44k Traffit rows got their
+  ``experience`` from a bare employer list (``traffit_previous_employers``,
+  ``scripts/backfill_candidate_experience.py``), where every entry is
+  undated and ``end IS NULL`` — the canonical "current job" marker — is an
+  artefact of the import, not a fact. Until 2026-09-16 those all landed in
+  ``current``, so "works there now (4)" on a CRM card really meant "has the
+  company somewhere in the CV (4)". The bucket is honest about what we know.
 
 Matching is EXACT on the canonical company name, not substring. The UI filters
 in ``app.api.candidates`` use ``LIKE '%value%'`` because a human picks the
@@ -170,7 +178,7 @@ def _normalize_nip(nip: Optional[str]) -> str:
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 
-Relationship = Literal["via_us", "current", "past"]
+Relationship = Literal["via_us", "current", "past", "unknown"]
 
 
 class CompanyPeopleRequest(BaseModel):
@@ -292,8 +300,14 @@ def _match_experience(
     """Decide this candidate's relationship to the company, exactly.
 
     Returns ``(relationship, matching_entry)`` where relationship is
-    ``current`` or ``past``, or ``(None, None)`` when the SQL prefilter matched
-    on a substring that does not survive canonical comparison.
+    ``current``, ``past`` or ``unknown``, or ``(None, None)`` when the SQL
+    prefilter matched on a substring that does not survive canonical
+    comparison.
+
+    Ranking for one candidate: an entry that SAYS current wins; then a dated
+    open-ended one; then a closed one (``past``); an entry with no date at all
+    is ``unknown`` and never outranks a dated one — "we know nothing about the
+    period" must not beat "we know it ended".
 
     `via_us` is NOT decided here — it comes from contracts, not from CV text.
     """
@@ -311,7 +325,8 @@ def _match_experience(
             "end": None,
         }
 
-    fallback: Optional[dict[str, Any]] = None
+    past_entry: Optional[dict[str, Any]] = None
+    undated_entry: Optional[dict[str, Any]] = None
     for entry in _experience_entries(candidate):
         company = entry.get("company")
         if not isinstance(company, str):
@@ -320,14 +335,38 @@ def _match_experience(
             continue
         # `end IS NULL` is the canonical current-job marker (see candidates.py);
         # an empty `end` and "present"/"obecnie"-like words mean the same
-        # (`experience_end` — one rule with the candidate filters).
+        # (`experience_end` — one rule with the candidate filters). But an
+        # entry with NEITHER date is an import artefact, not a statement that
+        # the job is ongoing (see module docstring) — `unknown`, unless the
+        # CV literally says "present".
         if is_current_end(entry.get("end")):
-            return "current", entry
-        if fallback is None:
-            fallback = entry
-    if fallback is not None:
-        return "past", fallback
+            if _entry_says_current(entry):
+                return "current", entry
+            if undated_entry is None:
+                undated_entry = entry
+            continue
+        if past_entry is None:
+            past_entry = entry
+    if past_entry is not None:
+        return "past", past_entry
+    if undated_entry is not None:
+        return "unknown", undated_entry
     return None, None
+
+
+def _entry_says_current(entry: dict[str, Any]) -> bool:
+    """Open-ended entry that carries evidence, not just a missing date.
+
+    Called only for entries where ``is_current_end(end)`` already holds. A
+    ``start`` date means the CV listed a period that has not closed; a word
+    like "present"/"obecnie" in ``end`` says it outright. A blank ``end`` with
+    no ``start`` says nothing.
+    """
+    start = entry.get("start")
+    if isinstance(start, str) and start.strip():
+        return True
+    end = entry.get("end")
+    return isinstance(end, str) and bool(end.strip())
 
 
 def _profile_url(candidate_id: int) -> Optional[str]:
@@ -428,9 +467,9 @@ async def company_people(
 ) -> CompanyPeopleResponse:
     """Return candidates who work / worked at the given company.
 
-    Buckets are mutually exclusive and ranked ``via_us > current > past`` — a
-    candidate placed there through us is reported as ``via_us`` even when the
-    CV also lists the company.
+    Buckets are mutually exclusive and ranked
+    ``via_us > current > past > unknown`` — a candidate placed there through us
+    is reported as ``via_us`` even when the CV also lists the company.
     """
     raw_names = [n.strip() for n in payload.names if n and n.strip()]
     if not raw_names:
@@ -588,7 +627,7 @@ async def _lookup_company_people(
         cv_rows, capped = cv_rows[:_PREFILTER_ROW_CAP], True
 
     people: list[MatchedPerson] = []
-    counts = {"via_us": 0, "current": 0, "past": 0}
+    counts = {"via_us": 0, "current": 0, "past": 0, "unknown": 0}
 
     for candidate in via_us:
         _, entry = _match_experience(candidate, canonical_names)
@@ -607,9 +646,9 @@ async def _lookup_company_people(
         relationship, entry = _match_experience(candidate, canonical_names)
         if relationship is None:
             continue  # substring prefilter hit, canonical comparison rejected
-        if relationship == "past" and conflict_active.get(candidate.id):
-            # The CV lists an older stint, but the client flagged the person
-            # as employed there NOW — the flag is the fresher signal.
+        if relationship in ("past", "unknown") and conflict_active.get(candidate.id):
+            # The CV lists an older (or undated) stint, but the client flagged
+            # the person as employed there NOW — the flag is the fresher signal.
             relationship = "current"
         people.append(_to_person(candidate, relationship, entry))
         counts[relationship] += 1
@@ -638,7 +677,7 @@ async def _lookup_company_people(
             counts[relationship] += 1
             reported.add(candidate.id)
 
-    order = {"via_us": 0, "current": 1, "past": 2}
+    order = {"via_us": 0, "current": 1, "past": 2, "unknown": 3}
     people.sort(key=lambda p: (order[p.relationship], p.lastname or "", p.name or ""))
 
     truncated = capped or len(people) > payload.limit

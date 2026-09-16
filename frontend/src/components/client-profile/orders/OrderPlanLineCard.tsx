@@ -5,6 +5,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { ConsultantOption, OrderPlanContract } from "@/lib/api/orderGroups";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   backToOptions,
   chooseConsultant,
@@ -247,7 +248,7 @@ export function OrderPlanLineCard({
         </div>
       </header>
 
-      <div className={`mt-3 grid gap-2 ${showMd ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+      <div className={`mt-3 grid gap-2 ${showMd ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2"}`}>
         <ValueTile
           label="Stawka kosztowa"
           value={draft.rateCost}
@@ -279,6 +280,17 @@ export function OrderPlanLineCard({
             value={draft.md}
             onValueChange={(value) => edit({ md: value, mdSource: manual })}
             source={sourceLabel(draft.mdSource, draft)}
+            suffix="MD"
+          />
+        ) : null}
+        {showMd && isEzdrowieClient(clientId) ? (
+          // Opcja z umowy wykonawczej — tylko Centrum e-Zdrowia; nie z PDF-a,
+          // więc źródło zawsze „ręcznie" albo brak; puste pole = umowa bez opcji.
+          <ValueTile
+            label="Zakres opcjonalny (MD)"
+            value={draft.optionalMd}
+            onValueChange={(value) => edit({ optionalMd: value })}
+            source={draft.optionalMd ? "wpisano ręcznie" : "brak opcji w umowie"}
             suffix="MD"
           />
         ) : null}

@@ -238,7 +238,7 @@ export function RekrutacjaPanel() {
       </InsightsSection>
 
       {/* Integracje: scrapery pracuj.pl / JJIT raportują runy do NEXUS-a
-          (migracja 0312). Sekcja świadomie bez `period` — pytanie „czy
+          (migracja 0314). Sekcja świadomie bez `period` — pytanie „czy
           integracja żyje" ma własne okno 7/30/90 dni, nie kwartał. */}
       <InsightsSection id="integracje">
         <DeferUntilVisible minHeight={240}>

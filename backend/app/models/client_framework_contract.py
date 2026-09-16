@@ -85,6 +85,24 @@ class ClientFrameworkContract(Base, TimestampMixin):
             "source_key IS NULL OR char_length(btrim(source_key)) > 0",
             name="ck_client_framework_contracts_source_key_nonempty",
         ),
+        # „Część umowy" Centrum e-Zdrowia (ticket 09.2026): umowa ramowa = część.
+        # Słownik jak `client_orders.project_part` (cz.3 celowo nie istnieje);
+        # NULL u wszystkich innych klientów i u umów ramowych bez części.
+        CheckConstraint(
+            "project_part IS NULL OR project_part IN "
+            "('cz1', 'cz2', 'cz4', 'cz5', 'cz6')",
+            name="ck_client_framework_contracts_project_part",
+        ),
+        # Jedna umowa ramowa na część u klienta — dwie ramowe z tą samą częścią
+        # dałyby dwa nagłówki „Cz. II" w strukturze umów.
+        Index(
+            "ux_client_framework_contracts_client_part",
+            "client_id",
+            "project_part",
+            unique=True,
+            postgresql_where=text("project_part IS NOT NULL"),
+            sqlite_where=text("project_part IS NOT NULL"),
+        ),
         Index(
             "ux_client_framework_contracts_source_key",
             "source_system",
@@ -163,6 +181,10 @@ class ClientFrameworkContract(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    project_part: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    """Część zamówienia Centrum e-Zdrowia (``cz1``…``cz6``), gdy umowa ramowa
+    JEST częścią. Pod nią wiszą umowy wykonawcze (`executive_contracts`)."""
+
     # Import provenance. ``source_key`` is stable within ``source_system`` and
     # makes re-applying the same reviewed Excel row idempotent.
     source_system: Mapped[str] = mapped_column(
@@ -199,6 +221,11 @@ class ClientFrameworkContract(Base, TimestampMixin):
         "ClientOrder",
         back_populates="framework_contract",
         order_by="ClientOrder.start_date.desc()",
+    )
+    executive_contracts = relationship(
+        "ClientExecutiveContract",
+        back_populates="framework_contract",
+        order_by="ClientExecutiveContract.number.asc()",
     )
 
     def __repr__(self) -> str:

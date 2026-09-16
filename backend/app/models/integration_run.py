@@ -14,7 +14,7 @@ z cudzego laptopa:
 Wzorowane na ``traffit_sync_state`` (ta sama semantyka ``last_status``:
 ok / errors / failed), ale per run, nie per faza — scraper może chodzić kilka
 razy dziennie (import, replay, test) i każdy przebieg ma własną historię.
-Migracja 0312.
+Migracja 0314.
 """
 
 from __future__ import annotations

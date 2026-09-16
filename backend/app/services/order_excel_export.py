@@ -164,8 +164,11 @@ def export_rows_for_group(
         elif line.md_total is None:
             consumption = None
         else:
+            # Budżet = podstawa + zakres opcjonalny (Faza B): bez opcji
+            # zużycie wychodziłoby ujemne przy każdej linii z opcją.
             consumption = (
                 line.md_total
+                + (line.md_optional_total or Decimal("0"))
                 + (line.md_manual_adjustment or Decimal("0"))
                 - (line.md_remaining or Decimal("0"))
             )

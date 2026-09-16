@@ -17,6 +17,10 @@ Covers:
   touch role / password_hash / profile_completed.
 - ``exchange`` consumes the code once; second use returns 410.
 - ``exchange`` rejects expired codes.
+- ``callback`` refuses an inactive account with the stable ``account_disabled``
+  code and leaves an ``sso_login_denied_inactive`` row in ``activities``.
+- every ``?error=`` value is a machine-readable slug the login screen maps to
+  a Polish message (``frontend/src/lib/sso-error.ts``).
 """
 
 from __future__ import annotations
@@ -306,6 +310,156 @@ async def test_callback_links_identity_for_existing_password_user(
         # Identity attached.
         assert u.oauth_provider == "microsoft"
         assert u.azure_oid == f"azure-oid-existing-{unique}"
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_inactive_user_with_stable_error_code(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """Nieaktywne konto: odmowa + stabilny kod + ślad w dzienniku aktywności.
+
+    Bramka bez zmian — konto ma dalej NIE wpuszczać. Zmienia się to, co trafia
+    do URL-a (kod ``account_disabled`` zamiast surowego "Account disabled",
+    które ekran logowania renderował dosłownie) oraz to, że odmowa zostawia
+    wiersz w ``activities`` — konta z importu Traffita nie idą ścieżką
+    auto-provisioningu, więc bez niego administrator nie widzi próby logowania.
+    """
+    unique = uuid.uuid4().hex[:8]
+    email = f"inactive-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=None,
+                name="Inactive Import",
+                role=UserRole.user,
+                # ``ck_users_exclusive_finance_viewer_roles`` wymaga, żeby przy
+                # roli ``user``/``finance`` lista ``roles`` była dokładnie [rola].
+                roles=[UserRole.user.value],
+                is_active=False,
+                profile_completed=False,
+            )
+        )
+        await db.commit()
+
+    _patch_token_exchange(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"azure-oid-inactive-{unique}",
+            "name": "Inactive Import",
+            "email": email,
+        },
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+
+    assert resp.status_code == 302
+    parsed = urlparse(resp.headers["location"])
+    assert parsed.path == "/login"
+    assert parse_qs(parsed.query)["error"] == [auth_ms_module.SSO_ERR_ACCOUNT_DISABLED]
+    assert auth_ms_module.SSO_ERR_ACCOUNT_DISABLED == "account_disabled"
+
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.email == email))
+        assert u is not None
+        # Konto nadal zablokowane — logowanie NIE zostało przepuszczone.
+        assert u.is_active is False
+        # Żaden kod wymiany nie powstał → nie da się dokończyć logowania.
+        codes = (
+            (
+                await db.execute(
+                    select(AuthExchangeCode).where(AuthExchangeCode.user_id == u.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert codes == []
+        # Administrator widzi próbę w dzienniku aktywności.
+        acts = (
+            (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.entity_type == "user",
+                        Activity.entity_id == u.id,
+                        Activity.action == "sso_login_denied_inactive",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(acts) == 1
+        assert acts[0].details["email"] == email
+        assert acts[0].details["reason"] == "user.is_active = false"
+
+
+@pytest.mark.asyncio
+async def test_callback_error_params_are_stable_codes(
+    app_client_no_redirect: AsyncClient, monkeypatch
+):
+    """``?error=`` niesie maszynowy kod, nie angielskie zdanie do przepisania.
+
+    Ekran logowania tłumaczy kody w ``frontend/src/lib/sso-error.ts``; gdyby
+    backend znów wysłał zdanie, użytkownik zobaczyłby je dosłownie.
+    """
+
+    def _error_of(resp) -> str:
+        return parse_qs(urlparse(resp.headers["location"]).query)["error"][0]
+
+    resp = await app_client_no_redirect.get("/api/auth/microsoft/callback")
+    assert _error_of(resp) == auth_ms_module.SSO_ERR_MISSING_CODE_STATE
+
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": "not-a-jwt"},
+    )
+    assert _error_of(resp) == auth_ms_module.SSO_ERR_STATE_EXPIRED
+
+    _patch_token_exchange(monkeypatch, {"name": "No Claims"})
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+    assert _error_of(resp) == auth_ms_module.SSO_ERR_MISSING_CLAIMS
+
+    _patch_token_exchange(
+        monkeypatch,
+        {
+            "preferred_username": "intruder@gmail.com",
+            "oid": "azure-oid-intruder",
+            "name": "Intruder",
+        },
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+    assert _error_of(resp) == auth_ms_module.SSO_ERR_DOMAIN_FORBIDDEN
+
+    # Każdy kod to slug (bez spacji i wielkich liter) — inaczej frontend nie ma
+    # czego dopasować i pokazuje surowy tekst.
+    for code in (
+        auth_ms_module.SSO_ERR_MISSING_CODE_STATE,
+        auth_ms_module.SSO_ERR_STATE_EXPIRED,
+        auth_ms_module.SSO_ERR_MISSING_CLAIMS,
+        auth_ms_module.SSO_ERR_DOMAIN_FORBIDDEN,
+        auth_ms_module.SSO_ERR_ACCOUNT_DISABLED,
+        auth_ms_module.SSO_ERR_AAD_NO_GRAPH_TOKEN,
+        auth_ms_module.SSO_ERR_AAD_MAP_INVALID,
+        auth_ms_module.SSO_ERR_AAD_ROLE_INVALID,
+        auth_ms_module.SSO_ERR_AAD_NO_ROLE,
+        auth_ms_module._MICROSOFT_SIGN_IN_ERROR,
+        auth_ms_module._AAD_GROUP_LOOKUP_ERROR,
+        auth_ms_module._LAST_ACTIVE_ADMIN_ERROR,
+    ):
+        assert code == code.lower()
+        assert " " not in code
 
 
 @pytest.mark.asyncio

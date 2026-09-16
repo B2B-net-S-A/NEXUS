@@ -7,7 +7,8 @@ było: budżet MD, jego topnienie z miesięcznych raportów i zamianę kontrakto
 Trzy reguły, na których stoi cała reszta:
 
 1. **``md_remaining`` jest WYLICZANE, nie modyfikowane przyrostowo.**
-   ``md_total - Σ konsumpcji + md_manual_adjustment``, przeliczane od zera przy
+   ``md_total + md_optional_total - Σ konsumpcji + md_manual_adjustment``,
+   przeliczane od zera przy
    każdej zmianie. To jest mechanizm idempotencji importu: powtórka miesiąca
    nadpisuje wiersz konsumpcji i przelicza pozostałość, zamiast odjąć MD drugi
    raz. Odejmowanie „na bieżąco" wymagałoby pamiętania, co już odjęto — czyli
@@ -970,6 +971,78 @@ async def consumed_md(db: AsyncSession, order_id: int) -> Decimal:
     return Decimal(str(total or 0))
 
 
+def line_budget_total(order: ClientOrder) -> Decimal:
+    """Cały budżet MD linii: zakres podstawowy + opcjonalny (Faza B, 09.2026).
+
+    ``md_optional_total`` jest ``NULL`` = „brak opcji w umowie", więc wchodzi
+    jako zero. Wołający musi wcześniej sprawdzić ``md_total is not None`` —
+    linia bez budżetu (kosztowa, wspólna pula) nie ma czego sumować.
+    """
+    return Decimal(str(order.md_total or 0)) + Decimal(
+        str(order.md_optional_total or 0)
+    )
+
+
+def split_md_usage(order: ClientOrder, used: Decimal) -> tuple[Decimal, Decimal]:
+    """Podział zużycia na podstawę i opcję: ``(md_base_used, md_optional_used)``.
+
+    Zużycie wypełnia NAJPIERW zakres podstawowy, a dopiero nadwyżka schodzi
+    z opcji — tak liczy je klient (Centrum e-Zdrowia), więc obie liczby muszą
+    zgadzać się z jego protokołem, a nie tylko sumować do ``used``.
+    Nadwyżka ponad podstawę jest przypisywana opcji także wtedy, gdy opcja nie
+    istnieje albo jest już wyczerpana — przekroczenie jest faktem handlowym
+    i nie znika przez przycięcie do budżetu.
+    """
+    base_total = Decimal(str(order.md_total or 0))
+    consumed = quantize_md(used)
+    base_used = min(consumed, base_total)
+    optional_used = max(ZERO, consumed - base_total)
+    return quantize_md(base_used), quantize_md(optional_used)
+
+
+async def consumption_rows(
+    db: AsyncSession, order_id: int
+) -> list[ClientOrderMdConsumption]:
+    """Wpisy zejść MD jednej linii, po miesiącu, z autorem (selectinload).
+
+    Autor jest doczytywany tutaj, bo lista trafia do odpowiedzi API, a leniwe
+    ``row.author`` w sesji async leci ``MissingGreenlet``.
+    """
+    result = await db.execute(
+        select(ClientOrderMdConsumption)
+        .options(selectinload(ClientOrderMdConsumption.author))
+        .where(ClientOrderMdConsumption.order_id == order_id)
+        .order_by(ClientOrderMdConsumption.period_month.asc())
+    )
+    return list(result.scalars())
+
+
+async def delete_consumption(
+    db: AsyncSession, order: ClientOrder, period_month: str
+) -> Optional[Decimal]:
+    """Usuń zejście za miesiąc i przelicz pozostałość linii.
+
+    Zwraca poprzednio zapisane MD (do treści wpisu w historii) albo ``None``,
+    gdy wpisu za ten miesiąc nie było — wołający decyduje, czy to 404.
+    Pozostałość przeliczana od zera po usunięciu, jak przy każdej innej
+    zmianie zużycia (patrz ``recompute_remaining``).
+    """
+    month_bounds(period_month)
+    row = await db.scalar(
+        select(ClientOrderMdConsumption).where(
+            ClientOrderMdConsumption.order_id == order.id,
+            ClientOrderMdConsumption.period_month == period_month,
+        )
+    )
+    if row is None:
+        return None
+    previous = Decimal(str(row.md_reported))
+    await db.delete(row)
+    await db.flush()
+    await recompute_remaining(db, order)
+    return previous
+
+
 async def _has_successor_line(db: AsyncSession, order: ClientOrder) -> bool:
     """Czy jakaś linia przejęła tę przy zamianie kontraktora."""
     successor = await db.scalar(
@@ -1070,7 +1143,10 @@ async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
         return ZERO
     consumed = await consumed_md(db, order.id)
     adjustment = Decimal(str(order.md_manual_adjustment or 0))
-    remaining = quantize_md(Decimal(str(order.md_total)) - consumed + adjustment)
+    # Budżet, z którego schodzą MD, to podstawa + zakres opcjonalny (Faza B,
+    # 09.2026). Sama podstawa dawałaby ujemną pozostałość — i alert
+    # o wyczerpaniu — osobie, która dopiero weszła w opcję z umowy.
+    remaining = quantize_md(line_budget_total(order) - consumed + adjustment)
     order.md_remaining = remaining
     await sync_md_line_status(db, order)
     if order.order_group_id is not None:
@@ -1093,10 +1169,20 @@ async def upsert_consumption(
     source: str = CONSUMPTION_SOURCE_IMPORT,
     import_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    status: Optional[str] = None,
+    note: Optional[str] = None,
 ) -> tuple[ClientOrderMdConsumption, Decimal, Decimal]:
     """Zapisz zużycie za miesiąc i przelicz pozostałość.
 
     Zwraca ``(wiersz, poprzednie_md, nowa_pozostałość)``.
+
+    ``status`` (``accepted`` | ``protocol`` | ``None``) i ``note`` to ręczny
+    opis rozliczenia miesiąca (Faza B, 09.2026). Import XLSX ich NIE podaje,
+    więc wpis z importu, który nadpisuje ręczny wpis za ten sam miesiąc,
+    ustawia ``status=NULL`` i ``note=NULL`` — świadomie: arkusz z Finansów
+    jest nowszym źródłem liczby, a status opisywał liczbę, której już nie ma.
+    Zachowanie starego statusu przy nowej liczbie twierdziłoby, że ktoś
+    zaakceptował wartość, której nigdy nie widział.
 
     Zapis idzie przez ``INSERT … ON CONFLICT DO UPDATE``, a nie przez
     „SELECT, potem INSERT albo UPDATE": ta druga wersja ma okno wyścigu między
@@ -1132,6 +1218,8 @@ async def upsert_consumption(
             source=source,
             import_id=import_id,
             created_by_user_id=user_id,
+            status=status,
+            note=note,
         )
         .on_conflict_do_update(
             index_elements=[
@@ -1143,6 +1231,8 @@ async def upsert_consumption(
                 "source": source,
                 "import_id": import_id,
                 "created_by_user_id": user_id,
+                "status": status,
+                "note": note,
                 "updated_at": func.now(),
             },
         )
@@ -1261,7 +1351,7 @@ async def _capacity_outside_month(
         )
     )
     capacity = quantize_md(
-        Decimal(str(order.md_total))
+        line_budget_total(order)
         - Decimal(str(other or 0))
         + Decimal(str(order.md_manual_adjustment or 0))
     )
@@ -1489,12 +1579,12 @@ def describe_import(
     którego to zamówienie nie przyjęło.
     """
     who = consultant_display_name(order)
+    # Cały budżet (podstawa + opcja) minus pozostałość — inaczej linia z opcją
+    # pokazywałaby „wykorzystano" pomniejszone o zakres opcjonalny.
     used = (
         None
         if order.md_total is None or order.md_remaining is None
-        else quantize_md(
-            Decimal(str(order.md_total)) - Decimal(str(order.md_remaining))
-        )
+        else quantize_md(line_budget_total(order) - Decimal(str(order.md_remaining)))
     )
     context = who
     if previous and previous != md_reported:

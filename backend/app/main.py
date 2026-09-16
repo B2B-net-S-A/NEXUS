@@ -92,6 +92,7 @@ from app.api import insights_team
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
+from app.api import client_executive_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
 from app.api import client_orders as client_orders_api
@@ -1011,6 +1012,12 @@ app.include_router(
     prefix="/api/clients",
     tags=["client-framework-contracts"],
 )
+# Struktura umów wykonawczych Centrum e-Zdrowia (umowa ramowa-część → wykonawcze).
+app.include_router(
+    client_executive_contracts.router,
+    prefix="/api/clients",
+    tags=["client-executive-contracts"],
+)
 app.include_router(
     client_contract_amendments.router,
     prefix="/api/clients",
@@ -1249,7 +1256,7 @@ app.include_router(
     tags=["insights"],
 )
 # Integracje zewnętrzne (scrapery pracuj.pl / JJIT): zapis runów przez token
-# klienta OAuth, odczyt w Insights → Integracje. Migracja 0312.
+# klienta OAuth, odczyt w Insights → Integracje. Migracja 0314.
 app.include_router(
     integrations_runs_api.writer,
     prefix="/api/integrations",
@@ -2503,6 +2510,7 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
     from app.models.order_change_event import OrderChangeEvent
@@ -2625,6 +2633,9 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
+        # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
+        ("client_executive_contracts", ClientExecutiveContract),
         # 0303: raport jednorazowego czyszczenia „Nieaktywnych klientów"
         # i nagrobki czytane co noc przez fazę `clients` syncu Traffita.
         ("client_cleanup_runs", ClientCleanupRun),

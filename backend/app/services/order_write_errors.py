@@ -52,8 +52,22 @@ _CONSTRAINT_MESSAGES: dict[str, str] = {
     "ck_client_orders_order_type": (
         "Nieznany typ zamówienia. Wybierz okresowe, kosztowe albo MD."
     ),
+    "ck_client_orders_md_optional": (
+        "Zakres opcjonalny MD może istnieć tylko obok zakresu podstawowego "
+        "i nie może być ujemny."
+    ),
     "ck_client_orders_project_part": (
         "Nieznana część umowy. Wybierz wartość ze słownika Centrum e-Zdrowia."
+    ),
+    "ux_client_executive_contracts_client_number": (
+        "Umowa wykonawcza o tym numerze już istnieje u tego klienta"
+    ),
+    # FK z migracji 0312 (inline ``REFERENCES`` → nazwa domyślna Postgresa).
+    "client_orders_executive_contract_id_fkey": (
+        "Wskazana umowa wykonawcza nie istnieje albo należy do innego klienta"
+    ),
+    "client_order_groups_executive_contract_id_fkey": (
+        "Wskazana umowa wykonawcza nie istnieje albo należy do innego klienta"
     ),
     "ck_client_order_groups_dates": (
         "Data zakończenia zamówienia jest wcześniejsza niż data rozpoczęcia."

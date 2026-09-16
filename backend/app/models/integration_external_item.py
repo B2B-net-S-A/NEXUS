@@ -5,7 +5,7 @@ Zamiennik pliku ``scraper_state.json`` ze scrapera na Macu: jeden wiersz na
 (NEXUS / Traffit), odcisk wgranego CV (żeby ten sam plik nie szedł drugi raz
 do istniejącego kandydata) i ostatnią akcję — dzięki temu replay jest
 idempotentny, a statystyki „ile aplikacji obsłużyliśmy" nie zależą od logów.
-Migracja 0313.
+Migracja 0315.
 """
 
 from __future__ import annotations

@@ -467,7 +467,8 @@ stawkę przychodową (tę, którą płaci klient), jednostkę tej stawki
 
 * **stawki kosztowej** — tej, którą płacimy kontraktorowi. Dokument klienta jej
   nie zawiera. Zawsze wpisujesz ją sam.
-* **części umowy** (dotyczy tylko Centrum e-Zdrowia).
+* **umowy wykonawczej** (dotyczy tylko Centrum e-Zdrowia) — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam z listy.
 
 **Skany działają, ale w ograniczonym zakresie.** Gdy w pliku nie ma warstwy
 tekstowej, system rozpoznaje pismo — ale tylko z **pierwszych 10 stron** i wolno
@@ -597,8 +598,8 @@ zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
 odstęp w dniach, a z poprzedniego zamówienia przejmuje to, czego PDF nie niesie:
-część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę godzin rozliczeniowych
-i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+umowę wykonawczą i część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę
+godzin rozliczeniowych i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
 „poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
 lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
 PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
@@ -630,6 +631,25 @@ zapisu z powodu technicznej niejasności nazwy tego pola. Rzeczywiste sprzeczno�
 stawek oraz budżety zamówień kosztowych i MD nadal wymagają kontroli.
 Cały dokument zapisuje się wspólnie: błąd jednej osoby wycofuje
 zapis dokumentu i pozostawia konkretny powód weryfikacji.
+
+**Automatycznie zakładany jest tylko kontraktor, którego w bazie NIE MA.**
+Jeżeli osoby nie ma wśród konsultantów tego klienta, ale ktoś o dokładnie tym
+imieniu i nazwisku jest już w bazie, dokument czeka w **„Do weryfikacji”**,
+a kolejka pisze wprost, kogo znalazła — na przykład „Piotr Michałowski (#11)
+ma kontrakt #456 u klienta „Powszechna Kasa Oszczędności Bank Polski S.A””.
+Sprawdź wtedy dwie rzeczy: czy dokument nie dotyczy **tego samego klienta
+zapisanego pod drugim rekordem** (wtedy zamówienie należy do istniejącej
+współpracy, a nie do nowego kontraktora), i czy to na pewno ta sama osoba,
+a nie imiennik. Dopiero potem „Zastosuj” — zapis dopnie istniejącą kartotekę
+zamiast zakładać drugą. Kilku różnych ludzi o tym samym imieniu i nazwisku
+system wypisuje z numerami i **nie wybiera żadnego**.
+
+**Numer NIP prowadzi do klienta kanonicznego.** Scalenie zdublowanego rekordu
+klienta („Scal z…”) działa też na pocztę zamówień: kolejne dokumenty z tym
+numerem trafiają do rekordu, który po scaleniu został, razem z jego listą
+konsultantów. Jeżeli ten sam numer widnieje przy **dwóch osobnych** klientach,
+system nie zgaduje — dokument trafia do „Do weryfikacji” jako nierozpoznany
+klient, dopóki duplikat nie zostanie scalony.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1415,10 +1435,22 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Centrum e-Zdrowia
 
-* Jedyny klient z polem **„Wybór części umowy \*"** — i jest ono **obowiązkowe**
-  przy nowym zamówieniu oraz przy przedłużeniu. Do wyboru: **cz.1, cz.2, cz.4,
-  cz.5, cz.6** (część 3. nie istnieje i to jest poprawne).
-* Systemu **nie odczyta** części umowy z dokumentu — wybierasz ją sam.
+* Jedyny klient z polem **„Umowa wykonawcza \*"** — i jest ono **obowiązkowe**
+  przy nowym zamówieniu oraz przy przedłużeniu. Lista jest **pogrupowana po
+  części umowy ramowej** (**cz.1, cz.2, cz.4, cz.5, cz.6** — część 3. nie
+  istnieje i to jest poprawne); część zamówienia wynika z wybranej umowy
+  wykonawczej, nie wybierasz jej osobno.
+* **Część bez umowy wykonawczej nie przyjmuje konsultanta.** Nowe umowy
+  wykonawcze dodajesz na profilu klienta w sekcji **Struktura umów** (numer
+  + część ramowa; nowa umowa jest od razu aktywna). Umowę zakończysz dopiero
+  wtedy, gdy nikt nie jest do niej przypisany.
+* System **nie odczyta** umowy wykonawczej z dokumentu — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam.
+* Ekran **„Przypisania do przeglądu"** (profil klienta → Struktura umów)
+  pokazuje obecnych i planowanych konsultantów bez umowy wykonawczej. Każdego
+  przypisujesz **ręcznie** — ekran podświetla tylko nagłówek części z
+  dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
+  żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
 * **Powiadomienia:** standardowe.
 
 ### Alior

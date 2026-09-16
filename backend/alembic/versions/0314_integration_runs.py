@@ -1,7 +1,7 @@
 """Integracje zewnętrzne (scrapery pracuj.pl / JJIT): runy, zdarzenia, stan alertów.
 
-Revision ID: 0312_integration_runs
-Revises: 0311_oauth_client_acting_user
+Revision ID: 0314_integration_runs
+Revises: 0313_md_optional_scope_and_consumption_status
 
 Why:
 - Scrapery chodzą poza NEXUS-em (Mac / cron) i jedynym śladem ich pracy były
@@ -20,8 +20,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "0312_integration_runs"
-down_revision = "0311_oauth_client_acting_user"
+revision = "0314_integration_runs"
+down_revision = "0313_md_optional_scope_and_consumption_status"
 branch_labels = None
 depends_on = None
 

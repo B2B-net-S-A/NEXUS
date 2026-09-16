@@ -22,7 +22,8 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { B2B_INDEFINITE_HINT } from "@/lib/contract-end-date";
-import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
@@ -135,10 +136,13 @@ export function NewContractorOrderDialog({
   const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
   const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
-  // „Część umowy" — pole widoczne i wymagane wyłącznie dla Centrum e-Zdrowia
-  // (ticket #3; bramka po client_id, walidacja też serwerowo).
+  // „Umowa wykonawcza" — pole widoczne i wymagane wyłącznie dla Centrum
+  // e-Zdrowia (bramka po client_id, walidacja też serwerowo). Część umowy
+  // jest od struktury umów wartością pochodną — nie wybiera się jej wprost.
   const ezdrowie = isEzdrowieClient(clientId);
-  const [projectPart, setProjectPart] = useState<string>("");
+  const [executiveContractId, setExecutiveContractId] = useState<string>("");
+  // Hook sam gasi zapytanie u innych klientów (`enabled` po client_id).
+  const executiveContracts = useExecutiveContractOptions(clientId);
 
   // ── PDF od klienta + odczyt ────────────────────────────────────────────
   //
@@ -385,7 +389,9 @@ export function NewContractorOrderDialog({
         notes: notes || null,
       };
       if (ezdrowie) {
-        payload.project_part = projectPart || null;
+        payload.executive_contract_id = executiveContractId
+          ? Number(executiveContractId)
+          : null;
       }
       if (canManageFinance) {
         payload.rate_client = rateClientNum ?? undefined;
@@ -444,8 +450,8 @@ export function NewContractorOrderDialog({
             );
             return;
           }
-          if (ezdrowie && !projectPart) {
-            showError("Wybierz część umowy");
+          if (ezdrowie && !executiveContractId) {
+            showError("Wybierz umowę wykonawczą");
             return;
           }
           mutation.mutate();
@@ -593,28 +599,37 @@ export function NewContractorOrderDialog({
           </select>
         </label>
 
-        {/* „Wybór części umowy" — tylko Centrum e-Zdrowia (ticket #3). */}
+        {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. Opcje pogrupowane
+            pod nagłówkami części; część bez aktywnej umowy nie ma grupy. */}
         {ezdrowie && (
           <label className="block">
-            <span className="text-sm">Wybór części umowy *</span>
+            <span className="text-sm">Umowa wykonawcza *</span>
             <select
-              value={projectPart}
-              onChange={(e) => setProjectPart(e.target.value)}
-              aria-label="Wybór części umowy"
+              value={executiveContractId}
+              onChange={(e) => setExecutiveContractId(e.target.value)}
+              aria-label="Umowa wykonawcza"
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             >
               <option value="">— wybierz —</option>
-              {PROJECT_PARTS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
+              {executiveContracts.groups.map((group) => (
+                <optgroup key={group.framework_contract_id} label={group.label}>
+                  {group.options.map((ec) => (
+                    <option key={ec.id} value={String(ec.id)}>
+                      {ec.number}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
-            {!projectPart && (
+            {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+              </p>
+            ) : !executiveContractId ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Pole wymagane dla Centrum e-Zdrowia.
               </p>
-            )}
+            ) : null}
           </label>
         )}
 

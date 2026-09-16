@@ -1,7 +1,7 @@
 """Stan importu JJIT w bazie: które aplikacje z portalu już przetworzono.
 
-Revision ID: 0313_integration_external_items
-Revises: 0312_integration_runs
+Revision ID: 0315_integration_external_items
+Revises: 0314_integration_runs
 
 Why:
 - Scraper na Macu trzymał ``processedApplicationIds`` w pliku JSON. Job w
@@ -17,8 +17,8 @@ Why:
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0313_integration_external_items"
-down_revision = "0312_integration_runs"
+revision = "0315_integration_external_items"
+down_revision = "0314_integration_runs"
 branch_labels = None
 depends_on = None
 
