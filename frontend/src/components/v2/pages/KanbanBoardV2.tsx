@@ -2510,17 +2510,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // przewijania.
  const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 16;
  // Próg zwężenia karty liczy się z liczby RENDEROWANYCH kolumn, nie z liczby
- // etapów szablonu: po zwinięciu pustych grup „Default B2B" pokazuje dziewięć
- // kolumn zamiast piętnastu, więc na kolumnę wypada ~155 px — tyle, ile
+ // etapów szablonu: po zwinięciu pustych grup „Default B2B" pokazuje dziesięć
+ // kolumn zamiast szesnastu, więc na kolumnę wypada ~140 px — tyle, ile
  // makieta przewiduje dla pełnej karty (nazwisko do dwóch linii, właściciel,
  // wiek, następna akcja). Powyżej karta znowu musi degradować się do kafelka.
  //
- // Dziewięć, nie osiem: to jest DOKŁADNIE tyle, ile zostaje z „Default B2B"
- // po zwinięciu grup „U klienta" i „Umowa → zatrudnieni" — siedem prawdziwych
- // kolumn (15 − 4 − 4) plus dwa zastępniki. Próg o jeden niżej zostawiałby
- // najczęstszy szablon w produkcie po gorszej stronie granicy, czyli cała ta
- // karta nigdy nie pokazałaby się nikomu.
- const OVERVIEW_COLUMN_THRESHOLD = 9;
+ // Dziesięć, nie dziewięć: to jest DOKŁADNIE tyle, ile zostaje z „Default B2B"
+ // po zwinięciu grup „U klienta" i „Umowa → zatrudnieni" — osiem prawdziwych
+ // kolumn (16 − 4 − 4, w tym „Ogłoszenia" z migracji 0316) plus dwa
+ // zastępniki. Próg o jeden niżej zostawiałby najczęstszy szablon w produkcie
+ // po gorszej stronie granicy, czyli cała ta karta nigdy nie pokazałaby się
+ // nikomu (a przy wąskiej planszy kafelki o zerowej szerokości chowały karty).
+ const OVERVIEW_COLUMN_THRESHOLD = 10;
  const desktopOverview =
  fullPipelineDesktop && boardEntries.length > OVERVIEW_COLUMN_THRESHOLD;
 
