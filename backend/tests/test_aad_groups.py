@@ -395,9 +395,11 @@ async def test_sso_callback_blocks_user_with_no_matching_group(
     # Error redirect to /login, NOT to /login/microsoft/callback.
     location = resp.headers["location"]
     assert "/login?" in location
-    # Polish error message — keep stable for frontend i18n. URL-encoded form
-    # has ``+`` for spaces, so match the URL-safe substring.
-    assert "Microsoft+AD" in location or "Microsoft%20AD" in location
+    # Stabilny kod, nie gotowe zdanie — polski komunikat składa frontend
+    # (``frontend/src/lib/sso-error.ts``).
+    assert parse_qs(urlparse(location).query)["error"] == [
+        auth_ms_module.SSO_ERR_AAD_NO_ROLE
+    ]
 
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.email == email))
@@ -499,7 +501,7 @@ async def test_sso_callback_missing_graph_token_rolls_back_provisional_user(
     assert resp.status_code == 302
     location = resp.headers["location"]
     error = parse_qs(urlparse(location).query)["error"]
-    assert error == ["AAD RBAC misconfigured (no Graph token). Contact administrator."]
+    assert error == [auth_ms_module.SSO_ERR_AAD_NO_GRAPH_TOKEN]
 
     async with AsyncSessionLocal() as db:
         user = await db.scalar(select(User).where(User.email == email))
