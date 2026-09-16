@@ -2704,6 +2704,36 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   Dotyczy zamówień okresowych (`order_group_id IS NULL`), umów ramowych
   i kontraktów (kontrakt, którego zamówienie okresowe kończy się tego samego
   dnia, nie dostaje drugiej karty).
+- **Klienci z rozszerzonymi alertami zamówień: `EXTENDED_ORDER_ALERT_CLIENT_IDS`**
+  (CSV, fail-closed, dziś BNP — `services/order_alert_policy.py`). Jedna lista,
+  DWA niezależne sygnały o tym samym zamówieniu, nigdy łączone w jedną kartę
+  (ticket 09.2026):
+  1. **`rule_periodic_order_ending` obejmuje u nich także LINIE zamówień
+     wielo-konsultantowych** (`or_(order_group_id IS NULL, client_id IN …)`
+     + wymóg `ClientOrderGroup.status == active`). U pozostałych klientów te
+     linie zostają pominięte, bo tam zamówienie kończy wyczerpanie budżetu, nie
+     kalendarz. Dzwonek (`_scan_orders`) widział je od zawsze — linia dziedziczy
+     `end_date` grupy — ale daje jeden sygnał na próg; maila przy pierwszym
+     wierszu i powtórkę co 7 dni ma wyłącznie karta w panelu.
+  2. **`md_base_usage_high`** — zużycie PODSTAWY MD (`md_total`) ≥
+     `DL_ALERT_MD_BASE_USAGE_PERCENT` (80%), per konsultant. Zakres opcjonalny
+     NIE wchodzi ani do licznika, ani do mianownika. Zużycie liczone z SUMY
+     ZEJŚĆ (`client_order_md_consumptions`), nie z `md_remaining` — ta niesie też
+     `md_manual_adjustment`, czyli korektę BUDŻETU, więc wyprowadzenie z niej
+     przesunęłoby próg. Podział podstawa/opcja przez `split_md_usage` (te same
+     liczby co paski `MdScopeBars`). **Bez eskalacji i bez maila** — wysoki
+     priorytet ma `md_budget_low`; w paśmie, gdzie oba warunki są spełnione, DL
+     widzi dwie karty i to jest zamierzone.
+- **`DL_ALERT_MD_THRESHOLD=21` zostaje GLOBALNY i bezwzględny** — `md_base_usage_high`
+  go nie zastępuje ani nie konfiguruje per klient. „Mało MD" ma znaczyć to samo
+  w każdym raporcie (pilnuje `test_md_threshold_is_global_not_per_client`);
+  próg procentowy to OSOBNY typ alertu i osobna karta, nie wariant tamtego.
+- **Pusta lista = zero zmian dla wszystkich.** `client_id.in_(frozenset())` daje
+  `IN ()` = fałsz, a `rule_md_base_usage_high` kończy się przed zapytaniem.
+  Aktywacja na prodzie = jedna zmienna przez workflow „Coolify set env"; id
+  ustala się NA PRODUKCJI (`/api/admin/client-mixups`), bo „BNP" to RODZINA
+  rekordów klienta (oddział vs bank vs Cardif) i zaszycie `12` na ślepo mogłoby
+  włączyć alerty złej spółce.
 - **Miesięczne uprzedzenie mailem to `email_on_first` w `emit`, NIE etap `t30`**
   (09.2026, decyzja Artura: mail + dzwonek, progi 14/7 zostają). Mail idzie przy
   pierwszym wierszu sprawy — `first_seen is None`, liczone PER ODBIORCA, więc

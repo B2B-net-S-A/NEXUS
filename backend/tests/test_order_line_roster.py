@@ -182,10 +182,19 @@ def test_whole_expired_order_keeps_its_roster():
 def test_open_ended_order_uses_today_as_the_boundary():
     from app.services.client_order_lines import is_line_on_active_roster
 
+    # `today` liczone TU, a nie z modułowego `_TODAY`: ten drugi powstaje przy
+    # imporcie pliku, a `is_line_on_active_roster` bez argumentu woła
+    # `business_today()` dopiero przy wywołaniu. Suite bywa dłuższy niż dystans
+    # do północy warszawskiej i wtedy obie daty różnią się o dobę — granica
+    # wypada po złej stronie i test pada na `assert False` (CI 17.09.2026,
+    # 00:06 czasu warszawskiego). Pozostałe asercje w tym pliku stoją 90 dni
+    # od granicy, więc `_TODAY` im nie szkodzi.
+    today = business_today()
+
     assert not is_line_on_active_roster(
-        _order("active", _TODAY - timedelta(days=1)), None
+        _order("active", today - timedelta(days=1)), None
     )
-    assert is_line_on_active_roster(_order("active", _TODAY), None)
+    assert is_line_on_active_roster(_order("active", today), None)
 
 
 def test_closed_and_cancelled_lines_are_never_on_the_roster():

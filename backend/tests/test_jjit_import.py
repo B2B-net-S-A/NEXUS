@@ -203,6 +203,10 @@ class _FakeTraffit:
 
 class _FakeNexus:
     calls: list = []
+    #: Id ISTNIEJĄCEGO kandydata, zakładanego przez fixture `fakes`.
+    #: `integration_run_events.candidate_id` ma FK do `candidates`, więc
+    #: zmyślone id wywraca prawdziwy run na `ForeignKeyViolationError`.
+    candidate_id: int | None = None
 
     def __init__(self, *_a, **_k):
         pass
@@ -211,11 +215,37 @@ class _FakeNexus:
         _FakeNexus.calls.append((a, k))
         from app.services.integrations.jjit.nexus_client import MatchResult
 
-        return MatchResult(candidate_id=1, action="created")
+        return MatchResult(candidate_id=_FakeNexus.candidate_id, action="created")
+
+
+async def _seed_candidate() -> int:
+    """Kandydat, na którego wskaże `_FakeNexus` — własne dane tego pliku.
+
+    Do 09.2026 fake zwracał na sztywno `candidate_id=1` i prawdziwy run
+    przechodził TYLKO wtedy, gdy kandydata o id 1 założył wcześniej inny plik
+    testowy w tym samym shardzie. Baza testowa jest współdzielona i nie jest
+    czyszczona, więc test zieleniał albo czerwieniał zależnie od tego, z kim
+    wylądował w shardzie — a podział shardów przesuwa się przy KAŻDYM nowym
+    pliku testowym (`sorted(files)` + `pos % count` w `conftest`).
+    """
+    import uuid
+
+    from app.models.candidate import Candidate
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Anna",
+            lastname=f"Nowa-jjit-{uuid.uuid4().hex[:8]}",
+            email=f"jjit-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(candidate)
+        await db.commit()
+        await db.refresh(candidate)
+        return candidate.id
 
 
 @pytest.fixture
-def fakes(monkeypatch):
+async def fakes(monkeypatch):
     monkeypatch.setenv("JJIT_EMAIL", "test@example.com")
     monkeypatch.setenv("JJIT_PASSWORD", "secret")
     monkeypatch.setattr(runner, "PanelClient", _FakePanel)
@@ -237,7 +267,9 @@ def fakes(monkeypatch):
     monkeypatch.setattr(runner, "PAUSE_BETWEEN_CANDIDATES_SEC", 0)
     _FakeTraffit.writes.clear()
     _FakeNexus.calls.clear()
+    _FakeNexus.candidate_id = await _seed_candidate()
     yield
+    _FakeNexus.candidate_id = None
 
 
 @pytest.mark.asyncio

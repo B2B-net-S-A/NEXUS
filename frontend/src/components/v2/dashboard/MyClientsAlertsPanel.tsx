@@ -62,6 +62,7 @@ export function cardPill(card: DlAlertCard): string {
   }
   if (card.alert_type === "cost_order_exhausted") return "Wyczerpane"
   if (card.alert_type === "order_missing_successor") return "Brak zamówienia"
+  if (card.alert_type === "md_base_usage_high") return "Podstawa MD"
   if (urgent) return "Pilne"
   return card.alert_type === "cost_budget_low" ? "Budżet" : "Mało MD"
 }

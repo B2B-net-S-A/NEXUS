@@ -4030,7 +4030,8 @@ _COLUMN_STATEMENTS = [
             'md_consultant_ended', 'order_mail_review',
             'order_missing_successor',
             'periodic_order_ending', 'framework_contract_expiring',
-            'contract_ending', 'cost_budget_low', 'new_contractor_draft')),
+            'contract_ending', 'cost_budget_low', 'new_contractor_draft',
+            'md_base_usage_high')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -6386,7 +6387,8 @@ _CONSTRAINT_STATEMENTS = [
                 'md_consultant_ended', 'order_mail_review',
                 'order_missing_successor',
                 'periodic_order_ending', 'framework_contract_expiring',
-                'contract_ending', 'cost_budget_low', 'new_contractor_draft'
+                'contract_ending', 'cost_budget_low', 'new_contractor_draft',
+                'md_base_usage_high'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i
