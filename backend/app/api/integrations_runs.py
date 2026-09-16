@@ -4,8 +4,8 @@ Dwa routery, dwie publiczności:
 
 - ``writer`` (``/api/integrations``) — wołany przez scrapery pracuj.pl / JJIT
   tokenem klienta OAuth (``acting_user`` z rolą operacyjną, migracja 0311).
-  Bramka ``OperationalUser``: każda rola operacyjna, żeby raport z Maca nie
-  wymagał admina. Kontrakt jest celowo prosty i fail-soft po stronie klienta:
+  Bramka ``OperationalUser`` + sufit sekcji ``sourcing``: każda rola
+  operacyjna z dostępem do sourcingu, żeby raport z Maca nie wymagał admina. Kontrakt jest celowo prosty i fail-soft po stronie klienta:
   start → (batch zdarzeń)* → finish. Zgubiony ``finish`` = run wisi jako
   ``running`` i po ``stale_after_hours`` liczy się jak martwy.
 - ``reader`` (``/api/insights/integrations``) — sekcja „Integracje" w Insights,
@@ -27,7 +27,10 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser
-from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    SOURCING_SECTION_DEPENDENCIES,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.integration_run import (
@@ -39,7 +42,10 @@ from app.models.integration_run import (
 )
 from app.services.integration_runs import build_summary, run_to_dict
 
-writer = APIRouter()
+# Zapis runu = praca sourcingowa (kandydaci z ogłoszeń) → sufit sekcji
+# ``sourcing`` (kontrakt test_section_ceiling_contract): user serwisowy
+# scraperów (TCM/sourcer) ma tam zapis; viewer bez sekcji nie wpisze runu.
+writer = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 reader = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 SourceLiteral = Literal["pracuj", "jjit"]
