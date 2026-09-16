@@ -168,6 +168,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/orders/InlineOrderFields.tsx",
     "frontend/src/components/orders/OrderTypeSwitch.tsx",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+    # Karta zamówienia zbiorczego: lista konsultantów, sekcja „Zakończone",
+    # przyszłe zamówienia i komplet akcji cyklu życia na linii. Brakowało jej
+    # tu, choć wszystkie jej rodzeństwa były już obserwowane (09.2026).
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
     "frontend/src/lib/order-plan.ts",

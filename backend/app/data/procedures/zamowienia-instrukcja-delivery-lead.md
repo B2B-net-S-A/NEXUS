@@ -57,6 +57,20 @@ Nad listą masz:
 zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**
 pokazuje wyłącznie zamówienia zbiorcze.
 
+**Imię i nazwisko konsultanta jest klikalne — otwiera jego umowę w module
+Kontrakty.** Działa w każdym wierszu: na karcie pojedynczej osoby, na liście
+konsultantów zamówienia zbiorczego (również w części „Zakończone") i na
+wierszach przyszłych zamówień. Otwiera się **ta umowa, która stoi w tym
+wierszu** — jeśli ktoś pracuje u kilku klientów i ma kilka umów, dostaniesz tę
+u klienta, z którego profilu kliknąłeś, a nie listę wszystkich jego umów.
+Wracasz przyciskiem **wstecz** przeglądarki; wrócisz na zakładkę „Zamówienia",
+ale **filtr i wyszukiwarka wracają do ustawień domyślnych** — jeśli szukałeś
+kogoś w długiej liście, wpisz frazę jeszcze raz.
+
+Nieklikalne są dwie nazwy przy historii pozycji: **„zastąpił: …"** oraz nazwa
+następcy przy osobie zastąpionej. System zna tam tylko numer zamówienia, nie
+umowę — żeby do kogoś z nich przejść, kliknij jego własny wiersz na liście.
+
 ---
 
 ## Trzy typy zamówienia
