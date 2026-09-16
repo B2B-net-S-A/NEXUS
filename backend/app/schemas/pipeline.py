@@ -250,6 +250,7 @@ class StageInfo(BaseModel):
 
 # Polish labels for all stages
 STAGE_LABELS: dict[PipelineStage, str] = {
+    PipelineStage.posting: "Ogłoszenia",
     PipelineStage.new: "Nowi / Analiza CV",
     PipelineStage.prep_call: "Preparation Call",
     PipelineStage.screening: "Screening",

@@ -28,10 +28,18 @@ from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.traffit.mappers import TRAFFIT_MAPPED_LEGACY_STAGES
 
+# Etapy SPRZED lejka — nie są etapami lejka rekrutacyjnego, więc pytanie
+# „czy Traffit je zapełnia" nie ma sensu i nie mogą zaniżać pokrycia metryk.
+# `posting` (migracja 0317) to poczekalnia auto-matchu z ogłoszeń: kandydat
+# wchodzi do lejka dopiero, gdy rekruter przeniesie go na „Nowi".
+PRE_FUNNEL_STAGES: frozenset[str] = frozenset({PipelineStage.posting.value})
+
 # Etapy, których import z Traffita nigdy nie zapełnia. Dziś:
 # {acceptance, client_interview, negotiation, onboarding, prep_call}.
 STAGES_WITHOUT_TRAFFIT_COVERAGE: frozenset[str] = frozenset(
-    {stage.value for stage in PipelineStage} - set(TRAFFIT_MAPPED_LEGACY_STAGES)
+    {stage.value for stage in PipelineStage}
+    - set(TRAFFIT_MAPPED_LEGACY_STAGES)
+    - PRE_FUNNEL_STAGES
 )
 
 # Etap uznajemy za pokryty dopiero dla okien ZACZYNAJĄCYCH SIĘ po dacie, od

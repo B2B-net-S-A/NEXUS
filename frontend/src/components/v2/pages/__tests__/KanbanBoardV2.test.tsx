@@ -157,15 +157,25 @@ function overviewColumns() {
   return columns as never;
 }
 
+// 17 kolumn: próg pełnego układu to 16 (15 „Default B2B" + „Ogłoszenia").
 function overflowColumns() {
   const columns = focusColumns() as unknown as Array<Record<string, unknown>>;
   return [
     ...columns,
     {
       stage: "new",
+      name: "Do decyzji",
+      category: "internal",
+      stage_def_id: 216,
+      count: 0,
+      items: [],
+      terminal_type: null,
+    },
+    {
+      stage: "new",
       name: "Archiwum",
       category: "terminal",
-      stage_def_id: 216,
+      stage_def_id: 217,
       count: 0,
       items: [],
       terminal_type: "withdrawn",
@@ -569,7 +579,8 @@ describe("KanbanBoardV2 — focus na etapie", () => {
 
   // Fala 3 („parytet z makietami") przesunęła próg zwężenia karty z czterech
   // etapów na dziesięć: po zwinięciu pustych grup „Default B2B" renderuje
-  // dziewięć kolumn i to WŁAŚNIE tam karta ma pokazać pełny układ z makiety.
+  // dziesięć kolumn (z „Ogłoszeniami") i to WŁAŚNIE tam karta ma pokazać
+  // pełny układ z makiety.
   // Cztery kolumny to tym bardziej pełna karta — nie kafelek.
   it("przy czterech etapach zostawia pełną kartę, nie kafelek", async () => {
     const columns = (
@@ -596,7 +607,7 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     );
   });
 
-  it("powyżej dziewięciu kolumn karta wraca do kafelka", async () => {
+  it("powyżej dziesięciu kolumn karta wraca do kafelka", async () => {
     renderBoard(overviewColumns());
 
     await screen.findByTestId("pipeline-board");
@@ -609,13 +620,13 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(screen.getByTestId("overview-match-score-90")).toBeTruthy();
   });
 
-  it("zachowuje scroll i navigator dla pipeline dłuższego niż 15 etapów", async () => {
+  it("zachowuje scroll i navigator dla pipeline dłuższego niż 16 etapów", async () => {
     const { container } = renderBoard(overflowColumns());
 
     const board = await screen.findByTestId("pipeline-board");
     expect(board).toHaveAttribute("data-desktop-layout", "scroll");
     expect(board).not.toHaveClass("xl:pointer-fine:gap-1");
-    expect(container.querySelectorAll("[data-colid]")).toHaveLength(16);
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(17);
     expect(container.querySelector("[data-colid]")).not.toHaveClass(
       "xl:pointer-fine:min-w-0",
     );
