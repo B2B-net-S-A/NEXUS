@@ -23,6 +23,7 @@ from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.oauth_client import SCOPE_LABELS, OAuthClient, OAuthScope
+from app.models.user import User
 from app.schemas.oauth_client import (
     OAuthClientCreate,
     OAuthClientCreateResponse,
@@ -42,6 +43,17 @@ def _generate_client_id() -> str:
 def _generate_client_secret() -> str:
     """Cryptographically random secret. 48 bytes ≈ 64 chars urlsafe."""
     return secrets.token_urlsafe(48)
+
+
+async def _validate_acting_user(db: AsyncSession, user_id: int) -> None:
+    """The acting user must exist and be active — otherwise every token minted
+    for the client would 401 in ``get_current_user`` with no hint why."""
+    user = await db.scalar(select(User).where(User.id == user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="acting_user_id must reference an existing, active user",
+        )
 
 
 @router.get("/scopes", response_model=List[ScopeInfo])
@@ -79,6 +91,9 @@ async def create_client(
 
     Subsequent reads only expose the hash. To rotate, DELETE + recreate.
     """
+    if payload.acting_user_id is not None:
+        await _validate_acting_user(db, payload.acting_user_id)
+
     client_id = _generate_client_id()
     client_secret = _generate_client_secret()
 
@@ -89,6 +104,7 @@ async def create_client(
         scopes=[s.value for s in payload.scopes],
         enabled=True,
         created_by=admin.id,
+        acting_user_id=payload.acting_user_id,
     )
     db.add(client)
     await db.commit()
@@ -121,6 +137,11 @@ async def update_client(
         client.scopes = [s.value for s in payload.scopes]
     if payload.enabled is not None:
         client.enabled = payload.enabled
+    if payload.clear_acting_user:
+        client.acting_user_id = None
+    elif payload.acting_user_id is not None:
+        await _validate_acting_user(db, payload.acting_user_id)
+        client.acting_user_id = payload.acting_user_id
 
     await db.commit()
     await db.refresh(client)

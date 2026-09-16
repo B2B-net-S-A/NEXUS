@@ -16,6 +16,7 @@ from app.core.security import (
     token_authorization_version_matches,
     token_is_revoked,
 )
+from app.models.oauth_client import OAuthClient
 from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.action_permissions import resolve_effective_action_access
@@ -117,6 +118,75 @@ async def _resolve_impersonation(
     return target
 
 
+# ── OAuth client_credentials → „acting user" ─────────────────────────────────
+#
+# ``POST /api/oauth/token`` (app/api/oauth_token.py) wybija JWT z
+# ``type="client"``. Do migracji 0311 żaden endpoint takiego tokenu nie
+# przyjmował (``require_scope`` nie miał ani jednego użycia), więc integracje
+# zewnętrzne — scrapery pracuj.pl / JJIT, n8n — nie miały jak wrzucać
+# kandydatów przez API. Zamiast dublować endpointy pod ``require_scope``,
+# token klienta rozwiązujemy tutaj do usera serwisowego wskazanego w
+# ``OAuthClient.acting_user_id``. Dalej działa zwykłe RBAC (``RecruiterPlus``),
+# ``created_by`` w audycie i rate-limity — bez zmian w handlerach.
+#
+# Świadomy kompromis wobec ``ServiceAccount`` (app/models/service_account.py),
+# który celowo NIE jest userem: tamten słownik scope'ów jawnie zakazuje danych
+# kandydatów, a ingest CV bez ``User`` wymagałby przepisania ``from-cv`` i
+# ``proposals/bulk``. User serwisowy z rolą ``sourcer`` jest widoczny na
+# listach userów — akceptowalne, bo to jedna, nazwana tożsamość integracji.
+#
+# Odwołanie działa od następnego requestu: ``enabled=False`` na kliencie albo
+# odpięcie usera (``acting_user_id=NULL``) → 401, bez ruszania JWT-ów ludzi.
+#
+# Scope'y: mutacja (POST/PUT/PATCH/DELETE) wymaga dowolnego ``*:write``, odczyt
+# dowolnego scope'u. Granularne mapowanie ścieżka→scope świadomie odłożone —
+# rola usera serwisowego i tak ogranicza, co wolno.
+_CLIENT_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def _resolve_client_principal(
+    request: Request, payload: dict, db: AsyncSession
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    client_id = payload.get("sub")
+    if not client_id:
+        raise credentials_exception
+
+    result = await db.execute(
+        select(OAuthClient).where(OAuthClient.client_id == str(client_id))
+    )
+    client = result.scalar_one_or_none()
+    if client is None or not client.enabled or client.acting_user_id is None:
+        raise credentials_exception
+
+    result = await db.execute(select(User).where(User.id == client.acting_user_id))
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise credentials_exception
+
+    scopes = set((payload.get("scope") or "").split())
+    if not scopes or (
+        request.method not in _CLIENT_READ_METHODS
+        and not any(scope.endswith(":write") for scope in scopes)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "insufficient_scope",
+                "method": request.method,
+                "granted": sorted(scopes),
+            },
+        )
+
+    # Ślad dla audytu/logów — który klient działał w imieniu usera.
+    request.state.oauth_client_id = client.client_id
+    return user
+
+
 async def get_authenticated_user(
     request: Request,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
@@ -127,6 +197,9 @@ async def get_authenticated_user(
     Gdy admin wysyła nagłówek ``X-Impersonate-User-Id`` zwracamy usera
     podglądanego (read-only) zamiast właściciela tokenu — patrz sekcja
     „podgląd jako użytkownik" powyżej.
+
+    Token ``type="client"`` (OAuth client_credentials) jest rozwiązywany do
+    usera serwisowego klienta — patrz ``_resolve_client_principal``.
 
     This raw dependency is deliberately limited to recovery/profile surfaces
     that must remain reachable before first-login onboarding: ``/auth/me``,
@@ -147,33 +220,44 @@ async def get_authenticated_user(
 
     try:
         payload = decode_token(credentials.credentials)
-        user_id: str = payload.get("sub")
-        if user_id is None or payload.get("type") != "access":
-            raise credentials_exception
     except JWTError:
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
-        raise credentials_exception
+    is_client_token = payload.get("type") == "client"
+    if is_client_token:
+        # Klient OAuth nie ma hasła ani ``authorization_version`` — odwołanie
+        # to ``enabled=False`` / odpięcie usera, sprawdzane przy każdym requeście.
+        user = await _resolve_client_principal(request, payload, db)
+    else:
+        user_id: Optional[str] = payload.get("sub")
+        if user_id is None or payload.get("type") != "access":
+            raise credentials_exception
 
-    # Session-revocation floor (F-05): token wybity przed ostatnią zmianą hasła
-    # jest martwy — 401, żeby frontend wylogował (nie 403). NULL floor =
-    # brak unieważnienia (istniejący userzy nie są dotknięci).
-    if token_is_revoked(payload, user.tokens_valid_after):
-        raise credentials_exception
-    # Tokens minted before the authorization-version cutover had no ``av`` and
-    # are invalid by construction. The migration starts every account at 1.
-    if not token_authorization_version_matches(payload, user.authorization_version):
-        raise credentials_exception
+        result = await db.execute(select(User).where(User.id == int(user_id)))
+        user = result.scalar_one_or_none()
+        if user is None or not user.is_active:
+            raise credentials_exception
+
+        # Session-revocation floor (F-05): token wybity przed ostatnią zmianą
+        # hasła jest martwy — 401, żeby frontend wylogował (nie 403). NULL
+        # floor = brak unieważnienia (istniejący userzy nie są dotknięci).
+        if token_is_revoked(payload, user.tokens_valid_after):
+            raise credentials_exception
+        # Tokens minted before the authorization-version cutover had no ``av``
+        # and are invalid by construction. The migration starts every account
+        # at 1.
+        if not token_authorization_version_matches(payload, user.authorization_version):
+            raise credentials_exception
 
     # Autor zmian zamówień w dzienniku Finansów (``order_change_events``).
     # Sesja żądania jest współdzielona przez zależności, więc handler zapisuje
     # zamówienie tą samą sesją. Zawsze prawdziwe konto, nie podglądane.
     stamp_actor(db.info, user.id)
 
-    impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
+    # Klient OAuth nie może „podglądać jako" — nagłówek jest ignorowany.
+    impersonate_raw = (
+        None if is_client_token else request.headers.get(IMPERSONATION_HEADER)
+    )
     effective_user = (
         await _resolve_impersonation(request, user, impersonate_raw, db)
         if impersonate_raw
