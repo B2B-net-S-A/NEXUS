@@ -344,11 +344,32 @@ def _frontend_login_error_url(reason: str) -> str:
     return f"{base}/login?{urlencode({'error': reason[:120]})}"
 
 
-_MICROSOFT_SIGN_IN_ERROR = "Microsoft sign-in failed. Try again."
-_AAD_GROUP_LOOKUP_ERROR = "Microsoft role lookup failed. Contact administrator."
-_LAST_ACTIVE_ADMIN_ERROR = (
-    "Microsoft role update blocked: at least one active administrator must remain."
-)
+# ── Kody błędów logowania SSO ───────────────────────────────────────────────
+# Stabilne, maszynowe kody trafiające do ``/login?error=<kod>``. Frontend
+# (``frontend/src/lib/sso-error.ts``) tłumaczy je na polskie komunikaty z
+# podpowiedzią, co użytkownik ma zrobić. Wcześniej szły tu surowe angielskie
+# zdania ("Account disabled"), które ekran logowania renderował dosłownie —
+# użytkownik dostawał odmowę bez wskazówki. Najboleśniej przy kontach z importu
+# Traffita (05.05.2026: 140 kont, 115 nieaktywnych): taki pracownik NIE idzie
+# ścieżką auto-provisioningu (ta dotyczy wyłącznie adresów, których jeszcze nie
+# ma w ``users``), więc widział twarde „Account disabled", a administrator nie
+# wiedział, że wystarczy przestawić ``is_active``.
+#
+# NIE zmieniaj wartości bez zmiany mapowania po stronie frontendu — inaczej
+# użytkownik znów zobaczy surowy kod. Szczegóły diagnostyczne (kod błędu od
+# Microsoftu, repr wyjątku) zostają w logu/Sentry, NIE w URL-u.
+_MICROSOFT_SIGN_IN_ERROR = "microsoft_sign_in_failed"
+_AAD_GROUP_LOOKUP_ERROR = "aad_group_lookup_failed"
+_LAST_ACTIVE_ADMIN_ERROR = "last_active_admin_blocked"
+SSO_ERR_MISSING_CODE_STATE = "missing_code_state"
+SSO_ERR_STATE_EXPIRED = "state_expired"
+SSO_ERR_MISSING_CLAIMS = "missing_identity_claims"
+SSO_ERR_DOMAIN_FORBIDDEN = "domain_forbidden"
+SSO_ERR_ACCOUNT_DISABLED = "account_disabled"
+SSO_ERR_AAD_NO_GRAPH_TOKEN = "aad_no_graph_token"
+SSO_ERR_AAD_MAP_INVALID = "aad_role_map_invalid"
+SSO_ERR_AAD_ROLE_INVALID = "aad_role_invalid"
+SSO_ERR_AAD_NO_ROLE = "aad_no_role"
 
 
 async def _last_admin_sso_redirect(
@@ -426,14 +447,14 @@ async def callback(
         )
     if not code or not state:
         return RedirectResponse(
-            _frontend_login_error_url("Missing code/state"), status_code=302
+            _frontend_login_error_url(SSO_ERR_MISSING_CODE_STATE), status_code=302
         )
 
     try:
         pkce_verifier = _verify_login_state(state)
     except JWTError:
         return RedirectResponse(
-            _frontend_login_error_url("State expired or invalid - try again"),
+            _frontend_login_error_url(SSO_ERR_STATE_EXPIRED),
             status_code=302,
         )
 
@@ -478,7 +499,7 @@ async def callback(
     if not email or not azure_oid:
         logger.warning("sso callback missing email/oid in claims keys=%s", list(claims))
         return RedirectResponse(
-            _frontend_login_error_url("Missing identity claims"), status_code=302
+            _frontend_login_error_url(SSO_ERR_MISSING_CLAIMS), status_code=302
         )
 
     # Domain whitelist — empty list rejects every domain (fail-closed).
@@ -487,7 +508,7 @@ async def callback(
     if domain not in allowed:
         logger.info("sso domain rejected: %s (allowed=%s)", domain, allowed)
         return RedirectResponse(
-            _frontend_login_error_url("domain_forbidden"), status_code=302
+            _frontend_login_error_url(SSO_ERR_DOMAIN_FORBIDDEN), status_code=302
         )
 
     # Upsert user keyed by lowercased email.
@@ -560,8 +581,34 @@ async def callback(
         # reactivated even while still in their AAD group. With RBAC disabled
         # there is no later gate, so the flag is honoured immediately.
         if not user.is_active and not settings.AAD_GROUP_RBAC_ENABLED:
+            # Zostaw ślad w dzienniku aktywności, nie tylko w logu aplikacji.
+            # Konta z importu Traffita (115 ze 140 nieaktywnych) nie idą ścieżką
+            # auto-provisioningu, więc bez tego wpisu administrator nie ma jak
+            # zobaczyć, że ktoś w ogóle próbował się zalogować i że wystarczy
+            # przestawić ``is_active``. Semantyka bramki bez zmian — konto dalej
+            # odrzucone, żaden kod wymiany nie powstaje.
+            logger.info(
+                "sso login denied — inactive account: email=%s user_id=%s",
+                email_lower,
+                user.id,
+            )
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_login_denied_inactive",
+                    user_id=user.id,  # aktor = sam odrzucony użytkownik
+                    details={
+                        "email": email_lower,
+                        "domain": domain,
+                        "provider": "microsoft",
+                        "reason": "user.is_active = false",
+                    },
+                )
+            )
+            await db.commit()
             return RedirectResponse(
-                _frontend_login_error_url("Account disabled"), status_code=302
+                _frontend_login_error_url(SSO_ERR_ACCOUNT_DISABLED), status_code=302
             )
 
     # ── AAD group-based RBAC (Phase 7.2) ──────────────────────────────────
@@ -588,9 +635,7 @@ async def callback(
             # AAD source can never persist the bootstrap Recruiter role.
             await db.rollback()
             return RedirectResponse(
-                _frontend_login_error_url(
-                    "AAD RBAC misconfigured (no Graph token). Contact administrator."
-                ),
+                _frontend_login_error_url(SSO_ERR_AAD_NO_GRAPH_TOKEN),
                 status_code=302,
             )
         try:
@@ -628,9 +673,7 @@ async def callback(
                 details={"aad_group_count": len(groups)},
             )
             return RedirectResponse(
-                _frontend_login_error_url(
-                    "AAD role mapping misconfigured. Contact administrator."
-                ),
+                _frontend_login_error_url(SSO_ERR_AAD_MAP_INVALID),
                 status_code=302,
             )
 
@@ -668,10 +711,7 @@ async def callback(
             )
             await db.commit()
             return RedirectResponse(
-                _frontend_login_error_url(
-                    "Twoje konto nie ma przypisanej roli w Microsoft AD. "
-                    "Skontaktuj sie z administratorem."
-                ),
+                _frontend_login_error_url(SSO_ERR_AAD_NO_ROLE),
                 status_code=302,
             )
 
@@ -701,9 +741,7 @@ async def callback(
                 details={"aad_group_count": len(groups)},
             )
             return RedirectResponse(
-                _frontend_login_error_url(
-                    "AAD role mapping is invalid. Contact administrator."
-                ),
+                _frontend_login_error_url(SSO_ERR_AAD_ROLE_INVALID),
                 status_code=302,
             )
 
