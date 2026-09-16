@@ -36,9 +36,14 @@ class Settings(BaseSettings):
 
     # Voyage AI (embeddings)
     VOYAGE_API_KEY: str = ""
-    # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
-    # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
-    VOYAGE_MODEL: str = "voyage-3-large"
+    # voyage-3 — model, którym zbudowano PRODUKCYJNE kolekcje Qdranta (decyzja
+    # F16 z badania 16.09.2026: voyage-3/3.5/4/4-large/3-large statystycznie
+    # nierozróżnialne na 80 ofertach, OpenAI text-embedding-3-large gorszy —
+    # nie ma po co przeliczać 62 tys. wektorów). Do 16.09 kod mówił
+    # `voyage-3-large`, a prod `voyage-3` — ten rozjazd wysyłał w eval
+    # `full_search_measurement` na ścieżkę referencyjną. Nazwa wchodzi do klucza
+    # cache scoringu; podmiana wymaga re-embedu (scripts/reembed_collections.py).
+    VOYAGE_MODEL: str = "voyage-3"
     # Estimated USD per million embedding tokens (not invoice totals).
     # Public list prices verified 2026-09-09: https://docs.voyageai.com/docs/pricing
     # Env JSON replaces this map for negotiated tariffs; {} disables estimates.
@@ -52,11 +57,15 @@ class Settings(BaseSettings):
     # Dawne pole `EMBEDDING_DIMENSION` nie było czytane nigdzie: operator, który
     # by je zmienił, dostałby ciszę zamiast innych wektorów (a realna zmiana
     # wymaga i tak re-embeddingu całej kolekcji — `scripts/reembed_collections.py`).
-    # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
-    # Enabled by default — has graceful passthrough on API failure (rerank
-    # service returns identity ordering, never breaks retrieval).
+    # Voyage Rerank — WYŁĄCZONY decyzją F17 z badania 16.09.2026. Na produkcji
+    # był no-opem: `retrieve_candidate_pool` woła `hybrid_candidates(pool=top_k,
+    # final_top_k=top_k)`, więc reranker przestawiał kolejność wewnątrz puli,
+    # którą i tak sortuje `canonical_fit` (identyczne metryki dla 4 rerankerów
+    # i „off"). Dosypka 500→rerank-3→200 dała R@20n +0.001 [−0.008; +0.011],
+    # n.s. — koszt i opóźnienie bez zysku. Włączenie = `RERANKER_ENABLED=true`
+    # w Coolify; kod ścieżki zostaje (graceful passthrough przy błędzie API).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
-    RERANKER_ENABLED: bool = True
+    RERANKER_ENABLED: bool = False
 
     # ── AI matching telemetry (plan PR2) ──────────────────────────────────────
     # Append-only impression/outcome logging so weights can eventually be
@@ -301,11 +310,19 @@ class Settings(BaseSettings):
 
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
+    # Dostawcy spoza Anthropic (decyzja z badania modeli 16.09.2026): GPT Luna
+    # (OpenAI, umowa powierzenia) i DeepSeek V4 Pro (dane produkcyjne za zgodą
+    # Artura z 16.09). Które funkcje — patrz `services/ai_models.py`; transport
+    # i mapowanie błędów — `services/llm_providers.py`.
+    OPENAI_API_KEY: str = ""
+    DEEPSEEK_API_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
-    # rekrutera (upload CV → profil). Haiku: ~$0,004/CV vs ~$0,016 na Sonnecie.
-    CLAUDE_MODEL_CV_BULK: str = "claude-haiku-4-5-20251001"
+    # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie
+    # na danych produkcyjnych: Haiku wymyślał fakty w 31% CV vs 8% u Sonneta 5
+    # (F10) — decyzja Artura: Sonnet 5 także w biegu masowym i lincie reguł.
+    CLAUDE_MODEL_CV_BULK: str = "claude-sonnet-5"
     # Twarde sufity pojedynczego biegu — `ai_quota` sam dokumentuje się jako
     # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
     CV_BACKFILL_MAX_CALLS: int = 45_000
@@ -416,7 +433,10 @@ class Settings(BaseSettings):
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
     ORDER_EXTRACTION_ENABLED: bool = True
-    ORDER_PARSER_MODEL: str = "claude-sonnet-5"
+    # F7 (badanie 16.09.2026): GPT Luna — 0 cichych błędów, ~15× taniej niż
+    # Sonnet 5. Rejestr `ai_models` honoruje to pole jako legacy override, więc
+    # domyślna wartość MUSI zgadzać się z rejestrem.
+    ORDER_PARSER_MODEL: str = "gpt-5.6-luna"
     # ── Zamówienia z maila (ticket zamowienia@b2bnetwork.pl) ──────────────
     # Skrzynka kopii w M365 czytana przez Graph (hosting robi kopię przychodzących
     # na tę skrzynkę; oryginały zostają). Kill-switch PRZED pętlą: wyłączona

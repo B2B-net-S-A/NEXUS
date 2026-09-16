@@ -22,9 +22,15 @@ from sqlalchemy.engine import make_url
 from app.models.ai_metering import AIOperation, AIProviderCall
 
 logger = logging.getLogger(__name__)
-PRICE_VERSION = "anthropic-standard-2026-09-08"
-# USD / million tokens, official source (verified 2026-09-08):
-# https://platform.claude.com/docs/en/about-claude/pricing
+PRICE_VERSION = "multi-provider-2026-09-16"
+# USD / million tokens, official sources:
+# * Anthropic (verified 2026-09-08): https://platform.claude.com/docs/en/about-claude/pricing
+#   dwójka (wejście, wyjście); odczyt cache = 10% wejścia, zapis 125% / 2×
+#   (formuła niżej — bez zmian).
+# * OpenAI / DeepSeek (cenniki z badania modeli 16.09.2026, `catalog.py`
+#   harnessu): trójka (wejście, wyjście, odczyt cache) — ci dostawcy nie
+#   rozliczają zapisu cache, a odczyt ma WŁASNĄ stawkę (DeepSeek: 1/30, nie 1/10).
+#   DeepSeek w oknie szczytu liczy 2× — wycena tutaj jest standardowa.
 _PRICES = {
     "claude-sonnet-5": (2, 10),
     "claude-sonnet-4-6": (3, 15),
@@ -35,6 +41,10 @@ _PRICES = {
     "claude-opus-4-5": (5, 25),
     "claude-opus-5": (5, 25),
     "claude-haiku-4-5": (1, 5),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20"), Decimal("0.02")),
+    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00"), Decimal("0.20")),
+    "deepseek-v4-pro": (Decimal("0.66"), Decimal("1.98"), Decimal("0.022")),
+    "deepseek-flash": (Decimal("0.15"), Decimal("0.60"), Decimal("0.003")),
 }
 
 
@@ -55,10 +65,12 @@ def response_event(
     actual_model = getattr(message, "model", None) or model
     message_id = getattr(message, "id", None)
     creation = getattr(usage, "cache_creation", None)
+    # `ProviderMessage` (OpenAI/DeepSeek) niesie dostawcę; SDK Anthropic nie.
+    provider = getattr(message, "provider", None) or "anthropic"
     event = {
-        "event_key": f"anthropic:{message_id or uuid4()}",
+        "event_key": f"{provider}:{message_id or uuid4()}",
         "operation_id": operation_id,
-        "provider": "anthropic",
+        "provider": provider,
         "model": actual_model,
         "request_id": getattr(message, "_request_id", None),
         "outcome": "truncated"
@@ -108,11 +120,15 @@ def response_event(
         and counts[4] <= counts[3]
     ):
         tin, tout, read, write, hour = map(Decimal, counts)
-        base, output = map(Decimal, prices)
-        cost = (
-            base * (tin + read / 10 + (write - hour) * Decimal("1.25") + hour * 2)
-            + output * tout
-        ) / 1_000_000
+        if len(prices) == 3:
+            base, output, cache_read = map(Decimal, prices)
+            cost = (base * tin + cache_read * read + output * tout) / 1_000_000
+        else:
+            base, output = map(Decimal, prices)
+            cost = (
+                base * (tin + read / 10 + (write - hour) * Decimal("1.25") + hour * 2)
+                + output * tout
+            ) / 1_000_000
         if inference_geo == "us":
             cost *= Decimal("1.1")
         event["estimated_cost_usd"] = cost.quantize(Decimal("0.00000001"))

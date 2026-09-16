@@ -30,13 +30,13 @@ from app.analytics.capabilities import (
     require_dynareporter_section,
 )
 from app.api.deps import CurrentUser
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_for
+from app.services.llm_providers import api_key_configured
 
 if TYPE_CHECKING:  # tylko dla typów — import w runtime jest lokalny (koszt ładowania)
     from app.services.ai_quota import AIQuotaExceeded
@@ -217,11 +217,12 @@ async def commentary(
     """
     # Brak klucza dostawcy sprawdzamy PRZED obciążeniem kwoty — nic tu nie
     # wyleci na zewnątrz, więc naliczenie wywołania byłoby kłamstwem w raporcie
-    # zużycia (i po cichu zjadałoby sufit w środowisku bez klucza).
-    if not settings.ANTHROPIC_API_KEY:
+    # zużycia (i po cichu zjadałoby sufit w środowisku bez klucza). Klucz
+    # DOSTAWCY modelu z rejestru (od 16.09.2026 MINDY idzie na GPT Luna).
+    if not api_key_configured(model_for(AIFeatureKey.mindy_chat)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ANTHROPIC_API_KEY not configured",
+            detail="Klucz API dostawcy modelu MINDY nie jest skonfigurowany",
         )
 
     from app.services.ai_quota import AIQuotaExceeded
@@ -291,10 +292,10 @@ async def chat(
     Ten sam kubełek kwoty co `/commentary` (`mindy_chat`) — jedna funkcja, jeden
     sufit, jedna odpowiedź na pytanie „ile kosztuje MINDY".
     """
-    if not settings.ANTHROPIC_API_KEY:
+    if not api_key_configured(model_for(AIFeatureKey.mindy_chat)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ANTHROPIC_API_KEY not configured",
+            detail="Klucz API dostawcy modelu MINDY nie jest skonfigurowany",
         )
 
     from app.services.ai_quota import AIQuotaExceeded
