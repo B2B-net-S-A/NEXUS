@@ -4341,6 +4341,74 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0314: integracje zewnętrzne (scrapery pracuj.pl / JJIT) — runy, zdarzenia
+    # per aplikacja, stan alertów o zastoju. Bez tych tabel sekcja Insights →
+    # Integracje i pętla `integration_stale_alerts` padają na UndefinedTable.
+    """CREATE TABLE IF NOT EXISTS integration_runs (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(32) NOT NULL,
+        mode VARCHAR(16) NOT NULL DEFAULT 'import',
+        status VARCHAR(16) NOT NULL DEFAULT 'running',
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        host VARCHAR(64),
+        version VARCHAR(64),
+        stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error TEXT,
+        oauth_client_id VARCHAR(64),
+        created_by INTEGER,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_integration_runs_status
+            CHECK (status IN ('running', 'ok', 'errors', 'failed')),
+        CONSTRAINT ck_integration_runs_mode
+            CHECK (mode IN ('import', 'replay', 'test', 'dry_run'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_runs_source_started "
+    "ON integration_runs (source, started_at)",
+    """CREATE TABLE IF NOT EXISTS integration_run_events (
+        id SERIAL PRIMARY KEY,
+        run_id INTEGER NOT NULL REFERENCES integration_runs(id) ON DELETE CASCADE,
+        source VARCHAR(32) NOT NULL,
+        external_id VARCHAR(128),
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        traffit_id INTEGER,
+        action VARCHAR(32) NOT NULL,
+        candidate_name VARCHAR(255),
+        offer_title VARCHAR(255),
+        matched_jobs JSONB NOT NULL DEFAULT '[]'::jsonb,
+        error TEXT,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_integration_run_events_action
+            CHECK (action IN ('created', 'duplicate', 'cv_refreshed', 'error', 'skipped'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_run "
+    "ON integration_run_events (run_id)",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_source_occurred "
+    "ON integration_run_events (source, occurred_at)",
+    "CREATE INDEX IF NOT EXISTS ix_integration_run_events_candidate "
+    "ON integration_run_events (candidate_id)",
+    """CREATE TABLE IF NOT EXISTS integration_alert_state (
+        source VARCHAR(32) PRIMARY KEY,
+        last_alert_at TIMESTAMPTZ,
+        last_alert_reason TEXT
+    )""",
+    # 0315: stan importu JJIT w bazie (zamiast scraper_state.json na Macu).
+    """CREATE TABLE IF NOT EXISTS integration_external_items (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(32) NOT NULL,
+        external_id VARCHAR(128) NOT NULL,
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        traffit_id INTEGER,
+        cv_sha256 VARCHAR(64),
+        offer_title VARCHAR(255),
+        last_action VARCHAR(32),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_integration_external_items UNIQUE (source, external_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_external_items_candidate "
+    "ON integration_external_items (candidate_id)",
     # ── 0312: umowy wykonawcze Centrum e-Zdrowia (ticket 09.2026) ──────────
     # Umowa ramowa = część (project_part), pod nią 0..N umów wykonawczych;
     # zamówienie i karta MD wskazują umowę wykonawczą. Kolejność: kolumna
