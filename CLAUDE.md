@@ -3256,6 +3256,16 @@ sekcja **Ustawienia → Historia zdarzeń**. Kod: `api/client_deletion.py`,
   zaszyte w kodzie ani migracji (repo jest publiczne) — flagę nadaje admin
   w Ustawieniach → Administracja. W trybie „podgląd jako" usuwanie jest
   zablokowane (403), a przycisk ukryty.
+- **Nadane uprawnienie działa od następnego załadowania aplikacji, nie od
+  ponownego logowania** (16.09.2026). Profil siedzi w `nexus_user`
+  w localStorage i do tej daty odświeżał go WYŁĄCZNIE login: cztery osoby
+  z ticketu dostały flagę i nadal nie widziały przycisku. `AppShellV2` raz na
+  załadowanie dociąga `GET /api/auth/me` i wpisuje go przez `syncUser`
+  (`store/auth.ts`) — bez tokena (strony publiczne) i w trybie podglądu nie
+  strzela, przy identycznym profilu nie zapisuje (nowa referencja
+  przerenderowałaby cały shell), a innego `user.id` niż zapamiętany nie
+  przyjmuje. Dotyczy tak samo roli i `allowed_sections`, w obie strony:
+  odebrane uprawnienie też znika bez wylogowania.
 - **Router bez bramki ZAPISU Delivery** (`DELIVERY_SECTION_DEPENDENCIES`),
   tylko odczyt Delivery: flagę może dostać np. osoba z Finansów, a Finanse
   mają Delivery do odczytu. Stary `DELETE /api/clients/{id}` z `clients.py`
