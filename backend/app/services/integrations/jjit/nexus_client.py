@@ -198,6 +198,9 @@ class NexusLoopbackClient:
                 "candidate_ids": [candidate_id],
                 "note": note[:2000],
                 "tags": ["auto-match", "jjit"],
+                # Kandydaci z ogłoszeń lądują w „Ogłoszeniach" (etap `posting`,
+                # migracja 0317), nie w „Nowi" — rekruter przenosi ręcznie.
+                "initial_stage_legacy": "posting",
             },
             timeout=60,
         )

@@ -565,3 +565,109 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(orderGroupsApi.events).mockResolvedValue({ data: [] } as never);
+  });
+
+  /** Osoba po zejściu ma DALEJ `status: "active"` — linia MD kończy się
+   *  budżetem, nie kalendarzem. Do sekcji decyduje `is_active` z serwera. */
+  const departed = (overrides: Partial<OrderLineRead> = {}) =>
+    line({
+      status: "active",
+      is_active: false,
+      md_total: 50,
+      md_remaining: 20,
+      md_used: 30,
+      ...overrides,
+    });
+
+  it("zakończeni schodzą z aktywnej obsady, najnowsze zejście na górze", () => {
+    renderCard({
+      group: group({
+        active_consultants: 1,
+        lines: [
+          line({ id: 1, consultant_name: "Aktywna Osoba", md_remaining: 20 }),
+          departed({
+            id: 2,
+            consultant_name: "Anna Wczesna",
+            end_date: "2026-06-30",
+            cooperation_ended_on: "2026-06-30",
+          }),
+          departed({
+            id: 3,
+            consultant_name: "Zenon Ostatni",
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+          }),
+        ],
+      }),
+    });
+
+    const active = screen.getByRole("region", { name: "Aktywna obsada" });
+    const ended = screen.getByRole("region", { name: "Zakończone" });
+    expect(active).toHaveTextContent("Aktywna Osoba");
+    expect(active).not.toHaveTextContent("Zenon Ostatni");
+
+    const order = Array.from(ended.querySelectorAll("li")).map(
+      (item) => item.textContent ?? "",
+    );
+    expect(order).toHaveLength(2);
+    // Alfabetycznie byłoby odwrotnie — sekcja sortuje się datą zejścia.
+    expect(order[0]).toContain("Zenon Ostatni");
+    expect(order[1]).toContain("Anna Wczesna");
+  });
+
+  it("wiersz w „Zakończonych” niesie okres, zużycie i datę zejścia", () => {
+    renderCard({
+      group: group({
+        active_consultants: 0,
+        lines: [
+          departed({
+            id: 2,
+            consultant_name: "Marian Odeszły",
+            start_date: "2026-05-01",
+            end_date: "2026-08-31",
+            cooperation_ended_on: "2026-08-31",
+          }),
+        ],
+      }),
+    });
+
+    const ended = screen.getByRole("region", { name: "Zakończone" });
+    expect(ended).toHaveTextContent(/Zakończył współpracę 31\.08\.2026/);
+    expect(ended).toHaveTextContent(/był na zamówieniu od 01\.05\.2026 do 31\.08\.2026/);
+    expect(ended).toHaveTextContent(
+      /Marian Odeszły wykorzystał\(a\).*na tym zamówieniu przed zakończeniem współpracy/,
+    );
+  });
+
+  it("zamiana kontraktora zostaje dostępna, dopóki linia jest aktywna w bazie", () => {
+    renderCard({
+      group: group({
+        active_consultants: 0,
+        lines: [
+          departed({ id: 2, consultant_name: "Marian Odeszły", end_date: "2026-08-31" }),
+          line({
+            id: 3,
+            consultant_name: "Domknięta Linia",
+            status: "completed",
+            is_active: false,
+            md_remaining: 0,
+          }),
+        ],
+      }),
+    });
+
+    // Serwer (`swap_consultant`) pyta o status linii, nie o obsadę — bramka
+    // po `is_active` blokowałaby zamianę, na którą serwer pozwala.
+    expect(
+      screen.getByRole("button", { name: "Zamień kontraktora — Marian Odeszły" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Zamień kontraktora — Domknięta Linia" }),
+    ).toBeDisabled();
+  });
+});
