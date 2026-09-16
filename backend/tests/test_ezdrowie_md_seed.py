@@ -328,11 +328,12 @@ async def test_apply_creates_lines_history_and_replacement_link(
     assert resp.status_code == 200, resp.text
     report = resp.json()
     assert report["applied"] is True and report["receipt_key"].startswith("ezdrowie_md_seed_")
-    assert report["totals"] == {
+    totals = report["totals"]
+    assert Decimal(totals.pop("md_used_sum")) == Decimal("176.5")
+    assert totals == {
         "groups_created": 1,
         "lines": 4,
         "consumptions": 4,
-        "md_used_sum": "176.5",
         "contracts_created": 2,
         "candidates_created": 1,
         "orders_superseded": 2,
