@@ -192,7 +192,7 @@ async def test_buckets_come_from_real_placements_not_drafts_or_flags(
     assert got[world["past_first"]] == "past"
     assert got[world["current_cv"]] == "current"
 
-    assert body["counts"] == {"via_us": 2, "current": 2, "past": 2}
+    assert body["counts"] == {"via_us": 2, "current": 2, "past": 2, "unknown": 0}
     assert body["truncated"] is False
 
 
