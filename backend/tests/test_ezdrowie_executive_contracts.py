@@ -28,6 +28,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
 
 pytestmark = pytest.mark.asyncio
@@ -110,6 +111,11 @@ async def _cleanup(seeded: dict) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
             ClientOrder.__table__.delete().where(ClientOrder.client_id == client_id)
+        )
+        await db.execute(
+            ClientOrderGroup.__table__.delete().where(
+                ClientOrderGroup.client_id == client_id
+            )
         )
         await db.execute(
             ClientExecutiveContract.__table__.delete().where(
@@ -544,5 +550,121 @@ async def test_patch_ended_with_live_assignment_is_409(
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "ended"
+    finally:
+        await _cleanup(seeded)
+
+
+async def _add_group_with_line(seeded: dict, *, executive_contract_id: int) -> int:
+    """Karta MD pod umową wykonawczą z jedną aktywną linią kontraktu z seedu."""
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=seeded["client_id"],
+            order_number=f"MD/{uuid.uuid4().hex[:6]}",
+            start_date=date.today() - timedelta(days=5),
+            status="active",
+            order_type="md",
+            md_budget_mode="per_person",
+            executive_contract_id=executive_contract_id,
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=seeded["client_id"],
+            contract_id=seeded["contract_id"],
+            order_group_id=group.id,
+            title="Linia karty",
+            status=ClientOrderStatus.active,
+            start_date=date.today() - timedelta(days=5),
+            executive_contract_id=executive_contract_id,
+            project_part="cz2",
+        )
+        db.add(line)
+        await db.flush()
+        line_id = line.id
+        await db.commit()
+        return line_id
+
+
+async def test_live_md_card_blocks_ending_and_assignment_on_its_line(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Karta MD wskazuje umowę bezpośrednio: zakończenie → 409; przypisanie
+    innej umowy na linii karty → 409 (linia dziedziczy umowę z karty)."""
+    seeded = await _seed()
+    client_id = seeded["client_id"]
+    monkeypatch.setattr(EZDROWIE_GATE, client_id)
+    await _add_group_with_line(seeded, executive_contract_id=seeded["ec_active"])
+    try:
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/executive-contracts/{seeded['ec_active']}",
+            json={"status": "ended"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409, resp.text
+        assert "kart" in resp.text
+
+        # Druga aktywna umowa pod cz4, próba przepięcia osoby z linii karty.
+        created = await app_client.post(
+            f"/api/clients/{client_id}/executive-contracts",
+            json={
+                "framework_contract_id": seeded["fc_cz4"],
+                "number": f"TEST/EC/B/{uuid.uuid4().hex[:6]}",
+            },
+            headers=app_auth_headers,
+        )
+        assert created.status_code == 201, created.text
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/executive-contracts/assignments",
+            json={
+                "contract_id": seeded["contract_id"],
+                "executive_contract_id": created.json()["id"],
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409, resp.text
+        assert "karcie" in resp.text
+    finally:
+        await _cleanup(seeded)
+
+
+async def test_patch_order_with_unchanged_assignment_ignores_ended_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Formularz odsyła bieżącą umowę przy edycji notatki — umowa zakończona
+    PO przypisaniu nie może wtedy dawać 422; zmiana NA zakończoną nadal 422;
+    sama część bez umowy też 422."""
+    seeded = await _seed()
+    client_id = seeded["client_id"]
+    monkeypatch.setattr(EZDROWIE_GATE, client_id)
+    order_id = await _add_order(
+        seeded,
+        title="Na zakończonej",
+        start_delta_days=-3,
+        project_part="cz2",
+        executive_contract_id=seeded["ec_ended"],
+    )
+    try:
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/orders/{order_id}",
+            json={"notes": "edycja", "executive_contract_id": seeded["ec_ended"]},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["executive_contract_id"] == seeded["ec_ended"]
+
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/orders/{order_id}",
+            json={"executive_contract_id": seeded["ec_ended"], "project_part": "cz2"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/orders/{order_id}",
+            json={"executive_contract_id": None, "project_part": "cz4"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "Wybierz umowę wykonawczą" in resp.text
     finally:
         await _cleanup(seeded)

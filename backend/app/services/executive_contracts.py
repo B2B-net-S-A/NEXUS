@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,6 +35,7 @@ from app.models.client_executive_contract import (
 )
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.schemas.client_executive_contract import (
     CandidateRef,
@@ -283,6 +284,20 @@ async def update_executive_contract(
         assigned = _assigned_counts(await _live_contracts(db, client_id)).get(
             executive.id, 0
         )
+        # Karty MD (grupy) wskazują umowę bezpośrednio — żywa karta blokuje
+        # zakończenie tak samo jak przypisany konsultant.
+        live_groups = await db.scalar(
+            select(func.count(ClientOrderGroup.id)).where(
+                ClientOrderGroup.client_id == client_id,
+                ClientOrderGroup.executive_contract_id == executive.id,
+                ClientOrderGroup.status.in_(("active", "scheduled", "draft")),
+            )
+        )
+        if live_groups:
+            raise ExecutiveContractConflict(
+                f"Umowa wykonawcza {executive.number} ma {live_groups} "
+                "otwartych kart zamówień MD — zakończ je albo załóż pod inną umową"
+            )
         if assigned:
             raise ExecutiveContractConflict(
                 f"Umowa wykonawcza {executive.number} ma {assigned} "
@@ -421,6 +436,14 @@ async def assign_executive_contract(
         raise ValueError("Kontrakt nie istnieje albo należy do innego klienta")
 
     order = representative_order(contract)
+    if order is not None and order.order_group_id is not None:
+        # Linia karty MD dziedziczy umowę z KARTY — przypisanie na linii
+        # rozjechałoby tag konsultanta z nagłówkiem karty i obeszło guard
+        # zakończenia umowy. Kartę zakłada się pod umową przy tworzeniu.
+        raise ExecutiveContractConflict(
+            "Ten konsultant jest na karcie zamówienia MD — umowę wykonawczą "
+            "karty ustala się przy jej tworzeniu, nie przez przypisanie osoby"
+        )
     created_draft = order is None
     if order is None:
         order = _draft_order_for(

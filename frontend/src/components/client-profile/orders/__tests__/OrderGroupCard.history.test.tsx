@@ -505,6 +505,38 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     expect(screen.queryByRole("progressbar", { name: "Wykorzystane MD zamówienia" })).toBeNull();
   });
 
+  it("BIK/Polkomtel z serwerowym podziałem i sumami pozycji NADAL ma stary pasek i żadnego nagłówka CeZ", () => {
+    // Przegląd adwersarialny 09.2026: backend zwraca `md_base_used` dla każdej
+    // linii z `md_total` i `md_positions_total` dla każdego zamówienia MD per
+    // osoba — nie tylko u CeZ. Bramką jest umowa wykonawcza na karcie.
+    renderCard({
+      group: group({
+        executive_contract: null,
+        md_positions_total: 50,
+        md_used_total: 50,
+        contract_value_pln: 60_000,
+        used_value_pln: 60_000,
+        lines: [line({ md_used: 50, md_base_used: 50, md_optional_used: null })],
+      }),
+    });
+    expect(screen.getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: /Podstawa/ })).toBeNull();
+    expect(screen.queryByText(/Wykorzystano łącznie/)).toBeNull();
+    expect(screen.queryByText(/brak opcji w umowie/)).toBeNull();
+    expect(screen.queryByRole("progressbar", { name: "Wykorzystane MD zamówienia" })).toBeNull();
+    expect(screen.queryByText(/Wykorzystano wartości umowy/)).toBeNull();
+    expect(screen.queryByText(/60\s000/)).toBeNull();
+  });
+
+  it("osoba już zastąpiona nie dostaje pytania „Zastąp kimś innym” — decyzja już zapadła", () => {
+    renderCard({ group: scopedGroup() });
+    const replacedRow = document.getElementById("order-line-1")!;
+    expect(replacedRow).toHaveTextContent("Zastąpiony");
+    expect(screen.queryByRole("button", { name: "Zastąp kimś innym" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zostaw jako historię" })).toBeNull();
+    expect(screen.queryByText(/nie ma już aktywnej współpracy/)).toBeNull();
+  });
+
   it("nagłówek: umowa wykonawcza z częścią, pasek pozycji MD i wartość umowy dla ról z finansami", () => {
     renderCard({ group: scopedGroup() });
 

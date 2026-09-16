@@ -5,6 +5,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { ConsultantOption, OrderPlanContract } from "@/lib/api/orderGroups";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   backToOptions,
   chooseConsultant,
@@ -282,9 +283,9 @@ export function OrderPlanLineCard({
             suffix="MD"
           />
         ) : null}
-        {showMd ? (
-          // Opcja z umowy (CeZ) — nie z PDF-a, więc źródło zawsze „ręcznie"
-          // albo brak; puste pole = umowa bez opcji.
+        {showMd && isEzdrowieClient(clientId) ? (
+          // Opcja z umowy wykonawczej — tylko Centrum e-Zdrowia; nie z PDF-a,
+          // więc źródło zawsze „ręcznie" albo brak; puste pole = umowa bez opcji.
           <ValueTile
             label="Zakres opcjonalny (MD)"
             value={draft.optionalMd}

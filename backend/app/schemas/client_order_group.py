@@ -503,6 +503,10 @@ class OrderLineRead(BaseModel):
 
     replaced_by_order_id: Optional[int] = None
     replaced_by_consultant_name: Optional[str] = None
+    replaced_by_kind: Optional[Literal["swap", "replacement"]] = None
+    """``swap`` — zamiana kontraktora (następca przejął POZOSTAŁOŚĆ budżetu);
+    ``replacement`` — zastępstwo przez ``replaces_order_id`` (następca ma
+    WŁASNY budżet). Różnica decyduje o sumach pozycji karty."""
     """Tag „Zastąpiony → następca": linia TEGO zamówienia, która wskazuje tę
     jako poprzednika (zamiana kontraktora albo zastępstwo przez
     ``replaces_order_id``). Poprzednik wnosi do zamówienia swoje zużycie,

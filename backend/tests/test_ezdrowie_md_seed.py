@@ -425,3 +425,67 @@ async def test_unknown_executive_contract_and_draft_with_file_block(
     assert any("WYK/NIE-MA" in b for b in blockers)
     assert any("plik PO" in b for b in blockers)
     assert resp.json()["groups"][0]["status"] == "blocked"
+
+
+async def test_completed_predecessor_with_active_contract_is_not_revived(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Zakończona linia z datą końca DZIŚ i aktywnym kontraktem zostaje
+    zakończona po imporcie (historia wchodzi po utworzeniu następcy)."""
+    seed = await _seed(monkeypatch)
+    _patch_gate(monkeypatch, seed["client_id"])
+    alfa = seed["people"]["alfa"]
+    beta = seed["people"]["beta"]
+    today = date.today().isoformat()
+    manifest = {
+        "client_id": seed["client_id"],
+        "supersede_order_ids": [],
+        "groups": [
+            {
+                "executive_contract_number": seed["ec_b"],
+                "order_number": seed["ec_b"],
+                "start_date": "2026-01-01",
+                "lines": [
+                    {
+                        "key": "prev",
+                        "person": {"name": beta["name"], "contract_id": beta["contract_id"]},
+                        "base_md": 100,
+                        "optional_md": 50,
+                        "rate_cost": 500,
+                        "rate_revenue": 600,
+                        "start_date": "2026-01-01",
+                        "end_date": today,
+                        "line_status": "completed",
+                        "history": [{"month": "2026-01", "md": 10, "status": "protocol"}],
+                    },
+                    {
+                        "key": "next",
+                        "person": {"name": alfa["name"], "contract_id": alfa["contract_id"]},
+                        "base_md": 100,
+                        "optional_md": 50,
+                        "rate_cost": 500,
+                        "rate_revenue": 600,
+                        "start_date": today,
+                        "replaces_key": "prev",
+                        "history": [],
+                    },
+                ],
+            }
+        ],
+    }
+    resp = await _post(app_client, app_auth_headers, seed["client_id"], manifest, False)
+    assert resp.status_code == 200, resp.text
+    lines = {line["key"]: line for line in resp.json()["groups"][0]["lines"]}
+    assert lines["prev"]["status"] == "completed"
+    async with AsyncSessionLocal() as db:
+        prev = await db.scalar(select(ClientOrder).where(ClientOrder.id == lines["prev"]["order_id"]))
+        assert prev.status == ClientOrderStatus.completed
+        assert prev.end_date == date.today()
+        # Kontrakt aktywnej osoby NIE dostał stawki z linii zakończonej.
+        contract = await db.scalar(select(Contract).where(Contract.id == beta["contract_id"]))
+        assert Decimal(str(contract.rate_client)) == Decimal("100")
+
+    # Powtórne apply tego samego manifestu: grupa już istnieje, paragon bez duplikatu.
+    again = await _post(app_client, app_auth_headers, seed["client_id"], manifest, False)
+    assert again.status_code == 200, again.text
+    assert again.json()["groups"][0]["status"] == "already_exists"

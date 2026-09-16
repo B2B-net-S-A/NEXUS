@@ -3,6 +3,8 @@
  * opuszczania profilu. Okno dostaje preselekcję ramowej, przy której
  * kliknięto, a po zapisie struktura, przegląd i profil są unieważniane —
  * select w formularzach zamówień oferuje tylko to, co tu już istnieje.
+ * Edycja (numer, notatka, status) idzie tym samym oknem; odmowa serwera
+ * (409: umowa ma żywe przypisania) zostaje w oknie.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -19,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   structure: vi.fn(),
   review: vi.fn(),
   create: vi.fn(),
+  update: vi.fn(),
   assign: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -42,6 +45,7 @@ vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
     structure: (...args: unknown[]) => mocks.structure(...args),
     review: (...args: unknown[]) => mocks.review(...args),
     create: (...args: unknown[]) => mocks.create(...args),
+    update: (...args: unknown[]) => mocks.update(...args),
     assign: (...args: unknown[]) => mocks.assign(...args),
   });
   return { ...actual };
@@ -64,7 +68,7 @@ const STRUCTURE: ContractStructureResponse = {
           status: "active",
           framework_contract_id: 2,
           project_part: "cz2",
-          notes: null,
+          notes: "pierwsza umowa",
           consultants_count: 3,
           created_at: null,
         },
@@ -184,6 +188,110 @@ describe("ContractStructureSection", () => {
     );
     expect(screen.getByRole("dialog", { name: "Dodaj umowę wykonawczą" })).toBeInTheDocument();
     expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("edytuje umowę wykonawczą: numer, notatka, status — i odświeża trzy zapytania", async () => {
+    const user = userEvent.setup({ delay: null });
+    mocks.update.mockResolvedValue({
+      id: 10,
+      number: "CeZ/145/2025/UW-1a",
+      status: "ended",
+      framework_contract_id: 2,
+      project_part: "cz2",
+      notes: "pierwsza umowa — zakończona",
+      consultants_count: 3,
+      created_at: null,
+    });
+    const { invalidate } = renderSection();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edytuj umowę wykonawczą: CeZ/145/2025/UW-1" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Edytuj umowę wykonawczą" });
+    expect(dialog).toBeInTheDocument();
+    // Ramowa tylko do odczytu — przepięcie pod inną część zmieniłoby część
+    // wszystkim przypisanym konsultantom.
+    expect(screen.queryByRole("combobox", { name: "Umowa ramowa" })).toBeNull();
+    expect(dialog).toHaveTextContent("Cz. II — CeZ/145/2025");
+    const number = screen.getByRole("textbox", { name: "Numer umowy wykonawczej" });
+    expect(number).toHaveValue("CeZ/145/2025/UW-1");
+    expect(screen.getByRole("textbox", { name: "Notatka" })).toHaveValue("pierwsza umowa");
+    const status = screen.getByRole("combobox", { name: "Status umowy wykonawczej" });
+    expect(status).toHaveValue("active");
+    expect(screen.queryByText("Nowa umowa wykonawcza dostaje status Aktywna.")).toBeNull();
+
+    await user.type(number, "a");
+    await user.type(screen.getByRole("textbox", { name: "Notatka" }), " — zakończona");
+    await user.selectOptions(status, "ended");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith(EZDROWIE_CLIENT_ID, 10, {
+        number: "CeZ/145/2025/UW-1a",
+        notes: "pierwsza umowa — zakończona",
+        status: "ended",
+      }),
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Edytuj umowę wykonawczą" })).toBeNull(),
+    );
+    expect(mocks.showSuccess).toHaveBeenCalledWith("Zapisano umowę wykonawczą CeZ/145/2025/UW-1a");
+    const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        JSON.stringify(contractStructureQueryKey(EZDROWIE_CLIENT_ID)),
+        JSON.stringify(["executive-contract-review", EZDROWIE_CLIENT_ID]),
+        JSON.stringify(["client-profile", EZDROWIE_CLIENT_ID]),
+      ]),
+    );
+  });
+
+  it("409 przy zakończeniu umowy z żywymi przypisaniami zostaje w oknie edycji", async () => {
+    const user = userEvent.setup({ delay: null });
+    mocks.update.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { detail: "Umowa wykonawcza ma aktywne przypisania — nie można jej zakończyć" },
+      },
+    });
+    const { invalidate } = renderSection();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edytuj umowę wykonawczą: CeZ/145/2025/UW-1" }),
+    );
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Status umowy wykonawczej" }),
+      "ended",
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Umowa wykonawcza ma aktywne przypisania — nie można jej zakończyć",
+    );
+    expect(screen.getByRole("dialog", { name: "Edytuj umowę wykonawczą" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Status umowy wykonawczej" })).toHaveValue("ended");
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(mocks.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it("po edycji okno „Dodaj” startuje czyste, z preselekcją klikniętej ramowej", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderSection();
+    await user.click(
+      await screen.findByRole("button", { name: "Edytuj umowę wykonawczą: CeZ/145/2025/UW-1" }),
+    );
+    await screen.findByRole("dialog", { name: "Edytuj umowę wykonawczą" });
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await user.click(
+      screen.getByRole("button", { name: "Dodaj umowę wykonawczą: Cz. IV — CeZ/147/2025" }),
+    );
+    await screen.findByRole("dialog", { name: "Dodaj umowę wykonawczą" });
+    expect(screen.getByRole("combobox", { name: "Umowa ramowa" })).toHaveValue("4");
+    expect(screen.getByRole("textbox", { name: "Numer umowy wykonawczej" })).toHaveValue("");
+    expect(screen.queryByRole("combobox", { name: "Status umowy wykonawczej" })).toBeNull();
   });
 
   it("awaria struktury renderuje się jako błąd z ponowieniem, nie jako pustka", async () => {

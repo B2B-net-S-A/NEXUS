@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  executiveContractOptionLabel,
+  executiveContractSelectGroups,
+  type ContractStructureResponse,
+  type ExecutiveContractRead,
+} from "@/lib/api/executiveContracts";
+import {
   EZDROWIE_CLIENT_ID,
   PART_ROMAN,
   PROJECT_PARTS,
@@ -101,6 +107,68 @@ describe("ezdrowie — umowy wykonawcze (struktura umów)", () => {
     ).toBe(false);
     expect(isSameAssignmentFilter({ executiveContractId: 1 }, "unassigned")).toBe(
       false,
+    );
+  });
+});
+
+describe("executiveContractSelectGroups — bieżąca zakończona umowa zostaje w selekcie", () => {
+  const structure: ContractStructureResponse = {
+    framework_contracts: [
+      {
+        id: 2,
+        name: "CeZ/145/2025 – cz. II",
+        project_part: "cz2",
+        status: "active",
+        executive_contracts: [
+          ec({ id: 10, number: "UW-1", status: "active" }),
+          ec({ id: 11, number: "UW-2", status: "ended" }),
+          ec({ id: 12, number: "UW-3", status: "ended" }),
+        ],
+      },
+      {
+        id: 4,
+        name: "CeZ/147/2025 – cz. IV",
+        project_part: "cz4",
+        status: "active",
+        executive_contracts: [ec({ id: 20, number: "UW-9", status: "ended", framework_contract_id: 4 })],
+      },
+    ],
+  };
+
+  function ec(overrides: Partial<ExecutiveContractRead>): ExecutiveContractRead {
+    return {
+      id: 1,
+      number: "UW",
+      status: "active",
+      framework_contract_id: 2,
+      project_part: "cz2",
+      notes: null,
+      consultants_count: 0,
+      created_at: null,
+      ...overrides,
+    };
+  }
+
+  it("bez bieżącej umowy — tylko aktywne, część bez aktywnej znika", () => {
+    const groups = executiveContractSelectGroups(structure, null);
+    expect(groups.map((g) => g.options.map((o) => o.id))).toEqual([[10]]);
+  });
+
+  it("bieżąca zakończona umowa jest w opcjach, inne zakończone nadal odpadają", () => {
+    const groups = executiveContractSelectGroups(structure, 11);
+    expect(groups.map((g) => g.options.map((o) => o.id))).toEqual([[10, 11]]);
+    // Część IV ma tylko zakończone umowy, żadna nie jest bieżąca — bez grupy.
+    expect(groups.map((g) => g.framework_contract_id)).toEqual([2]);
+    // Bieżąca zakończona w części bez aktywnej umowy odzyskuje swoją grupę.
+    expect(
+      executiveContractSelectGroups(structure, 20).map((g) => g.options.map((o) => o.id)),
+    ).toEqual([[10], [20]]);
+  });
+
+  it("etykieta: dopisek „(zakończona)” wyłącznie przy zakończonej", () => {
+    expect(executiveContractOptionLabel(ec({ number: "UW-1", status: "active" }))).toBe("UW-1");
+    expect(executiveContractOptionLabel(ec({ number: "UW-2", status: "ended" }))).toBe(
+      "UW-2 (zakończona)",
     );
   });
 });

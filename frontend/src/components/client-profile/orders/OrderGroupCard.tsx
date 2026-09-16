@@ -397,9 +397,12 @@ function OrderLineRow({
   const usageSentence = consultantUsageSentence(group, line);
   // Osoba z zakończoną współpracą, która została na zamówieniu, a nikt jeszcze
   // o niej nie zdecydował (zamówienie MD z czekającą sprawą ma swój formularz).
+  // Zastąpiona osoba MA już decyzję — następcę; pytanie „Zastąp kimś innym"
+  // przy niej byłoby prośbą o drugie zastępstwo tej samej pozycji.
   const needsDecision =
     endedCooperation &&
     !removed &&
+    line.replaced_by_order_id == null &&
     !line.history_kept_at &&
     !line.offboarding_case &&
     (canManage || canManageLifecycle);
@@ -579,9 +582,10 @@ function OrderLineRow({
           budżet MD{" "}
           <span className="font-medium text-foreground">Wspólna pula</span>
         </span>
-      ) : hasScopedMd(line) ? (
-        // Podstawa + opcja (CeZ) — dwa paski ZUŻYCIA; BIK/Polkomtel bez
-        // zakresów dostają dotychczasowy pasek „pozostało / całość".
+      ) : hasScopedMd(line, group) ? (
+        // Podstawa + opcja — dwa paski ZUŻYCIA WYŁĄCZNIE na karcie przypiętej
+        // do umowy wykonawczej (CeZ); BIK/Polkomtel dostają dotychczasowy
+        // pasek „pozostało / całość" — backend zwraca `md_base_used` także im.
         <MdScopeBars line={line} className="ml-auto" />
       ) : (
         <MdBudgetBar
@@ -859,7 +863,7 @@ function FutureOrders({
                       </span>
                       {usesSharedMdPool(future) ? (
                         "wspólna pula"
-                      ) : hasScopedMd(line) ? (
+                      ) : hasScopedMd(line, future) ? (
                         <MdScopeBars line={line} className="mt-1" />
                       ) : (
                         <MdBudgetBar
@@ -1090,7 +1094,13 @@ export function OrderGroupCard({
             </div>
           ) : null}
 
-          {group.md_positions_total != null && !group.is_cost_based ? (
+          {/* Pasek pozycji i „Wykorzystano wartości umowy" WYŁĄCZNIE przy
+              umowie wykonawczej — backend liczy `md_positions_total` dla
+              każdego zamówienia MD per osoba, a BIK/Polkomtel mają wyglądać
+              dokładnie jak przed strukturą umów CeZ. */}
+          {group.executive_contract &&
+          group.md_positions_total != null &&
+          !group.is_cost_based ? (
             <div className="mb-4">
               <PositionsMdBar group={group} />
             </div>

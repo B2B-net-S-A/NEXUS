@@ -266,6 +266,7 @@ export function OrderGroupFormModal({
   }, [open, autoReadFile, file]);
 
   const planContext = {
+    clientId,
     orderType,
     sharedMd,
     groupStart: startDate,

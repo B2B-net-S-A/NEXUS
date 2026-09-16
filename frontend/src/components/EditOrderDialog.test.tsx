@@ -512,6 +512,28 @@ describe("EditOrderDialog — e-Zdrowie: umowa wykonawcza", () => {
     await waitFor(() => expect(select).toHaveValue("10"));
   });
 
+  it("zamówienie przypisane do ZAKOŃCZONEJ umowy widzi ją w selekcie z dopiskiem, inne zakończone nadal odpadają", async () => {
+    // Przegląd adwersarialny 09.2026: select oferował tylko aktywne umowy,
+    // więc zamówienie z zakończoną umową renderowało „— uzupełnij —" mimo
+    // przypisania — a zapis bez zmiany zdejmował umowę.
+    const order = {
+      ...draftOrder("periodic"),
+      client_id: EZDROWIE_CLIENT_ID,
+      executive_contract_id: 11,
+      executive_contract_number: "CeZ/145/2025/UW-2",
+    };
+    renderDialog({ clientId: EZDROWIE_CLIENT_ID, order });
+    const select = await screen.findByRole("combobox", { name: "Umowa wykonawcza" });
+    await waitFor(() =>
+      expect(
+        within(select).getByRole("option", { name: "CeZ/145/2025/UW-2 (zakończona)" }),
+      ).toBeInTheDocument(),
+    );
+    expect(select).toHaveValue("11");
+    expect(within(select).getByRole("option", { name: "CeZ/145/2025/UW-1" })).toBeInTheDocument();
+    expect(select).toHaveDisplayValue("CeZ/145/2025/UW-2 (zakończona)");
+  });
+
   it("u klienta spoza e-Zdrowia selektu nie ma i struktura nie jest odpytywana", () => {
     renderDialog({ order: draftOrder("periodic") });
     expect(screen.queryByRole("combobox", { name: "Umowa wykonawcza" })).toBeNull();

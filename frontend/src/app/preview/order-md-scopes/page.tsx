@@ -161,10 +161,16 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
       framework_contract_id: 12,
       project_part: "cz2",
     },
-    md_positions_total: 708,
+    // Reguła pozycji jak w backendzie: zastąpiony (Tomasz, 100 + 40 MD)
+    // oddał pozycję następcy — liczy się jego ZUŻYCIE, nie budżet.
+    // Pozycje: 360 (Anna) + 120 (Piotr) + 88 (Marcin) = 568 MD;
+    // zużycie ze wszystkich linii: 154 + 50 + 112 + 0 = 316 MD.
+    // Wartość umowy: 360×1240 + 120×1100 + 88×1180 = 682 240 zł;
+    // wykorzystano: 154×1240 + 50×1100 + 112×1180 = 378 120 zł.
+    md_positions_total: 568,
     md_used_total: 316,
-    contract_value_pln: 2_295_200,
-    used_value_pln: 711_480,
+    contract_value_pln: 682_240,
+    used_value_pln: 378_120,
     lines: LINES,
     active_consultants: 3,
     event_count: 6,

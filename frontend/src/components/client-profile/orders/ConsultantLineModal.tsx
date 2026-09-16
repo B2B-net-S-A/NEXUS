@@ -19,6 +19,7 @@ import type {
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   contractRateUnitToInputUnit,
   convertRate,
@@ -203,8 +204,10 @@ export function ConsultantLineModal({
   const [revenueUnit, setRevenueUnit] = useState<RateUnit>("md");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
   const [inputValue, setInputValue] = useState("");
-  // Zakres opcjonalny z umowy (CeZ) — obok podstawy, nigdy z PDF-a: dokument
-  // zamówienia nie wie, ile opcji ma umowa wykonawcza.
+  // Zakres opcjonalny z umowy wykonawczej — TYLKO Centrum e-Zdrowia, obok
+  // podstawy, nigdy z PDF-a: dokument zamówienia nie wie, ile opcji ma umowa.
+  // U innych klientów pole nie istnieje i nic nie jedzie w ładunku.
+  const ezdrowie = isEzdrowieClient(clientId);
   const [optionalMd, setOptionalMd] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -733,9 +736,10 @@ export function ConsultantLineModal({
   // Opcja w podglądzie tylko przy dodatniej liczbie — „190 + 0 = 190" niczego
   // nie mówi, a puste pole znaczy „brak opcji".
   const previewOptionalMd = useMemo(() => {
+    if (!ezdrowie) return null;
     const value = parseDecimalInput(optionalMd);
     return value !== null && value > 0 ? value : null;
-  }, [optionalMd]);
+  }, [optionalMd, ezdrowie]);
 
   const canSubmit =
     !submitting &&
@@ -782,9 +786,9 @@ export function ConsultantLineModal({
       ...(costBased || sharedMdBased
         ? {}
         : { input_mode: inputMode, input_value: budgetValue as number }),
-      // Opcja tylko przy budżecie w MD — przy kwocie serwer sam liczy MD
-      // podstawy i nie miałby do czego dodać opcji.
-      ...(!costBased && !sharedMdBased && inputMode === "md"
+      // Opcja tylko u CeZ i tylko przy budżecie w MD — przy kwocie serwer sam
+      // liczy MD podstawy i nie miałby do czego dodać opcji.
+      ...(ezdrowie && !costBased && !sharedMdBased && inputMode === "md"
         ? { optional_md: parseDecimalInput(optionalMd) }
         : {}),
       start_date: startDate,
@@ -1021,7 +1025,7 @@ export function ConsultantLineModal({
             className={inputClass}
             placeholder={inputMode === "md" ? "50" : "60000"}
           />
-          {inputMode === "md" ? (
+          {inputMode === "md" && ezdrowie ? (
             <div className="mt-3">
               <label htmlFor="line-optional-md" className={labelClass}>
                 Zakres opcjonalny (MD)
@@ -1035,8 +1039,8 @@ export function ConsultantLineModal({
                 placeholder="—"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Opcja z umowy wykonawczej (Centrum e-Zdrowia). Puste = brak
-                opcji. Zużycie schodzi najpierw z podstawy, potem z opcji.
+                Zakres opcjonalny z umowy wykonawczej. Puste = brak opcji.
+                Zużycie schodzi najpierw z podstawy, potem z opcji.
               </p>
             </div>
           ) : null}

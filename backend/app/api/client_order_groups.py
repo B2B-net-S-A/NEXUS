@@ -497,6 +497,15 @@ def _reduce_legacy_md_budget(order: ClientOrder, remaining: Decimal) -> None:
             },
         )
     current_total = Decimal(str(order.md_total))
+    # Zakres opcjonalny (Faza B) schodzi PIERWSZY: zużycie wypełnia najpierw
+    # podstawę, więc niewykorzystana pula siedzi najpierw w opcji. Bez tego
+    # linia po decyzji zostawałaby z opcją 50 MD i podstawą 0, a sumy karty
+    # liczyłyby dla osoby, która odeszła, pozycję z samej opcji.
+    if order.md_optional_total is not None:
+        optional_total = Decimal(str(order.md_optional_total))
+        optional_cut = min(optional_total, max(Decimal("0"), remaining))
+        order.md_optional_total = quantize_md(optional_total - optional_cut)
+        remaining = remaining - optional_cut
     new_total = quantize_md(max(Decimal("0"), current_total - remaining))
     total_reduction = current_total - new_total
     overflow = max(Decimal("0"), remaining - total_reduction)
@@ -1201,12 +1210,8 @@ async def _group_to_read(
     contract_value_pln: Optional[Decimal] = None
     used_value_pln: Optional[Decimal] = None
     if not group.is_cost_based and not uses_shared_md_budget:
-        replaced_ids = {
-            line.predecessor_order_id
-            for line in lines
-            if line.predecessor_order_id is not None
-        }
         used_by_line = {item.id: item.md_used for item in reads}
+        replaced_kind = {item.id: item.replaced_by_kind for item in reads}
         positions = Decimal("0")
         used_sum = Decimal("0")
         value = Decimal("0")
@@ -1218,7 +1223,21 @@ async def _group_to_read(
             used = Decimal(str(used_by_line.get(line.id) or 0))
             used_sum += used
             used_value += used * rate
-            if line.id in replaced_ids:
+            if line.status == ClientOrderStatus.cancelled:
+                # Anulowana linia nie jest pozycją umowy — jej ewentualne
+                # zużycie zostaje faktem, ale budżet nie wchodzi do wartości.
+                continue
+            kind = replaced_kind.get(line.id)
+            if kind == "replacement":
+                # Zastępstwo: następca ma WŁASNĄ pozycję, poprzednik oddał
+                # swoją — liczy się tylko jego zużycie.
+                continue
+            if kind == "swap":
+                # Zamiana: następca przejął tylko POZOSTAŁOŚĆ, więc zużyta
+                # część budżetu poprzednika nadal jest częścią pozycji —
+                # inaczej „wykorzystano" przekraczałoby wartość umowy.
+                positions += used
+                value += used * rate
                 continue
             budget = line_budget_total(line)
             positions += budget
@@ -1350,10 +1369,18 @@ async def _apply_line_history(
     )
     added: dict[int, tuple[ClientOrderGroupEvent, Optional[str]]] = {}
     ended: dict[int, list[tuple[ClientOrderGroupEvent, Optional[str]]]] = {}
+    # Zamiany kontraktora: `old_order_id` z payloadu zdarzenia — po nim
+    # odróżniamy zamianę (następca przejął pozostałość) od zastępstwa przez
+    # `replaces_order_id` (następca ma własny budżet).
+    swapped_old_ids: set[int] = set()
     for event, author in rows.all():
         if event.event_type == EVENT_CONSULTANT_ENDED:
             ended.setdefault(event.order_id, []).append((event, author))
         else:
+            if event.event_type == EVENT_CONSULTANT_SWAPPED:
+                old_id = (event.payload or {}).get("old_order_id")
+                if isinstance(old_id, int):
+                    swapped_old_ids.add(old_id)
             added.setdefault(event.order_id, (event, author))
 
     # Tag „Zastąpiony → następca" (Faza B): linia wskazująca tę jako
@@ -1391,6 +1418,9 @@ async def _apply_line_history(
         if successor is not None:
             item.replaced_by_order_id = successor.id
             item.replaced_by_consultant_name = consultant_display_name(successor)
+            item.replaced_by_kind = (
+                "swap" if line.id in swapped_old_ids else "replacement"
+            )
 
         entry = added.get(line.id)
         if entry is not None:
@@ -3028,7 +3058,10 @@ async def update_order_group(
             draft_lines = await lines_for_group(db, group.id)
             if any(
                 line.md_manual_adjustment
-                or (line.md_total or 0) != (line.md_remaining or 0)
+                or (
+                    line.md_total is not None
+                    and line_budget_total(line) != (line.md_remaining or 0)
+                )
                 for line in draft_lines
             ):
                 raise HTTPException(409, detail="Linie mają już zużycie lub korektę MD")
@@ -3044,6 +3077,8 @@ async def update_order_group(
                     line.md_total = line.md_remaining = line.md_input_value = (
                         line.md_input_mode
                     ) = None
+                    # Opcja bez podstawy naruszyłaby `ck_client_orders_md_optional`.
+                    line.md_optional_total = None
             else:
                 group.md_budget_total = group.md_budget_remaining = None
                 group.md_budget_manual_adjustment = Decimal("0")
@@ -4777,15 +4812,26 @@ async def swap_consultant(
         # pozostałą podstawę. Suma obu części to dokładnie dotychczasowe
         # przeliczenie całej pozostałości, więc wartość w PLN się zgadza.
         # Poprzednik zachowuje swoje liczby — rozlicza się nimi do dnia zamiany.
+        # `md_remaining` niesie także ręczną korektę, więc podział na podstawę
+        # i opcję liczymy z POZOSTAŁOŚCI, nie z nominałów: opcja = co najwyżej
+        # niewykorzystany zakres opcjonalny, ale nigdy więcej niż zostało,
+        # a podstawa = reszta i nigdy poniżej zera (ujemny budżet następcy
+        # wchodziłby do sum pozycji i eksportu).
         optional_remaining_old = Decimal("0")
         if old.md_optional_total is not None:
             _, optional_used = split_md_usage(old, await consumed_md(db, old.id))
-            optional_remaining_old = max(
+            optional_unused = max(
                 Decimal("0"), Decimal(str(old.md_optional_total)) - optional_used
             )
+            optional_remaining_old = max(
+                Decimal("0"), min(optional_unused, md_remaining_old)
+            )
+        base_remaining_old = max(
+            Decimal("0"), md_remaining_old - optional_remaining_old
+        )
         try:
             md_total_new = swap_md_total(
-                md_remaining_old=md_remaining_old - optional_remaining_old,
+                md_remaining_old=base_remaining_old,
                 rate_revenue_old=old.md_rate_revenue,
                 rate_revenue_new=payload.rate_revenue,
             )

@@ -90,6 +90,7 @@ from app.services.multi_consultant_orders import (
     format_md,
     quantize_md,
 )
+from app.services.contract_order_sync import skip_sync_for_contract
 from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.polish_ilike import polish_folded_ilike
 
@@ -493,6 +494,10 @@ async def _create_line(
         user_id=user_id,
     )
     if completed:
+        # Linia zakończona opisuje współpracę, która się skończyła — nie
+        # przepisuje kontraktowi stawki ani okresu (sync kontrakt↔zamówienie
+        # czyta także `completed`), tak jak zapis historyczny w `_build_line`.
+        skip_sync_for_contract(db, contract.id)
         record_event(
             db,
             group_id=group.id,
@@ -518,6 +523,19 @@ async def _create_line(
             actor_id=user_id,
             today=business_today(),
         )
+    return order
+
+
+async def _apply_history(
+    db: AsyncSession, *, order: ClientOrder, line: SeedLine, user_id: int
+) -> None:
+    """Zejścia miesięczne + przeliczenie — PO utworzeniu wszystkich linii grupy.
+
+    `recompute_remaining` woła `sync_md_line_status`, który potrafi wskrzesić
+    zakończoną linię z pozostałością, jeśli nie widzi jeszcze jej następcy.
+    Dlatego historia wchodzi dopiero, gdy następcy istnieją, a status
+    zakończonej linii jest po przeliczeniu przywracany jawnie.
+    """
     for row in line.history:
         await upsert_consumption(
             db,
@@ -530,7 +548,9 @@ async def _create_line(
             note=row.note,
         )
     await recompute_remaining(db, order)
-    return order
+    if line.line_status == "completed":
+        order.status = ClientOrderStatus.completed
+        order.end_date = line.end_date
 
 
 async def _supersede_drafts(
@@ -716,15 +736,27 @@ async def run_ezdrowie_md_seed(
             created_by_key[line.key] = order
             if predecessor is not None:
                 successors.add(predecessor.id)
-            used = await consumed_md(db, order.id)
-            base_used, optional_used = split_md_usage(order, used)
             line_report.order_id = order.id
-            line_report.md_used = used
-            line_report.md_base_used = base_used
-            line_report.md_optional_used = optional_used
             report.lines.append(line_report)
             totals.lines += 1
             totals.consumptions += len(line.history)
+
+        # Drugie przejście: historia i przeliczenie dopiero, gdy wszystkie
+        # linie (także następcy) już istnieją.
+        lines_by_key = {line.key: line for line in spec.lines}
+        for line_report in report.lines:
+            if line_report.order_id is None:
+                continue
+            order = created_by_key[line_report.key]
+            await _apply_history(
+                db, order=order, line=lines_by_key[line_report.key], user_id=user_id
+            )
+            used = await consumed_md(db, order.id)
+            base_used, optional_used = split_md_usage(order, used)
+            line_report.md_used = used
+            line_report.md_base_used = base_used
+            line_report.md_optional_used = optional_used
+            line_report.status = order.status.value
             totals.md_used_sum += used
 
         for line_report in report.lines:
@@ -771,6 +803,18 @@ async def run_ezdrowie_md_seed(
 
     sha = manifest_sha256(manifest)
     receipt_key = f"{RECEIPT_KEY_PREFIX}{sha[:12]}"
+    existing_receipt = await db.get(AppSetting, receipt_key)
+    if existing_receipt is not None:
+        # Ten sam manifest zastosowany ponownie (wszystkie grupy
+        # `already_exists`): dopisujemy znacznik zamiast dublować klucz —
+        # duplikat kończyłby się 409 „reguły spójności", które nic tu nie znaczy.
+        history = list(existing_receipt.value.get("reapplied_at") or [])
+        history.append(datetime.now(timezone.utc).isoformat())
+        existing_receipt.value = {**existing_receipt.value, "reapplied_at": history}
+        existing_receipt.updated_by = user_id
+        report.applied = True
+        report.receipt_key = receipt_key
+        return report
     db.add(
         AppSetting(
             key=receipt_key,

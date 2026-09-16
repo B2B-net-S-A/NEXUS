@@ -64,8 +64,19 @@ describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
     md_used: 154,
   };
 
+  const cez = {
+    executive_contract: {
+      id: 71,
+      number: "CeZ/242/2025",
+      status: "active" as const,
+      framework_contract_id: 12,
+      project_part: "cz2",
+    },
+  };
+  const plainGroup = { executive_contract: null };
+
   it("serwerowy podział wygrywa; suma i procent z całości (podstawa + opcja)", () => {
-    expect(hasScopedMd(scoped)).toBe(true);
+    expect(hasScopedMd(scoped, cez)).toBe(true);
     expect(lineScopeUsage(scoped)).toEqual({
       baseUsed: 154,
       baseTotal: 190,
@@ -99,7 +110,20 @@ describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
 
   it("linia BIK/Polkomtel bez zakresów nie jest „scoped” — zostaje stary pasek", () => {
     const plain = { md_total: 50, md_optional_total: null, md_base_used: null, md_optional_used: null, md_used: 10 };
-    expect(hasScopedMd(plain)).toBe(false);
+    expect(hasScopedMd(plain, plainGroup)).toBe(false);
     expect(lineScopeUsage({ ...plain, md_total: 0 }).pct).toBeNull();
+  });
+
+  it("bramką jest umowa wykonawcza, nie `md_base_used` — backend zwraca podział każdej linii MD", () => {
+    // Przegląd adwersarialny 09.2026: `md_base_used` przychodzi dla KAŻDEJ
+    // linii z `md_total` (BIK/Polkomtel też), więc sam podział nie może
+    // przełączać paska. Bez umowy wykonawczej na karcie — stary pasek.
+    const bik = { md_total: 50, md_optional_total: null, md_base_used: 10, md_optional_used: null, md_used: 10 };
+    expect(hasScopedMd(bik, plainGroup)).toBe(false);
+    expect(hasScopedMd(bik, cez)).toBe(true);
+    // Umowa wykonawcza, ale linia bez własnego budżetu MD — nie ma czego dzielić.
+    expect(hasScopedMd({ ...bik, md_total: null, md_base_used: null }, cez)).toBe(false);
+    // Zakres opcjonalny z odpowiedzi wystarcza sam — nie ma go bez umowy CeZ.
+    expect(hasScopedMd({ ...bik, md_optional_total: 20 }, plainGroup)).toBe(true);
   });
 });

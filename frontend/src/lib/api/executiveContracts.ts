@@ -197,11 +197,42 @@ export function executiveContractOptionGroups(
     .filter((group) => group.options.length > 0);
 }
 
-/** Hook dla selektów w formularzach zamówień (4 dialogi + karta MD). */
-export function useExecutiveContractOptions(clientId: number | null | undefined) {
+/**
+ * Opcje selektu Z BIEŻĄCĄ umową zamówienia, nawet gdy jest zakończona.
+ * Zakończonej umowy nie da się WYBRAĆ (backend 422), ale zamówienie już do
+ * niej przypisane musi ją w selekcie pokazać — inaczej select renderował
+ * „— uzupełnij —" mimo przypisania, a zapis bez zmiany zdejmował umowę
+ * (przegląd adwersarialny 09.2026). Inne zakończone umowy nadal odpadają.
+ */
+export function executiveContractSelectGroups(
+  structure: ContractStructureResponse | undefined,
+  currentId: number | null | undefined,
+): ExecutiveContractOptionGroup[] {
+  return executiveContractOptionGroups(structure, { includeEnded: true })
+    .map((group) => ({
+      ...group,
+      options: group.options.filter(
+        (ec) => ec.status === "active" || (currentId != null && ec.id === currentId),
+      ),
+    }))
+    .filter((group) => group.options.length > 0);
+}
+
+/** Etykieta opcji selektu — zakończona (tylko bieżąca) z dopiskiem. */
+export function executiveContractOptionLabel(ec: ExecutiveContractBrief): string {
+  return ec.status === "ended" ? `${ec.number} (zakończona)` : ec.number;
+}
+
+/** Hook dla selektów w formularzach zamówień (4 dialogi + karta MD).
+ *  `currentId` = umowa już przypisana do edytowanego/przedłużanego
+ *  zamówienia — zostaje w opcjach także po zakończeniu. */
+export function useExecutiveContractOptions(
+  clientId: number | null | undefined,
+  currentId: number | null | undefined = null,
+) {
   const query = useContractStructure(clientId);
   return {
     ...query,
-    groups: executiveContractOptionGroups(query.data),
+    groups: executiveContractSelectGroups(query.data, currentId),
   };
 }

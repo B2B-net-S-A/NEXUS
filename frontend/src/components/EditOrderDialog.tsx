@@ -32,7 +32,10 @@ import type {
   OrderRateUnit,
   OrderType,
 } from "@/lib/api/dlPortal";
-import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import {
+  executiveContractOptionLabel,
+  useExecutiveContractOptions,
+} from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   DATE_PATTERN,
@@ -173,7 +176,12 @@ export function EditOrderDialog({
   const [executiveContractId, setExecutiveContractId] = useState(
     order?.executive_contract_id != null ? String(order.executive_contract_id) : "",
   );
-  const executiveContracts = useExecutiveContractOptions(clientId);
+  // Bieżąca umowa zostaje w opcjach także po zakończeniu — select nie może
+  // pokazywać „— uzupełnij —" przy zamówieniu, które umowę już ma.
+  const executiveContracts = useExecutiveContractOptions(
+    clientId,
+    order?.executive_contract_id ?? null,
+  );
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
@@ -734,7 +742,7 @@ export function EditOrderDialog({
                 <optgroup key={group.framework_contract_id} label={group.label}>
                   {group.options.map((ec) => (
                     <option key={ec.id} value={String(ec.id)}>
-                      {ec.number}
+                      {executiveContractOptionLabel(ec)}
                     </option>
                   ))}
                 </optgroup>

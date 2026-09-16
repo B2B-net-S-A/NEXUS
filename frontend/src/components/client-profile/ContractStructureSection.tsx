@@ -3,15 +3,16 @@
 /**
  * „Struktura umów" — sekcja profilu Centrum e-Zdrowia nad „Obecnymi
  * konsultantami" (ticket 09.2026). Dwa poziomy: umowa ramowa = część
- * (cz. I/II/IV/V/VI) → 0..N umów wykonawczych. Tu Delivery Lead dodaje umowy
- * wykonawcze i przypisuje konsultantów sprzed wdrożenia struktury — bez
- * opuszczania profilu, bo select w formularzach zamówień oferuje wyłącznie
- * umowy, które tu już istnieją.
+ * (cz. I/II/IV/V/VI) → 0..N umów wykonawczych. Tu Delivery Lead dodaje
+ * i edytuje umowy wykonawcze (numer, notatka, status) i przypisuje
+ * konsultantów sprzed wdrożenia struktury — bez opuszczania profilu, bo
+ * select w formularzach zamówień oferuje wyłącznie umowy, które tu już
+ * istnieją.
  */
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { FileStack, Plus } from "lucide-react";
+import { FileStack, Pencil, Plus } from "lucide-react";
 
 import { AddExecutiveContractModal } from "@/components/client-profile/AddExecutiveContractModal";
 import {
@@ -41,20 +42,30 @@ export function ContractStructureSection({ clientId }: Props) {
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [addFor, setAddFor] = useState<number | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<ExecutiveContractRead | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
   const frameworks = structure.data?.framework_contracts ?? [];
 
-  const onCreated = async (created: ExecutiveContractRead) => {
-    showSuccess(`Dodano umowę wykonawczą ${created.number}`);
-    // Struktura (chipy + selecty), przegląd (grupy w selekcie) i profil
-    // (badge w tabeli) czytają ten sam fakt — wszystkie trzy do odświeżenia.
-    await Promise.all([
+  // Struktura (chipy + selecty), przegląd (grupy w selekcie) i profil
+  // (badge w tabeli) czytają ten sam fakt — wszystkie trzy do odświeżenia,
+  // po dodaniu i po edycji tak samo (zmiana statusu zdejmuje umowę z selectów).
+  const invalidateAll = () =>
+    Promise.all([
       queryClient.invalidateQueries({ queryKey: contractStructureQueryKey(clientId) }),
       queryClient.invalidateQueries({
         queryKey: executiveContractReviewQueryKey(clientId),
       }),
       queryClient.invalidateQueries({ queryKey: clientProfileQueryKey(clientId) }),
     ]);
+
+  const onCreated = async (created: ExecutiveContractRead) => {
+    showSuccess(`Dodano umowę wykonawczą ${created.number}`);
+    await invalidateAll();
+  };
+
+  const onUpdated = async (updated: ExecutiveContractRead) => {
+    showSuccess(`Zapisano umowę wykonawczą ${updated.number}`);
+    await invalidateAll();
   };
 
   return (
@@ -101,7 +112,13 @@ export function ContractStructureSection({ clientId }: Props) {
               framework={fc}
               onAdd={() => {
                 setAddFor(fc.id);
-                setAddOpen(true);
+                setEditing(null);
+                setModalOpen(true);
+              }}
+              onEdit={(ec) => {
+                setAddFor(ec.framework_contract_id);
+                setEditing(ec);
+                setModalOpen(true);
               }}
             />
           ))}
@@ -112,11 +129,13 @@ export function ContractStructureSection({ clientId }: Props) {
 
       <AddExecutiveContractModal
         clientId={clientId}
-        open={addOpen}
-        onOpenChange={setAddOpen}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
         frameworks={frameworks}
         initialFrameworkId={addFor}
+        editing={editing}
         onCreated={onCreated}
+        onUpdated={onUpdated}
       />
     </section>
   );
@@ -125,9 +144,11 @@ export function ContractStructureSection({ clientId }: Props) {
 function FrameworkRow({
   framework,
   onAdd,
+  onEdit,
 }: {
   framework: FrameworkPartRead;
   onAdd: () => void;
+  onEdit: (contract: ExecutiveContractRead) => void;
 }) {
   const header = frameworkPartHeader(framework);
   return (
@@ -181,6 +202,18 @@ function FrameworkRow({
                   "konsultantów",
                 )}
               </span>
+              {/* Edycja (numer, notatka, status) — kryterium „edytowalna".
+                  Ikona z `aria-label`: chip jest gęsty, tekst „Edytuj" przy
+                  każdej umowie rozciągałby wiersz. */}
+              <button
+                type="button"
+                onClick={() => onEdit(ec)}
+                aria-label={`Edytuj umowę wykonawczą: ${ec.number}`}
+                title="Edytuj umowę wykonawczą"
+                className="-mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="h-3 w-3" aria-hidden="true" />
+              </button>
             </span>
           ))
         )}

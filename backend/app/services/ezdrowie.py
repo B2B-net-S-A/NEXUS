@@ -97,9 +97,12 @@ async def resolve_ezdrowie_assignment(
             raise ValueError(EXECUTIVE_CONTRACT_ONLY_EZDROWIE_MESSAGE)
         return None, None
     if executive_contract_id is None:
-        if require:
+        if require or normalized_part is not None:
+            # Sama część już nie wystarcza (pod jedną częścią bywa kilka umów
+            # wykonawczych) — także przy PATCH-u: część bez umowy odtwarzałaby
+            # stan sprzed struktury dwupoziomowej.
             raise ValueError(EXECUTIVE_CONTRACT_REQUIRED_MESSAGE)
-        return None, normalized_part
+        return None, None
     executive = await db.scalar(
         select(ClientExecutiveContract)
         .options(selectinload(ClientExecutiveContract.framework_contract))

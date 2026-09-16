@@ -82,11 +82,21 @@ export interface LineScopeUsage {
   pct: number | null;
 }
 
-/** Czy linia ma rozbicie na zakresy — wtedy pokazujemy dwa paski zamiast
- *  jednego „pozostało / całość". Zakres opcjonalny albo serwerowy podział
- *  zużycia wystarcza; BIK/Polkomtel nie mają ani jednego, ani drugiego. */
-export function hasScopedMd(line: ScopeLine): boolean {
-  return line.md_optional_total != null || line.md_base_used != null;
+type ScopeGroup = Pick<OrderGroupRead, "executive_contract">;
+
+/**
+ * Czy linia ma rozbicie na zakresy — wtedy pokazujemy dwa paski zamiast
+ * jednego „pozostało / całość".
+ *
+ * Bramką jest UMOWA WYKONAWCZA na karcie, nie samo `md_base_used`: backend
+ * zwraca `md_base_used` dla KAŻDEJ linii z `md_total` (u BIK/Polkomtela też),
+ * więc pierwsza wersja tej funkcji przebierała wszystkim klientom MD stary
+ * pasek na dwa paski CeZ (przegląd adwersarialny 09.2026). Zakres opcjonalny
+ * z odpowiedzi wystarcza sam — bez umowy wykonawczej nie ma skąd go wziąć.
+ */
+export function hasScopedMd(line: ScopeLine, group: ScopeGroup): boolean {
+  if (line.md_optional_total != null) return true;
+  return group.executive_contract != null && line.md_total != null;
 }
 
 /**

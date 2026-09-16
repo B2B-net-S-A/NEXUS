@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
@@ -249,9 +250,14 @@ async def test_swap_carries_the_unused_option_at_the_same_ratio(
     assert predecessor["md_total"] == 190
     assert predecessor["md_optional_total"] == 170
     assert predecessor["replaced_by_order_id"] == new["id"]
-    # Pozycję umowy wnosi następca; poprzednik wnosi wyłącznie zużycie.
-    assert body["md_positions_total"] == pytest.approx(206 * ratio, rel=1e-6)
+    # Zamiana: następca przejął tylko pozostałość, więc pozycja umowy to
+    # zużyta część poprzednika + przeliczona pozostałość następcy — w PLN
+    # dokładnie wartość sprzed zamiany (154 × 1200 + 206 × 1200).
+    assert predecessor["replaced_by_kind"] == "swap"
+    assert body["md_positions_total"] == pytest.approx(154 + 206 * ratio, rel=1e-6)
     assert body["md_used_total"] == 154
+    assert body["contract_value_pln"] == pytest.approx(360 * 1200, rel=1e-6)
+    assert body["used_value_pln"] == pytest.approx(154 * 1200, rel=1e-6)
 
 
 async def test_patch_optional_scope_recomputes_and_null_clears_it(
@@ -326,3 +332,115 @@ async def test_export_has_scope_columns(
     assert values["Zakres podstawowy (MD)"] == 190
     assert values["Zakres opcjonalny (MD)"] == 170
     assert values["Wykorzystano (MD)"] == 154
+
+
+async def test_swap_never_produces_a_negative_base_scope(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Korekta ręczna poniżej opcji: podstawa następcy = 0, opcja = reszta."""
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[0], input_value=10, optional_md=5)],
+    )
+    old = group["lines"][0]
+    await _put_consumption(
+        app_client, app_auth_headers, client_id, group["id"], old["id"], "2026-07", 12
+    )
+    patched = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old['id']}",
+        json={"md_remaining": 1},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 1200,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    new = resp.json()
+    assert new["md_total"] >= 0
+    assert new["md_optional_total"] >= 0
+    assert new["md_total"] + new["md_optional_total"] == pytest.approx(1, rel=1e-6)
+
+
+async def test_cancelled_line_does_not_count_as_a_position(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [
+            _line_payload(contracts[0], input_value=100),
+            _line_payload(contracts[1], input_value=40),
+        ],
+    )
+    second = group["lines"][1]
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/orders/{second['id']}", headers=app_auth_headers
+    )
+    assert resp.status_code in (200, 204), resp.text
+    body = await _group(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_positions_total"] == 100
+
+
+async def test_budget_mode_switch_with_optional_scope_keeps_the_check_happy(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Szkic per osoba z opcją → wspólna pula: opcja schodzi razem z podstawą."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": f"DRAFT-{uuid.uuid4().hex[:4]}",
+            "start_date": _TODAY.isoformat(),
+            "status": "draft",
+            "order_type": "md",
+            "md_budget_mode": "per_person",
+            "lines": [_line_payload(contracts[0], input_value=10, optional_md=5)],
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    group_id = resp.json()["id"]
+    switched = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group_id}",
+        json={"md_budget_mode": "shared", "md_budget_total": 50},
+        headers=app_auth_headers,
+    )
+    assert switched.status_code == 200, switched.text
+    line = switched.json()["lines"][0]
+    assert line["md_total"] is None and line["md_optional_total"] is None
+
+
+def test_offboarding_reducer_drops_the_option_first():
+    """Zwolniona pula schodzi najpierw z opcji, potem z podstawy."""
+    from app.api.client_order_groups import _reduce_legacy_md_budget
+    from app.models.client_order import ClientOrder
+
+    order = ClientOrder(
+        md_total=Decimal("100"),
+        md_optional_total=Decimal("50"),
+        md_remaining=Decimal("130"),
+        md_manual_adjustment=Decimal("0"),
+        md_rate_revenue=Decimal("600"),
+        md_input_mode="md",
+        md_input_value=Decimal("100"),
+    )
+    _reduce_legacy_md_budget(order, Decimal("130"))
+    assert order.md_optional_total == Decimal("0")
+    assert order.md_total == Decimal("20")
+    assert order.md_manual_adjustment == Decimal("0")

@@ -2351,6 +2351,15 @@ async def update_order(
                     "klienta (job_id)."
                 ),
             )
+    if (
+        "executive_contract_id" in data
+        and "project_part" not in data
+        and data["executive_contract_id"] == order.executive_contract_id
+    ):
+        # Formularz odsyła bieżącą umowę przy edycji INNEGO pola — niezmienione
+        # przypisanie nie przechodzi walidacji (umowa mogła zostać zakończona
+        # PO przypisaniu; edycja notatki nie może wtedy padać na 422).
+        data.pop("executive_contract_id")
     if "executive_contract_id" in data or "project_part" in data:
         # Przypisanie CeZ: ustawienie umowy wykonawczej nadpisuje część
         # pochodną; jawne ``executive_contract_id: null`` czyści oba pola;

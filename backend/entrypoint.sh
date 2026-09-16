@@ -6826,7 +6826,7 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (
                 md_optional_total IS NULL
                 OR (md_optional_total >= 0 AND md_total IS NOT NULL)
-            );
+            ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
     """DO $$ BEGIN

@@ -31,6 +31,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
 
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { orderGroupsApi } from "@/lib/api/orderGroups";
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
 
 const FROM_CLIENT: ConsultantOption = {
   candidate_id: 5,
@@ -1583,15 +1584,40 @@ describe("waluty zapisanej linii", () => {
 });
 
 describe("ConsultantLineModal — zakres opcjonalny MD (CeZ)", () => {
+  // Zakres opcjonalny istnieje tylko u Centrum e-Zdrowia (umowa wykonawcza).
+  const CEZ_GROUP: OrderGroupRead = { ...GROUP, client_id: EZDROWIE_CLIENT_ID };
+
   beforeEach(() => {
     vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
       data: { options: [FROM_CLIENT, FROM_BASE], total: 2 },
     } as never);
   });
 
+  it("u klienta spoza CeZ pola nie ma, a ładunek nie niesie `optional_md`", async () => {
+    // Przegląd adwersarialny 09.2026: pole „Zakres opcjonalny (MD)" pokazywało
+    // się każdemu klientowi MD (BIK/Polkomtel), choć nie mają umów wykonawczych.
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), GROUP);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    await fillRates(user);
+    expect(screen.queryByLabelText("Zakres opcjonalny (MD)")).toBeNull();
+    expect(screen.queryByText(/umowy wykonawczej/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    const payload = onSubmit.mock.calls[0][0] as LineFormValues;
+    expect(payload.input_value).toBe(50);
+    expect(payload).not.toHaveProperty("optional_md");
+  });
+
+  it("u klienta spoza CeZ edycja linii z zapisaną opcją (dane historyczne) też jej nie pokazuje", () => {
+    renderModal(vi.fn(), GROUP, { line: { ...LINE, md_optional_total: 40 } });
+    expect(screen.queryByLabelText("Zakres opcjonalny (MD)")).toBeNull();
+  });
+
   it("opcja jedzie w payloadzie obok podstawy, a podgląd sumuje oba zakresy", async () => {
     const user = setupUser();
-    const onSubmit = renderModal();
+    const onSubmit = renderModal(vi.fn(), CEZ_GROUP);
 
     await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
     await fillRates(user);
@@ -1609,7 +1635,7 @@ describe("ConsultantLineModal — zakres opcjonalny MD (CeZ)", () => {
 
   it("puste pole opcji to `null` (brak opcji), a przy budżecie kwotą pole znika", async () => {
     const user = setupUser();
-    const onSubmit = renderModal();
+    const onSubmit = renderModal(vi.fn(), CEZ_GROUP);
 
     await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
     await fillRates(user);
@@ -1621,7 +1647,7 @@ describe("ConsultantLineModal — zakres opcjonalny MD (CeZ)", () => {
   });
 
   it("edycja linii wczytuje zapisaną opcję", async () => {
-    renderModal(vi.fn(), GROUP, { line: { ...LINE, md_optional_total: 40 } });
+    renderModal(vi.fn(), CEZ_GROUP, { line: { ...LINE, md_optional_total: 40 } });
     expect(await screen.findByLabelText("Zakres opcjonalny (MD)")).toHaveValue("40");
   });
 });

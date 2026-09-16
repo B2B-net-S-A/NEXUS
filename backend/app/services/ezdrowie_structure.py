@@ -61,6 +61,24 @@ def build_structure_seed_sql(client_id: int = EZDROWIE_CLIENT_ID) -> str:
         IF NOT EXISTS (SELECT 1 FROM clients WHERE id = {int(client_id)}) THEN
             RETURN;
         END IF;
+        -- Wiersz zasiany wcześniej, któremu downgrade 0312 zdjął kolumnę
+        -- części: adoptujemy go po `source_key` zamiast wstawiać drugi
+        -- (UNIQUE `ux_client_framework_contracts_source_key` odrzuciłby
+        -- duplikat i round-trip downgrade→upgrade zostawiałby bazę na 0311).
+        UPDATE client_framework_contracts fc
+           SET project_part = v.project_part
+          FROM (VALUES
+            {framework_rows}
+          ) AS v(client_id, name, project_part, source_key)
+         WHERE fc.client_id = v.client_id
+           AND fc.source_system = {_sql_literal(EZDROWIE_SEED_SOURCE_SYSTEM)}
+           AND fc.source_key = v.source_key
+           AND fc.project_part IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM client_framework_contracts other
+               WHERE other.client_id = v.client_id
+                 AND other.project_part = v.project_part
+           );
         INSERT INTO client_framework_contracts
             (client_id, name, status, signed_via, currency, project_part,
              source_system, source_key)
@@ -75,6 +93,11 @@ def build_structure_seed_sql(client_id: int = EZDROWIE_CLIENT_ID) -> str:
         WHERE NOT EXISTS (
             SELECT 1 FROM client_framework_contracts fc
             WHERE fc.client_id = v.client_id AND fc.project_part = v.project_part
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM client_framework_contracts fc
+            WHERE fc.source_system = {_sql_literal(EZDROWIE_SEED_SOURCE_SYSTEM)}
+              AND fc.source_key = v.source_key
         );
         INSERT INTO client_executive_contracts
             (client_id, framework_contract_id, number, status)

@@ -700,10 +700,18 @@ w `/api/health/deep`). Funkcja dotyczy WYŁĄCZNIE klienta 115 (bramka
   USTAWIA `predecessor_order_id` (poprzednik nie jest zamykany) → poprzednik dostaje
   `replaced_by_*` (tag „Zastąpiony → następca"). **Sumy grupy — reguła pozycji:**
   `md_positions_total`/`contract_value_pln` pomijają linie, na które wskazuje
-  `predecessor_order_id` innej linii (zastąpiony wnosi zużycie, nie budżet — inaczej
-  zastępstwo podwaja wartość umowy); kwoty tylko z finansami. UI: `MdScopeBars`,
-  `LineMonthlyHistoryDialog` („Rozliczenia miesięczne"), nagłówek „Wykorzystano
-  wartości umowy". Harness `/preview/order-md-scopes`.
+  `predecessor_order_id` innej linii — ale ZALEŻNIE od rodzaju (`replaced_by_kind`
+  z dziennika: `replacement` = zastępstwo przez `replaces_order_id`, następca ma własny
+  budżet → poprzednik wnosi tylko zużycie; `swap` = zamiana kontraktora, następca
+  przejął POZOSTAŁOŚĆ → poprzednik wnosi swoje zużycie jako część pozycji, inaczej
+  „wykorzystano" przekraczałoby wartość umowy); linie `cancelled` nie są pozycjami.
+  Zamiana z opcją dzieli POZOSTAŁOŚĆ (z korektą ręczną) na opcję i podstawę bez
+  wartości ujemnych; offboarding (`_reduce_legacy_md_budget`) zdejmuje pulę najpierw
+  z opcji. Kwoty tylko z finansami. **UI „zakresów" (paski Podstawa/Opcja, nagłówek
+  „Wykorzystano wartości umowy", pole „Zakres opcjonalny") renderuje się WYŁĄCZNIE dla
+  karty z `executive_contract` / klienta CeZ** — BIK/Polkomtel/BNP widzą dotychczasowy
+  pasek „pozostało / całość". `MdScopeBars`, `LineMonthlyHistoryDialog`
+  („Rozliczenia miesięczne"). Harness `/preview/order-md-scopes`.
 - **Import danych startowych (Faza C):** `POST /api/admin/clients/{id}/ezdrowie-md-orders/import?dry_run=`
   (admin, tylko CeZ) z manifestem JSON (`app/schemas/ezdrowie_md_seed.py`) —
   **manifest żyje poza repo** (nazwiska, stawki). Serwis `app/services/ezdrowie_md_seed.py`:
@@ -713,8 +721,19 @@ w `/api/health/deep`). Funkcja dotyczy WYŁĄCZNIE klienta 115 (bramka
   `already_exists` (idempotencja), linia jak w `_build_line`, poprzednik `completed`
   z eventem `zakonczenie_konsultanta` `reason=seed_history` (NIE `removed_from_order`),
   szkice z `supersede_order_ids` ANULOWANE (tylko draft bez pliku poza grupą).
-  Dry-run idzie tą samą ścieżką i kończy rollbackiem; apply z blokerem = 409 i zero
-  zapisu; paragon `app_settings['ezdrowie_md_seed_<sha12>']` = tylko liczniki i ID.
+  Historia miesięczna wchodzi w DRUGIM przejściu (po utworzeniu następców), a status
+  linii zakończonej jest po przeliczeniu przywracany jawnie — inaczej `sync_md_line_status`
+  wskrzeszał poprzednika z datą końca „dziś"; linia zakończona ma `skip_sync_for_contract`
+  (nie przepisuje kontraktowi stawki z historycznej linii). Dry-run idzie tą samą ścieżką
+  i kończy rollbackiem; apply z blokerem = 409 i zero zapisu; paragon
+  `app_settings['ezdrowie_md_seed_<sha12>']` = tylko liczniki i ID (ten sam manifest
+  ponownie = dopisek `reapplied_at`, nie duplikat klucza).
+- **Round-trip migracji 0312 z klientem 115**: downgrade zostawia zasiane umowy ramowe,
+  więc zasiew ADOPTUJE wiersz po `(source_system, source_key)` zamiast wstawiać drugi.
+  Guard zakończenia umowy wykonawczej liczy także żywe karty MD; przypisanie z ekranu
+  przeglądu na osobie, której reprezentatywne zamówienie jest linią karty → 409 (linia
+  dziedziczy umowę z karty). PATCH zamówienia z NIEZMIENIONĄ umową nie waliduje jej
+  (umowa mogła zostać zakończona po przypisaniu); sama część bez umowy → 422.
 
 ## Klienci → Profil: tabela konsultantów + stawki z harmonogramu
 

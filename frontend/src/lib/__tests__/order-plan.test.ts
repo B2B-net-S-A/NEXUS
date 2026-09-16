@@ -6,6 +6,7 @@ import type {
   OrderPlanLine,
 } from "@/lib/api/orderGroups";
 import type { ConsultantOption } from "@/lib/api/orderGroups";
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
 import {
   backToOptions,
   chooseContract,
@@ -23,6 +24,7 @@ import {
   splitPlanForGroup,
   toLineInput,
   undoInactiveDecision,
+  usesOptionalMd,
   type OrderPlanContext,
 } from "@/lib/order-plan";
 
@@ -84,6 +86,7 @@ function plan(lines: OrderPlanLine[]): OrderGroupExtraction {
 }
 
 const md: OrderPlanContext = {
+  clientId: 18,
   orderType: "md",
   sharedMd: false,
   groupStart: "2026-09-03",
@@ -278,6 +281,7 @@ describe("karty konsultantów z odczytu PDF-a", () => {
 
 describe("konsultant nieaktywny albo nieznaleziony", () => {
   const cost: OrderPlanContext = {
+    clientId: 18,
     orderType: "cost",
     sharedMd: false,
     groupStart: "2026-03-30",
@@ -365,6 +369,7 @@ describe("konsultant nieaktywny albo nieznaleziony", () => {
 
 describe("ta sama decyzja na każdej ścieżce wyboru osoby", () => {
   const cost: OrderPlanContext = {
+    clientId: 18,
     orderType: "cost",
     sharedMd: false,
     groupStart: "2026-03-30",
@@ -477,26 +482,33 @@ describe("„Uzupełnij zamówienie” — karty tylko dla osób spoza zamówien
 });
 
 describe("zakres opcjonalny MD (CeZ) na karcie", () => {
+  const cez: OrderPlanContext = { ...md, clientId: EZDROWIE_CLIENT_ID };
+
   it("karta z PDF-a nie zgaduje opcji — pole puste, klucz `optional_md` nie jedzie", () => {
     const [draft] = draftsFromPlan(plan([line()]));
     expect(draft.optionalMd).toBe("");
     expect(emptyDraft().optionalMd).toBe("");
-    expect(toLineInput(draft, md)).not.toHaveProperty("optional_md");
+    expect(toLineInput(draft, cez)).not.toHaveProperty("optional_md");
   });
 
-  it("wpisana opcja jedzie obok podstawy, ale tylko przy własnym budżecie MD osoby", () => {
+  it("wpisana opcja jedzie obok podstawy, ale tylko u CeZ i przy własnym budżecie MD osoby", () => {
     const [draft] = draftsFromPlan(plan([line()]));
     const withOption = { ...draft, optionalMd: "170" };
-    expect(toLineInput(withOption, md)).toMatchObject({
+    expect(usesOptionalMd(cez)).toBe(true);
+    expect(toLineInput(withOption, cez)).toMatchObject({
       input_mode: "md",
       input_value: 35,
       optional_md: 170,
     });
+    // Klient spoza CeZ nie ma umów wykonawczych — pola nie ma i nic nie jedzie,
+    // nawet gdy stan karty niesie wartość (przegląd adwersarialny 09.2026).
+    expect(usesOptionalMd(md)).toBe(false);
+    expect(toLineInput(withOption, md)).not.toHaveProperty("optional_md");
     // Zamówienie kosztowe i wspólna pula nie mają budżetu przy osobie —
     // opcja nie ma się do czego doliczyć.
-    expect(toLineInput(withOption, { ...md, orderType: "cost" })).not.toHaveProperty("optional_md");
-    expect(toLineInput(withOption, { ...md, sharedMd: true })).not.toHaveProperty("optional_md");
+    expect(toLineInput(withOption, { ...cez, orderType: "cost" })).not.toHaveProperty("optional_md");
+    expect(toLineInput(withOption, { ...cez, sharedMd: true })).not.toHaveProperty("optional_md");
     // Zero to „brak opcji", nie opcja o wielkości zero.
-    expect(toLineInput({ ...draft, optionalMd: "0" }, md)).not.toHaveProperty("optional_md");
+    expect(toLineInput({ ...draft, optionalMd: "0" }, cez)).not.toHaveProperty("optional_md");
   });
 });

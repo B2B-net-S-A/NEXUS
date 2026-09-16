@@ -23,6 +23,7 @@ import {
   toMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput } from "@/lib/utils";
 
@@ -87,6 +88,9 @@ export interface OrderLineDraft {
 }
 
 export interface OrderPlanContext {
+  /** Klient zamówienia — bramka pól istniejących tylko u Centrum e-Zdrowia
+   *  (zakres opcjonalny MD z umowy wykonawczej). */
+  clientId: number;
   orderType: Exclude<OrderType, "periodic">;
   /** Wspólna pula MD zamówienia — linia nie ma wtedy własnego budżetu MD. */
   sharedMd: boolean;
@@ -417,6 +421,15 @@ export function usesLineMd(ctx: Pick<OrderPlanContext, "orderType" | "sharedMd">
   return ctx.orderType === "md" && !ctx.sharedMd;
 }
 
+/** Zakres opcjonalny MD przy osobie — własny budżet MD u Centrum e-Zdrowia.
+ *  Inni klienci nie mają umów wykonawczych, więc pole u nich nie istnieje
+ *  (przegląd adwersarialny 09.2026: pokazywało się każdemu). */
+export function usesOptionalMd(
+  ctx: Pick<OrderPlanContext, "orderType" | "sharedMd" | "clientId">,
+): boolean {
+  return usesLineMd(ctx) && isEzdrowieClient(ctx.clientId);
+}
+
 /** Linia do `POST /order-groups`. Wołać wyłącznie dla kart bez `lineIssues`. */
 export function toLineInput(
   draft: OrderLineDraft,
@@ -450,9 +463,9 @@ export function toLineInput(
     ...(usesLineMd(ctx) && md !== null
       ? { input_mode: "md" as const, input_value: md }
       : {}),
-    // Opcja tylko przy własnym budżecie MD osoby i tylko gdy wpisana —
+    // Opcja tylko u CeZ, przy własnym budżecie MD osoby i tylko gdy wpisana —
     // brak klucza to „brak opcji", więc karta bez CeZ nie wysyła `null`.
-    ...(usesLineMd(ctx) && optionalMd !== null && optionalMd > 0
+    ...(usesOptionalMd(ctx) && optionalMd !== null && optionalMd > 0
       ? { optional_md: optionalMd }
       : {}),
     start_date: draft.startDate ?? ctx.groupStart,

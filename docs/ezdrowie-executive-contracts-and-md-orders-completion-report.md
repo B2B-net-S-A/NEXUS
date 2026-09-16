@@ -91,13 +91,27 @@ Przykładowy fragment manifestu (osoby zmyślone):
   `MdScopeBars`, `LineMonthlyHistoryDialog`; pełny zestaw 1668 testów zielony;
   `type-check` czysty.
 
+## Przegląd adwersarialny (3 soczewki, 16.09) — naprawione w tym PR
+
+Round-trip `alembic downgrade 0311 → upgrade heads` z klientem 115 (zasiew adoptuje
+wiersze po `source_key`); ujemny zakres podstawowy po zamianie z korektą ręczną;
+sumy karty po zamianie kontraktora („wykorzystano" > wartość) i dla anulowanych
+linii; offboarding linii z opcją; przełączenie trybu budżetu z opcją (500);
+kolumna „Zużycie zamówienia" w eksporcie; import wskrzeszający poprzednika
+i przepisujący stawkę kontraktu z linii zakończonej; duplikat paragonu przy
+powtórnym apply; PATCH zamówienia z niezmienioną, już zakończoną umową (422);
+część bez umowy przez PATCH; guard zakończenia umowy bez kart MD; przypisanie
+na linii karty; UI zakresów i pole opcji u wszystkich klientów MD; pytanie
+o decyzję u osoby już zastąpionej; brak edycji umowy wykonawczej; select
+gubiący zakończoną bieżącą umowę.
+
 ## Znane ograniczenia
 
-- Kolumna „Zużycie zamówienia" w istniejącym eksporcie zamówień liczy
-  `md_total + korekta − md_remaining`, więc dla linii z opcją zaniża o zakres
-  opcjonalny — poprawna jest nowa kolumna „Wykorzystano (MD)"; do uporządkowania
-  w `order_excel_export.py`.
 - Wymóg umowy wykonawczej u klienta 115 obejmuje każdy typ karty (także kosztową).
+- Zasiew nie adoptuje umowy ramowej dodanej ręcznie pod tą samą nazwą bez części
+  (API umów ramowych nie wystawia `project_part`).
+- Zapis zejść MD per osoba = role cyklu życia zamówienia (DL org-wide) — jak
+  dotychczasowe akcje cyklu życia.
 - Przepięcie istniejącej karty MD pod inną umowę wykonawczą nie jest obsługiwane
   (tylko przy tworzeniu).
 - Archiwum konsultantów nie pokazuje tagu umowy wykonawczej (jak dotąd części).

@@ -26,7 +26,10 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
-import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import {
+  executiveContractOptionLabel,
+  useExecutiveContractOptions,
+} from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -118,7 +121,12 @@ export function ExtendOrderDialog({
   const [executiveContractId, setExecutiveContractId] = useState<string>(
     latest?.executive_contract_id != null ? String(latest.executive_contract_id) : "",
   );
-  const executiveContracts = useExecutiveContractOptions(clientId);
+  // Dziedziczona umowa zostaje w opcjach także po zakończeniu — inaczej
+  // select startowałby od „— wybierz —" mimo przypisania na ostatnim zamówieniu.
+  const executiveContracts = useExecutiveContractOptions(
+    clientId,
+    latest?.executive_contract_id ?? null,
+  );
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -511,7 +519,7 @@ export function ExtendOrderDialog({
                 <optgroup key={group.framework_contract_id} label={group.label}>
                   {group.options.map((ec) => (
                     <option key={ec.id} value={String(ec.id)}>
-                      {ec.number}
+                      {executiveContractOptionLabel(ec)}
                     </option>
                   ))}
                 </optgroup>

@@ -2,8 +2,8 @@
   "reviewed_at": "2026-09-16",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
-    "backend/app/api/client_order_groups.py": "e2506b1cff0be190e9152ef459bd7c8e3163fa6a9f9247a3108d6e190c1620a6",
-    "backend/app/api/client_orders.py": "90340b7fe112a0dffa357d90e0f7350592c5ee7ab1910e98d7072b3511ba85c0",
+    "backend/app/api/client_order_groups.py": "6816589f6a963ff440847e57bc156b44ffde45371dd996ad7c0379cbbcfc6c5d",
+    "backend/app/api/client_orders.py": "ee54933d4ae887cad6a306ab718aa7632dd57f7dcd25cdfb499f9600327c8b7b",
     "backend/app/api/md_consumption.py": "8e6adfc1c506115831aec48f7886f7c865d619c84023819cd664e1794f7d43aa",
     "backend/app/api/order_mail_queue.py": "c017d765edc53fa1e30a78fcdc536637fc7130b195b61724cb231e8bf167ea37",
     "backend/app/models/client_order.py": "df996b72ff1cca46c95c385cb5b3a33228215d4bdac9a8f8b87fdb062e7b0c34",
@@ -15,7 +15,7 @@
     "backend/app/services/cv_text_extractor.py": "3cde8c7fe399789f17b77d7afd56a317c0dd15e8f219a2de573317ff1a453261",
     "backend/app/services/cyfrowy_polsat_orders.py": "0578823b1ce18e93af95cd386a6cc60d999c6c28d9c8cb209491c5b78cc88e50",
     "backend/app/services/dl_alerts.py": "0eb797fd67b9299fc34e24b7ae99dc801fccf7184c6f09dfdd776fd2cc87f704",
-    "backend/app/services/ezdrowie.py": "dbf7f25ae69d860f5f6faf940c0052635704e17e4251c6e606b369b7e79eb3e1",
+    "backend/app/services/ezdrowie.py": "3b51e3f0fa19b894094ecb9f4dd9a61c31bc4c3175b6f9ed82470b373c2e7639",
     "backend/app/services/finance_order_matching.py": "17eb4961d6dd78814869686367b66ea37cfb9cfda424fa70785e9c62e3475c13",
     "backend/app/services/lotte_wedel_orders.py": "0c9bfa1fb232f154f66ce894c5861b62c831a2c847df273b32550ff4194275e2",
     "backend/app/services/md_import_parser.py": "6fadd0d81ec5c0a4351ec8962b5d4d12f3ad18159876881d0f54e7a7091bdda2",
@@ -56,8 +56,8 @@
     "backend/app/tasks/dl_alerts_scanner.py": "3a5d56c53d790e57028a1e5b9efde0c2e6453284d21ac17aafb76cbb541e0446",
     "backend/app/tasks/dl_portal_expiry_scanner.py": "5983ad5aeb8f1e468ff348804908f21580266b9cad9fced03dec1e09f6417f26",
     "backend/app/tasks/order_mail_ingest.py": "3474dcc51762114d33abacc2fa51e1343dd1808b4d00e6399c64fe2734d34eee",
-    "frontend/src/components/EditOrderDialog.tsx": "0004edfbfcfd72ab8a3931c25570ba77a2f2942742ea33edd1d379bc095b0680",
-    "frontend/src/components/ExtendOrderDialog.tsx": "7831825d52e5aab4d288f5d74241367b0a3f5f4bde035b654f84aee915a091c1",
+    "frontend/src/components/EditOrderDialog.tsx": "a4b507e614c17c6eea5e3bd3a58c9575c694638d07aa88b7f91880900d37b377",
+    "frontend/src/components/ExtendOrderDialog.tsx": "2dc18fd7b174440433acf5b4138bfd185c9545b4dc50f1bf0e0664689570aea0",
     "frontend/src/components/NewContractorOrderDialog.tsx": "b3c5aebd942abde64950eced0b9dcd416e68abf78831a9e4572163e6579e14fb",
     "frontend/src/components/OrderDocumentsSection.tsx": "750c49ec2456414632a38af8ebb94343fd3d63044b79f8f695c6f37d325ce41f",
     "frontend/src/components/OrdersAndContractsTab.tsx": "b51061726b122bccf56f7281d16a04b0889985ecd547a8946e54a0efa877a247",
@@ -65,8 +65,8 @@
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "9437e3d9b05a8e7b2fb89842aa52ea83c576c5f7238332082bb96794bca0bd3e",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "665cbb8a5078dd79c4c8b1ad3afd34305c14ac1f57662a028b38187a38ce66da",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
-    "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "5448391ade562fd598683834d5eab2e30f4ed856fe69c19844621ac99fb6188f",
-    "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "fc92629e41eab4f3da6992983beb57e1dc9e932348532a5e958c49d295ad5deb",
+    "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "89fb51b4940d2483c596054fa08f47ac87426ebb960e05a87b75dee3822ffe31",
+    "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "b6e16e713c863bbb18c718d8136a5fd16e405e04fac68e5cfe84585f39725db9",
     "frontend/src/components/order-mail/OrderMailQueue.tsx": "42d7faf8f8114db67ca3a877c1ebb2e3a93205ff3a1eab1b3ccb6fd4fdd5535b",
     "frontend/src/components/orders/ExtractedConsultants.tsx": "50dcdbfbccaf08bb663a2370d61bd79155c596ed45a8ed7ec5abc8bf4974b200",
     "frontend/src/components/orders/InlineOrderFields.tsx": "6926981466f96613e9d25877bd623f6fddcef37d3bef4b3128c9525c79dcc7bf",
@@ -74,7 +74,7 @@
     "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx": "f230675c2b0529c9e1d8e4282e17ef38e1a756cbdff9e77138025cdf5d89a71a",
     "frontend/src/lib/api/orderMail.ts": "89e9c68b4e2efb0f48632377ad6a4a13d183850b77f8600238675b9641afa3a8",
     "frontend/src/lib/order-extraction.ts": "c49a161f4a316e8edaa9eb792ccbba88158c7d86886e1b35d4b2968c3d149309",
-    "frontend/src/lib/order-line-usage.ts": "035c12d0ea5673a9d160cdd8c81e072ffada32eb9faab73f689803ebaa543779",
-    "frontend/src/lib/order-plan.ts": "ffbfa598bc43258c7b36d1f849fcf50bdd050c8155d545b6c8fb7dc0ffe81038"
+    "frontend/src/lib/order-line-usage.ts": "71dfc08327c14e5df4a022455a408dd44c64eb7b60f1b36a857ef3eb324759c2",
+    "frontend/src/lib/order-plan.ts": "edf6612fc56fb2492a8b57e9989dbfcd50873e94875dd9ccb05f680ed18185de"
   }
 }

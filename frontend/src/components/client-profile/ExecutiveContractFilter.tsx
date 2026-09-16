@@ -56,11 +56,15 @@ export function ExecutiveContractFilter({
           Wszystkie
         </FilterPill>
         {/* Pigułka „Nieprzypisani" tylko gdy jest kogo przypisać — pusta
-            pigułka sugerowałaby zaległość, której nie ma. */}
+            pigułka sugerowałaby zaległość, której nie ma. Licznik liczy
+            OBECNYCH konsultantów (tę listę filtruje), a panel przeglądu wyżej
+            obecnych + planowanych — tooltip mówi to wprost, żeby liczby nie
+            czytały się jako sprzeczność. */}
         {unassignedCount > 0 ? (
           <FilterPill
             active={value === "unassigned"}
             onClick={() => onChange("unassigned")}
+            title="Obecni konsultanci bez umowy wykonawczej (panel przeglądu liczy też planowanych)"
           >
             Nieprzypisani ({unassignedCount})
           </FilterPill>
@@ -110,10 +114,12 @@ export function ExecutiveContractFilter({
 export function FilterPill({
   active,
   onClick,
+  title,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -121,6 +127,7 @@ export function FilterPill({
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      title={title}
       className={cn(
         "px-3 py-1 text-xs font-medium rounded-full border transition-colors",
         active
