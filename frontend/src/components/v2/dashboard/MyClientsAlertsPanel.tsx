@@ -349,20 +349,27 @@ export function MyClientsAlertsPanel({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <li className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-destructive" aria-hidden />
-              Wysoki priorytet (≤7 dni) + mail
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
-              Przypomnienie standardowe
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden />
-              Wymaga uzupełnienia / weryfikacji
-            </li>
-          </ul>
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <ul className="flex flex-wrap gap-x-4 gap-y-1">
+              <li className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-destructive" aria-hidden />
+                Wysoki priorytet (≤7 dni) + mail
+              </li>
+              <li className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
+                Przypomnienie standardowe
+              </li>
+              <li className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/40" aria-hidden />
+                Wymaga uzupełnienia / weryfikacji
+              </li>
+            </ul>
+            {/* Poza legendą kropek, bo nie opisuje koloru karty: mail wychodzi
+                trzy razy na sprawę — `email_on_first` w `emit` (pierwsza karta,
+                zwykle miesiąc przed końcem) oraz etapy t14 i t7
+                z `date_cycle_stage`. Powtórki co 7 dni idą bez maila. */}
+            <p>Mail: pierwsze przypomnienie, 14 dni i 7 dni przed końcem.</p>
+          </div>
           <button
             type="button"
             onClick={() => setHistoryOpen((open) => !open)}

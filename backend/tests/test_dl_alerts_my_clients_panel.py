@@ -3,8 +3,9 @@
 Ticket (09.2026): powiadomienia o zamówieniach i kontraktach klientów wychodzą
 z widgetu „Moje zadania" do osobnego panelu. Sedno testów:
 
-* cykl datowy T-30 → co 7 dni → T-14 (mail) → T-7 (wysoki priorytet + mail),
-  liczony z zakresu, więc dzień bez skanera nie gubi progu;
+* cykl datowy T-30 (pierwszy alert sprawy = mail) → co 7 dni bez maila →
+  T-14 (mail) → T-7 (wysoki priorytet + mail), liczony z zakresu, więc dzień
+  bez skanera nie gubi progu;
 * MD startuje przy 21 MD, kosztowe przy 10 000 zł, wysoki priorytet = ~7 dni
   roboczych przy tempie TEGO zamówienia;
 * odhaczenie zamyka całą sprawę (wszystkie powtórki), zatrzymuje dalsze
@@ -225,7 +226,13 @@ def test_new_contractor_missing_fields():
 # ── Cykl zamówienia okresowego ──────────────────────────────────────────────
 
 
-async def test_periodic_order_cycle_t30_weekly_t14_email_t7_high(monkeypatch):
+async def test_periodic_order_cycle_first_mail_weekly_t14_t7_high(monkeypatch):
+    """Miesięczne uprzedzenie: pierwszy wiersz sprawy prosi o mail.
+
+    Do 09.2026 pierwszy mail wychodził dopiero na progu ``t14`` — Delivery Lead
+    dowiadywał się o końcu zamówienia dwa tygodnie przed, za późno na negocjację
+    przedłużenia. Karta pojawiała się 30 dni przed, ale bez maila.
+    """
     from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING
     from app.tasks.dl_alerts_scanner import rule_periodic_order_ending
 
@@ -255,7 +262,8 @@ async def test_periodic_order_cycle_t30_weekly_t14_email_t7_high(monkeypatch):
     assert rows[0].priority == "standard"
     assert rows[0].link == f"/clients/{client_id}?tab=zamowienia&order={order_id}"
     assert name in rows[0].message and end.isoformat() in rows[0].message
-    assert not (rows[0].payload or {}).get("email")
+    # Miesiąc przed końcem: karta standardowa, ale mail już leci.
+    assert (rows[0].payload or {}).get("email") is True
 
     # Dzień później: bez nowego wiersza.
     _Clock.current = moment + timedelta(days=1)
@@ -266,7 +274,11 @@ async def test_periodic_order_cycle_t30_weekly_t14_email_t7_high(monkeypatch):
     # bazy jest o ułamek sekundy późniejszy niż start zegara testu).
     _Clock.current = moment + timedelta(days=8)
     await _run(rule_periodic_order_ending, monkeypatch, _TODAY + timedelta(days=8))
-    assert len(await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)) == 2
+    rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+    assert len(rows) == 2
+    # Powtórka tygodniowa NIE prosi o mail — inaczej jedno zamówienie wysyłałoby
+    # pięć maili w cyklu zamiast trzech.
+    assert not (rows[-1].payload or {}).get("email")
 
     # T-13 (skaner NIE ruszył w dniu T-14) — próg t14 i tak wpada, z mailem.
     _Clock.current = moment + timedelta(days=17)
@@ -313,6 +325,36 @@ async def test_extended_order_resolves_old_card_and_starts_new_cycle(monkeypatch
     assert [r.status for r in rows] == ["resolved", "new"]
     assert rows[0].handled_by_user_id is None, "auto-zamknięcie to nie odhaczenie DL"
     assert rows[0].event_key != rows[1].event_key
+    # Nowa data końca = nowa sprawa = własne miesięczne uprzedzenie mailem.
+    assert (rows[1].payload or {}).get("email") is True
+
+
+async def test_order_entering_window_late_still_gets_the_first_mail(monkeypatch):
+    """Zamówienie wpisane 20 dni przed końcem dostaje mail od razu.
+
+    Gdyby miesięczne uprzedzenie było osobnym etapem ``t30``, ta sprawa nie
+    dostałaby maila wcale aż do ``t14``: w chwili wejścia w okno zostało już
+    mniej niż 30 dni, więc próg 30-dniowy nigdy by się nie odpalił. Mail przy
+    PIERWSZYM wierszu sprawy nie ma tej dziury.
+    """
+    from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import rule_periodic_order_ending
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    await _seed_periodic_order(client_id, contract_id, _TODAY + timedelta(days=20))
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+    assert len(rows) == 1
+    assert rows[0].priority == "standard", "20 dni to jeszcze nie pilne"
+    assert not rows[0].dedupe_key.endswith(("t14", "t7")), "to nie jest nazwany próg"
+    assert (rows[0].payload or {}).get("email") is True
+
+    # Ten sam dzień, drugi bieg skanera: bez drugiego maila.
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    assert len(await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)) == 1
 
 
 # ── MD i kosztowe ───────────────────────────────────────────────────────────

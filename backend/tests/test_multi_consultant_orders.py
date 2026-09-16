@@ -2306,3 +2306,134 @@ async def test_excel_export_uses_visible_group_order_and_rejects_cross_client_id
         json={"group_ids": [foreign["id"]]},
     )
     assert forbidden.status_code == 404, forbidden.text
+
+
+# ── Centrum e-Zdrowia: karta MD przypięta do umowy wykonawczej (Faza B) ─────
+
+
+async def _seed_executive_contract(client_id: int, project_part: str = "cz2") -> int:
+    """Umowa ramowa (część) + aktywna umowa wykonawcza pod nią. Zwraca id EC."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_executive_contract import ClientExecutiveContract
+    from app.models.client_framework_contract import (
+        ClientFrameworkContract,
+        FrameworkContractStatus,
+    )
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        framework = ClientFrameworkContract(
+            client_id=client_id,
+            name=f"Umowa ramowa {project_part} {suffix}",
+            status=FrameworkContractStatus.active,
+            project_part=project_part,
+        )
+        db.add(framework)
+        await db.flush()
+        executive = ClientExecutiveContract(
+            client_id=client_id,
+            framework_contract_id=framework.id,
+            number=f"CeZ/{suffix}/2026",
+        )
+        db.add(executive)
+        await db.commit()
+        return executive.id
+
+
+def _md_group_payload(lines: list[dict], **extra) -> dict:
+    return {
+        "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
+        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "order_type": "md",
+        "md_budget_mode": "per_person",
+        "lines": lines,
+        **extra,
+    }
+
+
+async def test_ezdrowie_md_card_requires_an_executive_contract(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", client_id)
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json=_md_group_payload([_line_payload(contracts[0])]),
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Wybierz umowę wykonawczą" in resp.text
+
+
+async def test_ezdrowie_lines_inherit_the_executive_contract_and_its_part(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", client_id)
+    executive_id = await _seed_executive_contract(client_id, "cz2")
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json=_md_group_payload(
+            [_line_payload(contracts[0])], executive_contract_id=executive_id
+        ),
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    group = resp.json()
+    assert group["executive_contract"]["id"] == executive_id
+    assert group["executive_contract"]["project_part"] == "cz2"
+    assert group["executive_contract"]["status"] == "active"
+
+    # Osoba dodana później też dziedziczy przypisanie karty.
+    added = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json=_line_payload(contracts[1]),
+        headers=app_auth_headers,
+    )
+    assert added.status_code == 201, added.text
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(
+                    ClientOrder.executive_contract_id, ClientOrder.project_part
+                ).where(ClientOrder.order_group_id == group["id"])
+            )
+        ).all()
+    assert len(rows) == 2
+    assert all(row == (executive_id, "cz2") for row in rows), rows
+
+
+async def test_executive_contract_is_refused_outside_ezdrowie(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    # EZDROWIE_CLIENT_ID zostaje odsunięte przez conftest — klient nim nie jest.
+    executive_id = await _seed_executive_contract(client_id)
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json=_md_group_payload(
+            [_line_payload(contracts[0])], executive_contract_id=executive_id
+        ),
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "wyłącznie Centrum e-Zdrowia" in resp.text
+
+    plain = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json=_md_group_payload([_line_payload(contracts[0])]),
+        headers=app_auth_headers,
+    )
+    assert plain.status_code == 201, plain.text
+    assert plain.json()["executive_contract"] is None
+    assert plain.json()["md_positions_total"] == 50

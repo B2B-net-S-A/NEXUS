@@ -175,6 +175,7 @@ async def emit(
     stage: Optional[str] = None,
     priority: str = DL_ALERT_PRIORITY_STANDARD,
     email: bool = False,
+    email_on_first: bool = False,
     now: Optional[datetime] = None,
 ) -> list[DlAlert]:
     """Wystaw alert każdemu wskazanemu odbiorcy. Zwraca faktycznie utworzone.
@@ -185,6 +186,16 @@ async def emit(
     ``stage`` (``t14``/``t7``/``high``) = nazwany próg: jeden wiersz na próg,
     niezależnie od okna tygodniowego. ``email=True`` zapisuje w payloadzie
     prośbę o mail — wysyła go ``send_pending_alert_emails`` po skanie.
+
+    ``email_on_first=True`` prosi o mail także przy PIERWSZYM wierszu sprawy,
+    niezależnie od etapu. Tak działa miesięczne uprzedzenie o kończącym się
+    zamówieniu: sprawa wchodzi w okno ``DL_ALERT_ENDING_WINDOW_DAYS`` (30 dni)
+    i od razu idzie mail, zamiast czekać na ``t14``. Świadomie liczone
+    z ``first_seen``, a nie z nowego etapu ``t30``: etap wykluczyłby powtórki
+    tygodniowe w paśmie 30→15 dni (etap i numer okna to ta sama pozycja
+    ``dedupe_key``) i wysłałby zaraz po wdrożeniu mail każdej sprawie już
+    wiszącej w oknie. Sprawa z otwartym wierszem ma ``first_seen`` ustawione,
+    więc maila nie dostaje.
 
     Zapis idzie przez ``INSERT … ON CONFLICT DO NOTHING`` na ``dedupe_key``,
     a nie przez „SELECT, potem INSERT": ta druga wersja ma okno wyścigu, w
@@ -197,15 +208,21 @@ async def emit(
     moment = now or datetime.now(timezone.utc)
     created: list[DlAlert] = []
 
-    row_payload = dict(payload or {})
-    if email:
-        row_payload["email"] = True
+    base_payload = dict(payload or {})
 
     for user_id in user_ids:
         event_key = event_key_for(alert_type, entity_key, user_id)
         first_seen, handled, episode = await _episode_state(db, event_key=event_key)
         if handled:
             continue
+
+        # Payload liczony PER ODBIORCA, bo `email_on_first` zależy od tego, czy
+        # TEN odbiorca ma już otwarty wiersz sprawy: nowy Delivery Lead
+        # przypisany do klienta w połowie okna dostaje swój pierwszy mail, a
+        # pozostali nie dostają drugiego.
+        row_payload = dict(base_payload)
+        if email or (email_on_first and first_seen is None):
+            row_payload["email"] = True
 
         if stage is not None:
             window = stage
@@ -347,6 +364,11 @@ def date_cycle_stage(
     * więcej niż 14 dni → tydzień okna (``None`` = numer tygodnia), standard;
     * 14…8 dni → ``t14``, standard + mail;
     * 7…0 dni → ``t7``, wysoki priorytet + mail.
+
+    Mail miesiąc przed końcem NIE jest tutaj — daje go ``email_on_first``
+    w :func:`emit` (pierwszy wiersz sprawy). Osobny etap ``t30`` zabrałby
+    powtórki tygodniowe z pasma 30→15 dni, bo etap i numer okna zajmują tę samą
+    pozycję w ``dedupe_key``.
 
     Liczone z ZAKRESU dni do końca, nie z równości z konkretną datą — dzień
     bez biegu skanera nie gubi progu (stary skaner dzwonka tak go gubił).

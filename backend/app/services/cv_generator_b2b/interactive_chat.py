@@ -252,9 +252,13 @@ async def _answer_with_model(
     """Wywołanie modelu i zapis wymiany — wyodrębnione, bo bramka kwot musi
     OBEJMOWAĆ wywołanie, a `ai_feature` deklaruje kontekst tylko na czas bloku."""
 
+    # Od 16.09.2026 czat idzie na GPT Luna — sonda pyta o klucz DOSTAWCY modelu;
+    # `api_key` niżej dotyczy wyłącznie ścieżki Anthropic (fallback na Sonnet 5).
+    from app.services.llm_providers import api_key_configured
+
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise CvChatLLMError("ANTHROPIC_API_KEY not configured")
+    if not api_key_configured(CHAT_MODEL):
+        raise CvChatLLMError("brak klucza API dostawcy modelu czatu")
 
     if approved_context is not None:
         public_payload = approved_context
@@ -286,7 +290,7 @@ async def _answer_with_model(
             thinking={"type": "disabled"},
             system=system_prompt,
             messages=messages,
-            api_key=api_key,
+            api_key=api_key or None,
             timeout=CHAT_TIMEOUT_SECONDS,
             max_retries=CHAT_MAX_RETRIES,
             total_timeout=CHAT_TIMEOUT_SECONDS,

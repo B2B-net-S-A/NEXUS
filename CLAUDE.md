@@ -643,6 +643,98 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `/api/health/deep`.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
+## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)
+
+Ticket „Struktura umów wykonawczych" + ticket danych startowych MD (16.09.2026).
+Migracje `0312_ezdrowie_executive_contracts`, `0313_md_optional_scope_and_consumption_status`
+(+ lustro DDL i zasiewu w `entrypoint.sh`, sonda `client_executive_contracts`
+w `/api/health/deep`). Funkcja dotyczy WYŁĄCZNIE klienta 115 (bramka
+`app/services/ezdrowie.py`); u innych klientów pola są NULL, a trasy odpowiadają 422.
+
+- **Umowa ramowa JEST częścią.** `client_framework_contracts.project_part`
+  (`cz1|cz2|cz4|cz5|cz6`, jedna ramowa na część u klienta —
+  `ux_client_framework_contracts_client_part`). Pod nią `client_executive_contracts`
+  (numer unikalny per klient, status `active|ended`, domyślnie `active` — ticket).
+  Docelowa struktura (5 ramowych, 3 wykonawcze) jest zasiana idempotentnie z JEDNEGO
+  źródła SQL `app/services/ezdrowie_structure.py` (migracja + entrypoint; no-op bez
+  klienta 115; `source_key` bez dwukropka — `:cz1` w literale `text()` byłoby
+  parametrem wiązanym). Numery „DO UMOWY RAMOWEJ" na dokumentach są BŁĘDNE —
+  struktura nigdy nie jest parsowana z treści dokumentu.
+- **Konsultant jest przypisany do umowy WYKONAWCZEJ, nie do części.**
+  `client_orders.executive_contract_id` i `client_order_groups.executive_contract_id`;
+  `project_part` zostaje jako WARTOŚĆ POCHODNA z części umowy ramowej (czytają ją
+  dziedziczenie z maila i stare konsumenty). Jedna reguła
+  `resolve_ezdrowie_assignment(db, client_id=…, executive_contract_id=…, project_part=…, require=…)`:
+  u CeZ przy nowym zamówieniu / przedłużeniu / nowej karcie MD umowa wykonawcza jest
+  WYMAGANA („Wybierz umowę wykonawczą" — sama część już nie wystarcza, bo pod jedną
+  częścią bywa kilka umów), musi być `active` i tego klienta; jawna część niezgodna
+  z umową → 422; u innych klientów oba pola muszą być puste. Wołają ją Flow A/B/PATCH
+  w `client_orders.py`, `create_order_group` i przypisanie z ekranu przeglądu.
+- **Tag na profilu = reprezentatywne zamówienie kontraktu** (`app/services/representative_order.py`
+  — wyniesione z `clients.py`, ta sama reguła co dotąd dla części): `ActiveConsultantItem.executive_contract`.
+  Linie kart MD dziedziczą umowę i część z grupy, więc po imporcie startowym tag idzie z linii.
+- **Router `app/api/client_executive_contracts.py`** (`DELIVERY_SECTION_DEPENDENCIES`;
+  zapis `DlAssignedOrAdmin`): `GET /api/clients/{id}/contract-structure`,
+  `POST/PATCH …/executive-contracts[/{ec_id}]` (`ended` z żywymi przypisaniami → 409),
+  `GET …/executive-contracts/review` (obecni + planowani bez umowy wykonawczej na
+  reprezentatywnym zamówieniu — `suggested_framework_contract_id` to WYŁĄCZNIE
+  podświetlenie nagłówka części, ekran NIE preselekcjonuje umowy: ticket zabrania
+  automigracji nawet przy jednej umowie pod częścią), `POST …/executive-contracts/assignments`
+  (ustawia na reprezentatywnym zamówieniu; kontrakt bez zamówienia dostaje szkic —
+  lustro reguły „część umowy zakłada szkic"). Serwis: `app/services/executive_contracts.py`.
+- **Front:** `lib/api/executiveContracts.ts` (typy, `useContractStructure`,
+  `useExecutiveContractOptions` → grupy `<optgroup>` per część, `frameworkPartHeader`
+  „Cz. II — CeZ/145/2025"); profil: `ContractStructureSection` (+ `AddExecutiveContractModal`,
+  `ExecutiveContractReviewPanel`, `ExecutiveContractFilter` — pill „Nieprzypisani (n)",
+  części bez umów widoczne i nieklikalne); cztery dialogi zamówień i `OrderGroupFormModal`
+  mają select umowy wykonawczej zamiast części. Harness `/preview/ezdrowie-contract-structure`.
+- **Zamówienia MD (Faza B, WSZYSCY klienci):** `client_orders.md_optional_total` =
+  zakres OPCJONALNY (NULL = „brak opcji w umowie"); `md_total` = podstawowy;
+  `md_remaining = podstawa + opcja − zejścia + korekta` (`line_budget_total`);
+  zużycie wypełnia najpierw podstawę (`split_md_usage` → `md_base_used`/`md_optional_used`).
+  `client_order_md_consumptions.status` (`protocol` = „Protokół", `accepted` =
+  „Zaakceptowany", NULL = z importu) + `note`; oba statusy liczą się do zużycia.
+  Ręczne wpisy per osoba: `GET/PUT/DELETE …/order-groups/{g}/lines/{l}/consumptions[/{RRRR-MM}]`
+  (zapis = role cyklu życia zamówienia; linia kosztowa / wspólna pula → 422; import
+  XLSX nadpisujący ręczny wpis zeruje status). `replaces_order_id` przy dodaniu linii
+  USTAWIA `predecessor_order_id` (poprzednik nie jest zamykany) → poprzednik dostaje
+  `replaced_by_*` (tag „Zastąpiony → następca"). **Sumy grupy — reguła pozycji:**
+  `md_positions_total`/`contract_value_pln` pomijają linie, na które wskazuje
+  `predecessor_order_id` innej linii — ale ZALEŻNIE od rodzaju (`replaced_by_kind`
+  z dziennika: `replacement` = zastępstwo przez `replaces_order_id`, następca ma własny
+  budżet → poprzednik wnosi tylko zużycie; `swap` = zamiana kontraktora, następca
+  przejął POZOSTAŁOŚĆ → poprzednik wnosi swoje zużycie jako część pozycji, inaczej
+  „wykorzystano" przekraczałoby wartość umowy); linie `cancelled` nie są pozycjami.
+  Zamiana z opcją dzieli POZOSTAŁOŚĆ (z korektą ręczną) na opcję i podstawę bez
+  wartości ujemnych; offboarding (`_reduce_legacy_md_budget`) zdejmuje pulę najpierw
+  z opcji. Kwoty tylko z finansami. **UI „zakresów" (paski Podstawa/Opcja, nagłówek
+  „Wykorzystano wartości umowy", pole „Zakres opcjonalny") renderuje się WYŁĄCZNIE dla
+  karty z `executive_contract` / klienta CeZ** — BIK/Polkomtel/BNP widzą dotychczasowy
+  pasek „pozostało / całość". `MdScopeBars`, `LineMonthlyHistoryDialog`
+  („Rozliczenia miesięczne"). Harness `/preview/order-md-scopes`.
+- **Import danych startowych (Faza C):** `POST /api/admin/clients/{id}/ezdrowie-md-orders/import?dry_run=`
+  (admin, tylko CeZ) z manifestem JSON (`app/schemas/ezdrowie_md_seed.py`) —
+  **manifest żyje poza repo** (nazwiska, stawki). Serwis `app/services/ezdrowie_md_seed.py`:
+  osoba po `contract_id` → `candidate_id` → nazwisku (dokładnie jedno trafienie, inaczej
+  `ambiguous` z listą kandydatów do wskazania), `create_if_missing` zakłada kandydata
+  i kontrakt (godzinowy, MD ÷ 8; `ended` dla poprzedników), grupa o istniejącym numerze =
+  `already_exists` (idempotencja), linia jak w `_build_line`, poprzednik `completed`
+  z eventem `zakonczenie_konsultanta` `reason=seed_history` (NIE `removed_from_order`),
+  szkice z `supersede_order_ids` ANULOWANE (tylko draft bez pliku poza grupą).
+  Historia miesięczna wchodzi w DRUGIM przejściu (po utworzeniu następców), a status
+  linii zakończonej jest po przeliczeniu przywracany jawnie — inaczej `sync_md_line_status`
+  wskrzeszał poprzednika z datą końca „dziś"; linia zakończona ma `skip_sync_for_contract`
+  (nie przepisuje kontraktowi stawki z historycznej linii). Dry-run idzie tą samą ścieżką
+  i kończy rollbackiem; apply z blokerem = 409 i zero zapisu; paragon
+  `app_settings['ezdrowie_md_seed_<sha12>']` = tylko liczniki i ID (ten sam manifest
+  ponownie = dopisek `reapplied_at`, nie duplikat klucza).
+- **Round-trip migracji 0312 z klientem 115**: downgrade zostawia zasiane umowy ramowe,
+  więc zasiew ADOPTUJE wiersz po `(source_system, source_key)` zamiast wstawiać drugi.
+  Guard zakończenia umowy wykonawczej liczy także żywe karty MD; przypisanie z ekranu
+  przeglądu na osobie, której reprezentatywne zamówienie jest linią karty → 409 (linia
+  dziedziczy umowę z karty). PATCH zamówienia z NIEZMIENIONĄ umową nie waliduje jej
+  (umowa mogła zostać zakończona po przypisaniu); sama część bez umowy → 422.
+
 ## Klienci → Profil: tabela konsultantów + stawki z harmonogramu
 
 Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
@@ -2606,12 +2698,31 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   epizodu — **także etapy t14/t7/high** (ticket: „zatrzymuje dalsze
   przypomnienia"). Karta mail-review zamyka się od razu przy apply/dismiss.
 - **Cykl datowy** (`date_cycle_stage`): okno 30 dni z ZAKRESU dat, nie równości
-  (dzień bez skanera nie gubi progu) → co 7 dni → T-14 mail → T-7 high + mail.
+  (dzień bez skanera nie gubi progu) → **pierwszy wiersz sprawy = mail** → co 7
+  dni bez maila → T-14 mail → T-7 high + mail.
   Encja niesie datę końca (`order:{id}:end:{data}`), więc przedłużenie = nowy cykl.
   Dotyczy zamówień okresowych (`order_group_id IS NULL`), umów ramowych
   i kontraktów (kontrakt, którego zamówienie okresowe kończy się tego samego
-  dnia, nie dostaje drugiej karty). Stare skanery dzwonka (`dl_portal_expiry_scanner`,
-  `contract_alerts`) działają dalej — decyzja: dzwonek bez zmian.
+  dnia, nie dostaje drugiej karty).
+- **Miesięczne uprzedzenie mailem to `email_on_first` w `emit`, NIE etap `t30`**
+  (09.2026, decyzja Artura: mail + dzwonek, progi 14/7 zostają). Mail idzie przy
+  pierwszym wierszu sprawy — `first_seen is None`, liczone PER ODBIORCA, więc
+  nowy DL przypisany w połowie okna dostaje swój pierwszy mail, a pozostali nie
+  dostają drugiego. Osobny etap `t30` zjadłby powtórki tygodniowe w paśmie
+  30→15 dni (etap i numer okna to ta sama pozycja `dedupe_key`), wysłałby zaraz
+  po wdrożeniu mail każdej sprawie już wiszącej w oknie i **nie objąłby
+  zamówienia wpisanego 20 dni przed końcem** — próg 30-dniowy już by minął.
+  `date_cycle_stage` zostaje nietknięte.
+- **Dzwonek (`dl_portal_expiry_scanner`) liczy progi z ZAKRESU, nie z równości**
+  (09.2026). Do tej zmiany pytał `end_date == today + N` dla `N ∈ (30, 14, 7)`,
+  więc jeden dzień bez biegu — albo zamówienie wpisane/przedłużone na mniej niż
+  30 dni — gubił próg 30-dniowy BEZPOWROTNIE i pierwszy dzwonek wypadał na 14
+  dni. Teraz `_threshold_bucket(days_left)` wybiera najciaśniejszy pasujący próg
+  (jeden na encję na bieg), dedup po `_end_phrase` zostaje bez zmian, a zegar to
+  `business_today()` jak w `_promote_statuses` (koniec rozjazdu UTC/Warszawa).
+  Tytuł niesie FAKTYCZNĄ liczbę dni (`_lead_phrase`), bo próg 30 bywa wysłany
+  przy 22 dniach; `message` nietknięty — to on jest kluczem dedupu.
+  `contract_alerts` (90/60/30/14/7 na kontraktach) bez zmian.
 - **MD** start `DL_ALERT_MD_THRESHOLD=21` (`<=`), **kosztowe** start
   `DL_ALERT_COST_BUDGET_THRESHOLD=10000` (treść bez kwot — panel widzą też
   hybrydy bez finansów). Wysoki priorytet + mail: pozostałość ≤ tempo ×
@@ -3612,6 +3723,69 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
+
+## Modele AI per funkcja — decyzja z badania na danych produkcyjnych (16.09.2026)
+
+Badanie siedmiu modeli na WSZYSTKICH funkcjach AI (raport poza repo:
+`outputs/model-matrix-2026-09-15/RAPORT-KONCOWY.md`, identyfikatory F1–F17)
+zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`:
+
+| ID | funkcja | model | ID | funkcja | model |
+|---|---|---|---|---|---|
+| F1 | scoring | Sonnet 5 | F9 | cv_parser | Sonnet 5 |
+| F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
+| F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
+| F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
+| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
+| F7 | order_parser | GPT Luna | F15 | mindy_chat | GPT Luna |
+| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+
+- **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
+  modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →
+  OpenAI, `deepseek*` → DeepSeek). Nie dokładaj literałów modeli ani osobnych
+  klientów w serwisach — `test_ai_models_registry.py` przypina decyzję per ID.
+- **Dostawcy spoza Anthropic idą przez TĘ SAMĄ granicę `claude_client.call_claude`**
+  (`services/llm_providers.py`): ten sam kształt odpowiedzi (`ProviderMessage`
+  = bloki tekstowe, `stop_reason`, `usage`), te same ponowienia, deadline,
+  fallback i telemetria (`ai_metering` z własnym cennikiem i polem `provider`).
+  Błędy są zgłaszane WYJĄTKAMI SDK Anthropic (`RateLimitError`, `APITimeoutError`,
+  `AuthenticationError`…) z prawdziwym `httpx.Response` — na nich stoi
+  klasyfikacja ponowień i mapowanie błędów kilkunastu wołających. Nie zamieniaj
+  tego na osobną hierarchię wyjątków „bo czystsza": zepsuje `except anthropic.*`.
+- **Nieobsługiwane u GPT/DeepSeek: streaming, `tools`, bloki inne niż tekst
+  (obraz, dokument PDF)** — `ValueError` (nieponawialny), nie ciche pominięcie.
+  OpenAI dostaje `reasoning_effort=none`, `store=false`, bez `temperature`
+  (modele rozumujące odrzucają parametr); DeepSeek `thinking=disabled` — czyli
+  konfiguracje, w których model wygrał badanie.
+- **Funkcje na GPT/DeepSeek mają fallback na Sonneta 5** (429/5xx/przeciążenie).
+  **Brak klucza dostawcy = 401 NIEPONAWIALNE, bez kaskady na Claude** — błąd
+  konfiguracji ma być widoczny: `/api/health` → `checks.openai` /
+  `checks.deepseek` (`unconfigured` | `configured` | `degraded` | `unhealthy`).
+  Sondy „brak klucza" u wołających pytają `api_key_configured(model)`, nie o
+  klucz Anthropic. Klucze `OPENAI_API_KEY` i `DEEPSEEK_API_KEY` są w Coolify
+  od badania (16.09.2026).
+- **`settings_attr` wygrywa z `default` rejestru**, więc domyślne wartości
+  legacy pól w `config.py` (`CLAUDE_MODEL_CV`, `CLAUDE_MODEL_CV_BULK`,
+  `ORDER_PARSER_MODEL`) MUSZĄ być tym samym modelem co w rejestrze — pilnuje
+  `test_legacy_settings_defaults_agree_with_the_registry`. Tak Haiku siedziałby
+  w backfillu mimo decyzji. MINDY nie honoruje już legacy `CLAUDE_MODEL_CV`.
+- **F4: Sonnet 5 z `CV_B2B_THINKING=disabled`** (domyślne). Rewert #628 mierzył
+  Sonneta 5 z wymuszonym thinking; badanie z thinking wyłączonym: wymyślone fakty
+  0.20 vs 0.41 u 4.6. Nie przywracaj pinu 4.6 bez ponownego pomiaru.
+- **F2: zmiana modelu parsera Championa zmienia WYNIKI parsowania** — przy
+  kolejnej edycji promptu bump `PARSER_VERSION`; klucz cache nie zawiera nazwy
+  modelu.
+- **F16/F17:** `VOYAGE_MODEL` w kodzie = `voyage-3` (do 16.09 kod mówił
+  `voyage-3-large`, prod `voyage-3` — rozjazd wysyłał eval na ścieżkę
+  referencyjną); `RERANKER_ENABLED=False` — na ścieżce produkcyjnej był no-opem
+  (pula = wynik, `canonical_fit` i tak sortuje), dosypka 500→rerank-3→200
+  n.s. Kod rerankera zostaje; włączenie = env w Coolify.
+- **Dokładając nowy model:** wpis w `ai_models._REGISTRY` z uzasadnieniem
+  (ID + liczba z badania), cena w `ai_metering._PRICES` (dwójka = Anthropic,
+  trójka = dostawca z własną stawką za odczyt cache), przy nowym dostawcy —
+  gałąź w `llm_providers.build_request/parse_response` i etykieta w
+  `HEALTH_LABEL`.
 
 ## NUL w żądaniach i `detail` błędów API w UI (odbiór #1549, 15.09.2026)
 

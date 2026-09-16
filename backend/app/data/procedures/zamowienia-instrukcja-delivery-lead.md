@@ -467,7 +467,8 @@ stawkę przychodową (tę, którą płaci klient), jednostkę tej stawki
 
 * **stawki kosztowej** — tej, którą płacimy kontraktorowi. Dokument klienta jej
   nie zawiera. Zawsze wpisujesz ją sam.
-* **części umowy** (dotyczy tylko Centrum e-Zdrowia).
+* **umowy wykonawczej** (dotyczy tylko Centrum e-Zdrowia) — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam z listy.
 
 **Skany działają, ale w ograniczonym zakresie.** Gdy w pliku nie ma warstwy
 tekstowej, system rozpoznaje pismo — ale tylko z **pierwszych 10 stron** i wolno
@@ -597,8 +598,8 @@ zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
 odstęp w dniach, a z poprzedniego zamówienia przejmuje to, czego PDF nie niesie:
-część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę godzin rozliczeniowych
-i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+umowę wykonawczą i część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę
+godzin rozliczeniowych i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
 „poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
 lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
 PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
@@ -843,7 +844,7 @@ nie samą zakładkę. Karty są pogrupowane:
 
 | Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
 |---|---|---|---|
-| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca | co 7 dni; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
@@ -904,8 +905,18 @@ widoczny w widoku pulpitu „Delivery Lead".
 
 ### Maile
 
-Mail przychodzi **tylko na progach**: 14 i 7 dni przed końcem zamówienia, umowy
-ramowej albo kontraktu oraz przy wysokim priorytecie MD i budżetu kosztowego.
+O kończącym się zamówieniu, umowie ramowej i kontrakcie mail przychodzi
+**trzy razy**: przy **pierwszej karcie sprawy** — czyli zwykle **miesiąc przed
+datą końca** — potem **14 dni przed** i **7 dni przed**. Powtórki co 7 dni
+między tymi progami idą tylko na kartę, bez maila. Poza tym mail wychodzi przy
+wysokim priorytecie MD i budżetu kosztowego.
+
+Pierwszy mail jest liczony od **wejścia sprawy do panelu**, nie od równości
+z dniem T-30: zamówienie wpisane albo przedłużone na mniej niż miesiąc
+(np. 20 dni przed końcem) dostaje ten mail od razu, zamiast czekać do progu
+14-dniowego. Przedłużenie zamówienia to nowa sprawa, więc uprzedzenie
+przychodzi znowu.
+
 Każdy próg wysyła mail raz. Odhaczona sprawa nie dostaje już maili.
 
 ### Dzwonek w prawym górnym rogu
@@ -916,6 +927,12 @@ i 60 dni), o nowym drafcie kontraktu i zamówienia po zatrudnieniu oraz o braku
 kolejnego zamówienia (raz na brak). Panel
 „Moi klienci" jest miejscem, w którym te sprawy **załatwiasz i odhaczasz**;
 dzwonek — tylko informacją.
+
+Progi dzwonka liczą się z **przedziału** dni do końca, więc dzień bez biegu
+skanera już ich nie gubi, a zamówienie wpisane później niż miesiąc przed końcem
+dostaje najbliższy pasujący próg zamiast nieprawdziwego „za 30 dni". Tytuł
+powiadomienia podaje **faktyczną** liczbę dni („kończy się za 22 dni"), a nie
+numer progu.
 
 Skanery chodzą **raz na dobę, licząc od ostatniego restartu aplikacji** — nie ma
 stałej godziny wysyłki.
@@ -1460,10 +1477,22 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Centrum e-Zdrowia
 
-* Jedyny klient z polem **„Wybór części umowy \*"** — i jest ono **obowiązkowe**
-  przy nowym zamówieniu oraz przy przedłużeniu. Do wyboru: **cz.1, cz.2, cz.4,
-  cz.5, cz.6** (część 3. nie istnieje i to jest poprawne).
-* Systemu **nie odczyta** części umowy z dokumentu — wybierasz ją sam.
+* Jedyny klient z polem **„Umowa wykonawcza \*"** — i jest ono **obowiązkowe**
+  przy nowym zamówieniu oraz przy przedłużeniu. Lista jest **pogrupowana po
+  części umowy ramowej** (**cz.1, cz.2, cz.4, cz.5, cz.6** — część 3. nie
+  istnieje i to jest poprawne); część zamówienia wynika z wybranej umowy
+  wykonawczej, nie wybierasz jej osobno.
+* **Część bez umowy wykonawczej nie przyjmuje konsultanta.** Nowe umowy
+  wykonawcze dodajesz na profilu klienta w sekcji **Struktura umów** (numer
+  + część ramowa; nowa umowa jest od razu aktywna). Umowę zakończysz dopiero
+  wtedy, gdy nikt nie jest do niej przypisany.
+* System **nie odczyta** umowy wykonawczej z dokumentu — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam.
+* Ekran **„Przypisania do przeglądu"** (profil klienta → Struktura umów)
+  pokazuje obecnych i planowanych konsultantów bez umowy wykonawczej. Każdego
+  przypisujesz **ręcznie** — ekran podświetla tylko nagłówek części z
+  dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
+  żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
 * **Powiadomienia:** standardowe.
 
 ### Alior

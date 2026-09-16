@@ -36,6 +36,7 @@ from typing import Any
 import anthropic
 
 from app.core.config import settings
+from app.services import llm_providers
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +200,23 @@ def _apply_system_cache(kwargs: dict[str, Any]) -> None:
         ]
 
 
-def _record_health(started: float, *, failed: bool) -> None:
-    """Feed the call outcome into the Claude circuit breaker (never raises)."""
+def _record_health(
+    started: float, *, failed: bool, provider: str = llm_providers.ANTHROPIC
+) -> None:
+    """Feed the call outcome into the provider's circuit breaker (never raises).
+
+    Claude raportuje pod etykietą "claude" (czyta ją `/api/health`); OpenAI
+    i DeepSeek dostają własne okna, żeby awaria jednego dostawcy nie
+    wyglądała jak awaria Claude.
+    """
     try:
         from app.services.ai_health import record_provider_call
 
-        record_provider_call("claude", int((time.monotonic() - started) * 1000), failed)
+        record_provider_call(
+            llm_providers.HEALTH_LABEL.get(provider, provider),
+            int((time.monotonic() - started) * 1000),
+            failed,
+        )
     except Exception:  # noqa: BLE001 — health telemetry must not break a call
         pass
 
@@ -315,7 +327,14 @@ def _call_one_model(
     deadline: float | None = None,
     request_timeout: float | None = None,
 ) -> anthropic.types.Message:
-    """Jeden model z pełnym budżetem ponowień. Rzuca `_ModelExhausted`."""
+    """Jeden model z pełnym budżetem ponowień. Rzuca `_ModelExhausted`.
+
+    Model spoza Anthropic (GPT, DeepSeek — patrz `llm_providers`) idzie tą samą
+    pętlą: te same ponowienia, backoff, deadline, telemetria i klasyfikacja
+    błędów, tylko transport jest inny. Dzięki temu decyzja „która funkcja na
+    jakim modelu" zostaje w rejestrze `ai_models`, a nie w kodzie wołających.
+    """
+    provider = llm_providers.provider_of(model)
     last_err: BaseException | None = None
     last_retryable = False
 
@@ -329,7 +348,20 @@ def _call_one_model(
                 call_kwargs["timeout"] = min(
                     request_timeout or 120.0, deadline - attempt_started
                 )
-            if stream_response:
+            if provider != llm_providers.ANTHROPIC:
+                # Bez streamingu: odpowiedzi tych funkcji mieszczą się w jednym
+                # żądaniu, a `deadline` i tak ucina próbę timeoutem niżej.
+                message = llm_providers.chat_complete(
+                    provider,
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    timeout=float(
+                        call_kwargs.get("timeout") or request_timeout or 120.0
+                    ),
+                    kwargs=call_kwargs,
+                )
+            elif stream_response:
                 # A full CV plus evidence can take longer than the idle read
                 # timeout. SSE keeps that connection alive while the model works.
                 # Only the complete accumulated message reaches the caller.
@@ -356,7 +388,7 @@ def _call_one_model(
             # opłacone. Zaliczenie go jako porażki otwierałoby circuit breaker
             # na zdrowym Claude, a pominięcie tokenów zaniżałoby rachunek
             # dokładnie tam, gdzie zużyto ich najwięcej.
-            _record_health(started, failed=False)
+            _record_health(started, failed=False, provider=provider)
             _record_tokens(
                 message,
                 model=model,
@@ -430,6 +462,11 @@ def call_claude(
     Zwraca surowy ``Message`` — tak jak ``client.messages.create`` — więc
     dziesięć istniejących miejsc wywołania parsuje odpowiedź bez zmian.
 
+    Model o nazwie ``gpt-*``/``deepseek*`` (rejestr `ai_models`, decyzja
+    z badania 16.09.2026) idzie przez `llm_providers` — ten sam kształt
+    odpowiedzi i wyjątków, ta sama pętla ponowień i fallbacków; ``api_key``
+    dotyczy wyłącznie Anthropic, klucze innych dostawców idą z env.
+
     Args:
         messages: lista wiadomości (przekazywana bez zmian).
         model: podstawowy model.
@@ -489,9 +526,14 @@ def call_claude(
                 request_timeout=request_timeout,
             )
         except ClaudeDeadlineExceeded:
-            _record_health(started, failed=True)
+            _record_health(
+                started, failed=True, provider=llm_providers.provider_of(current)
+            )
             raise
         except _ModelExhausted as exhausted:
+            _record_health(
+                started, failed=True, provider=llm_providers.provider_of(current)
+            )
             last_err = exhausted.cause
             any_retryable = any_retryable or exhausted.retryable
             if not exhausted.retryable:
@@ -503,8 +545,6 @@ def call_claude(
                     current,
                     chain[index + 1],
                 )
-
-    _record_health(started, failed=True)
 
     # Łańcuch jednomodelowy zachowuje DOTYCHCZASOWY kontrakt: surowy wyjątek
     # SDK leci do wołającego. Na tym stoi obsługa błędów dziesięciu miejsc

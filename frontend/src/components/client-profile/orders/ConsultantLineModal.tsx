@@ -19,6 +19,7 @@ import type {
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   contractRateUnitToInputUnit,
   convertRate,
@@ -79,6 +80,9 @@ export interface LineFormValues {
    *  zamówieniu, a nie przy osobie (backend odrzuca komplet). */
   input_mode?: OrderInputMode | null;
   input_value?: number | null;
+  /** Zakres opcjonalny MD (CeZ). Wysyłany TYLKO w trybie „Liczba MD";
+   *  `null` = brak opcji (w edycji zdejmuje ją z linii). */
+  optional_md?: number | null;
   start_date: string;
   end_date: string | null;
 }
@@ -200,6 +204,11 @@ export function ConsultantLineModal({
   const [revenueUnit, setRevenueUnit] = useState<RateUnit>("md");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
   const [inputValue, setInputValue] = useState("");
+  // Zakres opcjonalny z umowy wykonawczej — TYLKO Centrum e-Zdrowia, obok
+  // podstawy, nigdy z PDF-a: dokument zamówienia nie wie, ile opcji ma umowa.
+  // U innych klientów pole nie istnieje i nic nie jedzie w ładunku.
+  const ezdrowie = isEzdrowieClient(clientId);
+  const [optionalMd, setOptionalMd] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [remaining, setRemaining] = useState("");
@@ -434,6 +443,7 @@ export function ConsultantLineModal({
     setRevenueUnit("md");
     setInputMode(line?.input_mode ?? "md");
     setInputValue(numberToField(line?.input_value));
+    setOptionalMd(numberToField(line?.md_optional_total));
     setStartDate(line?.start_date ?? group?.start_date ?? "");
     setEndDate(line?.end_date ?? "");
     setRemaining(numberToField(line?.md_remaining));
@@ -723,6 +733,14 @@ export function ConsultantLineModal({
     return value / rate;
   }, [inputValue, rateRevenue, revenueUnit, inputMode, revenueCurrency]);
 
+  // Opcja w podglądzie tylko przy dodatniej liczbie — „190 + 0 = 190" niczego
+  // nie mówi, a puste pole znaczy „brak opcji".
+  const previewOptionalMd = useMemo(() => {
+    if (!ezdrowie) return null;
+    const value = parseDecimalInput(optionalMd);
+    return value !== null && value > 0 ? value : null;
+  }, [optionalMd, ezdrowie]);
+
   const canSubmit =
     !submitting &&
     (editing || person !== null) &&
@@ -768,6 +786,11 @@ export function ConsultantLineModal({
       ...(costBased || sharedMdBased
         ? {}
         : { input_mode: inputMode, input_value: budgetValue as number }),
+      // Opcja tylko u CeZ i tylko przy budżecie w MD — przy kwocie serwer sam
+      // liczy MD podstawy i nie miałby do czego dodać opcji.
+      ...(ezdrowie && !costBased && !sharedMdBased && inputMode === "md"
+        ? { optional_md: parseDecimalInput(optionalMd) }
+        : {}),
       start_date: startDate,
       end_date: endDate || null,
     });
@@ -1002,12 +1025,33 @@ export function ConsultantLineModal({
             className={inputClass}
             placeholder={inputMode === "md" ? "50" : "60000"}
           />
+          {inputMode === "md" && ezdrowie ? (
+            <div className="mt-3">
+              <label htmlFor="line-optional-md" className={labelClass}>
+                Zakres opcjonalny (MD)
+              </label>
+              <input
+                id="line-optional-md"
+                inputMode="decimal"
+                value={optionalMd}
+                onChange={(e) => setOptionalMd(sanitizeDecimalInput(e.target.value))}
+                className={inputClass}
+                placeholder="—"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Zakres opcjonalny z umowy wykonawczej. Puste = brak opcji.
+                Zużycie schodzi najpierw z podstawy, potem z opcji.
+              </p>
+            </div>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
             {inputMode === "amount" && revenueCurrency !== "PLN"
               ? `Budżet MD zostanie obliczony po zapisaniu według kursu ${revenueCurrency}/PLN.`
               : inputMode === "amount"
               ? `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD (kwota ÷ stawka przychodowa)`
-              : `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD`}
+              : previewOptionalMd !== null && previewMd !== null
+                ? `Budżet: ${formatMd(previewMd)} + ${formatMd(previewOptionalMd)} = ${formatMd(previewMd + previewOptionalMd)} MD`
+                : `Budżet MD: ${previewMd === null ? "—" : formatMd(previewMd)} MD`}
           </p>
         </fieldset>
         )}

@@ -1,6 +1,6 @@
 """Jedno miejsce, w którym widać: funkcja generatywna → model → skąd.
 
-Do tego PR-a model był ustalany w CZTERECH mechanizmach rozrzuconych po 13
+Do PR-a C11 model był ustalany w CZTERECH mechanizmach rozrzuconych po 13
 plikach: typed settings (``settings.CLAUDE_MODEL_CV``), ``os.environ`` z
 literałem-fallbackiem, literał modułowy i literał w domyślnym argumencie.
 Skutki, których nie widać z pojedynczego pliku:
@@ -13,10 +13,38 @@ Skutki, których nie widać z pojedynczego pliku:
   żadnego env-override.
 
 Rejestr wiąże KAŻDY ``AIFeatureKey`` z jego modelem, opcjonalnym łańcuchem
-fallbacków i listą env-override'ów. Zachowanie każdego z 16 punktów jest
-odtworzone bit w bit (ten sam efektywny model przy braku nowych zmiennych),
-a rozdzielone funkcje dostają WŁASNE, węższe zmienne, honorując przy tym
-stare (``CLAUDE_MODEL_CV`` / ``CLAUDE_MODEL_CV_BULK``) dla kompatybilności.
+fallbacków i listą env-override'ów. Dostawca wynika z NAZWY modelu
+(``llm_providers.provider_of``): ``claude-*`` idzie przez SDK Anthropic,
+``gpt-*`` do OpenAI, ``deepseek*`` do DeepSeek — tą samą pętlą ponowień
+i fallbacków w ``claude_client.call_claude``.
+
+Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
+``outputs/model-matrix-2026-09-15/RAPORT-KONCOWY.md``, identyfikatory F1–F17):
+
+| ID  | funkcja                          | model                    |
+|-----|----------------------------------|--------------------------|
+| F1  | scoring                          | claude-sonnet-5          |
+| F2  | champion_profile_parse           | claude-sonnet-5 (z Haiku)|
+| F3  | cv_requirement_map               | claude-sonnet-5          |
+| F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
+| F5  | cv_interactive_chat              | gpt-5.6-luna (z Haiku)   |
+| F6  | job_description_generator        | claude-sonnet-5          |
+| F7  | order_parser                     | gpt-5.6-luna             |
+| F8  | uop_check                        | gpt-5.6-luna             |
+| F9  | cv_parser                        | claude-sonnet-5          |
+| F10 | cv_backfill + cv_name_backfill   | claude-sonnet-5 (z Haiku)|
+| F11 | notes_extraction                 | deepseek-v4-pro (z Haiku)|
+| F12 | candidate_summary                | deepseek-v4-pro          |
+| F13 | champion_draft                   | claude-sonnet-5          |
+| F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
+| F15 | mindy_chat                       | gpt-5.6-luna             |
+| F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
+| F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
+
+Funkcje na GPT/DeepSeek mają fallback na Sonneta 5: przeciążenie albo 429
+u dostawcy nie zdejmuje funkcji. Brak klucza dostawcy to 401 NIEPONAWIALNE
+— nie kaskaduje na Claude, żeby błąd konfiguracji był widoczny (także
+w ``/api/health``: ``checks.openai`` / ``checks.deepseek``).
 
 Rozwiązanie różnicy pustego env-a: Coolify wstrzykuje puste stringi
 (``CV_B2B_MAX_RETRIES=""`` — patrz ``claude_client.env_number``), więc pusty
@@ -30,6 +58,11 @@ from dataclasses import dataclass
 
 from app.core.config import settings
 from app.models.ai_feature import AIFeatureKey
+from app.services.llm_providers import ANTHROPIC, api_key_for, provider_of
+
+SONNET_5 = "claude-sonnet-5"
+GPT_LUNA = "gpt-5.6-luna"
+DEEPSEEK_PRO = "deepseek-v4-pro"
 
 
 @dataclass(frozen=True)
@@ -60,96 +93,120 @@ class ModelChoice:
         return self.default, "default"
 
 
-# Uwaga: model literałów NIE jest tu zmieniany — te same wartości, co przed
-# rejestrem. Zmiana literału champion_profile_parse unieważnia klucz cache
-# promptu ('champion_parse:v4:haiku-4.5' to OSOBNY string) — nie ruszać bez
-# bumpa wersji promptu.
+# Uwaga: literał champion_profile_parse NIE wchodzi do klucza cache promptu
+# (`PARSER_VERSION` w champion_profile_ingest jest niezależny od modelu), ale
+# zmiana modelu zmienia WYNIKI parsowania — bump wersji parsera przy zmianie.
 _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.scoring: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("MATCH_SCORING_MODEL",),
-        rationale="Uzasadnienie dopasowania (LLM); sam ranking jest deterministyczny.",
+        rationale="F1. Uzasadnienie dopasowania (LLM); sam ranking jest deterministyczny. "
+        "Badanie 16.09: pokrycie brakujących wymagań 0.53 vs 0.32 (Haiku), 0.19 (Luna).",
     ),
     AIFeatureKey.job_description_generator: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("JOB_WRITER_MODEL",),
-        rationale="Generator ogłoszeń; override dołożony w rejestrze (był goły literał).",
+        rationale="F6. Generator ogłoszeń; jedyny model z językiem OK w 100% (badanie 16.09).",
     ),
     AIFeatureKey.cv_parser: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("CV_PARSER_MODEL",),
         settings_attr="CLAUDE_MODEL_CV",
-        rationale="Parser CV; honoruje legacy CLAUDE_MODEL_CV, CV_PARSER_MODEL rozdziela go od MINDY.",
+        rationale="F9. Parser CV; honoruje legacy CLAUDE_MODEL_CV, CV_PARSER_MODEL rozdziela "
+        "go od reszty. Badanie 16.09: najmniej wymyślonych faktów (0.063).",
     ),
     AIFeatureKey.candidate_summary: ModelChoice(
-        default="claude-sonnet-5",
+        default=DEEPSEEK_PRO,
         env_vars=("CANDIDATE_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F12. Podsumowanie aktywności: DeepSeek V4 Pro 3% błędów vs 20% u Sonneta 5 "
+        "(badanie 16.09); dane produkcyjne do DeepSeek za zgodą Artura z 16.09.",
     ),
     AIFeatureKey.champion_draft: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("CHAMPION_AI_MODEL",),
+        rationale="F13. Szkic Championa: najmniej nieugruntowanych pozycji (0.10).",
     ),
     AIFeatureKey.order_parser: ModelChoice(
-        default="claude-sonnet-5",
+        default=GPT_LUNA,
         env_vars=("ORDER_PARSER_MODEL",),
         # settings_attr obok tego samego env: wierne odtworzenie oryginału
         # `os.environ.get("ORDER_PARSER_MODEL","") or settings.ORDER_PARSER_MODEL`.
         # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
         # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
+        fallbacks=(SONNET_5,),
+        rationale="F7. Odczyt PDF zamówień: GPT Luna 0 cichych błędów, dokładność 0.960, "
+        "~15× taniej niż Sonnet 5 (badanie 16.09).",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("CV_REQUIREMENT_MAP_MODEL",),
+        rationale="F3. Mapa wymagań: zgodność 0.944, najmniej zgubionych dowodów.",
     ),
     AIFeatureKey.cv_interactive_chat: ModelChoice(
-        default="claude-haiku-4-5-20251001",
+        default=GPT_LUNA,
         env_vars=("CV_INTERACTIVE_CHAT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F5. Czat publicznego CV: wszystkie modele 1.0 na odmowach — decyduje "
+        "cena i umowa powierzenia (OpenAI).",
     ),
     AIFeatureKey.cv_backfill: ModelChoice(
-        default="claude-haiku-4-5-20251001",
+        default=SONNET_5,
         env_vars=("CV_BACKFILL_MODEL",),
         settings_attr="CLAUDE_MODEL_CV_BULK",
-        rationale="Masowy backfill pól; honoruje CLAUDE_MODEL_CV_BULK, CV_BACKFILL_MODEL rozdziela od lintu.",
+        rationale="F10. Masowy backfill pól; honoruje CLAUDE_MODEL_CV_BULK (od 16.09 = Sonnet 5), "
+        "CV_BACKFILL_MODEL rozdziela od lintu. Haiku wymyślał fakty w 31% CV vs 8%.",
     ),
     AIFeatureKey.notes_extraction: ModelChoice(
-        default="claude-haiku-4-5-20251001",
+        default=DEEPSEEK_PRO,
         env_vars=("NOTES_EXTRACTION_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F11. Fakty z notatek: DeepSeek V4 Pro 0.15 nieugruntowanych vs 0.56 "
+        "u Haiku i 0.33 u Sonneta 5 (badanie 16.09).",
     ),
     AIFeatureKey.champion_profile_parse: ModelChoice(
-        default="claude-haiku-4-5-20251001",
+        default=SONNET_5,
         env_vars=("CHAMPION_PROFILE_PARSE_MODEL",),
-        rationale="Odczyt profili Championa; literał wiąże klucz cache promptu — patrz uwaga wyżej.",
+        rationale="F2. Odczyt profili Championa: Sonnet 5 recall 0.955 przy 0.05 wymyślonych; "
+        "Haiku bez stacku wymyślał 82% pozycji (badanie 16.09).",
     ),
     AIFeatureKey.cv_generator: ModelChoice(
-        default="claude-sonnet-4-6",
+        default=SONNET_5,
         env_vars=("CV_B2B_MODEL",),
         fallbacks=("claude-opus-4-8",),
-        rationale="Pin Sonnet 4.6 (rewert #628: Sonnet 5 z wymuszonym thinking daje słabsze CV). "
+        rationale="F4. Generator CV: Sonnet 5 z thinking=disabled (jak w badaniu) wymyślał "
+        "fakty w 20% CV vs 41% u Sonneta 4.6 (rewert #628 mierzył wymuszone thinking). "
         "Fallback nadpisywalny env CV_B2B_FALLBACK_MODELS w provider.py.",
     ),
     AIFeatureKey.mindy_chat: ModelChoice(
-        default="claude-sonnet-5",
+        default=GPT_LUNA,
         env_vars=("MINDY_MODEL",),
-        settings_attr="CLAUDE_MODEL_CV",
-        rationale="MINDY; honoruje legacy CLAUDE_MODEL_CV, MINDY_MODEL rozdziela od parsera CV.",
+        # Bez legacy CLAUDE_MODEL_CV: od 16.09 MINDY ma własny model (GPT Luna),
+        # a stara zmienna wiązała ją z parserem CV — dokładnie sprzężenie z C11.
+        fallbacks=(SONNET_5,),
+        rationale="F15. MINDY: wszystkie modele 1.0 — decyduje cena; MINDY_MODEL to jedyny override.",
     ),
     AIFeatureKey.cv_rule_lint: ModelChoice(
-        default="claude-haiku-4-5-20251001",
+        default=SONNET_5,
         env_vars=("CV_RULE_LINT_MODEL",),
         settings_attr="CLAUDE_MODEL_CV_BULK",
-        rationale="Lint reguł CV; honoruje CLAUDE_MODEL_CV_BULK, CV_RULE_LINT_MODEL rozdziela od backfillu.",
+        rationale="F14. Lint reguł CV; honoruje CLAUDE_MODEL_CV_BULK, CV_RULE_LINT_MODEL "
+        "rozdziela od backfillu.",
     ),
     AIFeatureKey.uop_check: ModelChoice(
-        default="claude-sonnet-5",
+        default=GPT_LUNA,
         env_vars=("UOP_CHECK_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F8. Znamiona UoP: GPT Luna 100% nazewnictwa, recall 1.0 na podłożonych "
+        "znamionach (badanie 16.09).",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
-        default="claude-sonnet-5",
+        default=SONNET_5,
         env_vars=("CV_NAME_BACKFILL_MODEL",),
         settings_attr="CLAUDE_MODEL_CV",
-        rationale="Sync imion z Traffita; deleguje do parse_cv (model CV), własny override na tańszy "
-        "model dla ~57k wierszy bez ruszania parsera na wgraniu CV.",
+        rationale="F10. Sync imion z Traffita; deleguje do parse_cv (model CV), własny override "
+        "dla ~57k wierszy bez ruszania parsera na wgraniu CV.",
     ),
 }
 
@@ -183,14 +240,25 @@ def model_chain_for(feature: AIFeatureKey) -> list[str]:
     return chain
 
 
+def providers_in_use() -> list[str]:
+    """Dostawcy spoza Anthropic, do których prowadzi dziś rejestr (model
+    podstawowy albo fallback) — dla sondy kluczy w ``/api/health``."""
+    found = {provider_of(m) for feature in _REGISTRY for m in model_chain_for(feature)}
+    found.discard(ANTHROPIC)
+    return sorted(found)
+
+
 def registry_snapshot() -> dict[str, dict[str, object]]:
     """Migawka dla sondy zdrowia i panelu Ustawienia → AI."""
     out: dict[str, dict[str, object]] = {}
     for feature, choice in _REGISTRY.items():
         model, source = choice.resolve()
+        provider = provider_of(model)
         out[feature.value] = {
             "model": model,
             "source": source,
+            "provider": provider,
+            "key_configured": bool(api_key_for(provider)),
             "fallbacks": list(choice.fallbacks),
         }
     return out

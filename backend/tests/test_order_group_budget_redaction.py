@@ -267,3 +267,72 @@ async def test_recruitment_roles_cannot_enter_delivery_order_groups(
 
     assert resp.status_code == 403, resp.text
     assert resp.json()["detail"]["code"] == "section_access_denied"
+
+
+# ── Faza B: sumy umowy MD per osoba ─────────────────────────────────────────
+
+
+async def _create_md_group(
+    app_client: AsyncClient, headers: dict, client_id: int, contract_id: int
+) -> dict:
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
+            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "order_type": "md",
+            "md_budget_mode": "per_person",
+            "lines": [
+                {
+                    "contract_id": contract_id,
+                    "rate_cost": 1000,
+                    "rate_revenue": 1200,
+                    "input_mode": "md",
+                    "input_value": 190,
+                    "optional_md": 170,
+                    "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+                }
+            ],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_contract_value_is_redacted_but_md_scope_stays(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wartość umowy w PLN = liczba MD × stawka, więc idzie z redakcją stawek."""
+    client_id, contract_id, _name = await _seed_client_with_contract()
+    _enable(monkeypatch, client_id)
+    group = await _create_md_group(app_client, app_auth_headers, client_id, contract_id)
+    line = group["lines"][0]
+    put = await app_client.put(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{line['id']}/consumptions/2026-07",
+        json={"md_reported": 154, "status": "accepted"},
+        headers=app_auth_headers,
+    )
+    assert put.status_code == 200, put.text
+
+    admin = await _group_row(app_client, app_auth_headers, client_id, group["id"])
+    assert admin["contract_value_pln"] == pytest.approx(360 * 1200)
+    assert admin["used_value_pln"] == pytest.approx(154 * 1200)
+
+    headers = await _headers_for_role(app_client, "talent_community_manager", client_id)
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = next(g for g in resp.json()["groups"] if g["id"] == group["id"])
+    assert body["contract_value_pln"] is None
+    assert body["used_value_pln"] is None
+    # Liczby MD są operacyjne — zostają razem z podziałem na podstawę i opcję.
+    assert body["md_positions_total"] == 360
+    assert body["md_used_total"] == 154
+    assert body["lines"][0]["md_total"] == 190
+    assert body["lines"][0]["md_optional_total"] == 170
+    assert body["lines"][0]["md_base_used"] == 154
+    assert body["lines"][0]["md_optional_used"] == 0
+    assert body["lines"][0]["rate_revenue"] is None

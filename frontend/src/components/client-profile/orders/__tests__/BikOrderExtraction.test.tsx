@@ -100,6 +100,11 @@ function line(id: number, name: string, rateRevenue: number): OrderLineRead {
     invoiced_total: null,
     unsettled_total: null,
     missing_consumption_month: null,
+    md_optional_total: null,
+    md_base_used: null,
+    md_optional_used: null,
+    replaced_by_order_id: null,
+    replaced_by_consultant_name: null,
   };
 }
 
@@ -132,6 +137,11 @@ const GROUP: OrderGroupRead = {
   size_bytes: null,
   file_uploaded_at: null,
   can_add_consultant: true,
+  executive_contract: null,
+  md_positions_total: null,
+  md_used_total: null,
+  contract_value_pln: null,
+  used_value_pln: null,
   lines: [line(1, "Krystian Sowiński", 1080), line(2, "Sowa Anna", 1500)],
   active_consultants: 2,
   event_count: 0,

@@ -28,6 +28,7 @@ import anthropic
 
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import fallbacks_for, model_for
+from app.services.llm_providers import ANTHROPIC, api_key_configured, provider_of
 from app.services.claude_client import (
     ClaudeDeadlineExceeded,
     ClaudeError,
@@ -182,16 +183,21 @@ def analyze_with_ai(
         budget = min(budget, total_timeout)
     if budget <= 0:
         raise CVGeneratorTimeoutError("Przekroczono czas przygotowania danych CV.")
-    api_key = _api_key()
-    if not api_key:
-        raise CVGeneratorAIError("ANTHROPIC_API_KEY env var is not set")
-
     primary = model_override or _model()
     fallbacks = _fallback_models()
     if not primary:
         raise CVGeneratorAIError(
             "Brak skonfigurowanego modelu Claude (CV_B2B_MODEL jest pusty)."
         )
+    # Klucz DOSTAWCY modelu podstawowego: analiza UoP (`model_override`) idzie od
+    # 16.09.2026 na GPT Luna, więc pytanie o klucz Anthropic byłoby fałszywą
+    # odmową. `api_key` niżej dotyczy wyłącznie ścieżki Anthropic (fallback).
+    api_key = _api_key()
+    if provider_of(primary) == ANTHROPIC:
+        if not api_key:
+            raise CVGeneratorAIError("ANTHROPIC_API_KEY env var is not set")
+    elif not api_key_configured(primary):
+        raise CVGeneratorAIError("brak klucza API dostawcy modelu")
 
     max_tokens = env_number("CV_B2B_MAX_TOKENS", _DEFAULT_MAX_TOKENS, int)
     start = time.time()
@@ -219,7 +225,7 @@ def analyze_with_ai(
             model=primary,
             fallback_models=fallbacks,
             max_tokens=max_tokens,
-            api_key=api_key,
+            api_key=api_key or None,
             timeout=env_number(
                 "CV_B2B_REQUEST_TIMEOUT", _DEFAULT_REQUEST_TIMEOUT, float
             ),

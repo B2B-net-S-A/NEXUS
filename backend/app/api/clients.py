@@ -15,7 +15,8 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
-from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_executive_contract import ClientExecutiveContract
+from app.models.client_order import ClientOrder
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services import job_data_trust
 from app.models.job import Job, JobStatus
@@ -45,7 +46,9 @@ from app.services.contractor_identity import (
     current_contracts as current_contracts_for,
     summarize_active_contracts,
 )
+from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.services.order_rate_snapshots import convert_order_rate
+from app.services.representative_order import representative_order
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
     amount_to_pln_with_rate,
@@ -362,43 +365,50 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - business_today()).days
 
 
-def _representative_order(
-    contract: Contract, on: Optional[date] = None
-) -> Optional[ClientOrder]:
-    """Zamówienie reprezentujące kontrakt „na dziś".
-
-    ``None`` gdy kontrakt nie ma ANI JEDNEGO nieanulowanego zamówienia — stąd
-    guardy `if order is None` u obu wołających. Bez tej adnotacji wyglądają jak
-    martwy kod i kusi, żeby je usunąć.
-
-    1 kontrakt = N zamówień/przedłużeń, a wiersz konsultanta jest per-KONTRAKT.
-    Reguła lustrzana do FE ``splitOrders.activeOrder``: najnowsze ROZPOCZĘTE
-    zamówienie (start_date ≤ dziś, nullowe traktowane jak rozpoczęte), a gdy
-    wszystkie dopiero przyszłe — najbliższe nadchodzące. Anulowane pomijamy.
-    Dzięki temu zaplanowane przedłużenie nie przejmuje wiersza przed startem.
-    """
-    orders = [
-        o
-        for o in (contract.client_orders or [])
-        if o.status != ClientOrderStatus.cancelled
-    ]
-    if not orders:
-        return None
-    today = on or business_today()
-    started = [o for o in orders if o.start_date is None or o.start_date <= today]
-    if started:
-        return max(started, key=lambda o: (o.start_date or date.min, o.id))
-    return min(orders, key=lambda o: (o.start_date or date.max, o.id))
+# Reguła „zamówienie na dziś" mieszka w `services/representative_order.py`
+# (od 09.2026 czyta ją też przypisanie umowy wykonawczej CeZ). Alias zostaje,
+# bo wołają go trzy miejsca w tym module — ta sama funkcja, nie kopia.
+_representative_order = representative_order
 
 
 def _representative_project_part(contract: Contract) -> Optional[str]:
     """„Część umowy" e-Zdrowia dla wiersza konsultanta (ticket #3).
 
     Part żyje na ZAMÓWIENIU — edycja części na bieżącym zamówieniu natychmiast
-    przestawia filtr Profilu.
+    przestawia filtr Profilu. Gdy zamówienie ma umowę wykonawczą, część jest
+    JEJ pochodną (`_representative_executive_contract`) — kolumna zostaje
+    jako fallback dla zamówień sprzed struktury umów.
     """
+    brief = _representative_executive_contract(contract)
+    if brief is not None and brief.project_part is not None:
+        return brief.project_part
     order = _representative_order(contract)
     return order.project_part if order is not None else None
+
+
+def _representative_executive_contract(
+    contract: Contract,
+) -> Optional[ExecutiveContractBrief]:
+    """Umowa wykonawcza CeZ z reprezentatywnego zamówienia (ticket 09.2026).
+
+    Wymaga załadowanego łańcucha ``client_orders → executive_contract →
+    framework_contract`` (selectinload w zapytaniu profilu); lazy-load
+    w async to `MissingGreenlet`, czyli 500 bez CORS.
+    """
+    order = _representative_order(contract)
+    if order is None or order.executive_contract_id is None:
+        return None
+    executive = order.executive_contract
+    if executive is None:
+        return None
+    framework = executive.framework_contract
+    return ExecutiveContractBrief(
+        id=executive.id,
+        number=executive.number,
+        status=executive.status,
+        framework_contract_id=executive.framework_contract_id,
+        project_part=framework.project_part if framework is not None else None,
+    )
 
 
 def _resolve_job(contract: Contract) -> tuple[Optional[int], Optional[str], bool]:
@@ -650,6 +660,11 @@ async def get_client_profile(
             # pusty. Bez `.selectinload(ClientOrder.job)` odczyt tytułu robi
             # lazy-load w async → MissingGreenlet 500 bez CORS.
             selectinload(Contract.client_orders).selectinload(ClientOrder.job),
+            # Umowa wykonawcza CeZ + jej umowa ramowa (część) — tag na wierszu
+            # konsultanta; bez tego łańcucha odczyt byłby lazy-loadem.
+            selectinload(Contract.client_orders)
+            .selectinload(ClientOrder.executive_contract)
+            .selectinload(ClientExecutiveContract.framework_contract),
             # Trzy harmonogramy stawek — WYMAGANE przez `_effective_rate_fields`.
             # Bez nich helper sięga po relację leniwie i w async leci
             # `MissingGreenlet` (500 bez nagłówków CORS, w UI „Nie udało się
@@ -723,6 +738,7 @@ async def get_client_profile(
                 # legs above have already been converted independently to PLN.
                 currency="PLN",
                 project_part=_representative_project_part(c),
+                executive_contract=_representative_executive_contract(c),
             )
         )
 

@@ -24,7 +24,9 @@ import {
   type OrderGroupInput,
   type OrderGroupRead,
 } from "@/lib/api/orderGroups";
+import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
 import { usesSharedMdPool } from "@/lib/client-order-list";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   extractedEndDate,
@@ -155,6 +157,13 @@ export function OrderGroupFormModal({
   const isCostBased = orderType === "cost";
   const isMdOrder = orderType === "md";
   const sharedMd = isMdOrder && sharedChoice;
+  // Centrum e-Zdrowia: zamówienie wisi pod KONKRETNĄ umową wykonawczą, nie
+  // pod częścią. Bramka po `client_id` — u innych klientów hook jest wyłączony
+  // (backend odpowiada tam 422), a select nie renderuje się wcale.
+  const ezdrowie = isEzdrowieClient(clientId);
+  const [executiveContractId, setExecutiveContractId] = useState("");
+  const executiveContracts = useExecutiveContractOptions(ezdrowie ? clientId : null);
+  const executiveContractMissing = ezdrowie && !editing && executiveContractId === "";
 
   const [file, setFile] = useState<File | null>(null);
   const [hasExistingFile, setHasExistingFile] = useState(false);
@@ -205,6 +214,9 @@ export function OrderGroupFormModal({
   useEffect(() => {
     if (!open) return;
     setOrderNumber(group?.order_number ?? initialOrderNumber);
+    setExecutiveContractId(
+      group?.executive_contract ? String(group.executive_contract.id) : "",
+    );
     setStartDate(group?.start_date ?? "");
     setEndDate(group?.end_date ?? "");
     setNotes(group?.notes ?? "");
@@ -254,6 +266,7 @@ export function OrderGroupFormModal({
   }, [open, autoReadFile, file]);
 
   const planContext = {
+    clientId,
     orderType,
     sharedMd,
     groupStart: startDate,
@@ -484,6 +497,7 @@ export function OrderGroupFormModal({
     startDate !== "" &&
     !budgetMissing &&
     !linesBlocked &&
+    !executiveContractMissing &&
     ((!consumptionMonth && !consumptionValue) ||
       (Boolean(consumptionMonth) &&
         (parseDecimalInput(consumptionValue) ?? -1) >= 0));
@@ -534,6 +548,11 @@ export function OrderGroupFormModal({
         start_date: startDate,
         end_date: endDate || null,
         notes: notes.trim() || null,
+        // Umowa wykonawcza tylko przy ZAKŁADANIU — `OrderGroupPatch` jej nie
+        // niesie, a przepięcie zamówienia pod inną umowę to osobna decyzja.
+        ...(ezdrowie && !editing && executiveContractId
+          ? { executive_contract_id: Number(executiveContractId) }
+          : {}),
         ...(sharedMd && consumptionMonth && consumptionValue
           ? {
               md_consumption_month: consumptionMonth,
@@ -992,6 +1011,67 @@ export function OrderGroupFormModal({
             placeholder="445"
           />
         </div>
+
+        {ezdrowie && !editing ? (
+          <div>
+            <label htmlFor="group-executive-contract" className={labelClass}>
+              Umowa wykonawcza *
+            </label>
+            {executiveContracts.isError ? (
+              <p role="alert" className="text-xs text-destructive">
+                Nie udało się wczytać umów wykonawczych.{" "}
+                <button
+                  type="button"
+                  onClick={() => executiveContracts.refetch()}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Ponów
+                </button>
+              </p>
+            ) : executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+              // Pusty select udawałby listę do wyboru; brak aktywnych umów to
+              // stan do naprawienia gdzie indziej.
+              <p className="text-xs text-muted-foreground">
+                Brak aktywnych umów wykonawczych. Dodaj umowę wykonawczą w sekcji
+                Struktura umów na profilu klienta.
+              </p>
+            ) : (
+              <select
+                id="group-executive-contract"
+                value={executiveContractId}
+                onChange={(e) => setExecutiveContractId(e.target.value)}
+                className={inputClass}
+                disabled={!executiveContracts.isSuccess}
+              >
+                <option value="">
+                  {executiveContracts.isSuccess ? "— wybierz —" : "Wczytywanie…"}
+                </option>
+                {executiveContracts.groups.map((part) => (
+                  <optgroup key={part.framework_contract_id} label={part.label}>
+                    {part.options.map((contract) => (
+                      <option key={contract.id} value={contract.id}>
+                        {contract.number}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            )}
+            {executiveContractMissing && executiveContracts.groups.length > 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wybierz umowę wykonawczą.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {ezdrowie && editing && group?.executive_contract ? (
+          <p className="text-xs text-muted-foreground">
+            Umowa wykonawcza:{" "}
+            <span className="font-medium text-foreground">
+              {group.executive_contract.number}
+            </span>
+          </p>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
