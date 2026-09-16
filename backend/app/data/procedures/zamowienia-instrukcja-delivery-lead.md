@@ -680,14 +680,40 @@ Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
 
-**Po zmianie reguły odczytu klienta wpisy czekające w kolejce przeliczają się
-same** — raz, przy najbliższym sprawdzeniu skrzynki (co godzinę). Dostają
-dokładnie to, co „Przelicz plan": pewny plan zapisuje się automatycznie, plan
-z wątpliwością zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba
-przesyłać zamówienia ponownie — ten sam PDF wysłany drugi raz system i tak
-rozpoznaje jako duplikat i pomija. Jeśli automatyczne przeliczenie się nie
-powiedzie, wpis zostaje z komunikatem „Automatyczne przeliczenie po zmianie
-reguły nie powiodło się…" i można użyć przycisku ręcznie.
+**Każdy wstrzymany wpis przelicza się sam co godzinę.** Przy każdym sprawdzeniu
+skrzynki system bierze wszystko, co czeka w „Do weryfikacji" i w „Nierozpoznane",
+i robi z tym dokładnie to, co „Przelicz plan": pewny plan zapisuje się
+automatycznie, plan z wątpliwością zostaje w weryfikacji już z aktualnymi
+powodami. Nie trzeba przesyłać zamówienia ponownie — ten sam PDF wysłany drugi
+raz system i tak rozpoznaje jako duplikat i pomija.
+
+Najczęstsza przyczyna wstrzymania znika **gdzie indziej niż w kolejce**:
+podpisanie umowy B2B nowego kontraktora albo uzupełnienie NIP-u na karcie
+klienta. Dlatego wpis wraca w każdym biegu, a nie tylko po zmianie reguły
+odczytu.
+
+**Co się dzieje, gdy przyczyna nadal trwa,** zależy od tego, na co wpis czeka:
+
+* **Nowy kontraktor bez umowy w systemie** (dokument wymienia osobę, której nie
+  ma jeszcze na liście konsultantów klienta i która nigdzie nie ma trwającej
+  współpracy) — wpis czeka **bez limitu czasu i bez powiadamiania**. Podpisanie
+  umowy trwa zwykle dłużej niż kilka godzin, więc wcześniejsza karta byłaby
+  przedwczesna. Zamówienie zapisze się samo w ciągu godziny od chwili, gdy
+  umowa pojawi się w systemie.
+* **Każda inna przyczyna** (niedopasowana osoba, stawka poza pasmem, niepewny
+  odczyt, błąd danych) — po **trzech nieudanych próbach z rzędu** do Delivery
+  Leada klienta idzie karta „Sprawdź zamówienie z maila" ze wskazaniem
+  zamówienia i przyczyny. Wpis jest sprawdzany dalej.
+
+Zmiana przyczyny zaczyna liczenie od nowa — trzy próby dotyczą **tego samego**
+problemu. **Automatyczne dokończenie zamówienia nie wysyła powiadomienia**:
+widać je w historii poniżej.
+
+**„Historia automatycznej weryfikacji"** na dole widoku pokazuje każdy bieg:
+datę i godzinę, ile wpisów sprawdzono, ile zaakceptowano i ile zostało
+wstrzymanych. Wiersz rozwija się do konkretnych dokumentów — zaakceptowane
+i wstrzymane z powodem, każdy z linkiem do wpisu. Delivery Lead widzi w niej
+wpisy swojego portfela klientów.
 
 **Wpis z odczytem awaryjnym (AI było chwilowo niedostępne przy odczycie maila)
 system próbuje przeczytać AI ponownie sam** — przy kolejnych sprawdzeniach
@@ -827,7 +853,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
 | | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
-| Zamówienia z maila do weryfikacji | **Zamówienie do [klient] czeka na weryfikację** — z imieniem i nazwiskiem kandydata, gdy dokument je podaje | automat nie zapisał zamówienia i odesłał je do kolejki | co 7 dni |
+| Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
 | | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
 

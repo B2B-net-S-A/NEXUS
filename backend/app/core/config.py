@@ -485,6 +485,30 @@ class Settings(BaseSettings):
     # „wszyscy"). Klient, u którego odczyt zacznie się mylić, wraca na kolejkę
     # bez deployu.
     ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS: str = ""
+
+    # ── Godzinowa ponowna weryfikacja wstrzymanych zamówień (0316) ───────────
+    # Wstrzymany wpis nie wracał sam: jedyne automatyczne przeliczenie odpalało
+    # się tylko po zmianie `rule_version` polityki klienta. Recheck jedzie
+    # w TYM SAMYM biegu skrzynki (co `ORDER_MAIL_POLL_INTERVAL_MINUTES`),
+    # lokalnie i przed Graphem, więc działa też przy awarii skrzynki.
+    ORDER_MAIL_RECHECK_ENABLED: bool = True
+    # Sufit na bieg: każdy recheck to ekstrakcja tekstu z PDF-a, a skan idzie
+    # przez OCR. Kolejność `last_at NULLS FIRST` sprawia, że nic nie głoduje.
+    ORDER_MAIL_RECHECK_MAX_DOCS: int = 100
+    # Po tylu dniach przestajemy ponawiać rozpoznanie klienta dla wpisów
+    # „Nie rozpoznano klienta" — te znikają z kolejki tylko ręcznie, więc bez
+    # sufitu OCR-owalibyśmy je co godzinę bez końca.
+    ORDER_MAIL_RECHECK_UNRECOGNIZED_DAYS: int = 90
+    # Ile nieudanych prób Z RZĘDU zanim Delivery Lead dostanie kartę. Nowy
+    # kontraktor czekający na podpis umowy NIE jest liczony (patrz
+    # `order_mail_recheck_reasons.classify_hold`).
+    ORDER_MAIL_RECHECK_ALERT_AFTER_ATTEMPTS: int = 3
+    # Bezpiecznik: dokument, którego pętla nigdy nie obejrzała (wyłączona albo
+    # zatrzymana), i tak dostaje kartę po tylu godzinach czekania. Bez tego
+    # awaria pętli zamieniłaby „powiadom po trzech próbach" w „nigdy".
+    ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS: int = 6
+    # Retencja historii biegów pokazywanej pod kolejką.
+    ORDER_MAIL_RECHECK_HISTORY_DAYS: int = 30
     # Resilience for the shared claude_client.call_claude() helper. Caps a hung
     # request (SDK default is 600 s) and retries transient overload/429/529/5xx.
     ANTHROPIC_TIMEOUT_SECONDS: float = 90.0

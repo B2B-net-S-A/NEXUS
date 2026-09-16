@@ -69,7 +69,15 @@ from app.services.order_client_identity import (
     normalize_registry_id,
 )
 from app.services.order_document_text import OrderDocumentText, extract_order_text
-from app.services.order_mail_gate import GateInput, evaluate
+from app.services.order_mail_gate import (
+    CODE_AI_RETRY_EXHAUSTED,
+    CODE_AUTOAPPLY_DISABLED,
+    CODE_NON_ORDER,
+    CODE_UNKNOWN,
+    CODE_WRITE_FAILED,
+    GateInput,
+    evaluate,
+)
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import (
     MATCH_NONE,
@@ -159,7 +167,7 @@ def hold_when_autoapply_disabled(row: OrderMailDocument) -> bool:
     if row.gate_verdict != GATE_AUTO or autoapply_enabled():
         return False
     row.gate_verdict = GATE_REVIEW
-    row.gate_reasons = [AUTOAPPLY_DISABLED_REASON]
+    set_gate_hold(row, [(CODE_AUTOAPPLY_DISABLED, AUTOAPPLY_DISABLED_REASON)])
     row.outcome = OUTCOME_NEEDS_REVIEW
     return True
 
@@ -202,10 +210,13 @@ class IngestStats:
     needs_review: int = 0
     skipped_existing: int = 0
     failed: int = 0
-    #: Wpisy z kolejki przeliczone same po zmianie reguły klienta
-    #: (``replan_outdated_documents``) i ile z nich zapisało się automatem.
-    replanned: int = 0
-    replanned_auto_applied: int = 0
+    #: Godzinowa ponowna weryfikacja wstrzymanych wpisów
+    #: (``order_mail_recheck.run_recheck``): ile obejrzano, ile zapisało się
+    #: automatem, ile dalej czeka i ile wysłało kartę do Delivery Leada.
+    rechecked: int = 0
+    recheck_applied: int = 0
+    recheck_held: int = 0
+    recheck_alerts: int = 0
     #: Wpisy z odczytem awaryjnym (bez AI), dla których ponowiono odczyt AI
     #: (``retry_ai_fallback_documents``): ile prób, ile się udało, ile z nich
     #: zapisało się automatem.
@@ -472,11 +483,43 @@ _AI_RETRY_META_KEYS = (
     "ai_retry_last_at",
     "ai_retry_last_failure",
     "ai_recovered_at",
+    # 0316: ślad godzinowej ponownej weryfikacji `{attempts, category, last_at}`.
+    # „Przelicz plan" nie może go kasować — inaczej licznik „trzech prób
+    # z rzędu" zerowałby się przy każdym przeliczeniu i karta dla Delivery
+    # Leada nigdy by nie wyszła.
+    "recheck",
 )
 
 
 def _ai_retry_meta(meta: Optional[dict[str, Any]]) -> dict[str, Any]:
     return {k: v for k, v in (meta or {}).items() if k in _AI_RETRY_META_KEYS}
+
+
+def gate_hold_pairs(row: OrderMailDocument) -> list[tuple[str, str]]:
+    """Zapisane powody sparowane z kodami, odporne na wpisy sprzed 0316.
+
+    Wiersz sprzed wdrożenia ma ``gate_reasons`` bez ``gate_reason_codes``; gołe
+    ``zip`` zgubiłoby wtedy WSZYSTKIE powody, bo krótsza lista ucina parowanie.
+    """
+    reasons = row.gate_reasons or []
+    codes = row.gate_reason_codes or []
+    return [
+        (codes[i] if i < len(codes) and codes[i] else CODE_UNKNOWN, text)
+        for i, text in enumerate(reasons)
+    ]
+
+
+def set_gate_hold(row: OrderMailDocument, pairs: list[tuple[str, str]]) -> None:
+    """Zapisz powody wstrzymania RAZEM z ich kodami — jedno miejsce dla obu pól.
+
+    Kilka ścieżek nadpisuje ``gate_reasons`` poza bramką (wyłącznik automatu,
+    nieudany zapis writera, wyczerpany ponowny odczyt AI). Gdyby któraś z nich
+    zapomniała o kodach, godzinowa ponowna weryfikacja czytałaby pustą listę
+    i zakwalifikowała dokument jako „inny powód" — czyli zaczęłaby alarmować
+    Delivery Leada o czymś, co sama wyłączyła.
+    """
+    row.gate_reasons = [text for _, text in pairs]
+    row.gate_reason_codes = [code for code, _ in pairs]
 
 
 def document_meta_to_json(
@@ -608,7 +651,7 @@ async def process_pdf_bytes(
             row.extraction = None
             row.proposal = None
             row.gate_verdict = None
-            row.gate_reasons = [reason]
+            set_gate_hold(row, [(CODE_NON_ORDER, reason)])
             row.document_meta = {"ignored_non_order": True, "reason": reason}
             return row
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
@@ -644,10 +687,19 @@ async def process_pdf_bytes(
         row.outcome = OUTCOME_AUTO_APPLIED if result.ok else OUTCOME_NEEDS_REVIEW
         if not result.ok:
             row.gate_verdict = "review"
-            row.gate_reasons = [
-                "Nie udało się zapisać zamówienia: "
-                + (result.error or "; ".join(r.error for r in result.rows if r.error))
-            ]
+            set_gate_hold(
+                row,
+                [
+                    (
+                        CODE_WRITE_FAILED,
+                        "Nie udało się zapisać zamówienia: "
+                        + (
+                            result.error
+                            or "; ".join(r.error for r in result.rows if r.error)
+                        ),
+                    )
+                ],
+            )
             row.error = (
                 result.error or "; ".join(r.error for r in result.rows if r.error)
             )[:2000]
@@ -811,7 +863,7 @@ async def replan_and_apply(
     """„Przelicz plan": nowy plan z zapisanego odczytu, a pewny plan — zapis.
 
     Jedno miejsce dla przycisku w kolejce i dla przeliczenia po zmianie reguły
-    klienta (``replan_outdated_documents``). Zapis pewnego planu jest tu
+    klienta (``order_mail_recheck``). Zapis pewnego planu jest tu
     AUTOMATYCZNY (nikt nie kliknął „Zastosuj"), więc słucha wyłącznika automatu
     i nie zdejmuje blokad zarezerwowanych dla zatwierdzenia (imiennik z bazy,
     dopasowanie niedokładne). ``actor_user_id`` służy wyłącznie atrybucji;
@@ -834,18 +886,32 @@ async def replan_and_apply(
     error = result.error or "; ".join(r.error for r in result.rows if r.error)
     row.gate_verdict = GATE_REVIEW
     row.error = error[:2000]
-    row.gate_reasons = ["Nie udało się zapisać zamówienia: " + error]
+    set_gate_hold(
+        row, [(CODE_WRITE_FAILED, "Nie udało się zapisać zamówienia: " + error)]
+    )
 
 
 def _replannable(row: OrderMailDocument) -> bool:
-    """Te same warunki co przycisk „Przelicz plan" w kolejce."""
+    """Te same warunki co przycisk „Przelicz plan" w kolejce.
+
+    Brak pliku to ODPOWIEDŹ „nie da się przeliczyć", nie awaria: helper
+    magazynu RZUCA ``FileNotFoundError`` dla ścieżki, której nie ma (plik
+    znika przy retencji, przeniesieniu wolumenu, ręcznym sprzątaniu).
+    Bez tego przechwycenia godzinowa ponowna weryfikacja wywracała się na
+    takim wpisie w KAŻDYM biegu, licznik prób nigdy nie ruszał z miejsca,
+    a karta dla Delivery Leada nie wychodziła nigdy.
+    """
     if not row.client_id or not row.extraction or not row.storage_path:
         return False
     if row.applied_order_id or ((row.proposal or {}).get("apply_result") or {}).get(
         "rows"
     ):
         return False
-    return storage_service.get_order_mail_attachment_path(row.storage_path).is_file()
+    try:
+        path = storage_service.get_order_mail_attachment_path(row.storage_path)
+    except (FileNotFoundError, ValueError):
+        return False
+    return path.is_file()
 
 
 #: Ile razy ponawiamy odczyt AI dla jednego wpisu z odczytem awaryjnym. Bieg
@@ -1052,11 +1118,17 @@ async def _record_failed_ai_retry(
     }
     await refresh_review_plan(db, row)
     if attempts >= MAX_AI_RETRY_ATTEMPTS:
-        row.gate_reasons = [
-            *(row.gate_reasons or []),
-            f"Ponowny odczyt AI nie powiódł się {attempts}× — sprawdź pola z PDF "
-            "i zastosuj ręcznie albo odrzuć",
-        ]
+        set_gate_hold(
+            row,
+            [
+                *gate_hold_pairs(row),
+                (
+                    CODE_AI_RETRY_EXHAUSTED,
+                    f"Ponowny odczyt AI nie powiódł się {attempts}× — sprawdź pola "
+                    "z PDF i zastosuj ręcznie albo odrzuć",
+                ),
+            ],
+        )
 
 
 async def _apply_recovered_ai_read(
@@ -1087,71 +1159,6 @@ async def _apply_recovered_ai_read(
     }
     _stamp_rule_versions(row, policies)
     await replan_and_apply(db, row, actor_user_id=None)
-
-
-async def replan_outdated_documents(db: AsyncSession, stats: IngestStats) -> None:
-    """Przelicz raz wpisy czekające w kolejce, gdy reguła klienta się zmieniła.
-
-    Poprawka reguły odczytu działała dotąd wyłącznie dla NOWYCH maili: wpis
-    sprzed wdrożenia wisiał w „Do weryfikacji" ze starymi powodami, dopóki ktoś
-    nie kliknął „Przelicz plan" — a nikt nie miał powodu wiedzieć, że trzeba
-    (Alior, 09.2026: zamówienie na kolejny okres „nie chciało się przyjąć").
-    Wpis przeczytany inną wersją reguły niż aktywna u klienta
-    (``document_meta["rule_versions"]``) dostaje dokładnie to, co przycisk:
-    nowy plan z zapisanego odczytu i — gdy jest pewny, a automat włączony —
-    zapis. Znacznik wersji zostaje zapisany także przy porażce, więc wpis nie
-    wraca w każdym biegu; następną szansę daje ręczne „Przelicz plan" albo
-    kolejna zmiana reguły. Każdy wpis to osobna transakcja: porażka jednego
-    nie cofa przeliczeń pozostałych.
-    """
-    ids = list(
-        (
-            await db.scalars(
-                select(OrderMailDocument.id)
-                .where(
-                    OrderMailDocument.outcome == OUTCOME_NEEDS_REVIEW,
-                    OrderMailDocument.client_id.is_not(None),
-                    OrderMailDocument.applied_order_id.is_(None),
-                )
-                .order_by(OrderMailDocument.id)
-            )
-        ).all()
-    )
-    for doc_id in ids:
-        row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
-        current = rule_versions(active_policies(row.client_id)) if row else {}
-        if (
-            row is None
-            or row.outcome != OUTCOME_NEEDS_REVIEW
-            or not current
-            or (row.document_meta or {}).get("rule_versions") == current
-            or not _replannable(row)
-        ):
-            await db.commit()  # zwolnij blokadę wiersza
-            continue
-        try:
-            await replan_and_apply(db, row, actor_user_id=None)
-            auto_applied = row.outcome == OUTCOME_AUTO_APPLIED
-            await db.commit()
-        except Exception as exc:  # noqa: BLE001 — jeden wpis nie może wywrócić biegu
-            logger.exception(
-                "order_mail: replan after rule change failed for doc %s", doc_id
-            )
-            await db.rollback()
-            row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
-            row.document_meta = {
-                **(row.document_meta or {}),
-                "rule_versions": current,
-            }
-            row.error = (
-                f"Automatyczne przeliczenie po zmianie reguły nie powiodło się: {exc!r}"
-            )[:2000]
-            await db.commit()
-            stats.errors.append(f"replan doc {doc_id}: {exc!r}"[:300])
-            continue
-        stats.replanned += 1
-        if auto_applied:
-            stats.replanned_auto_applied += 1
 
 
 async def current_proposal(db, extraction, client_id):
@@ -1296,6 +1303,7 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
     )
     row.gate_verdict = verdict.verdict
     row.gate_reasons = verdict.reasons
+    row.gate_reason_codes = verdict.codes
     row.proposal = {
         "client_id": proposal.client_id,
         "order_number": proposal.order_number,
@@ -1521,22 +1529,11 @@ async def _process_message(
         added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
-            # Id PRZED ewentualnym rollbackiem: rollback wygasza atrybuty ORM,
-            # a ich odczyt w sesji async to MissingGreenlet.
-            doc_id = row.id
-            try:
-                await notify_review(db, row)
-                # ``emit`` nie commituje — bez tego alert czekałby na commit
-                # zapisu stanu, a ten może nie nadejść (restart w trakcie).
-                await db.commit()
-            except Exception as exc:  # noqa: BLE001 — alert nie może wywrócić biegu
-                logger.exception("order_mail: notify_review failed for doc %s", doc_id)
-                # Padnięte zapytanie zostawia sesję w transakcji do wycofania:
-                # bez rollbacku KAŻDE kolejne zapytanie — także zapis końca
-                # biegu — kończy się PendingRollbackError, a stan zostaje na
-                # „running" bez końca.
-                await db.rollback()
-                stats.errors.append(f"notify doc {doc_id}: {exc!r}"[:300])
+            # Karty dla Delivery Leada NIE wystawia już pierwsze wstrzymanie:
+            # od 0316 zamówienie dostaje trzy godzinowe próby automatycznego
+            # dokończenia, a te, które czeka na podpis umowy, nie alarmuje
+            # nigdy. Decyduje `order_mail_recheck._maybe_alert` (i dobowy
+            # skaner, tą samą regułą `should_alert`).
         elif row.outcome == OUTCOME_AUTO_APPLIED:
             stats.auto_applied += 1
         elif row.outcome == OUTCOME_UNRECOGNIZED:
@@ -1664,8 +1661,10 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
             "ignored_no_pdf": int(stats.get("ignored_no_pdf") or 0),
             "ignored_sender": int(stats.get("ignored_sender") or 0),
             "failed": int(stats.get("failed") or 0),
-            "replanned": int(stats.get("replanned") or 0),
-            "replanned_auto_applied": int(stats.get("replanned_auto_applied") or 0),
+            "rechecked": int(stats.get("rechecked") or 0),
+            "recheck_applied": int(stats.get("recheck_applied") or 0),
+            "recheck_held": int(stats.get("recheck_held") or 0),
+            "recheck_alerts": int(stats.get("recheck_alerts") or 0),
             "ai_retried": int(stats.get("ai_retried") or 0),
             "ai_recovered": int(stats.get("ai_recovered") or 0),
             "ai_recovered_auto_applied": int(
@@ -1712,14 +1711,23 @@ async def run_order_mail_ingest(
             await _write_state(
                 db, last_run_started_at=now, last_status="running", last_error=None
             )
-            # Najpierw wpisy, które czekają w kolejce na starej wersji reguły
-            # klienta — lokalnie, bez Graph, więc także przy awarii skrzynki.
+            # Najpierw wstrzymane wpisy z kolejki — lokalnie, bez Graph, więc
+            # także przy awarii skrzynki. Przelicza KAŻDY z nich (nie tylko te
+            # na starej wersji reguły klienta): przyczyna wstrzymania znika
+            # najczęściej gdzie indziej — po podpisaniu umowy albo po
+            # uzupełnieniu NIP-u u klienta.
             try:
-                await replan_outdated_documents(db, stats)
+                from app.services.order_mail_recheck import run_recheck
+
+                recheck = await run_recheck(db, trigger=reason)
+                stats.rechecked = recheck.checked
+                stats.recheck_applied = recheck.applied
+                stats.recheck_held = recheck.held
+                stats.recheck_alerts = recheck.alerts
             except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
-                logger.exception("order_mail: replan of outdated documents failed")
+                logger.exception("order_mail: recheck of held documents failed")
                 await db.rollback()
-                stats.errors.append(f"replan: {exc!r}"[:300])
+                stats.errors.append(f"recheck: {exc!r}"[:300])
             # Potem wpisy z odczytem awaryjnym (AI niedostępne przy odczycie
             # maila) — też lokalnie, z zachowanego PDF-a.
             try:
