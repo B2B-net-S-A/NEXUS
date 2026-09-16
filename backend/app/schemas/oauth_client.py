@@ -17,6 +17,7 @@ class OAuthClientOut(BaseModel):
     scopes: List[str]
     enabled: bool
     created_by: Optional[int]
+    acting_user_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     last_used_at: Optional[datetime]
@@ -29,6 +30,14 @@ class OAuthClientCreate(BaseModel):
     scopes: List[OAuthScope] = Field(
         default_factory=list,
         description="OAuth scopes to grant. Empty list = no permissions.",
+    )
+    acting_user_id: Optional[int] = Field(
+        None,
+        description=(
+            "Active user the client acts as when calling user-facing endpoints "
+            "(that user's RBAC applies). Omit for clients that should only hold "
+            "credentials without API access yet."
+        ),
     )
 
 
@@ -58,6 +67,14 @@ class OAuthClientUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=120)
     scopes: Optional[List[OAuthScope]] = None
     enabled: Optional[bool] = None
+    acting_user_id: Optional[int] = Field(
+        None,
+        description="Set the acting service user. Use ``clear_acting_user`` to unset.",
+    )
+    clear_acting_user: bool = Field(
+        False,
+        description="When true, detach the acting user (client loses API access).",
+    )
 
 
 class ScopeInfo(BaseModel):

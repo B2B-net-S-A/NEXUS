@@ -127,6 +127,16 @@ class OAuthClient(Base, TimestampMixin):
         nullable=True,
     )
 
+    # Migracja 0311. User serwisowy, w imieniu którego działa token klienta —
+    # ``get_current_user`` rozwiązuje ``type="client"`` do tego usera, więc
+    # RBAC/audyt działają bez zmian w handlerach. NULL = klient trzyma
+    # poświadczenia, ale nie ma dostępu do endpointów użytkownika (401).
+    acting_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
