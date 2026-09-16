@@ -71,7 +71,13 @@ from app.services.order_client_identity import (
 from app.services.order_document_text import OrderDocumentText, extract_order_text
 from app.services.order_mail_gate import GateInput, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
-from app.services.order_mail_resolver import load_roster, resolve_rows
+from app.services.order_mail_resolver import (
+    MATCH_NONE,
+    annotate_known_elsewhere,
+    load_people_outside_roster,
+    load_roster,
+    resolve_rows,
+)
 from app.services.order_rate_snapshots import (
     contract_rate_in_unit,
     order_unit_for_contract,
@@ -279,21 +285,87 @@ async def find_orders_connection(db: AsyncSession) -> Optional[M365Connection]:
 # ── Rejestr klientów z bazy ──────────────────────────────────────────────────
 
 
+#: Ile razy wolno pójść za ``merged_into_client_id``. Endpoint scalania nie
+#: pozwala wskazać celu, który sam jest scalony, więc realne łańcuchy mają
+#: długość 1 — limit jest tylko bezpiecznikiem na dane spoza API.
+_MERGE_CHAIN_LIMIT = 5
+
+
+async def _canonical_client_ids(
+    db: AsyncSession, ids: set[int]
+) -> dict[int, Optional[int]]:
+    """ID → klient KANONICZNY (koniec łańcucha ``merged_into_client_id``).
+
+    ``None`` = łańcuch się nie kończy (cykl albo dłuższy niż limit) — wtedy
+    wolimy „nie rozpoznano klienta" niż zgadywanie.
+    """
+    pointers: dict[int, Optional[int]] = {}
+    frontier = set(ids)
+    for _ in range(_MERGE_CHAIN_LIMIT):
+        missing = frontier - pointers.keys()
+        if not missing:
+            break
+        rows = await db.execute(
+            select(Client.id, Client.merged_into_client_id).where(
+                Client.id.in_(missing)
+            )
+        )
+        for client_id, target in rows.all():
+            pointers[client_id] = target
+        frontier = {t for t in pointers.values() if t is not None}
+
+    def follow(client_id: int) -> Optional[int]:
+        seen: set[int] = set()
+        while client_id not in seen:
+            seen.add(client_id)
+            if client_id not in pointers:
+                return None
+            target = pointers[client_id]
+            if target is None:
+                return client_id
+            client_id = target
+        return None
+
+    return {client_id: follow(client_id) for client_id in ids}
+
+
 async def build_registry_from_db(db: AsyncSession) -> ClientRegistry:
     """NIP-y z ``clients.nip`` → klucz = ``client_id`` jako tekst; markery/domeny z kodu.
 
     Klucze markerów to klucze POLITYK (``cardif``, ``pfron``…), rozwiązywane
     do ``client_id`` przez env tej polityki (``resolve_client_id``). Jeden
     mechanizm bramkowania — żadnej drugiej listy ID do utrzymania.
+
+    Numer prowadzi do klienta KANONICZNEGO: scalenie duplikatu nie przepisuje
+    danych, więc NIP zostaje na scalonym wierszu (``merged_into_client_id``).
+    Bez pójścia za tym wskazaniem dokument dalej lądowałby na pustym duplikacie
+    — z pustym rosterem i każdą osobą jako „nowy kontraktor" — czyli scalenie
+    klienta nie naprawiałoby poczty zamówień wcale.
+
+    Ten sam numer na DWÓCH różnych klientach kanonicznych to niejednoznaczność:
+    wypada z rejestru, żeby dokument trafił do kolejki zamiast do rekordu
+    wybranego kolejnością wierszy.
     """
     rows = await db.execute(select(Client.id, Client.nip).where(Client.nip.isnot(None)))
-    by_id: dict[str, str] = {}
-    for client_id, nip in rows.all():
-        norm = normalize_registry_id(nip or "")
-        if norm:
-            by_id[norm] = str(client_id)
+    with_nip = [
+        (client_id, norm)
+        for client_id, nip in rows.all()
+        if (norm := normalize_registry_id(nip or ""))
+    ]
+    canonical = await _canonical_client_ids(db, {cid for cid, _ in with_nip})
+    by_registry: dict[str, set[int]] = {}
+    for client_id, norm in with_nip:
+        target = canonical.get(client_id)
+        if target is not None:
+            by_registry.setdefault(norm, set()).add(target)
     return ClientRegistry(
-        by_registry_id=by_id, markers=KNOWN_MARKERS, sender_domains=KNOWN_SENDER_DOMAINS
+        by_registry_id={
+            norm: str(next(iter(targets)))
+            for norm, targets in by_registry.items()
+            if len(targets) == 1
+        },
+        markers=KNOWN_MARKERS,
+        sender_domains=KNOWN_SENDER_DOMAINS,
     )
 
 
@@ -1033,6 +1105,15 @@ async def current_proposal(db, extraction, client_id):
 
     roster = await load_roster(db, client_id)
     resolved = resolve_rows(extraction.consultant_rows, roster)
+    # Brak w rosterze != nowa osoba. Zanim plan zaproponuje nowego kontraktora,
+    # sprawdź, czy ktoś o dokładnie tym imieniu i nazwisku nie jest już w bazie
+    # (np. u drugiego, zdublowanego rekordu tego samego klienta).
+    unmatched = [r.row_name for r in resolved if r.match_kind == MATCH_NONE]
+    if unmatched:
+        resolved = annotate_known_elsewhere(
+            resolved,
+            await load_people_outside_roster(db, client_id=client_id, names=unmatched),
+        )
     contract_ids = {r.contract_id for r in resolved if r.contract_id}
     existing: dict[int, list[ExistingOrder]] = {}
     current_rates: dict[int, tuple[Optional[Decimal], Optional[str]]] = {}
