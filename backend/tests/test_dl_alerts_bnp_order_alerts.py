@@ -355,6 +355,38 @@ async def test_manual_budget_adjustment_does_not_move_the_threshold(monkeypatch)
     assert await _alerts(user_id, ALERT_MD_BASE_USAGE_HIGH) == []
 
 
+async def test_consultant_who_already_left_gets_no_md_card(monkeypatch):
+    """Linia MD osoby, która zeszła wcześniej, nie alarmuje o przedłużenie.
+
+    Linię MD kończy BUDŻET, nie data (`sync_md_line_status`,
+    `_promote_statuses` pomija linie MD), więc konsultant z zapisaną datą końca
+    współpracy i niewykorzystanym limitem zostaje `active`. Sam status by go
+    tu wpuścił — rozstrzyga `is_line_on_active_roster`, ta sama reguła, którą
+    karta zamówienia dzieli obsadę na „Aktywną" i „Zakończone". Od jego
+    niewykorzystanych MD jest osobna sprawa (`md_consultant_ended`).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.dl_alert import ALERT_MD_BASE_USAGE_HIGH
+    from app.tasks.dl_alerts_scanner import rule_md_base_usage_high
+
+    client_id = await _seed_client()
+    user_id = await _seed_dl(client_id)
+    contract_id = await _seed_contract(client_id)
+    _gate(monkeypatch, client_id)
+    # Zamówienie trwa do 31.12, ale konsultant zszedł z niego miesiąc temu.
+    line_id = await _seed_group_line(
+        client_id, contract_id, end=_FAR_END, md_total="100", consumed="90"
+    )
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        line.end_date = _TODAY - timedelta(days=30)
+        await db.commit()
+
+    await _run(rule_md_base_usage_high, monkeypatch)
+    assert await _alerts(user_id, ALERT_MD_BASE_USAGE_HIGH) == []
+
+
 async def test_card_closes_when_budget_grows_back_above_the_threshold(monkeypatch):
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder

@@ -74,7 +74,7 @@ i pilną. To jest zamierzone.
   `DL_ALERT_MD_BASE_USAGE_PERCENT`, parser CSV → `frozenset[int]`.
 * `backend/app/models/dl_alert.py` — `ALERT_MD_BASE_USAGE_HIGH`, etykiety,
   mapa sekcji, `ck_dl_alerts_type`.
-* `backend/alembic/versions/0317_dl_alert_md_base_usage_high.py` + **oba**
+* `backend/alembic/versions/0318_dl_alert_md_base_usage_high.py` + **oba**
   lustra w `backend/entrypoint.sh` (`CREATE TABLE` i atomowy `DROP+ADD`).
 * `backend/app/tasks/dl_alerts_scanner.py` — `rule_md_base_usage_high`,
   `_consumed_md_by_order`, rozszerzona `rule_periodic_order_ending`.

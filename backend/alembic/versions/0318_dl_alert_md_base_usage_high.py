@@ -1,7 +1,7 @@
 """dl_alerts: nowy typ ``md_base_usage_high`` (wysokie zużycie podstawy MD).
 
-Revision ID: 0317_dl_alert_md_base_usage_high
-Revises: 0316_order_mail_auto_recheck
+Revision ID: 0318_dl_alert_md_base_usage_high
+Revises: 0317_pipeline_stage_posting
 
 ``alert_type`` to VARCHAR + CHECK (nie enum PG) — poszerzenie wymaga DROP+ADD
 więzu; oba lustra w ``entrypoint.sh`` (CREATE TABLE i atomowy blok DO) robią
@@ -11,8 +11,8 @@ to samo, a ``tests/test_entrypoint_dl_alerts_check_mirror.py`` pilnuje, że
 
 from alembic import op
 
-revision = "0317_dl_alert_md_base_usage_high"
-down_revision = "0316_order_mail_auto_recheck"
+revision = "0318_dl_alert_md_base_usage_high"
+down_revision = "0317_pipeline_stage_posting"
 branch_labels = None
 depends_on = None
 

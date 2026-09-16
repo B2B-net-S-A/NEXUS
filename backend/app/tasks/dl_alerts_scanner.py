@@ -95,6 +95,7 @@ from app.models.order_mail import OUTCOME_NEEDS_REVIEW, OrderMailDocument
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     consultant_display_name,
+    is_line_on_active_roster,
     split_md_usage,
 )
 from app.services.delivery_alert_recipients import (
@@ -567,6 +568,15 @@ async def rule_md_base_usage_high(
 
     Wyłącznie linie z WŁASNYM budżetem MD. Wspólna pula (Lotte Wedel, Cyfrowy
     Polsat) nie zna podziału na podstawę i opcję, a ci klienci nie są na liście.
+
+    Sam ``status == active`` NIE wystarcza do odsiania osób, które już zeszły:
+    linię MD kończy budżet, nie data (``sync_md_line_status``,
+    ``_promote_statuses`` wprost pomija linie MD), więc konsultant z zapisaną
+    datą końca współpracy zostaje `active` z niewykorzystanym limitem. Kartę
+    „zaplanuj przedłużenie" dostałby ktoś, kto już nie pracuje — a od jego
+    niewykorzystanych MD jest osobna sprawa (``md_consultant_ended``).
+    Rozstrzyga ``is_line_on_active_roster`` — ta sama reguła, którą karta
+    zamówienia dzieli obsadę na „Aktywną" i „Zakończone".
     """
     extended_ids = extended_order_alert_client_ids()
     if not extended_ids:
@@ -597,7 +607,13 @@ async def rule_md_base_usage_high(
     names = await _client_names(db, {o.client_id for o in orders})
     live: set[str] = set()
     created = 0
+    today = business_today()
     for order in orders:
+        group = order.order_group
+        if not is_line_on_active_roster(
+            order, group.end_date if group else None, today=today
+        ):
+            continue
         base_total = Decimal(str(order.md_total))
         consumed = consumed_by_order.get(order.id, Decimal("0"))
         # `split_md_usage` to JEDYNE miejsce w repo definiujące „podstawa
@@ -612,7 +628,6 @@ async def rule_md_base_usage_high(
         if not user_ids:
             continue
         live |= _live_keys(ALERT_MD_BASE_USAGE_HIGH, f"order:{order.id}", user_ids)
-        group = order.order_group
         number = group.order_number if group else "—"
         client_name = names.get(order.client_id, "Klient")
         who = consultant_display_name(order)
