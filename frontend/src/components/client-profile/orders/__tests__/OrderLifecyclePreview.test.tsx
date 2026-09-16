@@ -43,4 +43,37 @@ describe("Harness /preview/order-lifecycle", () => {
     // Jawny limit: ten test przeklikuje historię KAŻDEJ karty harnessu, więc
     // rośnie razem z listą przypadków i domyślne 5 s przestaje wystarczać.
   }, 20_000);
+
+  /**
+   * Zduplikowany `key` w karcie zamówienia nie jest kosmetyką: React przy
+   * kolizji ZOSTAWIA JEDNO dziecko, więc linia konsultanta albo wpis historii
+   * po cichu znika z ekranu — obsada wygląda na mniejszą, niż jest naprawdę.
+   * Ostrzeżenie leci tylko na `console.error` w trybie deweloperskim, więc bez
+   * tego testu nikt go nie zobaczy w CI.
+   */
+  it("renderuje wszystkie karty bez ostrzeżeń Reacta o kluczach", async () => {
+    const warnings: string[] = [];
+    const spy = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        warnings.push(args.map((arg) => String(arg)).join(" "));
+      });
+
+    try {
+      const user = userEvent.setup();
+      render(<OrderLifecyclePreview />);
+
+      // Historia i „Przyszłe zamówienia" są pod rozwinięciem — bez kliknięcia
+      // ich listy nigdy się nie renderują, więc kolizja klucza by umknęła.
+      for (const button of screen.getAllByRole("button", {
+        name: /Historia zamówienia/,
+      })) {
+        await user.click(button);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(warnings.filter((line) => line.includes("same key"))).toEqual([]);
+  }, 20_000);
 });
