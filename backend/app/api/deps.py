@@ -246,9 +246,7 @@ async def get_authenticated_user(
         # Tokens minted before the authorization-version cutover had no ``av``
         # and are invalid by construction. The migration starts every account
         # at 1.
-        if not token_authorization_version_matches(
-            payload, user.authorization_version
-        ):
+        if not token_authorization_version_matches(payload, user.authorization_version):
             raise credentials_exception
 
     # Autor zmian zamówień w dzienniku Finansów (``order_change_events``).
