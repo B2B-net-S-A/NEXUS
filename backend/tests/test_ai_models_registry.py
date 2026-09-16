@@ -109,6 +109,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5"),
     AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5"),
     AIFeatureKey.cv_name_backfill: ("F10", "claude-sonnet-5"),
+    # Ta sama robota co F10 (odczyt CV), więc ten sam model. Osobny klucz jest
+    # po to, żeby dało się zgasić ścieżkę użytkownika bez nocnego syncu.
+    AIFeatureKey.experience_dates_on_demand: ("F10", "claude-sonnet-5"),
     AIFeatureKey.notes_extraction: ("F11", "deepseek-v4-pro"),
     AIFeatureKey.candidate_summary: ("F12", "deepseek-v4-pro"),
     AIFeatureKey.champion_draft: ("F13", "claude-sonnet-5"),
