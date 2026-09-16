@@ -11,6 +11,9 @@ rozpoznawana po ``(client_id, project_part)``, wykonawcza po
 ``(client_id, number)`` — powtórny start i migracja po safety-necie nic nie
 dublują. Wykonują go migracja 0312 i ``entrypoint.sh`` (prod alembic bywa
 osierocony). Numery umów nie są danymi osobowymi.
+
+``source_key`` NIE zawiera dwukropka: SQL leci przez ``text()``, a ``:cz1``
+w literale zostałoby odczytane jako parametr wiązany.
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ def build_structure_seed_sql(client_id: int = EZDROWIE_CLIENT_ID) -> str:
             cid=int(client_id),
             name=_sql_literal(name),
             part=_sql_literal(part),
-            key=_sql_literal(f"ezdrowie:{part}"),
+            key=_sql_literal(f"ezdrowie_{part}"),
         )
         for part, name, _numbers in EZDROWIE_STRUCTURE
     )
