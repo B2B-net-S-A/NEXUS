@@ -204,6 +204,7 @@ const COST_ORDER: OrderGroupExtraction = {
 };
 
 const CONTEXT: OrderPlanContext = {
+  clientId: CLIENT_ID,
   orderType: "md",
   sharedMd: false,
   groupStart: "2026-09-03",
@@ -211,6 +212,7 @@ const CONTEXT: OrderPlanContext = {
 };
 
 const COST_CONTEXT: OrderPlanContext = {
+  clientId: CLIENT_ID,
   orderType: "cost",
   sharedMd: false,
   groupStart: "2026-03-30",

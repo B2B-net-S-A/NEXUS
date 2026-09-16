@@ -85,6 +85,13 @@ class ClientOrder(Base, TimestampMixin):
             ") AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)",
             name="ck_client_orders_md_coherence",
         ),
+        # Zakres opcjonalny (Faza B, 09.2026) istnieje wyłącznie obok zakresu
+        # podstawowego (`md_total`) i nigdy nie jest ujemny.
+        CheckConstraint(
+            "md_optional_total IS NULL "
+            "OR (md_optional_total >= 0 AND md_total IS NOT NULL)",
+            name="ck_client_orders_md_optional",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -190,6 +197,16 @@ class ClientOrder(Base, TimestampMixin):
     # dla client_id=115 (app/services/ezdrowie.py); inni klienci mają NULL.
     project_part: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
 
+    executive_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_executive_contracts.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """Umowa wykonawcza Centrum e-Zdrowia (ticket 09.2026). Od niej pochodzi
+    `project_part` (część jej umowy ramowej) — pole części zostaje jako wartość
+    POCHODNA, żeby dotychczasowi konsumenci (dziedziczenie z maila, eksport)
+    nie musiały schodzić przez dwie relacje."""
+
     # PO PDF (Purchase Order od klienta)
     filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -258,6 +275,14 @@ class ClientOrder(Base, TimestampMixin):
     do zera i poniżej — przekroczony budżet jest faktem handlowym, więc UI go
     sygnalizuje kolorem, ale nic go nie blokuje ani nie ścina."""
 
+    md_optional_total: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    """Zakres OPCJONALNY w MD (Faza B, 09.2026). `md_total` to zakres
+    podstawowy; zużycie wypełnia najpierw podstawę, nadwyżka schodzi z opcji.
+    ``NULL`` = „brak opcji w umowie"; wchodzi do `md_remaining` jako dodatek
+    do budżetu, więc alerty i wyczerpanie widzą całość."""
+
     md_manual_adjustment: Mapped[Decimal] = mapped_column(
         Numeric(16, 6), nullable=False, server_default="0"
     )
@@ -294,6 +319,9 @@ class ClientOrder(Base, TimestampMixin):
     job = relationship("Job", foreign_keys=[job_id])
     framework_contract = relationship(
         "ClientFrameworkContract", back_populates="orders"
+    )
+    executive_contract = relationship(
+        "ClientExecutiveContract", back_populates="orders"
     )
     creator = relationship("User", foreign_keys=[created_by_user_id])
     file_uploader = relationship("User", foreign_keys=[file_uploaded_by])

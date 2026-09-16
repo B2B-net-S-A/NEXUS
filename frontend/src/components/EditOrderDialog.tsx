@@ -32,7 +32,11 @@ import type {
   OrderRateUnit,
   OrderType,
 } from "@/lib/api/dlPortal";
-import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import {
+  executiveContractOptionLabel,
+  useExecutiveContractOptions,
+} from "@/lib/api/executiveContracts";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   DATE_PATTERN,
   DATE_PLACEHOLDER,
@@ -168,7 +172,16 @@ export function EditOrderDialog({
       contractRateClientCurrency,
     ),
   );
-  const [projectPart, setProjectPart] = useState(order?.project_part ?? "");
+  // e-Zdrowie: zamówienie wisi na umowie wykonawczej (część jest pochodna).
+  const [executiveContractId, setExecutiveContractId] = useState(
+    order?.executive_contract_id != null ? String(order.executive_contract_id) : "",
+  );
+  // Bieżąca umowa zostaje w opcjach także po zakończeniu — select nie może
+  // pokazywać „— uzupełnij —" przy zamówieniu, które umowę już ma.
+  const executiveContracts = useExecutiveContractOptions(
+    clientId,
+    order?.executive_contract_id ?? null,
+  );
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
@@ -335,7 +348,11 @@ export function EditOrderDialog({
       } else if (canSelectOrderType) {
         payload.total_value = null;
       }
-      if (ezdrowie) payload.project_part = projectPart || null;
+      if (ezdrowie) {
+        payload.executive_contract_id = executiveContractId
+          ? Number(executiveContractId)
+          : null;
+      }
       // Kwoty POMIJAMY całkowicie, gdy rola ich nie prowadzi — wysłanie
       // zredagowanej (pustej) wartości nadpisałoby prawdziwą stawkę zerem.
       if (canManageFinance) {
@@ -361,10 +378,11 @@ export function EditOrderDialog({
       // Tworzenie idzie JEDNYM żądaniem: `POST /orders` przyjmuje komplet pól
       // razem z plikiem. Rozbicie na create + upload zostawiałoby przy błędzie
       // drugiego kroku zamówienie bez PDF-a, o który formularz właśnie prosił.
-      // Numer i część umowy jadą osobno, bo POST nazywa je inaczej niż PATCH.
+      // Numer i umowa wykonawcza jadą osobno, bo POST nazywa je inaczej niż PATCH.
       await onCreate(payload, {
         title: payload.title,
-        projectPart: ezdrowie ? projectPart : undefined,
+        executiveContractId:
+          ezdrowie && executiveContractId ? Number(executiveContractId) : undefined,
         file,
       });
     },
@@ -712,19 +730,29 @@ export function EditOrderDialog({
 
         {ezdrowie && (
           <label className="block">
-            <span className="text-sm font-medium">Część umowy</span>
+            <span className="text-sm font-medium">Umowa wykonawcza *</span>
             <select
-              value={projectPart}
-              onChange={(e) => setProjectPart(e.target.value)}
+              value={executiveContractId}
+              onChange={(e) => setExecutiveContractId(e.target.value)}
+              aria-label="Umowa wykonawcza"
               className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
             >
               <option value="">— uzupełnij —</option>
-              {PROJECT_PARTS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
+              {executiveContracts.groups.map((group) => (
+                <optgroup key={group.framework_contract_id} label={group.label}>
+                  {group.options.map((ec) => (
+                    <option key={ec.id} value={String(ec.id)}>
+                      {executiveContractOptionLabel(ec)}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
+            {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+              </p>
+            ) : null}
           </label>
         )}
 

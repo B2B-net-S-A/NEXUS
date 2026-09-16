@@ -5,18 +5,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, FileText, CalendarClock } from "lucide-react";
 import api from "@/lib/api";
 import {
-  filterConsultantsByPart,
+  filterConsultantsByExecutiveContract,
   isEzdrowieClient,
-  PROJECT_PARTS,
-  type ProjectPart,
+  type ConsultantAssignmentFilter,
 } from "@/lib/ezdrowie";
-import { cn } from "@/lib/utils";
 import type { ClientProfileResponse } from "@/types/client-profile";
 import { SummaryBar } from "@/components/client-profile/SummaryBar";
 import {
   ConsultantsTable,
   toConsultantRow,
 } from "@/components/client-profile/ConsultantsTable";
+import { ContractStructureSection } from "@/components/client-profile/ContractStructureSection";
+import { ExecutiveContractFilter } from "@/components/client-profile/ExecutiveContractFilter";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { ExtendContractMenu } from "@/components/client-profile/actions/ExtendContractMenu";
 import { ReEngageButton } from "@/components/client-profile/actions/ReEngageButton";
@@ -64,6 +64,12 @@ export function ProfileTab({ clientId }: Props) {
     <div className="space-y-6">
       <SummaryBar summary={data.summary} />
 
+      {/* Centrum e-Zdrowia: struktura umów (ramowa → wykonawcze) NAD listą
+          konsultantów — filtr i badge w tabeli czytają umowy stąd. */}
+      {isEzdrowieClient(clientId) ? (
+        <ContractStructureSection clientId={clientId} />
+      ) : null}
+
       <ConsultantsSection
         active={data.active_consultants}
         planned={data.planned_consultants ?? []}
@@ -100,18 +106,20 @@ function ConsultantsSection({
   clientId: number;
 }) {
   const [tab, setTab] = useState<ConsultantsTab>("obecni");
-  // Filtr „części umowy" — widoczny wyłącznie dla Centrum e-Zdrowia
-  // (ticket #3; bramka po client_id). Domyślnie pełna lista.
+  // Filtr po UMOWIE WYKONAWCZEJ — widoczny wyłącznie dla Centrum e-Zdrowia
+  // (bramka po client_id). Domyślnie pełna lista; „Nieprzypisani" = osoby
+  // sprzed struktury umów, do przeglądu w sekcji wyżej.
   const ezdrowie = isEzdrowieClient(clientId);
-  const [partFilter, setPartFilter] = useState<ProjectPart | "all">("all");
+  const [assignmentFilter, setAssignmentFilter] =
+    useState<ConsultantAssignmentFilter>("all");
   const filtered = ezdrowie
-    ? filterConsultantsByPart(active, partFilter)
+    ? filterConsultantsByExecutiveContract(active, assignmentFilter)
     : active;
 
   const isArchive = tab === "archiwum";
   const isPlanned = tab === "planowani";
   const activeCount =
-    ezdrowie && partFilter !== "all" ? filtered.length : active.length;
+    ezdrowie && assignmentFilter !== "all" ? filtered.length : active.length;
 
   return (
     <section className="space-y-3">
@@ -187,27 +195,12 @@ function ConsultantsSection({
       ) : !isArchive ? (
         <>
           {ezdrowie && active.length > 0 && (
-            <div
-              className="flex flex-wrap gap-2"
-              role="group"
-              aria-label="Filtr części umowy"
-            >
-              <PartFilterPill
-                active={partFilter === "all"}
-                onClick={() => setPartFilter("all")}
-              >
-                Wszystkie części
-              </PartFilterPill>
-              {PROJECT_PARTS.map((p) => (
-                <PartFilterPill
-                  key={p.value}
-                  active={partFilter === p.value}
-                  onClick={() => setPartFilter(p.value)}
-                >
-                  {p.label}
-                </PartFilterPill>
-              ))}
-            </div>
+            <ExecutiveContractFilter
+              clientId={clientId}
+              consultants={active}
+              value={assignmentFilter}
+              onChange={setAssignmentFilter}
+            />
           )}
           {active.length === 0 ? (
             <EmptyState icon={<Users className="w-8 h-8" />}>
@@ -249,32 +242,6 @@ function ConsultantsSection({
         />
       )}
     </section>
-  );
-}
-
-function PartFilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "px-3 py-1 text-xs font-medium rounded-full border transition-colors",
-        active
-          ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 text-purple-700 dark:text-purple-300"
-          : "border-border text-muted-foreground hover:text-foreground hover:border-purple-200",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

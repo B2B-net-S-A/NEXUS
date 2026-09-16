@@ -8,6 +8,7 @@
 import { api } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { OrderType } from "@/lib/api/dlPortal";
+import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
 
 export type { OrderType } from "@/lib/api/dlPortal";
 
@@ -127,6 +128,22 @@ export interface OrderLineRead {
   /** Decyzja „Zostaw jako historię". */
   history_kept_at?: string | null;
   history_kept_by_name?: string | null;
+  /** Centrum e-Zdrowia (Faza B, 09.2026): `md_total` to zakres PODSTAWOWY,
+   *  a to zakres OPCJONALNY z umowy. `null` = umowa nie ma opcji — to nie to
+   *  samo co `0` (opcja jest, ale pusta), więc pasek opcji renderuje się
+   *  inaczej w obu przypadkach. Zużycie z wpisów miesięcznych wypełnia
+   *  NAJPIERW podstawę, dopiero potem opcję. */
+  md_optional_total: number | null;
+  /** Ile z `md_used` przypadło na podstawę / opcję (serwer dzieli; front nie
+   *  liczy tego sam, żeby dwie powierzchnie nie rozjechały się przy zmianie
+   *  reguły podziału). `null` = linia bez rozbicia na zakresy. */
+  md_base_used: number | null;
+  md_optional_used: number | null;
+  /** Linia następcy, gdy ta osoba została zastąpiona (odwrotność
+   *  `predecessor_order_id`). Nazwisko obok, żeby wiersz nie musiał szukać
+   *  następcy po id w liście — bywa poza obsadą aktywną. */
+  replaced_by_order_id: number | null;
+  replaced_by_consultant_name: string | null;
 }
 
 export type OrderGroupStatus =
@@ -173,6 +190,19 @@ export interface OrderGroupRead {
   /** Wyliczane serwerowo — front nie zna reguły „wyczerpane blokuje dodawanie",
    *  a przycisk kończący się 409 czyta się jak „zapis nie działa". */
   can_add_consultant: boolean;
+
+  /** Umowa wykonawcza (Centrum e-Zdrowia), pod którą wisi zamówienie.
+   *  `null` u każdego innego klienta i u zamówień sprzed struktury umów. */
+  executive_contract: ExecutiveContractBrief | null;
+  /** Suma limitów MD wszystkich pozycji (podstawa + opcja) i suma zużycia —
+   *  liczby OPERACYJNE, widoczne bez uprawnień finansowych. `null` = zamówienie
+   *  bez rozbicia na zakresy (BIK/Polkomtel — nagłówek bez paska). */
+  md_positions_total: number | null;
+  md_used_total: number | null;
+  /** Wartość umowy i wykorzystana kwota w PLN. `null` dla ról bez finansów —
+   *  nagłówek pokazuje wtedy wyłącznie MD, a nie „0 zł". */
+  contract_value_pln: number | null;
+  used_value_pln: number | null;
 
   lines: OrderLineRead[];
   active_consultants: number;
@@ -356,6 +386,8 @@ export interface OrderLineInput {
    *  istniejących wspólnych pulach MD. */
   input_mode?: OrderInputMode | null;
   input_value?: number | null;
+  /** Zakres opcjonalny MD z umowy (CeZ). `null`/pominięte = brak opcji. */
+  optional_md?: number | null;
   start_date: string;
   end_date?: string | null;
   job_id?: number | null;
@@ -387,6 +419,8 @@ export interface OrderGroupInput {
   budget_amount?: number | null;
   md_budget_total?: number | null;
   lines?: OrderLineInput[];
+  /** Umowa wykonawcza (wymagana u Centrum e-Zdrowia, 422 u innych). */
+  executive_contract_id?: number | null;
 }
 
 export interface OrderGroupPatch {
@@ -427,8 +461,40 @@ export interface OrderLinePatch {
   rate_revenue?: number;
   input_mode?: OrderInputMode;
   input_value?: number;
+  /** `null` zdejmuje zakres opcjonalny z linii. */
+  optional_md?: number | null;
   end_date?: string | null;
   md_remaining?: number;
+}
+
+// ── Rozliczenia miesięczne linii MD (CeZ) ───────────────────────────────────
+
+export type LineConsumptionStatus = "accepted" | "protocol";
+
+/** Jeden miesiąc zużycia MD osoby na zamówieniu. `status` jest etapem
+ *  rozliczenia u klienta (protokół → akceptacja), nie stanem importu. Etykiety
+ *  PL żyją w warstwie prezentacji (`LineMonthlyHistoryDialog`), NIE tutaj —
+ *  testy mockują `@/lib/api` w całości, więc stałe stąd wychodziłyby w nich
+ *  jako `undefined`. */
+export interface LineConsumptionRow {
+  period_month: string;
+  md_reported: number;
+  status: LineConsumptionStatus | null;
+  note: string | null;
+  source: "import" | "manual";
+  import_id: number | null;
+  created_by_name: string | null;
+  updated_at: string | null;
+}
+
+export interface LineConsumptionsResponse {
+  rows: LineConsumptionRow[];
+}
+
+export interface LineConsumptionUpsert {
+  md_reported: number;
+  status?: LineConsumptionStatus | null;
+  note?: string | null;
 }
 
 export interface SwapConsultantInput {
@@ -649,6 +715,36 @@ export const orderGroupsApi = {
     api.post<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/swap`,
       payload,
+    ),
+
+  /** Wpisy miesięczne jednej linii MD (podgląd i ręczna korekta). */
+  listConsumptions: (clientId: number, groupId: number, lineId: number) =>
+    api.get<LineConsumptionsResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions`,
+    ),
+
+  /** Upsert po miesiącu — powtórka miesiąca NADPISUJE wpis (ten sam mechanizm
+   *  idempotencji co import z Finansów). Zwraca linię z przeliczonym zużyciem. */
+  putConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+    payload: LineConsumptionUpsert,
+  ) =>
+    api.put<OrderLineRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
+      payload,
+    ),
+
+  deleteConsumption: (
+    clientId: number,
+    groupId: number,
+    lineId: number,
+    periodMonth: string,
+  ) =>
+    api.delete<OrderLineRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
     ),
 
   resolveOffboardingCase: (

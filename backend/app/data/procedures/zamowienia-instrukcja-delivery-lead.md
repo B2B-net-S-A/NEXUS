@@ -467,7 +467,8 @@ stawkę przychodową (tę, którą płaci klient), jednostkę tej stawki
 
 * **stawki kosztowej** — tej, którą płacimy kontraktorowi. Dokument klienta jej
   nie zawiera. Zawsze wpisujesz ją sam.
-* **części umowy** (dotyczy tylko Centrum e-Zdrowia).
+* **umowy wykonawczej** (dotyczy tylko Centrum e-Zdrowia) — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam z listy.
 
 **Skany działają, ale w ograniczonym zakresie.** Gdy w pliku nie ma warstwy
 tekstowej, system rozpoznaje pismo — ale tylko z **pierwszych 10 stron** i wolno
@@ -597,8 +598,8 @@ zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
 odstęp w dniach, a z poprzedniego zamówienia przejmuje to, czego PDF nie niesie:
-część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę godzin rozliczeniowych
-i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+umowę wykonawczą i część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę
+godzin rozliczeniowych i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
 „poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
 lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
 PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
@@ -1434,10 +1435,22 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Centrum e-Zdrowia
 
-* Jedyny klient z polem **„Wybór części umowy \*"** — i jest ono **obowiązkowe**
-  przy nowym zamówieniu oraz przy przedłużeniu. Do wyboru: **cz.1, cz.2, cz.4,
-  cz.5, cz.6** (część 3. nie istnieje i to jest poprawne).
-* Systemu **nie odczyta** części umowy z dokumentu — wybierasz ją sam.
+* Jedyny klient z polem **„Umowa wykonawcza \*"** — i jest ono **obowiązkowe**
+  przy nowym zamówieniu oraz przy przedłużeniu. Lista jest **pogrupowana po
+  części umowy ramowej** (**cz.1, cz.2, cz.4, cz.5, cz.6** — część 3. nie
+  istnieje i to jest poprawne); część zamówienia wynika z wybranej umowy
+  wykonawczej, nie wybierasz jej osobno.
+* **Część bez umowy wykonawczej nie przyjmuje konsultanta.** Nowe umowy
+  wykonawcze dodajesz na profilu klienta w sekcji **Struktura umów** (numer
+  + część ramowa; nowa umowa jest od razu aktywna). Umowę zakończysz dopiero
+  wtedy, gdy nikt nie jest do niej przypisany.
+* System **nie odczyta** umowy wykonawczej z dokumentu — numery „do umowy
+  ramowej" na dokumentach bywają zamienione, więc wybierasz ją sam.
+* Ekran **„Przypisania do przeglądu"** (profil klienta → Struktura umów)
+  pokazuje obecnych i planowanych konsultantów bez umowy wykonawczej. Każdego
+  przypisujesz **ręcznie** — ekran podświetla tylko nagłówek części z
+  dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
+  żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
 * **Powiadomienia:** standardowe.
 
 ### Alior

@@ -677,3 +677,75 @@ async def test_second_removal_of_a_consumed_line_adds_nothing(
     assert len(removed) == 1
     body = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
     assert body["lines"][0]["removed_from_order"] is True
+
+
+# ── Faza B: „Zastąpiony → następca" w kolumnie, sumy pozycji umowy ───────────
+
+
+async def _create_md_group(
+    app_client: AsyncClient, headers: dict, client_id: int, lines: list[dict]
+) -> dict:
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
+            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "order_type": "md",
+            "md_budget_mode": "per_person",
+            "lines": lines,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_replacement_sets_the_predecessor_column_and_positions_skip_the_replaced(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Zastępstwo wiąże linie kolumną: poprzednik wnosi zużycie, nie budżet."""
+    ids = await _seed()
+    group = await _create_md_group(
+        app_client,
+        app_auth_headers,
+        ids["client_id"],
+        [_line(ids["active_contract"], input_mode="md", input_value=50)],
+    )
+    base = f"/api/clients/{ids['client_id']}/order-groups/{group['id']}"
+    replaced = group["lines"][0]
+    consumption = await app_client.put(
+        f"{base}/lines/{replaced['id']}/consumptions/2026-06",
+        json={"md_reported": 20, "status": "accepted"},
+        headers=app_auth_headers,
+    )
+    assert consumption.status_code == 200, consumption.text
+
+    added = await app_client.post(
+        f"{base}/lines",
+        json=_line(
+            ids["substitute_contract"],
+            input_mode="md",
+            input_value=40,
+            replaces_order_id=replaced["id"],
+        ),
+        headers=app_auth_headers,
+    )
+    assert added.status_code == 201, added.text
+    substitute = added.json()
+    assert substitute["predecessor_order_id"] == replaced["id"]
+    assert substitute["predecessor_consultant_name"] == "Ewa Nowak-Testowa"
+
+    body = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
+    previous = _by_contract(body, ids["active_contract"])
+    successor = _by_contract(body, ids["substitute_contract"])
+    assert previous["replaced_by_order_id"] == successor["id"]
+    assert previous["replaced_by_consultant_name"] == successor["consultant_name"]
+    assert successor["replaced_by_order_id"] is None
+    assert successor["replaces_name"] == "Ewa Nowak-Testowa"
+    # Poprzednik NIE jest zamykany przez zastępstwo — to nie zamiana.
+    assert previous["status"] == "active"
+    # Pozycje umowy: tylko następca (40 MD); zużycie: obie osoby (20 MD).
+    assert body["md_positions_total"] == 40
+    assert body["md_used_total"] == 20
+    assert body["contract_value_pln"] == pytest.approx(40 * 1280)
+    assert body["used_value_pln"] == pytest.approx(20 * 1280)

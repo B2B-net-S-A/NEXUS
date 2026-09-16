@@ -59,6 +59,23 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+// Struktura umów e-Zdrowia: hook `useExecutiveContractOptions` pyta o nią
+// wyłącznie u klienta 115. Podmieniamy metodę obiektu API — hooki i czyste
+// funkcje (`executiveContractOptionGroups`) zostają prawdziwe.
+const executiveContractMocks = vi.hoisted(() => ({
+  // Domyślnie pusta struktura — testy spoza bloku e-Zdrowia nie zasiewają jej,
+  // a `undefined` z queryFn react-query traktuje jako błąd zapytania.
+  structure: vi.fn().mockResolvedValue({ framework_contracts: [] }),
+}));
+vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/api/executiveContracts")>();
+  Object.assign(actual.executiveContractsApi, {
+    structure: (...args: unknown[]) => executiveContractMocks.structure(...args),
+  });
+  return { ...actual };
+});
+
 import { contractsApi } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
@@ -553,7 +570,7 @@ describe("OrdersAndContractsTab card", () => {
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
     expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
-    expect(screen.getByLabelText("Część umowy")).toBeDisabled();
+    expect(screen.getByLabelText("Umowa wykonawcza")).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
     ).not.toBeInTheDocument();
@@ -1244,12 +1261,11 @@ describe("OrdersAndContractsTab — promocja draftu z dialogu", () => {
 });
 
 describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
-  // `POST /orders` wymaga „części umowy" dla Centrum e-Zdrowia
-  // (`validate_project_part(..., require=True)`), a select renderował się
-  // wyłącznie przy `activeOrder`. U TEGO klienta ścieżka „kontraktor bez
-  // zamówienia" kończyła się więc 422 i objaw „nie da się nic wpisać"
-  // przeżywał poprawkę — a pola, z którego można by część podać, karta w tym
-  // stanie w ogóle nie renderowała.
+  // `POST /orders` wymaga umowy wykonawczej dla Centrum e-Zdrowia, a select
+  // renderował się wyłącznie przy `activeOrder`. U TEGO klienta ścieżka
+  // „kontraktor bez zamówienia" kończyła się więc 422 i objaw „nie da się nic
+  // wpisać" przeżywał poprawkę — a pola, z którego można by umowę podać,
+  // karta w tym stanie w ogóle nie renderowała.
   const NO_ORDERS = {
     ...structuredClone(CONTRACTOR),
     contract_id: 815,
@@ -1259,7 +1275,39 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     orders: [],
   };
 
+  const STRUCTURE = {
+    framework_contracts: [
+      {
+        id: 2,
+        name: "CeZ/145/2025 – cz. II",
+        project_part: "cz2",
+        status: "active",
+        executive_contracts: [
+          {
+            id: 10,
+            number: "CeZ/145/2025/UW-1",
+            status: "active",
+            framework_contract_id: 2,
+            project_part: "cz2",
+            notes: null,
+            consultants_count: 0,
+            created_at: null,
+          },
+        ],
+      },
+      {
+        id: 4,
+        name: "CeZ/147/2025 – cz. IV",
+        project_part: "cz4",
+        status: "active",
+        executive_contracts: [],
+      },
+    ],
+  };
+
   beforeEach(() => {
+    executiveContractMocks.structure.mockReset();
+    executiveContractMocks.structure.mockResolvedValue(STRUCTURE);
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
       data: {
         contractors: [NO_ORDERS],
@@ -1269,26 +1317,38 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     } as never);
   });
 
-  it("select części umowy renderuje się MIMO braku zamówienia", async () => {
+  it("select umowy wykonawczej renderuje się MIMO braku zamówienia, pogrupowany po częściach", async () => {
     renderTab(EZDROWIE_CLIENT_ID);
-    expect(await screen.findByLabelText("Część umowy")).toBeInTheDocument();
+    const select = await screen.findByLabelText("Umowa wykonawcza");
+    // Opcje dojeżdżają po odpowiedzi struktury.
+    await waitFor(() =>
+      expect(select.querySelectorAll("optgroup")).toHaveLength(1),
+    );
+    expect(select.querySelector("optgroup")?.label).toBe("Cz. II — CeZ/145/2025");
+    // Część bez aktywnej umowy nie ma grupy — nie da się do niej przypisać.
+    expect(screen.queryByText("Cz. IV — CeZ/147/2025")).not.toBeInTheDocument();
+    // Selektu części umowy już nie ma — część jest wartością pochodną.
+    expect(screen.queryByLabelText("Część umowy")).not.toBeInTheDocument();
   });
 
-  it("wybór części zakłada szkic zamówienia i przesyła project_part", async () => {
+  it("wybór umowy wykonawczej zakłada szkic zamówienia i przesyła executive_contract_id", async () => {
     const user = userEvent.setup();
     renderTab(EZDROWIE_CLIENT_ID);
 
-    await user.selectOptions(await screen.findByLabelText("Część umowy"), "cz2");
+    const select = await screen.findByLabelText("Umowa wykonawcza");
+    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
+    await user.selectOptions(select, "10");
 
     await waitFor(() =>
       expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
     );
     const [, form] = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0];
-    expect((form as FormData).get("project_part")).toBe("cz2");
+    expect((form as FormData).get("executive_contract_id")).toBe("10");
+    expect((form as FormData).get("project_part")).toBeNull();
     expect((form as FormData).get("order_status")).toBe("draft");
   });
 
-  it("zapis innego pola bez części odmawia PO POLSKU i nie woła API", async () => {
+  it("zapis innego pola bez umowy wykonawczej odmawia PO POLSKU i nie woła API", async () => {
     // Bez tej gałęzi użytkownik dostawał surowe „Request failed with status
     // code 422" — komunikat, z którego nie da się wywnioskować, czego brakuje.
     const user = userEvent.setup();
@@ -1300,7 +1360,9 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     await user.type(screen.getByLabelText("Numer zamówienia"), "45767");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
-    expect(await screen.findByText(/wybierz część umowy/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/wybierz umowę wykonawczą/i),
+    ).toBeInTheDocument();
     expect(dlPortalApi.createOrderExtension).not.toHaveBeenCalled();
   });
 
@@ -1308,12 +1370,14 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     // `onChange()` odświeża listę asynchronicznie, więc w okienku między
     // utworzeniem szkicu a nadejściem danych `activeOrder` jest jeszcze null.
     // Bez zapamiętanego id kolejny zapis zakładałby DRUGI szkic tego samego
-    // zamówienia — a wybór części umowy stawia obowiązkowy krok dokładnie
+    // zamówienia — a wybór umowy wykonawczej stawia obowiązkowy krok dokładnie
     // przed innymi edycjami, czyli robi z tego zwykłą kolejność klikania.
     const user = userEvent.setup();
     renderTab(EZDROWIE_CLIENT_ID);
 
-    await user.selectOptions(await screen.findByLabelText("Część umowy"), "cz2");
+    const select = await screen.findByLabelText("Umowa wykonawcza");
+    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
+    await user.selectOptions(select, "10");
     await waitFor(() =>
       expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
     );
@@ -1334,12 +1398,27 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1);
   });
 
-  it("u klienta spoza e-Zdrowia część umowy się NIE pojawia", async () => {
-    // Bramka jest po `client_id`, nie po nazwie — a backend odrzuca część
-    // umowy przysłaną przez kogokolwiek innego.
+  it("bez żadnej aktywnej umowy wykonawczej select odsyła do sekcji Struktura umów", async () => {
+    executiveContractMocks.structure.mockResolvedValue({
+      framework_contracts: [
+        { ...STRUCTURE.framework_contracts[0], executive_contracts: [] },
+      ],
+    });
+    renderTab(EZDROWIE_CLIENT_ID);
+    expect(
+      await screen.findByText(
+        "Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("u klienta spoza e-Zdrowia umowa wykonawcza się NIE pojawia", async () => {
+    // Bramka jest po `client_id`, nie po nazwie — a backend odrzuca umowę
+    // wykonawczą przysłaną przez kogokolwiek innego.
     renderTab(7);
     expect(await screen.findByText(/Ezdrowie Bezzamowien/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Część umowy")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Umowa wykonawcza")).not.toBeInTheDocument();
+    expect(executiveContractMocks.structure).not.toHaveBeenCalled();
   });
 });
 

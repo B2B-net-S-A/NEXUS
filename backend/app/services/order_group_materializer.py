@@ -234,6 +234,10 @@ async def materialize_group_for_activated_order(
             is_md_budget_based=shared_md_budget is not None,
             md_budget_total=shared_md_budget,
             md_budget_remaining=shared_md_budget,
+            # Karta MD u Centrum e-Zdrowia jest przypięta do umowy wykonawczej
+            # (ticket 09.2026): szkic z przypisaniem zakłada grupę pod tą samą
+            # umową, żeby linie i karta czytały jedno źródło.
+            executive_contract_id=order.executive_contract_id,
             created_by_user_id=actor_id,
         )
         db.add(group)
@@ -275,6 +279,10 @@ async def materialize_group_for_activated_order(
     who = await _consultant_name(db, order)
     order.order_group_id = group.id
     order.order_type = group.order_type
+    if order.executive_contract_id is None and group.executive_contract_id is not None:
+        # Linia dołączająca do istniejącej karty CeZ dziedziczy jej umowę
+        # wykonawczą (lustro `_build_line` w API grup).
+        order.executive_contract_id = group.executive_contract_id
     # Tytuł linii przechodzi na konwencję grup („Zamówienie NR — osoba"):
     # numer mieszka odtąd na grupie, a osierocona kiedyś linia (usunięcie
     # grupy odpina, nie kasuje) zachowuje czytelny ślad numeru w tytule.

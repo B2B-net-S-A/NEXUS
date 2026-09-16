@@ -180,6 +180,11 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     invoiced_total: null,
     unsettled_total: null,
     missing_consumption_month: null,
+    md_optional_total: null,
+    md_base_used: null,
+    md_optional_used: null,
+    replaced_by_order_id: null,
+    replaced_by_consultant_name: null,
     ...overrides,
   };
 }
@@ -245,6 +250,11 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     size_bytes: null,
     file_uploaded_at: null,
     can_add_consultant: true,
+    executive_contract: null,
+    md_positions_total: null,
+    md_used_total: null,
+    contract_value_pln: null,
+    used_value_pln: null,
     lines: [line()],
     active_consultants: 1,
     event_count: 3,
@@ -811,6 +821,11 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
             md_budget_used: 105,
             md_budget_remaining: -5,
             can_add_consultant: false,
+            executive_contract: null,
+            md_positions_total: null,
+            md_used_total: null,
+            contract_value_pln: null,
+            used_value_pln: null,
             lines: [
               line({
                 input_mode: null,
@@ -905,6 +920,11 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
       status_label: "Przyszłe",
       predecessor_group_id: 10,
       can_add_consultant: false,
+      executive_contract: null,
+      md_positions_total: null,
+      md_used_total: null,
+      contract_value_pln: null,
+      used_value_pln: null,
       lines: [
         line({
           id: 31,
@@ -926,6 +946,11 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
       status_label: "Przyszłe",
       predecessor_group_id: 10,
       can_add_consultant: false,
+      executive_contract: null,
+      md_positions_total: null,
+      md_used_total: null,
+      contract_value_pln: null,
+      used_value_pln: null,
       lines: [
         line({
           id: 32,
@@ -1075,6 +1100,11 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
             budget_used: 50000,
             budget_remaining: 0,
             can_add_consultant: false,
+            executive_contract: null,
+            md_positions_total: null,
+            md_used_total: null,
+            contract_value_pln: null,
+            used_value_pln: null,
             lines: [
               line({
                 md_total: null,

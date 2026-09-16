@@ -269,6 +269,9 @@ async def _renewal_of_completed_order(
     # przeliczałaby się po domyślnych 160 h.
     inherited = {
         "project_part": previous.project_part,
+        # Część jest pochodną umowy wykonawczej (CeZ) — bez niej nowe
+        # zamówienie miałoby część bez umowy, czyli wróciłoby do przeglądu.
+        "executive_contract_id": previous.executive_contract_id,
         "framework_contract_id": previous.framework_contract_id,
         "job_id": previous.job_id,
         "billing_hours_per_month": previous.billing_hours_per_month,
