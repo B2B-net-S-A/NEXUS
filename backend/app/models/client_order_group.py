@@ -235,6 +235,14 @@ class ClientOrderGroup(Base, TimestampMixin):
     )
     """Jawna korekta wspólnej puli, niezależna od miesięcznej konsumpcji."""
 
+    executive_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_executive_contracts.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """Umowa wykonawcza Centrum e-Zdrowia (ticket 09.2026): jedna karta
+    zamówienia MD na umowę wykonawczą; linie dziedziczą to pole."""
+
     predecessor_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_order_groups.id", ondelete="SET NULL"), nullable=True
     )
@@ -265,6 +273,9 @@ class ClientOrderGroup(Base, TimestampMixin):
     file_uploader = relationship("User", foreign_keys=[file_uploaded_by])
     predecessor = relationship(
         "ClientOrderGroup", remote_side=[id], foreign_keys=[predecessor_group_id]
+    )
+    executive_contract = relationship(
+        "ClientExecutiveContract", back_populates="order_groups"
     )
     lines = relationship(
         "ClientOrder",

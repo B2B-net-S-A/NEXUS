@@ -2472,6 +2472,7 @@ async def api_health_deep_check():
     from app.models.cv_share_token import CVShareToken
     from app.models.client_playbook import ClientPlaybook
     from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
     from app.models.order_change_event import OrderChangeEvent
@@ -2594,6 +2595,9 @@ async def api_health_deep_check():
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),
+        # 0312: umowy wykonawcze Centrum e-Zdrowia. Brak tabeli wyszedłby jako
+        # 500 na profilu klienta 115 i w każdym formularzu zamówienia CeZ.
+        ("client_executive_contracts", ClientExecutiveContract),
         # 0303: raport jednorazowego czyszczenia „Nieaktywnych klientów"
         # i nagrobki czytane co noc przez fazę `clients` syncu Traffita.
         ("client_cleanup_runs", ClientCleanupRun),

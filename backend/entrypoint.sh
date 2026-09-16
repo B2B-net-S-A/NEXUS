@@ -4341,6 +4341,59 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # ── 0312: umowy wykonawcze Centrum e-Zdrowia (ticket 09.2026) ──────────
+    # Umowa ramowa = część (project_part), pod nią 0..N umów wykonawczych;
+    # zamówienie i karta MD wskazują umowę wykonawczą. Kolejność: kolumna
+    # ramowej → tabela wykonawczych → FK w client_orders / client_order_groups.
+    # Zasiew struktury (5 ramowych + 3 wykonawcze) jest niżej, w bloku Python
+    # po repairach — jedno źródło SQL w app/services/ezdrowie_structure.py.
+    "ALTER TABLE client_framework_contracts ADD COLUMN IF NOT EXISTS project_part VARCHAR(8) NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_framework_contracts
+            ADD CONSTRAINT ck_client_framework_contracts_project_part
+            CHECK (
+                project_part IS NULL
+                OR project_part IN ('cz1', 'cz2', 'cz4', 'cz5', 'cz6')
+            );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS ux_client_framework_contracts_client_part
+       ON client_framework_contracts (client_id, project_part)
+       WHERE project_part IS NOT NULL""",
+    """CREATE TABLE IF NOT EXISTS client_executive_contracts (
+           id SERIAL PRIMARY KEY,
+           client_id INTEGER NOT NULL REFERENCES clients (id) ON DELETE CASCADE,
+           framework_contract_id INTEGER NOT NULL
+               REFERENCES client_framework_contracts (id) ON DELETE RESTRICT,
+           number VARCHAR(64) NOT NULL,
+           status VARCHAR(16) NOT NULL DEFAULT 'active',
+           notes TEXT NULL,
+           created_by_user_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+           CONSTRAINT ck_client_executive_contracts_status
+               CHECK (status IN ('active', 'ended')),
+           CONSTRAINT ck_client_executive_contracts_number_nonempty
+               CHECK (char_length(btrim(number)) > 0),
+           CONSTRAINT ux_client_executive_contracts_client_number
+               UNIQUE (client_id, number)
+       )""",
+    """CREATE INDEX IF NOT EXISTS ix_client_executive_contracts_client_id
+       ON client_executive_contracts (client_id)""",
+    """CREATE INDEX IF NOT EXISTS ix_client_executive_contracts_framework
+       ON client_executive_contracts (framework_contract_id)""",
+    """ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS executive_contract_id
+       INTEGER NULL REFERENCES client_executive_contracts (id) ON DELETE RESTRICT""",
+    """CREATE INDEX IF NOT EXISTS ix_client_orders_executive_contract_id
+       ON client_orders (executive_contract_id)""",
+    """ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS executive_contract_id
+       INTEGER NULL REFERENCES client_executive_contracts (id) ON DELETE RESTRICT""",
+    """CREATE INDEX IF NOT EXISTS ix_client_order_groups_executive_contract_id
+       ON client_order_groups (executive_contract_id)""",
+    # ── 0313: zakres opcjonalny linii MD + status rozliczenia miesiąca ──────
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
+    "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
+    "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6765,6 +6818,23 @@ _CONSTRAINT_STATEMENTS = [
                 OR partner_entity_type IN ('sole_trader', 'company')
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0313: zakres opcjonalny tylko obok podstawowego i nigdy ujemny; status
+    # rozliczenia miesiąca z zamkniętego słownika (Faza B CeZ, 09.2026).
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_md_optional
+            CHECK (
+                md_optional_total IS NULL
+                OR (md_optional_total >= 0 AND md_total IS NOT NULL)
+            );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_md_consumptions
+            ADD CONSTRAINT ck_md_consumptions_status
+            CHECK (status IS NULL OR status IN ('accepted', 'protocol'));
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$""",
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──
@@ -7680,6 +7750,33 @@ async def resync():
     print(f"pfron revenue resync: {summarize_for_log(summary)}")
 
 asyncio.run(resync())
+PY
+
+# 0312: docelowa struktura umów Centrum e-Zdrowia (5 umów ramowych = części,
+# 3 umowy wykonawcze). Safety-net dla migracji 0312 — jedno źródło SQL w
+# `app/services/ezdrowie_structure.py`; idempotentny (ramowa po części,
+# wykonawcza po numerze), no-op bez klienta 115. Log: tylko liczby.
+startup_phase "seed-ezdrowie-structure"
+echo "Centrum e-Zdrowia: seeding framework parts and executive contracts (idempotent)..."
+python - <<'PY' || echo "ezdrowie structure seed skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.ezdrowie import EZDROWIE_CLIENT_ID
+from app.services.ezdrowie_structure import EZDROWIE_STRUCTURE_SEED_SQL
+
+async def seed():
+    async with engine.begin() as conn:
+        await conn.execute(text(EZDROWIE_STRUCTURE_SEED_SQL))
+        counts = (await conn.execute(text(
+            "SELECT (SELECT count(*) FROM client_framework_contracts "
+            f"WHERE client_id = {int(EZDROWIE_CLIENT_ID)} AND project_part IS NOT NULL), "
+            "(SELECT count(*) FROM client_executive_contracts "
+            f"WHERE client_id = {int(EZDROWIE_CLIENT_ID)})"
+        ))).one()
+    print(f"ezdrowie structure: framework parts={counts[0]} executive contracts={counts[1]}")
+
+asyncio.run(seed())
 PY
 
 # Umowy B2B bezterminowe (09.2026) — jednorazowo: najpierw zakończenia osób ze

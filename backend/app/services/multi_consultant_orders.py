@@ -103,6 +103,20 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_MD_OFFBOARDING_RESTORED,
 )
 
+# Status rozliczenia miesiąca na linii (Faza B, 09.2026). Etykiety PL żyją
+# TUTAJ (lustro `CONSUMPTION_STATUS_LABEL` we froncie), bo trafiają do treści
+# zdarzeń historii, które zapisujemy w bazie.
+CONSUMPTION_STATUS_ACCEPTED = "accepted"
+CONSUMPTION_STATUS_PROTOCOL = "protocol"
+CONSUMPTION_STATUSES: tuple[str, ...] = (
+    CONSUMPTION_STATUS_ACCEPTED,
+    CONSUMPTION_STATUS_PROTOCOL,
+)
+CONSUMPTION_STATUS_LABELS: dict[str, str] = {
+    CONSUMPTION_STATUS_ACCEPTED: "Zaakceptowany",
+    CONSUMPTION_STATUS_PROTOCOL: "Protokół",
+}
+
 EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_ORDER_CREATED: "Utworzenie zamówienia",
     EVENT_CONSULTANT_ADDED: "Dodanie konsultanta",
