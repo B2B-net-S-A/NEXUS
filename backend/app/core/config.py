@@ -1497,6 +1497,29 @@ class Settings(BaseSettings):
     # zostawia karty w panelu, ale nie wysyła niczego.
     DL_ALERT_EMAIL_ENABLED: bool = True
 
+    # CSV z ``client_id`` klientów z ROZSZERZONYM zestawem alertów zamówień
+    # (BNP Paribas Bank Polska). Dwie rzeczy naraz, obie opisane w
+    # ``app/services/order_alert_policy.py``:
+    #   1. linia zamówienia wielo-konsultantowego dostaje kartę „kończy się
+    #      okres" w panelu „Moi klienci" (mail + powtórka co 7 dni) — u
+    #      pozostałych klientów tę kartę mają wyłącznie zamówienia okresowe;
+    #   2. osobny alert, gdy zużycie PODSTAWY MD (``md_total``) przekroczy
+    #      ``DL_ALERT_MD_BASE_USAGE_PERCENT``.
+    #
+    # Pusto = funkcja nieaktywna dla WSZYSTKICH (fail-closed): reguły zachowują
+    # się dokładnie jak przed tą rewizją. Świadomie env, a nie zaszyte id:
+    # „BNP" to RODZINA rekordów klienta (osobne wiersze oddziału i banku,
+    # do tego Cardif), więc właściwy ``client_id`` ustala się na produkcji.
+    EXTENDED_ORDER_ALERT_CLIENT_IDS: str = ""
+    # Próg alertu o zużyciu podstawy MD (procent ``md_total``). Zakres
+    # opcjonalny (``md_optional_total``) NIE wchodzi ani do licznika, ani do
+    # mianownika — ticket pyta o podstawę, a opcja jest rezerwą z umowy.
+    #
+    # Osobny próg od ``DL_ALERT_MD_THRESHOLD``, a nie jego zamiennik: tamten
+    # zostaje globalny i bezwzględny („mało MD" ma znaczyć to samo u każdego
+    # klienta), a ten jest wczesnym ostrzeżeniem dla klientów z listy wyżej.
+    DL_ALERT_MD_BASE_USAGE_PERCENT: float = 80.0
+
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):
     # `false` → pętla kończy się przed startem, zapis zamówienia i odczyt
@@ -1545,6 +1568,27 @@ class Settings(BaseSettings):
         nienumeryczny wpis jest pomijany, a nie wysadza startu backendu.
         """
         raw = self.COST_ORDER_CLIENT_IDS
+        if not raw:
+            return frozenset()
+        ids: set[int] = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                ids.add(int(chunk))
+            except ValueError:
+                continue
+        return frozenset(ids)
+
+    @property
+    def extended_order_alert_client_ids(self) -> frozenset[int]:
+        """Parse EXTENDED_ORDER_ALERT_CLIENT_IDS CSV into a set of client ids.
+
+        Ta sama tolerancja na literówki co przy dwóch listach wyżej: nienumeryczny
+        wpis jest pomijany, a nie wysadza startu backendu.
+        """
+        raw = self.EXTENDED_ORDER_ALERT_CLIENT_IDS
         if not raw:
             return frozenset()
         ids: set[int] = set()

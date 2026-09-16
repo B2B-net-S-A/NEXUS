@@ -162,7 +162,7 @@ function card(overrides: Partial<DlAlertCard>): DlAlertCard {
     id: 100,
     event_key: "periodic_order_ending:order:1:end:2026-10-14:3",
     alert_type: "periodic_order_ending",
-    alert_type_label: "Kończące się zamówienie okresowe",
+    alert_type_label: "Kończące się zamówienie",
     section: "ending",
     priority: "standard",
     client_id: 12,
@@ -237,6 +237,38 @@ const PANEL_CARDS: DlAlertCard[] = [
     link: "/clients/14?tab=zamowienia&order=4",
     missing_fields: ["stawkę przychodową", "okres zamówienia", "numer zamówienia"],
     source: "b2b_generator",
+  }),
+  // BNP: dwa NIEZALEŻNE sygnały o TYM SAMYM zamówieniu — długi okres i wysokie
+  // zużycie podstawy MD. Stoją obok siebie, bo nigdy nie są łączone w jedną kartę.
+  card({
+    id: 106,
+    event_key: "md_base_usage_high:order:6:3",
+    alert_type: "md_base_usage_high",
+    alert_type_label: "Wysokie zużycie podstawy MD",
+    client_name: "Bank Zeta",
+    candidate_name: "Piotr Wzorowy",
+    title: "Bank Zeta — 82% podstawy MD na zamówieniu 4500123456",
+    message:
+      "Zamówienie 4500123456 dla Piotr Wzorowy: wykorzystano 180 z 220 MD podstawy (82%). Zaplanuj przedłużenie albo kolejne zamówienie.",
+    link: "/clients/15?tab=zamowienia&order=6",
+    order_group_id: 9,
+    order_id: 6,
+    repeat_count: 3,
+  }),
+  card({
+    id: 107,
+    event_key: "periodic_order_ending:order:6:end:2026-12-31:3",
+    client_name: "Bank Zeta",
+    candidate_name: "Piotr Wzorowy",
+    title: "Bank Zeta — zamówienie dla Piotr Wzorowy kończy się",
+    end_date: "2026-12-31",
+    days_left: 28,
+    message:
+      "Zamówienie dla Piotr Wzorowy kończy się 2026-12-31. Skontaktuj się z klientem w sprawie przedłużenia i przygotuj nowe zamówienie.",
+    link: "/clients/15?tab=zamowienia&order=6",
+    order_group_id: 9,
+    order_id: 6,
+    email_sent: true,
   }),
   card({
     id: 105,

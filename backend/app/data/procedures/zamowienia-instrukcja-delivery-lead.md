@@ -844,10 +844,11 @@ nie samą zakładkę. Karty są pogrupowane:
 
 | Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
 |---|---|---|---|
-| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
+| | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
 | | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
@@ -862,6 +863,24 @@ MD (albo faktur) podzielona przez dni robocze od startu zamówienia do końca
 ostatniego raportowanego miesiąca. Zamówienie MD bez żadnego raportu przyjmuje
 szacunek 1 MD dziennie na osobę. Zamówienie kosztowe bez faktur nie ma tempa —
 dostaje przypomnienie standardowe, a na końcu alert o wyczerpaniu.
+
+**Klienci z rozszerzonymi alertami (dziś BNP)** dostają o tym samym zamówieniu
+**dwa niezależne sygnały i nigdy nie są one łączone w jedną kartę**:
+
+* **koniec okresu** — 30 dni przed datą końca, potem co 7 dni, aż sprawa się
+  rozwiąże (skolejkujesz następne zamówienie albo zakończysz obecne). U
+  pozostałych klientów tę kartę dostają wyłącznie zamówienia okresowe, bo tam
+  zamówienie MD kończy zwykle wyczerpanie budżetu, nie kalendarz;
+* **zużycie podstawy MD** — gdy konsultant zejdzie **80% swojej podstawy**,
+  niezależnie od tego, ile czasu zostało do końca okresu. To wczesne
+  ostrzeżenie: przy zamówieniu na 220 MD alert „mało MD" (21 MD pozostałych)
+  wypada dopiero przy ~90% zużycia, za późno na wynegocjowanie i wystawienie
+  nowego dokumentu PO.
+
+Gdy oba warunki są spełnione naraz, w panelu stoją **dwie karty** i każdą
+odhaczasz osobno. Listę klientów objętych tymi alertami ustawia administrator
+(zmienna `EXTENDED_ORDER_ALERT_CLIENT_IDS`); dopóki jest pusta, **nic się nie
+zmienia dla nikogo**.
 
 **Checkbox „zrobione"** zdejmuje kartę od razu, **zatrzymuje dalsze przypomnienia
 tej sprawy** (także wtedy, gdy problem nadal trwa) i zapisuje w historii, kto
@@ -1104,8 +1123,12 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * Gdy któregoś z tych pól w dokumencie nie ma, system o tym powie i zostawi
   pole do ręcznego wpisania. Zgłosi też **nietypową stawkę za 1 MD** poza
   spodziewanym zakresem — to sygnał, że kwotę odczytano z innej kolumny.
-* **Powiadomienia:** standardowe, plus alert **„mało MD"**, gdy konsultantowi
-  zostanie 21 dni lub mniej.
+* **Powiadomienia:** BNP jest klientem z **rozszerzonymi alertami** — poza
+  standardowymi dostajesz dwa niezależne sygnały o każdym zamówieniu (patrz
+  „Powiadomienia — co przyjdzie, kiedy i gdzie"): **koniec okresu** 30 dni
+  przed datą końca, z powtórką co tydzień, oraz **zużycie 80% podstawy MD**,
+  niezależnie od tego, ile czasu zostało. Do tego nadal alert **„mało MD"**,
+  gdy konsultantowi zostanie 21 MD lub mniej.
 
 ### BIK
 
