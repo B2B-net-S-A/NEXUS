@@ -142,6 +142,37 @@ CV_ENRICHMENT = PromptTemplate(
 # CV_ENRICHMENT: hash promptu interaktywnego wchodzi w klucze cache, a jego
 # treść zmienia zachowanie modelu na ścieżce rekrutera — tego nie ruszamy.
 
+CV_EXPERIENCE_DATES = PromptTemplate(
+    name="cv_experience_dates",
+    # Backfill dat w `candidates.experience` (2026-09-16). ~44k wierszy dostało
+    # `experience` z gołej listy pracodawców Traffita (bez dat), a masowy prompt
+    # `CV_ENRICHMENT_BULK` celowo nie prosi o `experience`. Ten szablon prosi
+    # WYŁĄCZNIE o historię zatrudnienia — wyjście to ~1/5 tokenów pełnego
+    # odczytu, a to wyjście jest ~59% rachunku przy Haiku.
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "You are a recruitment assistant extracting employment history from "
+        "CVs for a Polish IT staffing ATS. Copy employers and dates exactly as "
+        "the CV states them; never invent an employer, a role or a date."
+    ),
+    template=(
+        "From the CV below, produce a JSON object with ONE field:\n"
+        '  "experience": list of jobs, most recent first (max 10), each '
+        '{{"company": str|null, "role": str|null, "start": "YYYY-MM"|"YYYY"|null, '
+        '"end": "YYYY-MM"|"YYYY"|"present"|null}}. Use the employer\'s name as '
+        "written in the CV (the company, not the end client of a project). "
+        'Copy dates only from the CV. Use "present" only when the CV says the '
+        'job is ongoing (e.g. "obecnie", "present", "do teraz", "nadal"); for a '
+        "finished job give its end date (the year alone when the month is not "
+        "stated); null only when the CV states no end date at all. Skip "
+        "education, courses and hobby projects without an employer.\n\n"
+        "Respond with ONLY the raw JSON, no prose.\n\n"
+        "CV:\n{cv_text}\n"
+    ),
+)
+
+
 CV_ENRICHMENT_BULK = PromptTemplate(
     name="cv_enrichment_bulk",
     # v2: jawny zakaz oddawania `skills` jako zacytowanego stringa — kalibracja

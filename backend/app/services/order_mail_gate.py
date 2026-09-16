@@ -3,9 +3,11 @@
 Review reasons describe source ambiguity, incomplete data, conflicting people,
 rate outliers or an actual incompatible order. On a periodic order a missing
 or ended engagement is a normal lifecycle state, not a reason to stop a complete
-order. On MD and cost orders the planner stops such a person at
-``ACTION_DECIDE_PERSON`` (keep as history / resume / replace / remove is the
-Delivery Lead's decision), which lands here as an ordinary non-auto action.
+order — unless somebody with that exact name is already in the base, which the
+writer would refuse anyway and a human has to confirm. On MD and cost orders the
+planner stops such a person at ``ACTION_DECIDE_PERSON`` (keep as history /
+resume / replace / remove is the Delivery Lead's decision), which lands here as
+an ordinary non-auto action.
 """
 
 from __future__ import annotations
@@ -187,6 +189,14 @@ def evaluate(inp: GateInput) -> GateVerdict:
     for res in inp.resolved:
         if res.match_kind not in (MATCH_EXACT, "none"):
             reasons.append(f"„{res.row_name}”: {res.reason}")
+        elif res.match_kind == "none":
+            # Pierwsze zlecenie osoby, której w bazie NIE MA, automat zakłada
+            # jak dotąd. Osoba, która w bazie JEST (imiennik albo ten sam
+            # człowiek pod drugim rekordem tego klienta), wymaga człowieka:
+            # writer i tak by odmówił, a tu odmowa jest widoczna w kolejce
+            # razem z tym, kogo znaleziono.
+            if res.known_elsewhere_ids:
+                reasons.append(res.reason)
         elif len(res.live_contract_ids) > 1:
             reasons.append(
                 f"„{res.row_name}”: kilka aktywnych kontraktów — wybierz właściwy"
