@@ -136,10 +136,6 @@ def _live_keys(alert_type: str, entity_key: str, user_ids: list[int]) -> set[str
     return {event_key_for(alert_type, entity_key, uid) for uid in user_ids}
 
 
-def _days_word(days: int) -> str:
-    return "dzień" if days == 1 else "dni"
-
-
 def _person(candidate: Candidate | None, fallback: str = "kontraktora") -> str:
     if candidate is None:
         return fallback
@@ -658,6 +654,10 @@ async def _emit_date_cycle(
         stage=stage,
         priority=priority,
         email=email,
+        # Miesięczne uprzedzenie: pierwszy wiersz sprawy idzie mailem, nawet gdy
+        # do końca zostało jeszcze ponad 14 dni. Dalej cykl bez zmian —
+        # powtórki co 7 dni bez maila, `t14` mailem, `t7` mailem i na czerwono.
+        email_on_first=True,
     )
     return len(alerts)
 

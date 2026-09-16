@@ -608,3 +608,126 @@ async def test_order_alert_dispatched():
             assert len(notifs) >= 2  # dl + admin minimum
     finally:
         await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
+
+
+async def _order_notification_types(order_id: int, user_id: int) -> list[str]:
+    async with AsyncSessionLocal() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(Notification)
+                    .where(
+                        Notification.user_id == user_id,
+                        Notification.related_entity_type == "client_order",
+                        Notification.related_entity_id == order_id,
+                    )
+                    .order_by(Notification.id)
+                )
+            ).scalars()
+        )
+    return [n.notification_type.value for n in rows]
+
+
+@pytest.mark.parametrize("days_left", [30, 29, 22, 15])
+async def test_thirty_day_threshold_survives_a_missed_scan_day(days_left: int):
+    """Uprzedzenie miesięczne wchodzi z ZAKRESU, nie z równości z dniem T-30.
+
+    Do 09.2026 skaner pytał ``end_date == today + 30``. Jeden dzień bez biegu
+    (albo przesunięcie doby między UTC a Warszawą) i próg 30-dniowy przepadał
+    bezpowrotnie — pierwszy dzwonek wypadał dopiero na 14 dni przed końcem.
+    """
+    from app.core.scheduling import business_today
+
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    contract_id, candidate_id = await _new_contract(client_id)
+    end = business_today() + timedelta(days=days_left)
+    try:
+        async with AsyncSessionLocal() as db:
+            order = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=f"Zamówienie T-{days_left}",
+                status=ClientOrderStatus.active,
+                start_date=date.today() - timedelta(days=90),
+                end_date=end,
+            )
+            db.add(order)
+            await db.commit()
+            order_id = order.id
+
+        await run_once()
+
+        assert await _order_notification_types(order_id, dl_id) == [
+            "client_order_ending_30d"
+        ]
+
+        # Drugi bieg tego samego dnia nie dokłada nic.
+        await run_once()
+        assert await _order_notification_types(order_id, dl_id) == [
+            "client_order_ending_30d"
+        ]
+    finally:
+        await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
+
+
+async def test_order_entered_late_takes_the_tightest_threshold_not_thirty():
+    """Zamówienie wpisane 10 dni przed końcem dostaje próg 14, nigdy 30.
+
+    Próg 30-dniowy już minął, zanim zamówienie w ogóle trafiło do Nexusa —
+    wysłanie go byłoby kłamstwem („kończy się za 30 dni"). Kubełek wybiera
+    najciaśniejszy pasujący próg, więc Delivery Lead dostaje jeden dzwonek
+    z prawdziwą liczbą dni.
+    """
+    from app.core.scheduling import business_today
+
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    contract_id, candidate_id = await _new_contract(client_id)
+    end = business_today() + timedelta(days=10)
+    try:
+        async with AsyncSessionLocal() as db:
+            order = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title="Zamówienie wpisane późno",
+                status=ClientOrderStatus.active,
+                start_date=date.today() - timedelta(days=5),
+                end_date=end,
+            )
+            db.add(order)
+            await db.commit()
+            order_id = order.id
+
+        await run_once()
+
+        assert await _order_notification_types(order_id, dl_id) == [
+            "client_order_ending_14d"
+        ]
+
+        async with AsyncSessionLocal() as db:
+            title = await db.scalar(
+                select(Notification.title).where(
+                    Notification.user_id == dl_id,
+                    Notification.related_entity_type == "client_order",
+                    Notification.related_entity_id == order_id,
+                )
+            )
+        # Tytuł niesie faktyczną liczbę dni, nie numer progu.
+        assert title.endswith("kończy się za 10 dni")
+    finally:
+        await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
+
+
+async def test_threshold_bucket_and_lead_phrase():
+    from app.tasks.dl_portal_expiry_scanner import _lead_phrase, _threshold_bucket
+
+    assert _threshold_bucket(31) is None
+    assert _threshold_bucket(30) == 30
+    assert _threshold_bucket(15) == 30
+    assert _threshold_bucket(14) == 14
+    assert _threshold_bucket(8) == 14
+    assert _threshold_bucket(7) == 7
+    assert _threshold_bucket(0) == 7
+
+    assert _lead_phrase(22) == "za 22 dni"
+    assert _lead_phrase(1) == "za 1 dzień"
+    assert _lead_phrase(0) == "dzisiaj"

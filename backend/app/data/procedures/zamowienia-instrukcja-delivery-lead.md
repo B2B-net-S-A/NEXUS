@@ -818,7 +818,7 @@ nie samą zakładkę. Karty są pogrupowane:
 
 | Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
 |---|---|---|---|
-| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca | co 7 dni; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
@@ -879,8 +879,18 @@ widoczny w widoku pulpitu „Delivery Lead".
 
 ### Maile
 
-Mail przychodzi **tylko na progach**: 14 i 7 dni przed końcem zamówienia, umowy
-ramowej albo kontraktu oraz przy wysokim priorytecie MD i budżetu kosztowego.
+O kończącym się zamówieniu, umowie ramowej i kontrakcie mail przychodzi
+**trzy razy**: przy **pierwszej karcie sprawy** — czyli zwykle **miesiąc przed
+datą końca** — potem **14 dni przed** i **7 dni przed**. Powtórki co 7 dni
+między tymi progami idą tylko na kartę, bez maila. Poza tym mail wychodzi przy
+wysokim priorytecie MD i budżetu kosztowego.
+
+Pierwszy mail jest liczony od **wejścia sprawy do panelu**, nie od równości
+z dniem T-30: zamówienie wpisane albo przedłużone na mniej niż miesiąc
+(np. 20 dni przed końcem) dostaje ten mail od razu, zamiast czekać do progu
+14-dniowego. Przedłużenie zamówienia to nowa sprawa, więc uprzedzenie
+przychodzi znowu.
+
 Każdy próg wysyła mail raz. Odhaczona sprawa nie dostaje już maili.
 
 ### Dzwonek w prawym górnym rogu
@@ -891,6 +901,12 @@ i 60 dni), o nowym drafcie kontraktu i zamówienia po zatrudnieniu oraz o braku
 kolejnego zamówienia (raz na brak). Panel
 „Moi klienci" jest miejscem, w którym te sprawy **załatwiasz i odhaczasz**;
 dzwonek — tylko informacją.
+
+Progi dzwonka liczą się z **przedziału** dni do końca, więc dzień bez biegu
+skanera już ich nie gubi, a zamówienie wpisane później niż miesiąc przed końcem
+dostaje najbliższy pasujący próg zamiast nieprawdziwego „za 30 dni". Tytuł
+powiadomienia podaje **faktyczną** liczbę dni („kończy się za 22 dni"), a nie
+numer progu.
 
 Skanery chodzą **raz na dobę, licząc od ostatniego restartu aplikacji** — nie ma
 stałej godziny wysyłki.

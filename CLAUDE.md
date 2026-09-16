@@ -2625,12 +2625,31 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   epizodu — **także etapy t14/t7/high** (ticket: „zatrzymuje dalsze
   przypomnienia"). Karta mail-review zamyka się od razu przy apply/dismiss.
 - **Cykl datowy** (`date_cycle_stage`): okno 30 dni z ZAKRESU dat, nie równości
-  (dzień bez skanera nie gubi progu) → co 7 dni → T-14 mail → T-7 high + mail.
+  (dzień bez skanera nie gubi progu) → **pierwszy wiersz sprawy = mail** → co 7
+  dni bez maila → T-14 mail → T-7 high + mail.
   Encja niesie datę końca (`order:{id}:end:{data}`), więc przedłużenie = nowy cykl.
   Dotyczy zamówień okresowych (`order_group_id IS NULL`), umów ramowych
   i kontraktów (kontrakt, którego zamówienie okresowe kończy się tego samego
-  dnia, nie dostaje drugiej karty). Stare skanery dzwonka (`dl_portal_expiry_scanner`,
-  `contract_alerts`) działają dalej — decyzja: dzwonek bez zmian.
+  dnia, nie dostaje drugiej karty).
+- **Miesięczne uprzedzenie mailem to `email_on_first` w `emit`, NIE etap `t30`**
+  (09.2026, decyzja Artura: mail + dzwonek, progi 14/7 zostają). Mail idzie przy
+  pierwszym wierszu sprawy — `first_seen is None`, liczone PER ODBIORCA, więc
+  nowy DL przypisany w połowie okna dostaje swój pierwszy mail, a pozostali nie
+  dostają drugiego. Osobny etap `t30` zjadłby powtórki tygodniowe w paśmie
+  30→15 dni (etap i numer okna to ta sama pozycja `dedupe_key`), wysłałby zaraz
+  po wdrożeniu mail każdej sprawie już wiszącej w oknie i **nie objąłby
+  zamówienia wpisanego 20 dni przed końcem** — próg 30-dniowy już by minął.
+  `date_cycle_stage` zostaje nietknięte.
+- **Dzwonek (`dl_portal_expiry_scanner`) liczy progi z ZAKRESU, nie z równości**
+  (09.2026). Do tej zmiany pytał `end_date == today + N` dla `N ∈ (30, 14, 7)`,
+  więc jeden dzień bez biegu — albo zamówienie wpisane/przedłużone na mniej niż
+  30 dni — gubił próg 30-dniowy BEZPOWROTNIE i pierwszy dzwonek wypadał na 14
+  dni. Teraz `_threshold_bucket(days_left)` wybiera najciaśniejszy pasujący próg
+  (jeden na encję na bieg), dedup po `_end_phrase` zostaje bez zmian, a zegar to
+  `business_today()` jak w `_promote_statuses` (koniec rozjazdu UTC/Warszawa).
+  Tytuł niesie FAKTYCZNĄ liczbę dni (`_lead_phrase`), bo próg 30 bywa wysłany
+  przy 22 dniach; `message` nietknięty — to on jest kluczem dedupu.
+  `contract_alerts` (90/60/30/14/7 na kontraktach) bez zmian.
 - **MD** start `DL_ALERT_MD_THRESHOLD=21` (`<=`), **kosztowe** start
   `DL_ALERT_COST_BUDGET_THRESHOLD=10000` (treść bez kwot — panel widzą też
   hybrydy bez finansów). Wysoki priorytet + mail: pozostałość ≤ tempo ×
