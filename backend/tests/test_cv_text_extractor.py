@@ -151,3 +151,10 @@ def test_extract_text_filename_dispatch_fallback(monkeypatch):
         assert out == "ok"
     finally:
         os.unlink(path)
+
+
+def test_normalize_drops_nul_bytes():
+    """Postgres odrzuca 0x00 w tekście; ekstraktor ma go wyciąć zanim trafi do DB."""
+    from app.services.cv_text_extractor import _normalize
+
+    assert _normalize("Jan\x00 Kowalski\x00\n\x00Python") == "Jan Kowalski\nPython"
