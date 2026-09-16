@@ -306,6 +306,16 @@ class Settings(BaseSettings):
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Haiku: ~$0,004/CV vs ~$0,016 na Sonnecie.
     CLAUDE_MODEL_CV_BULK: str = "claude-haiku-4-5-20251001"
+
+    # ── Parser CV: dostawca ────────────────────────────────────────────────
+    # "claude" (domyślnie, jak dotąd) albo "openai" — wtedy krok LLM idzie
+    # najpierw na OpenAI (gpt-5.6-luna, ~5x tańszy od Haiku wg cennika 09.2026),
+    # a Claude → Ollama → regex zostają jako fallback, gdy OpenAI zwróci błąd.
+    # Decyzja 2026-09-16 (Artur): scrapery pracuj/JJIT też parsują Luną.
+    CV_PARSE_PROVIDER: str = "claude"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL_CV: str = "gpt-5.6-luna"
+    OPENAI_TIMEOUT_SECONDS: float = 60.0
     # Twarde sufity pojedynczego biegu — `ai_quota` sam dokumentuje się jako
     # advisory i wyścigowe, więc bieg ma własny bezpiecznik.
     CV_BACKFILL_MAX_CALLS: int = 45_000

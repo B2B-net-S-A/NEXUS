@@ -504,6 +504,103 @@ async def _parse_with_claude(
         return None
 
 
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+
+
+def _extract_openai_text(data: dict[str, Any]) -> str:
+    """Responses API: `output_text` (SDK-owy skrót) albo sklejone bloki `output[].content[].text`."""
+    text = data.get("output_text")
+    if isinstance(text, str) and text:
+        return text
+    parts: list[str] = []
+    for item in data.get("output") or []:
+        for part in (item or {}).get("content") or []:
+            if part.get("type") in ("output_text", "text") and part.get("text"):
+                parts.append(part["text"])
+    return "".join(parts)
+
+
+async def _parse_with_openai(
+    cv_text: str,
+    *,
+    model: str | None = None,
+    template: PromptTemplate = CV_ENRICHMENT,
+) -> Optional[dict[str, Any]]:
+    """Ten sam prompt co dla Claude'a, ale przez OpenAI Responses API (gpt-5.6-luna).
+
+    Zwraca None przy KAŻDYM błędzie (brak klucza, HTTP ≠ 200, nie-JSON), żeby
+    `parse_cv` zszedł na Claude → Ollama → regex — dostawca nie może zepsuć
+    onboardingu z CV. Kwota AI (`ai_feature`) obejmuje tylko krok Claude'a:
+    OpenAI ma własny billing, a licznik tokenów idzie do `_usage` + logu, jak
+    przy Claude, żeby kosztorys biegu masowego był mierzalny.
+    """
+    api_key = settings.OPENAI_API_KEY
+    if not api_key or not settings.CV_ENRICHMENT_ENABLED:
+        return None
+    chosen_model = model or settings.OPENAI_MODEL_CV
+    try:
+        user_prompt = template.render(cv_text=cv_text[:8000])
+        async with httpx.AsyncClient(
+            timeout=float(settings.OPENAI_TIMEOUT_SECONDS)
+        ) as client:
+            resp = await client.post(
+                OPENAI_RESPONSES_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": chosen_model,
+                    "instructions": template.system_prompt or "",
+                    "input": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": user_prompt}],
+                        }
+                    ],
+                    "text": {"format": {"type": "json_object"}},
+                    "max_output_tokens": 3000,
+                },
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "[cv_parser] OpenAI %s HTTP %s: %s",
+                chosen_model,
+                resp.status_code,
+                resp.text[:200],
+            )
+            return None
+        payload = resp.json()
+        raw = _extract_openai_text(payload)
+        data = json.loads(_strip_json_fences(raw))
+        if not isinstance(data, dict):
+            return None
+        data["_source"] = f"openai:{template.name}:v{template.version}"
+        usage = payload.get("usage") or {}
+        data["_usage"] = {
+            "model": chosen_model,
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+        }
+        logger.info(
+            "[cv_parser] model=%s in=%s out=%s template=%s v%d",
+            chosen_model,
+            usage.get("input_tokens", "?"),
+            usage.get("output_tokens", "?"),
+            template.name,
+            template.version,
+        )
+        return data
+    except Exception as e:  # noqa: BLE001 — każdy błąd = fallback niżej
+        logger.warning(
+            "[cv_parser] OpenAI call failed (template=%s v%d): %s",
+            template.name,
+            template.version,
+            e,
+        )
+        return None
+
+
 async def _parse_with_ollama(cv_text: str) -> Optional[dict[str, Any]]:
     """Call local Ollama; returns None on any failure so caller can fallback."""
     ollama_host = getattr(settings, "OLLAMA_HOST", None) or getattr(
@@ -570,8 +667,8 @@ async def parse_cv(
     Extract structured facts from CV text.
 
     With `prefer_llm=True` (default) the parser walks the hierarchy
-    Claude → Ollama → regex; the first path that returns a non-None result
-    wins. With `prefer_llm=False` only the regex heuristic runs (useful for
+    (OpenAI, gdy CV_PARSE_PROVIDER=openai) → Claude → Ollama → regex; the first
+    path that returns a non-None result wins. With `prefer_llm=False` only the regex heuristic runs (useful for
     deterministic tests and offline environments).
 
     `model` nadpisuje model KROKU CLAUDE'A dla wołającego, który ma własny wpis
@@ -598,6 +695,16 @@ async def parse_cv(
         return _normalize_cv_output(_regex_fallback(""))
 
     if prefer_llm:
+        # Dostawca „openai" (gpt-5.6-luna) idzie PRZED Claude'em; None = fallback
+        # na dotychczasową hierarchię. Poza bramką kwoty AI (własny billing).
+        if settings.CV_PARSE_PROVIDER.strip().lower() == "openai":
+            openai_result = await _parse_with_openai(cv_text)
+            if openai_result is not None:
+                return _normalize_cv_output(
+                    _apply_contact_fallbacks(
+                        _with_linkedin_fallback(openai_result, cv_text), cv_text
+                    )
+                )
         claude = None
         if db is not None:
             from app.models.ai_feature import AIFeatureKey
