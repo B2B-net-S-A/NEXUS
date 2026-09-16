@@ -3638,6 +3638,69 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
 
+## Modele AI per funkcja — decyzja z badania na danych produkcyjnych (16.09.2026)
+
+Badanie siedmiu modeli na WSZYSTKICH funkcjach AI (raport poza repo:
+`outputs/model-matrix-2026-09-15/RAPORT-KONCOWY.md`, identyfikatory F1–F17)
+zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`:
+
+| ID | funkcja | model | ID | funkcja | model |
+|---|---|---|---|---|---|
+| F1 | scoring | Sonnet 5 | F9 | cv_parser | Sonnet 5 |
+| F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
+| F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
+| F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
+| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
+| F7 | order_parser | GPT Luna | F15 | mindy_chat | GPT Luna |
+| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+
+- **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
+  modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →
+  OpenAI, `deepseek*` → DeepSeek). Nie dokładaj literałów modeli ani osobnych
+  klientów w serwisach — `test_ai_models_registry.py` przypina decyzję per ID.
+- **Dostawcy spoza Anthropic idą przez TĘ SAMĄ granicę `claude_client.call_claude`**
+  (`services/llm_providers.py`): ten sam kształt odpowiedzi (`ProviderMessage`
+  = bloki tekstowe, `stop_reason`, `usage`), te same ponowienia, deadline,
+  fallback i telemetria (`ai_metering` z własnym cennikiem i polem `provider`).
+  Błędy są zgłaszane WYJĄTKAMI SDK Anthropic (`RateLimitError`, `APITimeoutError`,
+  `AuthenticationError`…) z prawdziwym `httpx.Response` — na nich stoi
+  klasyfikacja ponowień i mapowanie błędów kilkunastu wołających. Nie zamieniaj
+  tego na osobną hierarchię wyjątków „bo czystsza": zepsuje `except anthropic.*`.
+- **Nieobsługiwane u GPT/DeepSeek: streaming, `tools`, bloki inne niż tekst
+  (obraz, dokument PDF)** — `ValueError` (nieponawialny), nie ciche pominięcie.
+  OpenAI dostaje `reasoning_effort=none`, `store=false`, bez `temperature`
+  (modele rozumujące odrzucają parametr); DeepSeek `thinking=disabled` — czyli
+  konfiguracje, w których model wygrał badanie.
+- **Funkcje na GPT/DeepSeek mają fallback na Sonneta 5** (429/5xx/przeciążenie).
+  **Brak klucza dostawcy = 401 NIEPONAWIALNE, bez kaskady na Claude** — błąd
+  konfiguracji ma być widoczny: `/api/health` → `checks.openai` /
+  `checks.deepseek` (`unconfigured` | `configured` | `degraded` | `unhealthy`).
+  Sondy „brak klucza" u wołających pytają `api_key_configured(model)`, nie o
+  klucz Anthropic. Klucze `OPENAI_API_KEY` i `DEEPSEEK_API_KEY` są w Coolify
+  od badania (16.09.2026).
+- **`settings_attr` wygrywa z `default` rejestru**, więc domyślne wartości
+  legacy pól w `config.py` (`CLAUDE_MODEL_CV`, `CLAUDE_MODEL_CV_BULK`,
+  `ORDER_PARSER_MODEL`) MUSZĄ być tym samym modelem co w rejestrze — pilnuje
+  `test_legacy_settings_defaults_agree_with_the_registry`. Tak Haiku siedziałby
+  w backfillu mimo decyzji. MINDY nie honoruje już legacy `CLAUDE_MODEL_CV`.
+- **F4: Sonnet 5 z `CV_B2B_THINKING=disabled`** (domyślne). Rewert #628 mierzył
+  Sonneta 5 z wymuszonym thinking; badanie z thinking wyłączonym: wymyślone fakty
+  0.20 vs 0.41 u 4.6. Nie przywracaj pinu 4.6 bez ponownego pomiaru.
+- **F2: zmiana modelu parsera Championa zmienia WYNIKI parsowania** — przy
+  kolejnej edycji promptu bump `PARSER_VERSION`; klucz cache nie zawiera nazwy
+  modelu.
+- **F16/F17:** `VOYAGE_MODEL` w kodzie = `voyage-3` (do 16.09 kod mówił
+  `voyage-3-large`, prod `voyage-3` — rozjazd wysyłał eval na ścieżkę
+  referencyjną); `RERANKER_ENABLED=False` — na ścieżce produkcyjnej był no-opem
+  (pula = wynik, `canonical_fit` i tak sortuje), dosypka 500→rerank-3→200
+  n.s. Kod rerankera zostaje; włączenie = env w Coolify.
+- **Dokładając nowy model:** wpis w `ai_models._REGISTRY` z uzasadnieniem
+  (ID + liczba z badania), cena w `ai_metering._PRICES` (dwójka = Anthropic,
+  trójka = dostawca z własną stawką za odczyt cache), przy nowym dostawcy —
+  gałąź w `llm_providers.build_request/parse_response` i etykieta w
+  `HEALTH_LABEL`.
+
 ## NUL w żądaniach i `detail` błędów API w UI (odbiór #1549, 15.09.2026)
 
 Schemathesis znalazł 500 dla NUL (`%00`) w `q`; odbiór na produkcji pokazał, że

@@ -2221,6 +2221,25 @@ async def api_health_check():
             "down": "unhealthy",
         }[provider_status("claude")]
 
+    # Dostawcy spoza Anthropic, których używa rejestr modeli (decyzja
+    # 16.09.2026: GPT Luna, DeepSeek V4 Pro). Klucz to sonda konfiguracyjna —
+    # bez niego funkcja wstaje, a pierwsze wywołanie kończy się 401 bez
+    # fallbacku (błąd konfiguracji NIE kaskaduje na Claude). Stan bieżący idzie
+    # z tego samego circuit breakera co Claude, pod własną etykietą.
+    from app.services.ai_health import provider_status as _provider_status
+    from app.services.ai_models import providers_in_use
+    from app.services.llm_providers import HEALTH_LABEL, api_key_for
+
+    for _provider in providers_in_use():
+        if not api_key_for(_provider):
+            checks[_provider] = "unconfigured"
+        else:
+            checks[_provider] = {
+                "ok": "configured",
+                "degraded": "degraded",
+                "down": "unhealthy",
+            }[_provider_status(HEALTH_LABEL[_provider])]
+
     # Voyage (embeddings + rerank) and Qdrant. Before this, a dead Voyage looked
     # identical to a healthy one from here: `generate_embedding` returns None,
     # search returns an empty list, and the healthcheck stayed green while the

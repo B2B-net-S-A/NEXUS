@@ -39,6 +39,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.services.claude_client import call_claude
+from app.services.llm_providers import api_key_configured
 from app.services.llm_prompts import ORDER_EXTRACTION
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_for
@@ -905,8 +906,10 @@ async def _call_extraction(
 ) -> Optional[OrderExtraction]:
     # Typed field w Settings — dostęp wprost (getattr z defaultem cicho
     # re-enable'owałby kill-switch, gdyby pole zniknęło z config.py).
+    # Klucz DOSTAWCY modelu z rejestru (od 16.09.2026 odczyt zamówień idzie na
+    # GPT Luna); `api_key` niżej dotyczy wyłącznie ścieżki Anthropic (fallback).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
-    if not api_key:
+    if not api_key_configured(_MODEL):
         _AI_FAILURE.set("brak klucza API AI")
         return None
     if not settings.ORDER_EXTRACTION_ENABLED:
@@ -940,7 +943,7 @@ async def _call_extraction(
             messages=[{"role": "user", "content": prompt}],
             model=_MODEL,
             max_tokens=max_tokens,
-            api_key=api_key,
+            api_key=api_key or None,
             # Claude 5 robi adaptive thinking (effort=high) domyślnie; thinking
             # tokeny liczą się do max_tokens i ucięłyby JSON — wyłączamy.
             thinking={"type": "disabled"},

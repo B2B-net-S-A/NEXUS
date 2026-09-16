@@ -203,6 +203,7 @@ async def test_all_rows_marks_silent_truncation(monkeypatch):
 
     monkeypatch.setattr(m, "call_claude", fake_call_claude)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(m.settings, "ORDER_EXTRACTION_ENABLED", True)
 
     long_text = "Zamówienie nr 1830/2026\n" + ("x" * (m._MAX_DOC_CHARS + 500))
@@ -261,6 +262,7 @@ async def test_targeted_mode_is_untouched_by_all_rows_switch(monkeypatch):
 
     monkeypatch.setattr(m, "call_claude", fake_call_claude)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(m.settings, "ORDER_EXTRACTION_ENABLED", True)
 
     r = await parse_order_document(
