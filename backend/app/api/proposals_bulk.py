@@ -429,7 +429,7 @@ async def bulk_add_proposals(
                 db.add(
                     Note(
                         content=body.note,
-                        note_type=NoteType.private,
+                        note_type=NoteType.general,
                         candidate_id=candidate_id,
                         job_id=job_id,
                         author_id=current_user.id,
