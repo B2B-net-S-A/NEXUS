@@ -175,11 +175,98 @@ def split_name_and_profile(segment: str) -> tuple[str, Optional[str]]:
     return name, uncertain
 
 
-_ROW_LINE_RE = re.compile(
-    r"^(?P<name>[^\d\n]{3,80}?)[ \t]+(?P<start>\d{4}-\d{2}-\d{2})[ \t]+(?P<end>\d{4}-\d{2}-\d{2})"
-    r"[ \t]+(?P<md>\d[\d  ]*)[ \t]+(?P<rate>\d[\d  .]*,\d{2})\b",
+# Wiersz w JEDNEJ linii: nazwisko (z ewentualnym profilem), dwie daty ISO,
+# a za nimi ogon z liczbą MD, stawką, lokalizacją i numerem SSGW.
+_ROW_HEAD_RE = re.compile(
+    r"^(?P<name>[^\d\n]{3,80}?)[ \t]+(?P<start>\d{4}-\d{2}-\d{2})[ \t]+"
+    r"(?P<end>\d{4}-\d{2}-\d{2})(?P<tail>[^\n]*)",
     re.MULTILINE,
 )
+# Separator tysięcy w kwocie: zwykła spacja, NBSP, wąska NBSP (pdfplumber
+# oddaje różne warianty) albo kropka („1.240,00").
+_THOUSANDS = "[ \u00a0\u202f.]"
+# Stawka: jedyna liczba wiersza z częścią setną.
+_RATE_RE = re.compile(rf"(?:\d{{1,3}}(?:{_THOUSANDS}\d{{3}})+|\d+),\d{{2}}")
+# Odstęp między kolumnami: spacja, tabulator, NBSP albo wąska NBSP.
+_GAP = "[ \t\u00a0\u202f]"
+# Liczba MD: liczba CAŁKOWITA bez separatora tysięcy, oddzielona od stawki.
+_MD_PLAIN_RE = re.compile(rf"\A{_GAP}+(\d{{1,4}}){_GAP}+\Z")
+# Wariant awaryjny: liczba MD z separatorem tysięcy (wynik z ostrzeżeniem).
+_MD_SEPARATED_RE = re.compile(rf"\A{_GAP}+(\d{{1,3}}(?:{_THOUSANDS}\d{{3}})+){_GAP}+\Z")
+
+REASON_MD_RATE_AMBIGUOUS = (
+    "Nie da się jednoznacznie rozdzielić liczby MD i stawki w wierszu tabeli "
+    "— wpisz obie wartości z PDF-a"
+)
+REASON_MD_SEPARATED = (
+    "Liczba MD zapisana z separatorem tysięcy — sprawdź liczbę MD i stawkę "
+    "w wierszu tabeli"
+)
+
+
+def _md_rate_splits(tail: str, md_re: re.Pattern[str]) -> list[tuple[str, str]]:
+    """Wszystkie podziały ogona na (liczba MD, stawka), których nie wyklucza tekst."""
+    splits: list[tuple[str, str]] = []
+    for pos, char in enumerate(tail):
+        if not (char.isascii() and char.isdigit()):
+            continue
+        if pos and (tail[pos - 1].isdigit() or tail[pos - 1] in ",."):
+            continue  # środek dłuższej liczby, nie jej początek
+        rate = _RATE_RE.match(tail, pos)
+        if rate is None:
+            continue
+        # Gwiazdka przy kwocie znaczy „stawka negocjowana" i nie jest cyfrą.
+        after = tail[rate.end() :].lstrip("*")
+        if after[:1] not in ("", " ", "\t", "\u00a0", "\u202f"):
+            continue  # kwota jest fragmentem czegoś dłuższego (np. numeru SSGW)
+        md = md_re.fullmatch(tail[:pos])
+        if md is not None:
+            splits.append((md.group(1), rate.group(0)))
+    return splits
+
+
+def split_md_and_rate(
+    tail: str,
+) -> Optional[tuple[Optional[Decimal], Optional[Decimal], Optional[str]]]:
+    """Liczba MD i stawka z ogona wiersza: „ 58 1 240,00* Warszawa 104214-1".
+
+    Zwraca ``None``, gdy ogon nie niesie kompletu liczb — taka linia nie jest
+    wierszem osoby (fail-closed, jak dotąd).
+
+    Do 09.2026 dzielił je jeden regex, w którym liczba MD mogła zawierać
+    spacje. Przy stawce od 1 000 zł zapisanej ze spacją („58 1 240,00")
+    nawroty silnika regex dzieliły liczby po swojemu — MD „58 1" (=581)
+    i stawka 240,00 — a wynik szedł do pól dokumentu BEZ zastrzeżenia.
+    Stawki PKO BP za MD bywają czterocyfrowe, więc dotyczyło to realnych
+    zamówień, a błąd wychodził dopiero na fakturze.
+
+    Teraz podział jest jawny: stawka to jedyna liczba z częścią setną, a przed
+    nią stoi liczba MD. Liczymy DWA odczyty — z liczbą MD bez separatora
+    tysięcy („58 1 240,00" = 58 MD po 1240 zł) i z separatorem („1 200 900,00"
+    = 1200 MD po 900 zł). Zgodne albo pojedyncze = wynik (ten z separatorem
+    z ostrzeżeniem, bo ta sama treść czyta się też inaczej). Sprzeczne —
+    „2 500 900,00" to 2 MD po 500 900 zł ALBO 2500 MD po 900 zł — zostawiają
+    wiersz niepewny BEZ liczb: zgadnięta stawka zapisana jako pewna jest gorsza
+    niż puste pole (ta sama reguła co w Credit Agricole), bo wychodzi dopiero
+    na fakturze.
+    """
+    plain = _md_rate_splits(tail, _MD_PLAIN_RE)
+    separated = _md_rate_splits(tail, _MD_SEPARATED_RE)
+    if plain and separated and plain != separated:
+        return None, None, REASON_MD_RATE_AMBIGUOUS
+    if len(plain) == 1:
+        md_text, rate_text = plain[0]
+        return normalize_amount(md_text), normalize_amount(rate_text), None
+    if len(separated) == 1:
+        md_text, rate_text = separated[0]
+        return (
+            normalize_amount(md_text),
+            normalize_amount(rate_text),
+            REASON_MD_SEPARATED,
+        )
+    if plain or separated:  # obrona: kilka odczytów w jednym wariancie
+        return None, None, REASON_MD_RATE_AMBIGUOUS
+    return None
 
 
 def extract_rows(text: str) -> list[ConsultantOrderRow]:
@@ -189,19 +276,25 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     (produkcja) oddaje WIERSZ w jednej linii — „Andrzej Iciek 2026-09-01
     2026-11-30 64 900,00 Warszawa 103587-1"; inne ekstraktory oddają komórki
     po jednej na linię. Obsługujemy oba: najpierw wiersz-w-linii, potem
-    komórka-na-linię.
+    komórka-na-linię. Układ komórka-na-linię nie ma problemu z podziałem
+    liczb — każda stoi w osobnej linii (``_NUMBER_RE``).
     """
     text = text or ""
     rows: list[ConsultantOrderRow] = []
-    for m in _ROW_LINE_RE.finditer(text):
-        name, reason = split_name_and_profile(m.group("name"))
+    for m in _ROW_HEAD_RE.finditer(text):
+        numbers = split_md_and_rate(m.group("tail"))
+        if numbers is None:
+            continue
+        md_total, rate_client, number_reason = numbers
+        name, name_reason = split_name_and_profile(m.group("name"))
+        reason = "; ".join(r for r in (name_reason, number_reason) if r) or None
         rows.append(
             ConsultantOrderRow(
                 consultant_name=name,
                 start_date=normalize_date(m.group("start"), end=False),
                 end_date=normalize_date(m.group("end"), end=True),
-                md_total=normalize_amount(m.group("md")),
-                rate_client=normalize_amount(m.group("rate")),
+                md_total=md_total,
+                rate_client=rate_client,
                 rate_unit="day",
                 uncertain=reason is not None,
                 uncertain_reason=reason,
@@ -256,6 +349,14 @@ def _extract_rows_cell_per_line(text: str) -> list[ConsultantOrderRow]:
     return rows
 
 
+def _set_or_clear(result: OrderExtraction, name: str, value: object) -> None:
+    """Pole z wiersza tabeli; brak wartości czyści pole, nie zapisuje ``None``."""
+    if value is None:
+        clear_field(result, name)
+    else:
+        set_field(result, name, value)
+
+
 def apply_pko_bp_order_policy(
     result: OrderExtraction, document_text: str
 ) -> OrderExtraction:
@@ -272,9 +373,11 @@ def apply_pko_bp_order_policy(
         row = rows[0]
         set_field(result, "start_date", row.start_date)
         set_field(result, "end_date", row.end_date)
-        set_field(result, "rate_client", row.rate_client)
+        # Wiersz, którego liczb nie dało się rozdzielić, zostawia PUSTE pole
+        # dokumentu zamiast wartości udającej odczyt z tabeli.
+        _set_or_clear(result, "rate_client", row.rate_client)
         set_field(result, "rate_unit", "day")
-        set_field(result, "md_total", row.md_total)
+        _set_or_clear(result, "md_total", row.md_total)
     elif rows:
         # Wiele osób: pola dokumentu nie znaczą nic — okres i stawka są per wiersz.
         for name in ("rate_client", "rate_unit", "md_total"):

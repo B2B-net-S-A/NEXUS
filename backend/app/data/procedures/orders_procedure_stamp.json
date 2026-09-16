@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-15",
+  "reviewed_at": "2026-09-16",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "e6a9138c5e0e9e774362155f631123922723b817b2eb529a06511841ea761b37",
@@ -45,9 +45,9 @@
     "backend/app/services/order_policies/known_clients.py": "2c0ddb458e00065c8eefda2d1c0c340bd0893415eb6c6be4714dd8f53efdb881",
     "backend/app/services/order_policies/mleasing.py": "93ba9fd2318bbc09155c05f267caaec7dd3dd4f5ec2c4072f6a1dccb7d7258d8",
     "backend/app/services/order_policies/nordea.py": "5aec3872fd0db786cd4c3785391fbcc96ecd6b8acbc121bb47b47537b8ff509c",
-    "backend/app/services/order_policies/pko_bp.py": "6027fd8d03219766be3693e04cacf7743c14d72023bc772a3eb27a3d2a77b488",
+    "backend/app/services/order_policies/pko_bp.py": "74bfdeaeb037ab5399c42c83e68e1c25b6bd7a8634c3e46d0c1d2624905efb56",
     "backend/app/services/order_policies/polkomtel.py": "6e19cf3335b32af577b813a5767c431bae64bfb2edd42fe273b672b1d214fd46",
-    "backend/app/services/order_policies/registry.py": "385d925c6191b354ab4a01192563eeb8a6e6ddf3855d31821e03010b5fb7c0a5",
+    "backend/app/services/order_policies/registry.py": "07ef2dea018f9331cc962ca1352c2b4de3663e9320f9f34d3da2328344d2988d",
     "backend/app/services/order_policies/velobank.py": "2b70feebe4a4964b52f8139ddc35680964aa2ae89912a573bdd84bcbe6db2e89",
     "backend/app/services/order_rate_snapshots.py": "e0e6ac316f2347bdebfec4cad7980823a3f9fea72408f4a68ee56e7ac9672962",
     "backend/app/services/order_types.py": "1133905f88c1dc5a8b66c0f5dcb32f2d1548f9bcdae037ea87b1fc05f795cfd9",

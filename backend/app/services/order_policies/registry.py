@@ -347,7 +347,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=pko_bp.apply_rate_rules,
         reapply_on_refresh=True,
         # 09.2026: nazwisko bez doklejonego profilu, stawka zawsze netto.
-        rule_version="2026-09-14",
+        # 16.09.2026: jawny podział liczby MD i stawki (stawka ≥ 1 000 zł ze
+        # spacją w tysiącach szła wcześniej jako MD — patrz `split_md_and_rate`).
+        rule_version="2026-09-16",
     ),
     OrderClientPolicy(
         key="kir",

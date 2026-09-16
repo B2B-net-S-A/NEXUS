@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 15.09.2026
+> **Zgodność z systemem sprawdzona:** 16.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1326,6 +1326,13 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
     przy dodawaniu konsultantów.
   * Wiersz bez kompletu (dwie daty + dwie liczby) nie jest brany za wiersz
     osoby — lepiej puste pole niż zła liczba.
+  * **Stawka od 1 000 zł zapisana ze spacją („58 1 240,00") jest czytana jako
+    stawka, a nie jako część liczby MD.** Do 09.2026 wychodziło z tego 581 MD
+    po 240,00 zł — i to bez żadnego ostrzeżenia. Gdy tę samą treść da się
+    przeczytać na dwa sposoby („2 500 900,00" to 2 MD po 500 900 zł albo
+    2500 MD po 900 zł), wiersz zostaje **bez liczb** i trafia do sprawdzenia
+    z tym powodem. Liczba MD zapisana ze spacją („1 200") wchodzi, ale
+    z ostrzeżeniem — porównaj ją z PDF-em.
   * **Imię i nazwisko** bierze wyłącznie z kolumny „Imię i nazwisko
     Wykonawców" — nazwa profilu z sąsiedniej kolumny („Tester Middle") nie jest
     doklejana, więc system rozpoznaje istniejącego konsultanta i proponuje
