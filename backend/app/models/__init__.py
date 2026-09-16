@@ -95,6 +95,7 @@ from app.models.candidate_contact import (
     CandidateContactTraffitLedger,
 )
 from app.models.traffit_sync_state import TraffitSyncState
+from app.models.integration_external_item import IntegrationExternalItem
 from app.models.integration_run import (
     IntegrationAlertState,
     IntegrationRun,
@@ -319,6 +320,7 @@ from app.models.index_outbox import IndexOutboxEvent  # noqa: F401
 
 __all__ = [
     "IntegrationAlertState",
+    "IntegrationExternalItem",
     "IntegrationRun",
     "IntegrationRunEvent",
     "CandidateMatchJustification",

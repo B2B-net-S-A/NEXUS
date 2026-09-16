@@ -4393,6 +4393,22 @@ _COLUMN_STATEMENTS = [
         last_alert_at TIMESTAMPTZ,
         last_alert_reason TEXT
     )""",
+    # 0313: stan importu JJIT w bazie (zamiast scraper_state.json na Macu).
+    """CREATE TABLE IF NOT EXISTS integration_external_items (
+        id SERIAL PRIMARY KEY,
+        source VARCHAR(32) NOT NULL,
+        external_id VARCHAR(128) NOT NULL,
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        traffit_id INTEGER,
+        cv_sha256 VARCHAR(64),
+        offer_title VARCHAR(255),
+        last_action VARCHAR(32),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_integration_external_items UNIQUE (source, external_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_integration_external_items_candidate "
+    "ON integration_external_items (candidate_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
