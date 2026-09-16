@@ -564,6 +564,7 @@ async def parse_cv(
     *,
     prefer_llm: bool = True,
     db: "AsyncSession | None" = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """
     Extract structured facts from CV text.
@@ -572,6 +573,11 @@ async def parse_cv(
     Claude → Ollama → regex; the first path that returns a non-None result
     wins. With `prefer_llm=False` only the regex heuristic runs (useful for
     deterministic tests and offline environments).
+
+    `model` nadpisuje model KROKU CLAUDE'A dla wołającego, który ma własny wpis
+    w rejestrze modeli i własną bramkę kwoty (uzupełnianie nazwisk z CV —
+    `cv_name_backfill`). Taki wołający nie podaje `db`, bo bramka `cv_parser`
+    naliczyłaby cudzy kubełek. Bez `model` krok idzie na model parsera CV.
 
     `db` włącza bramkę kwoty NA PŁATNYM KROKU: krok Claude'a idzie wtedy w
     `ai_feature(db, cv_parser)`, a wyczerpana kwota gasi wyłącznie Claude'a —
@@ -599,7 +605,7 @@ async def parse_cv(
 
             try:
                 async with ai_feature(db, AIFeatureKey.cv_parser):
-                    claude = await _parse_with_claude(cv_text)
+                    claude = await _parse_with_claude(cv_text, model=model)
             except AIQuotaExceeded as quota_exc:
                 logger.info(
                     "[cv_parser] krok Claude pominięty przez kwotę AI "
@@ -607,7 +613,7 @@ async def parse_cv(
                     quota_exc,
                 )
         else:
-            claude = await _parse_with_claude(cv_text)
+            claude = await _parse_with_claude(cv_text, model=model)
         if claude is not None:
             return _normalize_cv_output(
                 _apply_contact_fallbacks(

@@ -299,3 +299,229 @@ async def test_truncated_answer_falls_back_with_shape(monkeypatch):
         "nieczytelna odpowiedź AI (nie JSON; zaczyna się od {, "
         f"{len(_TRUNCATED)} znaków, ucięta limitem tokenów)"
     )
+
+
+# ── Kwota `order_parser` w ścieżce poczty (09.2026) ─────────────────────────
+#
+# Do 09.2026 poczta wołała model poza `ai_feature`: wywołania nie trafiały do
+# telemetrii AI ani pod wyłącznik funkcji. `AI_QUOTA_STRICT` w CI tego nie
+# łapał, bo parser zamówień zamienia KAŻDY wyjątek wywołania (także
+# `AIQuotaUngated`) na odczyt awaryjny, a testy podmieniały `call_claude`
+# na poziomie parsera albo cały `parse_order_document`.
+
+
+def _ai_available(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
+
+
+def _refusing_gate(reason: str):
+    from contextlib import asynccontextmanager
+
+    from app.services.ai_quota import AIQuotaExceeded
+
+    @asynccontextmanager
+    async def gate(_db, feature, **_kwargs):
+        raise AIQuotaExceeded(feature, reason)
+        yield  # pragma: no cover — generator kontekstu
+
+    return gate
+
+
+def _declared_admission(monkeypatch, admitted: list):
+    """`check_and_increment` bez bazy — `ai_feature` ustawia prawdziwy kontekst."""
+    from datetime import date
+
+    from app.services import ai_quota
+
+    async def admit(_db, feature, user_id=None, *, units=1, commit_with_caller=False):
+        admitted.append((feature, user_id))
+        return ai_quota.QuotaState(
+            used=1, limit=0, period_start=date.today(), operation_id="op-test"
+        )
+
+    monkeypatch.setattr(ai_quota, "check_and_increment", admit)
+
+
+async def test_mail_read_runs_inside_the_order_parser_declaration(monkeypatch):
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_quota
+
+    _ai_available(monkeypatch)
+    admitted: list = []
+    seen: list = []
+    _declared_admission(monkeypatch, admitted)
+
+    async def model(_text, **kwargs):
+        call = ai_quota.current_ai_call()
+        seen.append((call.feature if call else None, kwargs))
+        return OrderExtraction(source="claude")
+
+    monkeypatch.setattr(ingest, "parse_order_document", model)
+
+    result = await ingest.read_order_with_model(
+        AsyncMock(), "Zamówienie nr 1/2031", fallback_when_blocked=True
+    )
+
+    assert result.source == "claude"
+    assert admitted == [(AIFeatureKey.order_parser, None)]
+    assert seen == [(AIFeatureKey.order_parser, {"all_rows": True})]
+
+
+async def test_quota_refusal_gives_the_mail_a_fallback_read_with_a_reason(
+    monkeypatch,
+):
+    _ai_available(monkeypatch)
+    monkeypatch.setattr(
+        ingest, "ai_feature", _refusing_gate("Funkcja AI wyłączona w ustawieniach")
+    )
+
+    def must_not_call(**_kwargs):
+        raise AssertionError("model wywołany mimo odmowy kwoty")
+
+    monkeypatch.setattr(parser, "call_claude", must_not_call)
+
+    result = await ingest.read_order_with_model(
+        AsyncMock(), "Zamówienie nr 1/2031", fallback_when_blocked=True
+    )
+
+    assert result.source == "regex"
+    assert result.ai_failure == (
+        "odczyt AI zablokowany w ustawieniach AI (Funkcja AI wyłączona w ustawieniach)"
+    )
+
+
+async def test_quota_refusal_reaches_the_retry_loop(monkeypatch):
+    from app.services.ai_quota import AIQuotaExceeded
+
+    _ai_available(monkeypatch)
+    monkeypatch.setattr(
+        ingest, "ai_feature", _refusing_gate("Miesięczny limit wyczerpany")
+    )
+    monkeypatch.setattr(
+        ingest, "parse_order_document", AsyncMock(side_effect=AssertionError("odczyt"))
+    )
+
+    with pytest.raises(AIQuotaExceeded):
+        await ingest.read_order_with_model(
+            AsyncMock(), "Zamówienie nr 1/2031", fallback_when_blocked=False
+        )
+
+
+async def test_no_quota_operation_when_the_model_cannot_run(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(ingest.settings, "ANTHROPIC_API_KEY", None)
+    monkeypatch.setattr(ingest, "ai_feature", _refusing_gate("bramka nie może ruszyć"))
+    model = AsyncMock(
+        return_value=OrderExtraction(source="regex", ai_failure="brak klucza API AI")
+    )
+    monkeypatch.setattr(ingest, "parse_order_document", model)
+
+    result = await ingest.read_order_with_model(
+        AsyncMock(), "Zamówienie nr 1/2031", fallback_when_blocked=False
+    )
+
+    assert result.ai_failure == "brak klucza API AI"
+    model.assert_awaited_once()
+
+
+async def test_quota_refusal_does_not_spend_a_retry_attempt(monkeypatch, tmp_path):
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        _, doc = await _pending_fallback(db, monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            ingest, "ai_feature", _refusing_gate("Miesięczny limit wyczerpany")
+        )
+        model = AsyncMock(side_effect=AssertionError("odczyt mimo odmowy kwoty"))
+        monkeypatch.setattr(ingest, "parse_order_document", model)
+
+        stats = ingest.IngestStats()
+        await ingest.retry_ai_fallback_documents(db, stats)
+
+        assert stats.ai_retried == 0
+        await db.refresh(doc)
+        assert "ai_retry_attempts" not in (doc.document_meta or {})
+        model.assert_not_awaited()
+        await db.rollback()
+
+
+async def test_new_mail_document_is_read_under_the_order_parser_declaration(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_quota
+    from app.services.order_document_text import OrderDocumentText
+
+    _ai_available(monkeypatch)
+    admitted: list = []
+    declared: list = []
+    _declared_admission(monkeypatch, admitted)
+
+    async def model(_text, **_kwargs):
+        call = ai_quota.current_ai_call()
+        declared.append(call.feature if call else None)
+        return OrderExtraction(source="claude")
+
+    monkeypatch.setattr(ingest, "parse_order_document", model)
+    monkeypatch.setattr(
+        ingest,
+        "extract_order_text",
+        lambda *_a: OrderDocumentText(
+            text="Zamówienie nr 7/2031",
+            page_count=1,
+            ocr_used=False,
+            ocr_capped=False,
+            reextracted_with=None,
+            letter_spacing_ratio=0,
+        ),
+    )
+    monkeypatch.setattr(
+        ingest,
+        "identify_client",
+        lambda *_a, **_kw: SimpleNamespace(method="none", reason="", client_key=None),
+    )
+    monkeypatch.setattr(
+        ingest, "resolve_order_client_id", AsyncMock(return_value=(None, None))
+    )
+    row = SimpleNamespace(
+        attachment_name="7-2031.pdf", sender_email="o@example.com", gate_verdict=None
+    )
+
+    await ingest.process_pdf_bytes(AsyncMock(), row, b"synthetic", registry=None)
+
+    assert admitted == [(AIFeatureKey.order_parser, None)]
+    assert declared == [AIFeatureKey.order_parser]
+
+
+async def test_retry_read_runs_under_the_order_parser_declaration(
+    monkeypatch, tmp_path
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_quota
+
+    async with AsyncSessionLocal() as db:
+        _, doc = await _pending_fallback(db, monkeypatch, tmp_path)
+        admitted: list = []
+        declared: list = []
+        _declared_admission(monkeypatch, admitted)
+        still_down = OrderExtraction(
+            source="regex", ai_failure="dostawca AI przeciążony"
+        )
+
+        async def model(_text, **_kwargs):
+            call = ai_quota.current_ai_call()
+            declared.append(call.feature if call else None)
+            return still_down
+
+        monkeypatch.setattr(ingest, "parse_order_document", model)
+        stats = ingest.IngestStats()
+        await ingest.retry_ai_fallback_documents(db, stats)
+
+        assert admitted == [(AIFeatureKey.order_parser, None)]
+        assert declared == [AIFeatureKey.order_parser]
+        assert stats.ai_retried == 1
+        await db.rollback()
