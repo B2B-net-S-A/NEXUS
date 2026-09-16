@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
 import { projectPartLabel } from "@/lib/ezdrowie";
 import { cn } from "@/lib/utils";
 import type {
@@ -26,6 +27,8 @@ export interface ConsultantTableRow {
   monthly_margin: number | null;
   days_to_end?: number | null;
   project_part?: string | null;
+  /** e-Zdrowie: umowa wykonawcza z bieżącego zamówienia (null = nieprzypisany). */
+  executive_contract?: ExecutiveContractBrief | null;
 }
 
 export function toConsultantRow(
@@ -44,6 +47,7 @@ export function toConsultantRow(
     monthly_margin: c.monthly_margin,
     days_to_end: "days_to_end" in c ? c.days_to_end : null,
     project_part: "project_part" in c ? c.project_part : null,
+    executive_contract: "executive_contract" in c ? c.executive_contract : null,
   };
 }
 
@@ -111,10 +115,25 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                       >
                         {r.candidate.name}
                       </Link>
-                      {/* „Część umowy" e-Zdrowia — backend wystawia part tylko
-                          u tego jednego klienta. */}
-                      {r.project_part ? (
-                        <span className="rounded bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                      {/* e-Zdrowie: NUMER umowy wykonawczej, część w tooltipie.
+                          Fallback na samą część = wiersz sprzed wdrożenia
+                          struktury (do przeglądu w sekcji „Struktura umów") —
+                          ukrycie go czytałoby się jak brak przypisania w ogóle. */}
+                      {r.executive_contract ? (
+                        <span
+                          className="rounded bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                          title={
+                            projectPartLabel(r.executive_contract.project_part) ??
+                            "Umowa wykonawcza"
+                          }
+                        >
+                          {r.executive_contract.number}
+                        </span>
+                      ) : r.project_part ? (
+                        <span
+                          className="rounded bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                          title="Bez umowy wykonawczej — do przypisania w sekcji „Struktura umów”"
+                        >
                           {projectPartLabel(r.project_part)}
                         </span>
                       ) : null}

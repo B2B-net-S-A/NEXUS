@@ -61,3 +61,61 @@ export function consultantUsageSentence(
     " — ta kwota nie wraca do puli dostępnej dla innych konsultantów."
   );
 }
+
+// ── Zakresy MD (podstawa + opcja) — Centrum e-Zdrowia ───────────────────────
+
+type ScopeLine = Pick<
+  OrderLineRead,
+  "md_total" | "md_optional_total" | "md_base_used" | "md_optional_used" | "md_used"
+>;
+
+export interface LineScopeUsage {
+  baseUsed: number;
+  baseTotal: number;
+  /** `null` = umowa bez opcji (inaczej niż `0` — opcja jest, ale pusta). */
+  optionalUsed: number | null;
+  optionalTotal: number | null;
+  totalUsed: number;
+  /** Podstawa + opcja. */
+  totalBudget: number;
+  /** Procent wykorzystania całości; `null`, gdy nie ma czym dzielić. */
+  pct: number | null;
+}
+
+/** Czy linia ma rozbicie na zakresy — wtedy pokazujemy dwa paski zamiast
+ *  jednego „pozostało / całość". Zakres opcjonalny albo serwerowy podział
+ *  zużycia wystarcza; BIK/Polkomtel nie mają ani jednego, ani drugiego. */
+export function hasScopedMd(line: ScopeLine): boolean {
+  return line.md_optional_total != null || line.md_base_used != null;
+}
+
+/**
+ * Zużycie w rozbiciu na podstawę i opcję.
+ *
+ * Serwerowe `md_base_used` / `md_optional_used` wygrywają. Gdy ich nie ma,
+ * a jest samo `md_used`, dzielimy po tej samej regule co backend (najpierw
+ * podstawa, potem opcja) — WYŁĄCZNIE jako zapas dla wiersza sprzed
+ * rozszerzenia kontraktu, żeby pasek nie pokazał zera przy niezerowym zużyciu.
+ */
+export function lineScopeUsage(line: ScopeLine): LineScopeUsage {
+  const baseTotal = Math.max(0, line.md_total ?? 0);
+  const optionalTotal =
+    line.md_optional_total == null ? null : Math.max(0, line.md_optional_total);
+  const used = Math.max(0, line.md_used ?? 0);
+  const baseUsed = line.md_base_used ?? Math.min(used, baseTotal);
+  const optionalUsed =
+    optionalTotal === null
+      ? null
+      : (line.md_optional_used ?? Math.max(0, used - baseUsed));
+  const totalUsed = baseUsed + (optionalUsed ?? 0);
+  const totalBudget = baseTotal + (optionalTotal ?? 0);
+  return {
+    baseUsed,
+    baseTotal,
+    optionalUsed,
+    optionalTotal,
+    totalUsed,
+    totalBudget,
+    pct: totalBudget > 0 ? (totalUsed / totalBudget) * 100 : null,
+  };
+}

@@ -3,6 +3,7 @@
 // changes — there's no codegen step.
 
 import type { ContractTerminationReason } from "@/lib/api";
+import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
 export type JobCloseReason =
@@ -98,8 +99,13 @@ export interface ActiveConsultantItem {
   hourly_rate_candidate?: number | null;
   currency: string;
   /** „Część umowy" e-Zdrowia z reprezentatywnego (bieżącego) zamówienia
-      kontraktu — null u innych klientów i gdy nieuzupełniona. */
+      kontraktu — null u innych klientów i gdy nieuzupełniona. Od struktury
+      umów wykonawczych to wartość POCHODNA (część umowy ramowej, pod którą
+      wisi `executive_contract`). */
   project_part?: string | null;
+  /** Umowa wykonawcza e-Zdrowia z bieżącego zamówienia — null u innych
+      klientów i u konsultanta jeszcze nieprzypisanego (do przeglądu). */
+  executive_contract?: ExecutiveContractBrief | null;
 }
 
 export interface HistoricalPlacementItem {

@@ -23,6 +23,7 @@ per MD i dotyczą wyłącznie tej powierzchni.
 from __future__ import annotations
 
 import io
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated, Optional
@@ -38,6 +39,9 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,6 +73,7 @@ from app.models.client_order_group import (
     ClientOrderGroupEvent,
     ClientOrderGroupMdConsumption,
 )
+from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order_offboarding import (
     OFFBOARDING_RATE_BASIS_DEPARTING,
     OFFBOARDING_RESOLUTION_REMOVE,
@@ -79,6 +84,7 @@ from app.models.client_order_offboarding import (
     ClientOrderOffboardingCase,
 )
 from app.models.md_consumption import (
+    CONSUMPTION_SOURCE_MANUAL,
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     MdConsumptionImport,
@@ -89,9 +95,13 @@ from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.user import User, UserRole
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
+    LineConsumptionRow,
+    LineConsumptionsResponse,
+    LineConsumptionUpsert,
     OrderDraftRead,
     OrderGroupClose,
     OrderGroupCreate,
@@ -120,11 +130,19 @@ from app.services.client_order_lines import (
     CLIENT_CONTRACT_STATUSES,
     _line_query,
     consultant_display_name,
+    consumed_md,
+    consumption_rows,
+    delete_consumption,
+    format_period_month,
+    line_budget_total,
     lines_for_group,
     list_consultant_options,
+    month_bounds,
     record_event,
     recompute_remaining,
+    split_md_usage,
     sync_md_line_status,
+    upsert_consumption,
 )
 from app.services.client_access import deny, resolve_client_access
 from app.services.candidate_identity_quarantine import normalize_person_name_part
@@ -142,6 +160,7 @@ from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
+from app.services.ezdrowie import is_ezdrowie_client, resolve_ezdrowie_assignment
 from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
@@ -149,6 +168,7 @@ from app.services.dl_alerts import (
 )
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
+    CONSUMPTION_STATUS_LABELS,
     EVENT_BUDGET_EXHAUSTED,
     EVENT_CONSULTANT_ADDED,
     EVENT_CONSULTANT_ENDED,
@@ -860,6 +880,40 @@ async def _load_group(
     return group
 
 
+async def _executive_contract_for_group(
+    db: AsyncSession, group: ClientOrderGroup
+) -> Optional[ClientExecutiveContract]:
+    """Umowa wykonawcza karty MD (CeZ) z jej umową ramową — JAWNYM zapytaniem.
+
+    Grupy trafiają tu z kilku ścieżek ładowania (lista, eksport, PATCH), więc
+    ``group.executive_contract`` bywa relacją nieładowaną — w sesji async to
+    ``MissingGreenlet``, czyli 500 bez CORS. Jedno zapytanie wyłącznie dla
+    grup z przypisaniem (u innych klientów pole jest ``NULL``, zero kosztu).
+    """
+    if group.executive_contract_id is None:
+        return None
+    return await db.scalar(
+        select(ClientExecutiveContract)
+        .options(selectinload(ClientExecutiveContract.framework_contract))
+        .where(ClientExecutiveContract.id == group.executive_contract_id)
+    )
+
+
+def _executive_brief(
+    executive: Optional[ClientExecutiveContract],
+) -> Optional[ExecutiveContractBrief]:
+    if executive is None:
+        return None
+    framework = executive.framework_contract
+    return ExecutiveContractBrief(
+        id=executive.id,
+        number=executive.number,
+        status=executive.status,
+        framework_contract_id=executive.framework_contract_id,
+        project_part=framework.project_part if framework is not None else None,
+    )
+
+
 def _line_to_read(
     order: ClientOrder,
     *,
@@ -932,6 +986,7 @@ def _line_to_read(
         input_value=input_value,
         input_mode=order.md_input_mode,
         md_total=order.md_total,
+        md_optional_total=order.md_optional_total,
         md_remaining=order.md_remaining,
         md_manual_adjustment=order.md_manual_adjustment,
         predecessor_order_id=order.predecessor_order_id,
@@ -1134,6 +1189,46 @@ async def _group_to_read(
             else await shared_md_used_total(db, group.id)
         )
 
+    # Sumy umowy (Faza B, 09.2026) — tylko zamówienie MD z budżetem per osoba;
+    # kosztowe i wspólna pula mają własne liczniki na grupie. Pozycję wnosi
+    # linia, na którą NIE wskazuje `predecessor_order_id` innej linii tej
+    # grupy: zastąpiony poprzednik oddał swoją pozycję następcy, więc liczy
+    # się jego zużycie, ale nie budżet — inaczej trzy zastępstwa podwajałyby
+    # wartość umowy. Zużycie idzie ze WSZYSTKICH linii, bo MD zastąpionej
+    # osoby zeszły z tej samej umowy.
+    md_positions_total: Optional[Decimal] = None
+    md_used_total: Optional[Decimal] = None
+    contract_value_pln: Optional[Decimal] = None
+    used_value_pln: Optional[Decimal] = None
+    if not group.is_cost_based and not uses_shared_md_budget:
+        replaced_ids = {
+            line.predecessor_order_id
+            for line in lines
+            if line.predecessor_order_id is not None
+        }
+        used_by_line = {item.id: item.md_used for item in reads}
+        positions = Decimal("0")
+        used_sum = Decimal("0")
+        value = Decimal("0")
+        used_value = Decimal("0")
+        for line in lines:
+            if line.md_total is None:
+                continue
+            rate = Decimal(str(line.md_rate_revenue or 0))
+            used = Decimal(str(used_by_line.get(line.id) or 0))
+            used_sum += used
+            used_value += used * rate
+            if line.id in replaced_ids:
+                continue
+            budget = line_budget_total(line)
+            positions += budget
+            value += budget * rate
+        md_positions_total = quantize_md(positions)
+        md_used_total = quantize_md(used_sum)
+        if with_finance:
+            contract_value_pln = quantize_money(value)
+            used_value_pln = quantize_money(used_value)
+
     return OrderGroupRead(
         id=group.id,
         client_id=group.client_id,
@@ -1172,6 +1267,13 @@ async def _group_to_read(
             group.md_budget_manual_adjustment if uses_shared_md_budget else None
         ),
         predecessor_group_id=group.predecessor_group_id,
+        executive_contract=_executive_brief(
+            await _executive_contract_for_group(db, group)
+        ),
+        md_positions_total=md_positions_total,
+        md_used_total=md_used_total,
+        contract_value_pln=contract_value_pln,
+        used_value_pln=used_value_pln,
         filename=group.filename,
         has_file=group.file_path is not None,
         content_type=group.content_type,
@@ -1254,6 +1356,18 @@ async def _apply_line_history(
         else:
             added.setdefault(event.order_id, (event, author))
 
+    # Tag „Zastąpiony → następca" (Faza B): linia wskazująca tę jako
+    # poprzednika — po zamianie kontraktora albo zastępstwie przez
+    # `replaces_order_id`. Mapa z linii TEJ grupy, więc zero dodatkowych
+    # zapytań; przy kilku następcach (rzadkie dane historyczne) wygrywa
+    # najnowsza linia.
+    successor_by_predecessor: dict[int, ClientOrder] = {}
+    for line in lines:
+        if line.predecessor_order_id in by_id:
+            current = successor_by_predecessor.get(line.predecessor_order_id)
+            if current is None or line.id > current.id:
+                successor_by_predecessor[line.predecessor_order_id] = line
+
     for item in reads:
         line = by_id.get(item.id)
         if line is None:
@@ -1269,6 +1383,14 @@ async def _apply_line_history(
                     Decimal("0"),
                 )
             )
+        if line.md_total is not None:
+            item.md_base_used, item.md_optional_used = split_md_usage(
+                line, item.md_used or Decimal("0")
+            )
+        successor = successor_by_predecessor.get(line.id)
+        if successor is not None:
+            item.replaced_by_order_id = successor.id
+            item.replaced_by_consultant_name = consultant_display_name(successor)
 
         entry = added.get(line.id)
         if entry is not None:
@@ -1492,6 +1614,7 @@ async def _build_line(
         payload.start_date,
     )
     md_total: Optional[Decimal] = None
+    md_optional_total: Optional[Decimal] = None
     if group.is_cost_based or uses_shared_md_pool(group):
         if payload.input_mode is not None or payload.input_value is not None:
             raise HTTPException(
@@ -1499,6 +1622,17 @@ async def _build_line(
                 detail=(
                     "To zamówienie ma wspólny budżet całej grupy — nie podawaj "
                     "budżetu przy konsultancie"
+                ),
+            )
+        if payload.optional_md is not None:
+            # Opcja jest częścią budżetu per osoba; przy wspólnej puli nie ma
+            # pozycji, do której mogłaby należeć (CHECK `ck_client_orders_md_optional`
+            # i tak żąda `md_total`, więc zapis skończyłby się 500).
+            raise HTTPException(
+                422,
+                detail=(
+                    "To zamówienie ma wspólny budżet całej grupy — nie podawaj "
+                    "zakresu opcjonalnego przy konsultancie"
                 ),
             )
     else:
@@ -1514,6 +1648,18 @@ async def _build_line(
             )
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
+        if payload.optional_md is not None:
+            md_optional_total = quantize_md(payload.optional_md)
+
+    # Linia dziedziczy przypisanie karty do umowy wykonawczej CeZ; część
+    # umowy jest POCHODNĄ z umowy ramowej tej umowy wykonawczej (nigdy wpisywana
+    # osobno), a czytają ją dotychczasowi konsumenci `project_part`.
+    executive = await _executive_contract_for_group(db, group)
+    inherited_part = (
+        executive.framework_contract.project_part
+        if executive is not None and executive.framework_contract is not None
+        else None
+    )
 
     who = (
         f"{candidate.name or ''} {candidate.lastname or ''}".strip()
@@ -1557,8 +1703,15 @@ async def _build_line(
         md_input_mode=payload.input_mode,
         md_input_value=payload.input_value,
         md_total=md_total,
-        md_remaining=md_total,
+        md_optional_total=md_optional_total,
+        # Startowa pozostałość = cały budżet (podstawa + opcja), tak jak liczy
+        # ją później `recompute_remaining`.
+        md_remaining=(
+            None if md_total is None else md_total + (md_optional_total or Decimal("0"))
+        ),
         md_manual_adjustment=Decimal("0"),
+        executive_contract_id=group.executive_contract_id,
+        project_part=inherited_part,
         created_by_user_id=user.id,
     )
     db.add(line)
@@ -1973,6 +2126,68 @@ def assert_group_is_reopenable(status: str) -> None:
         )
 
 
+#: (zakres podstawowy, zakres opcjonalny, wykorzystano) — w MD, per wiersz arkusza.
+_MdScopeColumns = tuple[Optional[Decimal], Optional[Decimal], Optional[Decimal]]
+_MD_SCOPE_HEADERS = (
+    "Zakres podstawowy (MD)",
+    "Zakres opcjonalny (MD)",
+    "Wykorzystano (MD)",
+)
+_MD_NUMBER_FORMAT = "#,##0.######;[Red]-#,##0.######"
+
+
+def _md_scope_columns_for(
+    group: OrderGroupRead, row_count: int
+) -> list[_MdScopeColumns]:
+    """Wartości trzech kolumn zakresu dla wierszy, które eksport wygenerował
+    dla tej grupy — w TEJ SAMEJ kolejności co ``export_rows_for_group``.
+
+    Wiersze zbiorcze (kwota łączna, wspólna pula) i grupa bez obsady nie
+    mają pozycji per osoba → puste komórki. Wiersze osób idą po
+    ``group.lines`` w kolejności serializacji, dokładnie tak jak buduje je
+    ``export_rows_for_group``; liczba wierszy wiodących to różnica.
+    """
+    empty: _MdScopeColumns = (None, None, None)
+    if group.is_cost_based or uses_shared_md_pool(group) or not group.lines:
+        return [empty] * row_count
+    leading = max(0, row_count - len(group.lines))
+    per_line: list[_MdScopeColumns] = [
+        (line.md_total, line.md_optional_total, line.md_used) for line in group.lines
+    ]
+    return [empty] * leading + per_line[: row_count - leading]
+
+
+def _append_md_scope_columns(
+    content: bytes, scope_columns: list[_MdScopeColumns]
+) -> bytes:
+    """Dopisz kolumny zakresu MD (Faza B) do gotowego arkusza.
+
+    Skoroszyt buduje wspólny ``order_excel_export`` (płaski
+    ``OrderExportRow``); kolumny zakresu są cechą wyłącznie zamówień MD per
+    osoba, więc dokładamy je TUTAJ, nad gotowym plikiem, zamiast poszerzać
+    współdzielony wiersz o pola, których pozostałe eksporty nie mają.
+    Wiersz N arkusza (od 2) odpowiada pozycji N-2 listy ``scope_columns``.
+    """
+    workbook = load_workbook(io.BytesIO(content))
+    sheet = workbook.active
+    first_col = sheet.max_column + 1
+    for offset, header in enumerate(_MD_SCOPE_HEADERS):
+        cell = sheet.cell(row=1, column=first_col + offset, value=header)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(vertical="center")
+        sheet.column_dimensions[get_column_letter(first_col + offset)].width = 24
+    for index, values in enumerate(scope_columns, start=2):
+        for offset, value in enumerate(values):
+            cell = sheet.cell(row=index, column=first_col + offset, value=value)
+            if value is not None:
+                cell.number_format = _MD_NUMBER_FORMAT
+    sheet.auto_filter.ref = sheet.dimensions
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
 @router.post("/{client_id}/order-groups/export")
 async def export_order_groups(
     client_id: int,
@@ -2005,22 +2220,27 @@ async def export_order_groups(
         db, (group.id for group in models if uses_shared_md_pool(group))
     )
     rows: list[OrderExportRow] = []
+    scope_columns: list[_MdScopeColumns] = []
+    with_finance = await _can_see_finance(db, user, client_id)
     for group_id in requested:
         group = await _group_to_read(
             db,
             by_id[group_id],
-            with_finance=await _can_see_finance(db, user, client_id),
+            with_finance=with_finance,
             precomputed_md_budget_used=(
                 shared_md_used_by_group[group_id]
                 if uses_shared_md_pool(by_id[group_id])
                 else None
             ),
         )
-        rows.extend(export_rows_for_group(group))
+        group_rows = export_rows_for_group(group)
+        rows.extend(group_rows)
+        scope_columns.extend(_md_scope_columns_for(group, len(group_rows)))
 
     content = await run_in_threadpool(
         build_orders_workbook, rows, include_model_columns=True
     )
+    content = await run_in_threadpool(_append_md_scope_columns, content, scope_columns)
     filename = orders_export_filename(client_display_name(client))
     return Response(
         content=content,
@@ -2500,6 +2720,19 @@ async def create_order_group(
     _assert_multi_client(client_id)
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")
+    # Karta MD u Centrum e-Zdrowia jest przypięta do KONKRETNEJ umowy
+    # wykonawczej (ticket 09.2026) — sama część już nie wystarcza, bo pod jedną
+    # częścią bywa kilka umów. U innych klientów podane pole to 422 (resolver).
+    try:
+        executive_contract_id, _derived_part = await resolve_ezdrowie_assignment(
+            db,
+            client_id=client_id,
+            executive_contract_id=payload.executive_contract_id,
+            project_part=None,
+            require=is_ezdrowie_client(client_id),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     explicit_type = payload.order_type is not None
     resolved_type = (
         payload.order_type
@@ -2615,6 +2848,7 @@ async def create_order_group(
         budget_remaining=payload.budget_amount,
         md_budget_total=payload.md_budget_total,
         md_budget_remaining=payload.md_budget_total,
+        executive_contract_id=executive_contract_id,
         created_by_user_id=user.id,
     )
     db.add(group)
@@ -3707,6 +3941,9 @@ async def extend_order_group(
         md_budget_total=payload.md_budget_total,
         md_budget_remaining=payload.md_budget_total,
         predecessor_group_id=source.id,
+        # Kontynuacja zostaje pod tą samą umową wykonawczą CeZ — przedłużenie
+        # nie zmienia, z której umowy schodzą MD.
+        executive_contract_id=source.executive_contract_id,
         created_by_user_id=user.id,
     )
     db.add(group)
@@ -3901,6 +4138,7 @@ async def _add_line_to_group(
     """Jedna linia + wpis w historii; bez commitu i bez synchronizacji PDF-a."""
 
     replaced_name: Optional[str] = None
+    replaced: Optional[ClientOrder] = None
     if payload.replaces_order_id is not None:
         # Zastępstwo za osobę z TEGO zamówienia. Nie przenosi budżetu: jej
         # wykorzystana kwota i MD zostają przy niej (ticket 09.2026), a pula
@@ -3924,6 +4162,14 @@ async def _add_line_to_group(
         user=user,
         forbid_live_duplicate=forbid_live_duplicate,
     )
+    if replaced is not None:
+        # Powiązanie „Zastąpiony → następca" żyje w KOLUMNIE, nie tylko
+        # w payloadzie zdarzenia (Faza B): czytają je sumy pozycji umowy
+        # (poprzednik wnosi zużycie, nie budżet), tag na karcie i
+        # `_has_successor_line` — zastąpiona osoba nie wraca na obsadę przez
+        # korektę budżetu. Poprzednika NIE zamykamy: to zastępstwo, nie
+        # zamiana kontraktora, a jego status opisuje jego własną współpracę.
+        line.predecessor_order_id = replaced.id
     await db.flush()
     await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
     origin = _line_origin_payload(
@@ -3972,7 +4218,7 @@ async def update_line(
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     has_group_budget = group.is_cost_based or uses_shared_md_pool(group)
-    line_budget_fields = {"input_mode", "input_value", "md_remaining"}
+    line_budget_fields = {"input_mode", "input_value", "md_remaining", "optional_md"}
     if has_group_budget and supplied & line_budget_fields:
         raise HTTPException(
             422,
@@ -4113,6 +4359,14 @@ async def update_line(
         # per-line `input_value`.
         line.md_rate_revenue = data["rate_revenue"]
         changed.append("stawka przychodowa")
+
+    if "optional_md" in data:
+        # Jawne `null` czyści opcję („brak opcji w umowie" jest stanem);
+        # pominięte pole nie trafia do `data` (exclude_unset) i nic nie rusza.
+        line.md_optional_total = (
+            None if data["optional_md"] is None else quantize_md(data["optional_md"])
+        )
+        changed.append("zakres opcjonalny MD")
 
     if "md_remaining" in data and data["md_remaining"] is not None:
         # Korekta zapisywana jako RÓŻNICA, nie nadpisanie. Nadpisanie
@@ -4513,15 +4767,34 @@ async def swap_consultant(
 
     md_remaining_old: Optional[Decimal] = None
     md_total_new: Optional[Decimal] = None
+    md_optional_new: Optional[Decimal] = None
     if not has_group_budget:
         await recompute_remaining(db, old)
         md_remaining_old = Decimal(str(old.md_remaining or 0))
+        # Zakres opcjonalny przechodzi na następcę TĄ SAMĄ proporcją co
+        # podstawa (Faza B): z pozostałości wydzielamy niewykorzystaną opcję
+        # (zużycie wypełnia najpierw podstawę), resztę traktujemy jako
+        # pozostałą podstawę. Suma obu części to dokładnie dotychczasowe
+        # przeliczenie całej pozostałości, więc wartość w PLN się zgadza.
+        # Poprzednik zachowuje swoje liczby — rozlicza się nimi do dnia zamiany.
+        optional_remaining_old = Decimal("0")
+        if old.md_optional_total is not None:
+            _, optional_used = split_md_usage(old, await consumed_md(db, old.id))
+            optional_remaining_old = max(
+                Decimal("0"), Decimal(str(old.md_optional_total)) - optional_used
+            )
         try:
             md_total_new = swap_md_total(
-                md_remaining_old=md_remaining_old,
+                md_remaining_old=md_remaining_old - optional_remaining_old,
                 rate_revenue_old=old.md_rate_revenue,
                 rate_revenue_new=payload.rate_revenue,
             )
+            if old.md_optional_total is not None:
+                md_optional_new = swap_md_total(
+                    md_remaining_old=optional_remaining_old,
+                    rate_revenue_old=old.md_rate_revenue,
+                    rate_revenue_new=payload.rate_revenue,
+                )
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
 
@@ -4580,9 +4853,18 @@ async def swap_consultant(
         md_input_mode=None if has_group_budget else INPUT_MODE_MD,
         md_input_value=md_total_new,
         md_total=md_total_new,
-        md_remaining=md_total_new,
+        md_optional_total=md_optional_new,
+        md_remaining=(
+            None
+            if md_total_new is None
+            else md_total_new + (md_optional_new or Decimal("0"))
+        ),
         md_manual_adjustment=Decimal("0"),
         predecessor_order_id=old.id,
+        # Następca zostaje pod tą samą umową wykonawczą i częścią co
+        # poprzednik — zamiana osoby nie zmienia, z której umowy schodzą MD.
+        executive_contract_id=old.executive_contract_id,
+        project_part=old.project_part,
         created_by_user_id=user.id,
     )
     db.add(new_line)
@@ -4641,6 +4923,9 @@ async def swap_consultant(
         event_payload["old_md_remaining"] = str(md_remaining_old)
         event_payload["new_md_total"] = str(md_total_new)
         event_payload["remaining_value_pln"] = str(value_pln)
+        if md_optional_new is not None:
+            event_payload["new_md_optional_total"] = str(md_optional_new)
+            description += f" W tym zakres opcjonalny: {format_md(md_optional_new)} MD."
     record_event(
         db,
         group_id=group.id,
@@ -4675,5 +4960,259 @@ async def swap_consultant(
     )
     return _line_to_read(
         refreshed,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+# ── Zejścia MD linii: historia + ręczne wpisy ze statusem (Faza B) ──────────
+
+
+#: Kształt miesiąca w ścieżce — lustro CHECK-a `ck_md_consumptions_period`.
+#: `month_bounds` przyjmuje też „2026-7" (parsuje liczbę), a baza odrzuca taki
+#: klucz z 500; kształt jest częścią klucza idempotencji, więc sprawdzamy go
+#: wprost i wcześniej.
+_PERIOD_MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+
+
+def _validated_period_month(period_month: str) -> str:
+    if not _PERIOD_MONTH_RE.match(period_month or ""):
+        raise HTTPException(
+            422, detail="Miesiąc musi być w formacie RRRR-MM (np. 2026-07)"
+        )
+    try:
+        month_bounds(period_month)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    return period_month
+
+
+async def _md_line_for_consumptions(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    line_id: int,
+    for_update: bool,
+) -> ClientOrder:
+    """Linia z budżetem per osoba, na której wolno prowadzić zejścia MD.
+
+    Zamówienie kosztowe i wspólna pula MD nie mają pozycji per osoba —
+    zużycie wspólnej puli wpisuje się na zamówieniu (import / PATCH grupy),
+    a nie przy konsultancie; 422, bo to treść żądania jest nie na miejscu.
+    """
+    query = _line_query().where(
+        ClientOrder.id == line_id,
+        ClientOrder.order_group_id == group.id,
+        ClientOrder.client_id == group.client_id,
+    )
+    if for_update:
+        query = query.with_for_update()
+    line = await db.scalar(query)
+    if line is None:
+        raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
+    if group.is_cost_based or uses_shared_md_pool(group) or line.md_total is None:
+        raise HTTPException(
+            422,
+            detail=(
+                "To zamówienie ma wspólny budżet całej grupy — zużycie wspólnej "
+                "puli wpisuje się na zamówieniu, nie przy konsultancie"
+            ),
+        )
+    return line
+
+
+async def _line_read_after_write(
+    db: AsyncSession, *, group: ClientOrderGroup, line_id: int, with_finance: bool
+) -> OrderLineRead:
+    """Odpowiedź linii po zapisie: pełny ``_line_query()`` + historia.
+
+    Ten sam komplet loaderów co w ``update_line`` (patrz komentarz tam) —
+    płaski ``selectinload`` zostawia leniwą relację na poprzedniku, a w async
+    SQLAlchemy to ``MissingGreenlet`` już PO commicie. ``_apply_line_history``
+    dokłada ``md_used`` i podział na podstawę/opcję, których sam
+    ``_line_to_read`` nie liczy.
+    """
+    refreshed = await db.scalar(
+        _line_query()
+        .where(ClientOrder.id == line_id)
+        .execution_options(populate_existing=True)
+    )
+    item = _line_to_read(refreshed, with_finance=with_finance)
+    await _apply_line_history(db, group, [refreshed], [item])
+    return item
+
+
+def _consumption_row_to_read(row: ClientOrderMdConsumption) -> LineConsumptionRow:
+    return LineConsumptionRow(
+        period_month=row.period_month,
+        md_reported=row.md_reported,
+        status=row.status,
+        note=row.note,
+        source=row.source,
+        import_id=row.import_id,
+        created_by_name=row.author.name if row.author is not None else None,
+        updated_at=row.updated_at,
+    )
+
+
+@router.get(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions",
+    response_model=LineConsumptionsResponse,
+)
+async def list_line_consumptions(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    user: OrderGroupSafeReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Historia zejść MD jednej osoby — miesiąc po miesiącu, ze statusem.
+
+    Ta sama bramka odczytu co historia zdarzeń: liczby MD są operacyjne,
+    nie finansowe, więc widzi je każdy, kto widzi kartę zamówienia.
+    """
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    exists = await db.scalar(
+        select(ClientOrder.id).where(
+            ClientOrder.id == line_id,
+            ClientOrder.order_group_id == group.id,
+            ClientOrder.client_id == client_id,
+        )
+    )
+    if exists is None:
+        raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
+    rows = await consumption_rows(db, line_id)
+    return LineConsumptionsResponse(rows=[_consumption_row_to_read(r) for r in rows])
+
+
+@router.put(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}",
+    response_model=OrderLineRead,
+)
+async def upsert_line_consumption(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    period_month: str,
+    payload: LineConsumptionUpsert,
+    user: OrderLifecycleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ręczny wpis zejścia MD za miesiąc (nowy albo nadpisanie).
+
+    Ten sam klucz idempotencji co import (``UNIQUE (order_id, period_month)``):
+    powtórny PUT NADPISUJE miesiąc i przelicza pozostałość od zera, nigdy nie
+    dokłada. Uprawnienia jak przy cyklu życia zamówienia (``close``):
+    admin, przypisany Delivery Lead, Finanse z ``MANAGE_FINANCE``.
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    line = await _md_line_for_consumptions(
+        db, group=group, line_id=line_id, for_update=True
+    )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
+
+    _row, previous, remaining = await upsert_consumption(
+        db,
+        order=line,
+        period_month=period_month,
+        md_reported=payload.md_reported,
+        source=CONSUMPTION_SOURCE_MANUAL,
+        user_id=user.id,
+        status=payload.status,
+        note=payload.note,
+    )
+    value = quantize_md(payload.md_reported)
+    status_label = (
+        CONSUMPTION_STATUS_LABELS.get(payload.status, payload.status)
+        if payload.status
+        else "bez statusu"
+    )
+    overwritten = (
+        f", nadpisano wcześniejsze {format_md(previous)} MD"
+        if previous and previous != value
+        else ""
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"{consultant_display_name(line)} — zejście MD za "
+            f"{format_period_month(period_month)}: {format_md(value)} MD "
+            f"({status_label}{overwritten}). Pozostało {format_md(remaining)} MD."
+        ),
+        payload={
+            "changed": ["zejście MD"],
+            "period_month": period_month,
+            "md_reported": str(value),
+            "previous": str(previous),
+            "status": payload.status,
+            "note": payload.note,
+            "md_remaining": str(remaining),
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    return await _line_read_after_write(
+        db,
+        group=group,
+        line_id=line.id,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+@router.delete(
+    "/{client_id}/order-groups/{group_id}/lines/{line_id}/consumptions/{period_month}",
+    response_model=OrderLineRead,
+)
+async def delete_line_consumption(
+    client_id: int,
+    group_id: int,
+    line_id: int,
+    period_month: str,
+    user: OrderLifecycleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usunięcie zejścia za miesiąc — pozostałość przeliczana od zera."""
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    period_month = _validated_period_month(period_month)
+    group = await _load_group(db, client_id, group_id)
+    line = await _md_line_for_consumptions(
+        db, group=group, line_id=line_id, for_update=True
+    )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
+
+    previous = await delete_consumption(db, line, period_month)
+    if previous is None:
+        raise HTTPException(404, detail="Brak zejścia MD za ten miesiąc")
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=line.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            f"{consultant_display_name(line)} — usunięto zejście MD za "
+            f"{format_period_month(period_month)} ({format_md(previous)} MD). "
+            f"Pozostało {format_md(line.md_remaining)} MD."
+        ),
+        payload={
+            "changed": ["zejście MD"],
+            "period_month": period_month,
+            "removed_md": str(previous),
+            "md_remaining": str(line.md_remaining),
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    return await _line_read_after_write(
+        db,
+        group=group,
+        line_id=line.id,
         with_finance=await _can_see_finance(db, user, client_id),
     )

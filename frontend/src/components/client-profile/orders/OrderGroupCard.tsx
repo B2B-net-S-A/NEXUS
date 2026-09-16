@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  CalendarDays,
   CalendarPlus,
   ChevronDown,
   Clock3,
@@ -42,8 +43,10 @@ import { countPl } from "@/lib/plural-pl";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
-import { consultantUsageSentence } from "@/lib/order-line-usage";
+import { consultantUsageSentence, hasScopedMd } from "@/lib/order-line-usage";
+import { LineMonthlyHistoryDialog } from "./LineMonthlyHistoryDialog";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
+import { MdScopeBars } from "./MdScopeBars";
 import { OrderTypeBadge } from "./OrderTypeBadge";
 
 function initials(name: string): string {
@@ -59,6 +62,95 @@ function periodLabel(group: OrderGroupRead): string {
   const from = formatDate(group.start_date);
   const to = group.end_date ? formatDate(group.end_date) : "bezterminowo";
   return `${from} → ${to}`;
+}
+
+/** Część umowy ramowej CeZ w zapisie rzymskim — lokalna mapa, bo nagłówek
+ *  karty pokazuje SAM numer umowy wykonawczej z częścią, nie etykietę
+ *  „E-zdrowie cz.2" z pickerów. */
+const PART_ROMAN: Record<string, string> = {
+  cz1: "I",
+  cz2: "II",
+  cz4: "IV",
+  cz5: "V",
+  cz6: "VI",
+};
+
+function executiveContractLabel(
+  contract: NonNullable<OrderGroupRead["executive_contract"]>,
+): string {
+  const roman = contract.project_part ? PART_ROMAN[contract.project_part] : undefined;
+  return roman
+    ? `Umowa wykonawcza ${contract.number} · Cz. ${roman}`
+    : `Umowa wykonawcza ${contract.number}`;
+}
+
+/** Kotwica wiersza obsady — cel przejścia „→ następca" z wiersza osoby
+ *  zastąpionej. Następca bywa w innej sekcji (aktywna obsada vs zakończone),
+ *  więc przewijamy po id, nie po pozycji na liście. */
+export function orderLineAnchorId(lineId: number): string {
+  return `order-line-${lineId}`;
+}
+
+/** Przewinięcie do wiersza następcy z krótkim podświetleniem. Bez celu w DOM
+ *  (następca na innej karcie) — nic; przycisk nie może udawać nawigacji. */
+function focusOrderLine(lineId: number) {
+  const el = document.getElementById(orderLineAnchorId(lineId));
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("ring-2", "ring-primary", "ring-inset");
+  window.setTimeout(() => {
+    el.classList.remove("ring-2", "ring-primary", "ring-inset");
+  }, 1600);
+}
+
+/** Pasek wykorzystania pozycji MD zamówienia (podstawa + opcja) — CeZ. */
+function PositionsMdBar({ group }: { group: OrderGroupRead }) {
+  const total = group.md_positions_total ?? 0;
+  const used = Math.max(0, group.md_used_total ?? 0);
+  const pct = total > 0 ? (used / total) * 100 : null;
+  const exceeded = total > 0 && used > total;
+  const valuePct =
+    group.contract_value_pln != null && group.contract_value_pln > 0
+      ? ((group.used_value_pln ?? 0) / group.contract_value_pln) * 100
+      : null;
+  return (
+    <div className="min-w-[14rem]">
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(Math.min(100, pct ?? 0))}
+        aria-label="Wykorzystane MD zamówienia"
+        className="h-2 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            exceeded ? "bg-destructive" : "bg-primary",
+          )}
+          style={{ width: `${Math.max(0, Math.min(100, pct ?? 0))}%` }}
+        />
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Wykorzystano{" "}
+        <span className={cn("font-semibold", exceeded ? "text-destructive" : "text-foreground")}>
+          {formatMd(used)}
+        </span>{" "}
+        / {formatMd(total)} MD{pct !== null ? ` (${Math.round(pct)}%)` : ""}
+      </p>
+      {/* Kwoty tylko przy `contract_value_pln` z odpowiedzi — rola bez
+          finansów dostaje `null` i widzi same MD, nie „0 zł z 0 zł". */}
+      {group.contract_value_pln != null ? (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Wykorzystano wartości umowy{" "}
+          <span className="font-semibold text-foreground">
+            {valuePct !== null ? `${Math.round(valuePct)}%` : "—"}
+          </span>{" "}
+          · {formatPLN(group.used_value_pln ?? 0)} / {formatPLN(group.contract_value_pln)}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -269,6 +361,8 @@ interface OrderLineRowProps {
   onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
   onKeepHistory?: (group: OrderGroupRead, line: OrderLineRead) => void;
   onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  /** „Rozliczenia miesięczne" — wpisy MD per miesiąc tej osoby. */
+  onShowConsumptions?: (group: OrderGroupRead, line: OrderLineRead) => void;
 }
 
 /** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
@@ -286,11 +380,17 @@ function OrderLineRow({
   onResolveOffboarding,
   onKeepHistory,
   onReplaceLine,
+  onShowConsumptions,
 }: OrderLineRowProps) {
   const pendingOffboarding = line.offboarding_case?.status === "pending";
   const completedCostLine = group.is_cost_based && !line.is_active;
   const sharedMd = usesSharedMdPool(group);
   const removed = Boolean(line.removed_from_order);
+  // Rozliczenia miesięczne mają sens tylko przy własnym budżecie MD osoby —
+  // zamówienie kosztowe rozlicza faktury, wspólna pula nie ma wpisów per osoba.
+  const perPersonMd = !group.is_cost_based && !sharedMd;
+  const replacedBy =
+    line.replaced_by_order_id != null ? line.replaced_by_consultant_name : null;
   const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
   // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
   // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
@@ -311,6 +411,7 @@ function OrderLineRow({
 
   return (
     <li
+      id={orderLineAnchorId(line.id)}
       className={cn(
         "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
         !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
@@ -352,6 +453,11 @@ function OrderLineRow({
             {line.origin === "manual" ? (
               <span className="rounded bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
                 Dodany ręcznie
+              </span>
+            ) : null}
+            {line.replaced_by_order_id != null ? (
+              <span className="rounded-full bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
+                Zastąpiony
               </span>
             ) : null}
           </p>
@@ -401,6 +507,18 @@ function OrderLineRow({
           {line.predecessor_consultant_name ? (
             <p className="truncate text-xs text-muted-foreground">
               zastąpił: {line.predecessor_consultant_name}
+            </p>
+          ) : null}
+          {line.replaced_by_order_id != null ? (
+            <p className="truncate text-xs text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => focusOrderLine(line.replaced_by_order_id as number)}
+                aria-label={`Pokaż następcę${replacedBy ? `: ${replacedBy}` : ""}`}
+                className="font-medium text-primary underline-offset-2 hover:underline"
+              >
+                → {replacedBy ?? "następca"}
+              </button>
             </p>
           ) : null}
           {line.missing_consumption_month ? (
@@ -461,6 +579,10 @@ function OrderLineRow({
           budżet MD{" "}
           <span className="font-medium text-foreground">Wspólna pula</span>
         </span>
+      ) : hasScopedMd(line) ? (
+        // Podstawa + opcja (CeZ) — dwa paski ZUŻYCIA; BIK/Polkomtel bez
+        // zakresów dostają dotychczasowy pasek „pozostało / całość".
+        <MdScopeBars line={line} className="ml-auto" />
       ) : (
         <MdBudgetBar
           remaining={line.md_remaining}
@@ -468,6 +590,18 @@ function OrderLineRow({
           className="ml-auto"
         />
       )}
+
+      {perPersonMd && onShowConsumptions ? (
+        <button
+          type="button"
+          onClick={() => onShowConsumptions(group, line)}
+          aria-label={`Rozliczenia miesięczne — ${line.consultant_name}`}
+          title="Rozliczenia miesięczne"
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <CalendarDays className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
 
       {pendingOffboarding ? (
         <div className="ml-auto flex flex-col items-end gap-1">
@@ -725,6 +859,8 @@ function FutureOrders({
                       </span>
                       {usesSharedMdPool(future) ? (
                         "wspólna pula"
+                      ) : hasScopedMd(line) ? (
+                        <MdScopeBars line={line} className="mt-1" />
                       ) : (
                         <MdBudgetBar
                           remaining={line.md_remaining}
@@ -808,6 +944,10 @@ export function OrderGroupCard({
   const [expanded, setExpanded] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pendingFocusId, setPendingFocusId] = useState<number | null>(null);
+  // Linia, której rozliczenia miesięczne są otwarte. Trzymamy CAŁĄ linię, nie
+  // id: po zapisie lista grup się odświeża, a dialog ma zostać przy tej samej
+  // osobie także wtedy, gdy nowa odpowiedź jeszcze nie dotarła.
+  const [consumptionLine, setConsumptionLine] = useState<OrderLineRead | null>(null);
   const servedFocusRef = useRef<number | null>(null);
 
   // Żądanie adresuje tę kartę, gdy celem jest ona sama albo któreś z jej
@@ -885,6 +1025,11 @@ export function OrderGroupCard({
               ? ` · zakończone ${formatDate(group.closure_date)}`
               : ""}
           </p>
+          {group.executive_contract ? (
+            <p className="text-xs text-muted-foreground">
+              {executiveContractLabel(group.executive_contract)}
+            </p>
+          ) : null}
         </div>
 
         <button
@@ -942,6 +1087,12 @@ export function OrderGroupCard({
                   konsultantów. Zorganizuj nowe zamówienie albo skoryguj kwotę.
                 </p>
               ) : null}
+            </div>
+          ) : null}
+
+          {group.md_positions_total != null && !group.is_cost_based ? (
+            <div className="mb-4">
+              <PositionsMdBar group={group} />
             </div>
           ) : null}
 
@@ -1003,6 +1154,7 @@ export function OrderGroupCard({
                         onResolveOffboarding={onResolveOffboarding}
                         onKeepHistory={onKeepHistory}
                         onReplaceLine={onReplaceLine}
+                        onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
                       />
                     ))}
                   </ul>
@@ -1035,6 +1187,7 @@ export function OrderGroupCard({
                         onResolveOffboarding={onResolveOffboarding}
                         onKeepHistory={onKeepHistory}
                         onReplaceLine={onReplaceLine}
+                        onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
                       />
                     ))}
                   </ul>
@@ -1197,6 +1350,17 @@ export function OrderGroupCard({
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {consumptionLine ? (
+        <LineMonthlyHistoryDialog
+          clientId={clientId}
+          group={group}
+          line={consumptionLine}
+          canEdit={canManage}
+          open
+          onClose={() => setConsumptionLine(null)}
+        />
       ) : null}
     </section>
   );

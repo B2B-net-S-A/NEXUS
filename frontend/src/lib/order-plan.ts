@@ -69,6 +69,9 @@ export interface OrderLineDraft {
   revenueGross: number | null;
   md: string;
   mdSource: LineSource | null;
+  /** Zakres opcjonalny MD z umowy (CeZ). Nigdy z PDF-a — zamówienie nie zna
+   *  opcji umowy wykonawczej; puste pole = brak opcji. */
+  optionalMd: string;
   /** Okres WŁASNY pozycji z PDF-a; `null` = obowiązuje okres zamówienia. */
   startDate: string | null;
   endDate: string | null;
@@ -172,6 +175,7 @@ export function draftsFromPlan(plan: OrderGroupExtraction): OrderLineDraft[] {
       revenueGross: line.rate_revenue_gross,
       md: numberField(line.md_total),
       mdSource: hasMd ? "pdf" : null,
+      optionalMd: "",
       startDate: line.start_date ? line.start_date.slice(0, 10) : null,
       endDate: line.end_date ? line.end_date.slice(0, 10) : null,
       warnings: line.warnings,
@@ -210,6 +214,7 @@ export function emptyDraft(): OrderLineDraft {
     revenueGross: null,
     md: "",
     mdSource: null,
+    optionalMd: "",
     startDate: null,
     endDate: null,
     warnings: [],
@@ -431,6 +436,7 @@ export function toLineInput(
     throw new Error("Nieprawidłowa stawka na karcie konsultanta");
   }
   const md = parseDecimalInput(draft.md);
+  const optionalMd = parseDecimalInput(draft.optionalMd);
   const historical = isHistorical(draft);
   return {
     // Dokładnie jedno z pól — serwer odrzuca oba naraz.
@@ -443,6 +449,11 @@ export function toLineInput(
     rate_revenue: revenue,
     ...(usesLineMd(ctx) && md !== null
       ? { input_mode: "md" as const, input_value: md }
+      : {}),
+    // Opcja tylko przy własnym budżecie MD osoby i tylko gdy wpisana —
+    // brak klucza to „brak opcji", więc karta bez CeZ nie wysyła `null`.
+    ...(usesLineMd(ctx) && optionalMd !== null && optionalMd > 0
+      ? { optional_md: optionalMd }
       : {}),
     start_date: draft.startDate ?? ctx.groupStart,
     // Zapis historyczny kończy się z końcem współpracy, nie zamówienia.

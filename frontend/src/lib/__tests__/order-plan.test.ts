@@ -475,3 +475,28 @@ describe("„Uzupełnij zamówienie” — karty tylko dla osób spoza zamówien
     ]);
   });
 });
+
+describe("zakres opcjonalny MD (CeZ) na karcie", () => {
+  it("karta z PDF-a nie zgaduje opcji — pole puste, klucz `optional_md` nie jedzie", () => {
+    const [draft] = draftsFromPlan(plan([line()]));
+    expect(draft.optionalMd).toBe("");
+    expect(emptyDraft().optionalMd).toBe("");
+    expect(toLineInput(draft, md)).not.toHaveProperty("optional_md");
+  });
+
+  it("wpisana opcja jedzie obok podstawy, ale tylko przy własnym budżecie MD osoby", () => {
+    const [draft] = draftsFromPlan(plan([line()]));
+    const withOption = { ...draft, optionalMd: "170" };
+    expect(toLineInput(withOption, md)).toMatchObject({
+      input_mode: "md",
+      input_value: 35,
+      optional_md: 170,
+    });
+    // Zamówienie kosztowe i wspólna pula nie mają budżetu przy osobie —
+    // opcja nie ma się do czego doliczyć.
+    expect(toLineInput(withOption, { ...md, orderType: "cost" })).not.toHaveProperty("optional_md");
+    expect(toLineInput(withOption, { ...md, sharedMd: true })).not.toHaveProperty("optional_md");
+    // Zero to „brak opcji", nie opcja o wielkości zero.
+    expect(toLineInput({ ...draft, optionalMd: "0" }, md)).not.toHaveProperty("optional_md");
+  });
+});

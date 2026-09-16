@@ -26,7 +26,8 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
-import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
@@ -110,13 +111,14 @@ export function ExtendOrderDialog({
   const [jobId, setJobId] = useState(
     String(latest?.job_id ?? contract.initial_job_id ?? ""),
   );
-  // „Część umowy" — tylko Centrum e-Zdrowia (ticket #3). Przedłużenie
-  // DZIEDZICZY część z najnowszego zamówienia (edytowalne — zmiana części
-  // przy przedłużeniu to legalny scenariusz).
+  // „Umowa wykonawcza" — tylko Centrum e-Zdrowia. Przedłużenie DZIEDZICZY
+  // umowę z najnowszego zamówienia (edytowalne — zmiana umowy wykonawczej
+  // przy przedłużeniu to legalny scenariusz). Część jest wartością pochodną.
   const ezdrowie = isEzdrowieClient(clientId);
-  const [projectPart, setProjectPart] = useState<string>(
-    latest?.project_part ?? "",
+  const [executiveContractId, setExecutiveContractId] = useState<string>(
+    latest?.executive_contract_id != null ? String(latest.executive_contract_id) : "",
   );
+  const executiveContracts = useExecutiveContractOptions(clientId);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -254,7 +256,9 @@ export function ExtendOrderDialog({
         if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
       }
       if (jobId) fd.append("job_id", jobId);
-      if (ezdrowie && projectPart) fd.append("project_part", projectPart);
+      if (ezdrowie && executiveContractId) {
+        fd.append("executive_contract_id", executiveContractId);
+      }
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
     },
@@ -272,8 +276,8 @@ export function ExtendOrderDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (ezdrowie && !projectPart) {
-            showToast("Wybierz część umowy", "error");
+          if (ezdrowie && !executiveContractId) {
+            showToast("Wybierz umowę wykonawczą", "error");
             return;
           }
           mutation.mutate();
@@ -492,23 +496,32 @@ export function ExtendOrderDialog({
           />
         </label>
 
-        {/* „Wybór części umowy" — tylko Centrum e-Zdrowia (ticket #3). */}
+        {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. */}
         {ezdrowie && (
           <label className="block">
-            <span className="text-sm">Wybór części umowy *</span>
+            <span className="text-sm">Umowa wykonawcza *</span>
             <select
-              value={projectPart}
-              onChange={(e) => setProjectPart(e.target.value)}
-              aria-label="Wybór części umowy"
+              value={executiveContractId}
+              onChange={(e) => setExecutiveContractId(e.target.value)}
+              aria-label="Umowa wykonawcza"
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             >
               <option value="">— wybierz —</option>
-              {PROJECT_PARTS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
+              {executiveContracts.groups.map((group) => (
+                <optgroup key={group.framework_contract_id} label={group.label}>
+                  {group.options.map((ec) => (
+                    <option key={ec.id} value={String(ec.id)}>
+                      {ec.number}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
+            {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+              </p>
+            ) : null}
           </label>
         )}
 

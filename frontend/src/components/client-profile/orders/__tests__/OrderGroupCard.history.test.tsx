@@ -44,6 +44,11 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     invoiced_total: null,
     unsettled_total: null,
     missing_consumption_month: null,
+    md_optional_total: null,
+    md_base_used: null,
+    md_optional_used: null,
+    replaced_by_order_id: null,
+    replaced_by_consultant_name: null,
     ...overrides,
   };
 }
@@ -78,6 +83,11 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     size_bytes: null,
     file_uploaded_at: null,
     can_add_consultant: true,
+    executive_contract: null,
+    md_positions_total: null,
+    md_used_total: null,
+    contract_value_pln: null,
+    used_value_pln: null,
     lines: [line()],
     active_consultants: 1,
     event_count: 2,
@@ -404,5 +414,122 @@ describe("OrderGroupCard — historia zamówienia", () => {
     expect(onReplaceLine).toHaveBeenCalledWith(expect.anything(), ended);
     await user.click(screen.getByRole("button", { name: "Usuń z zamówienia" }));
     expect(onDeleteLine).toHaveBeenCalledWith(expect.anything(), ended);
+  });
+});
+
+describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
+  const scopedGroup = () =>
+    group({
+      client_id: 115,
+      executive_contract: {
+        id: 71,
+        number: "CeZ/242/2025",
+        status: "active",
+        framework_contract_id: 12,
+        project_part: "cz2",
+      },
+      md_positions_total: 360,
+      md_used_total: 154,
+      contract_value_pln: 2_295_200,
+      used_value_pln: 711_480,
+      lines: [
+        line({
+          id: 1,
+          consultant_name: "Tomasz Zastąpiony",
+          status: "completed",
+          is_active: false,
+          cooperation_ended_on: "2026-06-30",
+          md_total: 100,
+          md_used: 100,
+          md_optional_total: null,
+          md_base_used: 100,
+          replaced_by_order_id: 2,
+          replaced_by_consultant_name: "Marcin Następca",
+        }),
+        line({
+          id: 2,
+          consultant_name: "Marcin Następca",
+          md_total: 190,
+          md_remaining: 36,
+          md_used: 154,
+          md_optional_total: 170,
+          md_base_used: 154,
+          md_optional_used: 0,
+          predecessor_order_id: 1,
+          predecessor_consultant_name: "Tomasz Zastąpiony",
+        }),
+      ],
+    });
+
+  it("osoba zastąpiona ma pill i przejście „→ następca”, które przewija do jego wiersza", async () => {
+    const scrolled: Element[] = [];
+    const scrollSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      const user = userEvent.setup();
+      renderCard({ group: scopedGroup() });
+
+      expect(screen.getByText("Zastąpiony")).toBeInTheDocument();
+      // Istniejąca linia „zastąpił:" u następcy zostaje.
+      expect(screen.getByText("zastąpił: Tomasz Zastąpiony")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Pokaż następcę: Marcin Następca" }));
+      expect(scrolled).toContain(document.getElementById("order-line-2"));
+      expect(document.getElementById("order-line-2")).toHaveClass("ring-primary");
+    } finally {
+      scrollSpy.mockRestore();
+    }
+  });
+
+  it("linia z zakresami dostaje dwa paski zużycia, a bez zakresów — stary pasek „pozostało”", () => {
+    renderCard({ group: scopedGroup() });
+
+    const successorRow = document.getElementById("order-line-2")!;
+    expect(successorRow.querySelector('[aria-label="Podstawa — wykorzystano MD"]')).not.toBeNull();
+    expect(successorRow.querySelector('[aria-label="Opcja — wykorzystano MD"]')).not.toBeNull();
+    expect(successorRow).toHaveTextContent(/Wykorzystano łącznie 154 \/ 360 MD 43%/);
+
+    // Zastąpiony: zakres podstawowy bez opcji — kursywa zamiast pustego paska.
+    const replacedRow = document.getElementById("order-line-1")!;
+    expect(replacedRow).toHaveTextContent("brak opcji w umowie");
+  });
+
+  it("BIK/Polkomtel bez zakresów nie zmienia się wizualnie", () => {
+    renderCard({ group: group() });
+    expect(screen.getByRole("progressbar", { name: "Pozostałe MD" })).toBeInTheDocument();
+    expect(screen.queryByText(/Wykorzystano łącznie/)).toBeNull();
+    expect(screen.queryByText(/Umowa wykonawcza/)).toBeNull();
+    expect(screen.queryByRole("progressbar", { name: "Wykorzystane MD zamówienia" })).toBeNull();
+  });
+
+  it("nagłówek: umowa wykonawcza z częścią, pasek pozycji MD i wartość umowy dla ról z finansami", () => {
+    renderCard({ group: scopedGroup() });
+
+    expect(screen.getByText("Umowa wykonawcza CeZ/242/2025 · Cz. II")).toBeInTheDocument();
+    const bar = screen.getByRole("progressbar", { name: "Wykorzystane MD zamówienia" });
+    expect(bar).toHaveAttribute("aria-valuenow", "43");
+    expect(bar.parentElement).toHaveTextContent(/Wykorzystano 154 \/ 360 MD \(43%\)/);
+    // 711 480 / 2 295 200 = 31%
+    expect(bar.parentElement).toHaveTextContent(/Wykorzystano wartości umowy 31%/);
+    expect(bar.parentElement).toHaveTextContent(/711\s480,00\szł \/ 2\s295\s200,00\szł/);
+  });
+
+  it("rola bez finansów widzi w nagłówku same MD — bez „0 zł z 0 zł”", () => {
+    renderCard({
+      group: { ...scopedGroup(), contract_value_pln: null, used_value_pln: null },
+    });
+    expect(screen.getByRole("progressbar", { name: "Wykorzystane MD zamówienia" })).toBeInTheDocument();
+    expect(screen.queryByText(/Wykorzystano wartości umowy/)).toBeNull();
+    expect(screen.queryByText(/2\s295\s200/)).toBeNull();
+  });
+
+  it("wiersz MD per osoba ma przycisk rozliczeń miesięcznych; kosztowe i wspólna pula — nie", () => {
+    renderCard({ group: scopedGroup() });
+    expect(
+      screen.getByRole("button", { name: "Rozliczenia miesięczne — Marcin Następca" }),
+    ).toBeInTheDocument();
   });
 });

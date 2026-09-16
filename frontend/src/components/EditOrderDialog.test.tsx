@@ -29,10 +29,24 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
   };
 });
 
+// Struktura umów e-Zdrowia — hook pyta o nią wyłącznie u klienta 115.
+const executiveContractMocks = vi.hoisted(() => ({ structure: vi.fn() }));
+vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/api/executiveContracts")>();
+  Object.assign(actual.executiveContractsApi, {
+    structure: (...args: unknown[]) => executiveContractMocks.structure(...args),
+  });
+  return { ...actual };
+});
+
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
+
 const extractOrderPdf = vi.mocked(dlPortalApi.extractOrderPdf);
 const updateOrder = vi.mocked(dlPortalApi.updateOrder);
 
 function renderDialog({
+  clientId = 10,
   order = null,
   suggestedOrderType = "periodic",
   legacyNullOrderType = "periodic",
@@ -42,6 +56,7 @@ function renderDialog({
   contractRateClientCurrency = "PLN",
   contractRateCandidateCurrency = "PLN",
 }: {
+  clientId?: number;
   order?: ClientOrderRead | null;
   suggestedOrderType?: OrderType;
   legacyNullOrderType?: LegacyClientOrderType;
@@ -58,7 +73,7 @@ function renderDialog({
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <EditOrderDialog
-          clientId={10}
+          clientId={clientId}
           candidateId={1}
           // Tryb „kontraktor bez zamówienia" (realny przypadek Banku
           // Pocztowego) — formularz pusty, szkic powstaje dopiero przy zapisie.
@@ -417,5 +432,89 @@ describe("EditOrderDialog — jawny typ nowego draftu", () => {
     });
     expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Budżet całkowity/)).not.toBeInTheDocument();
+  });
+});
+
+// ── Centrum e-Zdrowia: umowa wykonawcza zamiast części ───────────────────────
+
+describe("EditOrderDialog — e-Zdrowie: umowa wykonawcza", () => {
+  const STRUCTURE = {
+    framework_contracts: [
+      {
+        id: 2,
+        name: "CeZ/145/2025 – cz. II",
+        project_part: "cz2",
+        status: "active",
+        executive_contracts: [
+          {
+            id: 10,
+            number: "CeZ/145/2025/UW-1",
+            status: "active",
+            framework_contract_id: 2,
+            project_part: "cz2",
+            notes: null,
+            consultants_count: 0,
+            created_at: null,
+          },
+          {
+            id: 11,
+            number: "CeZ/145/2025/UW-2",
+            status: "ended",
+            framework_contract_id: 2,
+            project_part: "cz2",
+            notes: null,
+            consultants_count: 0,
+            created_at: null,
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    updateOrder.mockReset();
+    updateOrder.mockResolvedValue({ data: {} } as never);
+    executiveContractMocks.structure.mockReset();
+    executiveContractMocks.structure.mockResolvedValue(STRUCTURE);
+  });
+
+  it("PATCH niesie executive_contract_id, a nie project_part; zakończona umowa nie jest do wyboru", async () => {
+    const user = userEvent.setup();
+    const order = { ...draftOrder("periodic"), client_id: EZDROWIE_CLIENT_ID };
+    renderDialog({ clientId: EZDROWIE_CLIENT_ID, order });
+
+    const select = await screen.findByRole("combobox", { name: "Umowa wykonawcza" });
+    expect(select).toHaveValue("");
+    await waitFor(() =>
+      expect(within(select).getByRole("option", { name: "CeZ/145/2025/UW-1" })).toBeInTheDocument(),
+    );
+    expect(within(select).queryByRole("option", { name: "CeZ/145/2025/UW-2" })).toBeNull();
+    expect(screen.queryByText("Część umowy")).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "10");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(updateOrder).toHaveBeenCalledOnce());
+    const payload = updateOrder.mock.calls[0]?.[2];
+    expect(payload).toEqual(expect.objectContaining({ executive_contract_id: 10 }));
+    expect(payload).not.toHaveProperty("project_part");
+  });
+
+  it("zamówienie z przypisaną umową startuje z nią w selekcie", async () => {
+    const order = {
+      ...draftOrder("periodic"),
+      client_id: EZDROWIE_CLIENT_ID,
+      executive_contract_id: 10,
+      executive_contract_number: "CeZ/145/2025/UW-1",
+    };
+    renderDialog({ clientId: EZDROWIE_CLIENT_ID, order });
+    const select = await screen.findByRole("combobox", { name: "Umowa wykonawcza" });
+    await waitFor(() => expect(select).toHaveValue("10"));
+  });
+
+  it("u klienta spoza e-Zdrowia selektu nie ma i struktura nie jest odpytywana", () => {
+    renderDialog({ order: draftOrder("periodic") });
+    expect(screen.queryByRole("combobox", { name: "Umowa wykonawcza" })).toBeNull();
+    expect(executiveContractMocks.structure).not.toHaveBeenCalled();
   });
 });

@@ -24,7 +24,9 @@ from pydantic import (
 
 from app.models.contract import RateUnit
 from app.models.order_type import OrderType
+from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.services.multi_consultant_orders import (
+    CONSUMPTION_STATUSES,
     INPUT_MODES,
     MD_DISPLAY_SCALE,
     MD_SCALE,
@@ -101,6 +103,14 @@ class OrderLineCreate(BaseModel):
     tam pula jest wspólna i mieszka na zamówieniu, a nie przy osobie. Handler
     wymaga kompletu przy zamówieniu MD i odrzuca go przy kosztowym; walidacja
     nie może stać tutaj, bo schemat nie wie, do jakiego zamówienia trafia."""
+
+    optional_md: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
+    """Zakres OPCJONALNY w MD (Faza B, 09.2026), obok podstawowego z
+    ``input_value``. Zawsze w MD, nigdy w kwocie — opcja w umowie z klientem
+    jest liczbą dni, a przeliczanie jej z kwoty dawałoby drugą, niezależną
+    liczbę MD pod jedną stawką. ``None`` = „brak opcji w umowie". Dozwolone
+    wyłącznie przy budżecie per osoba; handler odrzuca je przy zamówieniu
+    kosztowym i wspólnej puli, tak samo jak ``input_mode``."""
 
     start_date: date
     end_date: Optional[date] = None
@@ -224,6 +234,12 @@ class OrderGroupCreate(BaseModel):
     )
     """Wspólna liczba MD całego zamówienia."""
 
+    executive_contract_id: Optional[int] = Field(None, gt=0)
+    """Umowa wykonawcza Centrum e-Zdrowia, do której przypięta jest karta MD
+    (ticket 09.2026). Wymagana u CeZ, zabroniona u innych klientów —
+    rozstrzyga ``resolve_ezdrowie_assignment`` w handlerze, bo DTO nie zna
+    ``client_id`` z URL."""
+
     lines: list[OrderLineCreate] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -341,6 +357,10 @@ class OrderLineUpdate(BaseModel):
     )
     input_mode: Optional[str] = None
     input_value: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
+    optional_md: Optional[MdValue] = Field(None, ge=0, max_digits=16, decimal_places=6)
+    """Zakres opcjonalny w MD. Jawne ``null`` (pole obecne w
+    ``model_fields_set``) CZYŚCI opcję — „brak opcji w umowie" jest stanem,
+    a nie brakiem edycji; pole pominięte zostaje bez zmian."""
     end_date: Optional[date] = None
     md_remaining: Optional[MdValue] = Field(None, max_digits=16, decimal_places=6)
     """Ręczna korekta pozostałości (korekta historyczna). Zapisywana jako
@@ -465,11 +485,28 @@ class OrderLineRead(BaseModel):
     # ról bez dostępu do stawek. Ukrycie ich zostawiłoby te role z pustą
     # kolumną bez wyjaśnienia, choć MD nie są kwotą.
     md_total: Optional[MdValue] = None
+    """Zakres PODSTAWOWY w MD (nazwa historyczna — kolumna sprzed Fazy B)."""
+    md_optional_total: Optional[MdValue] = None
+    """Zakres OPCJONALNY w MD; ``None`` = brak opcji w umowie."""
     md_remaining: Optional[MdValue] = None
+    """Pozostałość z CAŁEGO budżetu (podstawa + opcja)."""
     md_manual_adjustment: Optional[MdValue] = None
+
+    md_base_used: Optional[MdValue] = None
+    md_optional_used: Optional[MdValue] = None
+    """Zużycie rozbite na podstawę i opcję: zużycie wypełnia najpierw
+    podstawę, nadwyżka schodzi z opcji (tak liczy protokół klienta).
+    Sumują się do ``md_used``. ``None`` = linia bez budżetu per osoba."""
 
     predecessor_order_id: Optional[int] = None
     predecessor_consultant_name: Optional[str] = None
+
+    replaced_by_order_id: Optional[int] = None
+    replaced_by_consultant_name: Optional[str] = None
+    """Tag „Zastąpiony → następca": linia TEGO zamówienia, która wskazuje tę
+    jako poprzednika (zamiana kontraktora albo zastępstwo przez
+    ``replaces_order_id``). Poprzednik wnosi do zamówienia swoje zużycie,
+    ale nie budżet pozycji — patrz ``OrderGroupRead.md_positions_total``."""
 
     # ── Zamówienie kosztowe ──
     invoiced_total: Optional[MoneyPLN] = None
@@ -583,6 +620,26 @@ class OrderGroupRead(BaseModel):
     md_budget_remaining: Optional[MdValue] = None
     md_budget_manual_adjustment: Optional[MdValue] = None
     predecessor_group_id: Optional[int] = None
+
+    executive_contract: Optional[ExecutiveContractBrief] = None
+    """Umowa wykonawcza CeZ, do której przypięta jest karta MD (z częścią
+    ramową). ``None`` u każdego innego klienta."""
+
+    md_positions_total: Optional[MdValue] = None
+    """Suma budżetów POZYCJI umowy (podstawa + opcja) — tylko zamówienie MD
+    per osoba. Linia zastąpiona (wskazana jako poprzednik innej linii tej
+    grupy) nie wchodzi: jej pozycję przejął następca, więc doliczenie obu
+    podwajałoby wartość umowy przy każdym zastępstwie."""
+    md_used_total: Optional[MdValue] = None
+    """Suma zużycia WSZYSTKICH linii — także zastąpionych, bo ich MD zeszły
+    z tej samej umowy."""
+
+    contract_value_pln: Optional[MoneyPLN] = None
+    used_value_pln: Optional[MoneyPLN] = None
+    """Wartość pozycji i zużycia w PLN (budżet/zużycie × stawka przychodowa).
+    ``None`` bez dostępu do finansów — z liczby MD i kwoty da się odtworzyć
+    zredagowaną stawkę, dokładnie jak przy ``budget_amount``."""
+
     filename: Optional[str] = None
     has_file: bool = False
     content_type: Optional[str] = None
@@ -600,6 +657,58 @@ class OrderGroupRead(BaseModel):
     # Każda zachowuje pełny kształt (linie, stawki, MD), żeby można ją było
     # edytować/usunąć jeszcze przed datą wejścia w życie.
     future_orders: list["OrderGroupRead"] = Field(default_factory=list)
+
+
+class LineConsumptionRow(BaseModel):
+    """Jedno zejście MD linii za miesiąc — wiersz „Historia zejść" (Faza B)."""
+
+    model_config = {"from_attributes": True}
+
+    period_month: str
+    md_reported: MdValue
+    status: Optional[Literal["accepted", "protocol"]] = None
+    """``None`` = wpis bez statusu (import albo ręczny bez decyzji)."""
+    note: Optional[str] = None
+    source: str
+    """``import`` | ``manual``."""
+    import_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class LineConsumptionsResponse(BaseModel):
+    rows: list[LineConsumptionRow] = Field(default_factory=list)
+
+
+class LineConsumptionUpsert(BaseModel):
+    """Ręczny wpis zejścia MD za miesiąc (``PUT …/consumptions/{RRRR-MM}``).
+
+    Miesiąc jest w ścieżce, nie w ciele: to klucz idempotencji
+    (``UNIQUE (order_id, period_month)``), więc powtórny PUT nadpisuje, nie
+    dokłada. Oba statusy liczą się do zużycia — status opisuje etap
+    rozliczenia miesiąca, nie to, czy MD zeszły z budżetu.
+    """
+
+    md_reported: MdValue = Field(..., ge=0, max_digits=16, decimal_places=6)
+    status: Optional[Literal["accepted", "protocol"]] = None
+    note: Optional[str] = Field(None, max_length=255)
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, value: Optional[str]) -> Optional[str]:
+        # Lustro CHECK-a `ck_md_consumptions_status`; Literal już to gwarantuje,
+        # ale słownik statusów żyje w serwisie i to on jest źródłem prawdy.
+        if value is not None and value not in CONSUMPTION_STATUSES:
+            raise ValueError("Nieznany status rozliczenia miesiąca")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def _strip_note(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class OrderDraftRead(BaseModel):

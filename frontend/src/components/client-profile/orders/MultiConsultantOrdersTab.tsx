@@ -538,6 +538,11 @@ export function MultiConsultantOrdersTab({
               ...(values.input_value != null
                 ? { input_value: values.input_value }
                 : {}),
+              // `null` jest znaczące (zdejmuje opcję) — przepuszczamy je,
+              // pomijamy wyłącznie `undefined` (tryb kwoty / pula / kosztowe).
+              ...(values.optional_md !== undefined
+                ? { optional_md: values.optional_md }
+                : {}),
               end_date: values.end_date,
             },
           )

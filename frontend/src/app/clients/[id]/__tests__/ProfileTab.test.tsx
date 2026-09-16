@@ -11,18 +11,43 @@
  * Dotąd Profil klienta nie miał ani jednego testu, więc usunięcie sekcji
  * przeszłoby CI niezależnie od poprawności — i wróciłoby przy pierwszym merge'u.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  ContractStructureResponse,
+  ExecutiveContractReviewResponse,
+} from "@/lib/api/executiveContracts";
+import { EZDROWIE_CLIENT_ID } from "@/lib/ezdrowie";
 import type { ClientProfileResponse } from "@/types/client-profile";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  // Struktura umów e-Zdrowia — osobny klient API, mockowany per metoda.
+  ecStructure: vi.fn(),
+  ecReview: vi.fn(),
+  ecCreate: vi.fn(),
+  ecAssign: vi.fn(),
 }));
+
+// Czyste funkcje (`frameworkPartHeader`, `executiveContractOptionGroups`)
+// i hooki zostają PRAWDZIWE — podmieniamy wyłącznie metody obiektu API,
+// które hooki wołają przez tę samą referencję.
+vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/api/executiveContracts")>();
+  Object.assign(actual.executiveContractsApi, {
+    structure: (...args: unknown[]) => mocks.ecStructure(...args),
+    review: (...args: unknown[]) => mocks.ecReview(...args),
+    create: (...args: unknown[]) => mocks.ecCreate(...args),
+    assign: (...args: unknown[]) => mocks.ecAssign(...args),
+  });
+  return { ...actual };
+});
 
 // `ExtendContractMenu` (akcja przy Obecnych konsultantach) woła `useToast`
 // w ciele komponentu, więc bez tego mocka cały Profil wywala się w renderze.
@@ -40,6 +65,7 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...args: unknown[]) => mocks.apiGet(...args) },
+  api: { get: (...args: unknown[]) => mocks.apiGet(...args) },
   contractsApi: {},
   CONTRACT_TERMINATION_REASONS: [
     { value: "project_ended", label: "Koniec projektu" },
@@ -183,20 +209,24 @@ const PROFILE: ClientProfileResponse = {
   },
 };
 
-function renderTab() {
-  mocks.apiGet.mockResolvedValue({ data: PROFILE });
+function renderTab(clientId = 42, profile: ClientProfileResponse = PROFILE) {
+  mocks.apiGet.mockResolvedValue({ data: profile });
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ProfileTab clientId={42} />
+      <ProfileTab clientId={clientId} />
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
   mocks.apiGet.mockReset();
+  mocks.ecStructure.mockReset();
+  mocks.ecReview.mockReset();
+  mocks.ecCreate.mockReset();
+  mocks.ecAssign.mockReset();
 });
 
 describe("ProfileTab — brak rekrutacji w Profilu", () => {
@@ -376,5 +406,219 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(
       screen.getByRole("tab", { name: /Archiwum konsultantów/ }),
     ).toHaveAttribute("aria-selected", "false");
+  });
+});
+
+// ── Centrum e-Zdrowia: struktura umów wykonawczych ───────────────────────────
+// Klient 115 dostaje NAD konsultantami sekcję „Struktura umów" (ramowa → umowy
+// wykonawcze), a filtr „Obecnych" grupuje umowy wykonawcze pod częściami.
+// Zmyślone osoby i numery — repo jest prywatne, ale zasada jest ta sama.
+
+const EC_UW1 = {
+  id: 10,
+  number: "CeZ/145/2025/UW-1",
+  status: "active" as const,
+  framework_contract_id: 2,
+  project_part: "cz2",
+};
+const EC_UW2 = {
+  id: 11,
+  number: "CeZ/145/2025/UW-2",
+  status: "ended" as const,
+  framework_contract_id: 2,
+  project_part: "cz2",
+};
+const EC_UW4 = {
+  id: 12,
+  number: "CeZ/147/2025/UW-1",
+  status: "active" as const,
+  framework_contract_id: 4,
+  project_part: "cz4",
+};
+
+const STRUCTURE: ContractStructureResponse = {
+  framework_contracts: [
+    { id: 1, name: "CeZ/144/2025 – cz. I", project_part: "cz1", status: "active", executive_contracts: [] },
+    {
+      id: 2,
+      name: "CeZ/145/2025 – cz. II",
+      project_part: "cz2",
+      status: "active",
+      executive_contracts: [
+        { ...EC_UW1, notes: null, consultants_count: 1, created_at: null },
+        { ...EC_UW2, notes: null, consultants_count: 0, created_at: null },
+      ],
+    },
+    {
+      id: 4,
+      name: "CeZ/147/2025 – cz. IV",
+      project_part: "cz4",
+      status: "active",
+      executive_contracts: [
+        { ...EC_UW4, notes: null, consultants_count: 0, created_at: null },
+      ],
+    },
+    { id: 5, name: "CeZ/148/2025 – cz. V", project_part: "cz5", status: "active", executive_contracts: [] },
+    { id: 6, name: "CeZ/149/2025 – cz. VI", project_part: "cz6", status: "active", executive_contracts: [] },
+  ],
+};
+
+const REVIEW: ExecutiveContractReviewResponse = {
+  rows: [
+    {
+      contract_id: 530,
+      candidate: { id: 2, name: "Anna Bez Rekrutacji" },
+      start_date: "2026-05-04",
+      bucket: "active",
+      legacy_project_part: "cz2",
+      representative_order_id: 900,
+      suggested_framework_contract_id: 2,
+    },
+  ],
+  total: 1,
+};
+
+const EZDROWIE_PROFILE: ClientProfileResponse = {
+  ...PROFILE,
+  active_consultants: [
+    { ...PROFILE.active_consultants[0], project_part: "cz2", executive_contract: EC_UW1 },
+    // Legacy: część wpisana, ale bez umowy wykonawczej — do przeglądu.
+    { ...PROFILE.active_consultants[1], project_part: "cz2", executive_contract: null },
+  ],
+};
+
+function renderEzdrowie() {
+  mocks.ecStructure.mockResolvedValue(STRUCTURE);
+  mocks.ecReview.mockResolvedValue(REVIEW);
+  return renderTab(EZDROWIE_CLIENT_ID, EZDROWIE_PROFILE);
+}
+
+describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () => {
+  it("u klienta spoza e-Zdrowia nie ma sekcji struktury ani filtra", async () => {
+    renderTab();
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.queryByText("Struktura umów")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Filtr umów wykonawczych" })).toBeNull();
+    expect(mocks.ecStructure).not.toHaveBeenCalled();
+  });
+
+  it("sekcja „Struktura umów” stoi NAD konsultantami i pokazuje chipy umów", async () => {
+    renderEzdrowie();
+    const heading = await screen.findByRole("heading", { name: "Struktura umów" });
+    const consultants = screen.getByRole("tab", { name: /Obecni konsultanci/ });
+    expect(heading.compareDocumentPosition(consultants) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Nagłówek części z numerem umowy ramowej sprzed myślnika (struktura
+    // dojeżdża asynchronicznie, nagłówek sekcji jest od razu).
+    expect((await screen.findAllByText("Cz. II — CeZ/145/2025")).length).toBeGreaterThan(0);
+    // Część bez umów: widoczny tekst, przycisk „Dodaj" przy KAŻDEJ ramowej.
+    expect(screen.getAllByText("brak umowy wykonawczej").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Dodaj umowę wykonawczą: Cz. I — CeZ/144/2025" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Zakończona")).toBeInTheDocument();
+  });
+
+  it("filtr grupuje umowy pod częściami; „Nieprzypisani” zawęża do osób bez umowy", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderEzdrowie();
+    const filter = await screen.findByRole("group", { name: "Filtr umów wykonawczych" });
+    await within(filter).findByText("Cz. II — CeZ/145/2025");
+
+    expect(within(filter).getByRole("button", { name: "Wszystkie" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // Część bez umowy: nagłówek + kursywa, NIE przycisk.
+    const noContract = within(filter).getAllByText("brak umowy wykonawczej");
+    expect(noContract).toHaveLength(3);
+    expect(noContract[0]).toHaveAttribute("aria-disabled", "true");
+    expect(within(filter).queryByRole("button", { name: /brak umowy/ })).toBeNull();
+    // Umowa zakończona nadal filtruje (są do niej przypisani historycznie).
+    expect(
+      within(filter).getByRole("button", { name: /CeZ\/145\/2025\/UW-2/ }),
+    ).toHaveTextContent("(zakończona)");
+
+    await user.click(within(filter).getByRole("button", { name: "CeZ/145/2025/UW-1" }));
+    expect(screen.getByText("Tomasz Sadowski")).toBeInTheDocument();
+    expect(screen.queryByText("Anna Bez Rekrutacji", { selector: "a" })).toBeNull();
+    expect(screen.getByRole("tab", { name: /Obecni konsultanci/ })).toHaveTextContent("1");
+
+    await user.click(within(filter).getByRole("button", { name: "Nieprzypisani (1)" }));
+    expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
+    expect(screen.getByRole("link", { name: "Anna Bez Rekrutacji" })).toBeInTheDocument();
+  });
+
+  it("badge w tabeli pokazuje NUMER umowy wykonawczej, legacy — samą część", async () => {
+    renderEzdrowie();
+    const assigned = (await screen.findByText("Tomasz Sadowski")).closest("tr");
+    expect(within(assigned as HTMLElement).getByText("CeZ/145/2025/UW-1")).toHaveAttribute(
+      "title",
+      "E-zdrowie cz.2",
+    );
+    const legacy = screen.getByRole("link", { name: "Anna Bez Rekrutacji" }).closest("tr");
+    expect(within(legacy as HTMLElement).getByText("E-zdrowie cz.2")).toBeInTheDocument();
+    expect(within(legacy as HTMLElement).queryByText(/UW-/)).toBeNull();
+  });
+
+  it("panel przeglądu: select pusty, grupa tej samej części oznaczona, ale NIE preselekcjonowana", async () => {
+    const user = userEvent.setup({ delay: null });
+    mocks.ecAssign.mockResolvedValue({
+      contract_id: 530,
+      order_id: 900,
+      executive_contract: EC_UW1,
+      created_draft: false,
+    });
+    renderEzdrowie();
+    // Po przypisaniu panel unieważnia przegląd — serwer odsyła już bez wiersza.
+    mocks.ecReview.mockResolvedValueOnce(REVIEW).mockResolvedValue({ rows: [], total: 0 });
+
+    const select = await screen.findByRole("combobox", {
+      name: "Umowa wykonawcza dla Anna Bez Rekrutacji",
+    });
+    expect(select).toHaveValue("");
+    const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
+    expect(groups).toEqual([
+      "Cz. II — CeZ/145/2025 (ta sama część co dziś)",
+      "Cz. IV — CeZ/147/2025",
+    ]);
+    // Zakończona umowa nie jest do wyboru — backend odmówiłby 422.
+    expect(within(select).queryByRole("option", { name: "CeZ/145/2025/UW-2" })).toBeNull();
+    expect(screen.getByText("dziś: E-zdrowie cz.2")).toBeInTheDocument();
+
+    const assignBtn = screen.getByRole("button", { name: "Przypisz: Anna Bez Rekrutacji" });
+    expect(assignBtn).toBeDisabled();
+    await user.selectOptions(select, "10");
+    await user.click(assignBtn);
+
+    await waitFor(() =>
+      expect(mocks.ecAssign).toHaveBeenCalledWith(EZDROWIE_CLIENT_ID, {
+        contract_id: 530,
+        executive_contract_id: 10,
+      }),
+    );
+    // Wiersz znika, profil zostaje unieważniony (ponowny GET).
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("combobox", { name: "Umowa wykonawcza dla Anna Bez Rekrutacji" }),
+      ).toBeNull(),
+    );
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledTimes(2));
+  });
+
+  it("pusta lista przeglądu = wszyscy przypisani (na isSuccess), awaria = „Ponów”", async () => {
+    const user = userEvent.setup({ delay: null });
+    mocks.ecStructure.mockResolvedValue(STRUCTURE);
+    mocks.ecReview
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce({ rows: [], total: 0 });
+    renderTab(EZDROWIE_CLIENT_ID, EZDROWIE_PROFILE);
+
+    const retry = await screen.findByRole("button", { name: /Ponów/ });
+    expect(screen.queryByText(/Wszyscy obecni konsultanci/)).toBeNull();
+    await user.click(retry);
+    expect(
+      await screen.findByText("Wszyscy obecni konsultanci mają przypisaną umowę wykonawczą."),
+    ).toBeInTheDocument();
   });
 });
