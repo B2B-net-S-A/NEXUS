@@ -570,7 +570,7 @@ async def test_document_marked_gross_rate_is_converted_and_consultant_matched(
 async def test_first_hold_no_longer_notifies_the_delivery_lead(
     db_session, monkeypatch, tmp_path
 ):
-    """Od 0312 pierwsze wstrzymanie NIE wystawia karty Delivery Leadowi.
+    """Od 0316 pierwsze wstrzymanie NIE wystawia karty Delivery Leadowi.
 
     Zamówienie dostaje najpierw trzy godzinowe próby automatycznego
     dokończenia, a to, które czeka na podpis umowy nowego kontraktora, nie

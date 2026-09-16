@@ -4341,7 +4341,7 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
-    # 0312: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
+    # 0316: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
     "ALTER TABLE order_mail_documents "

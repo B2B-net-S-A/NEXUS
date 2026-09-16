@@ -1,4 +1,4 @@
-"""Godzinowa ponowna weryfikacja wstrzymanych zamówień z maila (0312).
+"""Godzinowa ponowna weryfikacja wstrzymanych zamówień z maila (0316).
 
 Dwie warstwy, celowo rozdzielone:
 

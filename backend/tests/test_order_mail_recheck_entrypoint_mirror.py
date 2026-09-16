@@ -1,4 +1,4 @@
-"""Migracja 0312 i jej lustro w ``entrypoint.sh`` muszą się zgadzać.
+"""Migracja 0316 i jej lustro w ``entrypoint.sh`` muszą się zgadzać.
 
 Prod alembic bywa osierocony — safety-net w ``entrypoint.sh`` JEST wdrożeniem.
 Bez kolumny ``gate_reason_codes`` godzinowa ponowna weryfikacja czytałaby pustą
@@ -18,7 +18,7 @@ from pathlib import Path
 _BACKEND = Path(__file__).resolve().parents[1]
 _ENTRYPOINT = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
 _MIGRATION = (
-    _BACKEND / "alembic" / "versions" / "0312_order_mail_auto_recheck.py"
+    _BACKEND / "alembic" / "versions" / "0316_order_mail_auto_recheck.py"
 ).read_text(encoding="utf-8")
 
 
@@ -48,4 +48,4 @@ def test_every_column_of_the_model_exists_on_both_sides():
     migration = _shape(_MIGRATION)
     for column in OrderMailRecheckRun.__table__.columns:
         assert column.name in mirror, f"brak {column.name} w entrypoint.sh"
-        assert column.name in migration, f"brak {column.name} w migracji 0312"
+        assert column.name in migration, f"brak {column.name} w migracji 0316"

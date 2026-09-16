@@ -1424,7 +1424,7 @@ async def test_replan_after_a_rule_change_respects_the_autoapply_switch(
 async def test_document_read_with_the_current_rule_is_replanned_anyway(
     monkeypatch, tmp_path
 ):
-    """Od 0312 wersja reguły nie jest już warunkiem przeliczenia.
+    """Od 0316 wersja reguły nie jest już warunkiem przeliczenia.
 
     Przyczyna wstrzymania znika najczęściej GDZIE INDZIEJ niż w regule —
     po podpisaniu umowy albo po uzupełnieniu NIP-u u klienta. Wpis czytany
@@ -1446,7 +1446,7 @@ async def test_document_read_with_the_current_rule_is_replanned_anyway(
 async def test_failed_recheck_is_retried_in_the_next_run(monkeypatch, tmp_path):
     """Nieudane przeliczenie wraca — licznik prób, nie ostateczne poddanie się.
 
-    Do 0312 porażka stemplowała wersję reguły, żeby wpis nie wracał w każdym
+    Do 0316 porażka stemplowała wersję reguły, żeby wpis nie wracał w każdym
     biegu. Teraz ma wracać: po trzech nieudanych próbach z rzędu idzie karta
     do Delivery Leada, a wpis dalej jest sprawdzany.
     """

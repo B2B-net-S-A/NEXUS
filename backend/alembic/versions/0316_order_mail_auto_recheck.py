@@ -9,16 +9,16 @@
 
 Lustro w ``entrypoint.sh``.
 
-Revision ID: 0312_order_mail_auto_recheck
-Revises: 0311_oauth_client_acting_user
+Revision ID: 0316_order_mail_auto_recheck
+Revises: 0315_integration_external_items
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0312_order_mail_auto_recheck"
-down_revision = "0311_oauth_client_acting_user"
+revision = "0316_order_mail_auto_recheck"
+down_revision = "0315_integration_external_items"
 branch_labels = None
 depends_on = None
 

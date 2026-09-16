@@ -148,7 +148,7 @@ export interface OrderMailLastRun {
   ignored_sender: number;
   failed: number;
   /**
-   * Godzinowa ponowna weryfikacja wstrzymanych wpisów (0312). Opcjonalne:
+   * Godzinowa ponowna weryfikacja wstrzymanych wpisów (0316). Opcjonalne:
    * rekord ostatniego biegu sprzed wdrożenia tych liczników ich nie ma.
    */
   rechecked?: number;

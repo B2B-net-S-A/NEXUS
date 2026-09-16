@@ -1,6 +1,6 @@
 # Automatyczna ponowna weryfikacja wstrzymanych zamówień z maila
 
-Ticket: „Zamówienia → automatyczny odczyt zamówień z maila". Migracja `0312`.
+Ticket: „Zamówienia → automatyczny odczyt zamówień z maila". Migracja `0316`.
 
 ## Problem
 
@@ -159,7 +159,7 @@ na czystej bazie przeszła):
   `test_orders_procedure_freshness`, `test_client_tab_links`, `test_loop_heartbeat`,
   `test_delivery_contract`, `test_ci_coverage_contract` — zielone.
 * **Lustro entrypointu sprawdzone wykonaniem**: DDL z `entrypoint.sh` odpalone
-  na świeżej bazie daje kolumna-w-kolumnę ten sam kształt co migracja `0312`.
+  na świeżej bazie daje kolumna-w-kolumnę ten sam kształt co migracja `0316`.
 * Front: `tsc --noEmit` (bez błędów w zmienionych plikach), `next lint`,
   `vitest` — 26 testów order-mail zielonych.
 * Wizualnie: harness `/preview/order-mail` (publiczny, zero zapytań) —

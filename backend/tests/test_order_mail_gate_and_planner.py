@@ -597,7 +597,7 @@ def test_unused_total_mapping_does_not_block_complete_periodic_order(reason):
     assert not evaluate(inp).is_auto
 
 
-# ── Kody powodów (0312) ─────────────────────────────────────────────────────
+# ── Kody powodów (0316) ─────────────────────────────────────────────────────
 
 
 def test_every_reason_the_gate_appends_carries_a_code():

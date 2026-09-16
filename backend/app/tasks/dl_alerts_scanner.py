@@ -925,7 +925,7 @@ async def rule_order_mail_review(
 ) -> int:
     """Zamówienie z maila utknęło w weryfikacji — powtórka co 7 dni.
 
-    Od 0312 karta NIE wychodzi przy pierwszym wstrzymaniu: zamówienie dostaje
+    Od 0316 karta NIE wychodzi przy pierwszym wstrzymaniu: zamówienie dostaje
     najpierw trzy godzinowe próby automatycznego dokończenia, a to, które czeka
     na podpis umowy nowego kontraktora, nie alarmuje nigdy. Kto się kwalifikuje,
     rozstrzyga ``should_alert`` — TA SAMA funkcja, której używa recheck. Dwie

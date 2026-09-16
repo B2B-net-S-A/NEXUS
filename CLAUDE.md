@@ -1998,7 +1998,7 @@ nie ma żadnej reguły do utrzymania.
   robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
   a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
   i przesuwał okno wstecz).
-### Godzinowa ponowna weryfikacja wstrzymanych wpisów (0312, 16.09.2026)
+### Godzinowa ponowna weryfikacja wstrzymanych wpisów (0316, 16.09.2026)
 
 - **Wstrzymany wpis nie wracał sam.** Jedyne automatyczne przeliczenie
   (`replan_outdated_documents`, USUNIĘTE) odpalało się tylko po zmianie
@@ -2035,7 +2035,7 @@ nie ma żadnej reguły do utrzymania.
   (to pytanie o zdublowany rekord klienta, nie o podpis).
 - **Karta DL wychodzi dopiero po TRZECH nieudanych próbach z rzędu**
   (`document_meta["recheck"] = {attempts, category, last_at}`; zmiana kategorii
-  zeruje licznik). Do 0312 `notify_review` wołane z `_process_message`
+  zeruje licznik). Do 0316 `notify_review` wołane z `_process_message`
   wystawiało kartę przy PIERWSZYM wstrzymaniu — to wywołanie zniknęło.
   Regułę ma JEDNO miejsce: `should_alert` — czyta ją i recheck, i dobowy
   `rule_order_mail_review` (dwie kopie rozjechałyby się, a skaner wystawiałby
@@ -3144,7 +3144,7 @@ fail-closed:
 - **Zmieniasz regułę klienta → PODBIJ `rule_version` w rejestrze.** Dokument
   zapamiętuje wersje reguł, którymi go przeczytano
   (`document_meta["rule_versions"]`) i stempluje je przy każdym przeliczeniu.
-  Od 0312 wersja NIE jest już warunkiem przeliczenia — wstrzymany wpis wraca
+  Od 0316 wersja NIE jest już warunkiem przeliczenia — wstrzymany wpis wraca
   w każdym biegu (niżej) — ale stempel zostaje: mówi, którą regułą czytano
   zapisany odczyt. Wersja `None` = reguła bez wersjonowania.
 - **Domniemanie netto bez reguły klienta** (`_document_marks_only_net`,

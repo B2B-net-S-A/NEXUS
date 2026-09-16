@@ -483,7 +483,7 @@ _AI_RETRY_META_KEYS = (
     "ai_retry_last_at",
     "ai_retry_last_failure",
     "ai_recovered_at",
-    # 0312: ślad godzinowej ponownej weryfikacji `{attempts, category, last_at}`.
+    # 0316: ślad godzinowej ponownej weryfikacji `{attempts, category, last_at}`.
     # „Przelicz plan" nie może go kasować — inaczej licznik „trzech prób
     # z rzędu" zerowałby się przy każdym przeliczeniu i karta dla Delivery
     # Leada nigdy by nie wyszła.
@@ -496,7 +496,7 @@ def _ai_retry_meta(meta: Optional[dict[str, Any]]) -> dict[str, Any]:
 
 
 def gate_hold_pairs(row: OrderMailDocument) -> list[tuple[str, str]]:
-    """Zapisane powody sparowane z kodami, odporne na wpisy sprzed 0312.
+    """Zapisane powody sparowane z kodami, odporne na wpisy sprzed 0316.
 
     Wiersz sprzed wdrożenia ma ``gate_reasons`` bez ``gate_reason_codes``; gołe
     ``zip`` zgubiłoby wtedy WSZYSTKIE powody, bo krótsza lista ucina parowanie.
@@ -1530,7 +1530,7 @@ async def _process_message(
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
             # Karty dla Delivery Leada NIE wystawia już pierwsze wstrzymanie:
-            # od 0312 zamówienie dostaje trzy godzinowe próby automatycznego
+            # od 0316 zamówienie dostaje trzy godzinowe próby automatycznego
             # dokończenia, a te, które czeka na podpis umowy, nie alarmuje
             # nigdy. Decyduje `order_mail_recheck._maybe_alert` (i dobowy
             # skaner, tą samą regułą `should_alert`).

@@ -486,7 +486,7 @@ class Settings(BaseSettings):
     # bez deployu.
     ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS: str = ""
 
-    # ── Godzinowa ponowna weryfikacja wstrzymanych zamówień (0312) ───────────
+    # ── Godzinowa ponowna weryfikacja wstrzymanych zamówień (0316) ───────────
     # Wstrzymany wpis nie wracał sam: jedyne automatyczne przeliczenie odpalało
     # się tylko po zmianie `rule_version` polityki klienta. Recheck jedzie
     # w TYM SAMYM biegu skrzynki (co `ORDER_MAIL_POLL_INTERVAL_MINUTES`),
