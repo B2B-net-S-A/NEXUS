@@ -454,6 +454,18 @@ interface AuthState {
   /** Ładuje user + token z localStorage. Wołać raz w root provider. */
   hydrate: () => void
   setAuth: (user: User, token: string) => void
+  /** Nadpisuje zapamiętany profil świeżą odpowiedzią `GET /api/auth/me`.
+   *
+   *  Uprawnienia nadane przez admina (rola, `allowed_sections`, imienne
+   *  `can_delete_clients`) siedzą w `nexus_user` w localStorage, a do 09.2026
+   *  odświeżał je WYŁĄCZNIE ponowny login — nadanie uprawnienia nie miało
+   *  żadnego widocznego skutku, dopóki osoba się nie wylogowała. Backend
+   *  egzekwuje je na żywo, więc rozjazd dotyczył tylko interfejsu, i to w obie
+   *  strony: przycisk niewidoczny mimo nadanego uprawnienia oraz przycisk
+   *  widoczny po jego odebraniu (klik kończył się 403).
+   *
+   *  NIE rusza tokena ani trybu podglądu — od tego są `setAuth`/`impersonate`. */
+  syncUser: (user: User) => void
   /** Wejdź w „podgląd jako" wskazanego usera (tylko admin). ``target`` to
    *  autorytatywny profil zwrócony z POST /api/admin/impersonate/{id}. */
   impersonate: (target: User) => void
@@ -640,6 +652,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     persistUser(safe)
     writeAuthCookie(token)
     set({ user: safe, token, realUser: null, hydrated: true })
+  },
+  syncUser: (user) => {
+    const current = get().user
+    // Podgląd jako inny użytkownik ma własny, celowo ustawiony profil —
+    // `/api/auth/me` odpowiada tam o podglądanym, więc zapis tutaj
+    // ścigałby się z `impersonate`/`stopImpersonating`.
+    if (get().realUser) return
+    // Inna tożsamość niż zapamiętana = coś jest nie tak z sesją. Cicha
+    // podmiana konta jest gorsza niż nieodświeżony profil.
+    if (!current || current.id !== user.id) return
+    const safe: User = {
+      ...user,
+      roles:
+        Array.isArray(user.roles) && user.roles.length > 0
+          ? user.roles
+          : [user.role],
+    }
+    // Bez zmian = bez zapisu. Nowa referencja `user` przerenderowałaby
+    // cały shell przy każdym załadowaniu aplikacji.
+    if (JSON.stringify(safe) === JSON.stringify(current)) return
+    persistUser(safe)
+    set({ user: safe })
   },
   impersonate: (target) => {
     // Admin = obecny efektywny user (nie jesteśmy jeszcze w trybie podglądu).

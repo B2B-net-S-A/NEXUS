@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
@@ -56,6 +57,30 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) hydrateAuth();
   }, [hydrated, hydrateAuth]);
+
+  // Raz na załadowanie aplikacji dociągamy autorytatywny profil z
+  // `/api/auth/me` i nadpisujemy nim zapamiętany `nexus_user`. Bez tego
+  // uprawnienie nadane przez admina (rola, sekcje, „może usuwać klientów")
+  // nie miało widocznego skutku, dopóki osoba się nie wylogowała.
+  //
+  // Bramka na tokenie jest load-bearing: shell montuje się także na stronach
+  // publicznych (`/share/*`, `/cv/*`, `/sign/*`, `/apply/*`), gdzie authed
+  // żądanie skończyłoby się 401 dla anonimowego odwiedzającego. Podgląd jako
+  // inny użytkownik pomijamy — tam profil ustawia `impersonate`.
+  const syncUser = useAuthStore((s) => s.syncUser);
+  const hasOwnSession = useAuthStore((s) => !!s.token && !s.realUser);
+  const userSynced = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !hasOwnSession || userSynced.current) return;
+    userSynced.current = true;
+    api
+      .get("/api/auth/me")
+      .then((r) => syncUser(r.data))
+      .catch(() => {
+        // Best-effort: przy błędzie zostaje zapamiętany profil. Martwą sesję
+        // (401) obsługuje interceptor w lib/api.ts.
+      });
+  }, [hydrated, hasOwnSession, syncUser]);
 
   // Close mobile sidebar on route change
   useEffect(() => {
