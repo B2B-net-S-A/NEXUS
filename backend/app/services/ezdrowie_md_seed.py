@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -97,6 +98,8 @@ from app.services.polish_ilike import polish_folded_ilike
 SEED_LINE_HISTORY_REASON = "seed_history"
 """``payload.reason`` zdarzenia zakończenia linii poprzednika. Świadomie INNY
 niż ``removed_from_order`` — tamten daje badge „Usunięty z zamówienia"."""
+
+logger = logging.getLogger(__name__)
 
 RECEIPT_KEY_PREFIX = "ezdrowie_md_seed_"
 _ZERO = Decimal("0")
@@ -225,6 +228,7 @@ async def _resolve_person(
     client_id: int,
     line: SeedLine,
     cache: dict[str, _ResolvedPerson],
+    index_new: bool = True,
 ) -> _ResolvedPerson:
     """Osoba z linii — kolejność: ``contract_id`` → ``candidate_id`` → nazwisko.
 
@@ -319,6 +323,22 @@ async def _resolve_person(
                 db.add(candidate)
                 await db.flush()
                 candidate_created = True
+                if index_new:
+                    # Nowy kandydat musi trafić do indeksu (rekomendacje, hybrid
+                    # search, Marketplace czytają id z Qdranta) — jak w
+                    # `create_candidate`. Best-effort: awaria indeksowania nie
+                    # może wywrócić importu. W dry-runie pomijane, bo wiersz
+                    # i tak zniknie z rollbackiem, a outbox pisze na własnej sesji.
+                    try:
+                        from app.services.index_outbox_service import (
+                            schedule_or_embed_candidate,
+                        )
+
+                        await schedule_or_embed_candidate(candidate.id, db)
+                    except Exception as exc:  # noqa: BLE001 — indeksowanie best-effort
+                        logger.warning(
+                            "Indexing seeded candidate %s failed: %s", candidate.id, exc
+                        )
             else:
                 resolved.report = SeedPersonReport(
                     resolution="missing",
@@ -684,7 +704,11 @@ async def run_ezdrowie_md_seed(
         successors: set[int] = set()
         for line in _ordered_lines(spec):
             person = await _resolve_person(
-                db, client_id=client_id, line=line, cache=person_cache
+                db,
+                client_id=client_id,
+                line=line,
+                cache=person_cache,
+                index_new=not dry_run,
             )
             if person.report.candidate_created:
                 totals.candidates_created += 1
