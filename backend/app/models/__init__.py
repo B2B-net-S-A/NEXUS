@@ -540,6 +540,7 @@ __all__ = [
     "FrameworkContractStatus",
     "FrameworkContractSignedVia",
     "ClientContractAmendment",
+    "ClientExecutiveContract",
     "ClientOrder",
     "ClientOrderOffboardingCase",
     "ClientOrderGroup",

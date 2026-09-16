@@ -90,6 +90,7 @@ from app.api import insights_team
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
+from app.api import client_executive_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
 from app.api import client_orders as client_orders_api
@@ -996,6 +997,12 @@ app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
     tags=["client-framework-contracts"],
+)
+# Struktura umów wykonawczych Centrum e-Zdrowia (umowa ramowa-część → wykonawcze).
+app.include_router(
+    client_executive_contracts.router,
+    prefix="/api/clients",
+    tags=["client-executive-contracts"],
 )
 app.include_router(
     client_contract_amendments.router,

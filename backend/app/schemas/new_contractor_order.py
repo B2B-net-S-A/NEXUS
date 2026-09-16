@@ -73,7 +73,13 @@ class NewContractorOrderRequest(BaseModel):
 
     project_part: Optional[str] = Field(None, max_length=8)
     """„Część umowy" — tylko Centrum e-Zdrowia (walidacja w endpointcie przez
-    app/services/ezdrowie.py; wymagana dla client_id=115, zabroniona u innych)."""
+    app/services/ezdrowie.py; zabroniona u innych). Od ticketu „Struktura umów
+    wykonawczych" jest POCHODNĄ z ``executive_contract_id`` — sama część już
+    nie wystarcza."""
+
+    executive_contract_id: Optional[int] = None
+    """Umowa wykonawcza Centrum e-Zdrowia — wymagana dla client_id=115
+    (``resolve_ezdrowie_assignment``), zabroniona u innych klientów."""
 
 
 class NewContractorOrderResponse(BaseModel):

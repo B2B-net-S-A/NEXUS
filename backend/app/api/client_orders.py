@@ -88,7 +88,7 @@ from app.services.client_default_rate_unit import default_rate_unit_for_client
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
-from app.services.ezdrowie import validate_project_part
+from app.services.ezdrowie import resolve_ezdrowie_assignment
 from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
     quantize_md,
@@ -1142,6 +1142,17 @@ def _build_order_read(
         rate_client_currency=order.rate_client_currency or order.currency,
         rate_candidate_currency=order.rate_candidate_currency,
         project_part=order.project_part,
+        executive_contract_id=order.executive_contract_id,
+        # Numer TYLKO z załadowanej relacji: lazy-load w async to
+        # `MissingGreenlet` (500 bez CORS). Wołający listy dokładają
+        # `selectinload(ClientOrder.executive_contract)`; pojedyncze
+        # endpointy dociągają numer w `_order_to_read`.
+        executive_contract_number=(
+            order.executive_contract.number
+            if "executive_contract" not in inspect(order).unloaded
+            and order.executive_contract is not None
+            else None
+        ),
         filename=order.filename,
         has_file=order.file_path is not None,
         content_type=order.content_type,
@@ -1198,6 +1209,14 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
     if order.job_id:
         job = await db.scalar(select(Job).where(Job.id == order.job_id))
         job_title = job.title if job else None
+    if (
+        order.executive_contract_id is not None
+        and "executive_contract" in inspect(order).unloaded
+    ):
+        # Zamówienie utworzone w tym żądaniu (po `refresh`) albo wczytane bez
+        # relacji nie ma numeru umowy w pamięci — jeden dociąg, żeby odpowiedź
+        # niosła numer, a nie samo id.
+        await db.refresh(order, attribute_names=["executive_contract"])
 
     return _build_order_read(order, contract, candidate, job_title)
 
@@ -1256,6 +1275,9 @@ async def list_contractors_with_orders(
                     # JEDNYM `IN`-em na całą odpowiedź, zamiast jednego
                     # zapytania na zamówienie.
                     selectinload(Contract.client_orders).selectinload(ClientOrder.job),
+                    selectinload(Contract.client_orders).selectinload(
+                        ClientOrder.executive_contract
+                    ),
                     selectinload(Contract.job),
                 )
                 .where(Contract.client_id == client_id)
@@ -1622,7 +1644,10 @@ async def get_order(
     await _require_safe_client_order_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder)
-        .options(selectinload(ClientOrder.contract))
+        .options(
+            selectinload(ClientOrder.contract),
+            selectinload(ClientOrder.executive_contract),
+        )
         .where(
             ClientOrder.id == order_id,
             ClientOrder.client_id == client_id,
@@ -1670,6 +1695,7 @@ async def create_order_extension(
     job_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
     project_part: Optional[str] = Form(None),
+    executive_contract_id: Optional[int] = Form(None),
     md_quantity: Optional[Decimal] = Form(None),
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
@@ -1700,10 +1726,17 @@ async def create_order_extension(
         user, supplied_finance_fields, can_finance=can_finance
     )
 
-    # „Część umowy" — wymagana dla Centrum e-Zdrowia (także przy przedłużeniu),
-    # zabroniona u pozostałych klientów (ticket #3, bramka po client_id).
+    # Umowa wykonawcza — wymagana dla Centrum e-Zdrowia (także przy
+    # przedłużeniu), zabroniona u pozostałych klientów; część umowy jest jej
+    # POCHODNĄ (ticket „Struktura umów wykonawczych", bramka po client_id).
     try:
-        project_part = validate_project_part(client_id, project_part, require=True)
+        executive_contract_id, project_part = await resolve_ezdrowie_assignment(
+            db,
+            client_id=client_id,
+            executive_contract_id=executive_contract_id,
+            project_part=project_part,
+            require=True,
+        )
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
 
@@ -1830,6 +1863,7 @@ async def create_order_extension(
         rate_client_currency=resolved_client_currency,
         rate_candidate_currency=resolved_candidate_currency,
         project_part=project_part,
+        executive_contract_id=executive_contract_id,
         created_by_user_id=user.id,
         notes=notes,
     )
@@ -2174,7 +2208,8 @@ async def update_order(
         .options(
             selectinload(ClientOrder.contract).selectinload(
                 Contract.candidate_rate_schedule
-            )
+            ),
+            selectinload(ClientOrder.executive_contract),
         )
         .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
         .with_for_update()
@@ -2316,12 +2351,26 @@ async def update_order(
                     "klienta (job_id)."
                 ),
             )
-    if "project_part" in data:
-        # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
-        # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).
+    if "executive_contract_id" in data or "project_part" in data:
+        # Przypisanie CeZ: ustawienie umowy wykonawczej nadpisuje część
+        # pochodną; jawne ``executive_contract_id: null`` czyści oba pola;
+        # sama część musi zgadzać się z umową już wskazaną na zamówieniu.
+        # U klientów innych niż e-Zdrowie oba pola pozostają zabronione.
+        requested_executive = (
+            data["executive_contract_id"]
+            if "executive_contract_id" in data
+            else order.executive_contract_id
+        )
         try:
-            data["project_part"] = validate_project_part(
-                client_id, data["project_part"], require=False
+            (
+                data["executive_contract_id"],
+                data["project_part"],
+            ) = await resolve_ezdrowie_assignment(
+                db,
+                client_id=client_id,
+                executive_contract_id=requested_executive,
+                project_part=data.get("project_part"),
+                require=False,
             )
         except ValueError as e:
             raise HTTPException(422, detail=str(e)) from None
@@ -2836,11 +2885,18 @@ async def create_contract_with_order(
     db.add(contract)
     await db.flush()  # Get contract.id
 
-    # „Część umowy" — wymagana dla Centrum e-Zdrowia, zabroniona u innych
-    # (ticket #3, bramka po client_id).
+    # Umowa wykonawcza — wymagana dla Centrum e-Zdrowia, zabroniona u innych;
+    # część umowy jest jej pochodną (ticket „Struktura umów wykonawczych").
     try:
-        order_project_part = validate_project_part(
-            client_id, payload.project_part, require=True
+        (
+            order_executive_contract_id,
+            order_project_part,
+        ) = await resolve_ezdrowie_assignment(
+            db,
+            client_id=client_id,
+            executive_contract_id=payload.executive_contract_id,
+            project_part=payload.project_part,
+            require=True,
         )
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
@@ -2862,6 +2918,7 @@ async def create_contract_with_order(
         created_by_user_id=user.id,
         notes=payload.notes,
         project_part=order_project_part,
+        executive_contract_id=order_executive_contract_id,
         rate_unit=resolved_rate_unit,
         **order_finance_kwargs,
     )

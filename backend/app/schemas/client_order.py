@@ -83,6 +83,9 @@ class ClientOrderUpdate(BaseModel):
     # „Część umowy" — tylko Centrum e-Zdrowia (walidacja w endpointach przez
     # app/services/ezdrowie.py; słownik cz1|cz2|cz4|cz5|cz6, cz.3 nie istnieje).
     project_part: Optional[str] = Field(None, max_length=8)
+    # Umowa wykonawcza Centrum e-Zdrowia (ticket 09.2026). Ustawienie umowy
+    # nadpisuje część pochodną; jawne ``null`` u CeZ czyści oba pola.
+    executive_contract_id: Optional[int] = None
     # „Liczba MD zamówienia" (Ticket 2) — tylko klienci wielo-konsultantowi
     # bez zamówień kosztowych; walidacja w handlerze (_apply_md_order_quantity).
     # Opcjonalna: nie należy do czterech pól wymaganych do aktywacji. NULL
@@ -112,6 +115,10 @@ class ClientOrderRead(BaseModel):
     rate_candidate_currency: Optional[str] = None
     # „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — NULL u innych klientów.
     project_part: Optional[str] = None
+    # Umowa wykonawcza CeZ — numer tylko gdy relacja była załadowana
+    # (lista/pojedyncze zamówienie); u innych klientów oba pola puste.
+    executive_contract_id: Optional[int] = None
+    executive_contract_number: Optional[str] = None
     filename: Optional[str]
     has_file: bool
     content_type: Optional[str]
