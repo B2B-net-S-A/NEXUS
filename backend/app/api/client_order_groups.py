@@ -134,6 +134,7 @@ from app.services.client_order_lines import (
     consumption_rows,
     delete_consumption,
     format_period_month,
+    is_line_on_active_roster,
     line_budget_total,
     lines_for_group,
     list_consultant_options,
@@ -927,6 +928,7 @@ def _line_to_read(
     order: ClientOrder,
     *,
     with_finance: bool,
+    group_end_date: Optional[date],
     invoiced: Optional[Decimal] = None,
     unsettled: Optional[Decimal] = None,
     missing_month: Optional[str] = None,
@@ -952,7 +954,7 @@ def _line_to_read(
         job_id=order.job_id,
         job_title=None,
         status=order.status.value,
-        is_active=order.status == ClientOrderStatus.active,
+        is_active=is_line_on_active_roster(order, group_end_date),
         start_date=order.start_date,
         end_date=order.end_date,
         source_rate_cost=(
@@ -1144,6 +1146,7 @@ async def _group_to_read(
         item = _line_to_read(
             line,
             with_finance=with_finance,
+            group_end_date=group.end_date,
             invoiced=(
                 invoiced.get(line.id) if group.is_cost_based and with_finance else None
             ),
@@ -1459,8 +1462,12 @@ async def _apply_line_history(
             status_value = getattr(contract.status, "value", contract.status)
             if status_value == ContractStatus.ended.value or contract.terminated_at:
                 item.cooperation_ended_on = contract.terminated_at or contract.end_date
-        if line.status == ClientOrderStatus.active and item.offboarding_case is None:
+        if item.is_active and item.offboarding_case is None:
             # Aktywna linia z wznowionym kontraktem nie jest „zakończoną współpracą".
+            # Warunek idzie po OBSADZIE, nie po samym statusie: linia MD kończy
+            # się budżetem, a nie datą, więc osoba z zapisaną datą zejścia ma
+            # dalej `status == active` — czyszczenie po statusie kasowało jej
+            # datę końca współpracy i wiersz w „Zakończonych" pisał „Konsultant".
             item.cooperation_ended_on = None
 
 
@@ -4089,6 +4096,7 @@ async def add_line(
     return _line_to_read(
         refreshed,
         with_finance=await _can_see_finance(db, user, client_id),
+        group_end_date=group.end_date,
     )
 
 
@@ -4454,6 +4462,7 @@ async def update_line(
     return _line_to_read(
         line,
         with_finance=await _can_see_finance(db, user, client_id),
+        group_end_date=group.end_date,
     )
 
 
@@ -5007,6 +5016,7 @@ async def swap_consultant(
     return _line_to_read(
         refreshed,
         with_finance=await _can_see_finance(db, user, client_id),
+        group_end_date=group.end_date,
     )
 
 
@@ -5082,7 +5092,9 @@ async def _line_read_after_write(
         .where(ClientOrder.id == line_id)
         .execution_options(populate_existing=True)
     )
-    item = _line_to_read(refreshed, with_finance=with_finance)
+    item = _line_to_read(
+        refreshed, with_finance=with_finance, group_end_date=group.end_date
+    )
     await _apply_line_history(db, group, [refreshed], [item])
     return item
 

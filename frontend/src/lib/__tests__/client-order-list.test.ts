@@ -23,6 +23,7 @@ import {
   orderGroupMatchesPill,
   resolveOrderFocus,
   sortOrderLinesByConsultant,
+  sortOrderLinesByEnd,
   usesSharedMdPool,
   visibleLegacyOrderIds,
 } from "@/lib/client-order-list";
@@ -783,5 +784,42 @@ describe("resolveOrderFocus — deep link z panelu „Moi klienci”", () => {
   it("obiekt, którego nie ma na liście, to null — nie cichy brak reakcji", () => {
     expect(resolveOrderFocus(groups, contractors, { orderId: 999 })).toBeNull();
     expect(resolveOrderFocus(groups, contractors, { groupId: 999 })).toBeNull();
+  });
+});
+
+describe("sortOrderLinesByEnd", () => {
+  it("puts the most recent departure first and undated rows last", () => {
+    const lines = [
+      line(1, "Anna Bek", { end_date: "2026-03-31" }),
+      line(2, "Bogdan Cis", { end_date: null, cooperation_ended_on: null }),
+      line(3, "Cezary Dab", { end_date: "2026-08-31" }),
+      line(4, "Dorota Ela", {
+        end_date: "2026-01-31",
+        cooperation_ended_on: "2026-09-30",
+      }),
+    ];
+    expect(sortOrderLinesByEnd(lines).map((item) => item.id)).toEqual([
+      4, 3, 1, 2,
+    ]);
+  });
+
+  it("falls back to the Polish alphabet when two people left the same day", () => {
+    const lines = [
+      line(1, "\u017baneta Nowak", { end_date: "2026-08-31" }),
+      line(2, "\u0141ukasz Bek", { end_date: "2026-08-31" }),
+      line(3, "Adam Cis", { end_date: "2026-08-31" }),
+    ];
+    expect(
+      sortOrderLinesByEnd(lines).map((item) => item.consultant_name),
+    ).toEqual(["Adam Cis", "\u0141ukasz Bek", "\u017baneta Nowak"]);
+  });
+
+  it("leaves the input array untouched", () => {
+    const lines = [
+      line(1, "Anna Bek", { end_date: "2026-01-31" }),
+      line(2, "Bogdan Cis", { end_date: "2026-09-30" }),
+    ];
+    sortOrderLinesByEnd(lines);
+    expect(lines.map((item) => item.id)).toEqual([1, 2]);
   });
 });
