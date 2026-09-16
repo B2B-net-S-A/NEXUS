@@ -25,7 +25,7 @@ import pytest_asyncio
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, RateUnit
-from app.services.order_mail_ingest import build_registry_from_db
+from app.services.order_mail_ingest import _follow_client_merge, build_registry_from_db
 from app.services.order_mail_resolver import load_people_outside_roster
 
 RUN = uuid.uuid4().hex[:8]
@@ -218,4 +218,53 @@ async def test_two_namesakes_are_both_reported(db_session):
         first.id,
         second.id,
     }
+    await db_session.rollback()
+
+
+# ── Dokument już w kolejce po scaleniu duplikatu ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_queued_document_moves_off_a_merged_duplicate(db_session):
+    """Scalenie musi dosięgnąć kolejki, nie tylko nowych wiadomości."""
+    from app.models.order_mail import OrderMailDocument
+
+    surviving = await _client(db_session, "Klient Kanoniczny Kolejka")
+    duplicate = await _client(db_session, "Klient Duplikat Kolejka")
+    duplicate.merged_into_client_id = surviving.id
+    await db_session.flush()
+    row = OrderMailDocument(
+        internet_message_id=f"<merge-{RUN}@example>",
+        client_id=duplicate.id,
+        identification_reason="Numer rejestrowy z dokumentu pasuje do jednego klienta.",
+    )
+    db_session.add(row)
+    await db_session.flush()
+
+    await _follow_client_merge(db_session, row)
+
+    assert row.client_id == surviving.id
+    assert f"#{duplicate.id}" in row.identification_reason
+    assert "Numer rejestrowy" in row.identification_reason
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_a_document_on_a_plain_client_is_left_alone(db_session):
+    from app.models.order_mail import OrderMailDocument
+
+    client = await _client(db_session, "Klient Bez Scalenia")
+    await db_session.flush()
+    row = OrderMailDocument(
+        internet_message_id=f"<plain-{RUN}@example>",
+        client_id=client.id,
+        identification_reason="Numer rejestrowy z dokumentu pasuje do jednego klienta.",
+    )
+    db_session.add(row)
+    await db_session.flush()
+
+    await _follow_client_merge(db_session, row)
+
+    assert row.client_id == client.id
+    assert "scalony" not in row.identification_reason
     await db_session.rollback()

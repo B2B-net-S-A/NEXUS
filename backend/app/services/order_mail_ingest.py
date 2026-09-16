@@ -682,6 +682,44 @@ def restore_extraction(data):
     return extraction
 
 
+async def _follow_client_merge(db: AsyncSession, row: OrderMailDocument) -> None:
+    """Dokument przypięty do scalonego duplikatu przechodzi na klienta kanonicznego.
+
+    Scalenie („Scal z…") jest stwierdzeniem, że oba wiersze to TEN SAM klient.
+    Dokument nie może zostać przy duplikacie: jego roster bywa pusty, a wtedy
+    KAŻDA osoba z maila wygląda na nowego kontraktora. Bez tego kroku scalenie
+    naprawiałoby wyłącznie maile przychodzące PO nim — a dokument, który już
+    czeka w kolejce, zostałby ze starym rekordem na zawsze (poprawka musi
+    dosięgnąć kolejki, nie tylko nowych wiadomości).
+
+    Ruch jest jednokierunkowy i bez zgadywania: idziemy wyłącznie za jawnym
+    ``merged_into_client_id``, nigdy za podobieństwem nazwy.
+    """
+    if not row.client_id:
+        return
+    canonical = (await _canonical_client_ids(db, {row.client_id})).get(row.client_id)
+    if canonical is None or canonical == row.client_id:
+        return
+    previous = row.client_id
+    row.client_id = canonical
+    row.identification_reason = " ".join(
+        filter(
+            None,
+            (
+                (row.identification_reason or "").strip(),
+                f"Rekord klienta #{previous} został scalony — dokument "
+                f"przeniesiony na klienta #{canonical}.",
+            ),
+        )
+    )
+    logger.info(
+        "order_mail: document id=%s moved from merged client %s to %s",
+        row.id,
+        previous,
+        canonical,
+    )
+
+
 async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
 
@@ -689,8 +727,14 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
     Klienci, u których tabela PDF-a jest źródłem prawdy (Nordea, Alior), mają
     regułę zastosowaną ponownie na zapisanym odczycie. Pozostali zachowują numer
     i okres. Bez modelu; zapis rozstrzyga wywołujący na podstawie werdyktu.
+
+    Rozpoznany klient jest zachowywany, ale scalony duplikat NIE jest klientem —
+    dokument przechodzi wtedy na rekord kanoniczny (``_follow_client_merge``).
     """
 
+    # Najpierw klient: reszta przeliczenia (polityki, roster, plan) zależy od
+    # tego, do którego rekordu dokument należy.
+    await _follow_client_merge(db, row)
     extraction = restore_extraction(row.extraction)
     path = storage_service.get_order_mail_attachment_path(row.storage_path)
     doc = await run_in_threadpool(
