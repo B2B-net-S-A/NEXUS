@@ -12,7 +12,7 @@
     "backend/app/services/contract_order_offboarding.py": "6b2bda8bd87d49f5d4dfc0b922436117740733bc4293688d6dc5b8e1a7e5c04a",
     "backend/app/services/contract_order_sync.py": "a92e785c836d73e4c530135fbdfca176eb798a54ba3c27bc5c6d0e2271a66f0a",
     "backend/app/services/cost_orders.py": "e092ebefe4ba313f8f359c4d5cb28efc10da657eb3da035c73953b1c1eef2bd8",
-    "backend/app/services/cv_text_extractor.py": "3cde8c7fe399789f17b77d7afd56a317c0dd15e8f219a2de573317ff1a453261",
+    "backend/app/services/cv_text_extractor.py": "55a5ac1cdd4d72d029bf875527e1f6e5875386ac1f90946708868edd77f5ecf2",
     "backend/app/services/cyfrowy_polsat_orders.py": "0578823b1ce18e93af95cd386a6cc60d999c6c28d9c8cb209491c5b78cc88e50",
     "backend/app/services/dl_alerts.py": "0eb797fd67b9299fc34e24b7ae99dc801fccf7184c6f09dfdd776fd2cc87f704",
     "backend/app/services/ezdrowie.py": "3b51e3f0fa19b894094ecb9f4dd9a61c31bc4c3175b6f9ed82470b373c2e7639",
