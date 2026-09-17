@@ -761,39 +761,41 @@ export function JobReadinessDock({
   const totalCount = items.length + verificationTotal;
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  // Zwinięty dok kroku 02 — pasek 44 px zamiast pełnej karty. `doneCount`/
-  // `totalCount` są policzone WYŻEJ, z zapytań które lecą niezależnie od tego
-  // wczesnego returnu (patrz komentarz przy `JobReadinessDockProps.collapsed`)
-  // — licznik na pasku jest więc aktualny od pierwszego renderu po wczytaniu
-  // danych, nie zeruje się po rozwinięciu.
-  if (variant === "champion" && collapsed && onCollapsedChange) {
-    return (
-      <div
-        className="flex w-11 flex-col items-center gap-2 rounded-xl border border-border bg-card py-3"
-        data-testid="job-readiness-dock-collapsed"
+  // Zwinięty dok kroku 02 — pasek 44 px zamiast pełnej karty, WYŁĄCZNIE na
+  // `xl`. Na `lg` i węższych dok stoi pod edytorem na pełnej szerokości
+  // (`lg:col-span-2`), więc zwinięcie nie dałoby edytorowi ani piksela, za to
+  // schowałoby bramkę handoffu — tam zawsze renderuje się pełny dok. Oba
+  // warianty są w DOM, a o widoczności decyduje CSS (`hidden xl:flex` /
+  // `xl:hidden`), bo o szerokości kolumny decyduje siatka strony, nie JS.
+  // `doneCount`/`totalCount` są policzone WYŻEJ, z tych samych zapytań co
+  // pełny widok, więc licznik na pasku jest aktualny.
+  const xlCollapsed = variant === "champion" && collapsed && !!onCollapsedChange;
+  const collapsedStrip = xlCollapsed ? (
+    <div
+      className="hidden w-11 flex-col items-center gap-2 rounded-xl border border-border bg-card py-3 xl:flex"
+      data-testid="job-readiness-dock-collapsed"
+    >
+      <button
+        type="button"
+        onClick={() => onCollapsedChange?.(false)}
+        aria-label="Rozwiń dok gotowości"
+        title="Rozwiń dok gotowości"
+        className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        <button
-          type="button"
-          onClick={() => onCollapsedChange(false)}
-          aria-label="Rozwiń dok gotowości"
-          title="Rozwiń dok gotowości"
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums",
-            doneCount === totalCount
-              ? "bg-success/15 text-success"
-              : "bg-warning/15 text-warning",
-          )}
-        >
-          {doneCount}/{totalCount}
-        </span>
-      </div>
-    );
-  }
+        <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums",
+          doneCount === totalCount
+            ? "bg-success/15 text-success"
+            : "bg-warning/15 text-warning",
+        )}
+      >
+        {doneCount}/{totalCount}
+      </span>
+    </div>
+  ) : null;
 
   const subtitle = [
     job.client_name,
@@ -860,11 +862,19 @@ export function JobReadinessDock({
   );
 
   return (
-    // `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
-    // champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
-    // nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
-    // wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`.
-    <div className="flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+    <>
+    {collapsedStrip}
+    {/* `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
+        champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
+        nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
+        wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`. */}
+    <div
+      className={cn(
+        "flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto",
+        xlCollapsed && "xl:hidden",
+      )}
+      data-testid="job-readiness-dock-full"
+    >
       {/* ── nagłówek doku (makieta: `.dhd`) ───────────────────────────────── */}
       <div className="space-y-2.5 border-b border-border px-4 pb-0 pt-3">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -915,7 +925,9 @@ export function JobReadinessDock({
                 onClick={() => onCollapsedChange(true)}
                 aria-label="Zwiń dok gotowości"
                 title="Zwiń dok gotowości"
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                // Zwijanie działa tylko na `xl` (patrz `collapsedStrip`) —
+                // wężej przycisk nie miałby widocznego skutku.
+                className="hidden rounded p-0.5 text-muted-foreground hover:text-foreground xl:inline-flex"
               >
                 <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -1177,5 +1189,6 @@ export function JobReadinessDock({
         />
       )}
     </div>
+    </>
   );
 }

@@ -910,6 +910,9 @@ describe("JobReadinessDock — zwijanie doku (krok 02)", () => {
     expect(
       screen.queryByTestId("job-readiness-dock-collapsed"),
     ).not.toBeInTheDocument();
+    expect(screen.getByTestId("job-readiness-dock-full")).not.toHaveClass(
+      "xl:hidden",
+    );
   });
 
   it('`collapsed=true` na `variant="champion"` renderuje pasek 44 px z przyciskiem „Rozwiń" i licznikiem done/total', async () => {
@@ -925,8 +928,10 @@ describe("JobReadinessDock — zwijanie doku (krok 02)", () => {
     // „pending") = 6 z 7 — liczone z TYCH SAMYCH zapytań, które karmią pełny
     // widok (patrz komentarz przy `JobReadinessDockProps.collapsed`).
     expect(within(strip).getByText("6/7")).toBeInTheDocument();
-    // Zwinięty pasek nie pokazuje treści pełnego doku.
-    expect(screen.queryByText(CHAMPION_DOCK_LABEL)).not.toBeInTheDocument();
+    // Pasek widać WYŁĄCZNIE na `xl`; wężej zostaje pełny dok (jsdom nie liczy
+    // media queries, więc kontrakt pilnujemy na klasach).
+    expect(strip).toHaveClass("hidden", "xl:flex");
+    expect(screen.getByTestId("job-readiness-dock-full")).toHaveClass("xl:hidden");
   });
 
   it('kliknięcie „Rozwiń dok gotowości" woła `onCollapsedChange(false)`', async () => {
