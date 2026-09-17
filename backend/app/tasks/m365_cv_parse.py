@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import or_, select
@@ -59,7 +60,7 @@ async def run_m365_cv_parse_once() -> bool:
             .limit(1)
         )
         if attachment is None:
-            return False
+            return await _create_from_unknown_sender_once(db)
 
         email_row = await db.get(Email, attachment.email_id)
         if email_row is None or email_row.candidate_id is None:
@@ -103,6 +104,75 @@ async def run_m365_cv_parse_once() -> bool:
             subject_id=attachment.id,
         )
         return True
+
+
+async def _create_from_unknown_sender_once(db) -> bool:
+    """CV z maila od nadawcy spoza bazy (decyzja Artura, 17.09.2026).
+
+    Osobne zapytanie po kolejce znanych kandydatów: najpierw odświeżamy profile
+    osób, które już są w bazie, potem zakładamy nowe. Okno czasu
+    (`M365_AUTO_CREATE_LOOKBACK_DAYS`) chroni przed założeniem kandydatów
+    z całej historii skrzynek w pierwszym biegu po wdrożeniu.
+    """
+    if not settings.M365_AUTO_CREATE_CANDIDATE_FROM_CV:
+        return False
+    from app.models.m365 import EmailDirection
+
+    since = datetime.now(timezone.utc) - timedelta(
+        days=max(1, settings.M365_AUTO_CREATE_LOOKBACK_DAYS)
+    )
+    attachment = await db.scalar(
+        select(EmailAttachment)
+        .join(Email, Email.id == EmailAttachment.email_id)
+        .where(
+            EmailAttachment.is_cv_candidate.is_(True),
+            EmailAttachment.storage_path.is_not(None),
+            EmailAttachment.cv_parse_attempted_at.is_(None),
+            EmailAttachment.parse_error.is_(None),
+            Email.candidate_id.is_(None),
+            Email.direction == EmailDirection.received,
+            Email.is_private_filtered.is_(False),
+            Email.received_at >= since,
+        )
+        .order_by(EmailAttachment.id.asc())
+        .with_for_update(skip_locked=True, of=EmailAttachment)
+        .limit(1)
+    )
+    if attachment is None:
+        return False
+    email_row = await db.get(Email, attachment.email_id)
+    if email_row is None:
+        return False
+    attachment_id = attachment.id
+    try:
+        candidate_id = await attachment_handler.try_create_candidate_from_cv(
+            db, attachment, email_row
+        )
+        if candidate_id is None and attachment.parse_error is None:
+            attachment.parse_error = "unknown_sender_skipped"
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        # Bez tego wyjątek cofał transakcję razem ze znacznikiem próby i ten sam
+        # załącznik wracał co kilka sekund na pełny, płatny odczyt CV.
+        await db.rollback()
+        logger.exception("m365 unknown-sender CV failed attachment=%s", attachment_id)
+        async with AsyncSessionLocal() as mark_db:
+            row = await mark_db.get(EmailAttachment, attachment_id)
+            if row is not None:
+                row.parse_error = f"unknown_sender_failed: {type(exc).__name__}"[:500]
+                await mark_db.commit()
+        return True
+    logger.info(
+        "m365_cv_unknown_sender_processed",
+        extra={
+            "event_kind": "m365_cv_parse_progress",
+            "operation": "m365_cv_create",
+            "subject_id": attachment.id,
+            "outcome": "linked_or_created" if candidate_id else "skipped",
+            "reason": attachment.parse_error,
+        },
+    )
+    return True
 
 
 async def m365_cv_parse_loop() -> None:

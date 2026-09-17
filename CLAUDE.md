@@ -1379,7 +1379,7 @@ Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydat
   „Podsumowanie jest aktualne". Bump wersji promptu `CANDIDATE_ACTIVITY_SUMMARY`
   inwaliduje wszystkie cache.
 - **Kwoty**: `AIFeatureKey.candidate_summary` (slot zarezerwowany od 0085, teraz
-  użyty) — master toggle → feature toggle → miesięczny limit. Oba endpointy za
+  użyty) — liczy zużycie, niczego nie blokuje (NEXUS bez limitów AI). Oba endpointy za
   `OperationalUser`. Model override: env `CANDIDATE_SUMMARY_MODEL`.
 - Wyjście plaintext (nie JSON) + `thinking={"type": "disabled"}` (trap truncacji
   Sonnet 5). Tabela ma lustro DDL w entrypoint.sh (jak każda zmiana schematu).
@@ -3937,6 +3937,79 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
   `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`
+
+## Autonomiczny przepływ CV (17.09.2026)
+
+Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które łatwo cofnąć:
+
+- **Każde wejście CV kończy się `cv_ingest_service.finish_cv_ingest`**: pola →
+  języki → indeks technologii → kategoria → wektor → cache → kolejka
+  auto-dopasowania. Do 17.09 sześć miejsc robiło po odczycie co innego (CV z maila
+  nie trafiało do wektora). Skan AST w `test_cv_ingest_service.py` pilnuje, że
+  poza tym modułem `_apply_cv_enrichment` wołają tylko dwa biegi masowe
+  (`cv_backfill`, `cv_field_backfill`) — świadomie bez auto-dopasowania, bo nocny
+  sync Traffita dodawałby do pipeline'ów tysiące historycznych osób.
+- **Pełny profil (prompt `cv_enrichment` v7) tylko dla nowych/odświeżonych CV**
+  (decyzja: bez backfillu 49 tys.). Znacznik `cv_extracted_data._profile_schema = 2`
+  odróżnia profil v7; frontend pokazuje certyfikaty, projekty i oś technologii
+  WYŁĄCZNIE przy nim (pusta sekcja twierdziłaby, że CV ich nie ma). Oś
+  (`skill_timeline`, tabela `candidate_skill_usage`) liczy Python z dat stanowisk
+  i projektów — model jej nie pisze. Tekst embeddingu dla profili bez schematu 2
+  musi zostać bajt w bajt taki sam (inaczej reindeks całej bazy), a próg
+  „ostatnich lat" liczy się od daty odczytu CV, nie od zegara. Opis stanowiska
+  z CV ma `source: "cv"` i NIE blokuje nadpisania historii nowym CV; opis
+  z importu Traffita blokuje jak dotąd. Waga świeżości skilli w scoringu:
+  `AI_SCORING_SKILL_RECENCY` (domyślnie OFF do pomiaru `eval_matching.py`).
+- **Auto-dopasowanie** (`auto_match_service`, worker `candidate_auto_match`,
+  tabele `candidate_match_outbox` + `candidate_auto_match_log`): nowe CV →
+  opublikowane rekrutacje, publikacja/istotna zmiana rekrutacji → CV odczytane
+  w ostatnich `AUTO_MATCH_JOB_LOOKBACK_DAYS`. Dodaje przez
+  `proposals_bulk.add_candidates_to_job` (te same bramki co rekruter) na etap
+  `posting` z tagiem `auto-match` i dzwonkiem `auto_match` (dedup po wierszu
+  etapu; typ musi być w `NOTIFICATION_SECTION_BY_TYPE`, inaczej rekruter go
+  nie widzi). Pula to wyszukiwanie w Qdrancie ZAWĘŻONE filtrem po id do
+  opublikowanych rekrutacji albo profili v7 z okna — nie „najbliższe z całej
+  bazy". Częściowy UNIQUE kolejki obejmuje `pending`/`processing`/`failed`
+  (bez `failed` przejęcie paczki łapało konflikt unikalności i stawało na
+  zawsze). Dziennik decyzji jest dedupem (kandydat × rekrutacja × wersja CV):
+  `added` blokuje zawsze, `dry_run` nigdy, reszta do zmiany rekrutacji — i
+  podglądem w Ustawieniach → AI. Reguła progu jest JEDNA z importerem JJIT
+  (`auto_match_rules.is_good_match`). **`AUTO_MATCH_DRY_RUN` domyślnie `True`** —
+  system ocenia i zapisuje decyzje, nikogo nie dodaje; przejście na żywo to
+  `AUTO_MATCH_DRY_RUN=false` w Coolify.
+  **Konflikt z klientem (`active_conflict`) i wykluczenie klienta
+  (`client_excluded`) BLOKUJĄ automat**, choć od #1589 rekruterowi tylko
+  ostrzegają: ostrzeżenie czyta człowiek, a automat nie ma kogo ostrzec
+  (`auto_match_service._BLOCKING_WARNINGS` → decyzja `penalized`).
+- **CV z maila od nadawcy spoza bazy** (`attachment_handler.try_create_candidate_from_cv`):
+  tożsamość z TREŚCI CV (rekruterzy przesyłają CV dalej). E-mail/telefon/LinkedIn
+  pasuje → mail podpięty (`EmailMatchMethod.cv_identity`); pasuje samo imię
+  i nazwisko → nic (`possible_duplicate_name`); CV bez imienia, nazwiska albo
+  kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
+  `M365_AUTO_CREATE_LOOKBACK_DAYS` (14). Wyłącznik `M365_AUTO_CREATE_CANDIDATE_FROM_CV`.
+
+## NEXUS bez limitów AI (decyzja Artura, 17.09.2026)
+
+Nie ma już głównego wyłącznika AI, przełączników per funkcja ani miesięcznych
+sufitów. Jedyną ochroną budżetu jest **alarm wydatków** (`app/tasks/ai_spend_alerts.py`),
+który informuje administratorów i niczego nie zatrzymuje.
+
+- **`ai_quota.check_and_increment` nigdy nie rzuca.** Zostaje, bo zapisuje
+  `AIOperation` — na nim stoją liczniki w Ustawieniach → AI i alarm. Kontekst
+  `ai_feature()` MUSI zostać przy każdym wywołaniu modelu (telemetria kosztów,
+  `_assert_declared`). Pilnują tego `test_ai_quota_monthly_limit.py`
+  (stare kolumny nie blokują, zużycie rośnie) i `test_ai_quota_provider_gate.py`.
+- **Kolumny `ai_features.enabled` / `monthly_limit` i wiersz `ai_master_toggle` są
+  martwe.** Nic ich nie czyta jako bramki, a trasy `PATCH /api/settings/ai/master`
+  i `/features/{feature}` zniknęły. Nie przywracaj bramki czytającej te kolumny:
+  panel nie pozwala ich zmienić, więc stara wartość z bazy blokowałaby po cichu.
+- **`AIQuotaExceeded` zostaje jako klasa** — importuje ją kilkanaście modułów,
+  a ich gałęzie `except` są martwym, nieszkodliwym kodem. Do sprzątnięcia przy okazji.
+- **Czat publicznego interaktywnego CV** zależy wyłącznie od polityki klienta
+  (`cv_interactive_enabled`) i dziennego limitu per link
+  (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`, obrona przed nadużyciem publicznego linku).
+- **`EXPERIENCE_DATES_ON_DEMAND_ENABLED` domyślnie `True`** (wyłącznik awaryjny).
+- Ustawienia → AI to raport: model, tokeny, koszt per funkcja, suma miesiąca, alarm.
 
 ## Modele AI per funkcja — decyzja z badania na danych produkcyjnych (16.09.2026)
 

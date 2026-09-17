@@ -1,9 +1,12 @@
 """Settings → AI panel.
 
-Admin-only endpoints to manage:
-- Master AI toggle (kill-switch).
-- Per-feature toggle + monthly call limit.
-- View current-month usage per feature.
+Admin-only, read-only report of current-month AI usage and cost per feature,
+plus a control delivery of the spend alarm.
+
+NEXUS nie ma limitów AI (decyzja Artura, 17.09.2026): nie ma już głównego
+wyłącznika, przełączników per funkcja ani miesięcznych sufitów. Kolumny
+`ai_features.enabled` / `monthly_limit` zostają w bazie, ale nic ich nie czyta
+jako bramki, a ten moduł nie ma już tras, które by je zapisywały.
 
 Read access (GET) is restricted to admins to keep usage stats internal.
 We don't want regular recruiters to see "AI is at 95%" and start fighting
@@ -17,7 +20,7 @@ import os
 from datetime import date, timedelta
 from typing import Iterable, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Text, cast, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,9 +37,7 @@ from app.schemas.ai_settings import (
     AISettingsOut,
     SpendAlertStatus,
     FeatureConfig,
-    FeatureConfigUpdate,
     FeatureUsage,
-    MasterToggleUpdate,
 )
 from app.services.ai_models import model_for
 from app.services.ai_quota import (
@@ -224,54 +225,6 @@ async def get_ai_settings(
     )
 
 
-@router.patch("/master", response_model=AISettingsOut)
-async def update_master_toggle(
-    payload: MasterToggleUpdate,
-    admin: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> AISettingsOut:
-    """Flip the global AI kill-switch."""
-    result = await db.execute(select(AIMasterToggle).where(AIMasterToggle.id == 1))
-    master = result.scalar_one_or_none()
-    if master is None:
-        master = AIMasterToggle(id=1, enabled=payload.enabled, updated_by=admin.id)
-        db.add(master)
-    else:
-        master.enabled = payload.enabled
-        master.updated_by = admin.id
-
-    await db.commit()
-    return await get_ai_settings(admin, db)
-
-
-@router.patch("/features/{feature}", response_model=AISettingsOut)
-async def update_feature_config(
-    feature: AIFeatureKey,
-    payload: FeatureConfigUpdate,
-    admin: AdminUser,
-    db: AsyncSession = Depends(get_db),
-) -> AISettingsOut:
-    """Update enabled/monthly_limit for a single AI feature."""
-    result = await db.execute(
-        select(AIFeatureConfig).where(AIFeatureConfig.feature == feature)
-    )
-    cfg = result.scalar_one_or_none()
-    if cfg is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Feature {feature.value} not configured",
-        )
-
-    if payload.enabled is not None:
-        cfg.enabled = payload.enabled
-    if payload.monthly_limit is not None:
-        cfg.monthly_limit = payload.monthly_limit
-    cfg.updated_by = admin.id
-
-    await db.commit()
-    return await get_ai_settings(admin, db)
-
-
 @router.post("/alerts/test")
 async def test_spend_alert(
     admin: AdminUser, db: AsyncSession = Depends(get_db)
@@ -300,3 +253,64 @@ async def test_spend_alert(
         raise HTTPException(
             status_code=409, detail="Trwa dostarczanie alarmów. Ponów za chwilę."
         ) from exc
+
+
+@router.get("/auto-match")
+async def get_auto_match_overview(
+    _: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Podgląd autonomicznego dopasowania CV ↔ rekrutacje (ostatnie 7 dni).
+
+    Liczby decyzji, stan kolejki i ostatnie wpisy dziennika. Bez nazwisk
+    i treści CV — identyfikatory prowadzą do profilu i rekrutacji.
+    """
+    from app.core.config import settings
+    from sqlalchemy import text
+
+    since = date.today() - timedelta(days=7)
+    decisions = dict(
+        (
+            await db.execute(
+                text(
+                    "SELECT decision, count(*) FROM candidate_auto_match_log "
+                    "WHERE created_at >= :since GROUP BY decision"
+                ),
+                {"since": since},
+            )
+        ).all()
+    )
+    queue = dict(
+        (
+            await db.execute(
+                text(
+                    "SELECT status, count(*) FROM candidate_match_outbox "
+                    "WHERE created_at >= :since GROUP BY status"
+                ),
+                {"since": since},
+            )
+        ).all()
+    )
+    recent = [
+        dict(row._mapping)
+        for row in await db.execute(
+            text(
+                "SELECT l.candidate_id, l.job_id, j.title AS job_title, l.score, "
+                "l.decision, l.reason, l.trigger, l.created_at "
+                "FROM candidate_auto_match_log l JOIN jobs j ON j.id = l.job_id "
+                "ORDER BY l.created_at DESC LIMIT 25"
+            )
+        )
+    ]
+    for row in recent:
+        if row["score"] is not None:
+            row["score"] = float(row["score"])
+    return {
+        "enabled": bool(settings.AUTO_MATCH_ENABLED),
+        "dry_run": bool(settings.AUTO_MATCH_DRY_RUN),
+        "min_score": float(settings.AUTO_MATCH_MIN_SCORE),
+        "max_jobs_per_candidate": int(settings.AUTO_MATCH_MAX_JOBS_PER_CANDIDATE),
+        "max_candidates_per_job": int(settings.AUTO_MATCH_MAX_CANDIDATES_PER_JOB),
+        "decisions_7d": decisions,
+        "queue_7d": queue,
+        "recent": recent,
+    }

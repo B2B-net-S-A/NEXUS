@@ -1,28 +1,26 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AISettingsPage from "./page";
 
 /**
- * Panel Ustawienia → AI nie miał żadnego testu FE, a to JEDYNA powierzchnia
- * z miesięcznymi limitami i głównym kill-switchem. C13 dokłada tu model per
- * funkcja (z rejestru backendu) i tokeny — oraz tekst P-A o niezależności
- * wyszukiwania semantycznego. Test pokrywa render, oba te pola, przełącznik
- * funkcji i edycję limitu.
+ * Panel Ustawienia → AI po decyzji z 17.09.2026: NEXUS nie ma limitów AI.
+ * Ekran jest raportem zużycia i kosztu (model per funkcja, tokeny, koszt) plus
+ * alarm wydatków. Test pilnuje, że przełączniki i edytor limitu nie wracają.
  */
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
-  setMaster: vi.fn(),
-  updateFeature: vi.fn(),
+  testAlert: vi.fn(),
+  autoMatch: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
   aiSettingsApi: {
     get: mocks.get,
-    setMaster: mocks.setMaster,
-    updateFeature: mocks.updateFeature,
+    testAlert: mocks.testAlert,
+    autoMatch: mocks.autoMatch,
   },
 }));
 
@@ -53,6 +51,7 @@ const RESPONSE = {
       input_tokens: 34_000,
       provider_calls: 2,
       output_tokens: 8_000,
+      estimated_cost_usd: 1.25,
       limit: 0,
       period_start: "2026-09-01",
       period_end: "2026-09-30",
@@ -86,16 +85,45 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.get.mockResolvedValue({ data: RESPONSE });
-  mocks.setMaster.mockResolvedValue({ data: RESPONSE });
-  mocks.updateFeature.mockResolvedValue({ data: RESPONSE });
+  mocks.autoMatch.mockResolvedValue({
+    data: {
+      enabled: true,
+      dry_run: true,
+      min_score: 70,
+      max_jobs_per_candidate: 3,
+      max_candidates_per_job: 10,
+      decisions_7d: { added: 2, below_threshold: 5 },
+      queue_7d: { done: 4, pending: 1 },
+      recent: [
+        {
+          candidate_id: 11,
+          job_id: 7,
+          job_title: "Python Developer",
+          score: 86.4,
+          decision: "dry_run",
+          reason: null,
+          trigger: "cv_upload",
+          created_at: "2026-09-17T10:00:00Z",
+        },
+      ],
+    },
+  });
 });
 
 describe("Panel Ustawienia → AI", () => {
-  it("pokazuje tekst o niezależności wyszukiwania semantycznego (P-A)", async () => {
+  it("nie pokazuje żadnych przełączników ani limitów", async () => {
     renderPage();
     await screen.findByText("Generator CV B2B");
-    expect(screen.getByText(/Funkcje generatywne AI/)).toBeInTheDocument();
-    expect(screen.getByText(/NIEZALEŻNIE/)).toBeInTheDocument();
+    expect(screen.getByText(/działają bez limitów/)).toBeInTheDocument();
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+    expect(screen.queryByText(/Limit miesięczny/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Limit wyczerpany/)).not.toBeInTheDocument();
+  });
+
+  it("sumuje szacunkowy koszt miesiąca", async () => {
+    renderPage();
+    await screen.findByText("Generator CV B2B");
+    expect(screen.getByTestId("ai-total-cost").textContent).toContain("1.25 USD");
   });
 
   it("renderuje model funkcji z rejestru backendu", async () => {
@@ -116,40 +144,19 @@ describe("Panel Ustawienia → AI", () => {
     expect(tokenLines[0].textContent).toMatch(/34\D?000/);
   });
 
-  it("przełącznik funkcji woła updateFeature z enabled", async () => {
-    renderPage();
-    await screen.findByText("Generator CV B2B");
-    const switches = screen.getAllByRole("switch");
-    // switches[0] = master; switches[1] = pierwsza funkcja
-    fireEvent.click(switches[1]);
-    await waitFor(() =>
-      expect(mocks.updateFeature).toHaveBeenCalledWith("cv_generator", {
-        enabled: false,
-      }),
-    );
-  });
-
-  it("edycja limitu woła updateFeature z monthly_limit", async () => {
-    renderPage();
-    await screen.findByText("Tworzenie kandydata z CV");
-    // cv_parser ma limit 100 → przycisk pokazuje sformatowaną liczbę
-    fireEvent.click(screen.getByRole("button", { name: "100" }));
-    const input = await screen.findByDisplayValue("100");
-    fireEvent.change(input, { target: { value: "250" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-    await waitFor(() =>
-      expect(mocks.updateFeature).toHaveBeenCalledWith("cv_parser", {
-        monthly_limit: 250,
-      }),
-    );
-  });
-
   it("403 renderuje odmowę, nie awarię (UAT A-B04)", async () => {
     mocks.get.mockRejectedValue({ response: { status: 403 } });
     renderPage();
     expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
     expect(
-      screen.queryByText("Nie udało się załadować ustawień AI."),
+      screen.queryByText("Nie udało się załadować raportu zużycia AI."),
     ).not.toBeInTheDocument();
+  });
+
+  it("pokazuje dziennik automatycznych dopasowań i tryb próbny", async () => {
+    renderPage();
+    expect(await screen.findByText("Python Developer")).toBeInTheDocument();
+    expect(screen.getByTestId("auto-match-state").textContent).toContain("Tryb próbny");
+    expect(screen.getByText("tryb próbny (bez dodania)")).toBeInTheDocument();
   });
 });

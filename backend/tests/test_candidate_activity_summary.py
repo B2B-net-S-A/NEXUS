@@ -638,9 +638,6 @@ async def test_active_competing_lease_returns_busy_without_provider_call(
     )
     provider_called = False
 
-    async def no_gate(_db):
-        return None
-
     async def fake_context(_db, _candidate, _user):
         return context
 
@@ -655,7 +652,6 @@ async def test_active_competing_lease_returns_busy_without_provider_call(
         provider_called = True
         return "Nie powinno się wykonać."
 
-    monkeypatch.setattr(cas, "_ensure_feature_enabled", no_gate)
     monkeypatch.setattr(cas, "build_context", fake_context)
     monkeypatch.setattr(cas, "get_cached", no_cache)
     monkeypatch.setattr(cas, "_acquire_generation_lease", lease_busy)
@@ -694,9 +690,6 @@ async def test_generation_revalidates_context_after_lease_and_drops_old_canary(
     released: list[str] = []
     provider_sections: list[dict[str, str]] = []
 
-    async def no_gate(_db):
-        return None
-
     async def fake_context(_db, _candidate, _user):
         return contexts.pop(0)
 
@@ -723,7 +716,6 @@ async def test_generation_revalidates_context_after_lease_and_drops_old_canary(
     async def publish(*_args, **_kwargs):
         return row
 
-    monkeypatch.setattr(cas, "_ensure_feature_enabled", no_gate)
     monkeypatch.setattr(cas, "build_context", fake_context)
     monkeypatch.setattr(cas, "get_cached", no_cache)
     monkeypatch.setattr(cas, "_acquire_generation_lease", acquire)
@@ -779,9 +771,6 @@ async def test_generation_rejects_membership_change_during_provider_call(
     contexts = [before, before, after]
     released: list[str] = []
 
-    async def no_gate(_db):
-        return None
-
     async def fake_context(_db, _candidate, _user):
         return contexts.pop(0)
 
@@ -804,7 +793,6 @@ async def test_generation_rejects_membership_change_during_provider_call(
     async def publish(*_args, **_kwargs):
         pytest.fail("scope-changed prose must never reach the cache publisher")
 
-    monkeypatch.setattr(cas, "_ensure_feature_enabled", no_gate)
     monkeypatch.setattr(cas, "build_context", fake_context)
     monkeypatch.setattr(cas, "get_cached", no_cache)
     monkeypatch.setattr(cas, "_acquire_generation_lease", acquire)
@@ -893,15 +881,6 @@ async def test_visibility_job_discovery_applies_effective_membership_scope():
     assert "job_collaborators" in sql
 
 
-async def test_serve_gate_fails_closed_when_master_switch_is_off(monkeypatch):
-    async def disabled(_db):
-        return False
-
-    monkeypatch.setattr(cas, "get_master_enabled", disabled)
-    with pytest.raises(cas.AIQuotaExceeded):
-        await cas._ensure_feature_enabled(object())  # type: ignore[arg-type]
-
-
 @pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"),
     reason="PostgreSQL scope/cache integration; hosted CI provides DATABASE_URL",
@@ -939,9 +918,6 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
     now = datetime(2026, 7, 30, 10, tzinfo=timezone.utc)
     captured_prompts: list[str] = []
 
-    async def enabled(_db):
-        return None
-
     @asynccontextmanager
     async def no_quota(_db, _feature, **_kwargs):
         yield None
@@ -950,7 +926,6 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
         captured_prompts.append(prompt)
         return "Bezpieczne podsumowanie widocznej historii."
 
-    monkeypatch.setattr(cas, "_ensure_feature_enabled", enabled)
     monkeypatch.setattr(cas, "ai_feature", no_quota)
     monkeypatch.setattr(cas, "_call_claude_text", fake_provider)
 

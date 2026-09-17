@@ -217,6 +217,8 @@ _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     # a więc warstwę skills każdego composite'u.
     "SKILL_ALIAS_EXTENDED_ENABLED",
     "AI_SCORING_CONTRACT_V2",
+    # Profil CV v7: waga świeżości dopasowanych skilli zmienia warstwę skills.
+    "AI_SCORING_SKILL_RECENCY",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
     "SCORE_UNKNOWN_NEUTRAL_FRACTION",
@@ -268,6 +270,10 @@ def scoring_algorithm_version() -> str:
     # samym profile_id=0, więc bez tego wpisu stary cache mieszałby dwie skale.
     # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
     # `mark_stale_for_profile` (patrz docstring wyżej).
+    # Waga świeżości skilli liczy wiek od bieżącego roku — przełom roku zmienia
+    # wynik bez żadnej edycji, więc rok wchodzi do klucza cache tylko przy fladze.
+    if getattr(settings, "AI_SCORING_SKILL_RECENCY", False):
+        payload["skill_recency_year"] = date.today().year
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
@@ -1037,6 +1043,55 @@ def skill_present(required: str, candidate_skills) -> bool:
     return any(_canon_skill(c) == req_canon for c in candidate_skills)
 
 
+def _skill_recency_weights(
+    candidate: Candidate, job: Job, labels: List[str]
+) -> dict[str, float]:
+    """Waga dopasowanego skilla wg ostatniego użycia na osi technologii z CV v7.
+
+    Pusta mapa (= wszystko 1,0), gdy flaga jest wyłączona, kandydat nie ma profilu
+    v7 albo skill nie ma daty — brak daty w CV nie jest dowodem, że skill jest
+    stary. Skill potwierdzony przez rekrutera (`reviewed_label_status == "met"`)
+    zawsze liczy się w pełni: ten dowód jest świeższy niż CV.
+    """
+    if not getattr(settings, "AI_SCORING_SKILL_RECENCY", False) or not labels:
+        return {}
+    from app.services.profile_projection import has_rich_profile
+    from app.services.requirement_verification import reviewed_label_status
+
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    if not has_rich_profile(extracted):
+        return {}
+    last_used_by_skill: dict[str, int] = {}
+    for entry in extracted.get("skill_timeline") or []:
+        if not isinstance(entry, dict) or not entry.get("skill"):
+            continue
+        year_text = str(entry.get("last_used") or "")[:4]
+        if year_text.isdigit():
+            key = _canon_skill(str(entry["skill"]))
+            last_used_by_skill[key] = max(
+                last_used_by_skill.get(key, 0), int(year_text)
+            )
+    if not last_used_by_skill:
+        return {}
+    current_year = date.today().year
+    weights: dict[str, float] = {}
+    for label in labels:
+        if "met" in (
+            reviewed_label_status(candidate, job, label, "must"),
+            reviewed_label_status(candidate, job, label, "nice"),
+        ):
+            continue
+        year = last_used_by_skill.get(_canon_skill(label))
+        if year is None:
+            continue
+        age = current_year - year
+        if age > 6:
+            weights[label] = 0.5
+        elif age > 3:
+            weights[label] = 0.75
+    return weights
+
+
 def _score_skills(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> tuple[LayerResult, List[str], List[str], List[str], List[str]]:
@@ -1077,14 +1132,19 @@ def _score_skills(
     # zero. Zmierzone na prodzie: 90% ofert nie ma `nice_skills`, 13% nie ma
     # `must_skills`, więc obie gałęzie trafiały w większość korpusu i żadna
     # nikogo nie różnicowała.
+    recency = _skill_recency_weights(candidate, job, must_match + nice_match)
     if must:
-        must_pts = len(must_match) / len(must) * must_max
+        must_pts = sum(recency.get(s, 1.0) for s in must_match) / len(must) * must_max
     else:
         # Legacy handed out the full must budget here — a free 20 points on the
         # 13% of jobs with no must_skills. Under renormalisation the half simply
         # leaves the budget instead.
         must_pts = 0.0 if _renormalizing() else must_max
-    nice_pts = (len(nice_match) / len(nice) * nice_max) if nice else 0.0
+    nice_pts = (
+        (sum(recency.get(s, 1.0) for s in nice_match) / len(nice) * nice_max)
+        if nice
+        else 0.0
+    )
     scored_max = (must_max if must else 0.0) + (nice_max if nice else 0.0)
 
     total = must_pts + nice_pts
@@ -1100,6 +1160,9 @@ def _score_skills(
         reason_bits.append("must n/a")
     if nice:
         reason_bits.append(f"nice {len(nice_match)}/{len(nice)}")
+    dated = sorted(s for s, w in recency.items() if w < 1.0)
+    if dated:
+        reason_bits.append("dawno używane: " + ", ".join(dated[:5]))
 
     return (
         LayerResult(

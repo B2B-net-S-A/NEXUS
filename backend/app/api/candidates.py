@@ -4914,7 +4914,7 @@ async def delete_candidate(
 from app.services.cv_enrichment import (  # noqa: E402
     _CV_PLACEHOLDER_NAME,
     CvWritePolicy,
-    _apply_cv_enrichment,
+    _apply_cv_enrichment,  # noqa: F401 — re-eksport dla testów i starych importów
 )
 from app.services.candidate_language_writer import (  # noqa: E402
     normalize_language_payload,
@@ -4949,34 +4949,10 @@ async def _parsed_source_is_quarantined(
 
 
 async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
-    """Run CC classifier and persist the result as the candidate's CC set.
+    """Zgodność wsteczna — logika mieszka w `cv_ingest_service`."""
+    from app.services.cv_ingest_service import assign_primary_cc_if_empty
 
-    Delegates to the shared writer (`apply_candidate_cc_scores`) which writes
-    the M2M (primary + up to 2 secondary) and syncs the legacy slug + FK.
-    `overwrite=False` preserves the historical "fill only when empty" behaviour
-    on CV re-upload — a candidate that already has a primary keeps it, and
-    manually-curated profiles are never touched. Failures are logged but never
-    surface to the caller: CC is enrichment, not required for the record.
-    """
-    try:
-        from app.services.candidate_cc_assignment import apply_candidate_cc_scores
-        from app.services.cc_classifier import classify_candidate_to_cc
-
-        scores = await classify_candidate_to_cc(candidate, db)
-        summary = await apply_candidate_cc_scores(
-            candidate, scores, db, overwrite=False
-        )
-        if summary:
-            logger.info(
-                "[cv_cc] auto-assigned CC candidate=%s primary=%s score=%.3f "
-                "secondary=%s",
-                candidate.id,
-                summary["primary"],
-                summary["primary_score"],
-                summary["secondary"],
-            )
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
+    await assign_primary_cc_if_empty(candidate, db)
 
 
 async def _store_candidate_document(
@@ -5132,13 +5108,14 @@ async def _enrich_candidate_from_document_task(
     candidate_id: int,
     document_id: int,
     expected_hash: Optional[str] = None,
+    trigger: str = "cv_upload",
 ) -> None:
     """Extract and enrich from the still-current primary CV version."""
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
+    from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
-    from app.services.match_score_cache import mark_stale_for_candidate
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -5221,38 +5198,18 @@ async def _enrich_candidate_from_document_task(
 
             candidate.raw_cv_text = raw_text
             candidate.cv_filename = document.filename
-            _apply_cv_enrichment(
-                candidate,
-                parsed,
+            await finish_cv_ingest(
+                db,
+                candidate=candidate,
+                parsed=parsed,
                 source_document_id=document.id,
                 source_hash=document.content_sha256,
                 # A recruiter just uploaded this file: "use this CV" is an
                 # explicit instruction, so refreshing existing values is the
                 # intent. Manual locks still win.
                 policy=CvWritePolicy.REFRESH,
+                trigger=trigger,
             )
-            if parsed.get("languages"):
-                await sync_candidate_languages_from_source(
-                    db,
-                    candidate_id=candidate_id,
-                    raw_languages=parsed["languages"],
-                    provenance="cv",
-                    source_ref=document.content_sha256 or f"document:{document.id}",
-                )
-            try:
-                from app.services.index_outbox_service import (
-                    schedule_or_embed_candidate,
-                )
-
-                await schedule_or_embed_candidate(candidate_id, db)
-            except Exception as exc:  # pragma: no cover - enrichment is best effort
-                logger.warning(
-                    "[cv_enrich] re-embed failed candidate=%s: %s",
-                    candidate_id,
-                    exc,
-                )
-            await db.commit()
-            await mark_stale_for_candidate(db, candidate_id)
             await db.commit()
         except Exception as exc:  # pragma: no cover - defensive background task
             logger.warning(
@@ -5282,8 +5239,8 @@ async def _enrich_candidate_cv_task(
     logged and the upload response stays successful.
     """
     from app.core.database import AsyncSessionLocal
+    from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
-    from app.services.match_score_cache import mark_stale_for_candidate
 
     async with AsyncSessionLocal() as db:
         try:
@@ -5367,40 +5324,18 @@ async def _enrich_candidate_cv_task(
                     await db.commit()
                     return
 
-            written = _apply_cv_enrichment(
-                candidate,
-                parsed,
+            outcome = await finish_cv_ingest(
+                db,
+                candidate=candidate,
+                parsed=parsed,
                 source_document_id=source_document_id,
                 source_hash=source_hash,
                 # Explicit re-parse requested by a user — same reasoning as the
                 # upload path above.
                 policy=CvWritePolicy.REFRESH,
+                trigger="cv_refresh",
             )
-            if parsed.get("languages"):
-                await sync_candidate_languages_from_source(
-                    db,
-                    candidate_id=candidate_id,
-                    raw_languages=parsed["languages"],
-                    provenance="cv",
-                    source_ref=source_hash
-                    or (
-                        f"document:{source_document_id}"
-                        if source_document_id is not None
-                        else f"legacy-cv:{candidate_id}"
-                    ),
-                )
-            await db.commit()
-
-            # v4: CC auto-classification after enrichment writes skills/summary.
-            # Needs a fresh read so the classifier sees the committed state.
-            refreshed = await db.scalar(
-                select(Candidate).where(Candidate.id == candidate_id)
-            )
-            if refreshed is not None:
-                await _auto_assign_primary_cc(refreshed, db)
-                await db.commit()
-
-            await mark_stale_for_candidate(db, candidate_id)
+            written = outcome.companies_written
             await db.commit()
 
             logger.info(
@@ -5583,21 +5518,6 @@ async def create_candidate_from_cv(
         source_id=document.id,
         provenance="cv_parser:from_cv",
     )
-    _apply_cv_enrichment(
-        candidate,
-        parsed,
-        source_document_id=document.id,
-        source_hash=document.content_sha256,
-    )
-    if parsed.get("languages"):
-        await sync_candidate_languages_from_source(
-            db,
-            candidate_id=candidate.id,
-            raw_languages=parsed["languages"],
-            provenance="cv",
-            source_ref=document.content_sha256 or f"document:{document.id}",
-        )
-
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -5623,17 +5543,19 @@ async def create_candidate_from_cv(
     )
     await db.flush()
 
-    # 5 — best-effort enrichment: embedding + CC classification.
-    # Synchronous because the endpoint should return a fully-populated
-    # candidate for the preview screen.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
+    # 5 — profil, kategoria, wektor i auto-dopasowanie jedną ścieżką.
+    # Synchronicznie, bo ekran podglądu dostaje od razu pełnego kandydata.
+    from app.services.cv_ingest_service import finish_cv_ingest
 
-        await schedule_or_embed_candidate(candidate.id, db)
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[from-cv] embedding failed id=%s: %s", candidate.id, e)
-
-    await _auto_assign_primary_cc(candidate, db)
+    await finish_cv_ingest(
+        db,
+        candidate=candidate,
+        parsed=parsed,
+        source_document_id=document.id,
+        source_hash=document.content_sha256,
+        policy=CvWritePolicy.FILL_EMPTY,
+        trigger="cv_upload",
+    )
 
     await db.commit()
 
