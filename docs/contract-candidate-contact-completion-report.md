@@ -1,6 +1,6 @@
 # E-mail i telefon kandydata w widoku kontraktu — raport z wdrożenia
 
-**Data:** 16.09.2026 · **Migracja:** `0318_contract_candidate_contact`
+**Data:** 16.09.2026 · **Migracja:** `0320_contract_candidate_contact`
 
 ## Problem
 
@@ -32,7 +32,7 @@ ze źródłami w kolejności **umowa z generatora → profil kandydata → puste
 
 | Warstwa | Plik |
 |---|---|
-| Schemat | `alembic/versions/0318_contract_candidate_contact.py` + lustro DDL w `entrypoint.sh`, `models/contract.py` |
+| Schemat | `alembic/versions/0320_contract_candidate_contact.py` + lustro DDL w `entrypoint.sh`, `models/contract.py` |
 | Reguła źródeł | `services/contract_candidate_contact.py` (czysty moduł, wspólny dla ekranu i raportu) |
 | API | `schemas/contract.py` (`ContractUpdate`, `ContractDetailResponse` +6 pól), `api/contracts.py` (`_to_detail`, normalizacja w PATCH) |
 | Zapis z generatora | `services/b2b_contract_automation.py::fill_candidate_contact` (podpis obustronny), `api/b2b_contract_generator.py` (`POST /render`) |
@@ -66,7 +66,7 @@ ze źródłami w kolejności **umowa z generatora → profil kandydata → puste
 - `pytest tests/test_contract_candidate_contact.py` — **13 passed**
   (kolejność źródeł, wyczyszczenie, PATCH częściowy, 422 na za długiej wartości,
   umowa bez kandydata, niezaładowana relacja bez lazy-loada, RODO).
-- `pytest tests/test_contract_candidate_contact_backfill_0318.py` — **9 passed**
+- `pytest tests/test_contract_candidate_contact_backfill_0320.py` — **9 passed**
   (fill-only, idempotencja, brak materializacji profilu, kształt kluczy
   paragonu, 409 raportu przed korektą, zawartość arkusza).
 - `pytest tests/test_b2b_signature_automation.py` — **41 passed** (w tym 2 nowe:
@@ -74,7 +74,7 @@ ze źródłami w kolejności **umowa z generatora → profil kandydata → puste
 - Przegląd regresji `-k "contract or b2b or erasure or rodo or section_ceiling
   or route_authz"` na czystej bazie — **1748 passed, 0 failed**; łańcuch
   migracji liniowy (`test_only_one_alembic_head` zielony po przenumerowaniu
-  na `0318`, bo upstream zajął `0316`).
+  na `0320`, bo upstream zajął `0316`).
 - Front: `tsc --noEmit` czysty, `next lint` czysty, `vitest` **583 passed**
   (w tym 8 nowych dla wiersza kontaktu i 119 dla middleware).
 - Przeglądarka, harness `/preview/contract-candidate-contact`: cztery stany,

@@ -238,7 +238,7 @@ _ENUM_STATEMENTS = [
     # tych wywołaniach => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'uop_check'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_name_backfill'",
-    # 0318: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
+    # 0320: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
     # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
     # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
@@ -1636,7 +1636,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_min INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_max INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS client_order_end_date DATE",
-    # 0318: kontakt do konsultanta na umowie — NADPISANIE, nie migawka. Pusto
+    # 0320: kontakt do konsultanta na umowie — NADPISANIE, nie migawka. Pusto
     # znaczy „weź z profilu kandydata" (rozstrzyga odczyt), więc kolumny są
     # nullable i bez UNIQUE. Dane przepisuje jednorazowa korekta niżej.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS candidate_email VARCHAR(255)",
@@ -4351,7 +4351,7 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
-    # 0318: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
+    # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
     "ALTER TABLE order_mail_documents "
@@ -5090,7 +5090,7 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_name_backfill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_name_backfill')",
-    # 0318: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
+    # 0320: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
     # dopisywane dla osób pokazanych na kartotece firmy w ATLAS-ie). Sam wiersz
     # NIE włącza wydatku — bramką jest EXPERIENCE_DATES_ON_DEMAND_ENABLED,
     # domyślnie false.

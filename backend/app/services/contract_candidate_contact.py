@@ -33,7 +33,7 @@ from typing import Literal, Optional, Protocol
 
 from sqlalchemy import inspect as sa_inspect
 
-# Lustro limitów kolumn (migracja 0318): e-mail jak `contracts.client_pm_email`,
+# Lustro limitów kolumn (migracja 0320): e-mail jak `contracts.client_pm_email`,
 # telefon jak `candidates.phone`. Dłuższa wartość jest odrzucana przy zapisie,
 # nie przycinana — przycięty numer telefonu wygląda na poprawny i nie da się
 # odróżnić od literówki.

@@ -1,4 +1,4 @@
-"""Arkusz braków kontaktu do konsultanta — po jednorazowej korekcie 0318.
+"""Arkusz braków kontaktu do konsultanta — po jednorazowej korekcie 0320.
 
 Ticket: „Po zakończeniu backfillu system generuje plik Excel z listą
 kontraktów, dla których e-mail i/lub telefon pozostały puste (brak danych

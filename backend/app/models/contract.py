@@ -189,7 +189,7 @@ class Contract(Base, TimestampMixin):
     # Załączniki/dokumenty (lista URL lub metadanych)
     documents: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
 
-    # Kontakt do KONSULTANTA — nadpisanie, nie migawka (migracja 0318). Wartość
+    # Kontakt do KONSULTANTA — nadpisanie, nie migawka (migracja 0320). Wartość
     # trafia tu z generatora umów B2B (`render_payload->>'partner_email'` /
     # `'partner_phone'`) albo z ręcznej edycji w widoku kontraktu. Pusto znaczy
     # „weź z profilu kandydata": rozstrzyga to `services/contract_candidate_contact`

@@ -45,7 +45,7 @@ from app.services.contract_candidate_contact import (
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MARKER = "0318_contract_candidate_contact"
+REPAIR_MARKER = "0320_contract_candidate_contact"
 SOURCE = REPAIR_MARKER
 
 _RECEIPT_SHAPED_KEY_RE = re.compile(r"\A[0-9]{4}_[a-z0-9_]+\Z")

@@ -19,8 +19,8 @@ Lustro DDL: ``entrypoint.sh`` (prod alembic bywa osierocony).
 
 from alembic import op
 
-revision = "0318_contract_candidate_contact"
-down_revision = "0317_pipeline_stage_posting"
+revision = "0320_contract_candidate_contact"
+down_revision = "0319_experience_dates_on_demand"
 branch_labels = None
 depends_on = None
 

@@ -119,7 +119,7 @@ async def _run(contract_ids: set[int], marker: str):
 def _marker() -> str:
     # Marker produkcyjny jest jednorazowy globalnie, a baza testowa jest
     # współdzielona — każdy test dostaje własny, tak samo ukształtowany.
-    return f"0318_test_{uuid.uuid4().hex[:8]}"
+    return f"0320_test_{uuid.uuid4().hex[:8]}"
 
 
 async def test_copies_the_generator_contact_onto_the_linked_contract():

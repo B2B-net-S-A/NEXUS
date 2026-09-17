@@ -2972,7 +2972,7 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   `test_ticket_lists_all_sixteen_people…` trzyma CI na czerwono, dopóki
   lista nie jest kompletna — marker jest jednorazowy.
 
-## Kontakt do konsultanta na umowie (09.2026, migracja 0318)
+## Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 
 Karta „Informacje o kontrakcie" pokazuje e-mail i telefon konsultanta w jednym
 wierszu pod „Typ kontraktu". Reguła kolejności źródeł ma JEDNO miejsce:
@@ -2984,7 +2984,7 @@ powtarza reguły).
   w widoku kontraktu. Pusta kolumna znaczy „weź z profilu kandydata", a fallback
   liczy się przy ODCZYCIE — poprawiony w profilu telefon jest na umowie widoczny
   od razu. Materializacja profilu przy backfillu dałaby umowy z kontaktem
-  starzejącym się w ciszy, dlatego korekta 0318 kopiuje **wyłącznie poziom
+  starzejącym się w ciszy, dlatego korekta 0320 kopiuje **wyłącznie poziom
   pierwszy** (dane z generatora).
 - **Wyczyszczenie pola przywraca fallback.** Pusty string i jawny `null` w PATCH
   normalizują się do `NULL` (`_normalize_candidate_contact_updates`). Gdyby pusty
@@ -3014,7 +3014,7 @@ powtarza reguły).
   arkusza „Braki" trafia kontrakt, dla którego **rozstrzygnięty** e-mail lub
   telefon jest pusty, czyli ani umowa, ani profil nic nie dają — zapytanie
   o samą pustą kolumnę wysyłałoby zespół do przepisywania danych, które i tak
-  widać. Paragon korekty (`0318_contract_candidate_contact`) niesie liczniki
+  widać. Paragon korekty (`0320_contract_candidate_contact`) niesie liczniki
   i ID; wartości (PII) leżą pod `repair_details_…`, którego publiczny
   `show_migration_receipts` nie wydrukuje.
 - **`render_payload` starych dokumentów zostaje nietknięty** — korekta go czyta,
