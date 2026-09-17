@@ -129,3 +129,48 @@ export function lineScopeUsage(line: ScopeLine): LineScopeUsage {
     pct: totalBudget > 0 ? (totalUsed / totalBudget) * 100 : null,
   };
 }
+
+export interface LineScopeRemaining {
+  /** Procent wykorzystania podstawy; `null`, gdy podstawa ma zerowy limit. */
+  basePct: number | null;
+  /** `null` = umowa bez opcji albo opcja z zerowym limitem. */
+  optionalPct: number | null;
+  /** Ujemna wartość = przekroczenie zakresu (fakt, nie błąd — nie ścinamy). */
+  baseRemaining: number;
+  /** `null` = umowa bez opcji. */
+  optionalRemaining: number | null;
+  /** Pozostało łącznie — serwerowe `md_remaining`, więc z korektą ręczną. */
+  totalRemaining: number;
+  /** Korekta ręczna budżetu linii (0, gdy brak). */
+  adjustment: number;
+}
+
+type RemainingLine = ScopeLine &
+  Partial<Pick<OrderLineRead, "md_remaining" | "md_manual_adjustment">>;
+
+/**
+ * Ile MD zostało — osobno w podstawie, w opcji i łącznie (karta konsultanta CeZ).
+ *
+ * „Łącznie" bierze serwerowe `md_remaining` (podstawa + opcja − zejścia +
+ * korekta ręczna), bo to ta liczba zamyka linię i zasila alerty. Pozostałość
+ * podstawy i opcji korekty nie zna — dlatego korekta jedzie osobno, żeby karta
+ * mogła wytłumaczyć, czemu trzy „pozostało" się nie sumują. Brak opcji w umowie
+ * nie dolicza jej limitu do sumy (tak samo jak `lineScopeUsage`).
+ */
+export function lineScopeRemaining(line: RemainingLine): LineScopeRemaining {
+  const usage = lineScopeUsage(line);
+  const adjustment = line.md_manual_adjustment ?? 0;
+  return {
+    basePct: usage.baseTotal > 0 ? (usage.baseUsed / usage.baseTotal) * 100 : null,
+    optionalPct:
+      usage.optionalTotal !== null && usage.optionalTotal > 0
+        ? ((usage.optionalUsed ?? 0) / usage.optionalTotal) * 100
+        : null,
+    baseRemaining: usage.baseTotal - usage.baseUsed,
+    optionalRemaining:
+      usage.optionalTotal === null ? null : usage.optionalTotal - (usage.optionalUsed ?? 0),
+    totalRemaining:
+      line.md_remaining ?? usage.totalBudget - usage.totalUsed + adjustment,
+    adjustment,
+  };
+}

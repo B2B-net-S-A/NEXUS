@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { MdScopeBars } from "@/components/client-profile/orders/MdScopeBars";
+import {
+  MdScopeBars,
+  MdScopePanels,
+  MdScopeTotalBar,
+} from "@/components/client-profile/orders/MdScopeBars";
 import type { OrderLineRead } from "@/lib/api/orderGroups";
 
 function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
@@ -22,7 +26,7 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     input_value: 190,
     input_mode: "md",
     md_total: 190,
-    md_remaining: 36,
+    md_remaining: 206,
     md_manual_adjustment: 0,
     predecessor_order_id: null,
     predecessor_consultant_name: null,
@@ -93,5 +97,66 @@ describe("MdScopeBars — podstawa + opcja (CeZ)", () => {
       .toHaveTextContent(/190 \/ 190 MD 100%/);
     expect(screen.getByRole("progressbar", { name: /Opcja/ }).closest("div")?.parentElement)
       .toHaveTextContent(/10 \/ 50 MD 20%/);
+  });
+});
+
+describe("MdScopePanels + MdScopeTotalBar — karta konsultanta CeZ", () => {
+  it("podstawa, opcja i łącznie z jawnym „pozostało”", () => {
+    render(
+      <div>
+        <MdScopePanels line={line()} />
+        <MdScopeTotalBar line={line()} />
+      </div>,
+    );
+    const base = screen.getByRole("progressbar", { name: "Podstawa — wykorzystano MD" });
+    expect(base).toHaveAttribute("aria-valuenow", "81");
+    expect(base.parentElement).toHaveTextContent(/154 \/ 190 MD.*81% wykorzystane.*Pozostało 36 MD/);
+    const optional = screen.getByRole("progressbar", { name: "Opcja — wykorzystano MD" });
+    expect(optional.parentElement).toHaveTextContent(/0 \/ 170 MD.*0% wykorzystane.*Pozostało 170 MD/);
+    const total = screen.getByRole("progressbar", { name: "Łącznie — wykorzystano MD" });
+    expect(total.firstElementChild).toHaveClass("bg-foreground");
+    // 154 / 360 = 43%; pozostało = serwerowe md_remaining.
+    expect(total.parentElement).toHaveTextContent(/154 \/ 360 MD \(43%\).*pozostało 206 MD/);
+  });
+
+  it("bez opcji: wyciszony komunikat, łącznie tylko z podstawy", () => {
+    const noOption = line({
+      md_optional_total: null,
+      md_optional_used: null,
+      md_used: 155,
+      md_base_used: 155,
+      md_total: 340,
+      md_remaining: 185,
+    });
+    render(
+      <div>
+        <MdScopePanels line={noOption} />
+        <MdScopeTotalBar line={noOption} />
+      </div>,
+    );
+    expect(screen.getByText("Brak opcji w umowie")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Opcja — wykorzystano MD" })).toBeNull();
+    const total = screen.getByRole("progressbar", { name: "Łącznie — wykorzystano MD" });
+    expect(total.parentElement).toHaveTextContent(/155 \/ 340 MD \(46%\).*pozostało 185 MD/);
+  });
+
+  it("przekroczenie i korekta ręczna są opisane wprost", () => {
+    const exceeded = line({
+      md_optional_total: null,
+      md_optional_used: null,
+      md_total: 100,
+      md_used: 108,
+      md_base_used: 108,
+      md_remaining: -8,
+    });
+    const { unmount } = render(<MdScopeTotalBar line={exceeded} />);
+    expect(screen.getByText(/przekroczono o 8 MD/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", { name: "Łącznie — wykorzystano MD" }).firstElementChild,
+    ).toHaveClass("bg-destructive");
+    unmount();
+
+    render(<MdScopeTotalBar line={line({ md_manual_adjustment: -5, md_remaining: 201 })} />);
+    expect(screen.getByText(/w tym korekta −5 MD/)).toBeInTheDocument();
   });
 });

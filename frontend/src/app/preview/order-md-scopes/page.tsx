@@ -47,7 +47,8 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     input_value: 190,
     input_mode: "md",
     md_total: 190,
-    md_remaining: 36,
+    // Serwer: podstawa + opcja − zejścia + korekta = 190 + 170 − 154.
+    md_remaining: 206,
     md_manual_adjustment: 0,
     predecessor_order_id: null,
     predecessor_consultant_name: null,
@@ -64,8 +65,9 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
   };
 }
 
-/** Cztery przypadki z ticketu: podstawa+opcja z zużyciem, bez opcji,
- *  zastąpiony → następca, następca z zerowym zużyciem. */
+/** Przypadki z ticketów: podstawa+opcja z zużyciem, bez opcji, zastąpiony →
+ *  następca, następca z zerowym zużyciem, przekroczony zakres i korekta ręczna
+ *  (karta konsultanta: trzy „pozostało" + dopisek o korekcie). */
 const LINES: OrderLineRead[] = [
   line(),
   line({
@@ -91,7 +93,7 @@ const LINES: OrderLineRead[] = [
     end_date: "2026-06-30",
     cooperation_ended_on: "2026-06-30",
     md_total: 100,
-    md_remaining: 0,
+    md_remaining: 28,
     md_used: 112,
     md_optional_total: 40,
     md_base_used: 100,
@@ -107,7 +109,7 @@ const LINES: OrderLineRead[] = [
     consultant_name: "Marcin Następca",
     start_date: "2026-07-01",
     md_total: 60,
-    md_remaining: 60,
+    md_remaining: 88,
     md_used: 0,
     md_optional_total: 28,
     md_base_used: 0,
@@ -119,6 +121,32 @@ const LINES: OrderLineRead[] = [
     added_by_name: "Delivery Lead Przykładowy",
     added_at: "2026-07-01T09:00:00Z",
     replaces_name: "Tomasz Zastąpiony",
+  }),
+  line({
+    id: 5,
+    contract_id: 104,
+    candidate_id: 9,
+    consultant_name: "Ewa Przekroczona",
+    md_total: 100,
+    md_remaining: -8,
+    md_used: 108,
+    md_optional_total: null,
+    md_base_used: 108,
+    md_optional_used: null,
+    rate_revenue: 1100,
+  }),
+  line({
+    id: 6,
+    contract_id: 105,
+    candidate_id: 10,
+    consultant_name: "Jan Korekta",
+    md_total: 190,
+    md_remaining: 270,
+    md_manual_adjustment: 10,
+    md_used: 100,
+    md_optional_total: 170,
+    md_base_used: 100,
+    md_optional_used: 0,
   }),
 ];
 
@@ -163,14 +191,15 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     },
     // Reguła pozycji jak w backendzie: zastąpiony (Tomasz, 100 + 40 MD)
     // oddał pozycję następcy — liczy się jego ZUŻYCIE, nie budżet.
-    // Pozycje: 360 (Anna) + 120 (Piotr) + 88 (Marcin) = 568 MD;
-    // zużycie ze wszystkich linii: 154 + 50 + 112 + 0 = 316 MD.
-    // Wartość umowy: 360×1240 + 120×1100 + 88×1180 = 682 240 zł;
-    // wykorzystano: 154×1240 + 50×1100 + 112×1180 = 378 120 zł.
-    md_positions_total: 568,
-    md_used_total: 316,
-    contract_value_pln: 682_240,
-    used_value_pln: 378_120,
+    // Pozycje: 360 (Anna) + 120 (Piotr) + 88 (Marcin) + 100 (Ewa) + 360 (Jan)
+    // = 1028 MD; zużycie: 154 + 50 + 112 + 0 + 108 + 100 = 524 MD.
+    // Wartość umowy: 360×1240 + 120×1100 + 88×1180 + 100×1100 + 360×1240
+    // = 1 238 640 zł; wykorzystano: 154×1240 + 50×1100 + 112×1180 + 108×1100
+    // + 100×1240 = 620 920 zł.
+    md_positions_total: 1028,
+    md_used_total: 524,
+    contract_value_pln: 1_238_640,
+    used_value_pln: 620_920,
     lines: LINES,
     active_consultants: 3,
     event_count: 6,
@@ -179,7 +208,31 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-const WITH_FINANCE = group();
+// Przyszłe zamówienie pod kartą — sekcja w ciaśniejszym układzie CeZ.
+const FUTURE = group({
+  id: 912,
+  order_number: "CeZ/242/2025/Z-9",
+  start_date: "2027-01-01",
+  end_date: null,
+  md_positions_total: 360,
+  md_used_total: 0,
+  contract_value_pln: 446_400,
+  used_value_pln: 0,
+  event_count: 0,
+  lines: [
+    line({
+      id: 20,
+      group_id: 912,
+      start_date: "2027-01-01",
+      md_remaining: 360,
+      md_used: 0,
+      md_base_used: 0,
+      md_optional_used: 0,
+    }),
+  ],
+});
+
+const WITH_FINANCE = group({ future_orders: [FUTURE] });
 const WITHOUT_FINANCE = group({
   id: 911,
   order_number: "CeZ/242/2025/Z-8",
