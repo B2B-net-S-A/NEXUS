@@ -1826,7 +1826,7 @@ async def list_candidates(
             # Optymalizacja 2026-07-27: dawniej pętla
             # `for cand in items: rank_jobs_for_candidate(cand, open_jobs)` —
             # page_size × 50 ofert sekwencyjnych `score_candidate_job`, każdy
-            # z własnymi round-tripami (`_score_champion_fit` + `_check_penalties`).
+            # z własnymi round-tripami (`_score_champion_fit` + `_check_penalties_and_warnings`).
             # Przy 50 kandydatach na stronę to ~2500 wywołań ≈ 5000 zapytań.
             # Teraz transpozycja pętli: JEDNO `bulk_get_or_compute` per oferta,
             # które czyta cache match-score jednym zapytaniem dla całej strony
@@ -2693,12 +2693,11 @@ async def _assign_candidate_to_job(
 
     # Bramka dopuszczalności — TA SAMA, którą stosuje każde inne wejście
     # zapisujące `CandidateStage` (`/api/pipeline/move`, rekomendacje, bulk).
-    # Bez niej ta ścieżka sprawdzała WYŁĄCZNIE weto hiring managera, więc
-    # kandydat objęty NDA, czarną listą klienta, globalną czarną listą albo
-    # konfliktem konkurencyjnym trafiał do pipeline'u tego klienta jednym
-    # kliknięciem z wtyczki — podczas gdy ten sam ruch w kanbanie kończył się
-    # 409. `enforce_manager_verdict=False`, bo weto rozstrzyga wywołujący
-    # (degraduje je do `assignment_skipped_reason` zamiast 409).
+    # Blokuje twardo globalną czarną listę; konflikty z klientem (czarna lista
+    # klienta / NDA / konkurent) są od 17.09.2026 ostrzeżeniem i tu nie
+    # blokują — dokładnie jak w kanbanie. `enforce_manager_verdict=False`, bo
+    # weto hiring managera rozstrzyga wywołujący (degraduje je do
+    # `assignment_skipped_reason` zamiast 409).
     await assert_candidate_move_eligible(
         db,
         candidate_id=candidate_id,
@@ -2826,8 +2825,8 @@ async def create_candidate_from_linkedin(
                             user_id=current_user.id,
                         )
                     except HTTPException as exc:
-                        # 409 z bramki dopuszczalności (NDA / czarna lista /
-                        # konkurent) degradujemy tak samo jak weto managera:
+                        # 409 z bramki dopuszczalności (globalna czarna lista)
+                        # degradujemy tak samo jak weto managera:
                         # dane kandydata zapisujemy, przypisania nie robimy,
                         # a wtyczka pokazuje polski powód. Twarde 409 wywaliłoby
                         # cały zapis, a wtyczka nie ma jak się z tego podnieść.

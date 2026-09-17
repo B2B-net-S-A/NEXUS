@@ -118,6 +118,9 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
         matching_nice=list(b.get("matching_nice") or []),
         gap_nice=list(b.get("gap_nice") or []),
         penalties=list(b.get("penalties") or []),
+        # Rows written before 17.09.2026 have no `warnings` key (a client
+        # conflict used to zero `total` as a penalty) — hydrate as empty.
+        warnings=list(b.get("warnings") or []),
         fit_confidence=b.get("fit_confidence"),
     )
 

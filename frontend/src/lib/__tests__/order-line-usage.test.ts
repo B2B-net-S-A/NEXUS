@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   consultantUsageSentence,
   hasScopedMd,
+  lineScopeRemaining,
   lineScopeUsage,
   usageAmount,
 } from "@/lib/order-line-usage";
@@ -125,5 +126,58 @@ describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
     expect(hasScopedMd({ ...bik, md_total: null, md_base_used: null }, cez)).toBe(false);
     // Zakres opcjonalny z odpowiedzi wystarcza sam — nie ma go bez umowy CeZ.
     expect(hasScopedMd({ ...bik, md_optional_total: 20 }, plainGroup)).toBe(true);
+  });
+});
+
+describe("lineScopeRemaining — karta konsultanta CeZ", () => {
+  const scoped = {
+    md_total: 190,
+    md_optional_total: 170,
+    md_base_used: 184,
+    md_optional_used: 0,
+    md_used: 184,
+    md_remaining: 176,
+    md_manual_adjustment: 0,
+  };
+
+  it("pozostało osobno w podstawie, opcji i łącznie (serwerowe md_remaining)", () => {
+    const rest = lineScopeRemaining(scoped);
+    expect(rest.baseRemaining).toBe(6);
+    expect(rest.optionalRemaining).toBe(170);
+    expect(rest.totalRemaining).toBe(176);
+    expect(Math.round(rest.basePct!)).toBe(97);
+    expect(rest.optionalPct).toBe(0);
+    expect(rest.adjustment).toBe(0);
+  });
+
+  it("brak opcji w umowie nie dolicza jej limitu do łącznie", () => {
+    const rest = lineScopeRemaining({
+      md_total: 340,
+      md_optional_total: null,
+      md_base_used: 155,
+      md_optional_used: null,
+      md_used: 155,
+      md_remaining: null,
+    });
+    expect(rest.optionalRemaining).toBeNull();
+    expect(rest.optionalPct).toBeNull();
+    expect(rest.totalRemaining).toBe(185);
+  });
+
+  it("korekta ręczna wchodzi do łącznie i jest zwracana osobno; przekroczenie jest ujemne", () => {
+    const adjusted = lineScopeRemaining({ ...scoped, md_remaining: null, md_manual_adjustment: 10 });
+    expect(adjusted.totalRemaining).toBe(186);
+    expect(adjusted.adjustment).toBe(10);
+
+    const exceeded = lineScopeRemaining({
+      md_total: 100,
+      md_optional_total: null,
+      md_base_used: 108,
+      md_optional_used: null,
+      md_used: 108,
+      md_remaining: -8,
+    });
+    expect(exceeded.baseRemaining).toBe(-8);
+    expect(exceeded.totalRemaining).toBe(-8);
   });
 });

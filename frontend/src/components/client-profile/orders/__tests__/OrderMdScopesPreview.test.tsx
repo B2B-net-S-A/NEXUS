@@ -27,9 +27,14 @@ describe("Harness /preview/order-md-scopes", () => {
     // Nagłówek: umowa wykonawcza z częścią i kwoty tylko w wariancie z finansami.
     expect(screen.getAllByText("Umowa wykonawcza CeZ/242/2025 · Cz. II")).toHaveLength(2);
     expect(screen.getAllByText(/Wykorzystano wartości umowy/)).toHaveLength(1);
-    // Wiersze: zastąpiony → następca, brak opcji w umowie.
+    // Karta konsultanta CeZ: zastąpiony → następca, brak opcji w umowie,
+    // przekroczenie i korekta ręczna wprost przy „Łącznie".
     expect(screen.getAllByText("Zastąpiony")).toHaveLength(2);
-    expect(screen.getAllByText("brak opcji w umowie").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Brak opcji w umowie").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/przekroczono o 8 MD/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/w tym korekta \+10 MD/).length).toBeGreaterThan(0);
+    // Przyszłe zamówienie pod kartą (tylko wariant z finansami).
+    expect(screen.getByText("Przyszłe zamówienia (1)")).toBeInTheDocument();
 
     await user.click(
       screen.getAllByRole("button", { name: "Rozliczenia miesięczne — Anna Przykładowa" })[0],

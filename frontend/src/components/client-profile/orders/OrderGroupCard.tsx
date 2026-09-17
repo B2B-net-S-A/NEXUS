@@ -44,11 +44,12 @@ import {
 import { countPl } from "@/lib/plural-pl";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 
 import { consultantUsageSentence, hasScopedMd } from "@/lib/order-line-usage";
 import { LineMonthlyHistoryDialog } from "./LineMonthlyHistoryDialog";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
-import { MdScopeBars } from "./MdScopeBars";
+import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderTypeBadge } from "./OrderTypeBadge";
 
 function initials(name: string): string {
@@ -365,6 +366,10 @@ interface OrderLineRowProps {
   onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
   /** „Rozliczenia miesięczne" — wpisy MD per miesiąc tej osoby. */
   onShowConsumptions?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  /** Karta konsultanta CeZ (pilotaż) zamiast jednego rzędu. */
+  scopedCardLayout?: boolean;
+  /** Wiersz stoi na liście kart (szare tło) — dostaje białą powierzchnię. */
+  cardSurface?: boolean;
 }
 
 /** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
@@ -383,6 +388,8 @@ function OrderLineRow({
   onKeepHistory,
   onReplaceLine,
   onShowConsumptions,
+  scopedCardLayout = false,
+  cardSurface = false,
 }: OrderLineRowProps) {
   const pendingOffboarding = line.offboarding_case?.status === "pending";
   const completedCostLine = group.is_cost_based && !line.is_active;
@@ -414,19 +421,11 @@ function OrderLineRow({
     Boolean(line.history_kept_at) ||
     needsDecision;
 
-  return (
-    <li
-      id={orderLineAnchorId(line.id)}
-      className={cn(
-        "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
-        !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
-        searchQuery.trim() &&
-          consultantMatchesQuery(line.consultant_name, searchQuery) &&
-          "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
-        pendingOffboarding &&
-          "my-1 rounded-lg border border-destructive/50 bg-destructive/10 px-3 opacity-100 ring-1 ring-inset ring-destructive/20",
-      )}
-    >
+  // Kawałki wiersza składane w dwa układy: domyślny (jeden rząd — BIK,
+  // Polkomtel, BNP; DOM identyczny jak przed kartą CeZ) i karta konsultanta
+  // Centrum e-Zdrowia (nagłówek z akcjami → stawka | podstawa | opcja → łącznie).
+  const nameBlock = (
+    <>
       <div className="flex min-w-[13rem] flex-1 items-center gap-3">
         <Avatar className="h-8 w-8">
           <AvatarFallback
@@ -547,7 +546,11 @@ function OrderLineRow({
           ) : null}
         </div>
       </div>
+    </>
+  );
 
+  const ratesBlock = (
+    <>
       {/* Stawki — „—" gdy rola nie ma uprawnień finansowych. Zniknięcie
           kolumny zostawiłoby pustkę bez wyjaśnienia.
 
@@ -575,7 +578,11 @@ function OrderLineRow({
           </span>
         </span>
       </div>
+    </>
+  );
 
+  const budgetBlock = (
+    <>
       {group.is_cost_based ? (
         <span className="ml-auto text-xs text-muted-foreground">
           zafakturowano{" "}
@@ -604,7 +611,11 @@ function OrderLineRow({
           className="ml-auto"
         />
       )}
+    </>
+  );
 
+  const consumptionsButton = (
+    <>
       {perPersonMd && onShowConsumptions ? (
         <button
           type="button"
@@ -616,7 +627,11 @@ function OrderLineRow({
           <CalendarDays className="h-4 w-4" aria-hidden="true" />
         </button>
       ) : null}
+    </>
+  );
 
+  const actionsBlock = (
+    <>
       {pendingOffboarding ? (
         <div className="ml-auto flex flex-col items-end gap-1">
           {canManage ? (
@@ -680,6 +695,11 @@ function OrderLineRow({
           ) : null}
         </div>
       ) : null}
+    </>
+  );
+
+  const notesBlock = (
+    <>
       {hasHistoryNotes ? (
         <div className="basis-full space-y-1 pl-11">
           {line.origin === "manual" && line.added_at ? (
@@ -744,6 +764,76 @@ function OrderLineRow({
           ) : null}
         </div>
       ) : null}
+    </>
+  );
+  if (scopedCardLayout) {
+    return (
+      <li
+        id={orderLineAnchorId(line.id)}
+        className={cn(
+          "rounded-xl border border-border bg-card px-4 py-3",
+          !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+          searchQuery.trim() &&
+            consultantMatchesQuery(line.consultant_name, searchQuery) &&
+            "bg-primary/10 ring-1 ring-inset ring-primary/20",
+          pendingOffboarding &&
+            "border-destructive/50 bg-destructive/10 opacity-100 ring-1 ring-inset ring-destructive/20",
+        )}
+      >
+        <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+          {nameBlock}
+          <div className="ml-auto flex items-center gap-1">
+            {consumptionsButton}
+            {actionsBlock}
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-[9rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-start">
+          {/* Stawki — „—" bez uprawnień finansowych, jak w układzie domyślnym. */}
+          <div className="text-xs">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Stawka
+            </p>
+            <p className="mt-0.5 text-muted-foreground" title="Stawka kosztowa">
+              koszt{" "}
+              <span className="font-semibold text-foreground">
+                {displayLineRate(line, "cost")}
+              </span>
+            </p>
+            <p className="text-muted-foreground" title="Stawka przychodowa">
+              przych.{" "}
+              <span className="font-semibold text-foreground">
+                {displayLineRate(line, "revenue")}
+              </span>
+            </p>
+          </div>
+          <MdScopePanels line={line} />
+        </div>
+        <MdScopeTotalBar line={line} className="mt-2" />
+        {hasHistoryNotes ? <div className="mt-2">{notesBlock}</div> : null}
+      </li>
+    );
+  }
+
+  return (
+    <li
+      id={orderLineAnchorId(line.id)}
+      className={cn(
+        "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
+        cardSurface && "rounded-xl border border-border bg-card px-4",
+        !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+        searchQuery.trim() &&
+          consultantMatchesQuery(line.consultant_name, searchQuery) &&
+          "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
+        pendingOffboarding &&
+          "my-1 rounded-lg border border-destructive/50 bg-destructive/10 px-3 opacity-100 ring-1 ring-inset ring-destructive/20",
+      )}
+    >
+      {nameBlock}
+      {ratesBlock}
+      {budgetBlock}
+      {consumptionsButton}
+      {actionsBlock}
+      {notesBlock}
     </li>
   );
 }
@@ -757,6 +847,8 @@ interface FutureOrdersProps {
   onAddConsultant: (group: OrderGroupRead) => void;
   onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteGroup: (group: OrderGroupRead) => void;
+  /** Ciaśniejsze odstępy pod kartą konsultanta CeZ — wyłącznie klasy. */
+  compact?: boolean;
 }
 
 /** Zwarta lista według wzorca Tailwind Plus „stacked list with actions".
@@ -771,21 +863,36 @@ function FutureOrders({
   onAddConsultant,
   onEditLine,
   onDeleteGroup,
+  compact = false,
 }: FutureOrdersProps) {
   if (orders.length === 0) return null;
 
   return (
-    <div className="mt-4 border-t border-border pt-3">
+    <div className={cn("border-t border-border", compact ? "mt-3 pt-2" : "mt-4 pt-3")}>
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <Clock3 className="h-3.5 w-3.5" aria-hidden />
         Przyszłe zamówienia ({orders.length})
       </p>
-      <ul className="mt-2 divide-y divide-border rounded-lg border border-border bg-background">
+      <ul
+        className={cn(
+          "divide-y divide-border border border-border",
+          compact ? "mt-1.5 rounded-xl bg-card" : "mt-2 rounded-lg bg-background",
+        )}
+      >
         {orders.map((future) => (
-          <li key={future.id} id={orderGroupAnchorId(future.id)} className="p-3">
+          <li
+            key={future.id}
+            id={orderGroupAnchorId(future.id)}
+            className={compact ? "px-3 py-2" : "p-3"}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+                <p
+                  className={cn(
+                    "flex flex-wrap items-center gap-2 font-semibold text-foreground",
+                    compact ? "text-xs" : "text-sm",
+                  )}
+                >
                   <span className="truncate">
                     nr {future.order_number} · od {formatDate(future.start_date)}
                   </span>
@@ -837,22 +944,23 @@ function FutureOrders({
             </div>
 
             {usesSharedMdPool(future) ? (
-              <div className="mt-2">
+              <div className={compact ? "mt-1.5" : "mt-2"}>
                 <SharedMdBudgetBar group={future} />
               </div>
             ) : null}
 
             {future.lines.length === 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className={cn("text-xs text-muted-foreground", compact ? "mt-1.5" : "mt-2")}>
                 To zamówienie nie ma jeszcze konsultantów.
               </p>
             ) : (
-              <ul className="mt-2 divide-y divide-border/70">
+              <ul className={cn("divide-y divide-border/70", compact ? "mt-1" : "mt-2")}>
                 {sortOrderLinesByConsultant(future.lines).map((line) => (
                   <li
                     key={line.id}
                     className={cn(
-                      "grid grid-cols-1 gap-2 py-2 text-xs sm:grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(6.5rem,auto))_auto] sm:items-center",
+                      "grid grid-cols-1 text-xs sm:grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(6.5rem,auto))_auto] sm:items-center",
+                      compact ? "gap-1.5 py-1.5" : "gap-2 py-2",
                       searchQuery.trim() &&
                         consultantMatchesQuery(line.consultant_name, searchQuery) &&
                         "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
@@ -1015,6 +1123,20 @@ export function OrderGroupCard({
     ),
   );
   const isActive = group.status === "active";
+  // Pilotaż karty konsultanta: WYŁĄCZNIE Centrum e-Zdrowia (po `clientId`, nie
+  // po samym `md_optional_total` — zakres opcjonalny bywa też u innych klientów,
+  // a ci mają zachować dotychczasowy wiersz). Kosztowe i wspólna pula nie mają
+  // podstawy/opcji per osoba, więc zostają przy starym układzie.
+  const compactCez = isEzdrowieClient(clientId);
+  const usesScopedCard = (line: OrderLineRead) =>
+    compactCez &&
+    hasScopedMd(line, group) &&
+    !group.is_cost_based &&
+    !usesSharedMdPool(group);
+  const lineListClass = (lines: OrderLineRead[]) =>
+    lines.some(usesScopedCard)
+      ? "flex flex-col gap-2 rounded-xl bg-muted/40 p-2"
+      : "flex flex-col divide-y divide-border";
 
   return (
     <section
@@ -1169,7 +1291,7 @@ export function OrderGroupCard({
                     Brak aktywnych konsultantów.
                   </p>
                 ) : (
-                  <ul className="flex flex-col divide-y divide-border">
+                  <ul className={lineListClass(currentLines)}>
                     {currentLines.map((line) => (
                       <OrderLineRow
                         key={line.id}
@@ -1185,6 +1307,8 @@ export function OrderGroupCard({
                         onKeepHistory={onKeepHistory}
                         onReplaceLine={onReplaceLine}
                         onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
+                        scopedCardLayout={usesScopedCard(line)}
+                        cardSurface={currentLines.some(usesScopedCard)}
                       />
                     ))}
                   </ul>
@@ -1202,7 +1326,7 @@ export function OrderGroupCard({
                   >
                     Zakończone
                   </h4>
-                  <ul className="flex flex-col divide-y divide-border">
+                  <ul className={lineListClass(completedLines)}>
                     {completedLines.map((line) => (
                       <OrderLineRow
                         key={line.id}
@@ -1218,6 +1342,8 @@ export function OrderGroupCard({
                         onKeepHistory={onKeepHistory}
                         onReplaceLine={onReplaceLine}
                         onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
+                        scopedCardLayout={usesScopedCard(line)}
+                        cardSurface={completedLines.some(usesScopedCard)}
                       />
                     ))}
                   </ul>
@@ -1304,9 +1430,10 @@ export function OrderGroupCard({
             onAddConsultant={onAddConsultant}
             onEditLine={onEditLine}
             onDeleteGroup={onDeleteGroup}
+            compact={compactCez}
           />
 
-          <div className="mt-4 border-t border-border pt-3">
+          <div className={cn("border-t border-border", compactCez ? "mt-3 pt-2" : "mt-4 pt-3")}>
             <button
               type="button"
               onClick={() => setHistoryOpen((v) => !v)}
@@ -1323,7 +1450,7 @@ export function OrderGroupCard({
             </button>
 
             {historyOpen ? (
-              <div className="mt-3">
+              <div className={compactCez ? "mt-2" : "mt-3"}>
                 {history.isError ? (
                   // Awaria pobrania NIE może wyglądać jak „brak historii" —
                   // pusta lista czytałaby się jak utrata zapisów.
@@ -1341,14 +1468,19 @@ export function OrderGroupCard({
                 ) : history.data.events.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Brak wpisów w historii.</p>
                 ) : (
-                  <ol className="flex flex-col gap-2">
+                  <ol className={cn("flex flex-col", compactCez ? "gap-1" : "gap-2")}>
                     {history.data.events.map((ev) => {
                       // Nieznany typ zdarzenia dostaje ikonę domyślną — nowy
                       // slug z backendu ma wyrenderować wiersz, a nie pustkę.
                       const EventIcon = EVENT_ICON[ev.event_type] ?? History;
                       return (
-                        <li key={ev.id} className="flex gap-3 text-xs">
-                          <span className="w-32 shrink-0 tabular-nums text-muted-foreground">
+                        <li key={ev.id} className={cn("flex text-xs", compactCez ? "gap-2" : "gap-3")}>
+                          <span
+                            className={cn(
+                              "shrink-0 tabular-nums text-muted-foreground",
+                              compactCez ? "w-28" : "w-32",
+                            )}
+                          >
                             {formatDateTimePl(ev.created_at)}
                           </span>
                           {/* KTO — bez tego nie dało się ustalić, kto zmienił
@@ -1356,12 +1488,20 @@ export function OrderGroupCard({
                               automatyczne, nie brak danych: każdy handler
                               z użytkownikiem stempluje `created_by_user_id`. */}
                           <span
-                            className="w-32 shrink-0 break-words text-muted-foreground"
+                            className={cn(
+                              "shrink-0 break-words text-muted-foreground",
+                              compactCez ? "w-28" : "w-32",
+                            )}
                             title={eventAuthor(ev)}
                           >
                             {eventAuthor(ev)}
                           </span>
-                          <span className="flex w-36 shrink-0 items-center gap-1.5 font-medium text-foreground">
+                          <span
+                            className={cn(
+                              "flex shrink-0 items-center gap-1.5 font-medium text-foreground",
+                              compactCez ? "w-32" : "w-36",
+                            )}
+                          >
                             <EventIcon
                               className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                               aria-hidden="true"

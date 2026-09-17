@@ -252,9 +252,26 @@ from tests._ast_calls import calls_in as _calls_in
 
 
 def test_search_enforces_eligibility():
-    assert "filter_eligible_candidates" in _calls_in(
-        "app/services/talent_radar_search.py", "search"
+    # 17.09.2026: `partition_eligible_candidates` drops the hard-blocked (global
+    # blacklist, HM veto) and returns the client-conflict badges alongside.
+    calls = _calls_in("app/services/talent_radar_search.py", "search")
+    assert (
+        "partition_eligible_candidates" in calls
+        or "filter_eligible_candidates" in calls
     ), "Talent Radar would surface candidates the recruiter cannot assign"
+
+
+def test_shape_result_carries_the_eligibility_badge():
+    """A client conflict is a warning since 17.09.2026 — the row must say so."""
+    from app.api.talent_radar import _shape_result
+
+    badge = {"reason_code": "client_nda", "assignment_allowed": True}
+    shaped = _shape_result(_breakdown_with_salary_status("scored"), None, badge)
+    assert shaped["eligibility"] == badge
+    assert (
+        _shape_result(_breakdown_with_salary_status("scored"), None)["eligibility"]
+        is None
+    )
 
 
 def test_search_does_not_write_the_score_cache():
@@ -482,7 +499,9 @@ def _stub_champion_path(monkeypatch, *, parsed=None, error=None):
         return parsed or {}
 
     monkeypatch.setattr(ingest, "parse_champion_document", _parse)
-    monkeypatch.setattr("app.services.champion_intake.table_profile", lambda _data: None)
+    monkeypatch.setattr(
+        "app.services.champion_intake.table_profile", lambda _data: None
+    )
 
     @contextlib.asynccontextmanager
     async def _feature(*_a, **_k):

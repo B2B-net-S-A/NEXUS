@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 16.09.2026
+> **Zgodność z systemem sprawdzona:** 17.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -886,6 +886,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
+| | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |
 | | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
 | | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
@@ -1555,6 +1556,17 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   przypisujesz **ręcznie** — ekran podświetla tylko nagłówek części z
   dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
   żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
+* **Karta konsultanta na zamówieniu MD** (tylko u tego klienta) ma trzy części:
+  u góry imię i nazwisko z ikonami akcji (rozliczenia miesięczne, edycja,
+  zamiana kontraktora, usunięcie z zamówienia); pośrodku stawka oraz bloki
+  **Podstawa** i **Opcja** — każdy z „wykorzystano / limit MD", procentem
+  i **„Pozostało N MD"**; na dole pasek **„Łącznie"**. Gdy umowa nie ma opcji,
+  zamiast bloku stoi **„Brak opcji w umowie"**, a „Łącznie" liczy wyłącznie
+  podstawę. „Pozostało" w „Łącznie" uwzględnia ręczną korektę budżetu — wtedy
+  obok stoi **„w tym korekta ±N MD"**, dlatego suma z bloków może się różnić.
+  Przekroczony zakres pokazuje na czerwono **„Przekroczono o N MD"**.
+  Akcje całego zamówienia (uzupełnienie, przedłużenie, zakończenie) zostają
+  pod listą konsultantów.
 * **Powiadomienia:** standardowe.
 
 ### Alior

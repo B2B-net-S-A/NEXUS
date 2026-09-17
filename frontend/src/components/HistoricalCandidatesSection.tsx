@@ -18,6 +18,7 @@ import {
   Square,
   Loader2,
   Ban,
+  AlertCircle,
 } from "lucide-react";
 import {
   historicalCandidatesApi,
@@ -28,6 +29,7 @@ import {
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { eligibilityBadgeClass } from "@/lib/conflicts";
 import {
   httpStatusFromError,
   isBlockingViewState,
@@ -201,6 +203,7 @@ function CandidateRow({
   });
 
   const inPipeline = isAdded;
+  const assignBlocked = candidate.eligibility?.assignment_allowed === false;
 
   return (
     <li className="border border-slate-200 rounded-lg bg-card">
@@ -210,7 +213,8 @@ function CandidateRow({
           <input
             type="checkbox"
             checked={isSelected}
-            disabled={inPipeline}
+            disabled={inPipeline || assignBlocked}
+            title={assignBlocked ? candidate.eligibility?.reason : undefined}
             onChange={() => onToggleSelect(candidate.candidate_id)}
             aria-label={`Zaznacz ${fullName}`}
             className="h-4 w-4 shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
@@ -277,6 +281,22 @@ function CandidateRow({
                   uwaga
                 </span>
               ) : null}
+              {/* Konflikt z klientem (czarna lista klienta / NDA / konkurent)
+                  od 17.09.2026 jest ostrzeżeniem — kandydat zostaje na liście
+                  i da się go dodać. Blokuje tylko `assignment_allowed: false`. */}
+              {candidate.eligibility ? (
+                <span
+                  className={
+                    "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium " +
+                    eligibilityBadgeClass(candidate.eligibility)
+                  }
+                  title={candidate.eligibility.reason}
+                  data-testid={`historical-eligibility-${candidate.candidate_id}`}
+                >
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  {candidate.eligibility.reason}
+                </span>
+              ) : null}
             </div>
             {candidate.competence_category ? (
               <p className="text-xs text-slate-500 truncate">
@@ -296,11 +316,13 @@ function CandidateRow({
         {!readOnly ? <button
           type="button"
           onClick={() => addMutation.mutate()}
-          disabled={addMutation.isPending || inPipeline}
+          disabled={addMutation.isPending || inPipeline || assignBlocked}
           title={
             inPipeline
               ? "Kandydat jest w pipeline tej rekrutacji"
-              : "Dodaj kandydata do pipeline tej rekrutacji"
+              : assignBlocked
+                ? candidate.eligibility?.reason
+                : "Dodaj kandydata do pipeline tej rekrutacji"
           }
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg shrink-0 whitespace-nowrap transition-colors disabled:cursor-default ${
             inPipeline
@@ -445,16 +467,18 @@ export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) 
   const degraded = tierUsed === "degraded";
 
   // Bramka dopuszczalności (backend, `candidates_from_similar_jobs`) wycina
-  // z tej sekcji jej NAJBOGATSZĄ populację: ludzi rozważanych już u TEGO
-  // klienta, czyli dokładnie tych, u których siedzą aktywne blacklisty, NDA,
-  // konflikty konkurencyjne i weta hiring managera. Bez rozgałęzienia poniżej
+  // z tej sekcji część jej NAJBOGATSZEJ populacji: ludzi rozważanych już u TEGO
+  // klienta, u których siedzą weta hiring managera (i osoby z globalnej
+  // czarnej listy). Konflikty z klientem (czarna lista klienta, NDA,
+  // konkurent) od 17.09.2026 NIE ukrywają — wiersz ma plakietkę
+  // `eligibility`. Bez rozgałęzienia poniżej
   // zdanie „Brak kandydatów w historii podobnych projektów" stałoby się
   // nieprawdą właśnie u klientów z najgęstszą historią — czyli tam, gdzie ta
   // sekcja jest najbardziej potrzebna.
   //
-  // LICZBY świadomie nie pokazujemy. „Ukryto 3" byłoby wyrocznią na NDA:
-  // powiedziałoby rekruterowi, ilu ludzi u tego klienta istnieje, a nie wolno
-  // mu ich zobaczyć. Renderujemy sam FAKT blokady, nie jej rozmiar.
+  // LICZBY świadomie nie pokazujemy. „Ukryto 3" byłoby wyrocznią: powiedziałoby
+  // rekruterowi, ilu ludzi u tego klienta istnieje, a nie wolno mu ich
+  // zobaczyć. Renderujemy sam FAKT blokady, nie jej rozmiar.
   const hiddenIneligible = query.data?.meta?.hidden_ineligible ?? 0;
 
   // Faza 3: kandydaci znani temu klientowi na górze — to najszybsza ścieżka.
@@ -465,7 +489,10 @@ export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) 
   // Select-all pomija osoby już w pipeline oraz odrzucone przez tego klienta
   // (te wymagają świadomej pojedynczej decyzji, nie hurtu).
   const selectable = candidates.filter(
-    (c) => !added.has(c.candidate_id) && !c.rejected_by_same_client,
+    (c) =>
+      !added.has(c.candidate_id) &&
+      !c.rejected_by_same_client &&
+      c.eligibility?.assignment_allowed !== false,
   );
   const allSelected =
     selectable.length > 0 &&
@@ -587,7 +614,7 @@ export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) 
       ) : viewState === "empty" ? (
         <p className="text-sm text-slate-500">
           {hiddenIneligible > 0
-            ? "W historii podobnych projektów są kandydaci, ale wszyscy są zablokowani dla tego klienta (blacklista, NDA, konflikt konkurencyjny albo weto hiring managera)."
+            ? "W historii podobnych projektów są kandydaci, ale wszyscy są zablokowani dla tego klienta (globalna czarna lista albo weto hiring managera)."
             : "Brak kandydatów w historii podobnych projektów."}
         </p>
       ) : (

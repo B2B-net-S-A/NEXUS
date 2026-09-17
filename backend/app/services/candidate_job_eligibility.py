@@ -1,17 +1,8 @@
 """Unified candidate ↔ job eligibility policy (SEARCH-P0-04).
 
-Today the "can this candidate be shown / assigned to this job?" decision is
-scattered and inconsistent:
-
-* ``api/proposals_bulk.py`` gates bulk-add on ``Candidate.status == blacklisted``
-  and already-in-job only — it never looks at ``CandidateConflict``.
-* ``services/recommendation_filters.py`` hard-drops ``blacklist``/``competitor``/
-  ``nda`` conflicts and soft-warns ``current_employment`` — and honours
-  ``expires_at``.
-* ``services/scoring_service.py`` penalises blacklist / active conflict /
-  ``preferences.excluded_clients`` — but IGNORES ``expires_at``.
-* ``api/search.py`` applies NO eligibility filter at all.
-* single-assign and pipeline-move have no eligibility gate.
+Historically the "can this candidate be shown / assigned to this job?" decision
+was scattered across bulk-add, recommendation filters, scoring and search, each
+with its own rules (and scoring ignored ``expires_at``).
 
 This module is the single source of truth for that policy. It is a **pure
 function** over already-loaded inputs (no DB, no I/O) so it is trivially
@@ -20,22 +11,23 @@ and pipeline-move without each re-deriving the rules. Callers are responsible
 for loading the inputs (conflicts, excluded clients, in-job flag) and for
 enforcing the returned decision transactionally at write time.
 
-The default policy mirrors the *existing* recommendation-filter semantics so
-this is a consolidation, not a behaviour change:
+The policy (decision of 17.09.2026 — client conflicts are warnings, not blocks):
 
 * global ``blacklisted`` status → non-overridable hard block, hidden from search;
-* active (non-expired) client ``blacklist``/``nda``/``competitor`` conflict →
-  hard block on assignment, visible-with-warning, overridable by an authorised
-  role with an audited reason;
-* active ``current_employment`` conflict → soft warning, assignment allowed;
-* candidate-declared ``excluded_clients`` → soft warning, assignment allowed;
 * already in this job (any stage) → duplicate, hidden from the job search and
   blocked from re-assignment;
 * rejected after an interview by *this job's* hiring manager → hard block on
-  assignment, visible-with-warning, **not** overridable.
+  assignment, visible-with-warning — the ONLY "visible but blocked" state left;
+* active (non-expired) client ``blacklist``/``nda``/``competitor`` conflict,
+  ``current_employment`` at the client and candidate-declared
+  ``excluded_clients`` → **soft warnings**: visible with a badge, assignable.
+  When several apply, the dominant one is the most serious
+  (``blacklist > nda > competitor > current_employment > excluded``), the rest
+  ride in ``secondary_reasons``.
 
-Which rules are *legal* hard blocks vs. warnings is ultimately a process-owner
-decision; the mapping here is the documented default and is easy to adjust.
+``override_allowed`` stays in the decision shape for API stability but is always
+``False``: there is no override endpoint, and after 17.09.2026 nothing left to
+override (a client conflict no longer blocks).
 """
 
 from __future__ import annotations
@@ -74,11 +66,13 @@ class EligibilityReason(str, Enum):
     rejected_by_hiring_manager = "rejected_by_hiring_manager"
 
 
-# Conflict types that block assignment to the client (visible-with-warning).
-_HARD_CONFLICT_REASONS: dict[str, EligibilityReason] = {
+# Client-scoped conflict types → reason, in DOMINANCE order (most serious first).
+# All of them are soft warnings since 17.09.2026 — none blocks assignment.
+_CLIENT_CONFLICT_REASONS: dict[str, EligibilityReason] = {
     "blacklist": EligibilityReason.client_blacklist,
     "nda": EligibilityReason.client_nda,
     "competitor": EligibilityReason.client_competitor,
+    "current_employment": EligibilityReason.client_current_employment,
 }
 
 _REASON_LABELS_PL: dict[EligibilityReason, str] = {
@@ -129,8 +123,8 @@ class ConflictInput:
     expires_at: Optional[datetime] = None
 
     def is_active_at(self, now: datetime) -> bool:
-        """Active AND not expired. Mirrors ``recommendation_filters`` (and,
-        unlike ``scoring_service``, actually honours ``expires_at``)."""
+        """Active AND not expired — the same rule as
+        ``CandidateConflict.active_unexpired_clause`` on the SQL side."""
         return self.active and (self.expires_at is None or self.expires_at > now)
 
 
@@ -156,6 +150,7 @@ class EligibilityDecision:
     severity: Severity
     reason_code: EligibilityReason
     reason: str
+    # Always ``False`` — kept for API shape; there is no override endpoint.
     override_allowed: bool
     # Secondary applicable signals (e.g. a current-employment warning that sits
     # underneath a dominant hard conflict), for transparent UI annotation.
@@ -169,7 +164,6 @@ def _decision(
     visibility: Visibility,
     assignment_allowed: bool,
     severity: Severity,
-    override_allowed: bool,
     secondary_reasons: tuple[EligibilityReason, ...] = (),
 ) -> EligibilityDecision:
     return EligibilityDecision(
@@ -179,7 +173,7 @@ def _decision(
         severity=severity,
         reason_code=reason_code,
         reason=_REASON_LABELS_PL[reason_code],
-        override_allowed=override_allowed,
+        override_allowed=False,
         secondary_reasons=secondary_reasons,
     )
 
@@ -190,9 +184,11 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
     ``now`` is passed in (not read from the clock) so the function stays pure
     and deterministic for tests. Priority, most-blocking first:
 
-    1. global blacklist, 2. hard client conflict, 3. already-in-job,
-    3.5 rejected by this job's hiring manager, 4. current-employment warning,
-    5. candidate-excluded-client warning, 6. eligible.
+    1. global blacklist (hidden, hard), 2. already-in-job (hidden),
+    3. rejected by this job's hiring manager (visible, hard),
+    4. dominant soft signal — client blacklist > NDA > competitor >
+       current employment > candidate-excluded client (visible, assignable),
+    5. eligible.
     """
     # 1. Global blacklist — non-overridable hard block, hidden everywhere.
     if inp.candidate_status == "blacklisted":
@@ -202,10 +198,9 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
             visibility=Visibility.hidden,
             assignment_allowed=False,
             severity=Severity.hard,
-            override_allowed=False,
         )
 
-    # Collect active client-scoped conflicts for THIS job's client.
+    # Active client-scoped conflicts for THIS job's client.
     active_types: set[str] = set()
     if inp.job_client_id is not None:
         active_types = {
@@ -214,32 +209,23 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
             if c.client_id == inp.job_client_id and c.is_active_at(now)
         }
 
-    # Secondary (warning-level) signals recorded even when a harder block wins.
+    # Soft signals in dominance order. Client conflicts stopped blocking on
+    # 17.09.2026 — they are warnings like current employment.
+    soft: list[EligibilityReason] = [
+        reason
+        for ctype, reason in _CLIENT_CONFLICT_REASONS.items()
+        if ctype in active_types
+    ]
+    if inp.job_client_id is not None and inp.job_client_id in inp.excluded_client_ids:
+        soft.append(EligibilityReason.client_excluded_by_candidate)
+
+    # The veto rides first so its badge survives even when a duplicate outranks it.
     secondary: list[EligibilityReason] = []
     if inp.rejected_by_hiring_manager:
-        # Recorded first so a badge survives even when blacklist / NDA /
-        # already-in-job outranks it — the recruiter still needs to know.
         secondary.append(EligibilityReason.rejected_by_hiring_manager)
-    if "current_employment" in active_types:
-        secondary.append(EligibilityReason.client_current_employment)
-    if inp.job_client_id is not None and inp.job_client_id in inp.excluded_client_ids:
-        secondary.append(EligibilityReason.client_excluded_by_candidate)
+    secondary.extend(soft)
 
-    # 2. Hard client conflict — blocked from assignment, visible with a warning,
-    #    overridable by an authorised role (audited).
-    for ctype, reason_code in _HARD_CONFLICT_REASONS.items():
-        if ctype in active_types:
-            return _decision(
-                reason_code,
-                eligible=False,
-                visibility=Visibility.warn,
-                assignment_allowed=False,
-                severity=Severity.hard,
-                override_allowed=True,
-                secondary_reasons=tuple(secondary),
-            )
-
-    # 3. Already in this job — duplicate; hidden from the job search, blocked
+    # 2. Already in this job — duplicate; hidden from the job search, blocked
     #    from re-assignment (not overridable — it's a dedup, not a policy call).
     if inp.already_in_job:
         return _decision(
@@ -248,65 +234,44 @@ def evaluate_eligibility(inp: EligibilityInput, now: datetime) -> EligibilityDec
             visibility=Visibility.hidden,
             assignment_allowed=False,
             severity=Severity.warning,
-            override_allowed=False,
             secondary_reasons=tuple(secondary),
         )
 
-    # 3.5 This job's hiring manager already met this candidate and rejected
-    #     them. Hard block on assignment, but deliberately **visible**: hiding
-    #     the candidate would make the recruiter hunt for the same person again
-    #     and reads to them as data loss. Not overridable — an override would
-    #     recreate the exact irritation this rule exists to prevent.
+    # 3. This job's hiring manager already met this candidate and rejected
+    #    them. Hard block on assignment, but deliberately **visible**: hiding
+    #    the candidate would make the recruiter hunt for the same person again
+    #    and reads to them as data loss. Not overridable — an override would
+    #    recreate the exact irritation this rule exists to prevent.
     #
-    #     Ranked below `already_in_job` on purpose: otherwise a candidate who is
-    #     merely already in this job would lose `hidden` and reappear in the
-    #     "add candidate" search as a duplicate.
+    #    Ranked below `already_in_job` on purpose: otherwise a candidate who is
+    #    merely already in this job would lose `hidden` and reappear in the
+    #    "add candidate" search as a duplicate.
     if inp.rejected_by_hiring_manager:
-        rest = tuple(
-            r for r in secondary if r != EligibilityReason.rejected_by_hiring_manager
-        )
         return _decision(
             EligibilityReason.rejected_by_hiring_manager,
             eligible=False,
             visibility=Visibility.warn,
             assignment_allowed=False,
             severity=Severity.hard,
-            override_allowed=False,
-            secondary_reasons=rest,
+            secondary_reasons=tuple(soft),
         )
 
-    # 4. Current employment at this client — soft warning, assignment allowed.
-    if EligibilityReason.client_current_employment in secondary:
-        rest = tuple(
-            r for r in secondary if r != EligibilityReason.client_current_employment
-        )
+    # 4. Soft signal — visible with a badge, assignment allowed.
+    if soft:
         return _decision(
-            EligibilityReason.client_current_employment,
+            soft[0],
             eligible=True,
             visibility=Visibility.warn,
             assignment_allowed=True,
             severity=Severity.warning,
-            override_allowed=False,
-            secondary_reasons=rest,
+            secondary_reasons=tuple(soft[1:]),
         )
 
-    # 5. Candidate declared this client excluded — soft warning.
-    if EligibilityReason.client_excluded_by_candidate in secondary:
-        return _decision(
-            EligibilityReason.client_excluded_by_candidate,
-            eligible=True,
-            visibility=Visibility.warn,
-            assignment_allowed=True,
-            severity=Severity.warning,
-            override_allowed=False,
-        )
-
-    # 6. No contraindication.
+    # 5. No contraindication.
     return _decision(
         EligibilityReason.eligible,
         eligible=True,
         visibility=Visibility.visible,
         assignment_allowed=True,
         severity=Severity.none,
-        override_allowed=False,
     )

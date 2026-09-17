@@ -191,9 +191,11 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
           />
         </label>
 
-        {/* Audyt M2 PR1 (M2-SEC-03): twarde konflikty NDA/blacklist/competitor
-            są ZAWSZE egzekwowane server-side — ten przełącznik steruje tylko
-            miękkimi ostrzeżeniami (np. „obecnie u tego klienta"). */}
+        {/* Audyt M2 PR1 (M2-SEC-03): ostrzeżenia o konfliktach z klientem
+            (czarna lista klienta / NDA / konkurent) są pokazywane ZAWSZE —
+            od 17.09.2026 to ostrzeżenia, nie blokady, i nie da się ich
+            wyłączyć. Ten przełącznik steruje wyłącznie ostrzeżeniem
+            o obecnym zatrudnieniu u klienta. */}
         <label className="flex items-center gap-2 mt-5">
           <input
             type="checkbox"
@@ -202,9 +204,9 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
           />
           <span
             className="text-sm text-foreground dark:text-muted-foreground"
-            title="Twarde konflikty (NDA, blacklist, konkurencja) są zawsze wykluczane — niezależnie od tego ustawienia."
+            title="Ostrzeżenia o konfliktach z klientem (czarna lista klienta, NDA, konkurencja) są pokazywane zawsze — ten przełącznik dotyczy tylko obecnego zatrudnienia u klienta."
           >
-            Pokaż miękkie ostrzeżenia (np. obecne zatrudnienie)
+            Pokaż ostrzeżenie o obecnym zatrudnieniu u klienta
           </span>
         </label>
       </div>

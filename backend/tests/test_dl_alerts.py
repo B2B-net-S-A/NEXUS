@@ -529,6 +529,7 @@ async def test_mail_new_draft_alert_reaches_dl_assigned_after_the_draft():
 async def test_scanner_uses_a_single_rule_registry():
     """Dołożenie typu ma być dopisaniem reguły, nie przebudową skanera."""
     from app.models.dl_alert import (
+        ALERT_CANDIDATE_CONFLICT_EXPIRED,
         ALERT_CONTRACT_ENDING,
         ALERT_COST_BUDGET_LOW,
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
@@ -555,6 +556,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_COST_BUDGET_LOW,
         ALERT_NEW_CONTRACTOR_DRAFT,
         ALERT_ORDER_MAIL_REVIEW,
+        ALERT_CANDIDATE_CONFLICT_EXPIRED,
     }
 
 

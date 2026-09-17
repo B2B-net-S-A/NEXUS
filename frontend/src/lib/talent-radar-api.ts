@@ -8,7 +8,7 @@
  * Nic tutaj nie ma z tamtym importem wspólnego.
  */
 
-import { api, type HiddenCounters } from "@/lib/api";
+import { api, type HiddenCounters, type MatchEligibility } from "@/lib/api";
 // Sufit czasu dla endpointów LLM/scoringowych — jedna stała dla całej
 // aplikacji, nie kopia w każdym kliencie (kopie rozjeżdżają się cicho).
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
@@ -59,7 +59,19 @@ export interface TalentRadarResult {
   matching_nice: string[];
   gap_nice: string[];
   penalties: string[];
+  /**
+   * Miękkie ostrzeżenia scoringu (`active_conflict`, `client_excluded`) — od
+   * 17.09.2026 konflikt z klientem NIE zeruje wyniku, tylko trafia tutaj.
+   * Opcjonalne: starszy backend go nie wysyła.
+   */
+  warnings?: string[];
   fit_confidence: number | null;
+  /**
+   * Anotacja dopuszczalności względem klienta wyszukiwania — tylko dla
+   * kandydatów, których dopuszczalność nie jest czysta (konflikt z klientem,
+   * obecne zatrudnienie, weto HM). Konflikt = ostrzeżenie, nie blokada.
+   */
+  eligibility?: MatchEligibility | null;
   /** `null` tylko wtedy, gdy wiersz zniknął między rankingiem a odpowiedzią. */
   candidate: TalentRadarCandidate | null;
 }
@@ -67,7 +79,7 @@ export interface TalentRadarResult {
 export interface TalentRadarMeta {
   /** Ilu kandydatów wróciło z wyszukiwania wektorowego. */
   pool_size: number;
-  /** Ilu z nich przeszło filtr dopuszczalności (blacklisty, NDA, weto). */
+  /** Ilu z nich przeszło filtr dopuszczalności (globalna czarna lista, weto HM); konflikty z klientem zostają jako ostrzeżenia. */
   eligible_size: number;
   returned: number;
   /**

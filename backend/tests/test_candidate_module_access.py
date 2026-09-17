@@ -688,15 +688,16 @@ async def test_bulk_body_escalation_does_not_bypass_guard(
         assert resp.status_code == 403, f"action={action}: viewer not denied"
 
 
-# ── M2-SEC-03: hard conflicts are fail-closed ────────────────────────────────
+# ── M2-SEC-03: compliance warnings are fail-closed ───────────────────────────
 
 
-async def test_hard_conflicts_enforced_with_blocklist_flag_off():
-    """`industry_blocklist=False` must NOT re-include hard-blocked jobs.
+async def test_client_conflict_warning_survives_blocklist_flag_off():
+    """`industry_blocklist=False` must NOT hide a client-conflict warning.
 
-    Unit-level check on `apply_user_filters`: a candidate with an active NDA
-    conflict against a client keeps that client's job excluded regardless of
-    the flag; the flag only suppresses the soft current-employment warning.
+    Unit-level check on `apply_user_filters`. Since 17.09.2026 an active NDA
+    keeps the client's job WITH a warning (not a drop) — and that warning is
+    identical regardless of the flag; the flag only suppresses the
+    current-employment note.
     """
     from app.models.candidate import Candidate
     from app.models.candidate_conflict import CandidateConflict, ConflictType
@@ -751,28 +752,31 @@ async def test_hard_conflicts_enforced_with_blocklist_flag_off():
 
         jobs = [job_blocked, job_soft, job_free]
 
-        # Flag ON (default) — NDA job dropped, soft job annotated.
+        all_ids = {job_blocked.id, job_soft.id, job_free.id}
+
+        # Flag ON (default) — nothing dropped, NDA and soft job annotated.
         kept_on, stats_on = await apply_user_filters(
             candidate, jobs, RecommendationFilters(industry_blocklist=True), db
         )
-        kept_on_ids = {fj.job.id for fj in kept_on}
-        assert job_blocked.id not in kept_on_ids
-        assert job_soft.id in kept_on_ids
-        assert any(fj.warning for fj in kept_on if fj.job.id == job_soft.id)
-        assert stats_on.dropped_blocklist == 1
+        warn_on = {fj.job.id: fj.warning for fj in kept_on}
+        assert set(warn_on) == all_ids
+        assert warn_on[job_blocked.id] == "konflikt z klientem: NDA"
+        assert warn_on[job_soft.id] == "obecnie u tego klienta"
+        assert warn_on[job_free.id] is None
+        assert stats_on.dropped_blocklist == 0
 
-        # Flag OFF — the hard drop is IDENTICAL; only the warning disappears.
+        # Flag OFF — the NDA warning is IDENTICAL; only the soft note disappears.
         kept_off, stats_off = await apply_user_filters(
             candidate, jobs, RecommendationFilters(industry_blocklist=False), db
         )
-        kept_off_ids = {fj.job.id for fj in kept_off}
-        assert job_blocked.id not in kept_off_ids, (
-            "industry_blocklist=False re-included a hard-blocked job "
+        warn_off = {fj.job.id: fj.warning for fj in kept_off}
+        assert set(warn_off) == all_ids
+        assert warn_off[job_blocked.id] == "konflikt z klientem: NDA", (
+            "industry_blocklist=False hid a client-conflict warning "
             "(M2-SEC-03 regression)"
         )
-        assert kept_off_ids == kept_on_ids
-        assert stats_off.dropped_blocklist == 1
-        assert all(fj.warning is None for fj in kept_off)
+        assert warn_off[job_soft.id] is None
+        assert stats_off.dropped_blocklist == 0
 
 
 async def test_seeking_contractors_rejects_viewer(
