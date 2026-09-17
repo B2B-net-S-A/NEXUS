@@ -220,3 +220,40 @@ def test_allocation_still_parks_an_incomplete_brief():
         "pusty Champion musi nadal blokować — inaczej rozdzielenie bramek "
         "rozbroiło tę, która chroni alokację"
     )
+
+
+def test_handoff_list_names_each_gap_once_when_the_intake_gate_is_on(monkeypatch):
+    """`_MIRRORED_VALIDATION_CODES` drops the Champion-draft phrasing of a gap
+    already named by the brief/rubric gates. Visible only with the gate on —
+    with it off `validation()` never puts `handoff` in `blocked_operations`,
+    so the mirrored issue was never appended here in the first place."""
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    champion = {
+        **_READY_CHAMPION,
+        "stack": {"must": [], "nice": []},
+        "intake": {"policy_version": 1},
+    }
+    job = _job(must_skills=None, rate_budget_hourly=None, champion_profile=champion)
+
+    blockers = job_handoff_blockers(job)
+
+    assert blockers.count(_MUST_HAVE_MSG) == 1
+    assert blockers.count(_BUDGET_MSG) == 1
+    assert not any("rzeczywiste wymagania MUST" in b for b in blockers)
+    assert not any("Podaj jedną dodatnią stawkę" in b for b in blockers)
+
+
+def test_handoff_list_keeps_validation_gaps_the_rubrics_cannot_see(monkeypatch):
+    """A REAL addition (`column_conflict`) is not in `_MIRRORED_VALIDATION_CODES`
+    and still surfaces — the filter drops duplicate phrasing, not the gate."""
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    champion = {
+        **_READY_CHAMPION,
+        "basics": {"rate_value": 180},
+        "intake": {"policy_version": 1},
+    }
+    job = _job(champion_profile=champion, rate_budget_hourly=200)
+
+    blockers = job_handoff_blockers(job)
+
+    assert "Profil i pola rekrutacji mają różne wartości. Uzgodnij je." in blockers

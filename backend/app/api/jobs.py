@@ -202,7 +202,7 @@ def _assert_delivery_lead_finance_write(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Delivery Leads cannot manage recruitment budget fields",
+            detail="Widełki wynagrodzenia może ustawić tylko admin lub TAC",
         )
 
 
@@ -1240,6 +1240,17 @@ async def create_job(
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
             payload["delivery_lead_id"] = resolved.delivery_lead_id
+
+    # A Delivery Lead creating a recruitment without a resolved client-side
+    # DL (no head DL assigned, or none at all) becomes its DL themselves —
+    # otherwise the recruitment they just made would have no DL and never
+    # show up in their own queue. Precedence: explicit `delivery_lead_id` >
+    # the client's head DL (`resolve_default_owners` above) > the creator.
+    # `recruiter_id` is untouched — this is about ownership, not authorship.
+    if payload.get("delivery_lead_id") is None and current_user.has_role(
+        UserRole.delivery_lead
+    ):
+        payload["delivery_lead_id"] = current_user.id
 
     if (
         delivery_lead_pairs is not None

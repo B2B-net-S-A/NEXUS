@@ -27,6 +27,30 @@ from app.services.dealbreaker_filters import (
     resolve_effective_remote_policy,
 )
 
+# Champion-draft validation codes that only restate, in different wording, a
+# gap `job_readiness_blockers`/`job_rubric_blockers` already lists. Kept in
+# `job_handoff_blockers` below, they would give the Delivery Lead the same
+# missing field twice — once as a brief/rubric sentence, once as a Champion
+# issue — with no visible link between the two. Every other validation code
+# (`column_conflict`, `skill_column_conflict`, `unresolved_value`,
+# `ineligible_must`, `conflicting_office_days`, `ambiguous_office`,
+# `conflicting_priority`, `review_alternatives`, `date_order`, ...) is a real
+# addition neither gate above can see, and stays.
+_MIRRORED_VALIDATION_CODES = frozenset(
+    {
+        "missing_role",
+        "missing_client",
+        "missing_context",
+        "missing_questions",
+        "missing_requirements",
+        "missing_must",
+        "missing_budget",
+        "missing_work_mode",
+        "missing_office_days",
+        "missing_office_city",
+    }
+)
+
 
 def job_readiness_blockers(job: Job) -> list[str]:
     """Czy brief w ogóle nadaje się do szukania (P0-A).
@@ -124,6 +148,12 @@ def job_handoff_blockers(job: Job) -> list[str]:
 
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę
     dosłownie, a braki briefu są bardziej podstawowe niż braki rubryk.
+
+    Czwarty składnik dokłada braki widoczne WYŁĄCZNIE w Profilu Championa
+    (``column_conflict``, ``skill_column_conflict``, ``unresolved_value``,
+    ...) — ale pomija kody z ``_MIRRORED_VALIDATION_CODES``, bo te same braki
+    (rola, klient, kontekst, pytania, must-have, budżet, tryb pracy, dni/miasto
+    biura) są już w liście wyżej, w brzmieniu dla Delivery Leada.
     """
     from app.services.champion_intake import validation
 
@@ -135,5 +165,6 @@ def job_handoff_blockers(job: Job) -> list[str]:
             issue["message"]
             for issue in issues
             if "handoff" in issue["blocked_operations"]
+            and issue["code"] not in _MIRRORED_VALIDATION_CODES
         ]
     )

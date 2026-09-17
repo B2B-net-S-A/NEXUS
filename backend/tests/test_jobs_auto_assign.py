@@ -25,12 +25,15 @@ from app.models.user import User, UserRole
 pytestmark = pytest.mark.asyncio
 
 
+_PASSWORD = "P@ssw0rd"
+
+
 async def _new_user(role: UserRole, *, is_active: bool = True) -> int:
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         u = User(
             email=f"jobs-test-{role.value}-{suffix}@example.com",
-            password_hash=hash_password("P@ssw0rd"),
+            password_hash=hash_password(_PASSWORD),
             name=f"JobsAuto {role.value} {suffix}",
             role=role,
             is_active=is_active,
@@ -39,6 +42,36 @@ async def _new_user(role: UserRole, *, is_active: bool = True) -> int:
         await db.flush()
         await db.commit()
         return u.id
+
+
+async def _new_user_with_email(
+    role: UserRole, *, is_active: bool = True
+) -> tuple[int, str]:
+    """Like `_new_user`, but also returns the email — needed to log in AS
+    this user (the auto-assign-as-creator tests below act as a Delivery Lead,
+    not as the seeded admin `app_auth_headers` logs in as)."""
+    suffix = uuid.uuid4().hex[:8]
+    email = f"jobs-test-{role.value}-{suffix}@example.com"
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            password_hash=hash_password(_PASSWORD),
+            name=f"JobsAuto {role.value} {suffix}",
+            role=role,
+            is_active=is_active,
+        )
+        db.add(u)
+        await db.flush()
+        await db.commit()
+        return u.id, email
+
+
+async def _login(client: AsyncClient, email: str) -> dict[str, str]:
+    resp = await client.post(
+        "/api/auth/login", json={"email": email, "password": _PASSWORD}
+    )
+    assert resp.status_code == 200, f"login failed: {resp.text}"
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
 async def _new_client() -> int:
@@ -353,3 +386,147 @@ async def test_patch_job_updates_tac_id(
                 await db.commit()
     finally:
         await _cleanup(client_id, [tac_id, other_tac])
+
+
+# ── Delivery Lead creator becomes the job's Delivery Lead ──────────────────
+# Precedence: explicit `delivery_lead_id` > the client's head DL (resolved
+# above) > the Delivery Lead who created the recruitment. `recruiter_id`
+# stays untouched — this is about ownership, not authorship.
+
+
+@pytest.mark.integration
+async def test_create_job_by_delivery_lead_defaults_delivery_lead_to_creator(
+    app_client: AsyncClient,
+):
+    """Klient bez przypisanego head DL → DL-twórca staje się DL-em rekrutacji."""
+    dl_id, dl_email = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    dl_headers = await _login(app_client, dl_email)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=dl_headers,
+            json={
+                "title": "DL creator default smoke",
+                "client_id": client_id,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["delivery_lead_id"] == dl_id
+        assert body["recruiter_id"] is None
+
+        async with AsyncSessionLocal() as db:
+            from app.models.job import Job
+
+            job = await db.get(Job, body["id"])
+            if job is not None:
+                await db.delete(job)
+                await db.commit()
+    finally:
+        await _cleanup(client_id, [dl_id])
+
+
+@pytest.mark.integration
+async def test_create_job_by_delivery_lead_head_dl_wins(app_client: AsyncClient):
+    """Head DL klienta wygrywa nad DL-em, który zakłada rekrutację."""
+    head_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
+    creator_id, creator_email = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    await _assign_head_dl(client_id, head_dl_id)
+    creator_headers = await _login(app_client, creator_email)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=creator_headers,
+            json={
+                "title": "Head DL wins smoke",
+                "client_id": client_id,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["delivery_lead_id"] == head_dl_id
+        assert body["delivery_lead_id"] != creator_id
+
+        async with AsyncSessionLocal() as db:
+            from app.models.job import Job
+
+            job = await db.get(Job, body["id"])
+            if job is not None:
+                await db.delete(job)
+                await db.commit()
+    finally:
+        await _cleanup(client_id, [head_dl_id, creator_id])
+
+
+@pytest.mark.integration
+async def test_create_job_by_delivery_lead_explicit_override_wins(
+    app_client: AsyncClient,
+):
+    """Jawny `delivery_lead_id` wygrywa i nad head DL, i nad DL-em twórcą."""
+    head_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
+    explicit_dl_id, _ = await _new_user_with_email(UserRole.delivery_lead)
+    creator_id, creator_email = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    await _assign_head_dl(client_id, head_dl_id)
+    creator_headers = await _login(app_client, creator_email)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=creator_headers,
+            json={
+                "title": "Explicit DL override smoke",
+                "client_id": client_id,
+                "delivery_lead_id": explicit_dl_id,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["delivery_lead_id"] == explicit_dl_id
+
+        async with AsyncSessionLocal() as db:
+            from app.models.job import Job
+
+            job = await db.get(Job, body["id"])
+            if job is not None:
+                await db.delete(job)
+                await db.commit()
+    finally:
+        await _cleanup(client_id, [head_dl_id, explicit_dl_id, creator_id])
+
+
+@pytest.mark.integration
+async def test_create_job_by_delivery_lead_rejects_salary_in_polish(
+    app_client: AsyncClient,
+):
+    """DL/TCM nadal nie może ustawić widełek — komunikat 403 jest po polsku."""
+    dl_id, dl_email = await _new_user_with_email(UserRole.delivery_lead)
+    client_id = await _new_client()
+    dl_headers = await _login(app_client, dl_email)
+
+    try:
+        resp = await app_client.post(
+            "/api/jobs",
+            headers=dl_headers,
+            json={
+                "title": "Salary smoke",
+                "client_id": client_id,
+                "salary_min": 8000,
+                "salary_max": 12000,
+                "auto_suggest_cc": False,
+            },
+        )
+        assert resp.status_code == 403, resp.text
+        assert (
+            resp.json()["detail"]
+            == "Widełki wynagrodzenia może ustawić tylko admin lub TAC"
+        )
+    finally:
+        await _cleanup(client_id, [dl_id])

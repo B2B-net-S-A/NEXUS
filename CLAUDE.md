@@ -1200,6 +1200,20 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   Odłożony MUST, którego obecny normalizator nie przyjąłby (np. dłuższy niż
   limit pozycji), daje OSTRZEŻENIE — nigdy błąd ani blokadę. Konflikt kolumn
   NICE to ostrzeżenie, nie błąd.
+- **Pusty ZAPISANY stack MUST/NICE dziedziczy kolumny rekrutacji** (17.09.2026,
+  lustro `missing_role` → `job.title`): `validation()` czyta wtedy
+  `effective_skill_names(job, key)` zamiast zgłaszać `missing_requirements`/
+  `missing_must` na profilu, który po prostu jeszcze nie ma swojego stacku —
+  `ineligible_must` liczy się wtedy na liście odziedziczonej, a
+  `skill_column_conflict` pomija klucz, którego zapisana lista jest pusta
+  (dziedziczenie nie jest konfliktem). `job_handoff_blockers`
+  (`job_readiness.py`) dodatkowo pomija kody z `_MIRRORED_VALIDATION_CODES` —
+  te same braki (rola, klient, kontekst, pytania, must-have, budżet, tryb
+  pracy, dni/miasto biura) inaczej wychodziły DWA RAZY, raz jako zdanie
+  briefu/rubryki, raz jako issue Championa; realne dodatki (`column_conflict`,
+  `skill_column_conflict`, `unresolved_value`, `ineligible_must`, ...) zostają.
+  `response_context()["job_values"]` niesie też `role_name` (= `job.title`) i
+  `deadline` (ISO) — `fingerprint()` obejmuje `deadline`.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1854,6 +1868,15 @@ innego niż serwer albo nadpisywał cudzą pracę.
   kanoniczna ma co najmniej 3 znaki (koniec z „IT” → `LIKE '%it%'`). Filtr listy
   `_worked_at_client_predicate` nadal liczy szkice i unieważnione kontrakty —
   znany dług.
+- **Delivery Lead zakładający rekrutację staje się jej `delivery_lead_id`**
+  (17.09.2026, `create_job`): pierwszeństwo jawne `delivery_lead_id` > head DL
+  klienta (`resolve_default_owners`) > twórca — zawsze WYŁĄCZNIE gdy pole
+  zostaje puste po obu wcześniejszych krokach. `recruiter_id`/`/claim`
+  nietknięte, to zmiana ownera, nie autorstwa. `delivery_lead_job_pairs`
+  zwraca `None` dla roli DL, więc bramka zakresu klienta nie gryzie własnej
+  rekrutacji świeżo utworzonej bez zespołu. 403 przy próbie ustawienia widełek
+  wynagrodzenia przez DL/TCM jest teraz po polsku: „Widełki wynagrodzenia może
+  ustawić tylko admin lub TAC”.
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
