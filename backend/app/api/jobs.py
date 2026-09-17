@@ -1412,6 +1412,13 @@ async def create_job(
     if settings.MARKETPLACE_ENABLED:
         background_tasks.add_task(run_marketplace_scan_safe, job.id)
 
+    # Auto-match (17.09.2026): opublikowana rekrutacja sama zbiera kandydatów
+    # z CV odczytanym w ostatnich AUTO_MATCH_JOB_LOOKBACK_DAYS dniach.
+    if job.status == JobStatus.published:
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        background_tasks.add_task(enqueue_job_safe, job.id)
+
     # Szybkie przepinanie (Faza 1): jeśli nowy request przypomina historyczne
     # (Tier A) z kandydatami po etapach klienckich — powiadom recruiter/TAC/
     # twórcę z deep-linkiem do sekcji „Kandydaci z podobnych projektów".
@@ -1626,6 +1633,7 @@ async def update_job(
         "title",
     )
     _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
+    _status_before = job.status
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
@@ -1712,6 +1720,17 @@ async def update_job(
         _after = {f: getattr(job, f) for f in _before.keys()}
         if is_significant_job_update(_before, _after):
             background_tasks.add_task(run_marketplace_scan_safe, job_id)
+
+    # Auto-match: publikacja albo istotna zmiana wymagań opublikowanej rekrutacji.
+    if job.status == JobStatus.published and (
+        _status_before != JobStatus.published
+        or is_significant_job_update(
+            _before, {f: getattr(job, f) for f in _before.keys()}
+        )
+    ):
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        background_tasks.add_task(enqueue_job_safe, job_id)
 
     # Populate hiring_manager_name żeby PATCH response zawierał aktualną nazwę
     # bez konieczności re-fetcha GET /jobs/{id} po stronie UI.
@@ -1886,6 +1905,9 @@ async def publish_job(
             user_id=current_user.id,
         )
     )
+    from app.services.auto_match_outbox import enqueue_job
+
+    await enqueue_job(db, job_id=job_id, trigger="job_publish")
     await db.commit()
     return {"status": "published", "job_id": job_id}
 

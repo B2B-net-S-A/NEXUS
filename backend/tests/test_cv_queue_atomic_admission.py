@@ -15,7 +15,6 @@ from app.services import ai_quota
 
 @pytest.mark.parametrize("commit", [False, True])
 async def test_admission_and_job_commit_or_rollback_together(monkeypatch, commit):
-    monkeypatch.setattr(ai_quota, "get_master_enabled", AsyncMock(return_value=True))
     monkeypatch.setattr(
         ai_quota,
         "get_feature_config",

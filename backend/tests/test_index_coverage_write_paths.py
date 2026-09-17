@@ -44,6 +44,9 @@ _INDEXING_CALLS = {
     "embed_candidate",
     "record_bulk_reindex",
     "_record_new_candidate_index_intent",
+    # Wspólna ścieżka po odczycie CV (17.09.2026) — sama woła
+    # `schedule_or_embed_candidate`; pilnuje tego test niżej.
+    "finish_cv_ingest",
 }
 
 # (plik, funkcja) — każda ścieżka, która tworzy kandydata.
@@ -233,3 +236,10 @@ def test_bulk_recorder_computes_a_real_revision() -> None:
         "record_bulk_reindex przestało liczyć prawdziwą rewizję — zdarzenia dla "
         "zaktualizowanych wierszy będą odrzucane jako superseded"
     )
+
+
+def test_shared_cv_ingest_path_really_indexes() -> None:
+    node = _function_node("app/services/cv_ingest_service.py", "finish_cv_ingest")
+    assert node is not None
+    assert "schedule_or_embed_candidate" in _calls_indexing(node)
+

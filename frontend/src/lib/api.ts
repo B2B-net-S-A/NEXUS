@@ -5623,21 +5623,32 @@ export interface AISettingsResponse {
   usage: AIFeatureUsageDto[];
 }
 
-export interface AIFeatureUpdate {
-  enabled?: boolean;
-  monthly_limit?: number;
+export interface AutoMatchLogRow {
+  candidate_id: number;
+  job_id: number;
+  job_title: string;
+  score: number | null;
+  decision: string;
+  reason: string | null;
+  trigger: string;
+  created_at: string;
+}
+
+export interface AutoMatchOverview {
+  enabled: boolean;
+  dry_run: boolean;
+  min_score: number;
+  max_jobs_per_candidate: number;
+  max_candidates_per_job: number;
+  decisions_7d: Record<string, number>;
+  queue_7d: Record<string, number>;
+  recent: AutoMatchLogRow[];
 }
 
 export const aiSettingsApi = {
   testAlert: () => api.post<{ delivered: boolean; alert_id: number }>("/api/settings/ai/alerts/test"),
   get: () => api.get<AISettingsResponse>("/api/settings/ai"),
-  setMaster: (enabled: boolean) =>
-    api.patch<AISettingsResponse>("/api/settings/ai/master", { enabled }),
-  updateFeature: (feature: AIFeatureKey, payload: AIFeatureUpdate) =>
-    api.patch<AISettingsResponse>(
-      `/api/settings/ai/features/${feature}`,
-      payload,
-    ),
+  autoMatch: () => api.get<AutoMatchOverview>("/api/settings/ai/auto-match"),
 };
 
 // ── Settings → API integration / OAuth clients (Traffit gap #6) ──────────────

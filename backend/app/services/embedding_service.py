@@ -513,6 +513,11 @@ def _build_candidate_text_v1(candidate) -> str:
                     parts.append(e.get("role", ""))
                     parts.append(e.get("company", ""))
                     parts.append(e.get("desc", ""))
+                    # Odczyt CV v7: technologie użyte na TYM stanowisku. Stare
+                    # wpisy nie mają klucza, więc ich tekst się nie zmienia.
+                    technologies = e.get("technologies")
+                    if isinstance(technologies, list):
+                        parts.extend(str(t) for t in technologies if t)
         elif isinstance(exp, str):
             parts.append(exp)
 
@@ -534,6 +539,18 @@ def _build_candidate_text_v1(candidate) -> str:
     # AI summary
     if candidate.ai_summary:
         parts.append(candidate.ai_summary)
+
+    # Pełny profil z odczytu CV v7 (certyfikaty, sektory, technologie z ostatnich
+    # lat). Dla starych profili pusty — tekst i `desired_hash` bez zmian.
+    from app.services.profile_projection import rich_profile_text_facts
+
+    rich = rich_profile_text_facts(candidate)
+    if rich.get("certifications"):
+        parts.append("certifications: " + ", ".join(rich["certifications"]))
+    if rich.get("sectors"):
+        parts.append("sectors: " + ", ".join(rich["sectors"]))
+    if rich.get("recent_skills"):
+        parts.append("recent: " + ", ".join(rich["recent_skills"]))
 
     # Raw CV (truncated to avoid token blowup)
     if candidate.raw_cv_text:
