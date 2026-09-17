@@ -16,7 +16,7 @@
  * daje jedną grupę — wtedy grupowanie nic nie wnosi i rail pokazuje płaską
  * listę jak wcześniej.
  *
- * Filtry „Utknęli > 7 d" / „Bez następnej akcji" / „Zablokowani bramką" /
+ * Filtry „Utknęli > 7 d" / „Bez następnej akcji" / „Ostrzeżenia" /
  * „Rekruter" NIE usuwają kart z tablicy (usunięcie zepsułoby indeksy
  * `@hello-pangea/dnd` używane przez `onDragEnd` — patrz komentarz
  * w `KanbanBoardV2`) — przyciemniają niepasujące karty. Stąd liczniki obok
@@ -322,10 +322,10 @@ export function PipelineFiltersRail({
             onClick={onToggleBlockedFilter}
             label={
               blockedCount > 0
-                ? `Zablokowani bramką · ${blockedCount}`
-                : "Zablokowani bramką"
+                ? `Ostrzeżenia · ${blockedCount}`
+                : "Ostrzeżenia"
             }
-            title="Podświetl kandydatów zablokowanych przez bramkę dopuszczalności lub weryfikację"
+            title="Podświetl kandydatów z ostrzeżeniem (weto hiring managera) — ruch nie jest blokowany"
           />
           {offTemplateCount > 0 && (
             <FilterPill

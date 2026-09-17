@@ -53,7 +53,6 @@ from app.services.candidate_contact_hooks import (
     maybe_remove_calendar_handoff,
     maybe_sync_calendar_handoff,
 )
-from app.services.signing import pipeline_hook as signing_pipeline_hook
 from app.services.traffit.client import TraffitConfig
 from app.tasks import candidate_contact_traffit as contact_traffit_task
 
@@ -263,53 +262,6 @@ def test_exception_retry_queue_is_least_recently_attempted_first() -> None:
         "candidate_contact_traffit_ledger.id ASC"
     )
     assert "LIMIT 100" in sql
-
-
-async def test_non_terminal_signing_stage_opens_contact_opportunity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db = MagicMock()
-    db.get = AsyncMock(return_value=SimpleNamespace(pipeline_template_id=41))
-    db.scalar = AsyncMock(
-        return_value=SimpleNamespace(
-            id=52,
-            legacy_enum_value="negotiation",
-        )
-    )
-    db.flush = AsyncMock()
-    ensure = AsyncMock()
-    close = AsyncMock()
-    # Etap zapisuje kanoniczny command service (writer fence Priority Locka),
-    # więc hook kolejki kontaktu wisi na ZWRÓCONYM wierszu, nie na własnym
-    # `CandidateStage` — stąd mock `transition_process` zamiast `db.add`.
-    transition = AsyncMock(
-        return_value=SimpleNamespace(moved_at=BASE_TIME, candidate_id=11, job_id=22)
-    )
-    monkeypatch.setattr(signing_pipeline_hook, "transition_process", transition)
-    monkeypatch.setattr(
-        signing_pipeline_hook,
-        "maybe_ensure_contact_opportunity",
-        ensure,
-    )
-    monkeypatch.setattr(
-        signing_pipeline_hook,
-        "maybe_close_contact_opportunity",
-        close,
-    )
-
-    await signing_pipeline_hook.move_candidate_for_signing(
-        db,
-        SimpleNamespace(candidate_id=11, job_id=22),
-        stage_name=signing_pipeline_hook.STAGE_SENT,
-        moved_by=33,
-    )
-
-    transition.assert_awaited_once()
-    # Podpis nie może wykreować brakującej rekrutacji jako efektu ubocznego.
-    assert transition.await_args.kwargs["require_existing"] is True
-    ensure.assert_awaited_once()
-    assert ensure.await_args.kwargs["occurred_at"] == BASE_TIME
-    close.assert_not_awaited()
 
 
 async def test_daily_traffit_equal_time_events_reach_domain_tuple_guard(

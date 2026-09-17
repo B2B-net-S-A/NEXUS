@@ -46,7 +46,6 @@ import api, {
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { useAuthStore } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -65,10 +64,20 @@ import {
   RejectionV2,
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
+import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import {
-  evaluateRateGate,
-  isJobBudgetHiddenFor,
-} from "@/lib/verified-rate-gate";
+  eligibilityWarningReason,
+  isEligibilityWarning,
+} from "@/lib/pipeline-eligibility-warning";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   PIPELINE_VERSION_CONFLICT_MESSAGE,
   expectedStateVersionOf,
@@ -88,6 +97,7 @@ import {
   itemFullName,
   moveBlockedReason,
   selectOverBudget,
+  selectWithWarning,
   selectScreeningQueue,
   stageAgeTone,
   type FlowQueueEntry,
@@ -115,8 +125,8 @@ import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 
 export interface ScreeningWorkbenchProps {
   jobId: number;
-  /** Budżet miesięczny rekrutacji (`Job.salary_max`) — bramka stawki. */
-  jobBudgetMax: number | null;
+  /** Budżet PLN/h rekrutacji (`effective_budget_hourly`) — porównanie stawki. */
+  jobBudgetHourly: number | null;
   columns: KanbanColumn[];
   isLoading: boolean;
   isError: boolean;
@@ -141,7 +151,7 @@ function daysLabel(n: number): string {
 
 export function ScreeningWorkbench({
   jobId,
-  jobBudgetMax,
+  jobBudgetHourly,
   columns,
   isLoading,
   isError,
@@ -156,14 +166,16 @@ export function ScreeningWorkbench({
 }: ScreeningWorkbenchProps) {
   const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
-  // Delivery Lead / TCM dostają `salary_max = null` (redakcja budżetu) —
-  // werdykt stawki mówi wtedy „budżet ukryty", nie „brak budżetu".
-  const authUser = useAuthStore((s) => s.user);
-  const budgetHidden = isJobBudgetHiddenFor(authUser);
-
   const queue = useMemo(() => selectScreeningQueue(columns), [columns]);
-  // Informacja, nie kolejka decyzji: bramka „Pending" wyłączona 17.09.2026.
-  const overBudgetQueue = useMemo(() => selectOverBudget(columns), [columns]);
+  // Dwie informacje w miejscu dawnej kolejki „czeka na akceptację" (bramka
+  // usunięta 17.09.2026) — żadna nie blokuje ruchu:
+  //  • „Ponad budżet" — stawka ponad AKTUALNY budżet PLN/h rekrutacji,
+  //  • „Z ostrzeżeniem" — weto hiring managera (ruch pyta „Przenieś mimo to").
+  const overBudgetQueue = useMemo(
+    () => selectOverBudget(columns, jobBudgetHourly),
+    [columns, jobBudgetHourly],
+  );
+  const warningQueue = useMemo(() => selectWithWarning(columns), [columns]);
   const verifiedCol = useMemo(
     () => findStageColumn(columns, VERIFIED_STAGE),
     [columns],
@@ -177,20 +189,24 @@ export function ScreeningWorkbench({
   const [dockTab, setDockTab] = useState<DockTab>("decision");
   const [showOriginalCv, setShowOriginalCv] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  // 409 ELIGIBILITY_WARNING (17.09.2026) — powód z serwera; „Przenieś mimo to"
+  // powtarza ruch z `acknowledge_eligibility`.
+  const [eligibilityReason, setEligibilityReason] = useState<string | null>(null);
   // Pierwsze wejście (i zniknięcie wybranej karty po ruchu) wybiera pierwszą
   // pozycję kolejki. Bez tego stanowisko startuje puste, mimo że ktoś czeka.
-  // Wybierać można z OBU list (kolejka screeningu i „ponad budżet") — klik
-  // w kartę ponad budżetem otwiera JEJ arkusz, zamiast gasić stanowisko
-  // (te karty stoją zwykle na „Zweryfikowany", nie w kolejce screeningu).
-  const allEntries = useMemo(
-    () => [
-      ...queue,
-      ...overBudgetQueue.filter(
-        (e) => !queue.some((q) => q.item.id === e.item.id),
-      ),
-    ],
-    [queue, overBudgetQueue],
-  );
+  // Wybierać można ze WSZYSTKICH list (kolejka screeningu, „ponad budżet",
+  // „z ostrzeżeniem") — klik w kartę spoza kolejki otwiera JEJ arkusz,
+  // zamiast gasić stanowisko (te karty stoją zwykle na innych etapach).
+  const allEntries = useMemo(() => {
+    const seen = new Set<number>();
+    const out: FlowQueueEntry[] = [];
+    for (const entry of [...queue, ...overBudgetQueue, ...warningQueue]) {
+      if (seen.has(entry.item.id)) continue;
+      seen.add(entry.item.id);
+      out.push(entry);
+    }
+    return out;
+  }, [queue, overBudgetQueue, warningQueue]);
   useEffect(() => {
     setSelectedStageId((prev) =>
       prev != null && allEntries.some((e) => e.item.id === prev)
@@ -218,8 +234,7 @@ export function ScreeningWorkbench({
     rawRate: rate,
     unit,
     currency: "PLN",
-    jobBudgetMax,
-    budgetHidden,
+    jobBudgetHourly,
   });
 
   // ── Arkusz Championa dla wybranego etapu ────────────────────────────────
@@ -261,22 +276,25 @@ export function ScreeningWorkbench({
 
   // ── Ruch na „Zweryfikowany" — TEN SAM endpoint co drag&drop ─────────────
   const moveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (acknowledgeEligibility: boolean = false) => {
       if (!selected || !verifiedCol) throw new Error("Brak etapu docelowego.");
       const res = await pipelineApi.move({
         candidate_id: selected.item.candidate_id,
         job_id: jobId,
         stage: VERIFIED_STAGE,
         stage_def_id: verifiedCol.stage_def_id ?? undefined,
-        expected_rate_value: gate.numericRate,
-        expected_rate_unit: unit,
-        expected_rate_currency: "PLN",
+        // Stawka opcjonalna od 17.09.2026 — wysyłamy tylko wpisaną.
+        ...(gate.isValid
+          ? {
+              expected_rate_value: gate.numericRate,
+              expected_rate_unit: unit,
+              expected_rate_currency: "PLN",
+            }
+          : {}),
         expected_state_version: expectedStateVersionOf(selected.item),
+        acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
       });
-      const moved = res.data as {
-        id?: number;
-        budget_exceeded?: boolean;
-      };
+      const moved = res.data as { id?: number };
       // Ruch tworzy NOWY `CandidateStage`, a `transition_process` nie kopiuje
       // `screening_answers` — arkusz zapisany na etapie „Screening" zostałby na
       // historycznym rekordzie, a portal klienta i generator CV czytają etap
@@ -290,14 +308,20 @@ export function ScreeningWorkbench({
           screeningCopyFailed = true;
         }
       }
-      return { ...moved, screeningCopyFailed };
+      // „Ponad budżet" liczy się z budżetu PLN/h rekrutacji (to samo, co pole
+      // stawki pokazało przed kliknięciem) — serwer już tego nie ocenia.
+      return {
+        ...moved,
+        screeningCopyFailed,
+        overBudget: gate.isValid && gate.verdict === "over_budget",
+      };
     },
     onSuccess: (data) => {
       if (data.screeningCopyFailed) {
         showError(
           "Przeniesiono na „Zweryfikowany”, ale nie udało się przepisać arkusza screeningu na nowy etap — otwórz arkusz z tablicy Pipeline i zapisz go ponownie.",
         );
-      } else if (data?.budget_exceeded) {
+      } else if (data.overBudget) {
         showSuccess(
           "Kandydat przeniesiony na „Zweryfikowany”. Stawka przekracza budżet rekrutacji — zapisano jako informację.",
         );
@@ -306,7 +330,13 @@ export function ScreeningWorkbench({
       }
       onMoved();
     },
-    onError: (e) => {
+    onError: (e, acknowledged) => {
+      if (!acknowledged && isEligibilityWarning(e)) {
+        setEligibilityReason(
+          eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
+        );
+        return;
+      }
       if (isPipelineVersionConflict(e)) {
         // F05: bez ponowienia — kolejka pokaże etap zapisany przez kolegę.
         showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
@@ -391,9 +421,9 @@ export function ScreeningWorkbench({
     },
   });
 
-  // Bramka ruchu — widoczna z powodem, nigdy 409 po kliknięciu. Cel ruchu
-  // („Zweryfikowany") jest jawny, bo weto HM nie dotyczy tego etapu — blokuje
-  // wyłącznie „CV Wysłane" i „Interview Klient", tak jak serwer.
+  // Bramka ruchu — od 17.09.2026 tylko brak prawa zapisu, brak kolumny
+  // i niezapisany arkusz. Stawka jest opcjonalna, a ostrzeżenia serwera
+  // (czarna lista / NDA / konkurent) pytają „Przenieś mimo to".
   const moveBlocked = selected
     ? (moveBlockedReason({
         item: selected.item,
@@ -402,13 +432,11 @@ export function ScreeningWorkbench({
       }) ??
       (!verifiedCol
         ? "Szablon tej rekrutacji nie ma kolumny „Zweryfikowany”."
-        : !gate.isValid
-          ? "Podaj stawkę oczekiwaną — backend jej wymaga przy tym ruchu."
-          : screeningDirty
-            ? "Arkusz screeningu ma niezapisane odpowiedzi — zapisz go najpierw (przeniesienie tworzy NOWY etap, ten formularz dotyczy obecnego)."
-            : null))
+        : screeningDirty
+          ? "Arkusz screeningu ma niezapisane odpowiedzi — zapisz go najpierw (przeniesienie tworzy NOWY etap, ten formularz dotyczy obecnego)."
+          : null))
     : "Wybierz kandydata z kolejki.";
-  // Odrzucenie to ruch terminalny: omija weto hiring managera.
+  // Odrzucenie — ta sama bramka (tylko brak prawa zapisu).
   const rejectBlocked = selected
     ? moveBlockedReason({
         item: selected.item,
@@ -522,7 +550,7 @@ export function ScreeningWorkbench({
 
         <RailSection
           label="Ponad budżet"
-          note="Informacja: stawka zapisana przy weryfikacji przekracza budżet rekrutacji. Nic nie blokuje ruchu."
+          note="Informacja: stawka kandydata przekracza aktualny budżet PLN/h rekrutacji. Nic nie blokuje ruchu."
         >
           {overBudgetQueue.length > 0 ? (
             <div className="space-y-0.5">
@@ -541,7 +569,35 @@ export function ScreeningWorkbench({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Nikt nie jest ponad budżetem.
+              {jobBudgetHourly == null
+                ? "Rekrutacja nie ma budżetu PLN/h — nie ma z czym porównać."
+                : "Nikt nie jest ponad budżetem."}
+            </p>
+          )}
+        </RailSection>
+
+        <RailSection
+          label="Z ostrzeżeniem"
+          note="Weto hiring managera tej rekrutacji — ruch na etap klienta zapyta „Przenieś mimo to”."
+        >
+          {warningQueue.length > 0 ? (
+            <div className="space-y-0.5">
+              {warningQueue.map((entry) => (
+                <RailRow
+                  key={entry.item.id}
+                  tone="bad"
+                  label={itemFullName(entry.item)}
+                  secondary={entry.item.hm_veto?.rejection_reason_name}
+                  meta="weto HM"
+                  metaTone="bad"
+                  active={entry.item.id === selectedStageId}
+                  onSelect={() => setSelectedStageId(entry.item.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Nikt nie ma ostrzeżenia.
             </p>
           )}
         </RailSection>
@@ -615,11 +671,11 @@ export function ScreeningWorkbench({
                 .join(" · ")}
               badges={
                 <>
-                  {selected.item.budget_exceeded && (
+                  {isOverHourlyBudget(selected.item, jobBudgetHourly) && (
                     <Badge
                       variant="warning"
                       size="sm"
-                      title="Stawka kandydata przekracza budżet rekrutacji — informacja, nic nie blokuje."
+                      title="Stawka kandydata przekracza budżet PLN/h rekrutacji — informacja, nic nie blokuje."
                     >
                       <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
                     </Badge>
@@ -792,9 +848,9 @@ export function ScreeningWorkbench({
                   idPrefix="screening-dock-rate"
                 />
                 <p className="text-[10.5px] text-muted-foreground">
-                  Powyżej budżetu → odznaka „ponad budżet” na karcie
-                  (informacja, bez akceptacji). Normalizacja: h×168,
-                  dzień×21.
+                  Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj
+                  i odznaka „ponad budżet” na karcie; ruch nie jest blokowany.
+                  Przeliczenie: dzień ÷ 8, miesiąc ÷ 168.
                 </p>
               </DockSection>
 
@@ -868,7 +924,7 @@ export function ScreeningWorkbench({
                     disabled={Boolean(moveBlocked) || moveMut.isPending}
                     loading={moveMut.isPending}
                     title={moveBlocked ?? undefined}
-                    onClick={() => moveMut.mutate()}
+                    onClick={() => moveMut.mutate(false)}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Zweryfikowany — zapisz stawkę i przenieś
@@ -917,6 +973,35 @@ export function ScreeningWorkbench({
           jobTitle={`Rekrutacja #${jobId}`}
           candidateName={selectedName ?? "Kandydat"}
         />
+      )}
+
+      {eligibilityReason && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setEligibilityReason(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
+              <DialogDescription>{eligibilityReason}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setEligibilityReason(null)}>
+                Anuluj
+              </Button>
+              <Button
+                onClick={() => {
+                  setEligibilityReason(null);
+                  moveMut.mutate(true);
+                }}
+              >
+                Przenieś mimo to
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
 
       {selected && rejectedCol && rejectOpen && (

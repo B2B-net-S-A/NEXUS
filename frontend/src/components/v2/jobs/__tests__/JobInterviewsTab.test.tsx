@@ -306,7 +306,7 @@ describe("JobInterviewsTab", () => {
     expect(pill.getAttribute("title")).toMatch(/stawkę do klienta/);
   });
 
-  it("weto HM blokuje WYŁĄCZNIE „CV Wysłane”/„Interview Klient” — „Akceptacja” i odrzucenie przechodzą, jak na serwerze", async () => {
+  it("weto HM nie wyszarza żadnego ruchu — to ostrzeżenie serwera, nie bramka", async () => {
     const withVeto = columns();
     withVeto[0] = {
       ...withVeto[0],
@@ -325,21 +325,24 @@ describe("JobInterviewsTab", () => {
     };
     renderTab({ columns: withVeto });
 
-    // `puts_candidate_before_client` egzekwuje weto tylko dla cv_sent
-    // i client_interview — do 09.2026 dok wyszarzał każdy ruch, więc
-    // „Akceptacja"/„Zatrudniony" były martwe, choć serwer je przepuszcza.
+    // Od 17.09.2026 weto HM jest ostrzeżeniem serwera (409 ELIGIBILITY_WARNING
+    // z „Przenieś mimo to"), nie bramką — żadna pigułka nie jest przez nie
+    // wyszarzona.
     const acceptance = await screen.findByRole("button", { name: "Akceptacja" });
     expect(acceptance).not.toBeDisabled();
+    expect(acceptance.getAttribute("title") ?? "").not.toMatch(/Hiring manager/);
 
-    // „CV Wysłane" — powód weta wygrywa z „ten dialog mieszka na tablicy".
+    // „CV Wysłane" zostaje wyszarzone WYŁĄCZNIE dlatego, że jego modal stawki
+    // mieszka na tablicy — powód weta się nie pojawia.
     const cvSent = screen.getByRole("button", { name: "CV Wysłane" });
-    expect(cvSent).toBeDisabled();
-    expect(cvSent.getAttribute("title")).toMatch(/Hiring manager/);
+    expect(cvSent.getAttribute("title")).toMatch(/stawkę do klienta/);
+    expect(cvSent.getAttribute("title")).not.toMatch(/Hiring manager/);
 
-    // Ruch wypisujący przechodzi zawsze — inaczej kandydata z wetem nie
-    // dałoby się domknąć z tej powierzchni.
     const rejected = screen.getByRole("button", { name: "Odrzucony" });
     expect(rejected).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
+    ).not.toBeDisabled();
   });
 
   it("F05: ruch z doku wysyła wersję procesu z karty", async () => {
@@ -390,13 +393,60 @@ describe("JobInterviewsTab", () => {
     expect(showSuccess).not.toHaveBeenCalled();
   });
 
-  it("stawka ponad budżet (bramka „Pending” wyłączona) to informacja — ruchy zostają dostępne", async () => {
+  it("409 ELIGIBILITY_WARNING — okno „Przenieś mimo to” powtarza ruch z potwierdzeniem", async () => {
+    let calls = 0;
+    apiPost.mockImplementation((url: string) => {
+      if (url !== "/api/pipeline/move") return Promise.resolve({ data: {} });
+      calls += 1;
+      return calls === 1
+        ? Promise.reject({
+            response: {
+              status: 409,
+              data: {
+                detail: {
+                  code: "ELIGIBILITY_WARNING",
+                  reason_code: "client_nda",
+                  reason: "Kandydat ma aktywne NDA z tym klientem.",
+                  message: "Kandydat ma aktywne NDA z tym klientem.",
+                  can_acknowledge: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve({ data: {} });
+    });
+    renderTab();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Akceptacja" }));
+
+    expect(
+      await screen.findByText("Kandydat ma aktywne NDA z tym klientem."),
+    ).toBeInTheDocument();
+    expect(showError).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Przenieś mimo to" }));
+
+    await waitFor(() => {
+      const moves = apiPost.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+      expect(moves).toHaveLength(2);
+      expect(moves[1][1]).toMatchObject({ acknowledge_eligibility: true });
+    });
+  });
+
+  it("stawka ponad AKTUALNY budżet PLN/h to informacja — ruchy zostają dostępne", async () => {
     const overBudget = columns();
     overBudget[0] = {
       ...overBudget[0],
-      items: [item({ verification_status: "pending", budget_exceeded: true })],
+      items: [
+        item({
+          verification_status: "pending",
+          expected_rate_value: 200,
+          expected_rate_unit: "hourly",
+          expected_rate_currency: "PLN",
+        }),
+      ],
     };
-    renderTab({ columns: overBudget });
+    renderTab({ columns: overBudget, budgetHourly: 150 });
 
     expect(await screen.findByText("Stawka ponad budżet")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Akceptacja" })).not.toBeDisabled();

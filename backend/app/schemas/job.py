@@ -202,6 +202,12 @@ class JobResponse(BaseModel):
     # Czy rekrutacja jest aktywnie prowadzona w NEXUSIE (0270). NIE to samo co
     # `status`, który jest lustrem Traffita — patrz `models/job.py`.
     is_open: bool = False
+    # Skąd pochodzi rekrutacja ('traffit'/'manual') — baner o imporcie tylko dla Traffita.
+    external_source: Optional[str] = None
+    # 0325: „Rekrutacja prowadzona w NEXUSIE" + ślad przełączenia.
+    managed_in_nexus: bool = False
+    managed_in_nexus_at: Optional[datetime] = None
+    managed_in_nexus_by: Optional[int] = None
     priority: JobPriority
     needs_sourcing: bool = False
     recruitment_type: RecruitmentType
@@ -313,6 +319,12 @@ class JobCloseRequest(BaseModel):
 
     reason: JobCloseReason
     notes: Optional[str] = None
+
+
+class JobManageInNexusRequest(BaseModel):
+    """Body `POST /api/jobs/{id}/manage-in-nexus`."""
+
+    enabled: bool
 
 
 class JobHandoffRequest(BaseModel):

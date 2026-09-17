@@ -21,10 +21,20 @@ Scope notes:
 * Terminal **removal** moves (``rejected`` / ``withdrawn``) must stay allowed
   so a blacklisted candidate can always be closed OUT of a pipeline — the
   caller decides not to invoke the gate for those (see ``api/pipeline.py``).
+
+**Ruch na tablicy (17.09.2026, „żadna bramka nie blokuje przepływu"):**
+pojedynczy ``/move`` nie odmawia twardo nawet przy globalnej czarnej liście
+i wecie HM (:func:`check_candidate_move_eligibility`) — powód jest OSTRZEŻENIEM:
+409 ze strukturalnym ``detail`` (``ELIGIBILITY_WARNING``), które front zamienia
+na okno „Przenieś mimo to"; powtórzony ruch z ``acknowledge_eligibility``
+przechodzi i zostawia ``Activity(eligibility_acknowledged)``. ``/bulk-move``
+i wejścia dodające kandydata (:func:`assert_candidate_move_eligible`) zostają
+twarde — nie ma tam UI, które mogłoby potwierdzić ostrzeżenie.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import AbstractSet, Mapping, Optional, Sequence
 
@@ -47,6 +57,34 @@ from app.services.candidate_job_eligibility import (
 from app.services.current_employment import current_employment_client_ids
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.hiring_manager_verdicts import ManagerVerdict, load_manager_rejections
+
+
+ELIGIBILITY_WARNING_CODE = "ELIGIBILITY_WARNING"
+
+
+@dataclass(frozen=True)
+class EligibilityBlock:
+    """Powód, który do 17.09.2026 dawał twarde 409, a dziś jest OSTRZEŻENIEM.
+
+    Zwracany wołającemu, gdy użytkownik potwierdził ruch mimo ostrzeżenia —
+    wołający zapisuje go w `Activity`, żeby audyt widział, co zignorowano.
+    """
+
+    reason_code: str
+    reason: str
+
+
+def _warning_detail(block: EligibilityBlock) -> dict:
+    """Kształt 409 lustrzany do `PIPELINE_VERSION_CONFLICT` (`code` + `message`),
+    więc ogólne parsery błędów nadal znajdą tekst w `message`."""
+    return {
+        "code": ELIGIBILITY_WARNING_CODE,
+        "entity": "candidate",
+        "reason_code": block.reason_code,
+        "reason": block.reason,
+        "message": block.reason,
+        "can_acknowledge": True,
+    }
 
 
 async def evaluate_candidates_for_job(
@@ -265,11 +303,12 @@ async def assert_candidate_move_eligible(
 ) -> None:
     """Raise **409** if ``candidate_id`` is hard-blocked for ``job``.
 
-    Shared by ``POST /api/pipeline/move``, single assign, shortlist promote and
-    LinkedIn quick-assign, so a globally blacklisted candidate or one vetoed by
-    the job's hiring manager is rejected identically everywhere. Client
-    conflicts are warnings and never reach this 409. ``detail`` is the Polish
-    eligibility reason (the veto names the manager and the date).
+    Twarda bramka wejść, które DODAJĄ kandydata do pipeline'u (pojedyncze
+    przypisanie, promocja z shortlisty, wtyczka LinkedIn): globalna czarna
+    lista albo weto hiring managera rekrutacji → 409 z polskim powodem (weto
+    podaje managera i datę). Konflikty z klientem są ostrzeżeniami i nie
+    dochodzą do tego 409. Ruch na tablicy kanbanu od 17.09.2026 używa
+    :func:`check_candidate_move_eligibility` — ostrzeżenie z potwierdzeniem.
     """
     decisions, verdicts = await evaluate_candidates_for_job_with_verdicts(
         db,
@@ -284,6 +323,46 @@ async def assert_candidate_move_eligible(
             status_code=status.HTTP_409_CONFLICT,
             detail=detail_for(decision, verdicts.get(candidate_id)),
         )
+
+
+async def check_candidate_move_eligibility(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    job: Job,
+    now: datetime,
+    enforce_manager_verdict: bool = True,
+    acknowledged: bool = False,
+) -> Optional[EligibilityBlock]:
+    """Ostrzeżenie dopuszczalności ruchu na tablicy (do 17.09.2026: twarde 409).
+
+    Bez ``acknowledged`` twardy powód (globalna czarna lista albo weto hiring
+    managera na etapach ``VETO_ENFORCED_STAGES``; konflikty z klientem od #1589
+    nie blokują w ogóle) kończy się 409 ze STRUKTURALNYM ``detail``
+    (``ELIGIBILITY_WARNING``), które front zamienia na okno „Przenieś mimo to".
+    Z ``acknowledged=True`` funkcja NIE rzuca — zwraca powód, żeby wołający
+    zapisał ``Activity(eligibility_acknowledged)``. ``None`` = brak powodu.
+    """
+    decisions, verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=[candidate_id],
+        now=now,
+        enforce_manager_verdict=enforce_manager_verdict,
+    )
+    decision = decisions.get(candidate_id)
+    if decision is None or decision.assignment_allowed:
+        return None
+    block = EligibilityBlock(
+        reason_code=decision.reason_code.value,
+        reason=detail_for(decision, verdicts.get(candidate_id)),
+    )
+    if acknowledged:
+        return block
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=_warning_detail(block),
+    )
 
 
 async def assert_candidates_move_eligible(

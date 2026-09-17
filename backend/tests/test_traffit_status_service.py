@@ -20,11 +20,15 @@ async def test_shared_status_preserves_quarantine_and_cursor(monkeypatch):
         cursor_payload={"page": 2},
         stats={"quarantined": ["ref-1"], "quarantine": {"ref-1": 3}},
     )
-    db = SimpleNamespace(execute=AsyncMock(return_value=[row]))
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=[row]), scalar=AsyncMock(return_value=2)
+    )
     result = await traffit_status.read_traffit_status(db)
     assert result["states"][0]["cursor"] == {"page": 2}
     assert result["quarantined"][0]["attempts"] == 3
     assert result["running"] is False
+    # 0325: licznik adopcji przełącznika „prowadzona w NEXUSIE".
+    assert result["managed_in_nexus_jobs"] == 2
 
 
 @pytest.mark.asyncio

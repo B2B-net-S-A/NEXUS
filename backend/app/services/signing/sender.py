@@ -42,15 +42,18 @@ from app.schemas.document_signature import SignForSignatureRequest
 from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
 from app.services.signing.pdf_renderer import render_contract_pdf
-from app.services.signing.pipeline_hook import (
-    STAGE_HIRED,
-    STAGE_SENT,
-    STAGE_SIGNED,
-    move_candidate_for_signing,
-)
 from app.services.signing.registry import get_provider
 
 logger = logging.getLogger(__name__)
+
+# Etykiety etapów podpisu — WYŁĄCZNIE do wpisu audytowego `pipeline_stage`
+# w `finalize_signed_pdf`.
+# Automatyczny ruch kandydata przy wysyłce i podpisie ZDJĘTY 17.09.2026
+# (decyzja właściciela: umowę podpisujemy offline, etap zmienia człowiek na
+# tablicy). Kolumny „Umowa wysłana" / „Umowa podpisana" zostają w szablonie
+# jako ręczne.
+STAGE_SIGNED = "Umowa podpisana"
+STAGE_HIRED = "Zatrudniony"
 
 
 def _require_enabled() -> None:
@@ -282,15 +285,6 @@ async def prepare_and_send(
     except Exception:  # noqa: BLE001
         logger.exception("prepare_and_send: notification emit failed sig=%d", sig.id)
 
-    # Advance the candidate to "Umowa wysłana" (best-effort).
-    try:
-        contract = await db.get(Contract, sig.contract_id)
-        await move_candidate_for_signing(
-            db, contract, stage_name=STAGE_SENT, moved_by=sender_user.id
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("prepare_and_send: pipeline move failed sig=%d", sig.id)
-
     await db.commit()
     await db.refresh(sig)
     logger.info("prepare_and_send: link minted sig=%d", sig.id)
@@ -366,10 +360,10 @@ async def finalize_signed_pdf(
             )
 
     # Both parties signed (consultant + our company side) ⇒ the contract is
-    # fully executed ⇒ the candidate is hired. Detected via the approval-
-    # signature count (>= 2); conservative on an unknown count → "Umowa
-    # podpisana" (never falsely promotes to "Zatrudniony"). See
-    # ``ValidationReport.both_parties_signed``.
+    # fully executed. Detected via the approval-signature count (>= 2);
+    # conservative on an unknown count. See ``ValidationReport.both_parties_signed``.
+    # `target_stage` to już tylko etykieta w audycie — od 17.09.2026 podpis
+    # NIE przesuwa kandydata w pipeline.
     both_signed = report.both_parties_signed
     target_stage = STAGE_HIRED if both_signed else STAGE_SIGNED
 
@@ -411,20 +405,6 @@ async def finalize_signed_pdf(
             },
         )
     )
-
-    # Advance the candidate: "Zatrudniony" if fully executed (both parties),
-    # else "Umowa podpisana" (best-effort — a pipeline move must never break
-    # signing). The direct CandidateStage insert sets moved_by + stage_def_id,
-    # which is what the "U klienta"/placements/KPI read-time queries key off.
-    # We deliberately do NOT replicate the normal hired hook's draft-Contract
-    # auto-creation (a contract already exists here) nor activate the contract.
-    try:
-        contract = sig.contract or await db.get(Contract, sig.contract_id)
-        await move_candidate_for_signing(
-            db, contract, stage_name=target_stage, moved_by=moved_by
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("finalize_signed_pdf: pipeline move failed sig=%d", sig.id)
 
     try:
         title = (

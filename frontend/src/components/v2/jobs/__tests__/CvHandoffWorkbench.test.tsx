@@ -441,18 +441,27 @@ describe("CvHandoffWorkbench", () => {
     expect(msg).toContain("uzupełnij ją z profilu kandydata");
   });
 
-  it("karta ponad budżetem (także zapisana jako `pending`) NIE blokuje wysyłki — bramka wyłączona", async () => {
+  it("karta ponad AKTUALNYM budżetem PLN/h (także zapisana jako `pending`) NIE blokuje wysyłki", async () => {
     renderWorkbench({
-      columns: columns([
-        item({ verification_status: "pending", budget_exceeded: true }),
-      ]),
+      // 118 PLN/h > budżet 100 PLN/h rekrutacji.
+      budgetHourly: 100,
+      columns: columns([item({ verification_status: "pending" })]),
     });
     await readySendButton();
     expect(screen.getByText(/Ponad budżet/)).toBeTruthy();
     expect(screen.queryByText(/czeka na akceptację/)).toBeNull();
   });
 
-  it("weto hiring managera blokuje wysyłkę", async () => {
+  it("stawka w budżecie PLN/h nie dostaje odznaki „ponad budżet”", async () => {
+    renderWorkbench({
+      budgetHourly: 150,
+      columns: columns([item()]),
+    });
+    await readySendButton();
+    expect(screen.queryByText(/Ponad budżet/)).toBeNull();
+  });
+
+  it("weto hiring managera NIE blokuje wysyłki — od 17.09.2026 to ostrzeżenie serwera", async () => {
     renderWorkbench({
       columns: columns([
         item({
@@ -465,9 +474,9 @@ describe("CvHandoffWorkbench", () => {
         }),
       ]),
     });
-    const button = await sendButton();
-    expect(button).toBeDisabled();
-    expect(button.getAttribute("title")).toContain("Brak bankowości");
+    const button = await readySendButton();
+    expect(button.getAttribute("title") ?? "").not.toContain("Brak bankowości");
+    expect(screen.queryByText(/Stawka czeka na/)).toBeNull();
   });
 
   // ── Link do karty Championa: sekret zwracany RAZ ────────────────────────

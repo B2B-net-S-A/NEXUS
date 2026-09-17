@@ -96,8 +96,9 @@ interface StageHistoryItem {
  *
  * Bramka liczona z DANYCH KARTY (backend nie ma endpointu podglądu — egzekwuje
  * ją wewnątrz `POST /pipeline/move`) JEDNĄ funkcją z doku kroku 04 i warsztatów
- * 05/06 (`moveBlockedReason`): karta „Pending" blokuje każdy ruch, weto HM
- * wyłącznie „CV Wysłane" i „Interview Klient", ruchy wypisujące przechodzą.
+ * 05/06 (`moveBlockedReason`): od 17.09.2026 blokuje wyłącznie brak prawa
+ * zapisu — weto HM, czarna lista i NDA są ostrzeżeniem serwera, które tablica
+ * zamienia na okno „Przenieś mimo to".
  * Do tego dochodzi powód „ten dialog mieszka na tablicy" z
  * `lib/pipeline-move-dialog`. Własna kopia tych reguł rozjechała się z
  * serwerem: „Zatrudniony" przy wecie był martwy, a serwer go przepuszcza.
@@ -202,7 +203,7 @@ export function InterviewDecisionDock({
 
   const offerResponse = item.candidate_offer_response ?? null;
   // Skróty odrzucenia/wycofania to te same ruchy wypisujące co pigułki — ta
-  // sama bramka (karta „Pending" blokuje także je, bo serwer odpowiada 409).
+  // sama bramka (tylko brak prawa zapisu).
   const removalBlocked = moveBlockedReason({
     item,
     readOnly,
@@ -287,9 +288,9 @@ export function InterviewDecisionDock({
                   })}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Odrzucenie i wycofanie omijają weto HM — inaczej nie dałoby się
-                  zamknąć kandydata. Karta „Pending” blokuje każdy ruch, dopóki
-                  stawka czeka na decyzję. „Zatrudniony” nigdy zbiorczo.
+                  Weto HM nie blokuje ruchu — przy przeniesieniu z tablicy
+                  serwer ostrzega i pyta „Przenieś mimo to”. „Zatrudniony” nigdy
+                  zbiorczo.
                 </p>
               </div>
             ) : (

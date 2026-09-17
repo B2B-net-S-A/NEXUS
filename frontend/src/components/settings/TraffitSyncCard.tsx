@@ -105,6 +105,11 @@ export function TraffitSyncCard() {
                 ? "Import Traffit → NEXUS, codziennie o 02:00 UTC"
                 : "Wyłączony (TRAFFIT_SYNC_ENABLED=false)"}
             </p>
+            {typeof data.managed_in_nexus_jobs === "number" ? (
+              <p className="text-xs text-muted-foreground">
+                Rekrutacje prowadzone w NEXUSIE: {data.managed_in_nexus_jobs}
+              </p>
+            ) : null}
           </div>
         </div>
         <button

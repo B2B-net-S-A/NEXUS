@@ -71,8 +71,8 @@ from app.services.hiring_manager_verdicts import (
     veto_for_candidate_stage,
 )
 from app.services.pipeline_eligibility import (
-    assert_candidate_move_eligible,
     assert_candidates_move_eligible,
+    check_candidate_move_eligibility,
 )
 from app.services.rate_normalization import (
     POLICY_VERSION as RATE_POLICY_VERSION,
@@ -213,6 +213,34 @@ def _require_pending_gate() -> None:
         )
 
 
+def _http_detail_text(detail: object) -> str:
+    """Tekst z `HTTPException.detail` — string albo dict z `message`.
+
+    `ensure_b2b_employment_draft` rzuca oba kształty (`_conflict_detail` daje
+    dict z `message` i listą kontraktów).
+    """
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, dict) and isinstance(detail.get("message"), str):
+        return detail["message"]
+    return str(detail)
+
+
+def _sheet_filled(payload: object) -> bool:
+    """Czy arkusz JSONB (screening / scorecard) ma treść.
+
+    `ScreeningAnswers` zapisuje domyślnie `{"answers": [], ...}` — sam
+    `bool(dict)` dałby fałszywe „wypełniony" i odznaka „do uzupełnienia"
+    znikałaby z karty, na której nikt niczego nie wpisał.
+    """
+    if not isinstance(payload, dict) or not payload:
+        return False
+    answers = payload.get("answers")
+    if isinstance(answers, (list, dict)):
+        return len(answers) > 0
+    return any(value not in (None, "", [], {}) for value in payload.values())
+
+
 def _stage_response(
     stage: CandidateStage,
     *,
@@ -220,6 +248,7 @@ def _stage_response(
     candidate_lastname: Optional[str] = None,
     added_to_job_by_name: Optional[str] = None,
     added_to_job_at: Optional[datetime] = None,
+    candidate_expected_rate_hourly: Optional[Decimal] = None,
 ) -> dict:
     """Convert a CandidateStage to response dict with days_in_stage.
 
@@ -271,6 +300,10 @@ def _stage_response(
         "lastname": candidate_lastname,
         "added_to_job_by_name": added_to_job_by_name,
         "added_to_job_at": added_to_job_at,
+        # Odznaki karty (17.09.2026) — patrz `CandidateStageResponse`.
+        "screening_done": _sheet_filled(stage.screening_answers),
+        "scorecard_done": _sheet_filled(stage.scorecard_answers),
+        "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
     }
 
 
@@ -600,7 +633,8 @@ async def move_candidate(
             status_code=403,
             detail=(
                 "Ruch na etap terminalny (hired/rejected/withdrawn) wymaga roli "
-                "recruiter/tac/delivery_lead/admin."
+                "admin, delivery_lead, talent_community_manager, tac, recruiter "
+                "lub finance."
             ),
         )
     # A concurrent confirm or pipeline move may have completed while this
@@ -620,8 +654,8 @@ async def move_candidate(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Ruch na etap 'Zweryfikowany' ustawia stawkę kandydata i wymaga "
-                "roli recruiter/tac/delivery_lead/admin."
+                "Ruch na etap 'Zweryfikowany' może nieść stawkę kandydata i wymaga "
+                "roli admin, delivery_lead, tac, recruiter lub finance."
             ),
         )
 
@@ -641,13 +675,18 @@ async def move_candidate(
         and stage_def.terminal_type
         and stage_def.terminal_type.value in ("rejected", "withdrawn")
     )
+    # 17.09.2026 (decyzja „żadna bramka nie blokuje przepływu"): ten sam
+    # powód jest OSTRZEŻENIEM — bez `acknowledge_eligibility` 409
+    # `ELIGIBILITY_WARNING`, z flagą ruch przechodzi i zostaje `Activity`.
+    eligibility_block = None
     if not is_removal_move:
-        await assert_candidate_move_eligible(
+        eligibility_block = await check_candidate_move_eligibility(
             db,
             candidate_id=data.candidate_id,
             job=job,
             now=datetime.now(timezone.utc),
             enforce_manager_verdict=puts_candidate_before_client(legacy_enum),
+            acknowledged=data.acknowledge_eligibility,
         )
 
     # Terminal-move validation: require rejection_reason_id
@@ -746,9 +785,10 @@ async def move_candidate(
                 detail="Powód jest przypisany do innego etapu.",
             )
 
-    # ── Pending verification gate (migracja 0056) ────────────────────────
-    # Tylko ruch na stage `verified` triggeruje sprawdzenie rate vs budget.
-    # Pozostałe stage'y zachowują defaultowe verification_status='active'.
+    # ── Stawka przy ruchu na `verified` (0056; bramka zdjęta 17.09.2026) ──
+    # Stawka jest OPCJONALNA i NIGDY nie ustawia `pending` (decyzja właściciela:
+    # żadna bramka nie zatrzymuje przepływu; „ponad budżet" to odznaka na
+    # karcie). Snapshot budżetu miesięcznego zostaje dla audytu i doku karty.
     verification_status = VerificationStatus.active
     expected_rate_value = data.expected_rate_value
     expected_rate_unit = data.expected_rate_unit
@@ -759,7 +799,11 @@ async def move_candidate(
     normalization_note: Optional[str] = None
 
     if legacy_enum == PipelineStage.verified:
-        if expected_rate_value is None or expected_rate_unit is None:
+        # Stawka opcjonalna (17.09.2026). Wymóg zostaje wyłącznie przy
+        # włączonej bramce „Pending" — bez stawki nie ma czego akceptować.
+        if settings.PENDING_VERIFICATION_ENABLED and (
+            expected_rate_value is None or expected_rate_unit is None
+        ):
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -769,6 +813,7 @@ async def move_candidate(
             )
         if job.salary_max is not None:
             budget_max_snapshot = int(job.salary_max)
+        if job.salary_max is not None and expected_rate_value is not None:
             # M4 PR-02 (audyt P0.5): porównanie w JEDNEJ jednostce. Dotąd
             # surowe 150 (PLN/h) < 25000 (PLN/mc) przechodziło jako "w
             # budżecie". Normalizacja: hourly×168, daily×21; waluta ≠ PLN
@@ -822,6 +867,14 @@ async def move_candidate(
         expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
+    if needs_approval:
+        # Wyłącznie przy włączonej bramce „Pending" (domyślnie wyłączona).
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == data.candidate_id)
+        )
+        await _notify_pending_verification(
+            db, stage=stage, candidate=candidate, job=job
+        )
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
@@ -838,14 +891,6 @@ async def move_candidate(
             job_id=data.job_id,
             source="pipeline",
             occurred_at=stage.moved_at,
-        )
-
-    if needs_approval:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == data.candidate_id)
-        )
-        await _notify_pending_verification(
-            db, stage=stage, candidate=candidate, job=job
         )
 
     stage_display_name = (
@@ -880,6 +925,23 @@ async def move_candidate(
             details=activity_details,
         )
     )
+    if eligibility_block is not None:
+        # Przeniesiono mimo ostrzeżenia — audyt widzi, co zignorowano i kto.
+        db.add(
+            Activity(
+                entity_type="pipeline",
+                entity_id=stage.id,
+                action="eligibility_acknowledged",
+                user_id=current_user.id,
+                details={
+                    "candidate_id": data.candidate_id,
+                    "job_id": data.job_id,
+                    "stage": legacy_enum.value,
+                    "reason_code": eligibility_block.reason_code,
+                    "reason": eligibility_block.reason,
+                },
+            )
+        )
 
     # M4 PR-02 (audyt P1.7): restore/ruch na etap NIEterminalny anuluje
     # niewysłane maile odrzucenia tej pary — w TEJ SAMEJ transakcji co move.
@@ -942,24 +1004,60 @@ async def move_candidate(
     # niżej. Dotąd SMTP mógł wyjść przed commitem: mail o przejściu, którego
     # DB ostatecznie nie zatwierdziła.
 
-    # Phase 9 A2 + DL portal refactor 2026-05-11:
-    # Auto-create a draft Contract + draft ClientOrder when the candidate is
-    # hired. DL fills in the rates/dates/PDF afterwards.
+    # Phase 9 A2 + DL portal refactor 2026-05-11 + „bez bramek" 17.09.2026:
+    # szkic kontraktu + zamówienia przy zatrudnieniu (Delivery uzupełnia
+    # stawki, daty, PDF). Od 17.09.2026 szkic NIE blokuje zatrudnienia: serwis
+    # odmawia 409 na danych historycznych (dwa żywe kontrakty, kontrakt innego
+    # klienta, zamknięty status…), co do tej pory cofało CAŁY ruch. Wiersz
+    # etapu z `transition_process` jest zflushowany PRZED savepointem, więc
+    # rollback savepointu zdejmuje tylko to, co zdążył zapisać serwis.
     if legacy_enum == PipelineStage.hired and job.client_id is not None:
-        employment = await ensure_b2b_employment_draft(
-            db,
-            candidate_id=data.candidate_id,
-            job=job,
-            actor_id=current_user.id,
-            default_start_date=date.today(),
-            ensure_order=True,
-            # The stage was inserted and flushed just above. The idempotent
-            # guard sees it as latest and never appends a duplicate.
-            ensure_hired=True,
-            require_b2b=False,
-            ensure_detail=False,
-        )
-        if employment.created_contract or employment.created_order:
+        employment = None
+        draft_skip_reason: Optional[str] = None
+        await db.flush()
+        try:
+            async with db.begin_nested():
+                employment = await ensure_b2b_employment_draft(
+                    db,
+                    candidate_id=data.candidate_id,
+                    job=job,
+                    actor_id=current_user.id,
+                    default_start_date=date.today(),
+                    ensure_order=True,
+                    # The stage was inserted and flushed just above. The
+                    # idempotent guard sees it as latest and never appends a
+                    # duplicate.
+                    ensure_hired=True,
+                    require_b2b=False,
+                    ensure_detail=False,
+                )
+        except HTTPException as exc:
+            # 409/404 serwisu — zatrudnienie zostaje, szkic zakłada Delivery.
+            draft_skip_reason = _http_detail_text(exc.detail)
+            logger.warning(
+                "hired move: contract draft skipped candidate=%s job=%s: %s",
+                data.candidate_id,
+                job.id,
+                draft_skip_reason,
+            )
+
+        if draft_skip_reason is not None or (
+            employment is not None
+            and (employment.created_contract or employment.created_order)
+        ):
+            cand = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            cand_name = (
+                f"{cand.name} {cand.lastname}".strip()
+                if cand
+                else f"#{data.candidate_id}"
+            )
+            delivery_recipients = await load_delivery_alert_recipient_scope(db)
+
+        if employment is not None and (
+            employment.created_contract or employment.created_order
+        ):
             db.add(
                 Activity(
                     entity_type="contract",
@@ -978,15 +1076,6 @@ async def move_candidate(
                     },
                 )
             )
-            cand = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
-            )
-            cand_name = (
-                f"{cand.name} {cand.lastname}".strip()
-                if cand
-                else f"#{data.candidate_id}"
-            )
-            delivery_recipients = await load_delivery_alert_recipient_scope(db)
             for uid in delivery_recipients.for_client(job.client_id):
                 db.add(
                     Notification(
@@ -1005,6 +1094,42 @@ async def move_candidate(
                         related_entity_type="contract",
                         related_entity_id=employment.contract.id,
                     )
+                )
+
+        if draft_skip_reason is not None:
+            from app.services.notification_triggers import emit
+
+            db.add(
+                Activity(
+                    entity_type="pipeline",
+                    entity_id=stage.id,
+                    action="contract_draft_skipped",
+                    user_id=current_user.id,
+                    details={
+                        "candidate_id": data.candidate_id,
+                        "job_id": job.id,
+                        "client_id": job.client_id,
+                        "reason": draft_skip_reason,
+                    },
+                )
+            )
+            # Ci sami odbiorcy co przy udanym szkicu. `emit` = savepoint + dedup
+            # dzienny, więc duplikat nie wywróci commitu zatrudnienia.
+            for uid in delivery_recipients.for_client(job.client_id):
+                await emit(
+                    db,
+                    user_id=uid,
+                    title="Nie założono szkicu kontraktu",
+                    message=(
+                        f"Kandydat {cand_name} został zatrudniony na rekrutację "
+                        f"'{job.title}' (#{job.id}), ale szkic kontraktu nie "
+                        f"powstał: {draft_skip_reason} Załóż kontrakt ręcznie "
+                        "w profilu klienta."
+                    ),
+                    ntype=NotificationType.suggest_next_step,
+                    related_entity_type="candidate",
+                    related_entity_id=data.candidate_id,
+                    link=f"/clients/{job.client_id}?tab=zamowienia",
                 )
 
     # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat.
@@ -1051,14 +1176,13 @@ async def move_candidate(
                 # niczego nie doda, a nauczy ignorować powiadomienia.
                 and already_hinted is None
             ):
-                staff_rows = await db.execute(
-                    select(User.id).where(
-                        User.role.in_(
-                            [UserRole.admin, UserRole.delivery_lead, UserRole.tac]
-                        ),
-                        User.is_active.is_(True),
-                    )
-                )
+                # Odbiorcy = zespół TEJ rekrutacji (właściciel, DL, TAC,
+                # współpracownicy) + admini z `list_job_member_ids`, nie każdy
+                # DL/TAC w firmie — podpowiedź o cudzej rekrutacji uczyła
+                # ignorować powiadomienia.
+                from app.services.job_membership import list_job_member_ids
+
+                recipient_ids = await list_job_member_ids(db, job.id)
                 from app.services.notification_triggers import emit
 
                 title = f"Rekrutacja '{job.title}' ma komplet obsady"
@@ -1073,7 +1197,7 @@ async def move_candidate(
                 # typu encji, więc powiadomienie o KANDYDACIE #N z tego dnia
                 # blokowało podpowiedź dla REKRUTACJI #N — a `db.add` bez flush
                 # wywracał dopiero commit zatrudnienia (500 na /move).
-                for uid in [row[0] for row in staff_rows.all()]:
+                for uid in recipient_ids:
                     await emit(
                         db,
                         user_id=uid,
@@ -1088,13 +1212,12 @@ async def move_candidate(
             # Podpowiedź nie może wywrócić zatrudnienia.
             logger.warning("fully-staffed hint failed for job=%s: %s", job.id, _exc)
 
-    # Automatic rejection-email scheduling (0045_rejection_emails).
-    # Runs when the current move is a rejection AND the caller didn't
-    # explicitly opt out. `maybe_schedule` is idempotent for non-eligible
-    # moves (returns None for internal-only rejections, missing email, etc.)
-    # so we can call it unconditionally when the flag allows.
+    # Mail odrzucenia (0045_rejection_emails) jest OPT-IN od 17.09.2026:
+    # planujemy WYŁĄCZNIE gdy klient przysłał `send_rejection_email=True`
+    # (checkbox w oknie odrzucenia, domyślnie odznaczony). `maybe_schedule`
+    # nadal sam sprawdza kwalifikowalność (etap klienta, e-mail kandydata).
     scheduled_rejection_email_id: Optional[int] = None
-    if legacy_enum == PipelineStage.rejected and data.send_rejection_email is not False:
+    if legacy_enum == PipelineStage.rejected and data.send_rejection_email is True:
         from app.services.rejection_email_scheduler import maybe_schedule
 
         scheduled = await maybe_schedule(
@@ -1438,14 +1561,20 @@ async def get_kanban(
     candidate_ids = list(seen.keys())
     contact_case_by_candidate = await load_contact_case_summaries(db, candidate_ids)
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
+    # Stawka z profilu (PLN/h) — podpowiedź w oknie „Zweryfikowany" (17.09.2026).
+    profile_rate_by_id: dict[int, Optional[Decimal]] = {}
     if candidate_ids:
         rows = await db.execute(
-            select(Candidate.id, Candidate.name, Candidate.lastname).where(
-                Candidate.id.in_(candidate_ids)
-            )
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Candidate.expected_rate_hourly,
+            ).where(Candidate.id.in_(candidate_ids))
         )
-        for cid, cname, clastname in rows.all():
+        for cid, cname, clastname, rate_hourly in rows.all():
             name_by_id[cid] = (cname, clastname)
+            profile_rate_by_id[cid] = rate_hourly
 
     # Bulk-load names of the recruiters who first assigned each candidate to the
     # job (mover on the earliest stage). One query, no per-card N+1.
@@ -1488,6 +1617,7 @@ async def get_kanban(
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
             added_to_job_at=added_at,
+            candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
@@ -2034,6 +2164,9 @@ async def list_pending_verifications(
 ):
     """Lista kandydatów oczekujących akceptacji (verification_status=pending).
 
+    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
+    stare wiersze; endpoint zostaje dla historii i testów ról.)
+
     Dostępna dla administratora i Finance. Rekruter, Delivery Lead i Head of
     Recruitment dostaną 403, ponieważ wiersze zawierają oczekiwaną stawkę oraz
     budżet stanowiska. Akceptacja i odrzucenie pozostają Admin-only.
@@ -2098,6 +2231,9 @@ async def accept_verification(
     db: AsyncSession = Depends(get_db),
 ):
     """Akceptacja pending verification → status = active.
+
+    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
+    stare wiersze; endpoint zostaje dla historii i testów ról.)
 
     Audit: zapisujemy approved_by + approved_at na samym CandidateStage,
     plus Activity log. Notyfikacja do recruitera który wrzucił (`moved_by`).
@@ -2188,6 +2324,9 @@ async def reject_verification(
     db: AsyncSession = Depends(get_db),
 ):
     """Odrzucenie pending verification → kandydat wraca na poprzedni stage.
+
+    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
+    stare wiersze; endpoint zostaje dla historii i testów ról.)
 
     Akcje:
     1. Obecny CandidateStage dostaje status 'rejected' + audit fields.
@@ -2361,8 +2500,9 @@ async def bulk_move_candidates(
     # stages (terminal/verified/hired 422 above), so every candidate is a
     # forward move and the hard block applies to all. Fail-closed: any
     # globally blacklisted / hiring-manager-vetoed candidate rejects the batch
-    # (409), identical to the single /move contract. Client conflicts are
-    # warnings since 17.09.2026 and do not stop the batch.
+    # (409). Client conflicts are warnings since 17.09.2026 and do not stop the
+    # batch. Pojedynczy /move ostrzega z potwierdzeniem; bulk zostaje twardym
+    # 409 — nie ma UI, które mogłoby potwierdzić ostrzeżenie za paczkę.
     await assert_candidates_move_eligible(
         db,
         candidate_ids=unique_ids,

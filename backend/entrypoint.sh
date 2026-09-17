@@ -4605,6 +4605,12 @@ _COLUMN_STATEMENTS = [
     "ON candidate_auto_match_log (job_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_auto_match_log_created "
     "ON candidate_auto_match_log (created_at)",
+    # 0325: przełącznik „Rekrutacja prowadzona w NEXUSIE". Model `Job` deklaruje te
+    # kolumny — bez nich KAŻDY odczyt ofert pada na UndefinedColumnError.
+    # Lustro 1:1 z migracją — pilnuje `test_managed_in_nexus_migration_mirror.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -245,7 +245,7 @@ const NAV_SECTIONS: NavSection[] = [
       //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
       //
       //    UWAGA przy przywracaniu: bramka „Pending" (akceptacja stawki
-      //    ponad budżet) jest WYŁĄCZONA od 17.09.2026 — strona
+      //    ponad budżet) jest USUNIĘTA od 17.09.2026 — strona
       //    `/pending-verifications` i widget weryfikacji zostały usunięte,
       //    a `GET /api/pipeline/pending-verifications` odpowiada 404. Nie
       //    przywracaj `badgeKey: "pendingVerifications"`.

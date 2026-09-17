@@ -357,7 +357,30 @@ async def update_latest_expected_rate(
 
     job: Optional[Job] = None
     became_pending = False
-    if stage.stage == PipelineStage.verified:
+    from app.core.config import settings
+
+    if (
+        stage.stage == PipelineStage.verified
+        and not settings.PENDING_VERIFICATION_ENABLED
+    ):
+        # Bramka wyłączona (17.09.2026): korekta stawki nie ocenia budżetu.
+        # Wiersz zostaje (albo staje się) aktywny — także stary `pending`,
+        # zaliczony w chwili korekty, nie wstecz — a „ponad budżet" jest
+        # odznaką na karcie.
+        job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+        if job is not None and job.salary_max is not None and rate_value is not None:
+            stage.budget_max_at_move = int(job.salary_max)
+        if stage.verification_status != VerificationStatus.active:
+            stage.verification_status = VerificationStatus.active
+            stage.approved_by = None
+            stage.approved_at = datetime.now(timezone.utc)
+        if stage.moved_by is not None:
+            await record_accepted_verification(
+                db,
+                stage=stage,
+                verifier_user_id=stage.moved_by,
+            )
+    elif stage.stage == PipelineStage.verified:
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if job is not None and job.salary_max is not None and rate_value is not None:
             from app.services.rate_normalization import normalize_rate_to_monthly
@@ -372,8 +395,6 @@ async def update_latest_expected_rate(
                 # Decyzja 17.09.2026: bramka „Pending" wyłączona — korekta
                 # stawki ponad budżet zostaje `active`, przekroczenie jedzie
                 # na kartę jako informacja (`budget_exceeded` w odpowiedzi).
-                from app.core.config import settings
-
                 if settings.PENDING_VERIFICATION_ENABLED:
                     became_pending = (
                         stage.verification_status != VerificationStatus.pending

@@ -22,7 +22,6 @@ from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
-from app.models.contract import Contract
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.signature_link import SignatureLink
 from app.models.user import User, UserRole
@@ -32,7 +31,6 @@ from app.schemas.document_signature import (
     SignForSignatureRequest,
     SignForSignatureResponse,
 )
-from app.services.signing.pipeline_hook import STAGE_SENT, move_candidate_for_signing
 from app.services.signing.sender import (
     finalize_signed_pdf,
     mint_signature_link,
@@ -128,15 +126,8 @@ async def mark_sent_offline(
     )
     sig.status = SignatureStatus.sent
     sig.sent_at = datetime.now(timezone.utc)
-    try:
-        contract = await db.get(Contract, contract_id)
-        await move_candidate_for_signing(
-            db, contract, stage_name=STAGE_SENT, moved_by=current_user.id
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception(
-            "mark_sent_offline: pipeline move failed contract=%d", contract_id
-        )
+    # 17.09.2026: oznaczenie umowy jako wysłanej NIE przesuwa kandydata na
+    # „Umowa wysłana" — etap zmienia człowiek na tablicy (podpis offline).
     db.add(
         Activity(
             entity_type="contract",
