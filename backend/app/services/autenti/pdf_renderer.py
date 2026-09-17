@@ -92,9 +92,10 @@ def render_contract_pdf(
     """
     # Lazy import — WeasyPrint pulls heavy native libs at module load. Tests
     # that don't exercise PDF generation should not pay this cost.
-    from weasyprint import HTML, default_url_fetcher  # noqa: WPS433 (lazy import)
+    from weasyprint import HTML  # noqa: WPS433 (lazy import)
+    from weasyprint.urls import URLFetcher  # noqa: WPS433 (lazy import)
 
-    def _deny_external(url: str) -> dict:
+    class _DenyExternalFetcher(URLFetcher):
         """Block all network/file access during PDF render (M5-P0.10 SSRF).
 
         Contract HTML is attacker-influenced: any TacPlus (non-admin) user saves
@@ -104,15 +105,24 @@ def render_contract_pdf(
         local files). CSP can't help; this runs on the server. Only embedded
         ``data:`` URIs are allowed; anything else raises, and WeasyPrint drops
         that resource and keeps rendering (fail-closed, no PDF failure).
+
+        Subclass of ``URLFetcher``, not a bare function: WeasyPrint 70 removed
+        the deprecated ``default_url_fetcher`` and its ``fetch()`` wrapper reads
+        ``url_fetcher._fail_on_errors`` on every fetch error, so a plain callable
+        would crash with ``AttributeError`` on the first blocked resource instead
+        of dropping it. ``fail_on_errors`` stays at its default ``False`` — a
+        blocked URL must never abort the contract PDF.
         """
-        if url.startswith("data:"):
-            return default_url_fetcher(url)
-        raise ValueError(f"blocked external resource in contract PDF: {url[:64]!r}")
+
+        def fetch(self, url: str, headers: Optional[dict] = None):
+            if url.startswith("data:"):
+                return super().fetch(url, headers)
+            raise ValueError(f"blocked external resource in contract PDF: {url[:64]!r}")
 
     cleaned = _strip_print_script(html or "")
     document = _wrap_for_pdf(cleaned, title=title)
     pdf_bytes = HTML(
-        string=document, base_url=base_url, url_fetcher=_deny_external
+        string=document, base_url=base_url, url_fetcher=_DenyExternalFetcher()
     ).write_pdf()
     if pdf_bytes is None:
         # WeasyPrint returns None when target=None and no output_path —
