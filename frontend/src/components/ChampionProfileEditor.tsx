@@ -278,11 +278,13 @@ export function ChampionProfileEditor({
   );
   const proseAllEmpty = proseEmptyCount === CHAMPION_PROSE_SECTION_IDS.length;
   const showFullProse = !proseAllEmpty || proseExpanded;
-  // „Aktualny" profil dla okien importu — BEZ wczytanych-a-nietkniętych pól
-  // stacku i sekcji 1 (`championSavePayload`, zmergowane nazad na pusty
-  // profil): to samo, co profil zwróciłby serwer, gdyby zapisać teraz bez
-  // żadnej zmiany. Wysłanie tam SEEDOWANEGO draftu kazałoby oknu porównywać
-  // dokument z wartościami, których DL nigdy nie potwierdził.
+  // „Aktualny" profil dla importu DOKUMENTU — BEZ wczytanych-a-nietkniętych
+  // pól stacku i sekcji 1 (`championSavePayload`, zmergowane nazad na pusty
+  // profil): to samo, co zwróciłby serwer po zapisie bez zmian, więc dokument
+  // domyślnie wypełnia pola, których DL nie potwierdził. Okno „Uzgodnij profil
+  // i pola rekrutacji” dostaje za to `draft` — dokładnie to, co DL widzi
+  // w edytorze. Pusty stack w tym oknie plus zaznaczone „Uzgodnij też pole
+  // rekrutacji” wyczyściłby `must_skills` rekrutacji.
   const importBaseline: ChampionProfile = {
     ...EMPTY_CHAMPION_PROFILE,
     ...(championSavePayload(draft, { seededStack, seededBasics }) as ChampionProfile),
@@ -346,7 +348,7 @@ export function ChampionProfileEditor({
         }}
       />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
-      {reviewOpen && <ChampionImportReview initial={{ champion_profile: importBaseline, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
+      {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">

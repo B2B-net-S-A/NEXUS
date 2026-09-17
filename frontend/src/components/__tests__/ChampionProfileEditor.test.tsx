@@ -343,6 +343,36 @@ describe("ChampionProfileEditor — stary profil bez stacku (M04-B02)", () => {
     const payload = putMock.mock.calls[0][1] as Record<string, unknown>;
     expect("stack" in payload).toBe(false);
   });
+
+  it("okno „Uzgodnij profil i pola rekrutacji” pokazuje wymagania wczytane z kolumn, nie pustą listę", async () => {
+    // Pusta lista MUST w tym oknie + zaznaczone „Uzgodnij też pole rekrutacji”
+    // wyczyściłyby `must_skills` rekrutacji — okno ma pokazywać to, co edytor.
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 15,
+        champion_profile: { stack: { must: [], nice: [], notes: "" } },
+        job_values: { must: "Python\nPostgreSQL", nice: "Kafka" },
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={15} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Uzgodnij profil i pola rekrutacji",
+      }),
+    );
+    const must = (await screen.findByLabelText(
+      "MUST — jeden wpis na wiersz; alternatywy: A lub B",
+    )) as HTMLTextAreaElement;
+    expect(must.value).toBe("Python\nPostgreSQL");
+  });
 });
 
 // PR 5 (program „proces tworzenia rekrutacji dla Delivery Leada"): sekcja 1
