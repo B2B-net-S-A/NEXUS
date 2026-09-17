@@ -14,7 +14,7 @@ modyfikuje niczego poza dwiema tabelami ``finance_*``.
 import hashlib
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
@@ -51,6 +51,8 @@ from app.schemas.finance import (
 from app.schemas.finance_order_changes import OrderChangesResponse
 from app.services import storage_service
 from app.services.finance_order_changes import (
+    OrderChangesFilters,
+    OrderChangesTab,
     build_order_changes,
     build_order_changes_workbook,
     order_changes_filename,
@@ -761,21 +763,52 @@ def _order_changes_period(year: Optional[int], month: Optional[int]) -> tuple[in
     return resolved_year, resolved_month
 
 
+def _order_changes_filters(
+    q: Optional[str],
+    client_id: Optional[int],
+    date_from: Optional[date],
+    date_to: Optional[date],
+) -> OrderChangesFilters:
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(
+            status_code=422,
+            detail="Data „od” nie może być późniejsza niż data „do”.",
+        )
+    query = (q or "").strip()
+    return OrderChangesFilters(
+        query=query or None,
+        client_id=client_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 @router.get("/order-changes", response_model=OrderChangesResponse)
 async def get_order_changes(
     _user: FinanceSectionUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    client_id: Optional[int] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Zmiany · Wejścia · Zejścia · Braki w zamówieniach dla jednego miesiąca.
 
     Liczone przy odczycie z bieżącego stanu zamówień i dziennika zmian, więc
-    zamówienie dodane minutę temu jest już w odpowiedzi.
+    zamówienie dodane minutę temu jest już w odpowiedzi. Filtry zawężają
+    wszystkie cztery listy i liczniki przy podzakładkach — badge nie może
+    obiecywać wierszy, których pod nim nie ma.
     """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
-    return await build_order_changes(db, resolved_year, resolved_month)
+    return await build_order_changes(
+        db,
+        resolved_year,
+        resolved_month,
+        filters=_order_changes_filters(q, client_id, date_from, date_to),
+    )
 
 
 @router.get("/order-changes/export")
@@ -783,19 +816,32 @@ async def export_order_changes(
     _user: FinanceSectionUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
+    tab: Optional[OrderChangesTab] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    client_id: Optional[int] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ten sam widok jako XLSX — cztery arkusze, liczniki w nazwach arkuszy."""
+    """Ten sam widok jako XLSX — z tymi samymi filtrami, co ekran.
+
+    ``tab`` wskazuje jedną podzakładkę; pominięty daje cały audyt (cztery
+    arkusze), jak dotąd. Liczniki są w nazwach arkuszy.
+    """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
-    data = await build_order_changes(db, resolved_year, resolved_month)
-    content = await run_in_threadpool(build_order_changes_workbook, data)
+    data = await build_order_changes(
+        db,
+        resolved_year,
+        resolved_month,
+        filters=_order_changes_filters(q, client_id, date_from, date_to),
+    )
+    content = await run_in_threadpool(
+        build_order_changes_workbook, data, (tab,) if tab else None
+    )
+    filename = order_changes_filename(resolved_year, resolved_month, tab)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{order_changes_filename(resolved_year, resolved_month)}"'
-            )
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

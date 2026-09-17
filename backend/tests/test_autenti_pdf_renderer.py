@@ -97,3 +97,27 @@ def test_render_empty_body_still_produces_pdf():
     """Edge case: empty/None body gracefully renders a 1-page blank PDF."""
     pdf = render_contract_pdf("")
     assert pdf.startswith(b"%PDF-")
+
+
+def test_render_drops_external_resources_without_failing(caplog):
+    """M5-P0.10 SSRF fence, exercised end-to-end (not just by AST).
+
+    An external ``<img>`` must be dropped — never fetched — and the render must
+    still succeed. WeasyPrint 70 reads ``url_fetcher._fail_on_errors`` on every
+    fetch error, so a bare function fetcher would crash with ``AttributeError``
+    on the first blocked resource; this pins that the fence is a ``URLFetcher``.
+    """
+    import logging
+
+    html = (
+        "<p>contract body</p>"
+        '<img src="http://127.0.0.1:9/never.png">'
+        '<img src="file:///etc/hostname">'
+    )
+    with caplog.at_level(logging.ERROR, logger="weasyprint"):
+        pdf = render_contract_pdf(html)
+    assert pdf.startswith(b"%PDF-")
+    blocked = [
+        r for r in caplog.records if "blocked external resource" in r.getMessage()
+    ]
+    assert len(blocked) == 2, [r.getMessage() for r in caplog.records]

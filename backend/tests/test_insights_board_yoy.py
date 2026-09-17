@@ -384,8 +384,16 @@ async def test_monthly_retainers_leave_both_sides_of_margin_per_hour(
 
     Kontrakt godzinowy: 100 zł/h marży przy 100 h = 10 000 zł marży.
     Kontrakt ryczałtowy obok ma marżę, ale nie niesie godzin — gdyby jego
-    marża trafiła do licznika, wskaźnik wyszedłby wyższy niż 100 zł/h, czyli
-    wyższy niż stawka jakiegokolwiek realnego kontraktu w tym zbiorze.
+    marża trafiła do licznika, wskaźnik by DRGNĄŁ po jego zasianiu.
+
+    Porównujemy odczyt PRZED i PO zasianiu ryczałtu, a nie z bezwzględnym
+    „100 zł/h": wskaźnik jest liczony po CAŁEJ firmie, a wspólna baza testowa
+    nie jest czyszczona. `test_finance_order_changes.py` zostawia kontrakt
+    dzienny BEZ daty startu (380 zł/dzień) — taki obowiązuje w każdym miesiącu
+    historii, więc żaden „własny rok" przed nim nie chroni: przy wspólnym
+    shardzie wskaźnik wychodził (10 000 + 380·22)/(100 + 22·8) = 66,52.
+    Czy oba pliki trafią do jednego sharda, rozstrzyga round-robin po liście
+    plików, czyli dopisanie DOWOLNEGO nowego pliku testowego.
     """
     email, password = await _seed_user(UserRole.admin)
     headers = await _login(yoy_client, email, password)
@@ -403,6 +411,14 @@ async def test_monthly_retainers_leave_both_sides_of_margin_per_hour(
         unit=RateUnit.hourly,
         billing_hours=100,
     )
+    before = await _yoy(yoy_client, headers, end_year=year, years=2)
+    per_hour_before = _metric(before, "margin_per_hour_pln")["series"][str(year)][5]
+    margin_before = _metric(before, "margin_monthly_pln")["series"][str(year)][5]
+    # Kontrakt godzinowy sam z siebie daje wskaźnik — bez tego porównanie
+    # „przed == po" przechodziłoby także dla metryki, która zwraca stałe None.
+    assert per_hour_before is not None
+    assert margin_before >= 10000
+
     await _seed_contract(
         client_id=client_id,
         candidate_id=cand_monthly,
@@ -412,17 +428,16 @@ async def test_monthly_retainers_leave_both_sides_of_margin_per_hour(
         rate_candidate=Decimal("1000"),
         unit=RateUnit.monthly,
     )
+    after = await _yoy(yoy_client, headers, end_year=year, years=2)
+    per_hour_after = _metric(after, "margin_per_hour_pln")["series"][str(year)][5]
+    margin_after = _metric(after, "margin_monthly_pln")["series"][str(year)][5]
 
-    payload = await _yoy(yoy_client, headers, end_year=year, years=2)
-    per_hour = _metric(payload, "margin_per_hour_pln")["series"][str(year)][5]
-    margin = _metric(payload, "margin_monthly_pln")["series"][str(year)][5]
-
-    assert per_hour == pytest.approx(100.0), (
+    assert per_hour_after == pytest.approx(per_hour_before), (
         "ryczałt (98 000 zł marży, zero godzin) przeciekł do wskaźnika"
     )
     # Marża CAŁKOWITA nadal zawiera ryczałt — to dwa różne pytania i tylko
     # wskaźnik godzinowy zawęża populację.
-    assert margin >= 108000
+    assert margin_after >= margin_before + 98000
 
 
 # ── 5. Rozbicie na klientów domyka się do liczby placementów ────────────────

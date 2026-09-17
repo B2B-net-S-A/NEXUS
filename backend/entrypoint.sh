@@ -238,7 +238,7 @@ _ENUM_STATEMENTS = [
     # tych wywołaniach => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'uop_check'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_name_backfill'",
-    # 0318: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
+    # 0320: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
     # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
     # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
@@ -1636,6 +1636,11 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_min INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_max INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS client_order_end_date DATE",
+    # 0320: kontakt do konsultanta na umowie — NADPISANIE, nie migawka. Pusto
+    # znaczy „weź z profilu kandydata" (rozstrzyga odczyt), więc kolumny są
+    # nullable i bez UNIQUE. Dane przepisuje jednorazowa korekta niżej.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS candidate_email VARCHAR(255)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS candidate_phone VARCHAR(30)",
     # 0248: osobne waluty przychodu i kosztu. Nullable zostają dla legacy
     # read fallbacku; trigger niżej synchronizuje zapisy starej wersji appki.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
@@ -4346,7 +4351,7 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
-    # 0316: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
+    # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
     "ALTER TABLE order_mail_documents "
@@ -5085,7 +5090,7 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_name_backfill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_name_backfill')",
-    # 0318: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
+    # 0320: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
     # dopisywane dla osób pokazanych na kartotece firmy w ATLAS-ie). Sam wiersz
     # NIE włącza wydatku — bramką jest EXPERIENCE_DATES_ON_DEMAND_ENABLED,
     # domyślnie false.
@@ -8020,6 +8025,47 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract hourly rate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Kontakt do konsultanta na umowie (09.2026, ticket „E-mail i telefon kandydata
+# w widoku kontraktu") — jednorazowo: e-mail i telefon wpisane w „Danych
+# Partnera" generatora B2B trafiają z `render_payload` na powiązany kontrakt.
+# Wyłącznie poziom pierwszy kolejności źródeł: profilu kandydata NIE
+# materializujemy, bo fallback do niego liczy się przy odczycie i ma zostać
+# żywy. Dopasowanie tylko po `b2b_generated_contracts.contract_id` — szukanie
+# po kandydacie/rekrutacji byłoby zgadywaniem. Fill-only: ręczna poprawka
+# w kontrakcie wygrywa. Logika w
+# `app/services/contract_candidate_contact_backfill.py`; marker w `app_settings`
+# + advisory lock; wartości (PII) pod osobnym kluczem szczegółów.
+# Log: wyłącznie liczby i kody powodów.
+startup_phase "repair-candidate-contact"
+echo "Contracts: copy B2B generator contact onto linked contracts (one-shot)..."
+python - <<'PY' || echo "candidate contact backfill skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_candidate_contact_backfill import (
+    run_candidate_contact_backfill,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_candidate_contact_backfill(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść kontakt
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"candidate contact backfill failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"candidate contact backfill: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY
