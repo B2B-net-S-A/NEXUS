@@ -110,9 +110,7 @@ def _write_summary(workbook: Workbook, receipt: dict[str, Any], gaps: int) -> No
     sheet.sheet_view.showGridLines = False
 
 
-def build_gap_workbook(
-    *, receipt: dict[str, Any], rows: Iterable[list[Any]]
-) -> bytes:
+def build_gap_workbook(*, receipt: dict[str, Any], rows: Iterable[list[Any]]) -> bytes:
     """Zbuduj skoroszyt (CPU-bound — wołaj poza pętlą zdarzeń)."""
 
     materialized = list(rows)
