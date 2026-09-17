@@ -42,7 +42,9 @@ def test_interactive_prompt_is_untouched():
 
     assert CV_ENRICHMENT.name == "cv_enrichment"
     # v6 — świadoma zmiana (UAT M01-B05): stanowiska i daty w `experience`.
-    assert CV_ENRICHMENT.version == 6
+    # v7 — świadoma zmiana (17.09.2026): pełny profil (technologie per
+    # stanowisko, certyfikaty, projekty, wykształcenie z latami).
+    assert CV_ENRICHMENT.version == 7
     rendered = CV_ENRICHMENT.render(cv_text="x")
     assert "professional_profile" in rendered
     assert "career_summary" in rendered

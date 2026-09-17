@@ -213,61 +213,32 @@ async def check_and_increment(
     units: int = 1,
     commit_with_caller: bool = False,
 ) -> QuotaState:
-    """Atomic-ish quota check + increment.
+    """Metering admission for one AI operation. Never blocks.
 
-    Raises ``AIQuotaExceeded`` if blocked. Returns post-increment state on
-    success. Admission normally commits independently of business work.
-    Durable queues may set ``commit_with_caller`` to persist admission together
-    with their job. They MUST commit before dispatching any provider call.
+    Decyzja Artura z 17.09.2026: NEXUS nie ma limitów AI — ani miesięcznych
+    sufitów, ani przełączników per funkcja, ani globalnego wyłącznika. Ochroną
+    budżetu jest wyłącznie alarm zużycia (`app/tasks/ai_spend_alerts.py`), który
+    informuje, ale nie zatrzymuje pracy. Wcześniej wyczerpana kwota `cv_parser`
+    po cichu przełączała odczyt CV na regex, a rekruter dostawał gorszy profil
+    bez żadnego sygnału.
 
-    ``units`` obsługuje operacje, które są JEDNĄ decyzją użytkownika, ale
-    kilkoma wywołaniami modelu — dziś tylko lint reguł CV (jedno pole = jedno
-    wywołanie). Naliczenie ich z góry, jednym sprawdzeniem, zachowuje
-    „wszystko albo nic": rekruter dostaje pełną ocenę albo czyste 503, nigdy
-    połowy przy wyczerpanym limicie w środku pętli. Przy ``units=1`` warunek
-    blokady jest identyczny co do znaku z poprzednim (``total_used >= limit``).
+    Funkcja zostaje, bo zapis `AIOperation` jest podstawą liczników kosztów
+    w Ustawieniach → AI i alarmu. `AIQuotaExceeded` zostaje jako klasa (importuje
+    ją kilkanaście modułów), ale ta ścieżka jej już nie rzuca. Kolumny
+    `ai_features.enabled` / `monthly_limit` są martwe.
+
+    Admission normally commits independently of business work. Durable queues
+    may set ``commit_with_caller`` to persist admission together with their job.
+    They MUST commit before dispatching any provider call.
+
+    ``units`` = liczba wywołań modelu w jednej decyzji użytkownika (lint reguł CV).
     """
     if units < 1:
         raise ValueError("units musi być dodatnie")
-    # 1. Master toggle
-    master = await get_master_enabled(db)
-    if not master:
-        raise AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
-
-    # 2. Per-feature toggle + limit.
-    #
-    # A MISSING row means "enabled, no ceiling" — fail-open, matching
-    # `AIFeatureConfig.enabled`'s own default. This module used to fail-closed
-    # while `match_justification_service._gate_and_count` failed open on the
-    # same question, so whether an unseeded feature worked depended on which of
-    # two copies of this logic the request happened to reach. That second copy
-    # is gone; this is the one behaviour.
-    #
-    # Fail-open has a real cost, and on prod it is not hypothetical — but the
-    # missing half is NOT the row. All 11 `AIFeatureKey` rows exist there and
-    # every one of them still carries the column default `monthly_limit = 0`,
-    # which this module documents as "no ceiling". So the branch below can
-    # never fire for any feature, and seeding more rows would change nothing:
-    # only a positive number does, and picking it is an admin decision
-    # (Ustawienia → AI writes `monthly_limit` straight into this column).
-    # `/api/health.checks.ai_features` therefore lists every key WITHOUT a
-    # positive ceiling — a missing row and a row at 0 alike — as a spend
-    # warning, not an outage.
     config = await get_feature_config(db, feature)
-    if config is not None and not config.enabled:
-        raise AIQuotaExceeded(feature, "Funkcja AI wyłączona w ustawieniach")
-
     limit = config.monthly_limit if config is not None else 0
     period = _current_period_start()
     total_used = await get_total_usage_for_period(db, feature, period)
-
-    if limit > 0 and total_used + units > limit:
-        raise AIQuotaExceeded(
-            feature,
-            "Miesięczny limit wyczerpany",
-            used=total_used,
-            limit=limit,
-        )
 
     # A distinct, durable operation replaces the nullable monthly upsert.
     # No FK to caller-owned records and no locks shared with its transaction.

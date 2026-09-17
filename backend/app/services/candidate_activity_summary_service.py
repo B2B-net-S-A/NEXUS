@@ -44,12 +44,7 @@ from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User
-from app.services.ai_quota import (
-    AIQuotaExceeded,
-    ai_feature,
-    get_feature_config,
-    get_master_enabled,
-)
+from app.services.ai_quota import ai_feature
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.client_identity import client_display_name_expression
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
@@ -1130,18 +1125,6 @@ async def generate_summary(
     )
 
 
-# ── Feature gate and quota ───────────────────────────────────────────────────
-
-
-async def _ensure_feature_enabled(db: AsyncSession) -> None:
-    feature = AIFeatureKey.candidate_summary
-    if not await get_master_enabled(db):
-        raise AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
-    config = await get_feature_config(db, feature)
-    if config is not None and not config.enabled:
-        raise AIQuotaExceeded(feature, "Funkcja AI wyłączona w ustawieniach")
-
-
 # ── Scope-aware cache and lease/CAS orchestration ────────────────────────────
 
 
@@ -1426,7 +1409,6 @@ async def get_summary_state(
     user: User,
 ) -> CandidateActivitySummaryState:
     """Read current safe cache state; never generates or serves while disabled."""
-    await _ensure_feature_enabled(db)
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if candidate is None:
         raise CandidateActivitySummaryNotFound("Kandydat nie istnieje")
@@ -1448,7 +1430,6 @@ async def get_or_generate(
     force: bool = False,
 ) -> tuple[CandidateActivitySummaryState, bool]:
     """Return scoped state and whether this request published new prose."""
-    await _ensure_feature_enabled(db)
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if candidate is None:
         raise CandidateActivitySummaryNotFound("Kandydat nie istnieje")

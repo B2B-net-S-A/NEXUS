@@ -702,6 +702,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_contact_traffit import traffit_contact_intake_loop
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
+    from app.tasks.candidate_auto_match import candidate_auto_match_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.priority_work import priority_work_loop
@@ -811,6 +812,7 @@ async def lifespan(app: FastAPI):
         "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
         "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
+        "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
         "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
         "workforce_availability": asyncio.create_task(availability_loop()),
@@ -2600,6 +2602,11 @@ async def api_health_deep_check():
         RecruitmentAllocationEvent,
     )
     from app.models.calendar_event import CalendarEvent
+    from app.models.candidate_skill_usage import CandidateSkillUsage
+    from app.models.candidate_auto_match import (
+        CandidateAutoMatchLog,
+        CandidateMatchOutbox,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2736,6 +2743,13 @@ async def api_health_deep_check():
         # tabeli wywala całą sekcję Ścieżki rozwoju, a nie tylko ostrzeżenie
         # o regresji.
         ("insights_seniority_snapshots", InsightsSenioritySnapshot),
+        # 0323: indeks użycia technologii (profil CV v7). Zapis profilu po
+        # odczycie CV go przebudowuje, więc brak tabeli psułby wgranie CV.
+        ("candidate_skill_usage", CandidateSkillUsage),
+        # 0324: kolejka i dziennik auto-dopasowania. Zapis profilu z CV
+        # dokłada zdarzenie do kolejki, więc brak tabeli psułby wgranie CV.
+        ("candidate_match_outbox", CandidateMatchOutbox),
+        ("candidate_auto_match_log", CandidateAutoMatchLog),
     ]
 
     checks: dict[str, str] = {}

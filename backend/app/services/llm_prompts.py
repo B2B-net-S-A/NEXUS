@@ -75,14 +75,20 @@ CV_ENRICHMENT = PromptTemplate(
     # v6 (UAT M01-B05): `experience` ze stanowiskami i datami. Sama lista
     # `companies` zapisywała się jako wpisy bez roli i bez daty końca, więc
     # KAŻDA firma z CV liczyła się w filtrze „Obecna firma”.
-    version=6,
+    # v7 (17.09.2026, „profil możliwie kompletny”): technologie, opis, forma
+    # zatrudnienia i lokalizacja per stanowisko; daty użycia skilli; wykształcenie
+    # z latami i poziomem; certyfikaty, projekty i osiągnięcia. Oś technologii
+    # (`skill_timeline`) liczy Python z tych dat — model jej nie pisze.
+    version=7,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
         "for a Polish IT staffing ATS. Use canonical technology names "
         "(e.g. 'React' not 'ReactJS', 'Kubernetes' not 'K8s'). Never invent "
         "information that is not in the CV — when unsure, return null and "
-        "lower the confidence for that field."
+        "lower the confidence for that field. Extract as much detail as the CV "
+        "actually contains: every job, every technology named for that job, "
+        "every certificate and project."
     ),
     template=(
         "From the CV below, produce a JSON object with these fields:\n"
@@ -93,30 +99,55 @@ CV_ENRICHMENT = PromptTemplate(
         '(e.g. "+48 600 123 456"); keep raw digits/spaces/dashes otherwise. null if none.\n'
         '  "city": candidate\'s city of residence (e.g. "Warszawa", "Kraków") or null. '
         "Do NOT guess from employer address — use only if the CV explicitly states the candidate's location.\n"
+        '  "country": candidate\'s country of residence when explicitly stated, else null\n'
         '  "years_it_experience": integer, best estimate of total IT experience\n'
         '  "current_position": short string (e.g. "Senior Python Developer") or null\n'
         '  "current_position_started_at": start of the current role, only when explicitly '
         'present in the CV; use "YYYY-MM-DD", "YYYY-MM" or "YYYY", otherwise null\n'
         '  "current_position_started_at_precision": "date"|"month"|"year"|"unknown"\n'
-        '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}\n'
+        '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", '
+        '"years": int|null, "first_used": "YYYY-MM"|"YYYY"|null, '
+        '"last_used": "YYYY-MM"|"YYYY"|"present"|null}}. Include every technology, tool, '
+        "language, framework, database, cloud service and methodology the CV names. "
+        "first_used/last_used only when a dated job or project in the CV shows the "
+        "skill; otherwise null.\n"
         '  "technologies": unique list of the most important canonical technologies '
         "and tools (max 8), ordered by relevance\n"
         '  "sectors": unique list of industries explicitly evidenced by projects or '
         "employers (max 4), e.g. banking, public administration, finance, "
         "telecommunications, e-commerce. Do not infer a sector from a technology.\n"
-        '  "education": list of {{"degree": str, "field": str|null, "school": str, "year": int|null}}\n'
+        '  "education": list of {{"degree": str, "field": str|null, "school": str, '
+        '"start_year": int|null, "end_year": int|null, "year": int|null, '
+        '"level": "secondary"|"bachelor"|"engineer"|"master"|"phd"|"other"|null}}; '
+        "year = end_year (graduation) when known\n"
         '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n'
         '  "companies": list of strings — past employers in chronological order, '
         "most recent first, unique (max 15). Use official company names as they appear in the CV.\n"
-        '  "experience": list of jobs, most recent first (max 10), each '
+        '  "experience": list of ALL jobs, most recent first (max 15), each '
         '{{"company": str|null, "role": str|null, "start": "YYYY-MM"|"YYYY"|null, '
-        '"end": "YYYY-MM"|"YYYY"|"present"|null}}. Copy dates only from the CV. '
+        '"end": "YYYY-MM"|"YYYY"|"present"|null, '
+        '"technologies": [canonical technologies used in THIS job, max 12], '
+        '"description": "1-2 sentences in the CV\'s language summarizing responsibilities '
+        'and scope of THIS job, from the CV only"|null, '
+        '"employment_type": "b2b"|"employment"|"contract"|"internship"|"freelance"|null, '
+        '"location": "city or remote"|null, "client": "end client when the CV says the '
+        'job was for a client of the employer (body leasing, outsourcing)"|null}}. '
+        "Copy dates only from the CV. "
         'Use "present" only when the CV says the job is ongoing (e.g. "obecnie", '
         '"present", "do teraz"); for a finished job give its end date (the year alone '
         "when the month is not stated); null only when the CV states no end date at all.\n"
+        '  "certifications": list of {{"name": str, "issuer": str|null, "year": int|null, '
+        '"expires": "YYYY-MM"|"YYYY"|null}} — certificates and credentials named in the CV (max 20)\n'
+        '  "projects": list of notable projects named in the CV (max 8), each '
+        '{{"name": str, "role": str|null, "company": str|null, "technologies": [str], '
+        '"start": "YYYY-MM"|"YYYY"|null, "end": "YYYY-MM"|"YYYY"|"present"|null, '
+        '"description": "1-2 sentences"|null}}\n'
+        '  "achievements": list of short strings (max 6) — concrete, measurable results '
+        "stated in the CV (e.g. awards, performance gains); empty list when none\n"
         '  "linkedin_url": the candidate\'s LinkedIn profile URL exactly as it '
         "appears in the CV (e.g. 'linkedin.com/in/jane-doe' or 'https://www.linkedin.com/in/jane-doe'), "
         "or null if no LinkedIn URL is present.\n"
+        '  "github_url": GitHub profile URL exactly as in the CV, or null\n'
         '  "professional_profile": one concise Polish sentence describing who the '
         "candidate is professionally, based only on the CV, or null\n"
         '  "career_summary": short Polish paragraph (3-4 zdania) describing the candidate\'s '
