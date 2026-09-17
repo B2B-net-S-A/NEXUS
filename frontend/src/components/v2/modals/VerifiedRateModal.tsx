@@ -1,18 +1,17 @@
 "use client";
 
 /**
- * „Przesuń na Zweryfikowany" — modal stawki oczekiwanej z bramką budżetową.
+ * „Przesuń na Zweryfikowany" — okno stawki oczekiwanej kandydata.
  *
- * Pola i werdykt bramki renderuje wspólny `VerifiedRateFields`, a samą regułę
- * liczy `evaluateRateGate` — ten sam komponent i ta sama funkcja obsługują dok
- * „Weryfikacja" na stanowisku screeningu (krok 05 programu „flow w języku C2",
- * PR 6/7), który pokazuje stawkę inline zamiast w modalu.
+ * Pola i porównanie z budżetem renderuje wspólny `VerifiedRateFields`, a samą
+ * regułę liczy `evaluateRateGate` — ten sam komponent i ta sama funkcja
+ * obsługują dok „Weryfikacja" na stanowisku screeningu.
  *
- * Zmiana wobec stanu sprzed PR 6/7: porównanie z budżetem idzie po jednostce
- * MIESIĘCZNEJ (godzina × 168, dzień × 21), tak jak liczy je backend
- * (`normalize_rate_to_monthly`). Wcześniej modal porównywał surowe liczby, więc
- * dla stawki godzinowej obiecywał „mieści się w budżecie" także wtedy, gdy
- * serwer zaraz stawiał kartę na „Pending".
+ * Od 17.09.2026 (decyzja właściciela „żadna bramka nie blokuje przepływu"):
+ * stawka jest OPCJONALNA („Pomiń stawkę"), okno podpowiada stawkę z profilu
+ * kandydata, a „ponad budżet" to ostrzeżenie w oknie i odznaka na karcie —
+ * nic nie trafia na „Oczekuje". Budżet jest godzinowy
+ * (`effective_budget_hourly`), ten sam co w nagłówku rekrutacji.
  */
 
 import { useState } from "react";
@@ -27,50 +26,59 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
-import {
-  evaluateRateGate,
-  isJobBudgetHiddenFor,
-} from "@/lib/verified-rate-gate";
-import { useAuthStore } from "@/store/auth";
+import { evaluateRateGate } from "@/lib/verified-rate-gate";
 import type { RateUnit } from "@/lib/api";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidateName: string;
-  jobBudgetMax: number | null;
+  /** Budżet PLN/h rekrutacji (`effective_budget_hourly`); `null` = brak. */
+  jobBudgetHourly: number | null;
+  /** Stawka z profilu kandydata (PLN/h) — podpowiedź w polu. */
+  initialRateHourly?: number | string | null;
   onConfirm: (payload: {
     rate: number;
     unit: RateUnit;
     currency: string;
   }) => void;
+  /** Przesuń bez stawki — stawka jest opcjonalna od 17.09.2026. */
+  onSkip: () => void;
+}
+
+function initialRateText(value: number | string | null | undefined): string {
+  if (value == null || value === "") return "";
+  const numeric = Number(value);
+  // Serwer wysyła Decimal jako tekst („120.00") — w polu pokazujemy „120".
+  return Number.isFinite(numeric) && numeric > 0 ? String(numeric) : "";
 }
 
 export function VerifiedRateModal({
   open,
   onOpenChange,
   candidateName,
-  jobBudgetMax,
+  jobBudgetHourly,
+  initialRateHourly = null,
   onConfirm,
+  onSkip,
 }: Props) {
-  const [rate, setRate] = useState<string>("");
+  // Okno jest montowane z `key` karty, więc inicjalizator liczy się per kandydat.
+  const [rate, setRate] = useState<string>(() =>
+    initialRateText(initialRateHourly),
+  );
   const [unit, setUnit] = useState<RateUnit>("hourly");
   const currency = "PLN";
 
-  const authUser = useAuthStore((st) => st.user);
   const gate = evaluateRateGate({
     rawRate: rate,
     unit,
     currency,
-    jobBudgetMax,
-    budgetHidden: isJobBudgetHiddenFor(authUser),
+    jobBudgetHourly,
   });
 
   const handleSubmit = () => {
     if (!gate.isValid) return;
     onConfirm({ rate: gate.numericRate, unit, currency });
-    setRate("");
-    setUnit("hourly");
   };
 
   return (
@@ -79,13 +87,13 @@ export function VerifiedRateModal({
         <DialogHeader>
           <DialogTitle>Przesuń na „Zweryfikowany”</DialogTitle>
           <DialogDescription>
-            Podaj stawkę kandydata{" "}
-            <span className="font-semibold">{candidateName}</span>.
-            {jobBudgetMax !== null && (
+            Stawka kandydata{" "}
+            <span className="font-semibold">{candidateName}</span> (opcjonalnie).
+            {jobBudgetHourly !== null && (
               <>
                 {" "}
                 Budżet rekrutacji:{" "}
-                <strong>{jobBudgetMax.toLocaleString("pl-PL")} PLN/mc</strong>.
+                <strong>{jobBudgetHourly.toLocaleString("pl-PL")} PLN/h</strong>.
               </>
             )}
           </DialogDescription>
@@ -105,6 +113,9 @@ export function VerifiedRateModal({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Anuluj
+          </Button>
+          <Button variant="outline" onClick={onSkip}>
+            Pomiń stawkę
           </Button>
           <Button onClick={handleSubmit} disabled={!gate.isValid}>
             Przesuń

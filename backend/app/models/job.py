@@ -288,6 +288,19 @@ class Job(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
 
+    # Przełącznik „Rekrutacja prowadzona w NEXUSIE" (0325, decyzja Artura 17.09.2026).
+    # Gdy true: `import_pipelines` POMIJA ruchy etapów tej oferty, a `_UPSERT_JOB`
+    # nie nadpisuje `title`/`status`/`closed_at`. Kolumna NEXUSA — sync jej nie dotyka.
+    managed_in_nexus: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    managed_in_nexus_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    managed_in_nexus_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     @property
     def managed_by(self) -> Optional[str]:
         """Właściciel procesu podczas koegzystencji z Traffit (API contract)."""

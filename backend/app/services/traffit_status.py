@@ -69,10 +69,16 @@ async def read_traffit_status(db: AsyncSession) -> dict[str, Any]:
     # `freshness` wiersza, ale nie na tej liście.
     phases_stale = annotate_freshness(states, datetime.now(timezone.utc))
 
+    # Adopcja przełącznika (0325): ile ofert import etapów omija. Liczba, nie lista.
+    managed_in_nexus_jobs = int(
+        await db.scalar(text("SELECT count(*) FROM jobs WHERE managed_in_nexus")) or 0
+    )
+
     return {
         "enabled": settings.TRAFFIT_SYNC_ENABLED,
         "running": sync_is_running(),
         "max_row_attempts": settings.TRAFFIT_MAX_ROW_ATTEMPTS,
+        "managed_in_nexus_jobs": managed_in_nexus_jobs,
         "quarantined": quarantined,
         "phases_stale": phases_stale,
         "states": states,

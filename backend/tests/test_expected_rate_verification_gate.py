@@ -139,3 +139,58 @@ async def test_non_pln_rate_is_non_comparable_so_pending() -> None:
         )
     async with AsyncSessionLocal() as db:
         assert await _status(db, sid) == VerificationStatus.pending
+
+
+async def test_non_pln_rate_edit_stays_active() -> None:
+    """Waluty nie porównujemy z budżetem — ale też niczego nie blokujemy."""
+    async with AsyncSessionLocal() as db:
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
+        await set_recruitment_expected_rate(
+            cid,
+            jid,
+            ClientRateUpdate(
+                rate_value=Decimal("100"),
+                rate_unit=RateUnit.monthly,
+                rate_currency="EUR",
+            ),
+            current_user=actor,
+            db=db,
+        )
+    async with AsyncSessionLocal() as db:
+        assert await _status(db, sid) == VerificationStatus.active
+
+
+async def test_over_budget_rate_edit_stays_active() -> None:
+    async with AsyncSessionLocal() as db:
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
+        await set_recruitment_expected_rate(
+            cid,
+            jid,
+            ClientRateUpdate(rate_value=Decimal("30000"), rate_unit=RateUnit.monthly),
+            current_user=actor,
+            db=db,
+        )
+    async with AsyncSessionLocal() as db:
+        assert await _status(db, sid) == VerificationStatus.active
+        row = await db.get(CandidateStage, sid)
+        assert row.budget_max_at_move == 20000
+
+
+async def test_rate_edit_reactivates_legacy_pending_row() -> None:
+    """Wiersz `pending` sprzed zdjęcia bramki staje się aktywny przy korekcie."""
+    async with AsyncSessionLocal() as db:
+        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
+        row = await db.get(CandidateStage, sid)
+        row.verification_status = VerificationStatus.pending
+        await db.commit()
+        await set_recruitment_expected_rate(
+            cid,
+            jid,
+            ClientRateUpdate(rate_value=Decimal("30000"), rate_unit=RateUnit.monthly),
+            current_user=actor,
+            db=db,
+        )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(CandidateStage, sid)
+        assert row.verification_status == VerificationStatus.active
+        assert row.approved_at is not None

@@ -66,6 +66,7 @@ import type { NextAction } from "@/lib/pipeline-next-action";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -191,11 +192,16 @@ export interface PipelineCandidateDockProps {
   contactFeatureEnabled: boolean;
   canReject: boolean;
   /**
-   * Powód, dla którego „Odrzuć z powodem" jest dziś zablokowane (np. karta
-   * „Pending" — serwer odmawia każdego ruchu przed decyzją o stawce). Przycisk
+   * Powód, dla którego „Odrzuć z powodem" jest dziś zablokowane (np. tablica
+   * tylko do odczytu). Przycisk
    * zostaje widoczny i wyszarzony z powodem, zamiast odbić się o 409.
    */
   rejectBlockedReason?: string | null;
+  /**
+   * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — odznaka
+   * „Ponad budżet" (informacja). `null` = brak budżetu.
+   */
+  budgetHourly?: number | null;
   /** Pozycja karty w kolejności TABLICY (1-based) i liczba kart. Bez nich
    *  nawigator „‹ N z M ›" się nie renderuje — nie zgadujemy pozycji. */
   position?: number | null;
@@ -230,6 +236,7 @@ export function PipelineCandidateDock({
   contactFeatureEnabled,
   canReject,
   rejectBlockedReason = null,
+  budgetHourly = null,
   position,
   total,
   onSelectPrevious,
@@ -267,9 +274,10 @@ export function PipelineCandidateDock({
     .slice(0, 2)
     .join("")
     .toUpperCase();
-  // Bramka „Pending" wyłączona 17.09.2026 — stawka ponad budżet to odznaka,
-  // nie blokada, więc nie odbiera karcie zielonej pigułki „bez blokad".
-  const overBudget = Boolean(item.budget_exceeded);
+  // Bramka „Oczekuje" usunięta 17.09.2026 — stawka ponad AKTUALNY budżet PLN/h
+  // rekrutacji to odznaka, nie blokada, więc nie odbiera karcie zielonej
+  // pigułki „bez blokad".
+  const overBudget = isOverHourlyBudget(item, budgetHourly);
   const noKnownBlockers =
     !item.hm_veto &&
     moveTargets.length > 0 &&
@@ -282,8 +290,9 @@ export function PipelineCandidateDock({
   // `budget_max_at_move` to MIESIĘCZNY budżet w PLN zapisany PRZY RUCHU na
   // „Zweryfikowany", a stawka kandydata bywa godzinowa albo dzienna. Surowe
   // porównanie liczb mówiło „w budżecie" przy 150 zł/h wobec 20 000 zł/mc
-  // (150 < 20 000), choć to 25 200 zł/mc. Normalizujemy tą samą polityką co
-  // bramka serwera (`normalizeRateToMonthly`, 168h-21d-v1); nieznana jednostka
+  // (150 < 20 000), choć to 25 200 zł/mc. Normalizujemy polityką
+  // `rate_normalization.py` (168h-21d-v1; od 17.09.2026 porównanie jest
+  // wyłącznie informacyjne — bramka zdjęta); nieznana jednostka
   // albo waluta ≠ PLN to „nie do porównania", nigdy „w budżecie".
   const budgetCheck = useMemo(() => {
     const raw = item.expected_rate_value;
@@ -504,7 +513,7 @@ export function PipelineCandidateDock({
             <Badge
               variant="warning"
               size="sm"
-              title="Stawka kandydata przekracza budżet rekrutacji — informacja, nic nie blokuje."
+              title="Stawka kandydata przekracza budżet PLN/h rekrutacji — informacja, nic nie blokuje."
             >
               <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
             </Badge>

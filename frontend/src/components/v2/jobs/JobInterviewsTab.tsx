@@ -85,6 +85,8 @@ import {
   WorkbenchRail,
 } from "@/components/v2/jobs/workbench-chrome";
 import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
+import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
 const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
   { value: "advance", label: "Dalej" },
@@ -251,14 +253,22 @@ export function JobInterviewsTab({
   const rejectionReasons = reasonsQuery.data ?? [];
 
   // ── Ruch bez dialogu — ta sama trasa co drag&drop na tablicy ─────────
+  // 17.09.2026: weto HM / czarna lista / NDA to ostrzeżenie serwera — okno
+  // „Przenieś mimo to" powtarza ruch z `acknowledge_eligibility`.
+  const eligibilityWarning = useEligibilityWarning();
   const moveMutation = useMutation({
-    mutationFn: (vars: { item: KanbanItem; col: KanbanColumn }) =>
+    mutationFn: (vars: {
+      item: KanbanItem;
+      col: KanbanColumn;
+      acknowledgeEligibility?: boolean;
+    }) =>
       api.post("/api/pipeline/move", {
         candidate_id: vars.item.candidate_id,
         job_id: jobId,
         stage: vars.col.stage,
         stage_def_id: vars.col.stage_def_id ?? undefined,
         expected_state_version: expectedStateVersionOf(vars.item),
+        acknowledge_eligibility: vars.acknowledgeEligibility ? true : undefined,
       }),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -266,6 +276,14 @@ export function JobInterviewsTab({
       showSuccess(`Przeniesiono na etap „${columnLabel(vars.col)}”.`);
     },
     onError: (e, vars) => {
+      if (
+        !vars.acknowledgeEligibility &&
+        eligibilityWarning.intercept(e, () =>
+          moveMutation.mutate({ ...vars, acknowledgeEligibility: true }),
+        )
+      ) {
+        return;
+      }
       if (isPipelineVersionConflict(e)) {
         // F05: bez ponowienia — lista pokaże etap zapisany przez kolegę.
         showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
@@ -364,6 +382,7 @@ export function JobInterviewsTab({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+      {eligibilityWarning.dialog}
       {/* ── Szyna: u klienta, weta i przygotowanie ─────────────────── */}
       <WorkbenchRail
         icon={<Users className="h-4 w-4 text-primary" />}
@@ -525,6 +544,7 @@ export function JobInterviewsTab({
             reasons={rejectionReasons}
             reasonsLoading={reasonsQuery.isLoading}
             feedback={feedbackByCandidate.get(selected.item.candidate_id) ?? null}
+            budgetHourly={budgetHourly}
             canRecord={canRecordOnServer}
             feedbackQueryState={resolveViewState({
               isLoading: feedbackQuery.isLoading,
@@ -667,6 +687,8 @@ interface InterviewCardProps {
   /** Adres linku do karty Championa utworzonego dla tego kandydata (albo brak). */
   championLinkUrl: string | null;
   onChampionLinkCreated: (url: string) => void;
+  /** Aktualny budżet PLN/h rekrutacji — pigułka „Stawka ponad budżet". */
+  budgetHourly: number | null;
 }
 
 function InterviewCard({
@@ -683,6 +705,7 @@ function InterviewCard({
   onOpenScreening,
   championLinkUrl,
   onChampionLinkCreated,
+  budgetHourly,
 }: InterviewCardProps) {
   const { item, col } = entry;
   const { showSuccess, showError } = useToast();
@@ -807,7 +830,7 @@ function InterviewCard({
             ) : (
               <ToolPill tone="ok">Weto HM: brak</ToolPill>
             )}
-            {item.budget_exceeded && (
+            {isOverHourlyBudget(item, budgetHourly) && (
               <ToolPill tone="warn">Stawka ponad budżet</ToolPill>
             )}
             {item.days_in_stage != null && (

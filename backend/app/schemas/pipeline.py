@@ -31,20 +31,22 @@ class StageMove(BaseModel):
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
 
-    # Automatic rejection-email scheduling (0045_rejection_emails):
-    # None → let the server decide based on previous_stage (default: on for
-    #        client-visible stages, off otherwise).
-    # True  → attempt scheduling (still gated by server-side eligibility).
-    # False → do NOT schedule, even if eligible.
+    # Mail odrzucenia (0045_rejection_emails) jest OPT-IN od 17.09.2026:
+    # serwer planuje wysyłkę WYŁĄCZNIE przy `True` (checkbox w oknie
+    # odrzucenia, domyślnie odznaczony; kwalifikowalność sprawdza dalej
+    # `maybe_schedule`). `None`/`False` = nie wysyłaj. Wcześniej `None`
+    # znaczyło „serwer decyduje" i mail szedł sam po odrzuceniu z etapu klienta.
     send_rejection_email: Optional[bool] = None
     # Optional override — use a specific EmailTemplate.id instead of the
     # default rejection template.
     rejection_email_template_id: Optional[int] = None
 
-    # ── Pending verification (migracja 0056) ──────────────────────────────
-    # Wymagane TYLKO przy ruchu na stage `verified` — recruiter podaje stawkę
-    # kandydata którą porównujemy z Job.salary_max. Jeśli rate > max → stage
-    # zapisany z verification_status='pending', wysyłka notif do approverów.
+    # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
+    # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad
+    # `Job.salary_max` stawiała kartę na `pending` i czekała na admina.
+    # Decyzja właściciela: żadna bramka nie zatrzymuje przepływu — stawkę
+    # zapisujemy, gdy jest, a „ponad budżet" to odznaka na karcie (front liczy
+    # ją z `effective_budget_hourly`), nie stan procesu.
     expected_rate_value: Optional[Decimal] = Field(None, ge=0)
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = Field(None, max_length=3)
@@ -61,6 +63,13 @@ class StageMove(BaseModel):
     # karty. Brak pola = zachowanie dotychczasowe (blokady serializują zapis,
     # ale nie wykrywają nieaktualnej intencji).
     expected_state_version: Optional[int] = Field(None, ge=0)
+
+    # ── Ostrzeżenie dopuszczalności (17.09.2026) ──────────────────────────
+    # Czarna lista / NDA / konkurent / weto hiring managera NIE blokują już
+    # ruchu. Bez tej flagi serwer odpowiada 409 `ELIGIBILITY_WARNING` z
+    # powodem po polsku; klient pyta użytkownika i powtarza TEN SAM ruch
+    # z `True` — ruch przechodzi i zostaje `Activity(eligibility_acknowledged)`.
+    acknowledge_eligibility: bool = False
 
 
 class ClientRateUpdate(BaseModel):
@@ -124,8 +133,18 @@ class CandidateStageResponse(BaseModel):
     # i odpowiedź `POST /pipeline/move`; front odsyła ją jako
     # `expected_state_version`. `None` = endpoint jej nie liczy (np. historia).
     process_state_version: Optional[int] = None
+    # Odznaki karty (17.09.2026, „okna po ruchu → odznaki"): czy NA TYM
+    # wierszu zapisano arkusz screeningu / scorecard. Zamiast otwierać
+    # formularz po ruchu karta pokazuje „do uzupełnienia". Wypełnia tablica.
+    screening_done: bool = False
+    scorecard_done: bool = False
+    # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
+    # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
+    candidate_expected_rate_hourly: Optional[Decimal] = None
 
-    # ── Pending verification (migracja 0056) ──────────────────────────────
+    # ── Stawka z ruchu na „Zweryfikowany" (0056) ─────────────────────────
+    # `verification_status` zostaje w odpowiedzi, ale od 17.09.2026 ruch
+    # nigdy nie ustawia `pending` (migracja 0323 odblokowała stare wiersze).
     verification_status: VerificationStatus = VerificationStatus.active
     expected_rate_value: Optional[Decimal] = None
     expected_rate_unit: Optional[RateUnit] = None

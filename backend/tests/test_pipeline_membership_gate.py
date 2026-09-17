@@ -369,7 +369,7 @@ async def test_carry_over_scope_is_inert_when_priority_mode_is_off(
 # Acting as admin isolates the eligibility 409 from the membership 403.
 
 
-async def test_blacklisted_candidate_blocked_on_move_and_bulk(
+async def test_blacklisted_candidate_warns_on_move_and_blocks_bulk(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     from app.services.candidate_job_eligibility import (
@@ -381,11 +381,19 @@ async def test_blacklisted_candidate_blocked_on_move_and_bulk(
     job_id, _client_id = await _seed_job(owner_id=None)
     expected = _REASON_LABELS_PL[EligibilityReason.blacklisted]
 
+    # Pojedynczy /move (17.09.2026): ostrzeżenie do potwierdzenia, nie blokada.
     move = await app_client.post(
         MOVE, json=_move_body(cand, job_id), headers=app_auth_headers
     )
     assert move.status_code == 409, move.text
-    assert move.json()["detail"] == expected
+    assert move.json()["detail"]["code"] == "ELIGIBILITY_WARNING"
+    assert move.json()["detail"]["reason"] == expected
+    acknowledged = await app_client.post(
+        MOVE,
+        json={**_move_body(cand, job_id), "acknowledge_eligibility": True},
+        headers=app_auth_headers,
+    )
+    assert acknowledged.status_code == 200, acknowledged.text
 
     bulk = await app_client.post(
         BULK_MOVE,

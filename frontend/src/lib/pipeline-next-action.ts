@@ -86,13 +86,12 @@ const KIND_FOR_GROUP: Record<PipelineGroupKey, NextActionKind> = {
  *
  * Kolejność gałęzi jest wiążąca:
  *  1. etap terminalny (odrzucony/wycofany) NIE ma następnej akcji — i to musi
- *     wygrać z bramkami, inaczej odrzucony kandydat z wetem HM dostawałby
- *     „Bramka: weto HM" na karcie, z której nikt go już nie rusza,
- *  2. weto hiring managera — każdy ruch nie-terminalny jest zablokowany,
+ *     wygrać z ostrzeżeniami, inaczej odrzucony kandydat z wetem HM dostawałby
+ *     „Ostrzeżenie: weto HM" na karcie, z której nikt go już nie rusza,
+ *  2. weto hiring managera — od 17.09.2026 ostrzeżenie, nie blokada (serwer
+ *     pyta „Przenieś mimo to" przy ruchu), ale nadal pierwsza rzecz do
+ *     rozważenia przy tej karcie,
  *  3. dopiero potem etap.
- *
- * (Bramka „Pending" wyłączona 17.09.2026 — stawka ponad budżet nie jest już
- * „cudzą decyzją", tylko odznaką na karcie.)
  */
 export function nextActionFor(
   item: KanbanItem,
@@ -106,15 +105,19 @@ export function nextActionFor(
   }
 
   // „Zatrudniony" jest terminalem, ale należy do grupy „Umowa → zatrudnieni",
-  // więc guard wyżej go nie łapie. Bramki niżej też nie mogą: karta osoby już
-  // zatrudnionej z wetem HM (schemat tego nie wyklucza) mówiłaby
-  // o bramce przy kimś, kogo nikt nie rusza. Jedyna prawdziwa następna akcja to przekazanie do Delivery.
+  // więc guard wyżej go nie łapie. Ostrzeżenie niżej też nie może: karta osoby
+  // już zatrudnionej ze starym wetem HM (schemat tego nie wyklucza) mówiłaby
+  // o wecie komuś, kogo nikt nie rusza. Jedyna prawdziwa następna akcja to przekazanie do Delivery.
   if (terminalOf(column) === "hired") {
     return { label: "Przekaż do Delivery", tone: "normal", kind: "contract" };
   }
 
   if (item.hm_veto) {
-    return { label: "Bramka: weto HM", tone: "gate", kind: KIND_FOR_GROUP[group] };
+    return {
+      label: "Ostrzeżenie: weto HM",
+      tone: "gate",
+      kind: KIND_FOR_GROUP[group],
+    };
   }
 
   const days = item.days_in_stage ?? 0;
@@ -139,6 +142,15 @@ export function nextActionFor(
     case "screening": {
       const sla = ctx.slaDays;
       const overdue = days >= STUCK_DAYS || (sla != null && days >= sla);
+      // Arkusz już zapisany na tym wierszu → następny krok to weryfikacja,
+      // nie ponowne wypełnianie. Brak pola (starsza odpowiedź) = jak dotąd.
+      if (item.screening_done === true) {
+        return {
+          label: "Zweryfikuj i przenieś dalej",
+          tone: overdue ? "due" : "normal",
+          kind: "verification",
+        };
+      }
       return {
         label: "Uzupełnij arkusz screeningu",
         tone: overdue ? "due" : "normal",

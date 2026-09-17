@@ -52,6 +52,10 @@ import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
 import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
+import {
+  ManagedInNexusBanner,
+  ManagedInNexusChip,
+} from "@/components/v2/jobs/ManagedInNexusSwitch";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
@@ -2032,6 +2036,8 @@ export default function JobDetailPage() {
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
+  // 0325: powrót rekrutacji do Traffita — tylko admin / Delivery Lead.
+  const canRevertManaged = isAdmin || hasRole(authUser, "delivery_lead");
   const canWritePipeline =
     !impersonating && hasSectionAccess(authUser, "pipeline", "write");
   // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
@@ -2324,6 +2330,10 @@ export default function JobDetailPage() {
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
             ) : null}
+            <ManagedInNexusChip
+              job={job}
+              canRevert={canRevertManaged && !impersonating}
+            />
           </>
         }
         // Jedna linia faktów zamiast rzędu odznak z ikonami (makieta k2–k8).
@@ -2479,6 +2489,10 @@ export default function JobDetailPage() {
       {/* Tab Content */}
       {activeTab === "pipeline" && (
         <div>
+          <ManagedInNexusBanner
+            job={job}
+            canSwitch={canWritePipeline && canUpdateJob}
+          />
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -2627,8 +2641,8 @@ export default function JobDetailPage() {
       {activeTab === "screening" && (
         <ScreeningWorkbench
           jobId={Number(id)}
-          jobBudgetMax={
-            typeof job?.salary_max === "number" ? job.salary_max : null
+          jobBudgetHourly={
+            jobBudgetHourly(job)
           }
           columns={kanbanColumns}
           isLoading={kanbanLoading}

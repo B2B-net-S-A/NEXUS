@@ -18,6 +18,7 @@ import {
 } from "@/lib/job-flow-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { formatDate } from "@/lib/utils";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
 /** Poczekalnia kandydatów z ogłoszeń (auto-match) — PRZED „Nowi" (migracja 0317). */
@@ -71,19 +72,47 @@ export function selectScreeningQueue(columns: KanbanColumn[]): FlowQueueEntry[] 
 }
 
 /**
- * Karty ze stawką PONAD budżet rekrutacji (`budget_exceeded`) — na dowolnym
- * etapie nie-terminalnym.
+ * Karty ze stawką PONAD budżet PLN/h rekrutacji — na dowolnym etapie
+ * nie-terminalnym.
  *
- * Od 17.09.2026 bramka „Pending" jest wyłączona: przekroczenie budżetu nie
- * wstrzymuje karty, tylko jest informacją (odznaka „ponad budżet"). Lista
- * służy szynie screeningu i KPI — nie blokuje żadnego ruchu.
+ * Od 17.09.2026 bramka „Oczekuje" jest usunięta: przekroczenie budżetu nie
+ * wstrzymuje karty, tylko jest informacją (odznaka „ponad budżet"). Porównanie
+ * idzie z AKTUALNYM budżetem godzinowym rekrutacji (`effective_budget_hourly`,
+ * `isOverHourlyBudget`) — tym samym, który pokazuje nagłówek. Lista służy
+ * szynie screeningu i KPI — nie blokuje żadnego ruchu.
  */
-export function selectOverBudget(columns: KanbanColumn[]): FlowQueueEntry[] {
+export function selectOverBudget(
+  columns: KanbanColumn[],
+  budgetHourly: number | null | undefined,
+): FlowQueueEntry[] {
+  const out: FlowQueueEntry[] = [];
+  if (budgetHourly == null) return out;
+  for (const col of columns) {
+    if (col.category === "terminal") continue;
+    for (const item of col.items) {
+      if (isOverHourlyBudget(item, budgetHourly)) {
+        out.push({ item, col, colId: colId(col) });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Karty z OSTRZEŻENIEM widocznym na karcie — weto hiring managera — na
+ * dowolnym etapie nie-terminalnym.
+ *
+ * Od 17.09.2026 weto nie blokuje ruchu: serwer odpowiada 409
+ * `ELIGIBILITY_WARNING`, a tablica pyta „Przenieś mimo to". Globalnej czarnej
+ * listy kanban nie niesie na karcie — ta pojawia się dopiero w oknie ruchu.
+ * Ten sam zbiór liczy {@link countHmVeto}.
+ */
+export function selectWithWarning(columns: KanbanColumn[]): FlowQueueEntry[] {
   const out: FlowQueueEntry[] = [];
   for (const col of columns) {
     if (col.category === "terminal") continue;
     for (const item of col.items) {
-      if (item.budget_exceeded) {
+      if (item.hm_veto) {
         out.push({ item, col, colId: colId(col) });
       }
     }
@@ -95,7 +124,7 @@ export function selectOverBudget(columns: KanbanColumn[]): FlowQueueEntry[] {
  * Kolejka kroku 06: zweryfikowani, czyli gotowi do wysyłki CV.
  *
  * Karty „ponad budżet" ZOSTAJĄ w kolejce z odznaką — przekroczenie budżetu
- * jest informacją, nie blokadą (bramka „Pending" wyłączona 17.09.2026).
+ * jest informacją, nie blokadą (bramka „Oczekuje" usunięta 17.09.2026).
  */
 export function selectVerifiedQueue(columns: KanbanColumn[]): FlowQueueEntry[] {
   return entriesForStage(columns, VERIFIED_STAGE);
@@ -244,10 +273,10 @@ export interface MoveGateInput {
 }
 
 /**
- * Etapy, na które weto hiring managera blokuje ruch — lustro
+ * Etapy, na których serwer PODNOSI ostrzeżenie o wecie hiring managera — lustro
  * `VETO_ENFORCED_STAGES` z `backend/app/services/hiring_manager_verdicts.py`.
- * `hired` jest poza zbiorem celowo (manager właśnie przyjął kandydata), a etapy
- * wewnętrzne — bo każdy pipeline sprzed tej funkcji stanąłby na 409.
+ * Od 17.09.2026 weto nie blokuje ruchu: serwer odpowiada 409
+ * `ELIGIBILITY_WARNING`, a tablica pyta „Przenieś mimo to".
  */
 export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
   "cv_sent",
@@ -257,61 +286,71 @@ export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
 /**
  * Powód, dla którego ruchu NIE wolno wykonać — albo `null`, gdy wolno.
  *
- * Lustro `POST /api/pipeline/move` (kolejność reguł jak w handlerze):
- *  1. brak prawa zapisu blokuje wszystko,
- *  2. (bramka „Pending" wyłączona 17.09.2026 — karta ze stawką ponad budżet
- *     NIE blokuje ruchu, serwer nie odpowiada już 409),
- *  3. ruchy wypisujące (`rejected`/`withdrawn`) omijają bramkę
- *     dopuszczalności — weto HM nie może uwięzić kandydata w procesie,
- *  4. weto hiring managera blokuje WYŁĄCZNIE „CV Wysłane" i „Interview Klient"
- *     (`HM_VETO_ENFORCED_STAGES`) — „Zweryfikowany" czy „Zatrudniony" przechodzą.
- *
- * Pozostałe powody (czarna lista, NDA, konkurent, uprawnienia roli) nie są na
- * karcie — te kończą się 409/403 z polskim powodem w toaście.
+ * Od 17.09.2026 (decyzja właściciela „żadna bramka nie blokuje przepływu")
+ * jedyną twardą blokadą jest brak prawa zapisu. Karta „Oczekuje" już nie
+ * powstaje, a weto hiring managera, czarna lista, NDA i konkurent są
+ * OSTRZEŻENIAMI serwera (409 `ELIGIBILITY_WARNING`, okno „Przenieś mimo to" —
+ * `lib/pipeline-eligibility-warning.ts`). `terminal` i `targetStage` zostają
+ * w sygnaturze dla zgodności wołających (warsztaty 05–07).
  */
-export function moveBlockedReason({
+export function moveBlockedReason({ readOnly }: MoveGateInput): string | null {
+  if (readOnly) return "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
+  return null;
+}
+
+/**
+ * Ostrzeżenie o wecie hiring managera, które serwer podniesie przy ruchu na
+ * `targetStage` — albo `null`. Lustro `VETO_ENFORCED_STAGES`: dotyczy tylko
+ * etapów stawiających kandydata przed klientem, a ruchy wypisujące
+ * (`terminal`) go omijają. To INFORMACJA, nie blokada — pojedynczy ruch pyta
+ * „Przenieś mimo to".
+ */
+export function hmVetoWarningReason({
   item,
-  readOnly,
   terminal = false,
   targetStage,
-}: MoveGateInput): string | null {
-  if (readOnly) return "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
-  if (terminal) return null;
-  if (item.hm_veto && targetStage != null && HM_VETO_ENFORCED_STAGES.has(targetStage)) {
-    const when = item.hm_veto.rejected_at
-      ? ` (${formatDate(item.hm_veto.rejected_at)})`
-      : "";
-    return (
-      `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie${when} — ` +
-      `${item.hm_veto.rejection_reason_name}.`
-    );
-  }
-  return null;
+}: Pick<MoveGateInput, "item" | "terminal" | "targetStage">): string | null {
+  if (terminal || !item.hm_veto) return null;
+  if (targetStage == null || !HM_VETO_ENFORCED_STAGES.has(targetStage)) return null;
+  const when = item.hm_veto.rejected_at
+    ? ` (${formatDate(item.hm_veto.rejected_at)})`
+    : "";
+  return (
+    `hiring manager tej rekrutacji już odrzucił tego kandydata${when} — ` +
+    `${item.hm_veto.rejection_reason_name}`
+  );
+}
+
+/**
+ * Powód, dla którego ruch ZBIORCZY pomija kartę — albo `null`.
+ *
+ * Ruch zbiorczy nie ma okna „Przenieś mimo to" (serwer odrzuca paczkę
+ * z ostrzeżeniem twardym 409), więc tablica pomija z wyjaśnieniem karty
+ * z ostrzeżeniem widocznym na karcie (weto HM) zamiast liczyć je jako nieudane.
+ * Taką kartę przenosi się pojedynczo, z potwierdzeniem.
+ */
+export function bulkMoveSkipReason(input: MoveGateInput): string | null {
+  return moveBlockedReason(input) ?? hmVetoWarningReason(input);
 }
 
 export interface PrimaryForwardMove {
   /** Etap, na który dok proponuje ruch naprzód — `null`, gdy nie proponuje. */
   target: KanbanColumn | null;
   /**
-   * Etap, który stoi na drodze naprzód, i powód blokady — ustawione wtedy,
-   * gdy dok NIE proponuje ruchu, bo kolejny krok blokuje weto hiring managera.
+   * Etap, który stoi na drodze naprzód, i powód blokady. Od 17.09.2026 zawsze
+   * `null` (weto HM nie blokuje) — pole zostaje dla zgodności konsumentów.
    */
   blocked: { col: KanbanColumn; reason: string } | null;
 }
 
 /**
- * Główna akcja „naprzód" doku karty: PIERWSZY dozwolony etap PO bieżącym
+ * Główna akcja „naprzód" doku karty: PIERWSZY etap nieterminalny PO bieżącym
  * w kolejności szablonu (terminalne pomijamy — „Odrzuć z powodem" to osobny
  * przycisk, a „Zatrudniony" nie jest krokiem naprzód z doku).
  *
- * Weto hiring managera ZATRZYMUJE szukanie: gdy między bieżącym etapem a
- * kandydatem na cel leży etap, na który weto blokuje ruch („CV Wysłane",
- * „Interview Klient"), dok nie proponuje żadnego ruchu naprzód, tylko mówi,
- * co blokuje. Do 09.2026 pętla przeskakiwała zablokowany etap i proponowała
- * pierwszy dalszy — w „Default B2B" karta z wetem na „Zweryfikowany" dostawała
- * „Przenieś na etap: Preparation Meeting", czyli objazd weta jednym kliknięciem.
- * Ręczne pigułki ruchu i reguła serwera zostają bez zmian (bramka dla KAŻDEGO
- * celu to nadal {@link moveBlockedReason}).
+ * Od 17.09.2026 weto hiring managera nie zatrzymuje szukania — serwer ostrzega
+ * przy ruchu i pyta „Przenieś mimo to". Dok nie proponuje ruchu wyłącznie
+ * wtedy, gdy tablica jest tylko do odczytu.
  */
 export function primaryForwardMove({
   item,
@@ -336,10 +375,10 @@ export function primaryForwardMove({
       terminal: false,
       targetStage: col.stage,
     });
+    // Jedyna blokada to brak prawa zapisu — wtedy dok nie proponuje nic
+    // (jak dotąd), zamiast wskazywać „zablokowany" etap.
     if (!reason) return { target: col, blocked: null };
-    if (item.hm_veto && HM_VETO_ENFORCED_STAGES.has(col.stage)) {
-      return { target: null, blocked: { col, reason } };
-    }
+    return none;
   }
   return none;
 }

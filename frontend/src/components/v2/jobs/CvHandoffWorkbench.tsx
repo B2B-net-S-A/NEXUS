@@ -79,6 +79,7 @@ import {
   moveBlockedReason,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import {
   CvHandoffError,
   computeMarginPreview,
@@ -115,6 +116,7 @@ import {
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import, ten sam
 // wzorzec co w `PipelineCandidateDock`.
@@ -145,6 +147,11 @@ export interface CvHandoffWorkbenchProps {
    * właściciel/twórca rekrutacji). Brak pola = pole stawki ukryte.
    */
   canWriteClientRate?: boolean;
+  /**
+   * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — odznaka
+   * „ponad budżet" (informacja, nie blokada). `null` = brak budżetu.
+   */
+  budgetHourly?: number | null;
 }
 
 const SHARE_DAYS_OPTIONS = [7, 14, 30, 60, 90];
@@ -183,6 +190,7 @@ export function CvHandoffWorkbench({
   onMoved,
   readOnly,
   canWriteClientRate = false,
+  budgetHourly = null,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -402,8 +410,11 @@ export function CvHandoffWorkbench({
           : null))
     : "Wybierz kandydata z kolejki.";
 
+  // 17.09.2026: weto HM / czarna lista / NDA na „CV Wysłane" to ostrzeżenie
+  // serwera — okno „Przenieś mimo to" zamiast toastu błędu.
+  const eligibilityWarning = useEligibilityWarning();
   const sendMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (acknowledgeEligibility: boolean) => {
       if (!selected || !cvSentCol || stageId == null) {
         throw new Error("Brak etapu docelowego.");
       }
@@ -462,6 +473,7 @@ export function CvHandoffWorkbench({
             stage: CV_SENT_STAGE,
             stage_def_id: cvSentCol.stage_def_id ?? undefined,
             expected_state_version: expectedStateVersionOf(selected.item),
+            acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
           });
         },
       });
@@ -476,7 +488,16 @@ export function CvHandoffWorkbench({
       else showSuccess(summary);
       onMoved();
     },
-    onError: (e) => {
+    onError: (e, acknowledged) => {
+      if (
+        !acknowledged &&
+        e instanceof CvHandoffError &&
+        e.step === "move" &&
+        eligibilityWarning.intercept(e.reason, () => sendMut.mutate(true))
+      ) {
+        // Ruch nie przeszedł (409 przed zapisem) — link i stawka nie powstały.
+        return;
+      }
       // Ruch idzie pierwszy, więc przy tej porażce nie powstał ani link dla
       // klienta, ani stawka. Sam ruch: odmowa serwera (4xx) = nic się nie
       // zmieniło; brak odpowiedzi / 5xx = nie wiadomo (ruch mógł się zapisać),
@@ -557,6 +578,7 @@ export function CvHandoffWorkbench({
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+      {eligibilityWarning.dialog}
       {handoffResults.length > 0 && (
         <section className="space-y-3 rounded-xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-3" aria-label="Utworzone linki do CV">
           <h3 className="text-sm font-semibold">Utworzone linki do CV</h3>
@@ -629,11 +651,13 @@ export function CvHandoffWorkbench({
                   tone={item.hm_veto ? "bad" : "ok"}
                   label={itemFullName(item)}
                   meta={
-                    item.budget_exceeded
+                    isOverHourlyBudget(item, budgetHourly)
                       ? `${formatExpectedRate(item) ?? "—"} · ponad budżet`
                       : (formatExpectedRate(item) ?? undefined)
                   }
-                  metaTone={item.budget_exceeded ? "warn" : "neutral"}
+                  metaTone={
+                    isOverHourlyBudget(item, budgetHourly) ? "warn" : "neutral"
+                  }
                   active={item.id === selectedStageId}
                   onSelect={() => setSelectedStageId(item.id)}
                 />
@@ -777,7 +801,7 @@ export function CvHandoffWorkbench({
                 .join(" · ")}
               badges={
                 <>
-                  {selected.item.budget_exceeded && (
+                  {isOverHourlyBudget(selected.item, budgetHourly) && (
                     <Badge
                       variant="warning"
                       size="sm"
@@ -1258,7 +1282,7 @@ export function CvHandoffWorkbench({
                       disabled={Boolean(moveBlocked) || sendMut.isPending}
                       loading={sendMut.isPending}
                       title={moveBlocked ?? undefined}
-                      onClick={() => sendMut.mutate()}
+                      onClick={() => sendMut.mutate(false)}
                     >
                       <Send className="h-3.5 w-3.5" />
                       {willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}

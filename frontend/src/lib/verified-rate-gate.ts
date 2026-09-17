@@ -1,31 +1,20 @@
 /**
- * Bramka budżetowa ruchu na „Zweryfikowany" — lustro
- * `backend/app/services/rate_normalization.py` (polityka `168h-21d-v1`).
+ * Porównanie stawki z budżetem przy ruchu na „Zweryfikowany" — WYŁĄCZNIE
+ * informacyjne od 17.09.2026.
  *
- * Powód istnienia tego modułu: krok 05 („Screening", program „flow w języku
- * C2") pokazuje werdykt bramki W DOKU, ZANIM ktokolwiek kliknie — kontrakt
- * programu mówi, że akcja zablokowana ma być widoczna z powodem, a nie
- * kończyć się niespodzianką po ruchu. Skoro ten sam werdykt liczy też
- * `VerifiedRateModal` (ta sama decyzja, dwa miejsca), liczy go JEDNA funkcja.
+ * Do tego dnia werdykt zapowiadał bramkę serwera: stawka ponad `salary_max`
+ * (budżet MIESIĘCZNY) stawiała kartę na „Pending" do akceptacji admina.
+ * Decyzja właściciela: żadna bramka nie zatrzymuje przepływu. Zostaje sygnał
+ * „ponad budżet" — w oknie i jako odznaka na karcie — liczony względem budżetu
+ * GODZINOWEGO rekrutacji (`effective_budget_hourly`, ta sama liczba co
+ * nagłówek i wyszukiwanie). Przeliczenie stawki: `lib/rate-to-hourly.ts`.
  *
- * Uwaga na semantykę: `Job.salary_max` jest budżetem MIESIĘCZNYM w PLN, więc
- * stawkę kandydata trzeba znormalizować przed porównaniem. Modal porównywał
- * dotąd surowe liczby (`118 > 20000` → „mieści się"), więc dla stawki
- * godzinowej potrafił obiecać ruch bez akceptacji, a backend i tak stawiał
- * kartę na „Pending" (118 × 168 = 19 824 mieści się, ale 130 × 168 = 21 840
- * już nie). Zapowiedź inna niż decyzja serwera jest gorsza niż jej brak.
- *
- * Od 17.09.2026 bramka „Pending" jest WYŁĄCZONA (decyzja Artura,
- * `PENDING_VERIFICATION_ENABLED=false`): ruch zawsze przechodzi, a werdykt
- * jest wyłącznie informacją. Stawka ponad budżet (`over_budget`) zostaje
- * zapisana, a karta dostaje odznakę „ponad budżet". Nieznana jednostka albo
- * waluta ≠ PLN → `not_comparable` (nie zgadujemy przekroczenia).
+ * `MONTHLY_FACTOR` i `normalizeRateToMonthly` zostają dla ekranów, które
+ * pokazują przelicznik miesięczny obok `budget_max_at_move` (dok karty).
  */
 
 import type { RateUnit } from "@/lib/api";
-import { hasRole } from "@/store/auth";
-
-type RoleBearingUser = Parameters<typeof hasRole>[0];
+import { rateToHourly } from "@/lib/rate-to-hourly";
 
 /** `hourly → 21 dni × 8 h`, `daily → 21 dni` (polityka `168h-21d-v1`). */
 export const MONTHLY_FACTOR: Record<RateUnit, number> = {
@@ -64,32 +53,24 @@ export function normalizeRateToMonthly(
   return Math.round(value * factor * 100) / 100;
 }
 
-/** Werdykt bramki — informacja, nigdy blokada (bramka „Pending" wyłączona). */
+/** Werdykt porównania — dokładnie trzy rozłączne odpowiedzi, żadna nie blokuje. */
 export type RateGateVerdict =
-  /** Brak `salary_max` na rekrutacji → nie ma z czym porównywać. */
+  /** Brak budżetu godzinowego albo stawka nie do porównania (waluta ≠ PLN). */
   | "no_budget"
-  /**
-   * Budżet istnieje, ale jest ukryty dla roli (Delivery Lead / TCM dostają
-   * `salary_max = null`). Bez tego wariantu ekran twierdziłby „brak budżetu",
-   * czyli coś, co nie jest prawdą.
-   */
-  | "budget_hidden"
   /** Mieści się w budżecie. */
   | "within_budget"
-  /** Ponad budżet — ruch przechodzi, karta dostaje odznakę „ponad budżet". */
-  | "over_budget"
-  /** Waluta ≠ PLN albo nieznana jednostka — nie da się porównać. */
-  | "not_comparable";
+  /** Ponad budżet — ostrzeżenie w oknie i odznaka „ponad budżet" na karcie. */
+  | "over_budget";
 
 export interface RateGateResult {
   /** Liczba wyparsowana z pola (przecinek dziesiętny dozwolony). */
   numericRate: number;
-  /** Czy w ogóle wolno wysłać ruch (backend wymaga wartości i jednostki). */
+  /** Czy pole zawiera stawkę do zapisania (stawka jest opcjonalna). */
   isValid: boolean;
-  /** `null`, gdy nie da się porównać (waluta ≠ PLN / nieznana jednostka). */
-  normalizedMonthly: number | null;
+  /** Stawka w PLN/h; `null`, gdy nie da się porównać. */
+  normalizedHourly: number | null;
   verdict: RateGateVerdict;
-  /** Zdanie po polsku pod pole — to samo w modalu i w doku kroku 05. */
+  /** Zdanie po polsku pod pole — to samo w oknie i w doku kroku 05. */
   message: string | null;
 }
 
@@ -98,26 +79,8 @@ export interface RateGateInput {
   rawRate: string;
   unit: RateUnit;
   currency?: string;
-  /** `Job.salary_max` — budżet miesięczny w PLN. `null` = brak albo ukryty. */
-  jobBudgetMax: number | null;
-  /**
-   * `true`, gdy `jobBudgetMax === null` wynika z redakcji dla roli, a nie
-   * z braku budżetu — patrz {@link isJobBudgetHiddenFor}.
-   */
-  budgetHidden?: boolean;
-}
-
-/**
- * Lustro `_redact_delivery_lead_job_finance` (backend/app/api/jobs.py):
- * Delivery Lead i TCM bez roli admina dostają `salary_min/max = null`.
- */
-export function isJobBudgetHiddenFor(
-  user: RoleBearingUser | null | undefined,
-): boolean {
-  return (
-    hasRole(user, "delivery_lead", "talent_community_manager") &&
-    !hasRole(user, "admin")
-  );
+  /** Budżet PLN/h rekrutacji (`effective_budget_hourly`). `null` = brak. */
+  jobBudgetHourly: number | null;
 }
 
 const formatPln = (n: number) => n.toLocaleString("pl-PL");
@@ -126,71 +89,65 @@ export function evaluateRateGate({
   rawRate,
   unit,
   currency = "PLN",
-  jobBudgetMax,
-  budgetHidden = false,
+  jobBudgetHourly,
 }: RateGateInput): RateGateResult {
   const numericRate = Number.parseFloat(rawRate.replace(",", "."));
   const isValid = Number.isFinite(numericRate) && numericRate > 0;
-  const normalizedMonthly = isValid
-    ? normalizeRateToMonthly(numericRate, unit, currency)
+  const normalizedHourly = isValid
+    ? rateToHourly(numericRate, unit, currency)
     : null;
-
-  if (jobBudgetMax === null) {
-    const verdict: RateGateVerdict = budgetHidden ? "budget_hidden" : "no_budget";
-    return {
-      numericRate,
-      isValid,
-      normalizedMonthly,
-      verdict,
-      message: !isValid
-        ? null
-        : budgetHidden
-          ? "Budżet ukryty dla Twojej roli — stawka zostanie zapisana, a ewentualne przekroczenie pokaże karta."
-          : "Ta rekrutacja nie ma wpisanego budżetu, więc nie ma z czym porównać stawki.",
-    };
-  }
 
   if (!isValid) {
     return {
       numericRate,
       isValid,
-      normalizedMonthly: null,
-      verdict: "within_budget",
+      normalizedHourly: null,
+      verdict: "no_budget",
       message: null,
     };
   }
 
-  if (normalizedMonthly === null) {
+  if (jobBudgetHourly === null) {
     return {
       numericRate,
       isValid,
-      normalizedMonthly,
-      verdict: "not_comparable",
+      normalizedHourly,
+      verdict: "no_budget",
       message:
-        "Nie da się porównać tej stawki z budżetem (waluta inna niż PLN albo nieznana jednostka) — stawka zostanie zapisana bez porównania.",
+        "Ta rekrutacja nie ma wpisanego budżetu godzinowego — stawka zostanie zapisana bez porównania.",
     };
   }
 
-  if (normalizedMonthly > jobBudgetMax) {
+  if (normalizedHourly === null) {
     return {
       numericRate,
       isValid,
-      normalizedMonthly,
+      normalizedHourly,
+      verdict: "no_budget",
+      message:
+        "Waluta inna niż PLN albo nieznana jednostka — nie porównujemy z budżetem; stawka zostanie zapisana.",
+    };
+  }
+
+  if (normalizedHourly > jobBudgetHourly) {
+    return {
+      numericRate,
+      isValid,
+      normalizedHourly,
       verdict: "over_budget",
       message:
-        `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedMonthly)} PLN/mc — ` +
-        `powyżej budżetu ${formatPln(jobBudgetMax)} PLN/mc. Ruch przechodzi, ` +
-        "a karta dostanie odznakę „ponad budżet” (informacja, bez akceptacji).",
+        `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedHourly)} PLN/h — ` +
+        `powyżej budżetu ${formatPln(jobBudgetHourly)} PLN/h. Ruch przejdzie, a karta dostanie odznakę „ponad budżet”.`,
     };
   }
 
   return {
     numericRate,
     isValid,
-    normalizedMonthly,
+    normalizedHourly,
     verdict: "within_budget",
     message:
-      `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedMonthly)} PLN/mc — ` +
-      `mieści się w budżecie ${formatPln(jobBudgetMax)} PLN/mc.`,
+      `${formatPln(numericRate)} ${RATE_UNIT_SHORT[unit]} to ${formatPln(normalizedHourly)} PLN/h — ` +
+      `mieści się w budżecie ${formatPln(jobBudgetHourly)} PLN/h.`,
   };
 }

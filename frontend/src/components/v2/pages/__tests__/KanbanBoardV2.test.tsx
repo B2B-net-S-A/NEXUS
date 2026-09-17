@@ -1,12 +1,13 @@
 /**
- * KanbanBoardV2 — testy correctness M4 PR-03 (audyt P1.3/P1.4/P2.1/P0.3-FE).
+ * KanbanBoardV2 — testy powierzchni renderu i akcji tablicy.
  *
  * Drag-and-drop nie jest odpalalny w jsdom (repo-precedens: weryfikacja dnd
- * unit testami + realnym Chrome), więc testujemy powierzchnie renderu i akcji:
- * - bramka „Pending" wyłączona (17.09.2026): karta ponad budżetem ma odznakę
- *   informacyjną, zero akcji akceptacji i żadnej blokady ruchu,
- * - ruch zbiorczy przechodzi przez tę samą bramkę co przeciągnięcie,
- * - modal stawki do klienta tylko dla `can_write_client_rate`.
+ * unit testami + realnym Chrome), więc ruchy wyzwalamy pigułkami doku:
+ * - od 17.09.2026 żadna bramka nie blokuje przepływu — karta niesie odznaki
+ *   („ponad budżet", „Uzupełnij screening"), a weto HM / czarna lista / NDA /
+ *   konkurent to ostrzeżenie serwera z „Przenieś mimo to",
+ * - ruch zbiorczy POMIJA z wyjaśnieniem karty z ostrzeżeniem (weto HM),
+ * - okno stawki do klienta tylko dla `can_write_client_rate`.
  */
 
 import * as React from "react";
@@ -17,14 +18,15 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const kanban = vi.fn();
 const post = vi.fn();
-const apiGet = vi.fn();
+const get = vi.fn();
+const move = vi.fn();
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
-    get: (...a: unknown[]) => apiGet(...a),
+    get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
   },
   candidatesApi: {
@@ -33,7 +35,7 @@ vi.mock("@/lib/api", () => ({
   },
   pipelineApi: {
     kanban: (...a: unknown[]) => kanban(...a),
-    move: vi.fn(() => Promise.resolve({ data: {} })),
+    move: (...a: unknown[]) => move(...a),
   },
   pipelineTemplatesApi: {
     get: vi.fn(() =>
@@ -58,12 +60,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 
-beforeEach(() => {
-  apiGet.mockImplementation(() =>
-    Promise.resolve({ data: { salary_max: null, pipeline_template_id: null } }),
-  );
-});
-
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
   if (!HTMLElement.prototype.hasPointerCapture) {
@@ -73,7 +69,52 @@ beforeAll(() => {
   }
 });
 
-function overBudgetColumns() {
+// Domyślne odpowiedzi — `mockResolvedValue` w teście nie może przeciekać do
+// kolejnych opisów (vi.clearAllMocks nie zdejmuje implementacji).
+beforeEach(() => {
+  get.mockImplementation(() =>
+    Promise.resolve({ data: { effective_budget_hourly: null, pipeline_template_id: null } }),
+  );
+  move.mockImplementation(() => Promise.resolve({ data: {} }));
+});
+
+/** Kolumna „Zweryfikowany" z kartami ze stawką godzinową w PLN. */
+function rateColumns(
+  cards: Array<{
+    id: number;
+    candidate_id: number;
+    name: string;
+    lastname: string;
+    rate: number;
+    extra?: Record<string, unknown>;
+  }>,
+) {
+  return [
+    {
+      stage: "verified",
+      name: "Zweryfikowany",
+      category: "internal",
+      stage_def_id: null,
+      count: cards.length,
+      items: cards.map((c) => ({
+        id: c.id,
+        candidate_id: c.candidate_id,
+        name: c.name,
+        lastname: c.lastname,
+        stage: "verified",
+        days_in_stage: 1,
+        verification_status: "active",
+        expected_rate_value: c.rate,
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
+        ...c.extra,
+      })),
+    },
+  ] as never;
+}
+
+/** Karta sprzed 17.09.2026 z `verification_status: "pending"` — ma wyglądać jak zwykła. */
+function pendingColumns() {
   return [
     {
       stage: "verified",
@@ -89,8 +130,7 @@ function overBudgetColumns() {
           lastname: "Kowalska",
           stage: "verified",
           days_in_stage: 1,
-          verification_status: "active",
-          budget_exceeded: true,
+          verification_status: "pending",
           expected_rate_value: 150,
           expected_rate_unit: "hourly",
           expected_rate_currency: "PLN",
@@ -190,7 +230,7 @@ function overflowColumns() {
 }
 
 function renderBoard(
-  columns = overBudgetColumns(),
+  columns = pendingColumns(),
   scoreMap?: Map<number, number>,
   readOnly = false,
 ) {
@@ -211,48 +251,116 @@ function renderBoard(
   );
 }
 
-describe("KanbanBoardV2 — karta ponad budżetem (bramka „Pending” wyłączona)", () => {
+describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     post.mockResolvedValue({ data: {} });
   });
 
-  it.each(["admin", "delivery_lead", "head_of_recruitment", "recruiter"])(
-    "rola %s widzi odznakę „ponad budżet” i ŻADNEJ akcji akceptacji",
-    async (role) => {
-      useAuthStore.setState({ user: { role, roles: [role] } as never });
-      useUiStore.setState({ density: "cozy" } as never);
+  it("stawka ponad budżet godzinowy rekrutacji daje odznakę „ponad budżet”, w budżecie — nie", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    useUiStore.setState({ density: "cozy" } as never);
+    get.mockResolvedValue({
+      data: { effective_budget_hourly: 100, pipeline_template_id: null },
+    });
 
-      renderBoard();
-      expect(await screen.findByText("ponad budżet")).toBeTruthy();
-      expect(screen.queryByText("Pending")).toBeNull();
-      expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
-      expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
-    },
-  );
+    renderBoard(
+      rateColumns([
+        { id: 781, candidate_id: 11, name: "Adam", lastname: "Drogi", rate: 150 },
+        { id: 782, candidate_id: 12, name: "Beata", lastname: "Tania", rate: 80 },
+      ]),
+    );
 
-  it("pokazuje wynik dopasowania także na karcie oczekującej na akceptację", async () => {
+    const expensive = (
+      await screen.findByRole("link", { name: "Adam Drogi" })
+    ).closest("[data-kanban-card]") as HTMLElement;
+    await waitFor(() =>
+      expect(within(expensive).getByText("ponad budżet")).toBeInTheDocument(),
+    );
+    const cheap = screen
+      .getByRole("link", { name: "Beata Tania" })
+      .closest("[data-kanban-card]") as HTMLElement;
+    expect(within(cheap).queryByText("ponad budżet")).toBeNull();
+  });
+
+  it("stara karta „pending” renderuje się jak zwykła — bez „Pending” i bez akceptacji", async () => {
+    useAuthStore.setState({
+      user: { role: "admin", roles: ["admin"] } as never,
+    });
+    useUiStore.setState({ density: "compact" } as never);
+
+    renderBoard();
+
+    expect(await screen.findByRole("link", { name: "Anna Kowalska" })).toBeTruthy();
+    expect(screen.queryByText(/Pending/)).toBeNull();
+    expect(screen.queryByText(/Oczekuje/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Akceptuj/ })).toBeNull();
+    expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
+    expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
+  });
+
+  it("pokazuje wynik dopasowania na karcie", async () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
     useUiStore.setState({ density: "compact" } as never);
 
-    renderBoard(overBudgetColumns(), new Map([[5, 77]]));
+    renderBoard(pendingColumns(), new Map([[5, 77]]));
 
     expect(
       await screen.findByLabelText("Dopasowanie AI: 77 na 100"),
     ).toBeTruthy();
   });
 
-  it("karta rekrutera mówi wprost o braku danych osoby dodającej", async () => {
+  it("karta na „Zweryfikowany” bez zapisanego screeningu pokazuje „Uzupełnij screening”", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    useUiStore.setState({ density: "cozy" } as never);
+
+    renderBoard(
+      rateColumns([
+        {
+          id: 783,
+          candidate_id: 13,
+          name: "Celina",
+          lastname: "Arkusz",
+          rate: 90,
+          extra: { screening_done: false },
+        },
+        {
+          id: 784,
+          candidate_id: 14,
+          name: "Dawid",
+          lastname: "Gotowy",
+          rate: 90,
+          extra: { screening_done: true },
+        },
+      ]),
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Uzupełnij screening dla Celina Arkusz",
+      }),
+    ).toHaveTextContent("Uzupełnij screening");
+    const done = screen.getByRole("button", {
+      name: "Screening Championa dla Dawid Gotowy",
+    });
+    expect(done).toHaveTextContent("Screening");
+    expect(done).not.toHaveTextContent("Uzupełnij");
+  });
+
+  it("wiersz właściciela mówi o braku danych, zamiast udawać nazwisko", async () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
     useUiStore.setState({ density: "cozy" } as never);
 
     renderBoard();
-    // Karta się renderuje…
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
     // Fala 3: wiersz właściciela to awatar + imię, a brak danych mówi o sobie
     // wprost zamiast udawać nazwisko.
@@ -270,7 +378,7 @@ describe("KanbanBoardV2 — karta ponad budżetem (bramka „Pending” wyłącz
     });
     useUiStore.setState({ density: "compact" } as never);
 
-    renderBoard(overBudgetColumns(), undefined, true);
+    renderBoard(pendingColumns(), undefined, true);
 
     expect(await screen.findByRole("link", { name: "Anna Kowalska" })).toBeTruthy();
     const checkbox = screen.getByRole("checkbox", { name: "Zaznacz Anna Kowalska" });
@@ -288,17 +396,17 @@ describe("KanbanBoardV2 — karta ponad budżetem (bramka „Pending” wyłącz
 });
 
 /**
- * Bramka ruchu doku = lustro `POST /api/pipeline/move` (wspólna funkcja
- * `moveBlockedReason`) oraz odświeżenie zapytania strony po ruchu. Do 09.2026
- * dok trzymał własną kopię reguł (weto blokowało „Zweryfikowany", „Pending"
- * nie blokował niczego), a udany ruch nie unieważniał `["kanban", id]`, więc
- * KPI i kolejki kroków 05–08 pokazywały stan sprzed ruchu.
+ * Ruch z doku = `moveBlockedReason` (od 17.09.2026 blokuje wyłącznie brak
+ * prawa zapisu) + ostrzeżenia serwera. Weto HM, czarna lista, NDA i konkurent
+ * kończą się 409 `ELIGIBILITY_WARNING`, a tablica pyta „Przenieś mimo to"
+ * i powtarza TEN SAM ruch z `acknowledge_eligibility: true`.
  */
-describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
+describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     post.mockResolvedValue({ data: {} });
+    move.mockResolvedValue({ data: {} });
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,
     });
@@ -365,28 +473,50 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     return heading.parentElement as HTMLElement;
   }
 
-  it("weto HM blokuje w doku „CV Wysłane”, ale NIE „Zweryfikowany” — jak serwer", async () => {
-    renderBoard(
-      gateColumns({
-        hm_veto: {
-          hiring_manager_contact_id: 5,
-          source_job_id: 2,
-          rejected_at: "2026-01-01",
-          rejection_reason_name: "Brak bankowości",
+  const VETO = {
+    hm_veto: {
+      hiring_manager_contact_id: 5,
+      source_job_id: 2,
+      rejected_at: "2026-01-01",
+      rejection_reason_name: "Brak bankowości",
+    },
+  };
+
+  function moveCalls() {
+    return post.mock.calls.filter((c) => c[0] === "/api/pipeline/move");
+  }
+
+  function eligibilityWarning409() {
+    return {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "ELIGIBILITY_WARNING",
+            reason_code: "hm_veto",
+            reason: "Hiring manager odrzucił już tego kandydata — Brak bankowości.",
+            message: "Hiring manager odrzucił już tego kandydata — Brak bankowości.",
+            can_acknowledge: true,
+          },
         },
-      }),
-    );
+      },
+    };
+  }
+
+  it("weto HM NIE wyszarza w doku „CV Wysłane” ani żadnego innego etapu", async () => {
+    renderBoard(gateColumns(VETO));
     const pills = await openDockPills();
 
-    expect(within(pills).getByRole("button", { name: "Zweryfikowany" })).not.toBeDisabled();
-    const cvSent = within(pills).getByRole("button", { name: "CV Wysłane" });
-    expect(cvSent).toBeDisabled();
-    expect(cvSent.getAttribute("title")).toContain("Brak bankowości");
-    expect(within(pills).getByRole("button", { name: "Odrzucony" })).not.toBeDisabled();
+    for (const name of ["Zweryfikowany", "CV Wysłane", "Odrzucony"]) {
+      const pill = within(pills).getByRole("button", { name });
+      expect(pill).not.toBeDisabled();
+      expect(pill.getAttribute("title")).toBeNull();
+    }
+    expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).not.toBeDisabled();
   });
 
-  /** Fragment „Default B2B": między „Wysłać do Cpro" a „Interview Klient"
-   *  stoją „CV Wysłane" (weto blokuje) i „Preparation Meeting" (nie blokuje). */
+  /** Fragment „Default B2B": po „Wysłać do Cpro" stoją „CV Wysłane",
+   *  „Preparation Meeting" i „Interview Klient". */
   function vetoRouteColumns(extra: Record<string, unknown>) {
     return [
       {
@@ -404,6 +534,7 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
             stage: "new",
             days_in_stage: 1,
             verification_status: "active",
+            process_state_version: 3,
             ...extra,
           },
         ],
@@ -423,27 +554,15 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     ] as never;
   }
 
-  it("weto HM na drodze naprzód: główna akcja doku nie robi objazdu na „Preparation Meeting”", async () => {
-    renderBoard(
-      vetoRouteColumns({
-        hm_veto: {
-          hiring_manager_contact_id: 5,
-          source_job_id: 2,
-          rejected_at: "2026-01-01",
-          rejection_reason_name: "Brak bankowości",
-        },
-      }),
-    );
+  it("weto HM na drodze naprzód: główna akcja doku proponuje następny etap, aktywny", async () => {
+    renderBoard(vetoRouteColumns(VETO));
     await openDockPills();
 
+    const forward = screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ });
+    expect(forward).not.toBeDisabled();
     expect(
       screen.queryByRole("button", { name: /Przenieś na etap: Preparation Meeting/ }),
     ).toBeNull();
-    const blocked = screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ });
-    expect(blocked).toBeDisabled();
-    expect(blocked.getAttribute("title")).toContain("Brak bankowości");
-    // Powód widać bez najeżdżania kursorem — pod wyszarzonym krokiem.
-    expect(blocked.parentElement?.textContent).toContain("Brak bankowości");
   });
 
   it("karta bez weta dostaje zwykłą akcję naprzód na „CV Wysłane”", async () => {
@@ -455,28 +574,77 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     ).not.toBeDisabled();
   });
 
-  it("karta ponad budżetem (także zapisana jako `pending`) nie blokuje żadnego ruchu w doku", async () => {
-    renderBoard(
-      gateColumns({ verification_status: "pending", budget_exceeded: true }),
+  it("409 ELIGIBILITY_WARNING otwiera okno z powodem, a „Przenieś mimo to” powtarza ruch z potwierdzeniem", async () => {
+    post
+      .mockRejectedValueOnce(eligibilityWarning409())
+      .mockResolvedValueOnce({ data: { id: 812, process_state_version: 4 } });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={vetoRouteColumns(VETO)} jobId={10} />
+        </TooltipProvider>
+      </QueryClientProvider>,
     );
     const pills = await openDockPills();
+    fireEvent.click(within(pills).getByRole("button", { name: "Preparation Meeting" }));
 
-    for (const name of ["Zweryfikowany", "CV Wysłane", "Odrzucony"]) {
-      expect(within(pills).getByRole("button", { name })).not.toBeDisabled();
-    }
+    const dialog = await screen.findByRole("dialog");
     expect(
-      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
-    ).not.toBeDisabled();
+      within(dialog).getByText("Ostrzeżenie przed przeniesieniem"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Hiring manager odrzucił już tego kandydata — Brak bankowości.",
+      ),
+    ).toBeInTheDocument();
+    expect(moveCalls()).toHaveLength(1);
+    expect(moveCalls()[0][1]).toMatchObject({
+      candidate_id: 71,
+      stage_def_id: 403,
+      acknowledge_eligibility: undefined,
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Przenieś mimo to" }));
+
+    await waitFor(() => expect(moveCalls()).toHaveLength(2));
+    expect(moveCalls()[1][1]).toMatchObject({
+      candidate_id: 71,
+      job_id: 10,
+      stage: "new",
+      stage_def_id: 403,
+      acknowledge_eligibility: true,
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Ostrzeżenie przed przeniesieniem")).toBeNull(),
+    );
+    // Udany ruch odświeża zapytanie strony pod oboma kluczami.
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "10"] }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 10] });
   });
 
-  it("ruch zbiorczy pomija kartę zablokowaną wetem i mówi dlaczego — bez cichego powrotu", async () => {
-    const veto = {
-      hiring_manager_contact_id: 5,
-      source_job_id: 2,
-      rejected_at: "2026-01-01",
-      rejection_reason_name: "Brak doświadczenia w bankowości",
-    };
-    renderBoard(gateColumns({ hm_veto: veto }));
+  it("„Anuluj” w oknie ostrzeżenia nie wysyła drugiego ruchu i dociąga prawdę serwera", async () => {
+    post.mockRejectedValueOnce(eligibilityWarning409());
+    renderBoard(vetoRouteColumns(VETO));
+    const pills = await openDockPills();
+    fireEvent.click(within(pills).getByRole("button", { name: "Preparation Meeting" }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Ostrzeżenie przed przeniesieniem")).toBeNull(),
+    );
+    await waitFor(() => expect(kanban).toHaveBeenCalledWith(10));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(moveCalls()).toHaveLength(1);
+  });
+
+  it("ruch zbiorczy pomija kartę z wetem HM i mówi dlaczego — bez liczenia jej jako nieudanej", async () => {
+    renderBoard(gateColumns(VETO));
     await userEvent.click(
       await screen.findByRole("checkbox", { name: "Zaznacz Jan Bramka" }),
     );
@@ -487,19 +655,20 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     await userEvent.click(await screen.findByRole("option", { name: /CV Wysłane/ }));
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        expect.stringContaining("Brak doświadczenia w bankowości"),
-      ),
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining("Pominięto 1")),
     );
-    expect(toastError.mock.calls[0][0]).toContain("Jan Bramka");
-    expect(post).not.toHaveBeenCalled();
+    const message = toastError.mock.calls[0][0] as string;
+    expect(message).toContain("Jan Bramka");
+    expect(message).toContain("Brak bankowości");
+    expect(message).not.toMatch(/Nie udało się przenieść/);
+    expect(moveCalls()).toHaveLength(0);
   });
 
   it("„CV Wysłane” bez prawa zapisu stawki do klienta przenosi kartę bez pytania o stawkę", async () => {
-    apiGet.mockImplementation(() =>
+    get.mockImplementation(() =>
       Promise.resolve({
         data: {
-          salary_max: null,
+          effective_budget_hourly: null,
           pipeline_template_id: null,
           can_write_client_rate: false,
         },
@@ -519,10 +688,10 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
   });
 
   it("„CV Wysłane” z prawem zapisu stawki do klienta najpierw pyta o stawkę", async () => {
-    apiGet.mockImplementation(() =>
+    get.mockImplementation(() =>
       Promise.resolve({
         data: {
-          salary_max: null,
+          effective_budget_hourly: null,
           pipeline_template_id: null,
           can_write_client_rate: true,
         },
@@ -530,13 +699,36 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     );
     renderBoard(gateColumns({}));
     // Odpowiedź `GET /api/jobs/{id}` musi dojść, zanim klikniemy.
-    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    await waitFor(() => expect(get).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
     const pills = await openDockPills();
     await userEvent.click(within(pills).getByRole("button", { name: "CV Wysłane" }));
 
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    expect(post).not.toHaveBeenCalled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("okno „Zweryfikowany” podpowiada stawkę z profilu, a „Pomiń stawkę” przesuwa bez stawki", async () => {
+    renderBoard(gateColumns({ candidate_expected_rate_hourly: "120.00" }));
+    const pills = await openDockPills();
+    fireEvent.click(within(pills).getByRole("button", { name: "Zweryfikowany" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("Kwota")).toHaveValue(120);
+    expect(within(dialog).getByRole("button", { name: "Przesuń" })).not.toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Pomiń stawkę" }));
+
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
+    const body = move.mock.calls[0][0] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      candidate_id: 61,
+      job_id: 10,
+      stage: "verified",
+      stage_def_id: 302,
+    });
+    expect(body).not.toHaveProperty("expected_rate_value");
+    expect(body).not.toHaveProperty("expected_rate_unit");
   });
 });
 

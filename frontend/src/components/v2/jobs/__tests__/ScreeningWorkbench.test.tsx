@@ -3,7 +3,8 @@
  * C2", PR 6/7).
  *
  * Zakres: kolejka (kto się w niej znajduje i co ją opisuje), stany widoku
- * (awaria ≠ pustka), bramka ruchu „Zweryfikowany" widoczna z powodem oraz to,
+ * (awaria ≠ pustka), ruch na „Zweryfikowany" bez twardych bramek (stawka
+ * opcjonalna od 17.09.2026, ostrzeżenia serwera z „Przenieś mimo to") oraz to,
  * że ruch idzie DOKŁADNIE tym samym `POST /api/pipeline/move` z
  * `expected_rate_*`, którym przenosi karty tablica.
  */
@@ -102,7 +103,7 @@ function renderWorkbench(
     <QueryClientProvider client={client}>
       <ScreeningWorkbench
         jobId={7}
-        jobBudgetMax={20000}
+        jobBudgetHourly={100}
         columns={columns([item(), item({ id: 12, candidate_id: 112, name: "Marcin", lastname: "Jóźwiak", days_in_stage: 8 })])}
         isLoading={false}
         isError={false}
@@ -194,23 +195,32 @@ describe("ScreeningWorkbench", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it("bez stawki ruch jest zablokowany z powodem, nie 422 po kliknięciu", async () => {
-    renderWorkbench();
+  it("bez stawki ruch NIE jest zablokowany — przesuwa bez `expected_rate_*`", async () => {
+    const { onMoved } = renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
     const button = await screen.findByRole("button", {
       name: /Zweryfikowany — zapisz stawkę i przenieś/,
     });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute(
-      "title",
-      expect.stringContaining("Podaj stawkę oczekiwaną"),
-    );
-    expect(move).not.toHaveBeenCalled();
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(button.getAttribute("title")).toBeNull();
+
+    await userEvent.click(button);
+
+    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    const body = move.mock.calls[0][0] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      candidate_id: 111,
+      job_id: 7,
+      stage: "verified",
+      stage_def_id: 4,
+    });
+    expect(body).not.toHaveProperty("expected_rate_value");
+    expect(body).not.toHaveProperty("expected_rate_unit");
+    expect(body).not.toHaveProperty("expected_rate_currency");
+    await waitFor(() => expect(onMoved).toHaveBeenCalled());
   });
 
-  it("weto hiring managera NIE blokuje „Zweryfikowany” — serwer egzekwuje je dopiero przed klientem", async () => {
-    // `puts_candidate_before_client` pilnuje weta wyłącznie na „CV Wysłane"
-    // i „Interview Klient". Do 09.2026 ten przycisk był przy wecie martwy,
-    // choć `POST /pipeline/move` na `verified` przechodził.
+  it("weto hiring managera NIE blokuje „Zweryfikowany” — to ostrzeżenie serwera, nie bramka", async () => {
     renderWorkbench({
       columns: columns([
         item({
@@ -232,18 +242,72 @@ describe("ScreeningWorkbench", () => {
     expect(button.getAttribute("title") ?? "").not.toContain("Brak bankowości");
   });
 
-  it("karta ponad budżetem (także zapisana jako `pending`) NIE blokuje ruchu ani odrzucenia — bramka wyłączona", async () => {
-    const pending = item({
+  it("409 ELIGIBILITY_WARNING otwiera okno z powodem, a „Przenieś mimo to” powtarza ruch z potwierdzeniem", async () => {
+    move
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "ELIGIBILITY_WARNING",
+              reason_code: "blacklist",
+              reason: "Kandydat jest na czarnej liście klienta.",
+              message: "Kandydat jest na czarnej liście klienta.",
+              can_acknowledge: true,
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: { id: 99, verification_status: "active" } });
+    const { onMoved } = renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    const button = screen.getByRole("button", {
+      name: /Zweryfikowany — zapisz stawkę i przenieś/,
+    });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await userEvent.click(button);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText("Ostrzeżenie przed przeniesieniem"),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText("Kandydat jest na czarnej liście klienta."),
+    ).toBeTruthy();
+    expect(move).toHaveBeenCalledOnce();
+    expect(move.mock.calls[0][0]).toMatchObject({ acknowledge_eligibility: undefined });
+    expect(showError).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Przenieś mimo to" }),
+    );
+
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(2));
+    expect(move.mock.calls[1][0]).toMatchObject({
+      candidate_id: 111,
+      job_id: 7,
+      stage: "verified",
+      stage_def_id: 4,
+      acknowledge_eligibility: true,
+    });
+    await waitFor(() => expect(onMoved).toHaveBeenCalled());
+  });
+
+  it("karta ponad AKTUALNYM budżetem PLN/h (także zapisana jako `pending`) NIE blokuje ruchu ani odrzucenia", async () => {
+    const over = item({
       id: 41,
       candidate_id: 141,
       stage: "verified",
       name: "Anna",
       lastname: "Ponadbudzet",
       verification_status: "pending",
-      budget_exceeded: true,
+      // 150 PLN/h > budżet 100 PLN/h z `renderWorkbench`.
+      expected_rate_value: 150,
+      expected_rate_unit: "hourly",
+      expected_rate_currency: "PLN",
     });
     const cols = columns([item()]);
-    cols[1] = { ...cols[1], count: 1, items: [pending] };
+    cols[1] = { ...cols[1], count: 1, items: [over] };
     cols.push({
       stage: "rejected",
       name: "Odrzucony",
@@ -261,13 +325,14 @@ describe("ScreeningWorkbench", () => {
     await screen.findByRole("heading", { name: /Screening · Anna Ponadbudzet/ });
     expect(screen.getAllByText("Ponad budżet").length).toBeGreaterThan(0);
 
-    await userEvent.type(screen.getByLabelText("Kwota"), "118");
-    const move = screen.getByRole("button", {
+    await userEvent.type(screen.getByLabelText("Kwota"), "80");
+    const moveButton = screen.getByRole("button", {
       name: /Zweryfikowany — zapisz stawkę i przenieś/,
     });
-    await waitFor(() => expect(move).not.toBeDisabled());
-    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
-    expect(reject).not.toBeDisabled();
+    await waitFor(() => expect(moveButton).not.toBeDisabled());
+    expect(
+      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
+    ).not.toBeDisabled();
   });
 
   it("tryb tylko do odczytu chowa zapis screeningu i ruch", async () => {
@@ -283,7 +348,7 @@ describe("ScreeningWorkbench", () => {
     ).toBeNull();
   });
 
-  it("wpisana stawka odblokowuje ruch i idzie tym samym endpointem co drag&drop", async () => {
+  it("wpisana stawka idzie tym samym endpointem co drag&drop", async () => {
     const { onMoved } = renderWorkbench();
     await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
 
@@ -296,7 +361,7 @@ describe("ScreeningWorkbench", () => {
     await userEvent.click(button);
 
     await waitFor(() => expect(move).toHaveBeenCalledOnce());
-    expect(move).toHaveBeenCalledWith({
+    expect(move.mock.calls[0][0]).toMatchObject({
       candidate_id: 111,
       job_id: 7,
       stage: "verified",
@@ -308,13 +373,20 @@ describe("ScreeningWorkbench", () => {
     await waitFor(() => expect(onMoved).toHaveBeenCalled());
   });
 
-  it("stawka ponad budżet zapowiada odznakę informacyjną ZANIM ktoś kliknie — bez akceptacji", async () => {
+  it("stawka ponad budżet ostrzega „ponad budżet”, ale nie zapowiada akceptacji", async () => {
     renderWorkbench();
     await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
-    // 130 × 168 = 21 840 > 20 000 — surowe porównanie mówiłoby „mieści się".
+    // Budżet godzinowy 100 PLN/h — 130 PLN/h jest ponad.
     await userEvent.type(screen.getByLabelText("Kwota"), "130");
-    expect(await screen.findByText(/powyżej budżetu 20 000 PLN\/mc/)).toBeTruthy();
+    const message = await screen.findByText(/powyżej budżetu/);
+    expect(message.textContent).toContain("ponad budżet");
+    expect(message.textContent ?? "").not.toMatch(/akceptac/i);
     expect(screen.queryByText(/Pending/)).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: /Zweryfikowany — zapisz stawkę i przenieś/,
+      }),
+    ).not.toBeDisabled();
   });
 
   it("linkuje prep-kit, który dotąd nie miał żadnego wejścia w aplikacji", async () => {
@@ -329,6 +401,36 @@ describe("ScreeningWorkbench", () => {
     expect(await screen.findByText("3")).toBeTruthy();
   });
 
+  it("lewa kolumna ma osobno „Ponad budżet” i „Z ostrzeżeniem” (weto HM)", async () => {
+    const veto = item({
+      id: 51,
+      candidate_id: 151,
+      stage: "cv_sent",
+      name: "Piotr",
+      lastname: "Weto",
+      hm_veto: {
+        hiring_manager_contact_id: 5,
+        source_job_id: 2,
+        rejected_at: "2026-01-01",
+        rejection_reason_name: "Brak bankowości",
+      },
+    });
+    const cols = columns([item()]);
+    cols[1] = { ...cols[1], count: 1, items: [veto] };
+    renderWorkbench({ columns: cols });
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+
+    expect(screen.getByText("Ponad budżet")).toBeTruthy();
+    expect(screen.getByText("Nikt nie jest ponad budżetem.")).toBeTruthy();
+    expect(screen.getByText("Z ostrzeżeniem")).toBeTruthy();
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Piotr Weto/ })[0],
+    );
+    expect(
+      await screen.findByRole("heading", { name: /Screening · Piotr Weto/ }),
+    ).toBeTruthy();
+  });
+
   it("klik w kartę ponad budżetem otwiera JEJ arkusz, zamiast gasić stanowisko", async () => {
     const pending = item({
       id: 41,
@@ -336,7 +438,9 @@ describe("ScreeningWorkbench", () => {
       stage: "verified",
       name: "Anna",
       lastname: "Ponadbudzet",
-      budget_exceeded: true,
+      expected_rate_value: 150,
+      expected_rate_unit: "hourly",
+      expected_rate_currency: "PLN",
     });
     const cols = columns([item()]);
     cols[1] = { ...cols[1], count: 1, items: [pending] };

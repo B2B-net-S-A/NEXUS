@@ -746,3 +746,199 @@ async def test_reorder_requires_full_unique_permutation(
         headers=app_auth_headers,
     )
     assert r.status_code == 204, r.text
+
+
+async def test_hired_move_survives_contract_draft_conflict(
+    app_client: AsyncClient, app_auth_headers
+):
+    """Dwa żywe kontrakty pary → serwis szkicu odmawia 409. Zatrudnienie zostaje,
+    kontraktów nadal dwa, jest `Activity(contract_draft_skipped)`."""
+    from sqlalchemy import func, select
+
+    from app.models.activity import Activity
+    from app.models.contract import Contract, ContractStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    cand, (job, client_id) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "acceptance")
+    async with AsyncSessionLocal() as db:
+        for _ in range(2):
+            db.add(
+                Contract(
+                    candidate_id=cand,
+                    client_id=client_id,
+                    job_id=job,
+                    status=ContractStatus.draft,
+                )
+            )
+        await db.commit()
+
+    r = await app_client.post(
+        MOVE,
+        json={"candidate_id": cand, "job_id": job, "stage": "hired"},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    stage_id = r.json()["id"]
+
+    async with AsyncSessionLocal() as db:
+        latest = await db.scalar(
+            select(CandidateStage)
+            .where(CandidateStage.candidate_id == cand, CandidateStage.job_id == job)
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        assert latest is not None and latest.stage == PipelineStage.hired
+        contracts = await db.scalar(
+            select(func.count())
+            .select_from(Contract)
+            .where(Contract.candidate_id == cand, Contract.client_id == client_id)
+        )
+        assert contracts == 2
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == stage_id,
+                Activity.action == "contract_draft_skipped",
+            )
+        )
+        assert skipped is not None
+        assert "więcej niż jeden" in skipped.details["reason"]
+
+
+async def test_hourly_rate_over_monthly_budget_stays_active(
+    app_client: AsyncClient, app_auth_headers
+):
+    """150 PLN/h ×168 = 25 200 > 25 000 — do 17.09.2026 `pending`, dziś `active`;
+    snapshot budżetu zostaje dla audytu."""
+    cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "verified",
+            "expected_rate_value": 150,
+            "expected_rate_unit": "hourly",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["verification_status"] == "active"
+    assert r.json()["budget_max_at_move"] == 25000
+
+
+async def test_foreign_currency_rate_stays_active(
+    app_client: AsyncClient, app_auth_headers
+):
+    """EUR nie jest porównywane z budżetem — ale też niczego nie blokuje."""
+    cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "verified",
+            "expected_rate_value": 10,
+            "expected_rate_unit": "hourly",
+            "expected_rate_currency": "EUR",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["verification_status"] == "active"
+
+
+async def test_kanban_carries_sheet_badges_and_profile_rate(
+    app_client: AsyncClient, app_auth_headers
+):
+    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import CandidateStage
+
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    empty_sheet_cand = await _seed_candidate()
+    stage_id = await _seed_stage(cand, job, "verified")
+    empty_stage_id = await _seed_stage(empty_sheet_cand, job, "verified")
+    async with AsyncSessionLocal() as db:
+        c = await db.get(Candidate, cand)
+        c.expected_rate_hourly = Decimal("120")
+        filled = await db.get(CandidateStage, stage_id)
+        filled.screening_answers = {
+            "answers": [{"question_id": "q1", "response": "ok"}]
+        }
+        empty = await db.get(CandidateStage, empty_stage_id)
+        # Domyślny kształt `ScreeningAnswers` — pusta lista to NIE wypełniony arkusz.
+        empty.screening_answers = {
+            "answers": [],
+            "overall_fit": "uncertain",
+            "notes": "",
+        }
+        await db.commit()
+
+    r = await app_client.get(f"/api/pipeline/kanban/{job}", headers=app_auth_headers)
+    assert r.status_code == 200, r.text
+    items = {
+        item["candidate_id"]: item
+        for col in r.json()["columns"]
+        for item in col["items"]
+    }
+    assert items[cand]["screening_done"] is True
+    assert items[cand]["scorecard_done"] is False
+    assert Decimal(str(items[cand]["candidate_expected_rate_hourly"])) == Decimal("120")
+    assert items[empty_sheet_cand]["screening_done"] is False
+
+
+async def test_move_from_legacy_pending_row_is_allowed(
+    app_client: AsyncClient, app_auth_headers
+):
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "verified", verification_status="pending")
+    r = await app_client.post(
+        MOVE,
+        json={"candidate_id": cand, "job_id": job, "stage": "interview"},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Bez `send_rejection_email=True` serwer nie planuje maila; z `True` — tak."""
+    from unittest.mock import AsyncMock
+
+    import app.services.rejection_email_scheduler as scheduler
+
+    schedule = AsyncMock(return_value=None)
+    monkeypatch.setattr(scheduler, "maybe_schedule", schedule)
+
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    schedule.assert_not_awaited()
+
+    cand2, (job2, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand2, job2, "cv_sent")
+    r2 = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand2,
+            "job_id": job2,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+        },
+        headers=app_auth_headers,
+    )
+    assert r2.status_code == 200, r2.text
+    schedule.assert_awaited_once()

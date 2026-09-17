@@ -1851,7 +1851,12 @@ async def confirm_generated_contract_fully_signed(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    """One-way, audited manual confirmation with atomic employment automation."""
+    """One-way, audited manual confirmation with atomic employment automation.
+
+    Wiąże kontrakt i zapewnia zamówienie. Od 17.09.2026 NIE przesuwa kandydata
+    na „Zatrudniony" — umowę podpisujemy offline, etap zmienia człowiek na
+    tablicy pipeline'u.
+    """
 
     _require_signature_confirmation(current_user)
     try:
@@ -2004,7 +2009,9 @@ async def confirm_generated_contract_fully_signed(
             signing_date=row.signing_date,
             language=row.language,
             ensure_order=True,
-            ensure_hired=True,
+            # 17.09.2026: podpis NIE przesuwa kandydata na „Zatrudniony" —
+            # etap zmienia człowiek na tablicy (decyzja „bez bramek").
+            ensure_hired=False,
             audit_source_generated_id=row.id,
             keep_existing_terms=payload.keep_existing_contract_terms,
         )
