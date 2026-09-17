@@ -67,6 +67,10 @@ function renderView(props: { syncUrl?: boolean } = {}) {
 
 describe("CandidateSearchView — stan wyszukiwania w URL (UAT B29)", () => {
   beforeEach(() => {
+    // Od vitest 4 `vi.spyOn` na już podsłuchiwanej metodzie zwraca TEN SAM
+    // szpieg — bez przywrócenia oryginału reset adresu poniżej liczyłby się
+    // jako wywołanie `replaceState` w kolejnym teście.
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     search.mockResolvedValue(EMPTY);
     window.history.replaceState(null, "", "/candidates/search");

@@ -104,6 +104,7 @@ function CVBrandedEditContent({
  });
 
  const editor = useEditor({
+ immediatelyRender: false,
  extensions: [StarterKit, CvEditorSection],
  content: "",
  editorProps: {
@@ -147,7 +148,7 @@ function CVBrandedEditContent({
    sessionRef.current = session;
    loadedStage.current = stageId;
    setSaveState(session.state);
-   editor?.commands.setContent(session.html, false);
+   editor?.commands.setContent(session.html, { emitUpdate: false });
    queryClient.setQueryData([scopeKey, stageId], state);
  };
 
