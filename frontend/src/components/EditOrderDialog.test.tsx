@@ -8,11 +8,16 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 
 import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ToastProvider } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import type { ClientOrderRead, OrderType } from "@/lib/api/dlPortal";
+import type {
+  ClientOrderRead,
+  CreateDraftOrder,
+  OrderType,
+} from "@/lib/api/dlPortal";
 import type { LegacyClientOrderType } from "@/lib/client-order-list";
 
 vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
@@ -50,7 +55,7 @@ function renderDialog({
   order = null,
   suggestedOrderType = "periodic",
   legacyNullOrderType = "periodic",
-  onCreate = vi.fn(),
+  onCreate = vi.fn<CreateDraftOrder>(),
   rateCandidate = null,
   contractRateUnit = "monthly",
   contractRateClientCurrency = "PLN",
@@ -60,7 +65,7 @@ function renderDialog({
   order?: ClientOrderRead | null;
   suggestedOrderType?: OrderType;
   legacyNullOrderType?: LegacyClientOrderType;
-  onCreate?: ReturnType<typeof vi.fn>;
+  onCreate?: Mock<CreateDraftOrder>;
   rateCandidate?: number | null;
   contractRateUnit?: "hourly" | "daily" | "monthly";
   contractRateClientCurrency?: string | null;
@@ -348,7 +353,7 @@ describe("EditOrderDialog — jednostka i waluta zamówienia", () => {
 describe("EditOrderDialog — jawny typ nowego draftu", () => {
   it("podpowiada typ z historii i jednym kliknięciem przełącza pola", async () => {
     const user = userEvent.setup();
-    const onCreate = vi.fn().mockResolvedValue(77);
+    const onCreate = vi.fn<CreateDraftOrder>().mockResolvedValue(77);
     renderDialog({ suggestedOrderType: "cost", onCreate });
 
     expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(

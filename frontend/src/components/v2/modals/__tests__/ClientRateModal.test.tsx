@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Mock } from "vitest";
+import type { ComponentProps } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 import { ClientRateModal } from "../ClientRateModal";
 
-function renderModal(overrides: { onConfirm?: ReturnType<typeof vi.fn>; onSkip?: ReturnType<typeof vi.fn> } = {}) {
-  const onConfirm = overrides.onConfirm ?? vi.fn();
-  const onSkip = overrides.onSkip ?? vi.fn();
+type ModalProps = ComponentProps<typeof ClientRateModal>;
+
+function renderModal(
+  overrides: {
+    onConfirm?: Mock<ModalProps["onConfirm"]>;
+    onSkip?: Mock<ModalProps["onSkip"]>;
+  } = {},
+) {
+  const onConfirm = overrides.onConfirm ?? vi.fn<ModalProps["onConfirm"]>();
+  const onSkip = overrides.onSkip ?? vi.fn<ModalProps["onSkip"]>();
   render(
     <ClientRateModal
       open

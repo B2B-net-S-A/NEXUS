@@ -28,11 +28,16 @@ export default defineConfig({
       // wzrośnie, podbij progi w tym samym PR; obniżenie wymaga uzasadnienia.
       // Zmierzone 15.09.2026 (pełny przebieg, gałąź planu poprawy QA):
       // linie/instrukcje 53,48%, gałęzie 78,05%, funkcje 54,97%.
+      // Przebazowane 17.09.2026 przy vitest 5: provider v8 od vitest 4 mapuje
+      // pokrycie z AST (zamiast v8-to-istanbul), więc liczy gałęzie i funkcje
+      // inaczej — to zmiana MIARY, nie spadek pokrycia (te same testy, 3742
+      // zielone). Zmierzone tym samym zestawem testów: linie 50,59%,
+      // instrukcje 49,57%, gałęzie 49,30%, funkcje 40,30%.
       thresholds: {
-        lines: 53,
-        statements: 53,
-        branches: 77.5,
-        functions: 54,
+        lines: 50,
+        statements: 49,
+        branches: 49,
+        functions: 40,
       },
     },
   },
