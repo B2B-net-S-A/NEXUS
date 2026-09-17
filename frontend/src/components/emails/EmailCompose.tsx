@@ -67,6 +67,7 @@ export default function EmailCompose(props: EmailComposeProps) {
   );
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [StarterKit],
     content: "",
     editorProps: {
@@ -96,7 +97,7 @@ export default function EmailCompose(props: EmailComposeProps) {
     },
     onSuccess: ({ template, data }) => {
       if (data.rendered_subject) setSubject(data.rendered_subject);
-      if (editor) editor.commands.setContent(data.rendered_body_html || "");
+      if (editor) editor.commands.setContent(data.rendered_body_html || "", { emitUpdate: false });
       setTemplateNotice({
         kind: "success",
         templateName: template.name,

@@ -228,6 +228,7 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
   );
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [StarterKit],
     content: draft.body_html,
     editorProps: {
@@ -245,7 +246,7 @@ function TemplateEditor({ initial, onClose, onSaved, onError }: EditorProps) {
   useEffect(() => {
     if (!editor) return;
     const next = initial?.body_html ?? "";
-    if (editor.getHTML() !== next) editor.commands.setContent(next);
+    if (editor.getHTML() !== next) editor.commands.setContent(next, { emitUpdate: false });
   }, [editor, initial]);
 
   const saveMutation = useMutation({
