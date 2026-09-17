@@ -166,40 +166,42 @@ def test_cc_bare_string_is_one_category_not_a_bag_of_letters():
 # ── _conflict_decision ───────────────────────────────────────────────────────
 
 
-def test_conflict_decision_blacklist_drops():
+@pytest.mark.parametrize(
+    "ctype, expected",
+    [
+        (ConflictType.blacklist, "konflikt z klientem: czarna lista"),
+        (ConflictType.nda, "konflikt z klientem: NDA"),
+        (ConflictType.competitor, "konflikt z klientem: klient konkurencyjny"),
+    ],
+)
+def test_conflict_decision_client_conflict_warns_and_is_not_suppressible(
+    ctype, expected
+):
+    """17.09.2026: a client conflict keeps the job with a non-suppressible warning."""
     j = make_job(client_id=10)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.blacklist})
-    assert keep is False and warn is None
-
-
-def test_conflict_decision_competitor_drops():
-    j = make_job(client_id=10)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.competitor})
-    assert keep is False and warn is None
-
-
-def test_conflict_decision_nda_drops():
-    j = make_job(client_id=10)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.nda})
-    assert keep is False and warn is None
+    verdict = rf._conflict_decision(j, {10: ctype})
+    assert verdict.keep is True
+    assert verdict.warning == expected
+    assert verdict.suppressible is False
 
 
 def test_conflict_decision_current_employment_soft_warns():
     j = make_job(client_id=10)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.current_employment})
-    assert keep is True
-    assert warn == "obecnie u tego klienta"
+    verdict = rf._conflict_decision(j, {10: ConflictType.current_employment})
+    assert verdict.keep is True
+    assert verdict.warning == "obecnie u tego klienta"
+    assert verdict.suppressible is True
 
 
 def test_conflict_decision_unrelated_client_passes():
     j = make_job(client_id=99)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.blacklist})
+    keep, warn, _ = rf._conflict_decision(j, {10: ConflictType.blacklist})
     assert keep is True and warn is None
 
 
 def test_conflict_decision_no_client_id_passes():
     j = make_job(client_id=None)
-    keep, warn = rf._conflict_decision(j, {10: ConflictType.blacklist})
+    keep, warn, _ = rf._conflict_decision(j, {10: ConflictType.blacklist})
     assert keep is True and warn is None
 
 
@@ -327,7 +329,7 @@ async def _seed_candidate_client_conflict(
 
 @pytest.mark.asyncio
 async def test_apply_user_filters_industry_blocklist_via_conflict():
-    """blacklist conflict on client → job dropped."""
+    """blacklist conflict on client → job KEPT with a warning (17.09.2026)."""
     from app.models.candidate import Candidate
 
     cand_id, client_id = await _seed_candidate_client_conflict(
@@ -346,8 +348,12 @@ async def test_apply_user_filters_industry_blocklist_via_conflict():
                 rf.RecommendationFilters(industry_blocklist=True),
                 db,
             )
-            assert [k.job.id for k in kept] == [2]
-            assert stats.dropped_blocklist == 1
+            assert [k.job.id for k in kept] == [1, 2]
+            by_id = {k.job.id: k for k in kept}
+            assert by_id[1].warning == "konflikt z klientem: czarna lista"
+            assert by_id[2].warning is None
+            assert stats.dropped_blocklist == 0
+            assert stats.soft_warned == 1
     finally:
         await _cleanup_seed(candidate_id=cand_id, client_id=client_id)
 
@@ -397,7 +403,110 @@ async def test_apply_user_filters_expired_conflict_ignored():
                 rf.RecommendationFilters(industry_blocklist=True),
                 db,
             )
-            # Expired conflict ⇒ no block
+            # Expired conflict ⇒ no warning at all
             assert [k.job.id for k in kept] == [1]
+            assert kept[0].warning is None
+    finally:
+        await _cleanup_seed(candidate_id=cand_id, client_id=client_id)
+
+
+@pytest.mark.asyncio
+async def test_apply_user_filters_nda_warning_survives_flag_off():
+    """M2-SEC-03: the checkbox can never hide a compliance warning."""
+    from app.models.candidate import Candidate
+
+    cand_id, client_id = await _seed_candidate_client_conflict(
+        conflict_type=ConflictType.nda
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            cand = await db.get(Candidate, cand_id)
+            kept, stats = await rf.apply_user_filters(
+                cand,
+                [make_job(id=1, client_id=client_id)],
+                rf.RecommendationFilters(industry_blocklist=False),
+                db,
+            )
+            assert len(kept) == 1
+            assert kept[0].warning == "konflikt z klientem: NDA"
+            assert stats.dropped_blocklist == 0
+    finally:
+        await _cleanup_seed(candidate_id=cand_id, client_id=client_id)
+
+
+@pytest.mark.asyncio
+async def test_apply_user_filters_current_employment_suppressed_by_flag_off():
+    from app.models.candidate import Candidate
+
+    cand_id, client_id = await _seed_candidate_client_conflict(
+        conflict_type=ConflictType.current_employment
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            cand = await db.get(Candidate, cand_id)
+            kept, stats = await rf.apply_user_filters(
+                cand,
+                [make_job(id=1, client_id=client_id)],
+                rf.RecommendationFilters(industry_blocklist=False),
+                db,
+            )
+            assert len(kept) == 1
+            assert kept[0].warning is None
+            assert stats.soft_warned == 0
+    finally:
+        await _cleanup_seed(candidate_id=cand_id, client_id=client_id)
+
+
+async def _add_conflict(
+    candidate_id: int,
+    client_id: int,
+    ctype: ConflictType,
+    expires_at: datetime | None = None,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateConflict(
+                candidate_id=candidate_id,
+                client_id=client_id,
+                type=ctype,
+                active=True,
+                expires_at=expires_at,
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_load_active_conflicts_bulk_picks_the_dominant_type():
+    """Several active types per (candidate, client) → the most serious wins."""
+    cand_id, client_id = await _seed_candidate_client_conflict(
+        conflict_type=ConflictType.current_employment
+    )
+    try:
+        await _add_conflict(cand_id, client_id, ConflictType.competitor)
+        await _add_conflict(cand_id, client_id, ConflictType.nda)
+        async with AsyncSessionLocal() as db:
+            out = await rf.load_active_conflicts_bulk(db, [cand_id])
+        assert out[cand_id] == {client_id: ConflictType.nda}
+    finally:
+        await _cleanup_seed(candidate_id=cand_id, client_id=client_id)
+
+
+@pytest.mark.asyncio
+async def test_expired_nda_does_not_mask_a_live_blacklist():
+    """An expired row of one type must not drop a live row of another type."""
+    cand_id, client_id = await _seed_candidate_client_conflict(
+        conflict_type=ConflictType.blacklist
+    )
+    try:
+        await _add_conflict(
+            cand_id,
+            client_id,
+            ConflictType.nda,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        async with AsyncSessionLocal() as db:
+            out = await rf.load_active_conflicts_bulk(db, [cand_id])
+        assert out[cand_id] == {client_id: ConflictType.blacklist}
     finally:
         await _cleanup_seed(candidate_id=cand_id, client_id=client_id)

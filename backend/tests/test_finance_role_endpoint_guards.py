@@ -33,6 +33,7 @@ from app.api import (
     calendar_access,
     candidate_access,
     candidate_chat,
+    candidate_conflicts,
     champion_suggestions,
     client_order_groups,
     client_orders,
@@ -607,9 +608,11 @@ def test_candidate_finance_read_is_split_from_candidate_finance_write():
         _current_user_annotation(phase5.list_rate_history)
         == candidate_access.CandidateFinanceReadAccess
     )
+    # 17.09.2026: konflikty kandydat↔klient to dane o dopuszczalności, nie
+    # finansowe — odczyt za bramką kandydacką (DL z finance=none dostawał 403).
     assert (
-        _current_user_annotation(phase5.list_conflicts)
-        == candidate_access.CandidateFinanceReadAccess
+        _current_user_annotation(candidate_conflicts.list_conflicts)
+        == candidate_access.CandidateSearchAccess
     )
     assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
 

@@ -125,6 +125,10 @@ async def _keep_assignable(
     To NIE jest dług zastany: rozjazd powstaje w chwili, w której bramka wchodzi
     do endpointu, więc poprawka musi jechać razem z nią.
 
+    Bramka wycina tylko twardo zablokowanych — globalną czarną listę i weto
+    hiring managera. Konflikty z klientem (blacklist / NDA / konkurent) są od
+    17.09.2026 ostrzeżeniem: zakładka ich pokazuje, więc dzwonek je liczy.
+
     Kandydat, którego wiersz w `candidates` zniknął, wypada — tak samo jak
     w zakładce (`if c is None: continue`). Milczenie o kimś, kogo ekran i tak
     nie pokaże, jest tu poprawną odpowiedzią.

@@ -49,6 +49,28 @@ describe("ScoreBreakdownTooltip", () => {
     expect(screen.getByText(/blacklisted/)).toBeInTheDocument();
   });
 
+  it("shows client-conflict warnings without zeroing the score", () => {
+    const withWarning: ScoreBreakdown = {
+      ...FIXTURE,
+      warnings: ["active_conflict", "client_excluded", "unknown_code"],
+    };
+    render(<ScoreBreakdownTooltip breakdown={withWarning} />);
+    fireEvent.click(screen.getByRole("button"));
+    const box = screen.getByTestId("score-breakdown-warnings");
+    expect(box).toHaveTextContent("Ostrzeżenia:");
+    expect(box).toHaveTextContent("aktywny konflikt z klientem");
+    expect(box).toHaveTextContent("kandydat wykluczył tego klienta");
+    expect(box).toHaveTextContent("unknown_code");
+    expect(screen.getByText("78.5")).toBeInTheDocument();
+    expect(screen.queryByText(/penalties/i)).not.toBeInTheDocument();
+  });
+
+  it("renders no warnings section when the breakdown has none", () => {
+    render(<ScoreBreakdownTooltip breakdown={{ ...FIXTURE, warnings: [] }} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.queryByTestId("score-breakdown-warnings")).not.toBeInTheDocument();
+  });
+
   it("shows process history separately without bonus points", () => {
     const withBoost: ScoreBreakdown = {
       ...FIXTURE,

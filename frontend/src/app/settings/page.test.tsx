@@ -190,3 +190,62 @@ describe("SettingsPage — Historia zdarzeń", () => {
     },
   );
 });
+
+describe("SettingsPage — Konflikty", () => {
+  function renderSettings() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsPage />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.get.mockImplementation(async (url: string) => ({
+      data: url.includes("transcripts") ? [] : {},
+    }));
+  });
+
+  it.each([
+    ["admin", { system_admin: "write", sourcing: "write" }],
+    ["delivery_lead", { sourcing: "read", delivery: "write" }],
+    ["head_of_recruitment", { sourcing: "write", pipeline: "write" }],
+  ])("pokazuje zakładkę roli %s", (role, access) => {
+    mocks.user = { role, roles: [role], effective_section_access: access };
+
+    renderSettings();
+
+    expect(screen.getByRole("button", { name: "Konflikty" })).toBeInTheDocument();
+  });
+
+  it.each(["recruiter", "sourcer", "tac", "finance"])(
+    "nie pokazuje zakładki roli %s",
+    (role) => {
+      mocks.user = {
+        role,
+        roles: [role],
+        effective_section_access: { sourcing: "write", pipeline: "write", finance: "write" },
+      };
+
+      renderSettings();
+
+      expect(screen.queryByRole("button", { name: "Konflikty" })).not.toBeInTheDocument();
+    },
+  );
+
+  it("nie pokazuje zakładki bez sekcji Sourcing — backend odpowiedziałby 403", () => {
+    mocks.user = {
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
+      effective_section_access: { sourcing: "none", delivery: "write" },
+    };
+
+    renderSettings();
+
+    expect(screen.queryByRole("button", { name: "Konflikty" })).not.toBeInTheDocument();
+  });
+});

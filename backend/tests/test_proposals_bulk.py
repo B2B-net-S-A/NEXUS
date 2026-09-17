@@ -72,11 +72,29 @@ class TestResponseShape:
         assert resp.skipped[1].reason == "blacklisted"
         assert resp.warnings == []  # defaults to empty
 
-    def test_new_conflict_skip_reasons_are_valid(self):
+    def test_client_conflicts_are_warnings_not_skip_reasons(self):
+        """17.09.2026: a client conflict is a warning — the candidate IS added."""
         for reason in ("client_blacklist", "client_nda", "client_competitor"):
-            row = BulkSkippedRow(candidate_id=1, reason=reason, reason_label="…")
+            row = BulkWarningRow(candidate_id=1, reason=reason, reason_label="…")
             assert row.reason == reason
             assert row.reason_label == "…"
+            with pytest.raises(ValidationError):
+                BulkSkippedRow(candidate_id=1, reason=reason)  # type: ignore[arg-type]
+
+    def test_eligibility_maps_client_conflicts_to_warnings(self):
+        from app.api.proposals_bulk import (
+            _SKIP_REASON_BY_ELIGIBILITY,
+            _WARNING_REASON_BY_ELIGIBILITY,
+        )
+        from app.services.candidate_job_eligibility import EligibilityReason
+
+        for reason in (
+            EligibilityReason.client_blacklist,
+            EligibilityReason.client_nda,
+            EligibilityReason.client_competitor,
+        ):
+            assert reason in _WARNING_REASON_BY_ELIGIBILITY
+            assert reason not in _SKIP_REASON_BY_ELIGIBILITY
 
     def test_warnings_on_added_candidates(self):
         resp = BulkProposalsResponse(

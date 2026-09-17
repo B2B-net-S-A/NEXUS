@@ -36,24 +36,18 @@ from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunit
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
-from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_priority import PriorityChannel
-from app.services.candidate_job_eligibility import (
-    ConflictInput,
-    EligibilityInput,
-    EligibilityReason,
-    evaluate_eligibility,
-    extract_excluded_client_ids,
+from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
+    partition_eligible_candidates,
 )
-from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
 )
-from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
 from app.services.embedding_service import (
     SemanticSearchUnavailable,
@@ -724,19 +718,20 @@ async def candidates_from_similar_jobs(
         cand_res = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
         cand_rows = list(cand_res.scalars().all())
 
-    # P0-A: ta sekcja jest na przeciek SZCZEGÓLNIE narażona, nie mniej.
-    # „Kandydaci z podobnych projektów" z definicji celują w ludzi, którzy BYLI
-    # już rozważani u tego klienta — a to dokładnie ta populacja, w której
-    # siedzą aktywne blacklisty klienta, NDA i weta hiring managera. Serwis
+    # P0-A: „Kandydaci z podobnych projektów" z definicji celują w ludzi, którzy
+    # BYLI już rozważani u tego klienta — a to dokładnie ta populacja, w której
+    # siedzą weta hiring managera i konflikty z klientem. Serwis
     # (`similar_job_candidates._rank_candidates_from_similar`) filtruje wyłącznie
     # blacklistę GLOBALNĄ i nie ma dostępu do `job`; endpoint ma komplet wejść
-    # bramki, więc bramka stoi tutaj.
+    # bramki, więc bramka stoi tutaj. Wycina tylko twardo zablokowanych (weto
+    # HM); konflikty z klientem (blacklist / NDA / konkurent) od 17.09.2026
+    # zostają na liście z plakietką `eligibility`.
     #
     # Licznik liczy się po ZHYDRATOWANYCH wierszach, nie po `cand_ids`: kandydat,
     # który zniknął z bazy w międzyczasie, nie jest „ukryty" — mówienie o nim
     # „zablokowany dla tego klienta" byłoby nieprawdą w drugą stronę.
     before_gate = len(cand_rows)
-    cand_rows = await filter_eligible_candidates(
+    cand_rows, eligibility_by_id = await partition_eligible_candidates(
         db, job=job, candidates=cand_rows, now=datetime.now(timezone.utc)
     )
     hidden_ineligible = before_gate - len(cand_rows)
@@ -784,6 +779,7 @@ async def candidates_from_similar_jobs(
                 current_status=c.status.value if c.status else None,
                 same_client=hc.same_client,
                 rejected_by_same_client=hc.rejected_by_same_client,
+                eligibility=eligibility_by_id.get(hc.candidate_id),
             )
         )
 
@@ -1280,56 +1276,18 @@ async def assign_candidate_to_job(
     if existing:
         return {"status": "already_in_pipeline", "count": existing}
 
-    # Eligibility gate (SEARCH-P0-04) — same policy as bulk-add. Blocks the
-    # assignment on global blacklist or an active, non-expired client conflict
-    # (blacklist/nda/competitor) for this job's client. Soft signals
-    # (current-employment, candidate-excluded) do NOT block a single assign.
-    conflict_rows = (
-        (
-            await db.execute(
-                select(CandidateConflict).where(
-                    CandidateConflict.candidate_id == candidate_id,
-                    CandidateConflict.client_id == job.client_id,
-                    CandidateConflict.active.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    # Eligibility gate (SEARCH-P0-04) — the shared pipeline gate, same policy
+    # as bulk-add / shortlist promote / move. 409 on the global blacklist or a
+    # standing hiring-manager veto (the detail names the manager and date).
+    # Client conflicts (blacklist / NDA / competitor), current employment and
+    # candidate-excluded clients are warnings since 17.09.2026 — they never
+    # block a single assign.
+    await assert_candidate_move_eligible(
+        db,
+        candidate_id=candidate_id,
+        job=job,
+        now=datetime.now(timezone.utc),
     )
-    manager_verdicts = await load_manager_rejections(
-        db, job=job, candidate_ids=[candidate_id]
-    )
-    eligibility = evaluate_eligibility(
-        EligibilityInput(
-            candidate_status=candidate.status.value,
-            job_client_id=job.client_id,
-            conflicts=tuple(
-                ConflictInput(
-                    type=r.type.value,
-                    client_id=r.client_id,
-                    active=r.active,
-                    expires_at=r.expires_at,
-                )
-                for r in conflict_rows
-            ),
-            excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
-            already_in_job=False,  # already handled by the check above
-            rejected_by_hiring_manager=candidate_id in manager_verdicts,
-        ),
-        datetime.now(timezone.utc),
-    )
-    if not eligibility.assignment_allowed:
-        detail = eligibility.reason
-        verdict = manager_verdicts.get(candidate_id)
-        if (
-            eligibility.reason_code is EligibilityReason.rejected_by_hiring_manager
-            and verdict is not None
-        ):
-            # Name the manager and the date — otherwise the recruiter has to go
-            # dig through the candidate's history to learn why.
-            detail = verdict.as_polish_detail()
-        raise HTTPException(status_code=409, detail=detail)
 
     # Resolve initial stage from the job's template
     template_id = job.pipeline_template_id

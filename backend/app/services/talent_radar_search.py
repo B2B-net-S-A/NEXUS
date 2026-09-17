@@ -10,12 +10,15 @@ is why it is small.
 
 Two constraints are deliberate and load-bearing:
 
-**A client is mandatory.** ``filter_eligible_candidates`` evaluates the client
-blacklist, NDA, competitor conflicts and the hiring-manager veto *by
-``job.client_id``*. An ad-hoc search without a client cannot run those checks —
-they would not fail, they would silently pass, which is exactly the gap found in
-``/ai-matches`` on 2026-08-11. Rather than surface an unchecked list, the module
-refuses to answer without a client.
+**A client is mandatory.** ``partition_eligible_candidates`` evaluates the
+client blacklist, NDA, competitor conflicts, current employment and the
+hiring-manager veto *by ``job.client_id``*. An ad-hoc search without a client
+cannot run those checks — they would not fail, they would silently pass, which
+is exactly the gap found in ``/ai-matches`` on 2026-08-11. Rather than surface
+an unchecked list, the module refuses to answer without a client. Since
+17.09.2026 client conflicts are warnings: the candidate stays in the ranking
+with a badge (``RadarResult.eligibility_by_id``); only the global blacklist and
+a hiring-manager veto remove someone.
 
 **No LLM call.** Free-text requests are fed to the engine as the job narrative;
 ``_score_skills`` already derives implicit must-skills from the JD text or the
@@ -48,7 +51,7 @@ from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.embedding_service import (
     _build_job_text,
 )
-from app.services.pipeline_eligibility import filter_eligible_candidates
+from app.services.pipeline_eligibility import partition_eligible_candidates
 from app.services.scoring_service import (
     ScoreBreakdown,
     WeightProfile,
@@ -140,6 +143,9 @@ class RadarResult:
     # read, and making the browser resolve each id would be an N+1 over the
     # network on a list this endpoint already holds in memory.
     candidates_by_id: dict[int, Any] = field(default_factory=dict)
+    # Eligibility badge per returned candidate (``eligibility_annotation``) —
+    # client conflict / current employment / excluded client. Absent = clean.
+    eligibility_by_id: dict[int, dict] = field(default_factory=dict)
 
     def as_meta(self) -> dict[str, Any]:
         return {
@@ -347,7 +353,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     client = await db.scalar(select(Client).where(Client.id == query.client_id))
     if client is None:
         # Not a formality: without a real client the NDA / competitor / veto
-        # checks below have nothing to evaluate against.
+        # annotations below have nothing to evaluate against.
         raise TalentRadarError(
             "Wskaż klienta — bez niego nie da się sprawdzić NDA, konfliktów "
             "konkurencyjnych ani weta hiring managera."
@@ -425,7 +431,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     candidates = await _load_candidates(db, list(similarity_map))
     pool_size = len(candidates)
 
-    candidates = await filter_eligible_candidates(
+    candidates, eligibility_by_id = await partition_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
     eligible_size = len(candidates)
@@ -468,4 +474,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         degraded=False,
         hidden=hidden_meta,
         candidates_by_id={c.id: c for c in candidates if c.id in kept},
+        eligibility_by_id={
+            cid: ann for cid, ann in eligibility_by_id.items() if cid in kept
+        },
     )

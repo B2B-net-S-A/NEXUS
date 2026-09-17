@@ -811,8 +811,8 @@ function AIMatchingSection({
   const locationActive = Boolean(data?.location_filter);
   // Dealbreaker-switche: liczniki ukrytych per powód. „Ukrywanie nigdy nie jest
   // ciche" (dealbreaker_filters) — pokazujemy pasek z rozbiciem. Bramka
-  // dopuszczalności NIE trafia tu: `warn` są widoczni z powodem na wierszu,
-  // a `hidden` (globalna blacklista) świadomie nie są liczeni (wyrocznia NDA).
+  // dopuszczalności NIE trafia tu: konflikty z klientem i weto HM są widoczne
+  // z powodem na wierszu, a `hidden` (globalna blacklista) nie są tu liczeni.
   const hiddenMeta = data?.meta?.hidden;
   const hiddenTotal = computeHiddenTotal(hiddenMeta);
   // Rozbicie „ukryto N" per powód (0278: pięć rubryk) — jedno zdanie,
@@ -1172,10 +1172,11 @@ function AIMatchingSection({
                   </>
                 )}
               </span>
-              {/* Licznik warstwy `hidden` — mirror Talent Radaru. Po decyzji
-                  „pokaż wiersze" (2026-09) bramka pokazuje warn (NDA / konflikt /
-                  weto) jako wiersze z powodem, więc TU liczą się już tylko
-                  realnie ukryci: globalna blacklista i duplikaty. */}
+              {/* Licznik warstwy `hidden` — mirror Talent Radaru. Bramka pokazuje
+                  konflikty z klientem (czarna lista klienta / NDA / konkurent —
+                  od 17.09.2026 ostrzeżenie, przypisanie dozwolone) i weto HM
+                  (przypisanie zablokowane) jako wiersze z powodem, więc TU liczą
+                  się tylko realnie ukryci: globalna blacklista i duplikaty. */}
               {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
                 <span
                   className="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
@@ -1347,6 +1348,8 @@ function AIMatchingSection({
                   | { reason: string; assignment_allowed: boolean; severity: string }
                   | null
                   | undefined;
+                // Blokuje wyłącznie weto HM (`assignment_allowed: false`);
+                // konflikt z klientem to bursztynowe ostrzeżenie.
                 const assignBlocked = elig?.assignment_allowed === false;
                 const pct =
                   match.match_score == null

@@ -28,6 +28,8 @@ def _model_types() -> set[str]:
 def test_every_entrypoint_definition_of_the_type_check_matches_the_model():
     model_types = _model_types()
     assert "order_mail_review" in model_types
+    # 0322: alert „konflikt z kandydatem wygasł".
+    assert "candidate_conflict_expired" in model_types
     source = ENTRYPOINT.read_text(encoding="utf-8")
     definitions = re.findall(
         r"ck_dl_alerts_type CHECK \(alert_type IN \(([^)]*)\)", source

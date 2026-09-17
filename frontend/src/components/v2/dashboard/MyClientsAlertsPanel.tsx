@@ -63,6 +63,7 @@ export function cardPill(card: DlAlertCard): string {
   if (card.alert_type === "cost_order_exhausted") return "Wyczerpane"
   if (card.alert_type === "order_missing_successor") return "Brak zamówienia"
   if (card.alert_type === "md_base_usage_high") return "Podstawa MD"
+  if (card.alert_type === "candidate_conflict_expired") return "Wygasł"
   if (urgent) return "Pilne"
   return card.alert_type === "cost_budget_low" ? "Budżet" : "Mało MD"
 }
@@ -81,6 +82,8 @@ export function cardCta(card: DlAlertCard): string {
       return "Przejdź do weryfikacji"
     case "md_consultant_ended":
       return "Podejmij decyzję"
+    case "candidate_conflict_expired":
+      return "Przejdź do kandydata"
     default:
       return "Przejdź do zamówienia"
   }
@@ -100,6 +103,10 @@ export function cardMeta(card: DlAlertCard): string {
   if (card.section === "order_mail") {
     const day = formatDay(card.received_at)
     return day ? `Wczytane automatycznie z maila ${day}` : "Wczytane automatycznie z maila"
+  }
+  if (card.alert_type === "candidate_conflict_expired") {
+    // Jednorazowe powiadomienie — skaner nie wystawia powtórek.
+    return "Sprawdź, czy konflikt trzeba odnowić · jednorazowe powiadomienie"
   }
   if (card.alert_type === "new_contractor_draft" && card.source === "b2b_generator") {
     return "Draft utworzony automatycznie z Generatora umów"

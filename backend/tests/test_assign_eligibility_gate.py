@@ -2,11 +2,12 @@
 
 ``POST /api/candidates/{candidate_id}/assign-to-job/{job_id}`` must return
 409 with the Polish eligibility reason (``EligibilityDecision.reason``, from
-``_REASON_LABELS_PL``) as ``detail`` when the candidate is
-globally blacklisted or has an active, unexpired hard client conflict
-(blacklist/nda/competitor) for the job's client — and must still assign when
-the conflict has expired. Follow-up flagged in PR #738 (the endpoint had no
-HTTP-level test; QuickAssignV2 previously swallowed the 409 silently).
+``_REASON_LABELS_PL``) as ``detail`` when the candidate is globally
+blacklisted. Since 17.09.2026 an active client conflict (blacklist / NDA /
+competitor) is a WARNING — the assign succeeds; the hard "visible but blocked"
+case left is the hiring-manager veto (covered in
+``test_manager_rejection_gate.py``). Follow-up flagged in PR #738 (the endpoint
+had no HTTP-level test; QuickAssignV2 previously swallowed the 409 silently).
 
 Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures from
 conftest (real postgres in CI).
@@ -103,9 +104,10 @@ async def test_assign_blocked_for_blacklisted_candidate(
     assert resp.json()["detail"] == _REASON_LABELS_PL[EligibilityReason.blacklisted]
 
 
-async def test_assign_blocked_for_active_client_nda(
+async def test_assign_allowed_despite_active_client_nda(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    """17.09.2026: an active NDA with the job's client is a warning, not a 409."""
     candidate_id = await _seed_candidate()
     job_id, client_id = await _seed_job()
     await _seed_conflict(candidate_id, client_id, "nda")
@@ -114,13 +116,24 @@ async def test_assign_blocked_for_active_client_nda(
         _assign_url(candidate_id, job_id), headers=app_auth_headers
     )
 
-    from app.services.candidate_job_eligibility import (
-        _REASON_LABELS_PL,
-        EligibilityReason,
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "assigned"
+
+
+async def test_assign_blocked_by_hiring_manager_veto(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The veto is the hard block that remains — it names the manager."""
+    from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+
+    world = await _seed_vetoed_candidate()
+    resp = await app_client.post(
+        _assign_url(world["candidate_id"], world["target_job_id"]),
+        headers=app_auth_headers,
     )
 
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == _REASON_LABELS_PL[EligibilityReason.client_nda]
+    assert world["manager_name"] in resp.json()["detail"]
 
 
 async def test_assign_allowed_when_conflict_expired(

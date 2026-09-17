@@ -958,3 +958,88 @@ async def test_renormalisation_never_divides_by_zero(renormalising):
     b = await ss.score_candidate_job(cand, job, db, semantic_similarity=None)
 
     assert 0.0 <= b.total <= 100.0
+
+
+# ── Penalties vs warnings (decision of 17.09.2026) ───────────────────────────
+#
+# Only the global blacklist zeroes the score. A client conflict and a
+# candidate-excluded client are WARNINGS: zeroing them would push the candidate
+# under RECOMMENDATION_MIN_SCORE and make the "warning, not block" decision
+# invisible on every ranking surface.
+
+
+def _conflict_context(*candidate_ids: int) -> ss.JobScoringContext:
+    return ss.JobScoringContext(
+        screening_by_candidate={}, conflicted_candidate_ids=frozenset(candidate_ids)
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_conflict_is_a_warning_not_a_penalty():
+    cand = make_candidate(id=7)
+    job = make_job(id=1, client_id=42)
+    penalties, warnings = await ss._check_penalties_and_warnings(
+        cand, job, _FakeScalarDB(None), context=_conflict_context(7)
+    )
+    assert penalties == []
+    assert warnings == ["active_conflict"]
+
+
+@pytest.mark.asyncio
+async def test_active_conflict_warning_on_the_single_pair_fallback():
+    """No context → one lookup (honouring `expires_at` in SQL); a hit warns."""
+    cand = make_candidate(id=7)
+    job = make_job(id=1, client_id=42)
+    penalties, warnings = await ss._check_penalties_and_warnings(
+        cand, job, _FakeScalarDB(123)
+    )
+    assert penalties == []
+    assert warnings == ["active_conflict"]
+
+
+@pytest.mark.parametrize("excluded", [[42], ["42"]])
+@pytest.mark.asyncio
+async def test_client_excluded_is_a_warning_incl_digit_strings(excluded):
+    cand = make_candidate(id=7, preferences={"excluded_clients": excluded})
+    job = make_job(id=1, client_id=42)
+    penalties, warnings = await ss._check_penalties_and_warnings(
+        cand, job, _FakeScalarDB(None), context=_conflict_context()
+    )
+    assert penalties == []
+    assert warnings == ["client_excluded"]
+
+
+@pytest.mark.asyncio
+async def test_global_blacklist_stays_a_penalty():
+    cand = make_candidate(id=7, status="blacklisted")
+    job = make_job(id=1, client_id=None)
+    penalties, warnings = await ss._check_penalties_and_warnings(
+        cand, job, _FakeScalarDB(None)
+    )
+    assert penalties == ["blacklist"]
+    assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_conflicted_pair_keeps_its_score_and_serialises_warnings():
+    job = make_job(id=1, client_id=42)
+    context = _conflict_context(7)
+    conflicted = await ss.score_candidate_job(
+        make_candidate(id=7),
+        job,
+        _FakeScalarDB(None),
+        semantic_similarity=0.6,
+        context=context,
+    )
+    clean = await ss.score_candidate_job(
+        make_candidate(id=8),
+        job,
+        _FakeScalarDB(None),
+        semantic_similarity=0.6,
+        context=context,
+    )
+    assert conflicted.total == pytest.approx(clean.total)
+    assert conflicted.total > 0
+    assert conflicted.penalties == []
+    assert conflicted.as_dict()["warnings"] == ["active_conflict"]
+    assert clean.as_dict()["warnings"] == []
