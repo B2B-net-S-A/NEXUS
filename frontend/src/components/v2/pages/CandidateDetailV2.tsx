@@ -65,11 +65,18 @@ import { PinButton } from"@/components/v2/PinButton";
 import { DeferUntilVisible } from"@/components/v2/DeferUntilVisible";
 import { ExpandableText } from"@/components/v2/ExpandableText";
 import {
+ formatEducationYears,
  formatExperienceDate,
  getCandidateSummaryLine,
  getCvProjectionNotice,
  getEducationList,
+ getExperienceDetails,
+ getRichCvProfile,
 } from"@/components/v2/pages/candidate-profile-helpers";
+import {
+ CvRichProfileSections,
+ CvTechnologyChips,
+} from "@/components/candidates/CvRichProfileSections";
 import {
  formatCandidateLocation,
  getCandidateInitials,
@@ -2464,6 +2471,7 @@ function ProfilTab({
  const aiSource: string = candidate.cv_extracted_data?._source ??"";
  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
  const education = getEducationList(candidate);
+ const richCvProfile = getRichCvProfile(candidate);
  const verifiedTech = verifiedTechList(candidate);
  const verifiedSet = new Set(verifiedTech.map((t) => t.toLowerCase()));
  const title = getCurrentTitle(candidate);
@@ -2753,6 +2761,7 @@ function ProfilTab({
  const end = exp.end ?? exp.end_date ??"";
  const desc = exp.desc ?? exp.description ??"";
  const expLoc = exp.location ??"";
+ const details = getExperienceDetails(exp);
  return (
  <div
  key={i}
@@ -2763,7 +2772,9 @@ function ProfilTab({
  {role && <div className="font-medium text-foreground">{role}</div>}
  <div className="text-xs text-muted-foreground">
  {company}
+ {details.client ? ` (dla: ${details.client})` : ""}
  {expLoc ? ` · ${expLoc}` :""}
+ {details.employmentType ? ` · ${details.employmentType}` : ""}
  </div>
  </div>
  {(start || end) && (
@@ -2774,6 +2785,7 @@ function ProfilTab({
  )}
  </div>
  {desc && <ExpandableText text={desc} maxLines={2} className="mt-2" />}
+ <CvTechnologyChips items={details.technologies} />
  </div>
  );
  })}
@@ -2800,13 +2812,16 @@ function ProfilTab({
  </div>
  <div className="text-xs text-muted-foreground">
  {edu.school}
- {edu.year ? ` · ${edu.year}` :""}
+ {formatEducationYears(edu) ? ` · ${formatEducationYears(edu)}` : ""}
  </div>
  </div>
  ))}
  </div>
  </section>
  )}
+
+ {/* Pełny profil z odczytu CV v7 (certyfikaty, projekty, oś technologii) */}
+ {richCvProfile && <CvRichProfileSections profile={richCvProfile} />}
 
  {/* Firmy z CV — kept (AI-parsed), only when present */}
  {aiCompanies.length > 0 && (

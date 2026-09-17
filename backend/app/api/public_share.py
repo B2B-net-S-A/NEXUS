@@ -376,14 +376,10 @@ async def _interactive_flags(
     if (doc.mode != "new" or doc.job_id is None) and not tiles:
         return False, False
 
-    from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import get_feature_config, get_master_enabled
-
-    chat = False
-    if await get_master_enabled(db):
-        config = await get_feature_config(db, AIFeatureKey.cv_interactive_chat)
-        chat = bool(config is not None and config.enabled)
-    return tiles, chat
+    # Czat nie ma już przełącznika w Ustawieniach → AI (NEXUS bez limitów AI,
+    # 17.09.2026). Decyduje wyłącznie polityka klienta sprawdzona wyżej, a nadużycie
+    # publicznego linku ogranicza dzienny limit per link (`CV_INTERACTIVE_CHAT_DAILY_LIMIT`).
+    return tiles, True
 
 
 async def approved_interactive_view(
@@ -1049,16 +1045,16 @@ async def submit_public_apply(
     await db.commit()
 
     # ── Post-apply enrichment pipeline ────────────────────────────────────
-    # Inline: embedding so the candidate is immediately matchable against
-    # other open jobs. Failures are logged but don't break the apply flow.
+    # Siatka bezpieczeństwa: kandydat ma być w indeksie nawet wtedy, gdy odczyt
+    # CV w tle się nie powiedzie (skan bez tekstu). Przez outbox, nie wprost
+    # `embed_candidate` — pełny wektor po odczycie liczy `finish_cv_ingest`.
     try:
-        from app.services.embedding_service import embed_candidate
+        from app.services.index_outbox_service import schedule_or_embed_candidate
 
-        await embed_candidate(candidate.id, db)
+        await schedule_or_embed_candidate(candidate.id, db)
+        await db.commit()
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            "[apply] embed_candidate failed candidate=%s: %s", candidate.id, e
-        )
+        logger.warning("[apply] index intent failed candidate=%s: %s", candidate.id, e)
 
     # Background: CV parse (companies, skills, ai_summary) + CC auto-classify.
     # Runs in a fresh DB session after the response has been sent, so the
@@ -1115,6 +1111,7 @@ async def _invite_post_apply_task(
                 candidate_id,
                 source_document_id,
                 source_hash,
+                trigger="public_apply",
             )
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)

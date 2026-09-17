@@ -14,12 +14,15 @@ import {
   type CandidateLite,
 } from "@/components/v2/pages/candidate-list-helpers";
 
-/** One education entry. Backend JSONB shape: {school, degree, field, year}. */
+/** One education entry. Backend JSONB shape: {school, degree, field, year}.
+ *  Odczyt CV v7 dokłada `start_year`/`end_year`. */
 export interface EducationEntry {
   school?: string | null;
   degree?: string | null;
   field?: string | null;
   year?: string | number | null;
+  startYear?: number | null;
+  endYear?: number | null;
 }
 
 /** One language entry. Backend JSONB shape: {lang, level}. */
@@ -55,6 +58,8 @@ export function getEducationList(c: CandidateProfileLite): EducationEntry[] {
         typeof obj.year === "string" || typeof obj.year === "number"
           ? obj.year
           : null,
+      ...(typeof obj.start_year === "number" ? { startYear: obj.start_year } : {}),
+      ...(typeof obj.end_year === "number" ? { endYear: obj.end_year } : {}),
     };
     if (entry.school || entry.degree || entry.field) out.push(entry);
   }
@@ -193,4 +198,162 @@ export function getCvProjectionNotice(candidate: {
     };
   }
   return null;
+}
+
+
+/** Lata wykształcenia do wyświetlenia: „2011–2016”, „2016” albo pusty tekst. */
+export function formatEducationYears(entry: EducationEntry): string {
+  if (entry.startYear && entry.endYear) return `${entry.startYear}–${entry.endYear}`;
+  if (entry.endYear) return String(entry.endYear);
+  if (entry.year != null && String(entry.year).trim()) return String(entry.year);
+  if (entry.startYear) return `od ${entry.startYear}`;
+  return "";
+}
+
+const EMPLOYMENT_TYPE_LABEL: Record<string, string> = {
+  b2b: "B2B",
+  employment: "umowa o pracę",
+  contract: "umowa cywilnoprawna",
+  internship: "staż",
+  freelance: "freelance",
+};
+
+/** Szczegóły stanowiska z odczytu CV v7. Stare wpisy dają puste wartości. */
+export function getExperienceDetails(entry: unknown): {
+  technologies: string[];
+  employmentType: string | null;
+  client: string | null;
+} {
+  const obj =
+    entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+  const technologies = Array.isArray(obj.technologies)
+    ? obj.technologies
+        .filter((t): t is string => typeof t === "string" && t.trim() !== "")
+        .map((t) => t.trim())
+    : [];
+  const employmentType =
+    typeof obj.employment_type === "string"
+      ? (EMPLOYMENT_TYPE_LABEL[obj.employment_type] ?? null)
+      : null;
+  const client =
+    typeof obj.client === "string" && obj.client.trim() ? obj.client.trim() : null;
+  return { technologies, employmentType, client };
+}
+
+export interface CertificationEntry {
+  name: string;
+  issuer: string | null;
+  year: number | null;
+  expires: string | null;
+}
+
+export interface ProjectEntry {
+  name: string;
+  role: string | null;
+  company: string | null;
+  technologies: string[];
+  start: string | null;
+  end: string | null;
+  description: string | null;
+}
+
+export interface SkillTimelineEntry {
+  skill: string;
+  firstUsed: string | null;
+  lastUsed: string | null;
+  months: number | null;
+  isCurrent: boolean;
+  contexts: string[];
+}
+
+export interface RichCvProfile {
+  certifications: CertificationEntry[];
+  projects: ProjectEntry[];
+  achievements: string[];
+  timeline: SkillTimelineEntry[];
+}
+
+function str(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Pełny profil z odczytu CV v7 albo null dla profili sprzed zmiany.
+ *
+ *  null jest znaczący: stary odczyt nie pytał o certyfikaty ani projekty, więc
+ *  pusta sekcja „Certyfikaty” twierdziłaby, że CV ich nie zawiera. */
+export function getRichCvProfile(candidate: {
+  cv_extracted_data?: unknown;
+}): RichCvProfile | null {
+  const extracted =
+    candidate.cv_extracted_data && typeof candidate.cv_extracted_data === "object"
+      ? (candidate.cv_extracted_data as Record<string, unknown>)
+      : null;
+  if (!extracted || Number(extracted._profile_schema ?? 0) < 2) return null;
+  const list = (key: string): Record<string, unknown>[] =>
+    Array.isArray(extracted[key])
+      ? (extracted[key] as unknown[]).filter(
+          (x): x is Record<string, unknown> => !!x && typeof x === "object",
+        )
+      : [];
+  return {
+    certifications: list("certifications")
+      .map((c) => ({
+        name: str(c.name) ?? "",
+        issuer: str(c.issuer),
+        year: typeof c.year === "number" ? c.year : null,
+        expires: str(c.expires),
+      }))
+      .filter((c) => c.name),
+    projects: list("projects")
+      .map((p) => ({
+        name: str(p.name) ?? "",
+        role: str(p.role),
+        company: str(p.company),
+        technologies: Array.isArray(p.technologies)
+          ? (p.technologies as unknown[]).filter(
+              (t): t is string => typeof t === "string" && t.trim() !== "",
+            )
+          : [],
+        start: str(p.start),
+        end: str(p.end),
+        description: str(p.description),
+      }))
+      .filter((p) => p.name),
+    achievements: Array.isArray(extracted.achievements)
+      ? (extracted.achievements as unknown[]).filter(
+          (a): a is string => typeof a === "string" && a.trim() !== "",
+        )
+      : [],
+    timeline: list("skill_timeline")
+      .map((t) => ({
+        skill: str(t.skill) ?? "",
+        firstUsed: str(t.first_used),
+        lastUsed: str(t.last_used),
+        months: typeof t.months === "number" ? t.months : null,
+        isCurrent: t.is_current === true,
+        contexts: Array.isArray(t.contexts)
+          ? (t.contexts as unknown[])
+              .map((ctx) =>
+                ctx && typeof ctx === "object"
+                  ? str((ctx as Record<string, unknown>).company)
+                  : null,
+              )
+              .filter((x): x is string => !!x)
+          : [],
+      }))
+      .filter((t) => t.skill),
+  };
+}
+
+/** „4 lata 7 mies.”, „11 mies.” albo pusty tekst, gdy CV nie daje długości. */
+export function formatUsageMonths(months: number | null): string {
+  if (!months || months <= 0) return "";
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const yearLabel =
+    years === 1 ? "rok" : years % 10 >= 2 && years % 10 <= 4 && (years % 100 < 10 || years % 100 >= 20) ? "lata" : "lat";
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} ${yearLabel}`);
+  if (rest > 0) parts.push(`${rest} mies.`);
+  return parts.join(" ");
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import * as React from"react";
 import { useRef, useState } from"react";
 import Link from"next/link";
@@ -151,7 +152,11 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  const r = await api.post<FromCVResponse>(
  `/api/candidates/from-cv${force ?"?force=true" :""}`,
  fd,
- { headers: {"Content-Type":"multipart/form-data" } }
+ {
+ headers: {"Content-Type":"multipart/form-data" },
+ // Pełny odczyt CV (prompt v7) trwa dłużej niż domyślne 30 s instancji.
+ timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+ }
  );
  return r.data;
  },

@@ -118,12 +118,16 @@ async def test_standalone_approval_share_roundtrip(
     app_client, app_auth_headers, monkeypatch
 ):
     from unittest.mock import AsyncMock
-    from app.services import ai_quota
+    from app.services.cv_generator_b2b import document_policy
     from app.services.cv_approval_provenance import capture_editor_origin
 
     # This roundtrip exercises a disabled chat explicitly. Approved uploads no
     # longer implicitly disable chat merely because their original map is empty.
-    monkeypatch.setattr(ai_quota, "get_master_enabled", AsyncMock(return_value=False))
+    # Since 17.09.2026 there is no global AI switch; the client opt-out is the
+    # only remaining way to turn the public chat off.
+    monkeypatch.setattr(
+        document_policy, "interactive_client_enabled", AsyncMock(return_value=False)
+    )
 
     payload = {
         "name": "Private Identity",

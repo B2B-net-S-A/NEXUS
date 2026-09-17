@@ -106,10 +106,20 @@ def _fn_calls(module_rel: str, func_name: str) -> set[str]:
 
 
 def test_both_assign_paths_wire_the_snapshot() -> None:
+    # Od 17.09.2026 bulk-add i auto-dopasowanie dzielą rdzeń
+    # `add_candidates_to_job` — to on musi robić snapshot, a oba wejścia muszą
+    # przez niego przechodzić.
     for module_rel, fn in (
-        ("app/api/proposals_bulk.py", "bulk_add_proposals"),
+        ("app/api/proposals_bulk.py", "add_candidates_to_job"),
         ("app/api/job_shortlist.py", "promote_shortlist_entry"),
     ):
         assert "create_original_cv_snapshot" in _fn_calls(module_rel, fn), (
             f"{fn} no longer snapshots the assignment CV (M3-ACT-01 regressed)"
+        )
+    for module_rel, fn in (
+        ("app/api/proposals_bulk.py", "bulk_add_proposals"),
+        ("app/services/auto_match_service.py", "_apply_decisions"),
+    ):
+        assert "add_candidates_to_job" in _fn_calls(module_rel, fn), (
+            f"{fn} bypasses the shared add path that snapshots the CV (M3-ACT-01)"
         )

@@ -60,13 +60,11 @@ async def test_missing_associated_client_fails_closed():
     assert not await interactive_client_enabled(db, document())
 
 
-async def test_public_ai_toggle_still_controls_chat(monkeypatch):
+async def test_chat_follows_client_policy_not_a_global_ai_toggle():
+    """Bez limitów AI (17.09.2026) czat zależy tylko od polityki klienta i kafelków."""
     db = AsyncMock()
     db.get.return_value = SimpleNamespace(cv_interactive_enabled=True)
-    monkeypatch.setattr(
-        "app.services.ai_quota.get_master_enabled", AsyncMock(return_value=False)
-    )
-    assert await _interactive_flags(db, document()) == (True, False)
+    assert await _interactive_flags(db, document()) == (True, True)
 
 
 async def test_html_download_excludes_requirement_tiles_for_opted_out_client():

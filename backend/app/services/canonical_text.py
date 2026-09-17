@@ -142,6 +142,11 @@ def build_candidate_text_v2(candidate) -> str:
                 bit = " — ".join(x for x in (role, company) if x)
                 if desc:
                     bit = f"{bit}: {desc}" if bit else desc
+                technologies = e.get("technologies")
+                if isinstance(technologies, list) and technologies:
+                    tech = ", ".join(_clean(str(t)) for t in technologies if t)
+                    if tech:
+                        bit = f"{bit} [{tech}]" if bit else tech
                 if bit:
                     exp_lines.append(bit)
     elif isinstance(exp, str) and exp.strip():
@@ -158,6 +163,16 @@ def build_candidate_text_v2(candidate) -> str:
     summary = getattr(candidate, "ai_summary", None)
     if summary and not looks_like_junk(summary):
         sections.append("[SUMMARY] " + _clean(summary)[:1000])
+
+    from app.services.profile_projection import rich_profile_text_facts
+
+    rich = rich_profile_text_facts(candidate)
+    if rich.get("certifications"):
+        sections.append("[CERTIFICATIONS] " + ", ".join(rich["certifications"]))
+    if rich.get("sectors"):
+        sections.append("[SECTORS] " + ", ".join(rich["sectors"]))
+    if rich.get("recent_skills"):
+        sections.append("[RECENT] " + ", ".join(rich["recent_skills"]))
 
     # Raw CV only as a fallback when structured sections are empty, and only if
     # it does not look like extraction junk.

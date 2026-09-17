@@ -2,8 +2,8 @@
 
 Powód istnienia: ta trasa stała CAŁKOWICIE poza systemem kwot i było to
 zmierzone na produkcji 02.09 — wywołanie trwało 15,4 s, a licznik
-w Ustawieniach → AI nie drgnął. Główny wyłącznik też jej nie dotyczył, mimo
-że panel obiecuje „wszystkie funkcje AI".
+w Ustawieniach → AI nie drgnął. Od 17.09.2026 NEXUS nie ma limitów AI, więc
+bramka już nie blokuje, ale licznik nadal musi rosnąć.
 
 Druga rola tego pliku: klucz `uop_check` jest WARUNKIEM kasacji drugiego stosu
 dostawcy. Po zdjęciu `ai_client.py` bramka `_assert_declared` zaczyna widzieć
@@ -17,9 +17,7 @@ from __future__ import annotations
 import os
 
 import pytest
-from sqlalchemy import select
-
-from app.models.ai_feature import AIFeatureKey, AIMasterToggle
+from app.models.ai_feature import AIFeatureKey
 from app.services import ai_quota
 
 pytestmark = pytest.mark.skipif(
@@ -82,50 +80,3 @@ async def test_empty_text_short_circuits_without_charging(
     )
     assert response.status_code == 200
     assert await _usage() == before
-
-
-async def test_master_switch_off_blocks_the_call_with_503(
-    app_client, app_auth_headers, monkeypatch
-):
-    """Panel mówi „Wszystkie funkcje AI są wyłączone globalnie". Do 0270 ta
-    trasa nadal wydawała pieniądze, kiedy to zdanie było na ekranie."""
-    from app.core.database import AsyncSessionLocal
-    from app.services.b2b_contract_generator import uop_check as module
-
-    def _must_not_run(*_a, **_k):
-        raise AssertionError("wyłączone AI nie może wołać modelu")
-
-    monkeypatch.setattr(module, "analyze_with_ai", _must_not_run)
-
-    async with AsyncSessionLocal() as session:
-        toggle = await session.scalar(
-            select(AIMasterToggle).where(AIMasterToggle.id == 1)
-        )
-        created = toggle is None
-        if created:
-            toggle = AIMasterToggle(id=1, enabled=False)
-            session.add(toggle)
-        else:
-            previous = toggle.enabled
-            toggle.enabled = False
-        await session.commit()
-
-    try:
-        response = await app_client.post(
-            "/api/b2b-generator/check-uop",
-            json={"text": _TEXT, "language": "pl"},
-            headers=app_auth_headers,
-        )
-        assert response.status_code == 503
-        assert response.json()["detail"]["feature"] == "uop_check"
-    finally:
-        async with AsyncSessionLocal() as session:
-            toggle = await session.scalar(
-                select(AIMasterToggle).where(AIMasterToggle.id == 1)
-            )
-            if toggle is not None:
-                if created:
-                    await session.delete(toggle)
-                else:
-                    toggle.enabled = previous
-                await session.commit()
