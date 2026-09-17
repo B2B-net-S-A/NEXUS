@@ -59,7 +59,15 @@ async def _call(db, user):
 
 
 @pytest.fixture
-def user():
+def user(monkeypatch):
+    # Od 17.09.2026 zapis screeningu sprawdza członkostwo w rekrutacji (audyt:
+    # sama rola wystarczała). Ten test dotyczy invalidacji cache'u, a fałszywa
+    # sesja nie umie odpowiedzieć na zapytania bramki — bramkę pilnuje
+    # `test_pipeline_membership_gate.py`.
+    async def _member(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pipeline_api, "ensure_job_membership", _member)
     return types.SimpleNamespace(id=3, name="Rekruter", email="r@example.com")
 
 

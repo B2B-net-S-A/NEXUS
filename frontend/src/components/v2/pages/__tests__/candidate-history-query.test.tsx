@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
@@ -38,6 +38,21 @@ function HistoryProbe() {
 
   if (query.isFetching) return <p>Ładowanie historii…</p>;
   return <p>{jobs[0]?.job_title ?? "Brak historii"}</p>;
+}
+
+function RefreshProbe() {
+  const query = useCandidateHistoryQuery(7);
+  const data = query.visibleData;
+  const jobs = (
+    Array.isArray(data) ? data : ((data?.jobs ?? []) as Array<{ job_title?: string }>)
+  ) as Array<{ job_title?: string }>;
+  if (query.isPending) return <p>Ładowanie historii…</p>;
+  return (
+    <div>
+      <p>{jobs[0]?.job_title ?? "Brak historii"}</p>
+      {query.isRefreshing ? <p>Odświeżam…</p> : null}
+    </div>
+  );
 }
 
 function historyUi(queryClient: QueryClient, mountKey: string) {
@@ -125,5 +140,76 @@ describe("useCandidateHistoryQuery", () => {
     expect(
       await screen.findByText("Historia drugiego użytkownika"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the same viewer's history visible while it revalidates (window focus)", async () => {
+    let resolveRefresh:
+      | ((value: { data: { jobs: Array<{ job_title: string }> } }) => void)
+      | undefined;
+    mockedGet
+      .mockResolvedValueOnce({ data: { jobs: [{ job_title: "Rekrutacja A" }] } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RefreshProbe />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Rekrutacja A")).toBeInTheDocument();
+
+    await act(async () => {
+      void queryClient.invalidateQueries();
+    });
+    // Brak migotania: poprzednie dane zostają, z podpowiedzią odświeżania —
+    // nie „Brak historii” (UAT: znikająca zakładka Rekrutacje).
+    expect(await screen.findByText("Odświeżam…")).toBeInTheDocument();
+    expect(screen.getByText("Rekrutacja A")).toBeInTheDocument();
+    expect(mockedGet).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Brak historii")).not.toBeInTheDocument();
+
+    resolveRefresh?.({ data: { jobs: [{ job_title: "Rekrutacja B" }] } });
+    expect(await screen.findByText("Rekrutacja B")).toBeInTheDocument();
+    expect(screen.queryByText("Odświeżam…")).not.toBeInTheDocument();
+  });
+
+  it("never shows the previous viewer's history after a scope switch in the same instance", async () => {
+    let resolveSecond:
+      | ((value: { data: { jobs: Array<{ job_title: string }> } }) => void)
+      | undefined;
+    mockedGet
+      .mockResolvedValueOnce({ data: { jobs: [{ job_title: "Tylko rekruter" }] } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+      );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const ui = (
+      <QueryClientProvider client={queryClient}>
+        <RefreshProbe />
+      </QueryClientProvider>
+    );
+    const view = render(ui);
+    expect(await screen.findByText("Tylko rekruter")).toBeInTheDocument();
+
+    auth.user = { id: 303, role: "sourcer", roles: ["sourcer"] };
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <RefreshProbe />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("Tylko rekruter")).not.toBeInTheDocument();
+    expect(screen.getByText("Ładowanie historii…")).toBeInTheDocument();
+
+    resolveSecond?.({ data: { jobs: [{ job_title: "Zakres sourcera" }] } });
+    expect(await screen.findByText("Zakres sourcera")).toBeInTheDocument();
   });
 });

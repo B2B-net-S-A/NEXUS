@@ -25,6 +25,15 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
   canVerify?: boolean;
   onVerified?: () => void;
 }) {
+  // A transient read error while the scan is still running must not hide the
+  // progress: the scan keeps going on the server and polling resumes by itself.
+  if (error && !needsNewRun && data && searchIsRunning(data.state)) return <div className="space-y-4">
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground">
+      <span>Chwilowo nie udało się odświeżyć postępu: {extractErrorMsg(error)}. Przegląd trwa dalej — ponawiamy automatycznie.</span>
+      <Button variant="outline" size="sm" onClick={onRetry}>Spróbuj ponownie</Button>
+    </div>
+    <FullCandidateSearchStatus data={data} offset={offset} onPage={onPage} fetching={fetching} onRestart={onRestart} restarting={loading} />
+  </div>;
   if (error) return <div role="alert" className="rounded-lg border p-4">
     <p>Nie udało się odczytać wyszukiwania: {extractErrorMsg(error)}</p>
     {!needsNewRun

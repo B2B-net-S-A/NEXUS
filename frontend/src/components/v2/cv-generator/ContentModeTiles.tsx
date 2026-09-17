@@ -10,6 +10,8 @@ interface ContentModeTilesProps {
   onChange: (mode: CvContentMode) => void;
   className?: string;
   ariaLabel?: string;
+  /** Tryb zablokowany regułą klienta — także dla klawiatury. */
+  disabled?: boolean;
 }
 
 /**
@@ -26,10 +28,12 @@ export function ContentModeTiles({
   onChange,
   className,
   ariaLabel = "Obróbka treści",
+  disabled = false,
 }: ContentModeTilesProps) {
   return (
     <RadioGroup
       value={value}
+      disabled={disabled}
       onValueChange={(next) => onChange(next as CvContentMode)}
       aria-label={ariaLabel}
       className={cn("grid grid-cols-1 gap-3", className)}
@@ -38,7 +42,8 @@ export function ContentModeTiles({
         <label
           key={option.value}
           className={cn(
-            "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
+            "flex items-start gap-3 rounded-lg border p-3 transition-colors",
+            disabled ? "cursor-not-allowed" : "cursor-pointer",
             option.value === value
               ? "border-primary bg-primary/5"
               : "border-border hover:bg-muted/30",

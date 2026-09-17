@@ -93,6 +93,27 @@ describe("talent-radar-session", () => {
     expect(loadTalentRadarSession()).toEqual(empty);
   });
 
+  it("round-trip kryteriów biegu; obcy kształt kryteriów → null", () => {
+    const withCriteria: TalentRadarSessionState = {
+      ...FULL_STATE,
+      runCriteria: {
+        clientName: "Acme Sp. z o.o.",
+        budget: 180,
+        location: "Warszawa",
+        officeDays: 2,
+        officeLocation: null,
+        excludeRemoteOnly: true,
+      },
+    };
+    saveTalentRadarSession(withCriteria);
+    expect(loadTalentRadarSession()).toEqual(withCriteria);
+    sessionStorage.setItem(
+      TALENT_RADAR_SESSION_KEY,
+      JSON.stringify({ ...FULL_STATE, runCriteria: { clientName: 7 } }),
+    );
+    expect(loadTalentRadarSession()).toBeNull();
+  });
+
   it("brak zapisu → null", () => {
     expect(loadTalentRadarSession()).toBeNull();
   });

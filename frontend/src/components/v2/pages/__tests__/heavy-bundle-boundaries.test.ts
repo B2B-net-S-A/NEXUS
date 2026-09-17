@@ -72,15 +72,6 @@ const CASES: Array<{
       "w aplikacji — mimo że edytor renderuje się tylko za ścieżką " +
       "Dokumenty → Umowy → draft.",
   },
-  {
-    label: "RecruitmentStatsSection → wykres trendu",
-    file: "components/v2/dashboard/RecruitmentStatsSection.tsx",
-    heavy: /^recharts$/,
-    lazyModule: "./RecruitmentTrendChart",
-    why:
-      "Recharts wraca do chunku /dashboard i płaci za niego każde otwarcie " +
-      "dashboardu, także gdy użytkownik nigdy nie doscrolluje do wykresu.",
-  },
 ];
 
 describe("ciężkie biblioteki zostają za granicą next/dynamic", () => {
@@ -152,10 +143,6 @@ it("wydzielone moduły edytora/wykresu faktycznie niosą ciężką bibliotekę",
     "utf8",
   );
   expect(staticSpecifiers(editor).some((s) => s.startsWith("@tiptap/"))).toBe(true);
-
-  const chart = fs.readFileSync(
-    path.join(SRC, "components/v2/dashboard/RecruitmentTrendChart.tsx"),
-    "utf8",
-  );
-  expect(staticSpecifiers(chart)).toContain("recharts");
+  // Przypadek „RecruitmentStatsSection → wykres trendu" usunięty razem
+  // z martwymi komponentami pulpitu (audyt 17.09.2026) — nigdzie nie montowane.
 });

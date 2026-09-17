@@ -71,22 +71,19 @@ export function selectScreeningQueue(columns: KanbanColumn[]): FlowQueueEntry[] 
 }
 
 /**
- * Karty czekające na akceptację stawki — na DOWOLNYM etapie, nie tylko
- * „Zweryfikowany".
+ * Karty ze stawką PONAD budżet rekrutacji (`budget_exceeded`) — na dowolnym
+ * etapie nie-terminalnym.
  *
- * `verification_status = "pending"` stawia backend przy ruchu na `verified`,
- * ale karta zostaje w kolumnie docelowej, a odrzucenie weryfikacji cofa ją na
- * etap poprzedni. Skanujemy więc wszystkie kolumny — kolejka, która zna tylko
- * jedną, po cichu gubiłaby część spraw.
+ * Od 17.09.2026 bramka „Pending" jest wyłączona: przekroczenie budżetu nie
+ * wstrzymuje karty, tylko jest informacją (odznaka „ponad budżet"). Lista
+ * służy szynie screeningu i KPI — nie blokuje żadnego ruchu.
  */
-export function selectPendingVerifications(
-  columns: KanbanColumn[],
-): FlowQueueEntry[] {
+export function selectOverBudget(columns: KanbanColumn[]): FlowQueueEntry[] {
   const out: FlowQueueEntry[] = [];
   for (const col of columns) {
     if (col.category === "terminal") continue;
     for (const item of col.items) {
-      if (item.verification_status === "pending") {
+      if (item.budget_exceeded) {
         out.push({ item, col, colId: colId(col) });
       }
     }
@@ -97,10 +94,8 @@ export function selectPendingVerifications(
 /**
  * Kolejka kroku 06: zweryfikowani, czyli gotowi do wysyłki CV.
  *
- * Karty „Pending" ZOSTAJĄ w kolejce (widać je z powodem), bo to nadal ci sami
- * ludzie, na których czeka klient — ale bramka ruchu je blokuje, patrz
- * {@link moveBlockedReason}. Ukrycie ich zamieniłoby czekającą sprawę
- * w niewidzialną.
+ * Karty „ponad budżet" ZOSTAJĄ w kolejce z odznaką — przekroczenie budżetu
+ * jest informacją, nie blokadą (bramka „Pending" wyłączona 17.09.2026).
  */
 export function selectVerifiedQueue(columns: KanbanColumn[]): FlowQueueEntry[] {
   return entriesForStage(columns, VERIFIED_STAGE);
@@ -260,27 +255,12 @@ export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Powód blokady karty czekającej na akceptację stawki (409 w `/move`).
- *
- * Neutralny co do tego, KTO czyta: akceptację i odrzucenie weryfikacji
- * przyjmuje wyłącznie administrator (`accept-verification` /
- * `reject-verification` stoją za `AdminUser`), a ta funkcja nie zna roli
- * czytającego. Dawne „najpierw zaakceptuj albo odrzuć" kazało rekruterowi
- * zrobić coś, czego serwer mu nie pozwoli.
- */
-export const PENDING_VERIFICATION_MOVE_BLOCK =
-  "Stawka tego kandydata czeka na akceptację (Pending) — weryfikację akceptuje " +
-  "albo odrzuca administrator. Do tego czasu serwer odmawia każdego ruchu, " +
-  "także odrzucenia.";
-
-/**
  * Powód, dla którego ruchu NIE wolno wykonać — albo `null`, gdy wolno.
  *
  * Lustro `POST /api/pipeline/move` (kolejność reguł jak w handlerze):
  *  1. brak prawa zapisu blokuje wszystko,
- *  2. karta czekająca na akceptację stawki (`verification_status = "pending"`)
- *     blokuje KAŻDY ruch, terminalny też — serwer odpowiada 409, zanim
- *     sprawdzi cokolwiek innego,
+ *  2. (bramka „Pending" wyłączona 17.09.2026 — karta ze stawką ponad budżet
+ *     NIE blokuje ruchu, serwer nie odpowiada już 409),
  *  3. ruchy wypisujące (`rejected`/`withdrawn`) omijają bramkę
  *     dopuszczalności — weto HM nie może uwięzić kandydata w procesie,
  *  4. weto hiring managera blokuje WYŁĄCZNIE „CV Wysłane" i „Interview Klient"
@@ -296,7 +276,6 @@ export function moveBlockedReason({
   targetStage,
 }: MoveGateInput): string | null {
   if (readOnly) return "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
-  if (item.verification_status === "pending") return PENDING_VERIFICATION_MOVE_BLOCK;
   if (terminal) return null;
   if (item.hm_veto && targetStage != null && HM_VETO_ENFORCED_STAGES.has(targetStage)) {
     const when = item.hm_veto.rejected_at

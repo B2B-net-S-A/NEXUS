@@ -1821,13 +1821,15 @@ innego niż serwer albo nadpisywał cudzą pracę.
   „nie do porównania”, nie fałszywe „powyżej widełek”.
 - **Werdykt HM** (`api/hiring_manager_feedback.py`): odczyt za
   `ensure_job_read_access` (także Finanse); cudzy werdykt nadpisuje autor,
-  KAŻDY Delivery Lead (DL omija członkostwo w zespole) albo admin — inaczej 403
+  KAŻDY Delivery Lead (DL omija członkostwo w zespole), Head of Recruitment
+  albo admin — inaczej 403
   z nazwiskiem autora. GET zwraca `{can_record, items}`: `can_record` liczy
   DOKŁADNIE te same warunki co POST (impersonacja, zapis sekcji pipeline, role
   RecruiterPlus, członkostwo z obejściem DL), a formularz renderuje się tylko przy
   `can_record === true` — Finanse spoza zespołu widzą werdykt tylko do odczytu
   zamiast przycisku kończącego się 403. Wiersze niosą `author_id`,
-  `author_name`, `can_edit`. HoR ma tu sam odczyt.
+  `author_name`, `can_edit`. HoR od 17.09.2026 zapisuje i nadpisuje cudze
+  werdykty (decyzja Artura: parytet z rekruterem + nadzór jak DL).
 - **Shortlista nie nadpisuje zmiany kolegi i nie gubi wpisanego tekstu:**
   `ServerSyncedInput` (`JobShortlist.tsx`) — wersja bazowa idzie za serwerem do
   pierwszej zmiany użytkownika, potem zamarza; brak zapisu przy niezmienionym
@@ -4101,3 +4103,54 @@ a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten 
   `origin/main` sprzed zmiany znajdował 117 takich miejsc w 48 plikach.
   Odczyty strukturalne (`detail?: unknown` + sprawdzenie typu, np.
   `{missing}`/`{blockers}`) są w porządku.
+
+## Narzędzia rekrutera — reguły po audycie 17.09.2026
+
+Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
+`docs/recruiter-tools-fixes-completion-report.md`. Decyzje Artura, które łatwo
+cofnąć „przy okazji”:
+
+- **Bramka „Pending” wyłączona** (`PENDING_VERIFICATION_ENABLED=False`). Ruch na
+  „Zweryfikowany” ze stawką ponad budżet przechodzi jako `active`, a przekroczenie
+  jedzie na kartę jako informacja (`budget_exceeded`, odznaka „ponad budżet”).
+  Trasy akceptacji/odrzucenia i `/pending-verifications` odpowiadają 404, UI
+  kolejki usunięte (`/pending-verifications` → 308 na `/jobs`). Stare wiersze
+  `pending` zalicza jednorazowo `pending_verification_promotion.py` (blok
+  w `entrypoint.sh`, znacznik `pending_verification_promotion_2026_09_17`): status
+  `active` + `record_accepted_verification`, `approved_by` puste. Samo `True`
+  w Coolify NIE przywraca bramki — frontend akceptacji trzeba odtworzyć.
+- **Head of Recruitment = parytet z rekruterem.** HoR jest w `RecruiterPlus`,
+  `CANDIDATE_WRITE_ROLES` i zbiorach `recruitment_access` (ruchy, notatki,
+  przypisania, pliki, kalendarz). Front bramkuje zapis na profilu capability
+  `candidate.write` (lustro `CandidateWriteAccess`), nie samą sekcją. HoR nadpisuje
+  cudze werdykty HM i feedback z rozmów (jak DL). W kalendarzu HoR edytuje cudze
+  wydarzenia, ale **odwołać/usunąć** (także PATCH `status=cancelled`) może tylko
+  właściciel albo admin — `user_can_remove_event`, flaga `can_remove` w odpowiedzi.
+- **Stawka do klienta** (`PATCH …/client-rate`): role admin/HoR/DL/TCM/TAC/finance
+  z członkostwem w rekrutacji ALBO właściciel/twórca rekrutacji niezależnie od
+  roli. Jedna funkcja `resolve_client_rate_write` zasila bramkę i
+  `can_write_client_rate` w `GET /api/jobs/{id}`; tablica i warsztat CV pytają
+  o stawkę tylko przy `true`.
+- **Wyszukiwarka, tryb semantyczny:** sort i chipy „podbijające ranking” działają
+  też w hybrydzie (`_resort_hybrid_pool`: soft-ranki → sort → pozycja RRF). Bez
+  chipów i przy „Trafność” kolejność RRF zostaje nietknięta.
+- **Werdykt HM z karty rekrutacji zapisuje WYŁĄCZNIE wiersz bez wydarzenia.**
+  Wiersz przypięty do rozmowy opisuje tę rozmowę, a FK ma `ON DELETE CASCADE`
+  — nadpisanie go gubiło notatkę rundy 1 i kasowało werdykt z karty razem ze
+  spotkaniem. Lista pokazuje ostatnio zmieniony wiersz pary (`updated_at`).
+- **Kalendarz:** wydarzenia z Outlooka się ODWOŁUJE (`POST …/cancel`, Graph
+  cancel → fallback DELETE), a `DELETE` na nich daje 409; `isAllDay`/iCal `DATE`
+  → `all_day` (poza kolizjami, przypomnieniami i pasami siatki); przypomnienie
+  czyta `reminder_minutes` i linkuje `/calendar?event=`. Picker rekrutacji
+  w kalendarzu auto-wybiera i udostępnia tylko rekrutacje z `can_schedule`
+  (członkostwo) — cudza podstawiona sama kończyła zapis 403.
+- **Powiadomienia:** `stage_stuck_7d` tylko opublikowane rekrutacje, etap 7–30 dni,
+  raz na tydzień per etap, z nazwiskiem i etykietą; resurface porównuje dobę
+  Warsaw jak `ix_notif_dedup_daily` i zapisuje w savepoincie; `own_unread_count`
+  steruje „Oznacz wszystko” (oznacza tylko własne); odświeżenia dzwonka po
+  wiadomościach czatu są zlewane (`CHAT_REFRESH_COALESCE_MS`).
+- **`GET /api/cv-generator/clients/{id}/rule-for-generation`** (bramka
+  `CandidateWriteAccess`) zwraca notatkę i instrukcje DL tylko przy
+  `can_view_knowledge` klienta — reszta roli dostaje same wymogi formularza.
+- **Etykiety dostępności w wyszukiwarce** idą z `lib/search-availability.ts`
+  („Otwarty na oferty”), nie z `lib/filter-options.ts` („Otwarty na projekty”).

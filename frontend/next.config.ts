@@ -40,6 +40,10 @@ const nextConfig: NextConfig = {
       permanent: false,
     });
     return [
+      // Bramka „Pending" wyłączona 17.09.2026 — strona kolejki usunięta, ale
+      // powiadomienia `pending_verification` zapisane w bazie nadal do niej
+      // linkują. Bez tego klik w stare powiadomienie kończył się 404.
+      gone("/pending-verifications", "/jobs"),
       gone("/dynareporter/rekrutacja", insights("rekrutacja")),
       gone("/dynareporter/body-leasing", insights("rekrutacja")),
       gone("/dynareporter/placements", insights("rekrutacja")),

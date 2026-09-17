@@ -22,3 +22,10 @@ describe("przekierowania /dynareporter/* (UAT M10-B03)", () => {
     }
   });
 });
+
+describe("przekierowanie usuniętej kolejki weryfikacji (17.09.2026)", () => {
+  it("stare powiadomienia /pending-verifications nie kończą się 404", async () => {
+    const rule = (await redirects()).find((r) => r.source === "/pending-verifications");
+    expect(rule).toMatchObject({ destination: "/jobs", permanent: true });
+  });
+});

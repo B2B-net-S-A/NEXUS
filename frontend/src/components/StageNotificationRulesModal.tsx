@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Loader2, Mail, Pencil, Plus, Trash2, Wifi, X } from "lucide-react";
+import { Bell, Loader2, Mail, Pencil, Plus, Wifi, X } from "lucide-react";
 import {
   stageNotificationRulesApi,
   type StageNotificationRule,
   type StageNotificationRuleInput,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { DeleteButton } from "./ConfirmDialog";
+import { useToast } from "./Toast";
 import { RECIPIENT_LABELS, StageRuleForm } from "./StageRuleForm";
 
 interface Props {
@@ -26,6 +29,7 @@ export function StageNotificationRulesModal({
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { showError, showSuccess } = useToast();
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -60,14 +64,15 @@ export function StageNotificationRulesModal({
     await loadRules();
   };
 
+  // Potwierdzenie w miejscu (`DeleteButton`) i toast zamiast natywnych
+  // `confirm()`/`alert()` — te blokują kartę i zamrażają automatyzację.
   const handleDelete = async (ruleId: number) => {
-    if (!confirm("Usunąć regułę ? ")) return;
     try {
       await stageNotificationRulesApi.delete(templateId, stageDefId, ruleId);
+      showSuccess("Usunięto regułę powiadomień.");
       await loadRules();
     } catch (err: unknown) {
-      console.error(err);
-      alert("Nie udało się usunąć reguły.");
+      showError(apiErrorMessage(err, "Nie udało się usunąć reguły."));
     }
   };
 
@@ -165,13 +170,10 @@ export function StageNotificationRulesModal({
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(r.id)}
-                            className="text-red-400 hover:text-destructive p-1"
-                            title="Usuń"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <DeleteButton
+                            onConfirm={() => void handleDelete(r.id)}
+                            className="p-1"
+                          />
                         </div>
                       </div>
 

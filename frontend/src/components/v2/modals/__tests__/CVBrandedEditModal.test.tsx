@@ -213,3 +213,59 @@ it("offers regeneration for missing assets before editor load without saving emp
   expect(update).not.toHaveBeenCalled();
   expect(get).toHaveBeenCalledOnce();
 });
+
+it("a persistent save error does not trap the editor: close without saving after confirmation", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.status = "draft"; state.revision = 1;
+  const update = vi.spyOn(cvGeneratedEditorApi, "update").mockRejectedValue({
+    response: {status: 422, data: {detail: "CV nie może być puste."}},
+  });
+  const close = vi.fn();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open generatedId={7} onOpenChange={close} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p></p>"}});
+  fireEvent.click(footerClose());
+  expect(await screen.findByText("Nie udało się zapisać CV: CV nie może być puste.")).toBeInTheDocument();
+  expect(close).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", {name: "Wczytaj aktualną wersję"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Zamknij bez zapisu"}));
+  expect(await screen.findByText("Zamknąć bez zapisu?")).toBeInTheDocument();
+  expect(close).not.toHaveBeenCalled();
+  const buttons = screen.getAllByRole("button", {name: "Zamknij bez zapisu"});
+  fireEvent.click(buttons[buttons.length - 1]);
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false));
+  expect(state.stored).toBe("<p>Old text</p>");
+  update.mockRestore();
+});
+
+it("after a revision conflict the recruiter can load the current version", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.status = "draft"; state.revision = 1;
+  const update = vi.spyOn(cvGeneratedEditorApi, "update").mockImplementationOnce(async () => {
+    // Ktoś inny zapisał w międzyczasie.
+    state.stored = "<p>Colleague version</p>";
+    state.revision = 5;
+    throw {response: {status: 409, data: {detail: "CV zostało zmienione w innym oknie."}}};
+  });
+  const close = vi.fn();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open generatedId={7} onOpenChange={close} candidateName="Synthetic" /></QueryClientProvider>);
+  fireEvent.change(await screen.findByLabelText("audit editor"), {target: {value: "<p>My stale edit</p>"}});
+  fireEvent.click(footerClose());
+  expect(await screen.findByText(/Ktoś zapisał nowszą wersję/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Wczytaj aktualną wersję"}));
+  await waitFor(() => expect(state.html).toBe("<p>Colleague version</p>"));
+  await waitFor(() => expect(screen.queryByText(/Ktoś zapisał nowszą wersję/)).not.toBeInTheDocument());
+  expect(await screen.findByText("Zapisano")).toBeInTheDocument();
+  fireEvent.click(footerClose());
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false));
+  expect(state.stored).toBe("<p>Colleague version</p>");
+  update.mockRestore();
+});
+
+/** Stopka ma przycisk „Zamknij" z tekstem; krzyżyk okna ma tylko etykietę. */
+function footerClose(): HTMLElement {
+  const button = screen.getAllByRole("button", {name: "Zamknij"}).find(b => b.textContent?.trim() === "Zamknij");
+  if (!button) throw new Error("footer close button not found");
+  return button;
+}

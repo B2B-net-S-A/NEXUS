@@ -88,9 +88,11 @@ const KIND_FOR_GROUP: Record<PipelineGroupKey, NextActionKind> = {
  *  1. etap terminalny (odrzucony/wycofany) NIE ma następnej akcji — i to musi
  *     wygrać z bramkami, inaczej odrzucony kandydat z wetem HM dostawałby
  *     „Bramka: weto HM" na karcie, z której nikt go już nie rusza,
- *  2. `pending` — czekamy na cudzą decyzję, nie na własną akcję,
- *  3. weto hiring managera — każdy ruch nie-terminalny jest zablokowany,
- *  4. dopiero potem etap.
+ *  2. weto hiring managera — każdy ruch nie-terminalny jest zablokowany,
+ *  3. dopiero potem etap.
+ *
+ * (Bramka „Pending" wyłączona 17.09.2026 — stawka ponad budżet nie jest już
+ * „cudzą decyzją", tylko odznaką na karcie.)
  */
 export function nextActionFor(
   item: KanbanItem,
@@ -105,19 +107,10 @@ export function nextActionFor(
 
   // „Zatrudniony" jest terminalem, ale należy do grupy „Umowa → zatrudnieni",
   // więc guard wyżej go nie łapie. Bramki niżej też nie mogą: karta osoby już
-  // zatrudnionej z zaległym `pending` albo wetem HM (schemat tego nie
-  // wyklucza) mówiłaby „czeka na akceptację stawki" o kimś, kogo nikt
-  // nie rusza. Jedyna prawdziwa następna akcja to przekazanie do Delivery.
+  // zatrudnionej z wetem HM (schemat tego nie wyklucza) mówiłaby
+  // o bramce przy kimś, kogo nikt nie rusza. Jedyna prawdziwa następna akcja to przekazanie do Delivery.
   if (terminalOf(column) === "hired") {
     return { label: "Przekaż do Delivery", tone: "normal", kind: "contract" };
-  }
-
-  if (item.verification_status === "pending") {
-    return {
-      label: "Czeka na akceptację stawki",
-      tone: "gate",
-      kind: "verification",
-    };
   }
 
   if (item.hm_veto) {
@@ -127,6 +120,10 @@ export function nextActionFor(
   const days = item.days_in_stage ?? 0;
 
   switch (group) {
+    // „Ogłoszenia" (auto-match z ogłoszenia) — ta sama podpowiedź co „Nowi":
+    // `KIND_FOR_GROUP` deklarował grupę, a `switch` jej nie znał, więc karta
+    // zostawała bez wiersza „co dalej".
+    case "posting":
     case "intake":
       if (days <= FRESH_INTAKE_DAYS) {
         return { label: "Analiza CV · dziś", tone: "normal", kind: "analysis" };

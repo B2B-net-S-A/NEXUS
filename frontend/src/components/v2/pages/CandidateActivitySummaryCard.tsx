@@ -305,7 +305,11 @@ export function CandidateActivitySummaryCard({
             {refreshError}
           </p>
         ) : null}
-        {query.isPending || query.isFetching ? (
+        {query.isFetching && !query.isPending && !query.isError ? (
+          // Odświeżanie w tle nie zasłania podsumowania pełnym loaderem.
+          <p className="mb-2 text-xs text-muted-foreground">Odświeżam…</p>
+        ) : null}
+        {query.isPending ? (
           <div
             role="status"
             className="flex min-h-28 items-center justify-center gap-2 text-sm text-muted-foreground"

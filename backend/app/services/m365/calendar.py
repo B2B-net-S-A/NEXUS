@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.m365 import M365Connection
-from app.services.m365.graph_client import GraphClient
+from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import sanitize_html
 
 logger = logging.getLogger(__name__)
@@ -174,6 +174,49 @@ async def create_event(
     db.add(row)
     await db.flush()
     return row
+
+
+# ── Cancel ──────────────────────────────────────────────────────────────────
+
+CancelOutcome = Literal["cancelled", "deleted", "gone"]
+_CANCEL_COMMENT = "Spotkanie zostało odwołane."
+
+
+async def cancel_graph_event(
+    db: AsyncSession,
+    connection: M365Connection,
+    graph_event_id: str,
+    *,
+    comment: str = _CANCEL_COMMENT,
+) -> CancelOutcome:
+    """Odwołaj wydarzenie w Outlooku właściciela połączenia.
+
+    - `cancel` (tylko organizator) wysyła uczestnikom odwołanie → `cancelled`;
+    - 400/403 z `cancel` znaczy zwykle „nie jesteś organizatorem" (albo wpis
+      bez uczestników) — wtedy `DELETE` zdejmuje wpis z kalendarza twórcy
+      → `deleted`;
+    - 404 na którymkolwiek kroku: w Outlooku już go nie ma → `gone`.
+
+    Pozostałe błędy (5xx, 429 po ponowieniach, sieć) lecą wyżej — wołający
+    NIE zmienia wtedy niczego lokalnie.
+    """
+    url = f"/me/events/{graph_event_id}"
+    async with GraphClient(connection, db) as gc:
+        try:
+            await gc.post(f"{url}/cancel", json={"comment": comment}, expect_json=False)
+            return "cancelled"
+        except GraphRequestError as exc:
+            if exc.status == 404:
+                return "gone"
+            if exc.status not in (400, 403):
+                raise
+        try:
+            await gc.delete(url)
+        except GraphRequestError as exc:
+            if exc.status == 404:
+                return "gone"
+            raise
+        return "deleted"
 
 
 # ── Free-busy lookup ────────────────────────────────────────────────────────

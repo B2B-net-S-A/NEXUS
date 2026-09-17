@@ -72,12 +72,18 @@ def trim_snippet(content: str, limit: int = 140) -> str:
 def build_note_deep_link(note: Note) -> str:
     """Najbardziej specyficzny route — kandydat > job > kontrakt > orphan.
 
-    Frontend musi obsłużyć query params `?tab=notes&note={id}` (scroll/highlight).
+    Notatka o kandydacie (także przypięta do rekrutacji) otwiera widok notatek
+    w profilu kandydata, a ``note=`` podświetla wpis. Do 09.2026 link niósł
+    ``?tab=notes`` — klucz, którego ani profil kandydata, ani strona
+    rekrutacji nie znały, więc wzmianka lądowała na Podsumowaniu. Notatka
+    samej rekrutacji (bez kandydata) prowadzi na tablicę rekrutacji.
     """
     if note.candidate_id:
-        return f"/candidates/{note.candidate_id}?tab=notes&note={note.id}"
+        # Jeden literał: test kontraktowy `test_client_tab_links.py` czyta
+        # linki z kodu i sprawdza klucze zakładek z frontem.
+        return f"/candidates/{note.candidate_id}?tab=activity&activity=notes&note={note.id}"  # noqa: E501
     if note.job_id:
-        return f"/jobs/{note.job_id}?tab=notes&note={note.id}"
+        return f"/jobs/{note.job_id}?note={note.id}"
     if note.contract_id:
         return f"/contracts/{note.contract_id}?tab=notes&note={note.id}"
     return f"/?orphan_note={note.id}"

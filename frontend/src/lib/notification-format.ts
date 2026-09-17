@@ -25,3 +25,14 @@ export function notificationTimeAgo(
   if (diff < 86400) return `${Math.floor(diff / 3600)} h temu`;
   return `${countPl(Math.floor(diff / 86400), "dzień", "dni", "dni")} temu`;
 }
+
+/**
+ * Przypomnienie nieobecnego kolegi widoczne w zastępstwie — backend podaje
+ * `on_behalf_of_name` tylko dla cudzych wierszy. Pole jest opcjonalne w typie
+ * odpowiedzi (starsze wdrożenia go nie wysyłają), stąd luźny kształt wejścia.
+ */
+export function notificationOnBehalfLabel(notification: object): string | null {
+  const raw = (notification as { on_behalf_of_name?: unknown }).on_behalf_of_name;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  return name ? `w zastępstwie za ${name}` : null;
+}

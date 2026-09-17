@@ -63,6 +63,9 @@ interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
 }
 
+/** Okno zlewania odświeżeń dzwonka po wiadomościach czatu. */
+export const CHAT_REFRESH_COALESCE_MS = 1_500;
+
 export function useNotifications({ onNotification }: UseNotificationsOptions = {}) {
   const { token } = useAuthStore();
   const queryClient = useQueryClient();
@@ -75,6 +78,28 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   const lostConnectionRef = useRef(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Każda wiadomość czatu tworzy powiadomienie dla KAŻDEGO członka zespołu,
+  // więc dzwonek musi się odświeżyć — ale w żywej rozmowie seria wiadomości
+  // dawałaby serię refetchy u wszystkich. Zlewamy je w jedno odświeżenie po
+  // krótkiej ciszy (przegląd 17.09.2026).
+  const chatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatRefreshKeysRef = useRef<Set<string>>(new Set());
+  const scheduleChatRefresh = useCallback(
+    (unreadKey: [string]) => {
+      chatRefreshKeysRef.current.add(unreadKey[0]);
+      if (chatRefreshTimerRef.current) return;
+      chatRefreshTimerRef.current = setTimeout(() => {
+        chatRefreshTimerRef.current = null;
+        const keys = Array.from(chatRefreshKeysRef.current);
+        chatRefreshKeysRef.current.clear();
+        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        for (const key of keys) {
+          queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }, CHAT_REFRESH_COALESCE_MS);
+    },
+    [queryClient],
+  );
 
   // Poll fallback when WS is unavailable
   const startPolling = useCallback(() => {
@@ -202,6 +227,10 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
             );
           }
         } else if (msg.type === "chat:message:new" && msg.data) {
+          // Wzmianka `@Ty` w czacie tworzy powiadomienie po stronie serwera, ale
+          // gniazdo niesie wyłącznie zdarzenie czatu — bez tego dzwonek i licznik
+          // nieprzeczytanych czatu czekały na 5-minutowy poll.
+          scheduleChatRefresh(["job-chat-unread"]);
           if (typeof window !== "undefined") {
             const detail: ChatBusEvent = { kind: "new", data: msg.data };
             window.dispatchEvent(
@@ -241,6 +270,10 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           msg.type.startsWith("candidate-chat:message:") &&
           msg.data
         ) {
+          if (msg.type === "candidate-chat:message:new") {
+            // Jak w czacie rekrutacji: wzmianka ma trafić do dzwonka na żywo.
+            scheduleChatRefresh(["candidate-chat-unread"]);
+          }
           if (typeof window !== "undefined") {
             const kindMap: Record<string, CandidateChatBusEvent["kind"]> = {
               "candidate-chat:message:new": "new",
@@ -301,7 +334,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
         }
       }, delay);
     };
-  }, [token, queryClient, onNotification, startPolling, stopPolling]);
+  }, [token, queryClient, onNotification, startPolling, stopPolling, scheduleChatRefresh]);
 
   // Reset unread badge when user opens notification dropdown
   const clearUnread = useCallback(() => {
@@ -316,6 +349,10 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       mountedRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (chatRefreshTimerRef.current) {
+        clearTimeout(chatRefreshTimerRef.current);
+        chatRefreshTimerRef.current = null;
       }
       if (wsRef.current) {
         wsRef.current.onclose = null;

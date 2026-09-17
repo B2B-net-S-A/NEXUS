@@ -167,6 +167,9 @@ export function buildStageFunnel(
     const hired = countHired(columns);
     for (const g of groups) {
       if (g.key === "intake") totals.new += g.count;
+      // „Ogłoszenia" to też kandydaci na wejściu — bez tej linii mini-lejek
+      // listy i dok „Gotowość" gubiły ich (lista „1·0·0", tablica 5 kart).
+      else if (g.key === "posting") totals.new += g.count;
       else if (g.key === "screening") totals.screening += g.count;
       else if (g.key === "verification") totals.verified += g.count;
       else if (g.key === "client") totals.with_client += g.count;

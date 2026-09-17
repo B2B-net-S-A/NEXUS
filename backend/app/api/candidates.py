@@ -139,7 +139,6 @@ from app.api.deps import RecruiterPlus
 from app.api.candidate_access import (
     CandidateDocumentAccess,
     CandidateExportAccess,
-    CandidateFinanceAccess,
     CandidateHardDeleteAccess,
     CandidatePIIAccess,
     CandidateProfileFactsWriteAccess,
@@ -147,6 +146,7 @@ from app.api.candidate_access import (
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
+    resolve_client_rate_write,
 )
 from app.api.financial_access import (
     has_financial_access,
@@ -1782,6 +1782,7 @@ async def list_candidates(
     query, q_any_groups = await _build_candidate_filtered_query(
         db, filters, load_list_relations=True
     )
+    filtered_query = query
     query = _apply_candidate_sort(query, filters, q_any_groups)
     query = query.offset((page - 1) * page_size).limit(page_size)
     # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
@@ -1796,6 +1797,14 @@ async def list_candidates(
     rows = result.all()
     items = [row[0] for row in rows]
     total = rows[0].total_count if rows else 0
+    if not rows and page > 1:
+        # Strona poza zakresem (np. po usunięciu kandydatów albo z URL-a) nie ma
+        # wierszy, więc okno `count() OVER()` nie niesie sumy. Bez osobnego
+        # zliczenia lista mówiła „0 wyników” i nie dawała paginacji do powrotu.
+        total = int(
+            await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
+            or 0
+        )
 
     # Phase D1: resolve which weight profile to use for the match-stats column.
     profile: WeightProfile = DEFAULT_PROFILE
@@ -3717,7 +3726,7 @@ async def set_recruitment_client_rate(
     candidate_id: int,
     job_id: int,
     payload: ClientRateUpdate,
-    current_user: CandidateFinanceAccess,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ustaw/wyczyść „Stawkę do klienta" (cena wysłania kandydata do klienta)
@@ -3730,16 +3739,30 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
-    # Zapis „stawki do klienta" jest bramkowany zależnością `CandidateFinanceAccess`
-    # (Admin-only). Finance nie wchodzi na ścieżki z candidate PII, a role
-    # delivery/recruitment zachowują operacyjny `/history` z usuniętymi kwotami.
-    # Zmiana jest audytowana old→new poniżej (`CLIENT_RATE_CHANGED`).
+    # Bramka (decyzja Artura 2026-09-17): role zarządcze/Finanse
+    # (`CLIENT_RATE_WRITE_ROLES`) ALBO właściciel/twórca tej rekrutacji —
+    # `user_can_write_client_rate`, ta sama funkcja, która zasila
+    # `can_write_client_rate` w `GET /api/jobs/{id}`. Do tej pory admin-only,
+    # a tablica pytała o stawkę każdego. Zmiana audytowana old→new poniżej.
     #
     # Resource scope: rola mówi tylko „wolno ci ustawiać stawki do klienta",
     # nie „wolno ci ustawiać je w TEJ rekrutacji". Cena wysyłki kandydata do
     # klienta to dane finansowe konkretnej oferty — bez tej bramki TAC spoza
     # zespołu oferty mógł je odczytać (przez odpowiedź) i nadpisać.
-    await ensure_job_membership(db, current_user, job_id)
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    if not await resolve_client_rate_write(db, current_user, job):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
+                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
+                "albo jej właściciel."
+            ),
+        )
+    # Zakres rekrutacji rozstrzyga `resolve_client_rate_write` (członkostwo
+    # albo własność) — ten sam wynik, który widzi front w `can_write_client_rate`.
 
     latest, previous_rate = await update_latest_client_rate(
         db,

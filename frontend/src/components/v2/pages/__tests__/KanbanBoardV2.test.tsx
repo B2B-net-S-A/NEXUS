@@ -3,9 +3,10 @@
  *
  * Drag-and-drop nie jest odpalalny w jsdom (repo-precedens: weryfikacja dnd
  * unit testami + realnym Chrome), więc testujemy powierzchnie renderu i akcji:
- * - compact NIE ukrywa accept/reject weryfikacji (P2.1),
- * - guard approvera czyta pełny zbiór ról (primary + secondary — P0.3 FE),
- * - akcja accept celuje w id karty (fundament fixu stale-ID).
+ * - bramka „Pending" wyłączona (17.09.2026): karta ponad budżetem ma odznakę
+ *   informacyjną, zero akcji akceptacji i żadnej blokady ruchu,
+ * - ruch zbiorczy przechodzi przez tę samą bramkę co przeciągnięcie,
+ * - modal stawki do klienta tylko dla `can_write_client_rate`.
  */
 
 import * as React from "react";
@@ -14,16 +15,16 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const acceptVerification = vi.fn();
 const kanban = vi.fn();
 const post = vi.fn();
+const apiGet = vi.fn();
+const toastError = vi.fn();
+const toastSuccess = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: {
-    get: vi.fn(() =>
-      Promise.resolve({ data: { salary_max: null, pipeline_template_id: null } })
-    ),
+    get: (...a: unknown[]) => apiGet(...a),
     post: (...a: unknown[]) => post(...a),
   },
   candidatesApi: {
@@ -33,8 +34,6 @@ vi.mock("@/lib/api", () => ({
   pipelineApi: {
     kanban: (...a: unknown[]) => kanban(...a),
     move: vi.fn(() => Promise.resolve({ data: {} })),
-    acceptVerification: (...a: unknown[]) => acceptVerification(...a),
-    rejectVerification: vi.fn(),
   },
   pipelineTemplatesApi: {
     get: vi.fn(() =>
@@ -47,8 +46,8 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({
     showActionToast: vi.fn(),
-    showSuccess: vi.fn(),
-    showError: vi.fn(),
+    showSuccess: toastSuccess,
+    showError: toastError,
   }),
 }));
 
@@ -59,6 +58,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 
+beforeEach(() => {
+  apiGet.mockImplementation(() =>
+    Promise.resolve({ data: { salary_max: null, pipeline_template_id: null } }),
+  );
+});
+
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
   if (!HTMLElement.prototype.hasPointerCapture) {
@@ -68,7 +73,7 @@ beforeAll(() => {
   }
 });
 
-function pendingColumns() {
+function overBudgetColumns() {
   return [
     {
       stage: "verified",
@@ -84,7 +89,8 @@ function pendingColumns() {
           lastname: "Kowalska",
           stage: "verified",
           days_in_stage: 1,
-          verification_status: "pending",
+          verification_status: "active",
+          budget_exceeded: true,
           expected_rate_value: 150,
           expected_rate_unit: "hourly",
           expected_rate_currency: "PLN",
@@ -184,7 +190,7 @@ function overflowColumns() {
 }
 
 function renderBoard(
-  columns = pendingColumns(),
+  columns = overBudgetColumns(),
   scoreMap?: Map<number, number>,
   readOnly = false,
 ) {
@@ -205,23 +211,26 @@ function renderBoard(
   );
 }
 
-describe("KanbanBoardV2 — pending verification card", () => {
+describe("KanbanBoardV2 — karta ponad budżetem (bramka „Pending” wyłączona)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     post.mockResolvedValue({ data: {} });
   });
 
-  it("compact NIE ukrywa akcji accept/reject dla approvera (P2.1)", async () => {
-    useAuthStore.setState({
-      user: { role: "delivery_lead", roles: ["delivery_lead"] } as never,
-    });
-    useUiStore.setState({ density: "compact" } as never);
+  it.each(["admin", "delivery_lead", "head_of_recruitment", "recruiter"])(
+    "rola %s widzi odznakę „ponad budżet” i ŻADNEJ akcji akceptacji",
+    async (role) => {
+      useAuthStore.setState({ user: { role, roles: [role] } as never });
+      useUiStore.setState({ density: "cozy" } as never);
 
-    renderBoard();
-    expect(await screen.findByTitle("Akceptuj weryfikację")).toBeTruthy();
-    expect(screen.getByTitle("Odrzuć weryfikację")).toBeTruthy();
-  });
+      renderBoard();
+      expect(await screen.findByText("ponad budżet")).toBeTruthy();
+      expect(screen.queryByText("Pending")).toBeNull();
+      expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
+      expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
+    },
+  );
 
   it("pokazuje wynik dopasowania także na karcie oczekującej na akceptację", async () => {
     useAuthStore.setState({
@@ -229,26 +238,14 @@ describe("KanbanBoardV2 — pending verification card", () => {
     });
     useUiStore.setState({ density: "compact" } as never);
 
-    renderBoard(pendingColumns(), new Map([[5, 77]]));
+    renderBoard(overBudgetColumns(), new Map([[5, 77]]));
 
     expect(
       await screen.findByLabelText("Dopasowanie AI: 77 na 100"),
     ).toBeTruthy();
   });
 
-  it("approver po roli DODATKOWEJ widzi akcje (multi-role, P0.3 FE)", async () => {
-    useAuthStore.setState({
-      // primary tac (bez uprawnień approvera), secondary delivery_lead — stary
-      // kod patrzył tylko na primary i chował przyciski.
-      user: { role: "tac", roles: ["tac", "delivery_lead"] } as never,
-    });
-    useUiStore.setState({ density: "cozy" } as never);
-
-    renderBoard();
-    expect(await screen.findByTitle("Akceptuj weryfikację")).toBeTruthy();
-  });
-
-  it("zwykły recruiter (bez ról approvera) nie widzi akcji decyzyjnych", async () => {
+  it("karta rekrutera mówi wprost o braku danych osoby dodającej", async () => {
     useAuthStore.setState({
       user: { role: "recruiter", roles: ["recruiter"] } as never,
     });
@@ -257,8 +254,6 @@ describe("KanbanBoardV2 — pending verification card", () => {
     renderBoard();
     // Karta się renderuje…
     const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
-    // …ale decyzje approvera nie.
-    expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
     // Fala 3: wiersz właściciela to awatar + imię, a brak danych mówi o sobie
     // wprost zamiast udawać nazwisko.
     expect(screen.getByText("Brak danych")).toBeTruthy();
@@ -269,26 +264,13 @@ describe("KanbanBoardV2 — pending verification card", () => {
     );
   });
 
-  it("accept celuje w id karty (fundament fixu stale-ID)", async () => {
-    useAuthStore.setState({
-      user: { role: "admin", roles: ["admin"] } as never,
-    });
-    useUiStore.setState({ density: "compact" } as never);
-    acceptVerification.mockResolvedValue({ data: {} });
-
-    renderBoard();
-    const btn = await screen.findByTitle("Akceptuj weryfikację");
-    await userEvent.click(btn);
-    await waitFor(() => expect(acceptVerification).toHaveBeenCalledWith(777));
-  });
-
   it("w trybie tylko do odczytu ukrywa mutacje, ale zachowuje eksport CV", async () => {
     useAuthStore.setState({
       user: { role: "admin", roles: ["admin"] } as never,
     });
     useUiStore.setState({ density: "compact" } as never);
 
-    renderBoard(pendingColumns(), undefined, true);
+    renderBoard(overBudgetColumns(), undefined, true);
 
     expect(await screen.findByRole("link", { name: "Anna Kowalska" })).toBeTruthy();
     const checkbox = screen.getByRole("checkbox", { name: "Zaznacz Anna Kowalska" });
@@ -299,8 +281,6 @@ describe("KanbanBoardV2 — pending verification card", () => {
     // przenoszenia, ani skrótu „Odrzuć".
     expect(screen.queryByText(/Przenieś na etap/)).toBeNull();
     expect(screen.queryByRole("button", { name: /^Odrzuć$/ })).toBeNull();
-    expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
-    expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Usuń Anna Kowalska z rekrutacji" }),
     ).toBeNull();
@@ -475,38 +455,88 @@ describe("KanbanBoardV2 — bramka ruchu doku i zapytanie strony", () => {
     ).not.toBeDisabled();
   });
 
-  it("karta „Pending” w doku: każdy etap i „Odrzuć z powodem” zablokowane z powodem", async () => {
-    renderBoard(gateColumns({ verification_status: "pending" }));
+  it("karta ponad budżetem (także zapisana jako `pending`) nie blokuje żadnego ruchu w doku", async () => {
+    renderBoard(
+      gateColumns({ verification_status: "pending", budget_exceeded: true }),
+    );
     const pills = await openDockPills();
 
     for (const name of ["Zweryfikowany", "CV Wysłane", "Odrzucony"]) {
-      const pill = within(pills).getByRole("button", { name });
-      expect(pill).toBeDisabled();
-      expect(pill.getAttribute("title")).toContain("czeka na akceptację");
+      expect(within(pills).getByRole("button", { name })).not.toBeDisabled();
     }
-    const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
-    expect(reject).toBeDisabled();
-    expect(reject.getAttribute("title")).toContain("czeka na akceptację");
+    expect(
+      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
+    ).not.toBeDisabled();
   });
 
-  it("akceptacja weryfikacji unieważnia zapytanie strony `[\"kanban\", id]`", async () => {
-    acceptVerification.mockResolvedValue({ data: {} });
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const invalidate = vi.spyOn(qc, "invalidateQueries");
-    render(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={pendingColumns()} jobId={10} />
-        </TooltipProvider>
-      </QueryClientProvider>,
+  it("ruch zbiorczy pomija kartę zablokowaną wetem i mówi dlaczego — bez cichego powrotu", async () => {
+    const veto = {
+      hiring_manager_contact_id: 5,
+      source_job_id: 2,
+      rejected_at: "2026-01-01",
+      rejection_reason_name: "Brak doświadczenia w bankowości",
+    };
+    renderBoard(gateColumns({ hm_veto: veto }));
+    await userEvent.click(
+      await screen.findByRole("checkbox", { name: "Zaznacz Jan Bramka" }),
     );
+    const bulkTrigger = screen
+      .getAllByRole("combobox")
+      .find((el) => el.textContent?.includes("Przenieś na etap"));
+    await userEvent.click(bulkTrigger as Element);
+    await userEvent.click(await screen.findByRole("option", { name: /CV Wysłane/ }));
 
-    await userEvent.click(await screen.findByTitle("Akceptuj weryfikację"));
-    await waitFor(() => expect(acceptVerification).toHaveBeenCalledWith(777));
     await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", "10"] }),
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringContaining("Brak doświadczenia w bankowości"),
+      ),
     );
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["kanban", 10] });
+    expect(toastError.mock.calls[0][0]).toContain("Jan Bramka");
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("„CV Wysłane” bez prawa zapisu stawki do klienta przenosi kartę bez pytania o stawkę", async () => {
+    apiGet.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          salary_max: null,
+          pipeline_template_id: null,
+          can_write_client_rate: false,
+        },
+      }),
+    );
+    renderBoard(gateColumns({}));
+    const pills = await openDockPills();
+    await userEvent.click(within(pills).getByRole("button", { name: "CV Wysłane" }));
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/pipeline/move",
+        expect.objectContaining({ candidate_id: 61, stage: "cv_sent" }),
+      ),
+    );
+    expect(screen.queryByText(/stawk[aęi] do klienta/i)).toBeNull();
+  });
+
+  it("„CV Wysłane” z prawem zapisu stawki do klienta najpierw pyta o stawkę", async () => {
+    apiGet.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          salary_max: null,
+          pipeline_template_id: null,
+          can_write_client_rate: true,
+        },
+      }),
+    );
+    renderBoard(gateColumns({}));
+    // Odpowiedź `GET /api/jobs/{id}` musi dojść, zanim klikniemy.
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    const pills = await openDockPills();
+    await userEvent.click(within(pills).getByRole("button", { name: "CV Wysłane" }));
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
   });
 });
 

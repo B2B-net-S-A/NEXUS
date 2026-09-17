@@ -46,7 +46,7 @@ import api, {
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -65,7 +65,10 @@ import {
   RejectionV2,
   type CandidateOfferResponse,
 } from "@/components/v2/modals/RejectionV2";
-import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import {
+  evaluateRateGate,
+  isJobBudgetHiddenFor,
+} from "@/lib/verified-rate-gate";
 import {
   PIPELINE_VERSION_CONFLICT_MESSAGE,
   expectedStateVersionOf,
@@ -84,7 +87,7 @@ import {
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
-  selectPendingVerifications,
+  selectOverBudget,
   selectScreeningQueue,
   stageAgeTone,
   type FlowQueueEntry,
@@ -153,21 +156,14 @@ export function ScreeningWorkbench({
 }: ScreeningWorkbenchProps) {
   const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
-  // `/pending-verifications` jest bramkowane rolą approvera (admin / DL / HoR)
-  // — link dla rekrutera prowadziłby wprost w 403.
+  // Delivery Lead / TCM dostają `salary_max = null` (redakcja budżetu) —
+  // werdykt stawki mówi wtedy „budżet ukryty", nie „brak budżetu".
   const authUser = useAuthStore((s) => s.user);
-  const canApprove = hasRole(
-    authUser,
-    "admin",
-    "delivery_lead",
-    "head_of_recruitment",
-  );
+  const budgetHidden = isJobBudgetHiddenFor(authUser);
 
   const queue = useMemo(() => selectScreeningQueue(columns), [columns]);
-  const pendingQueue = useMemo(
-    () => selectPendingVerifications(columns),
-    [columns],
-  );
+  // Informacja, nie kolejka decyzji: bramka „Pending" wyłączona 17.09.2026.
+  const overBudgetQueue = useMemo(() => selectOverBudget(columns), [columns]);
   const verifiedCol = useMemo(
     () => findStageColumn(columns, VERIFIED_STAGE),
     [columns],
@@ -183,12 +179,17 @@ export function ScreeningWorkbench({
   const [rejectOpen, setRejectOpen] = useState(false);
   // Pierwsze wejście (i zniknięcie wybranej karty po ruchu) wybiera pierwszą
   // pozycję kolejki. Bez tego stanowisko startuje puste, mimo że ktoś czeka.
-  // Wybierać można z OBU list (kolejka screeningu i „czeka na akceptację") —
-  // klik w pending-a otwiera JEGO arkusz, zamiast gasić całe stanowisko
-  // (karty pending stoją w kolumnie „Zweryfikowany", nie w kolejce screeningu).
+  // Wybierać można z OBU list (kolejka screeningu i „ponad budżet") — klik
+  // w kartę ponad budżetem otwiera JEJ arkusz, zamiast gasić stanowisko
+  // (te karty stoją zwykle na „Zweryfikowany", nie w kolejce screeningu).
   const allEntries = useMemo(
-    () => [...queue, ...pendingQueue],
-    [queue, pendingQueue],
+    () => [
+      ...queue,
+      ...overBudgetQueue.filter(
+        (e) => !queue.some((q) => q.item.id === e.item.id),
+      ),
+    ],
+    [queue, overBudgetQueue],
   );
   useEffect(() => {
     setSelectedStageId((prev) =>
@@ -218,6 +219,7 @@ export function ScreeningWorkbench({
     unit,
     currency: "PLN",
     jobBudgetMax,
+    budgetHidden,
   });
 
   // ── Arkusz Championa dla wybranego etapu ────────────────────────────────
@@ -273,7 +275,7 @@ export function ScreeningWorkbench({
       });
       const moved = res.data as {
         id?: number;
-        verification_status?: "active" | "pending";
+        budget_exceeded?: boolean;
       };
       // Ruch tworzy NOWY `CandidateStage`, a `transition_process` nie kopiuje
       // `screening_answers` — arkusz zapisany na etapie „Screening" zostałby na
@@ -295,9 +297,9 @@ export function ScreeningWorkbench({
         showError(
           "Przeniesiono na „Zweryfikowany”, ale nie udało się przepisać arkusza screeningu na nowy etap — otwórz arkusz z tablicy Pipeline i zapisz go ponownie.",
         );
-      } else if (data?.verification_status === "pending") {
+      } else if (data?.budget_exceeded) {
         showSuccess(
-          "Wysłano do akceptacji stawki. Karta będzie aktywna po zatwierdzeniu.",
+          "Kandydat przeniesiony na „Zweryfikowany”. Stawka przekracza budżet rekrutacji — zapisano jako informację.",
         );
       } else {
         showSuccess("Kandydat przeniesiony na „Zweryfikowany”.");
@@ -406,8 +408,7 @@ export function ScreeningWorkbench({
             ? "Arkusz screeningu ma niezapisane odpowiedzi — zapisz go najpierw (przeniesienie tworzy NOWY etap, ten formularz dotyczy obecnego)."
             : null))
     : "Wybierz kandydata z kolejki.";
-  // Odrzucenie to ruch terminalny: omija weto, ale NIE kartę „Pending" —
-  // serwer odmawia każdego ruchu, dopóki weryfikacja stawki czeka na decyzję.
+  // Odrzucenie to ruch terminalny: omija weto hiring managera.
   const rejectBlocked = selected
     ? moveBlockedReason({
         item: selected.item,
@@ -497,9 +498,7 @@ export function ScreeningWorkbench({
                   tone={
                     entry.item.hm_veto
                       ? "bad"
-                      : entry.item.verification_status === "pending"
-                        ? "warn"
-                        : stageAgeTone(entry.item.days_in_stage, slaDays)
+                      : stageAgeTone(entry.item.days_in_stage, slaDays)
                   }
                   label={itemFullName(entry.item)}
                   meta={
@@ -522,32 +521,18 @@ export function ScreeningWorkbench({
         )}
 
         <RailSection
-          label="Czeka na akceptację stawki"
-          note={
-            <>
-              Approverzy: admin · Delivery Lead · HoR.{" "}
-              {canApprove ? (
-                <Link
-                  href="/pending-verifications"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3" /> Kolejka globalna
-                </Link>
-              ) : (
-                "Kolejka globalna jest dla nich."
-              )}
-            </>
-          }
+          label="Ponad budżet"
+          note="Informacja: stawka zapisana przy weryfikacji przekracza budżet rekrutacji. Nic nie blokuje ruchu."
         >
-          {pendingQueue.length > 0 ? (
+          {overBudgetQueue.length > 0 ? (
             <div className="space-y-0.5">
-              {pendingQueue.map((entry) => (
+              {overBudgetQueue.map((entry) => (
                 <RailRow
                   key={entry.item.id}
                   tone="warn"
                   label={itemFullName(entry.item)}
                   secondary={formatExpectedRate(entry.item) ?? undefined}
-                  meta="pending"
+                  meta="ponad budżet"
                   metaTone="warn"
                   active={entry.item.id === selectedStageId}
                   onSelect={() => setSelectedStageId(entry.item.id)}
@@ -556,7 +541,7 @@ export function ScreeningWorkbench({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Nikt nie czeka na akceptację stawki.
+              Nikt nie jest ponad budżetem.
             </p>
           )}
         </RailSection>
@@ -630,9 +615,13 @@ export function ScreeningWorkbench({
                 .join(" · ")}
               badges={
                 <>
-                  {selected.item.verification_status === "pending" && (
-                    <Badge variant="warning" size="sm">
-                      <HelpCircle className="h-2.5 w-2.5" /> Pending
+                  {selected.item.budget_exceeded && (
+                    <Badge
+                      variant="warning"
+                      size="sm"
+                      title="Stawka kandydata przekracza budżet rekrutacji — informacja, nic nie blokuje."
+                    >
+                      <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
                     </Badge>
                   )}
                   {selected.item.hm_veto && (
@@ -803,9 +792,9 @@ export function ScreeningWorkbench({
                   idPrefix="screening-dock-rate"
                 />
                 <p className="text-[10.5px] text-muted-foreground">
-                  Powyżej budżetu albo nieznana jednostka → karta „Pending”
-                  i powiadomienie approverów (admin / DL / HoR). Normalizacja:
-                  h×168, dzień×21.
+                  Powyżej budżetu → odznaka „ponad budżet” na karcie
+                  (informacja, bez akceptacji). Normalizacja: h×168,
+                  dzień×21.
                 </p>
               </DockSection>
 

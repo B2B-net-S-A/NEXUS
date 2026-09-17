@@ -34,6 +34,12 @@ import {
   saveTalentRadarSession,
 } from "@/lib/talent-radar-session";
 import { FullCandidateSearchResults } from "@/components/talent-radar/FullCandidateSearchResults";
+import {
+  formatRadarRunCriteria,
+  radarBudgetError,
+  radarOfficeDaysError,
+  type RadarRunCriteria,
+} from "@/components/talent-radar/run-criteria";
 
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
 const MIN_QUERY_LENGTH = 30;
@@ -75,7 +81,19 @@ function AdHocTalentRadarWorkspace() {
   const [location, setLocation] = useState("");
   const actorId = useAuthStore(s => s.user?.id);
   const fullSearch = useFullCandidateSearch({ storageKey: actorId ? `nexus-full-radar:${actorId}` : undefined });
-  useEffect(() => { if (fullSearch.error) { showError(extractErrorMsg(fullSearch.error)); setIntakeValidation(championErrorValidation(fullSearch.error)); } }, [fullSearch.error, showError]);
+  // Toast RAZ na epizod błędu: w czasie blipu sieci każdy nieudany poll daje
+  // nowy obiekt błędu, a toast przy każdym z nich zasypywał ekran. Epizod
+  // kończy się, gdy błąd zniknie (udany odczyt, nowy bieg, wyczyszczenie).
+  const errorToastShown = useRef(false);
+  useEffect(() => {
+    if (!fullSearch.error) { errorToastShown.current = false; return; }
+    setIntakeValidation(championErrorValidation(fullSearch.error));
+    if (errorToastShown.current) return;
+    errorToastShown.current = true;
+    showError(extractErrorMsg(fullSearch.error));
+  }, [fullSearch.error, showError]);
+  // Kryteria, z którymi uruchomiono wyświetlany bieg („Kryteria biegu").
+  const [runCriteria, setRunCriteria] = useState<RadarRunCriteria | null>(null);
   // Dealbreaker-switche: budżet podaje rekruter wprost (radar nie ma oferty)
   // i SAMA jego obecność działa jako twardy sufit — bez marginesu, bez
   // osobnego uzbrajania (decyzja produktowa 19.08). Nieznana stawka/
@@ -183,6 +201,7 @@ function AdHocTalentRadarWorkspace() {
       setChampionProfile(saved.championProfile);
       setChampionSummary(saved.championSummary);
       importedValues.current = saved.championImportedValues ?? {};
+      setRunCriteria(saved.runCriteria ?? null);
       // Old capped-pool responses are not valid full-population results.
     }
     setHydrated(true);
@@ -204,6 +223,7 @@ function AdHocTalentRadarWorkspace() {
       championSkills,
       championImportedValues: importedValues.current,
       requirementsPreview,
+      runCriteria,
       response: null,
     });
   }, [
@@ -220,9 +240,20 @@ function AdHocTalentRadarWorkspace() {
     championSummary,
     championSkills,
     requirementsPreview,
+    runCriteria,
   ]);
 
-  const startSearch = () => fullSearch.start({ radar: {
+  const startSearch = async () => {
+    const criteria: RadarRunCriteria = {
+      clientName: client!.name,
+      budget: Number(budgetMax) > 0 ? Number(budgetMax) : null,
+      location:
+        (championProfile ? championSummary?.location : location.trim()) || null,
+      officeDays: onsiteDaysPerWeek.trim() !== "" ? Number(onsiteDaysPerWeek) : null,
+      officeLocation: officeLocation.trim() || null,
+      excludeRemoteOnly,
+    };
+    const run = await fullSearch.start({ radar: {
         client_id: client!.id,
         text: championProfile ? undefined : text.trim() || undefined,
         champion_profile: championProfile ?? undefined,
@@ -247,14 +278,27 @@ function AdHocTalentRadarWorkspace() {
         onsite_days_per_week:
           onsiteDaysPerWeek.trim() !== "" ? Number(onsiteDaysPerWeek) : undefined,
         office_location: officeLocation.trim() || undefined,
-  } });
+    } });
+    // Kryteria zmieniamy dopiero po przyjęciu biegu — odmowa startu zostawia
+    // na ekranie poprzedni bieg, więc i jego kryteria.
+    if (run) setRunCriteria(criteria);
+  };
 
   // Zmiana wejścia unieważnia POPRZEDNI błąd tak samo jak poprzednie wyniki:
   // komunikat „nie udało się" wiszący nad świeżo wybranym klientem opisywałby
   // zapytanie, którego już nie ma.
+  //
+  // Dotyczy KAŻDEGO pola, które wchodzi do requestu (budżet, dni, miasto
+  // biura, lokalizacja, „wyłącznie zdalnie”, treść, nazwa roli) — nie tylko
+  // klienta. Wyniki pod zmienionym formularzem czytały się jak policzone dla
+  // nowych kryteriów.
   const clearResults = () => {
     fullSearch.clear();
+    setRunCriteria(null);
   };
+
+  const budgetError = radarBudgetError(budgetMax);
+  const officeDaysError = radarOfficeDaysError(onsiteDaysPerWeek);
 
   const hasProfile = championProfile !== null;
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
@@ -262,8 +306,10 @@ function AdHocTalentRadarWorkspace() {
     if (!client) return "Wybierz klienta.";
     if (!hasProfile && tooShort)
       return `Wgraj profil Championa ALBO wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków).`;
+    // Szczegół stoi przy polu; tu tylko wskazanie, dlaczego start jest zablokowany.
+    if (budgetError || officeDaysError) return "Popraw liczby zaznaczone w formularzu.";
     return null;
-  }, [client, tooShort, hasProfile]);
+  }, [client, tooShort, hasProfile, budgetError, officeDaysError]);
 
   const onChampionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -375,7 +421,7 @@ function AdHocTalentRadarWorkspace() {
               <Textarea
                 id="tr-text"
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => { setText(e.target.value); clearResults(); }}
                 placeholder="Wklej maila od klienta, opis stanowiska albo listę wymagań — jak leci."
                 rows={6}
                 maxLength={20_000}
@@ -420,20 +466,25 @@ function AdHocTalentRadarWorkspace() {
                 min={1}
                 max={2000}
                 value={budgetMax}
-                onChange={(e) => { delete importedValues.current.budget; setBudgetMax(e.target.value); }}
+                onChange={(e) => { delete importedValues.current.budget; setBudgetMax(e.target.value); clearResults(); }}
                 placeholder="np. 150"
+                aria-invalid={budgetError ? true : undefined}
+                aria-describedby={budgetError ? "tr-budget-error" : undefined}
                 className="w-28"
               />
               <label className="flex items-center gap-1.5 text-sm">
                 <input
                   type="checkbox"
                   checked={excludeRemoteOnly}
-                  onChange={(e) => setExcludeRemoteOnly(e.target.checked)}
+                  onChange={(e) => { setExcludeRemoteOnly(e.target.checked); clearResults(); }}
                   data-testid="tr-exclude-remote-only"
                 />
                 praca z biura — ukryj „wyłącznie zdalnie”
               </label>
             </div>
+            {budgetError && (
+              <p id="tr-budget-error" className="text-xs text-destructive">{budgetError}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               {championSummary?.rate_value
                 ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
@@ -448,10 +499,15 @@ function AdHocTalentRadarWorkspace() {
               min={0}
               max={7}
               value={onsiteDaysPerWeek}
-              onChange={(e) => { delete importedValues.current.days; setOnsiteDaysPerWeek(e.target.value); }}
+              onChange={(e) => { delete importedValues.current.days; setOnsiteDaysPerWeek(e.target.value); clearResults(); }}
               placeholder="np. 2 — 0 = tylko zdalnie"
+              aria-invalid={officeDaysError ? true : undefined}
+              aria-describedby={officeDaysError ? "tr-onsite-days-error" : undefined}
               className="w-28"
             />
+            {officeDaysError && (
+              <p id="tr-onsite-days-error" className="text-xs text-destructive">{officeDaysError}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               Bez tej liczby dealbreakery dni/miasta biura są nieaktywne —
               „nie wiemy" przechodzi. Wpisz 0, żeby zaznaczyć „tylko zdalnie".
@@ -462,7 +518,7 @@ function AdHocTalentRadarWorkspace() {
             <Input
               id="tr-office-location"
               value={officeLocation}
-              onChange={(e) => { delete importedValues.current.city; setOfficeLocation(e.target.value); }}
+              onChange={(e) => { delete importedValues.current.city; setOfficeLocation(e.target.value); clearResults(); }}
               placeholder="np. Warszawa"
               maxLength={200}
             />
@@ -476,7 +532,7 @@ function AdHocTalentRadarWorkspace() {
             <Input
               id="tr-location"
               value={hasProfile ? (championSummary?.location ?? "") : location}
-              onChange={(e) => setLocation(e.target.value)}
+              onChange={(e) => { setLocation(e.target.value); clearResults(); }}
               readOnly={hasProfile}
               placeholder="np. Warszawa"
               maxLength={200}
@@ -493,7 +549,7 @@ function AdHocTalentRadarWorkspace() {
               <Input
                 id="tr-title"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => { setTitle(e.target.value); clearResults(); }}
                 placeholder="np. Senior Python Developer"
                 maxLength={300}
               />
@@ -542,6 +598,16 @@ function AdHocTalentRadarWorkspace() {
           </Button>
         </div>
       </div>
+
+      {fullSearch.runId && runCriteria && (
+        <p
+          className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+          data-testid="tr-run-criteria"
+        >
+          <span className="font-medium text-foreground">Kryteria biegu:</span>{" "}
+          {formatRadarRunCriteria(runCriteria, fullSearch.data?.budget_hourly)}
+        </p>
+      )}
 
       <FullCandidateSearchResults
         data={fullSearch.data}

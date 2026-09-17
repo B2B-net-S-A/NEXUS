@@ -70,7 +70,7 @@ vi.mock("@/components/v2/modals/PrepInviteModal", () => ({
   PrepInviteModal: () => <div data-testid="prep-invite-stub" />,
 }));
 
-import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
+import { JobInterviewsTab, feedbackStatusLabel } from "@/components/v2/jobs/JobInterviewsTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { useAuthStore, type UserRole } from "@/store/auth";
 
@@ -390,29 +390,27 @@ describe("JobInterviewsTab", () => {
     expect(showSuccess).not.toHaveBeenCalled();
   });
 
-  it("karta „Pending” blokuje każdy ruch z powodem — także odrzucenie (serwer odpowiada 409)", async () => {
-    const pending = columns();
-    pending[0] = {
-      ...pending[0],
-      items: [item({ verification_status: "pending" })],
+  it("stawka ponad budżet (bramka „Pending” wyłączona) to informacja — ruchy zostają dostępne", async () => {
+    const overBudget = columns();
+    overBudget[0] = {
+      ...overBudget[0],
+      items: [item({ verification_status: "pending", budget_exceeded: true })],
     };
-    renderTab({ columns: pending });
+    renderTab({ columns: overBudget });
 
-    const acceptance = await screen.findByRole("button", { name: "Akceptacja" });
-    expect(acceptance).toBeDisabled();
-    expect(acceptance.getAttribute("title")).toMatch(/czeka na akceptację/);
-    const rejected = screen.getByRole("button", { name: "Odrzucony" });
-    expect(rejected).toBeDisabled();
+    expect(await screen.findByText("Stawka ponad budżet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Akceptacja" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Odrzucony" })).not.toBeDisabled();
     expect(
       screen.getByRole("button", { name: /Odrzuć z powodem/ }),
-    ).toBeDisabled();
+    ).not.toBeDisabled();
   });
 
-  it("Head of Recruitment ma podgląd werdyktu, ale nie dostaje „Zapisz” kończącego się 403", async () => {
+  it("Head of Recruitment spoza zespołu (parytet z rekruterem od 17.09.2026) dostaje podgląd, nie „Zapisz” kończące się 403", async () => {
     loginAs("head_of_recruitment");
     listFeedback.mockResolvedValue({ can_record: false, items: [] });
     renderTab();
-    expect(await screen.findByText(/Twoja rola ma tu podgląd/)).toBeTruthy();
+    expect(await screen.findByText(/nie należysz do niego/)).toBeTruthy();
     expect(screen.getByLabelText("Powód (gdy odrzuca)")).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
   });
@@ -585,5 +583,46 @@ describe("JobInterviewsTab", () => {
     expect(screen.getByText(/„Wycofany” ZAWSZE ze słownika/)).toBeTruthy();
     expect(screen.getByText(/wysyłka za 15 min/)).toBeTruthy();
     expect(screen.getByText(/konfetti jak dziś/)).toBeTruthy();
+  });
+});
+
+describe("feedback klienta zapisany z kalendarza (audyt 17.09.2026)", () => {
+  it("status nazywa werdykt z rozmowy datą, zamiast „do uzupełnienia”", async () => {
+    listFeedback.mockResolvedValue({
+      can_record: true,
+      items: [
+        {
+          id: 9,
+          job_id: 10,
+          candidate_id: 42,
+          decision: "on_hold",
+          rejection_reason_id: null,
+          rejection_reason_name: null,
+          note: "Klient chce się zastanowić.",
+          technical_fit: null,
+          soft_fit: null,
+          overall_fit: null,
+          hiring_manager_contact_id: null,
+          hiring_manager_name: null,
+          blocks_future_proposals: false,
+          veto_recorded: false,
+          veto_blockers: [],
+          can_edit: true,
+          calendar_event_id: 77,
+          event_start_time: "2026-09-15T10:00:00Z",
+          event_title: "Rozmowa u klienta",
+        },
+      ],
+    });
+    renderTab();
+    expect(await screen.findByText(/zapisany · z rozmowy 15\.09/)).toBeTruthy();
+    expect(screen.queryByText("do uzupełnienia")).toBeNull();
+  });
+
+  it("etykieta statusu bez wydarzenia i bez wpisu", () => {
+    expect(feedbackStatusLabel(null)).toBe("do uzupełnienia");
+    expect(feedbackStatusLabel({ calendar_event_id: null, event_start_time: null })).toBe(
+      "zapisany",
+    );
   });
 });

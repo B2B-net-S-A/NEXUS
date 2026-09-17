@@ -62,8 +62,10 @@ OPERATIONAL_ROLES = {
     UserRole.recruiter,
     UserRole.sourcer,
 }
+# Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (CANDIDATE_WRITE_ROLES).
 WRITE_ROLES = {
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
@@ -80,6 +82,16 @@ EXPORT_ROLES = {
     UserRole.finance,
 }
 FINANCE_ROLES = {UserRole.admin}
+# „Stawka do klienta" (decyzja 2026-09-17): role zarządcze + Finanse ALBO
+# właściciel/twórca rekrutacji (`user_can_write_client_rate`).
+CLIENT_RATE_ROLES = {
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.tac,
+    UserRole.finance,
+}
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -419,6 +431,7 @@ WRITE_ENDPOINTS = [
 # P0.3. Finance dołączył 19.08 (tier recruitera, pełny dostęp operacyjny).
 RATE_EDIT_ROLES = {
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.finance,
     UserRole.tac,
@@ -468,22 +481,76 @@ async def test_write_surface_role_matrix(
             )
 
 
-async def test_client_rate_requires_finance_capability(
+def test_client_rate_rule_roles_and_ownership():
+    """`user_can_write_client_rate`: role zarządcze/Finanse zawsze, rekruter i
+    sourcer tylko jako właściciel/twórca rekrutacji, viewer nigdy."""
+    from types import SimpleNamespace
+
+    from app.api.candidate_access import user_can_write_client_rate
+
+    def mk(role: UserRole, uid: int = 1) -> User:
+        return User(
+            id=uid,
+            email="x@example.com",
+            password_hash="x",
+            name="x",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+        )
+
+    job = SimpleNamespace(recruiter_id=7, created_by=8)
+    for role in ROLES:
+        expected = role in CLIENT_RATE_ROLES
+        assert user_can_write_client_rate(mk(role), job) is expected, role
+    # Właściciel (recruiter_id) i twórca (created_by) — niezależnie od roli,
+    # ale nigdy viewer.
+    for role in (UserRole.recruiter, UserRole.sourcer):
+        assert user_can_write_client_rate(mk(role, uid=7), job) is True
+        assert user_can_write_client_rate(mk(role, uid=8), job) is True
+    assert user_can_write_client_rate(mk(UserRole.user, uid=7), job) is False
+
+
+async def test_client_rate_owner_recruiter_passes_non_owner_gets_403(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Candidate-specific client rate is Admin-only; Finance gets no PII."""
-    for role in ROLES:
-        resp = await m2_client.patch(
-            "/api/candidates/999999/recruitments/999999/client-rate",
-            headers=headers_by_role[role],
-            json={"rate_value": 100},
+    """Rekruter-właściciel rekrutacji zapisuje stawkę do klienta; rekruter
+    spoza rekrutacji, sourcer i viewer dostają 403; admin/HoR przechodzą
+    bramkę (dalej: 404 dla nieistniejącego kandydata, nigdy 403)."""
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    owner_headers = await _login(m2_client, owner_email, owner_pw)
+    async with AsyncSessionLocal() as db:
+        owner_id = await db.scalar(select(User.id).where(User.email == owner_email))
+        cli = Client(name=f"M2ClientRate-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        job = Job(
+            title=f"M2ClientRate-Job-{uuid.uuid4().hex[:6]}",
+            status=JobStatus.published,
+            client_id=cli.id,
+            recruiter_id=owner_id,
         )
-        if role in FINANCE_ROLES:
-            assert resp.status_code != 403, f"[{role.value}] unexpectedly forbidden"
-        else:
-            assert resp.status_code == 403, (
-                f"[{role.value}] expected 403, got {resp.status_code}"
-            )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        job_id = job.id
+
+    path = f"/api/candidates/999999/recruitments/{job_id}/client-rate"
+    body = {"rate_value": 100}
+    resp = await m2_client.patch(path, headers=owner_headers, json=body)
+    assert resp.status_code != 403, f"owner recruiter forbidden: {resp.text}"
+    for role in (UserRole.admin, UserRole.head_of_recruitment):
+        resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
+        assert resp.status_code != 403, f"[{role.value}] unexpectedly forbidden"
+    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.user):
+        resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
+        assert resp.status_code == 403, (
+            f"[{role.value}] expected 403, got {resp.status_code}"
+        )
 
 
 async def test_identity_quarantine_override_is_admin_or_hor_only(

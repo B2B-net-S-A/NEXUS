@@ -83,6 +83,12 @@ function CVBrandedEditContent({
  const { showSuccess, showError } = useToast();
  const [confirmFinalize, setConfirmFinalize] = useState(false);
  const [approvalError, setApprovalError] = useState<{message: string; regenerate: boolean} | null>(null);
+ // Trwały błąd zapisu (409 — ktoś zapisał nowszą wersję, 422 — puste CV).
+ // Zamknięcie edytora = udany zapis, więc bez tej ścieżki okna nie dało się
+ // zamknąć wcale: każde „Zamknij" kończyło się tym samym błędem.
+ const [saveProblem, setSaveProblem] = useState<{message: string; conflict: boolean} | null>(null);
+ const [confirmDiscard, setConfirmDiscard] = useState(false);
+ const [reloading, setReloading] = useState(false);
  const [pendingTemplate, setPendingTemplate] = useState<CVTemplate | null>(
  null,
  );
@@ -168,9 +174,25 @@ function CVBrandedEditContent({
    return () => { editor.off("update", handler); };
  }, [editor]);
 
+ const reportSaveProblem = (error: unknown) => {
+   const status = (error as {response?: {status?: unknown}} | null)?.response?.status;
+   setSaveProblem({message: getErrorMessage(error), conflict: status === 409});
+   showError(getErrorMessage(error));
+ };
  const saveCurrent = async () => {
-   try { await sessionRef.current?.save(); }
-   catch (error) { showError(getErrorMessage(error)); }
+   try { await sessionRef.current?.save(); setSaveProblem(null); }
+   catch (error) { reportSaveProblem(error); }
+ };
+ const reloadCurrentVersion = async () => {
+   setReloading(true);
+   try {
+     const fresh = await refetch();
+     if (!fresh.data) throw fresh.error ?? new Error("Nie udało się wczytać aktualnej wersji CV");
+     loadState(fresh.data);
+     setSaveProblem(null);
+     showSuccess("Wczytano aktualną wersję CV");
+   } catch (error) { showError(getErrorMessage(error)); }
+   finally { setReloading(false); }
  };
  useEffect(() => {
    if (!open) return;
@@ -188,9 +210,10 @@ function CVBrandedEditContent({
      await sessionRef.current?.settle();
      await sessionRef.current?.save();
      while (sessionRef.current?.state === "unsaved") await sessionRef.current.save();
+     setSaveProblem(null);
      onOpenChange(false);
      return true;
-   } catch (error) { showError(getErrorMessage(error)); return false; }
+   } catch (error) { reportSaveProblem(error); return false; }
  };
 
  const swapMut = useMutation({
@@ -354,6 +377,21 @@ function CVBrandedEditContent({
        if (await closeEditor(false)) onRegenerate?.();
      }}>{onRegenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}</Button>
    </>}
+ </div>}
+ {saveProblem && <div role="alert" className="px-5 py-3 border-b border-border text-sm space-y-2">
+   <p className="text-destructive">Nie udało się zapisać CV: {saveProblem.message}</p>
+   {saveProblem.conflict && <p className="text-muted-foreground">
+     Ktoś zapisał nowszą wersję tego CV. Wczytanie aktualnej wersji zastąpi niezapisane poprawki w edytorze.
+   </p>}
+   <div className="flex flex-wrap gap-2">
+     {saveProblem.conflict && <Button size="sm" variant="outline" disabled={reloading}
+       onClick={() => void reloadCurrentVersion()}>
+       {reloading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCcw className="h-3 w-3 mr-1" />}
+       Wczytaj aktualną wersję
+     </Button>}
+     <Button size="sm" variant="outline" onClick={() => void closeEditor(false)}>Ponów zapis i zamknij</Button>
+     <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(true)}>Zamknij bez zapisu</Button>
+   </div>
  </div>}
  <div className="flex items-center justify-between px-5 py-3 border-b border-border">
  <div className="min-w-0">
@@ -547,6 +585,33 @@ function CVBrandedEditContent({
  </div>
  </DialogContent>
  </Dialog>
+
+ {confirmDiscard ? (
+ <Dialog open onOpenChange={() => setConfirmDiscard(false)}>
+ <DialogContent size="md">
+ <div className="p-5 space-y-3">
+ <div className="flex items-start gap-3">
+ <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+ <div>
+ <h3 className="font-medium">Zamknąć bez zapisu?</h3>
+ <p className="text-sm text-muted-foreground mt-1">
+ Niezapisane poprawki z edytora przepadną. Na serwerze zostaje ostatnia zapisana wersja CV.
+ </p>
+ </div>
+ </div>
+ <div className="flex justify-end gap-2 pt-2">
+ <Button variant="ghost" size="sm" onClick={() => setConfirmDiscard(false)}>Wróć do edycji</Button>
+ <Button variant="destructive" size="sm" onClick={() => {
+   approvalAbort.current?.abort();
+   setConfirmDiscard(false);
+   setSaveProblem(null);
+   onOpenChange(false);
+ }}>Zamknij bez zapisu</Button>
+ </div>
+ </div>
+ </DialogContent>
+ </Dialog>
+ ) : null}
 
  {confirmFinalize ? (
  <Dialog open onOpenChange={() => setConfirmFinalize(false)}>

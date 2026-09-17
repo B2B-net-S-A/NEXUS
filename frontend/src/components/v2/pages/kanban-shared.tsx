@@ -41,6 +41,9 @@ export interface KanbanItem {
  expected_rate_unit?: RateUnit | null;
  expected_rate_currency?: string | null;
  budget_max_at_move?: number | null;
+ // Stawka zapisana przy ruchu przekracza budżet rekrutacji — informacja
+ // (odznaka „ponad budżet"), nie blokada. Bramka „Pending" wyłączona 17.09.2026.
+ budget_exceeded?: boolean;
  // Reakcja kandydata na ofertę (migracja 0066) — zapisywana przy wycofaniu po
  // akceptacji. `null`/brak = nie zapisano; `pending` to JAWNE „czekamy”.
  candidate_offer_response?: "pending" |"accepted" |"declined" | null;

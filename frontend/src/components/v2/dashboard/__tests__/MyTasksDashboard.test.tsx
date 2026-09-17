@@ -8,12 +8,17 @@ import { calendarApi, notificationsApi } from "@/lib/api"
 
 vi.mock("@/lib/api", () => ({
   calendarApi: { listEvents: vi.fn() },
-  notificationsApi: { list: vi.fn(), listRecruitment: vi.fn() },
+  notificationsApi: {
+    list: vi.fn(),
+    listRecruitment: vi.fn(),
+    markRead: vi.fn(),
+  },
 }))
 
 const listEvents = vi.mocked(calendarApi.listEvents)
 const listNotifications = vi.mocked(notificationsApi.listRecruitment)
 const listAllNotifications = vi.mocked(notificationsApi.list)
+const markRead = vi.mocked(notificationsApi.markRead)
 
 function renderDashboard(recruitmentNotificationsOnly = true) {
   const client = new QueryClient({
@@ -31,6 +36,8 @@ describe("MyTasksDashboard", () => {
     listEvents.mockReset()
     listNotifications.mockReset()
     listAllNotifications.mockReset()
+    markRead.mockReset()
+    markRead.mockResolvedValue({ data: {} } as Awaited<ReturnType<typeof notificationsApi.markRead>>)
     listEvents.mockResolvedValue({
       data: [
         {
@@ -138,6 +145,31 @@ describe("MyTasksDashboard", () => {
     expect(await screen.findByText("Kandydat czeka na decyzję")).toBeVisible()
     expect(listAllNotifications).toHaveBeenCalledWith(20)
     expect(listNotifications).not.toHaveBeenCalled()
+  })
+
+  it("kliknięcie powiadomienia oznacza je jako przeczytane i odświeża listę", async () => {
+    const user = userEvent.setup()
+    renderDashboard()
+    const link = await screen.findByRole("link", { name: /Kandydat czeka na decyzję/ })
+    // jsdom nie nawiguje — interesuje nas wyłącznie zapis „przeczytane".
+    link.addEventListener("click", (event) => event.preventDefault())
+    listNotifications.mockClear()
+
+    await user.click(link)
+
+    expect(markRead).toHaveBeenCalledWith(9)
+    await vi.waitFor(() => expect(listNotifications).toHaveBeenCalled())
+  })
+
+  it("przypomnienie kolegi w zastępstwie ma etykietę", async () => {
+    const response = await listNotifications(20)
+    const item = { ...response.data.items[0], on_behalf_of_name: "Anna Nowak" }
+    listNotifications.mockResolvedValue({
+      ...response,
+      data: { ...response.data, items: [item] },
+    } as Awaited<ReturnType<typeof notificationsApi.listRecruitment>>)
+    renderDashboard()
+    expect(await screen.findByText("w zastępstwie za Anna Nowak")).toBeVisible()
   })
 
   it("allows the whole personal-work section to be collapsed", async () => {

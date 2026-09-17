@@ -30,8 +30,6 @@ vi.mock("@/lib/api", () => ({
   pipelineApi: {
     kanban: (...a: unknown[]) => kanban(...a),
     move: vi.fn(() => Promise.resolve({ data: {} })),
-    acceptVerification: vi.fn(),
-    rejectVerification: vi.fn(),
   },
   pipelineTemplatesApi: {
     get: vi.fn(() =>

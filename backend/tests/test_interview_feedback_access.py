@@ -370,3 +370,24 @@ async def test_patch_clears_flag_only_for_author_or_event_owner(
     )
     assert by_author.status_code == 200, by_author.text
     assert await _needs_attention(event_id) is False
+
+
+async def test_saved_feedback_is_visible_on_the_event(app_client: AsyncClient) -> None:
+    """Okno wydarzenia pokazuje „Edytuj feedback" zamiast „Uzupełnij" dopiero,
+    gdy odpowiedź wydarzenia niesie `feedback_sources` (audyt 17.09.2026)."""
+    headers, _uid, _job_id, candidate_id, event_id = await _own_world()
+
+    before = await app_client.get(f"/api/calendar/events/{event_id}", headers=headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["feedback_sources"] == []
+    assert before.json()["needs_attention"] is True
+
+    resp = await app_client.post(
+        FEEDBACK, json=_body(event_id, candidate_id, None), headers=headers
+    )
+    assert resp.status_code == 201, resp.text
+
+    after = await app_client.get(f"/api/calendar/events/{event_id}", headers=headers)
+    assert after.status_code == 200, after.text
+    assert after.json()["feedback_sources"] == ["candidate_side"]
+    assert after.json()["needs_attention"] is False
