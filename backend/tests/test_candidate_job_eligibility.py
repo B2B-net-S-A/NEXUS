@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.services.candidate_job_eligibility import (
     ConflictInput,
     EligibilityInput,
@@ -43,21 +45,23 @@ class TestGlobalBlacklist:
         assert d.reason_code is EligibilityReason.blacklisted
 
 
-class TestClientHardConflict:
-    def test_active_blacklist_conflict_blocks_assignment_but_visible(self):
+class TestClientConflictWarning:
+    """Decyzja 17.09.2026: konflikt z klientem ostrzega, nie blokuje."""
+
+    def test_active_blacklist_conflict_is_visible_assignable_warning(self):
         d = _eval(
             candidate_status="active",
             job_client_id=5,
             conflicts=(ConflictInput(type="blacklist", client_id=5),),
         )
-        assert not d.eligible
+        assert d.eligible
         assert d.visibility is Visibility.warn
-        assert not d.assignment_allowed
-        assert d.severity is Severity.hard
+        assert d.assignment_allowed
+        assert d.severity is Severity.warning
         assert d.reason_code is EligibilityReason.client_blacklist
-        assert d.override_allowed  # authorised roles may override (audited)
+        assert not d.override_allowed
 
-    def test_nda_and_competitor_are_hard(self):
+    def test_nda_and_competitor_are_warnings(self):
         for ctype, rc in [
             ("nda", EligibilityReason.client_nda),
             ("competitor", EligibilityReason.client_competitor),
@@ -68,7 +72,29 @@ class TestClientHardConflict:
                 conflicts=(ConflictInput(type=ctype, client_id=7),),
             )
             assert d.reason_code is rc
-            assert not d.assignment_allowed
+            assert d.assignment_allowed
+            assert d.visibility is Visibility.warn
+            assert d.severity is Severity.warning
+
+    def test_dominance_order_of_soft_signals(self):
+        d = _eval(
+            candidate_status="active",
+            job_client_id=5,
+            conflicts=(
+                ConflictInput(type="current_employment", client_id=5),
+                ConflictInput(type="competitor", client_id=5),
+                ConflictInput(type="nda", client_id=5),
+                ConflictInput(type="blacklist", client_id=5),
+            ),
+            excluded_client_ids=frozenset({5}),
+        )
+        assert d.reason_code is EligibilityReason.client_blacklist
+        assert d.secondary_reasons == (
+            EligibilityReason.client_nda,
+            EligibilityReason.client_competitor,
+            EligibilityReason.client_current_employment,
+            EligibilityReason.client_excluded_by_candidate,
+        )
 
     def test_conflict_for_other_client_does_not_block(self):
         d = _eval(
@@ -86,12 +112,13 @@ class TestClientHardConflict:
         d = _eval(candidate_status="active", job_client_id=5, conflicts=(expired,))
         assert d.eligible
 
-    def test_future_expiry_still_blocks(self):
+    def test_future_expiry_still_warns(self):
         active = ConflictInput(
             type="blacklist", client_id=5, expires_at=NOW + timedelta(days=1)
         )
         d = _eval(candidate_status="active", job_client_id=5, conflicts=(active,))
-        assert not d.assignment_allowed
+        assert d.assignment_allowed
+        assert d.visibility is Visibility.warn
         assert d.reason_code is EligibilityReason.client_blacklist
 
     def test_inactive_conflict_does_not_block(self):
@@ -126,7 +153,7 @@ class TestSoftSignals:
         assert d.assignment_allowed
         assert d.reason_code is EligibilityReason.client_excluded_by_candidate
 
-    def test_hard_conflict_keeps_current_employment_as_secondary(self):
+    def test_nda_dominates_current_employment(self):
         d = _eval(
             candidate_status="active",
             job_client_id=5,
@@ -137,6 +164,7 @@ class TestSoftSignals:
         )
         assert d.reason_code is EligibilityReason.client_nda
         assert EligibilityReason.client_current_employment in d.secondary_reasons
+        assert d.assignment_allowed
 
 
 class TestAlreadyInJob:
@@ -148,14 +176,16 @@ class TestAlreadyInJob:
         assert d.reason_code is EligibilityReason.already_in_job
         assert not d.override_allowed
 
-    def test_hard_conflict_outranks_already_in_job(self):
+    def test_already_in_job_outranks_client_conflict(self):
         d = _eval(
             candidate_status="active",
             job_client_id=5,
             conflicts=(ConflictInput(type="blacklist", client_id=5),),
             already_in_job=True,
         )
-        assert d.reason_code is EligibilityReason.client_blacklist
+        assert d.reason_code is EligibilityReason.already_in_job
+        assert d.visibility is Visibility.hidden
+        assert EligibilityReason.client_blacklist in d.secondary_reasons
 
 
 class TestExtractExcludedClientIds:
@@ -256,16 +286,17 @@ class TestHiringManagerVeto:
         assert d.reason_code is EligibilityReason.blacklisted
         assert d.visibility is Visibility.hidden
 
-    def test_hard_client_conflict_still_wins_but_veto_is_carried(self):
+    def test_veto_outranks_client_conflict_and_carries_it(self):
         d = _eval(
             candidate_status="active",
             job_client_id=5,
             conflicts=(ConflictInput(type="nda", client_id=5),),
             rejected_by_hiring_manager=True,
         )
-        assert d.reason_code is EligibilityReason.client_nda
-        # The badge must survive the harder block outranking it.
-        assert EligibilityReason.rejected_by_hiring_manager in d.secondary_reasons
+        assert d.reason_code is EligibilityReason.rejected_by_hiring_manager
+        assert not d.assignment_allowed
+        assert d.severity is Severity.hard
+        assert EligibilityReason.client_nda in d.secondary_reasons
 
     def test_already_in_job_outranks_veto(self):
         # Otherwise a candidate merely already in this job would lose `hidden`
@@ -293,3 +324,25 @@ class TestHiringManagerVeto:
         # ...and the soft signals ride along, minus the dominant one.
         assert EligibilityReason.client_current_employment in d.secondary_reasons
         assert EligibilityReason.rejected_by_hiring_manager not in d.secondary_reasons
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"candidate_status": "blacklisted"},
+        {"candidate_status": "active", "job_client_id": 5, "already_in_job": True},
+        {
+            "candidate_status": "active",
+            "job_client_id": 5,
+            "rejected_by_hiring_manager": True,
+        },
+        {
+            "candidate_status": "active",
+            "job_client_id": 5,
+            "conflicts": (ConflictInput(type="nda", client_id=5),),
+        },
+        {"candidate_status": "active", "job_client_id": 5},
+    ],
+)
+def test_override_is_never_offered(kwargs):
+    assert _eval(**kwargs).override_allowed is False
