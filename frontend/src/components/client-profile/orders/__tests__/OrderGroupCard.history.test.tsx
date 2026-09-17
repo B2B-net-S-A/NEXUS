@@ -416,8 +416,10 @@ describe("OrderGroupCard — historia zamówienia", () => {
     expect(onKeepHistory).toHaveBeenCalledWith(expect.anything(), ended);
     await user.click(screen.getByRole("button", { name: "Zastąp kimś innym" }));
     expect(onReplaceLine).toHaveBeenCalledWith(expect.anything(), ended);
-    await user.click(screen.getByRole("button", { name: "Usuń z zamówienia" }));
-    expect(onDeleteLine).toHaveBeenCalledWith(expect.anything(), ended);
+    // Osoba ma zafakturowaną kwotę — usunięcie kasuje linię trwale, więc
+    // serwer odmówiłby (409); przycisk jest wyłączony zawczasu.
+    expect(screen.getByRole("button", { name: "Usuń z zamówienia" })).toBeDisabled();
+    expect(onDeleteLine).not.toHaveBeenCalled();
   });
 });
 
@@ -532,10 +534,12 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     expect(onEditLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
     await user.click(screen.getByRole("button", { name: "Zamień kontraktora — Marcin Następca" }));
     expect(onSwapLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
-    await user.click(
+    // Osoba ma zaraportowane MD — usunięcie kasuje linię trwale, więc kosz
+    // jest wyłączony (serwer odpowiedziałby 409).
+    expect(
       screen.getByRole("button", { name: "Usuń konsultanta z zamówienia — Marcin Następca" }),
-    );
-    expect(onDeleteLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
+    ).toBeDisabled();
+    expect(onDeleteLine).not.toHaveBeenCalled();
     expect(
       screen.getByRole("button", { name: "Rozliczenia miesięczne — Marcin Następca" }),
     ).toBeInTheDocument();
@@ -722,5 +726,60 @@ describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
     expect(
       screen.getByRole("button", { name: "Zamień kontraktora — Domknięta Linia" }),
     ).toBeDisabled();
+  });
+});
+
+describe("OrderGroupCard — usuwanie konsultanta z zamówienia", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("linia bez rozliczeń: kosz aktywny i woła onDeleteLine", async () => {
+    const user = userEvent.setup();
+    const onDeleteLine = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const g = group({ lines: [line({ md_used: 0 })] });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OrderGroupCard
+          clientId={18}
+          group={g}
+          canManage
+          canManageLifecycle
+          onAddConsultant={noop}
+          onEditGroup={noop}
+          onEditLine={noop}
+          onSwapLine={noop}
+          onDeleteLine={onDeleteLine}
+          onResolveOffboarding={noop}
+          onDeleteGroup={noop}
+          onCloseGroup={noop}
+          onReopenGroup={noop}
+          onExtendGroup={noop}
+          onFocusGroup={noop}
+          focusRequest={null}
+        />
+      </QueryClientProvider>,
+    );
+    const button = screen.getByRole("button", {
+      name: /Usuń konsultanta z zamówienia — Michał Leśniak/,
+    });
+    expect(button).toBeEnabled();
+    await user.click(button);
+    expect(onDeleteLine).toHaveBeenCalledWith(g, g.lines[0]);
+  });
+
+  it("linia z zaraportowanymi MD: kosz wyłączony z wyjaśnieniem", () => {
+    renderCard({ group: group({ lines: [line({ md_used: 12 })] }) });
+    const button = screen.getByRole("button", {
+      name: /Usuń konsultanta z zamówienia — Michał Leśniak/,
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute(
+      "title",
+      expect.stringContaining("ma rozliczenia"),
+    );
   });
 });

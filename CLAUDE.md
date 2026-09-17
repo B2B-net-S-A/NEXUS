@@ -2721,21 +2721,27 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   (`group_settles_in_month`). Ta sama reguła MUSI być w walidacji po blokadach
   (`md_consumption._ordinary_locked_target_is_valid`) — bez niej cała partia
   kosztowa lub wspólnej puli dostaje 409.
-- **Usunięcie linii Z ZUŻYCIEM (faktury / zaraportowane MD) zostawia ją w grupie jako
-  `completed`** (`_keep_consumed_line_as_history`, od 09.2026) + wpis
-  `zakonczenie_konsultanta` z `payload.reason = "removed_from_order"`, bez kwot
-  w opisie. Do 09.2026 taka linia była odpinana (`order_group_id=NULL`), a
-  `settle_group` liczy faktury po liniach grupy — więc odpięcie ZWRACAŁO do puli
-  kwotę, którą osoba już wykorzystała. `completed`, a nie `cancelled`, bo
-  `contract_order_sync` czyta zakończone zamówienia jako historię stawek (anulowane
-  zabrałyby kontraktowi krok przychodu za rozliczone miesiące); `sync_md_line_status`
-  nie wskrzesza linii z decyzją `removed_from_order`/`keep_history`. Drugie
-  usunięcie nie dubluje wpisu. Linia BEZ zużycia: jak dotąd — szkic bez pliku znika,
-  reszta jest odpinana.
-  Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
-  reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie linii bez zużycia **nie
-  zapisuje zdarzenia** i kasuje własny wpis `dodanie_konsultanta`, ale
-  `zamiana_kontraktora` ZOSTAJE — mówi o dwóch osobach naraz.
+- **Usunięcie zamówienia kasuje WYŁĄCZNIE to zamówienie** (ticket 09.2026, decyzja:
+  bez efektów ubocznych). `DELETE …/order-groups/{g}/lines/{l}` i kasowanie całej
+  grupy wołają `_delete_line_row` — twarde `db.delete`, nigdy odpięcie. Do tej zmiany
+  aktywna linia była odpinana (`order_group_id=NULL`) i wracała na liście jako NOWE
+  zamówienie okresowe osoby, a linia z rozliczeniami dostawała `completed` + wpis
+  `removed_from_order` (`_keep_consumed_line_as_history`, usunięte), co czytało się
+  jak zamknięty projekt. `DELETE /api/clients/{c}/orders/{o}` na zamówieniu
+  samodzielnym kasuje trwale w KAŻDYM statusie (dawniej aktywne → `cancelled`);
+  linia grupy wołana tą trasą zachowuje starą regułę (szkic znika, reszta anulowana).
+  **Rozliczenia blokują (409)** — `services/order_settlements.py`
+  (`settlement_blockers`, wspólne z `_assert_group_is_disposable`): kaskada
+  zabrałaby MD i faktury z importu Finansów. Front wyszarza kosz linii przy
+  `lineHasSettlements` (`lib/order-line-usage.ts`). Status kontraktu, inne zamówienia
+  i sprawy offboardingu nie są ruszane; `commit_order_write` tylko przelicza okres
+  i stawki kontraktu z tego, co zostało. Pliki PO kasowane są PO commicie.
+  Wpisy `removed_from_order` sprzed zmiany są dalej czytane (`_apply_line_history`,
+  `sync_md_line_status`, `order_facts`), ale nie powstają nowe. Kasowanie linii
+  zabiera jej `dodanie_konsultanta`; `zamiana_kontraktora` ZOSTAJE. Bieżące
+  zamówienie na karcie kontraktora ma własny przycisk „Usuń zamówienie", a
+  „Zakończ współpracę" (wypowiedzenie umowy, domyka WSZYSTKIE zamówienia osoby) nie
+  ma już ikony kosza — to ona była „kaskadowym usuwaniem" ze zgłoszenia.
 - **Historia osoby na zamówieniu** (`_apply_line_history`, jedno zapytanie o dziennik):
   `origin` (`document` = z PDF-a / `manual`), `added_by_name`/`added_at` (autor
   zdarzenia `dodanie_konsultanta`/`zamiana_kontraktora`), `replaces_name`,
@@ -2764,13 +2770,11 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   gdy ktoś NAPRAWDĘ wyczerpał limit, a nikt na obsadzie nie ma już MD. WYJĄTEK:
   nierozstrzygnięta sprawa offboardingu MD w grupie trzyma zamówienie otwarte —
   po zamknięciu „przywróć" i „przenieś" nie miałyby dokąd wrócić.
-  **Skutek praktyczny, o który łatwo się potknąć przy danych testowych:** skasowanie
-  grupy zostawia jej linie jako OSIEROCONE wiersze `client_orders` (już nie w żadnej
-  grupie, więc niewidoczne w zakładce), a `DELETE /orders/{id}` na linii innej niż szkic
-  tylko ją **anuluje** — nie kasuje. Pełne usunięcie idzie istniejącym API:
-  `PATCH {"status":"draft"}` → `DELETE` (`ClientOrderUpdate` przyjmuje `status`, a twarde
-  kasowanie obejmuje szkice). **Kolejność ma znaczenie** — najpierw linia-następca, potem
-  poprzednik, bo `predecessor_order_id` wskazuje wstecz.
+  **Dane testowe:** od 09.2026 skasowanie grupy i usunięcie linii kasują linie
+  trwale (patrz „Usunięcie zamówienia kasuje WYŁĄCZNIE to zamówienie"). Osierocone
+  wiersze `client_orders` po kasowaniu grup sprzed tej zmiany usuwasz
+  `DELETE /orders/{id}` (samodzielne zamówienie jest kasowane w każdym statusie) —
+  najpierw linia-następca, potem poprzednik, bo `predecessor_order_id` wskazuje wstecz.
 - **Przedłużenie to NOWA grupa** z `predecessor_group_id`, nie edycja poprzedniej:
   poprzednia musi zostać taka, jaka była, bo na jej podstawie rozliczono już faktury.
   Typ rozliczenia DZIEDZICZY się po poprzedniku.

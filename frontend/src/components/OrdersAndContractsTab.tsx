@@ -13,10 +13,12 @@ import {
   TrendingUp,
   Trash2,
   UserPlus,
+  UserX,
   Users,
   X,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { apiErrorMessage } from "@/lib/api-error";
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
@@ -417,6 +419,17 @@ export interface ContractorOrderFocus {
  * lista może przeplatać domeny grupowe i okresowe bez kopiowania zachowania
  * edycji, przedłużeń, zakończeń ani draftów.
  */
+/**
+ * Potwierdzenie usunięcia zamówienia okresowego. Kosz kasuje TYLKO ten wiersz
+ * (`DELETE /orders/{id}`) — pozostałe zamówienia osoby i jej umowa zostają.
+ * Do 09.2026 bieżące zamówienie nie miało kosza, a jedynym czerwonym
+ * przyciskiem z ikoną kosza było „Zakończ współpracę", które wypowiada umowę
+ * i domyka wszystkie zamówienia tej osoby.
+ */
+export function deleteOrderConfirmMessage(title: string): string {
+  return `Usunąć zamówienie „${title}”? Zostanie usunięte tylko to zamówienie — pozostałe zamówienia i umowa tej osoby nie zmienią się.`;
+}
+
 export function ContractorOrderCards({
   clientId,
   contractors,
@@ -778,6 +791,16 @@ function ContractorCard({
   const servedFocusRef = useRef<number | null>(null);
   const [highlighted, setHighlighted] = useState(false);
   const historyOpen = searching ? true : showHistory;
+  const deleteActiveOrder = useMutation({
+    mutationFn: (orderId: number) => dlPortalApi.deleteOrder(clientId, orderId),
+    onSuccess: () => {
+      onSuccess("Zamówienie usunięte");
+      onChange();
+    },
+    onError: (err: unknown) => {
+      onError(apiErrorMessage(err, "Nie udało się usunąć zamówienia."));
+    },
+  });
   // „Umowa wykonawcza" — uzupełnianie/edycja bezpośrednio na karcie (to jest
   // powierzchnia kompletacji draftu ClientOrder); tylko Centrum e-Zdrowia.
   // Część umowy jest od struktury umów wartością POCHODNĄ z umowy ramowej.
@@ -1370,6 +1393,21 @@ function ContractorCard({
               Zakończ zamówienie
             </button>
           )}
+          {canManageOrders && activeOrder && (
+            <button
+              type="button"
+              disabled={deleteActiveOrder.isPending}
+              onClick={() => {
+                if (confirm(deleteOrderConfirmMessage(activeOrder.title))) {
+                  deleteActiveOrder.mutate(activeOrder.id);
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Usuń zamówienie
+            </button>
+          )}
           {/* „Zakończ współpracę" — ukryte WYŁĄCZNIE w stanach terminalnych;
               uzasadnienie przy `canTerminateContractor`. */}
           {canTerminateContractor(contractor.contract_status) && (
@@ -1377,7 +1415,7 @@ function ContractorCard({
               onClick={onTerminate}
               className="flex items-center gap-1 px-2 py-1 text-xs text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <UserX className="w-3.5 h-3.5" />
               Zakończ współpracę
             </button>
           )}
@@ -1496,11 +1534,11 @@ function FutureOrderRow({
   const deleteMutation = useMutation({
     mutationFn: () => dlPortalApi.deleteOrder(clientId, order.id),
     onSuccess: () => {
-      onSuccess("Zamówienie usunięte / anulowane");
+      onSuccess("Zamówienie usunięte");
       onChange();
     },
     onError: (err: unknown) => {
-      onError(err instanceof Error ? err.message : "Błąd usuwania");
+      onError(apiErrorMessage(err, "Nie udało się usunąć zamówienia."));
     },
   });
 
@@ -1547,12 +1585,13 @@ function FutureOrderRow({
         <button
           type="button"
           onClick={() => {
-            if (confirm(`Anulować zamówienie "${order.title}"?`)) {
+            if (confirm(deleteOrderConfirmMessage(order.title))) {
               deleteMutation.mutate();
             }
           }}
           className="text-muted-foreground hover:text-destructive p-1"
-          title="Usuń / anuluj"
+          title="Usuń zamówienie"
+          aria-label="Usuń zamówienie"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -1594,11 +1633,11 @@ function HistoryOrderRow({
   const deleteMutation = useMutation({
     mutationFn: () => dlPortalApi.deleteOrder(clientId, order.id),
     onSuccess: () => {
-      onSuccess("Zamówienie usunięte / anulowane");
+      onSuccess("Zamówienie usunięte");
       onDeleted();
     },
     onError: (err: unknown) => {
-      onError(err instanceof Error ? err.message : "Błąd usuwania");
+      onError(apiErrorMessage(err, "Nie udało się usunąć zamówienia."));
     },
   });
 
@@ -1671,12 +1710,13 @@ function HistoryOrderRow({
         <button
           type="button"
           onClick={() => {
-            if (confirm(`Anulować zamówienie "${order.title}"?`)) {
+            if (confirm(deleteOrderConfirmMessage(order.title))) {
               deleteMutation.mutate();
             }
           }}
           className="text-muted-foreground hover:text-destructive p-1"
-          title="Usuń / anuluj"
+          title="Usuń zamówienie"
+          aria-label="Usuń zamówienie"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>

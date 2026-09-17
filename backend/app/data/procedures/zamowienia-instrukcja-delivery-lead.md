@@ -221,6 +221,14 @@ jest istotna:
 Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
 niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.
 
+Trzecia akcja, **Usuń zamówienie** (kosz — przy bieżącym zamówieniu na karcie
+i przy każdym zamówieniu przyszłym oraz historycznym), służy do wycofania
+**pomyłki**: kasuje trwale **tylko to jedno zamówienie**. Umowa, jej status
+i pozostałe zamówienia tej osoby (także linia na zamówieniu MD lub kosztowym)
+zostają nietknięte. Zamówienia z rozliczeniami (zaraportowane MD, zaimportowane
+faktury) system nie usunie — odmówi i wskaże, co blokuje; wtedy właściwą akcją
+jest **Zakończ zamówienie**.
+
 ### Jedna osoba nie ma dwóch równoległych zamówień na to samo
 
 Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, system
@@ -393,7 +401,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
-| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Konsultanci nie znikają nigdy: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej |
+| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**, a umowy konsultantów zostają bez zmian |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datą, wykonawcą (wpis bez osoby = zmiana automatyczna) i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
@@ -424,11 +432,15 @@ Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
   „Wykorzystano wartości umowy" liczą się dokładnie tak samo jak przed jej
   zejściem: wykorzystane MD i kwoty osób zakończonych zawsze się w nich mieszczą.
 
-**Usunięcie i zastąpienie nie zwracają zużycia do puli — u każdego klienta.**
-Osoba bez żadnych rozliczeń znika z zamówienia. Osoba, która ma już
-zafakturowaną kwotę albo zaraportowane MD, **zostaje na zamówieniu jako
-„usunięta"**, a jej kwota/MD **nie wraca** do budżetu dostępnego dla innych.
-Pod osobą, która nie jest już na aktywnej obsadzie, stoi zdanie w rodzaju
+**Usunięcie konsultanta usuwa tylko jego miejsce na tym zamówieniu.** Nie
+powstaje z niego nowe zamówienie okresowe, a umowa tej osoby i jej pozostałe
+zamówienia nie zmieniają się — projekt zostaje aktywny. Osoby, która ma już
+zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (kosz jest
+wyszarzony, a system odmówi): usunięcie skasowałoby jej rozliczenia. Gdy
+współpraca się skończyła, użyj **Zostaw jako historię**, **Zastąp kimś innym**
+albo **Zakończ**.
+
+**Zastąpienie nie zwraca zużycia do puli — u każdego klienta.** Pod osobą, która nie jest już na aktywnej obsadzie, stoi zdanie w rodzaju
 **„Jan Kowalski wykorzystał(a) 12 000,00 zł / 12 MD na tym zamówieniu przed
 zakończeniem współpracy — ta kwota nie wraca do puli dostępnej dla innych
 konsultantów"** (na zamówieniu kosztowym — kwota faktur; na zamówieniu MD —
@@ -445,7 +457,8 @@ Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, k
 pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
 **Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
 innym** (otwiera dodawanie konsultanta — nowa osoba dołącza **obok**, a historia
-zapisze, za kogo jest zastępstwem) i **Usuń z zamówienia**. Przy zamówieniu MD
+zapisze, za kogo jest zastępstwem) i **Usuń z zamówienia** (tylko gdy osoba
+nie ma rozliczeń — inaczej przycisk jest wyszarzony). Przy zamówieniu MD
 z czekającą decyzją o pozostałych MD najpierw obowiązuje przycisk „Podejmij
 decyzję" (niżej).
 

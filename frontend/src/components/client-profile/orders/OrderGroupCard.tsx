@@ -46,11 +46,19 @@ import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 
-import { consultantUsageSentence, hasScopedMd } from "@/lib/order-line-usage";
+import {
+  consultantUsageSentence,
+  hasScopedMd,
+  lineHasSettlements,
+} from "@/lib/order-line-usage";
 import { LineMonthlyHistoryDialog } from "./LineMonthlyHistoryDialog";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderTypeBadge } from "./OrderTypeBadge";
+
+const SETTLED_LINE_DELETE_HINT =
+  "Nie można usunąć — konsultant ma rozliczenia (MD lub faktury). " +
+  "Użyj „Zostaw jako historię” albo „Zakończ”.";
 
 function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
@@ -404,6 +412,8 @@ function OrderLineRow({
   // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
   // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
   const usageSentence = consultantUsageSentence(group, line);
+  // Usunięcie kasuje linię trwale — z rozliczeniami serwer odmawia (409).
+  const hasSettlements = lineHasSettlements(line);
   // Osoba z zakończoną współpracą, która została na zamówieniu, a nikt jeszcze
   // o niej nie zdecydował (zamówienie MD z czekającą sprawą ma swój formularz).
   // Zastąpiona osoba MA już decyzję — następcę; pytanie „Zastąp kimś innym"
@@ -686,9 +696,14 @@ function OrderLineRow({
             <button
               type="button"
               onClick={() => onDeleteLine(group, line)}
+              disabled={hasSettlements}
               aria-label={`Usuń konsultanta z zamówienia — ${line.consultant_name}`}
-              title="Usuń konsultanta z zamówienia"
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              title={
+                hasSettlements
+                  ? SETTLED_LINE_DELETE_HINT
+                  : "Usuń konsultanta z zamówienia"
+              }
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -754,7 +769,9 @@ function OrderLineRow({
                   <button
                     type="button"
                     onClick={() => onDeleteLine(group, line)}
-                    className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive hover:bg-destructive/10"
+                    disabled={hasSettlements}
+                    title={hasSettlements ? SETTLED_LINE_DELETE_HINT : undefined}
+                    className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Usuń z zamówienia
                   </button>
