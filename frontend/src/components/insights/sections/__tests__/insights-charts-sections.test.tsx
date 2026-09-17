@@ -24,7 +24,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import {
   afterAll,
   beforeAll,
@@ -254,8 +254,11 @@ describe("InsightsYearlyStats — Progress zespołu", () => {
     // w stanie ładowania i test mierzyłby spinner.
     await screen.findByText("Progress zespołu – 2026");
     const section = sectionOf("Progress zespołu – 2026");
+    // Recharts rysuje krzywe tick po pomiarze kontenera — nagłówek jest już
+    // w DOM, a <path> jeszcze nie; pod obciążeniem odczyt synchroniczny
+    // trafiał w pustą listę.
+    await waitFor(() => expect(curvesIn(section)).toHaveLength(4));
     const curves = curvesIn(section);
-    expect(curves).toHaveLength(4);
     curves.forEach((curve) => {
       const d = curve.getAttribute("d") ?? "";
       expect(d.startsWith("M")).toBe(true);
