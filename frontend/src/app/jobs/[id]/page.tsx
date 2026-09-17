@@ -71,7 +71,7 @@ import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import Link from "next/link";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -86,6 +86,10 @@ import {
   JOB_HEADER_COLLAPSED_DEFAULT,
   JOB_HEADER_COLLAPSED_STORAGE_KEY,
 } from "@/lib/job-header-preferences";
+import {
+  JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
+  JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
+} from "@/lib/job-dock-preferences";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
@@ -2062,6 +2066,13 @@ export default function JobDetailPage() {
     JOB_HEADER_COLLAPSED_STORAGE_KEY,
     JOB_HEADER_COLLAPSED_DEFAULT,
   );
+  // Zwijanie doku „Gotowość" na kroku 02 (zakładka Championa) — patrz
+  // `lib/job-dock-preferences.ts`. Kolumna doku w siatce niżej i przyciski
+  // zwiń/rozwiń w `JobReadinessDock` czytają ten sam stan.
+  const [championDockCollapsed, setChampionDockCollapsed] = useLocalStorageFlag(
+    JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
+    JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
+  );
 
 
   // Unread badge dla taba Chat
@@ -2550,8 +2561,25 @@ export default function JobDetailPage() {
         // dok „Gotowość" (`variant="champion"`) niesie weryfikację/briefing/
         // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
         // pory siedziały nad formularzem i w panelu nagłówka.
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-          <aside className="lg:sticky lg:top-4 lg:self-start">
+        //
+        // Szerokość edytora jest tu celem, nie efektem ubocznym: przy 1440 px
+        // (sidebar 240 + zwinięta szyna kart) spis sekcji 230 i dok 360
+        // zostawiały edytorowi 451 px. Dlatego spis sekcji pokazuje się
+        // dopiero od `2xl` — poniżej każda sekcja edytora i tak ma nagłówek
+        // z chipem stanu — a na `xl` siatka ma dwie kolumny: edytor i dok.
+        // Dok jest zwijalny WYŁĄCZNIE od `xl` (węziej stoi pod edytorem).
+        // Literały klas muszą być PEŁNE (Tailwind skanuje kod źródłowy, nie
+        // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
+        // wstrzykiwanej szerokości.
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-4",
+            championDockCollapsed
+              ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
+              : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
+          )}
+        >
+          <aside className="hidden 2xl:block 2xl:sticky 2xl:top-4 2xl:self-start">
             <ChampionSectionNav jobId={Number(id)} />
           </aside>
 
@@ -2574,11 +2602,21 @@ export default function JobDetailPage() {
                 canWritePipeline &&
                 (isAdmin || hasRole(authUser, "delivery_lead"))
               }
+              // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
+              // ma opis do podania AI (`createdJobUrl`) — otwiera panel „Wklej
+              // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.
+              intakeDefaultOpen={searchParams?.get("intake") === "1"}
+              intakeSeedText={job?.description ?? undefined}
             />
           </div>
 
-          <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-            <JobReadinessDock jobId={Number(id)} variant="champion" />
+          <aside className="xl:sticky xl:top-4 xl:self-start">
+            <JobReadinessDock
+              jobId={Number(id)}
+              variant="champion"
+              collapsed={championDockCollapsed}
+              onCollapsedChange={setChampionDockCollapsed}
+            />
           </aside>
         </div>
       )}

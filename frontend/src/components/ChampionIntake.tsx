@@ -5,6 +5,7 @@ import { api, extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } fr
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CHAMPION_SECTIONS, type ChampionSectionId } from "@/lib/champion-section-state";
+import { JOB_WORK_MODE_LABEL } from "@/lib/champion-job-seed";
 
 export type ChampionIssue = { code: string; path: string; message: string; severity: "error" | "warning"; blocked_operations: string[]; source?: string | null };
 export type ChampionValidation = { status: string; issues: ChampionIssue[]; blocked_operations: string[] };
@@ -27,7 +28,8 @@ const rubrics = ["rate_value", "work_mode", "onsite_days_per_week", "candidate_l
 // Wartość pola REKRUTACJI w dopisku „(obecnie: …)”. Tryb pracy przychodzi jako
 // enum z kolumny `jobs.work_mode` — surowe „remote” w polskim oknie było
 // zgłoszeniem UAT M04-B06; listy (must/nice) jako wpisy po przecinku.
-const JOB_WORK_MODE_LABEL: Record<string, string> = { remote: "zdalnie", hybrid: "hybrydowo", onsite: "stacjonarnie" };
+// `JOB_WORK_MODE_LABEL` mieszka w `lib/champion-job-seed.ts` — tej samej
+// mapy używa seed sekcji 1 Podstawowych informacji (PR 5).
 export function formatJobFieldValue(key: string, value: unknown): string {
   if (value == null || value === "") return "—";
   if (Array.isArray(value)) return value.length ? value.map(v => (v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name) : String(v))).join(", ") : "—";

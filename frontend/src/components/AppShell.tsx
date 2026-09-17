@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Children,
   cloneElement,
@@ -22,28 +22,24 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
-  X, Loader2, Sparkles, ChevronRight, Plus,
+  X, Loader2, ChevronRight, Plus,
   UserPlus, Briefcase, Building2, CalendarPlus,
 } from "lucide-react";
 import api, {
-  aiWriterApi,
   candidateProfileApi,
   clientTeamApi,
   phase5Api,
   pipelineTemplatesApi,
-  requestHistoryApi,
 } from "@/lib/api";
 import type {
   ClientDirectoryCategory,
   ClientTeamResponse,
-  RequestHistoryResponse,
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
 import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
-import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
-import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
+import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -1075,17 +1071,6 @@ interface JobFormData {
   train_name: string;
 }
 
-const EMPTY_JOB: JobFormData = {
-  title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
-  // 0278: bez domyślnej "hybrid" — dawny default kłamał dla każdej oferty,
-  // której nikt ręcznie nie ustawił. "— nie ustawiono —" jest opcją w select.
-  description: "", requirements: "", location: "", remote_policy: "",
-  onsite_days_per_week: "",
-  salary_min: "", salary_max: "", rate_budget_hourly: "", priority: "medium", deadline: "", recruiter_id: "",
-  tac_id: "", delivery_lead_id: "", hiring_manager_contact_id: "",
-  pipeline_template_id: "", competence_category_id: "", train_name: "",
-};
-
 function jobToForm(j: any): JobFormData {
   return {
     title: j.title ?? "",
@@ -1120,20 +1105,12 @@ function JobFormFields({
   clients,
   users,
   templates,
-  autoCollaboratorIds,
-  onAutoCollaboratorsChange,
-  onClientTacCountChange,
-  enforceExplicitTacOwner = false,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
   templates: { id: number; name: string; is_default?: boolean; archived?: boolean }[];
-  autoCollaboratorIds?: number[];
-  onAutoCollaboratorsChange?: (ids: number[]) => void;
-  onClientTacCountChange?: (count: number | null) => void;
-  enforceExplicitTacOwner?: boolean;
 }) {
   const ccId = form.competence_category_id ? Number(form.competence_category_id) : null;
   // Phase 15 / Phase D: podpowiedzi `train_name` zawężone do klienta.
@@ -1168,18 +1145,7 @@ function JobFormFields({
   });
   const clientTacs = clientTeam?.tacs ?? [];
   const soleClientTac = clientTacs.length === 1 ? clientTacs[0] : null;
-  const requiresExplicitTacOwner =
-    enforceExplicitTacOwner && clientTacs.length > 1;
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
-
-  useEffect(() => {
-    if (!onClientTacCountChange) return;
-    if (clientIdNum === null) {
-      onClientTacCountChange(0);
-      return;
-    }
-    onClientTacCountChange(clientTeam ? clientTacs.length : null);
-  }, [clientIdNum, clientTeam, clientTacs.length, onClientTacCountChange]);
 
   // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
   // Key relationships first (gwiazdka), potem alfabetycznie.
@@ -1352,26 +1318,14 @@ function JobFormFields({
           TAC.
         </div>
       )}
-      {requiresExplicitTacOwner && !form.tac_id && (
-        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
-          Klient ma {clientTacs.length} równorzędnych TAC-ów. Wybierz jawnie
-          ownera requestu — osobisty pierwszy priorytet TAC-a nie rozstrzyga
-          tego wyboru.
-        </div>
-      )}
-      <FieldGroup label="Owner requestu (TAC)" required={requiresExplicitTacOwner}>
+      <FieldGroup label="Owner requestu (TAC)">
         <Select
           value={form.tac_id}
           onChange={e => onChange("tac_id", e.target.value)}
-          required={requiresExplicitTacOwner}
           aria-label="Owner requestu (TAC)"
           disabled={clientIdNum === null}
         >
-          <option value="">
-            {requiresExplicitTacOwner
-              ? "— wybierz ownera requestu —"
-              : "— bez ownera requestu —"}
-          </option>
+          <option value="">— bez ownera requestu —</option>
           {clientTacs.length > 0 && (
             <optgroup label="TAC-y przypisani do klienta">
               {clientTacs.map((t) => (
@@ -1389,11 +1343,6 @@ function JobFormFields({
         {form.tac_id && soleClientTac && Number(form.tac_id) === soleClientTac.user_id && (
           <p className="text-[11px] text-emerald-600 mt-1">
             ✓ Prefill: jedyny TAC przypisany do klienta
-          </p>
-        )}
-        {form.tac_id && requiresExplicitTacOwner && (
-          <p className="text-[11px] text-emerald-600 mt-1">
-            ✓ Owner requestu wybrany jawnie
           </p>
         )}
         {clientIdNum === null && (
@@ -1480,383 +1429,7 @@ function JobFormFields({
         description={form.description}
         requirements={form.requirements}
       />
-      {autoCollaboratorIds !== undefined && onAutoCollaboratorsChange && (
-        <AutoAssignedCollaborators
-          competenceCategoryId={ccId}
-          selectedUserIds={autoCollaboratorIds}
-          onChange={onAutoCollaboratorsChange}
-        />
-      )}
     </>
-  );
-}
-
-export function AddJobModal({
-  onClose,
-  onSuccess,
-  fromJobId = null,
-}: {
-  onClose: () => void;
-  onSuccess: (msg: string) => void;
-  /**
-   * "Skopiuj jako template" handoff — gdy ustawione, modal startuje
-   * z prefilled polami z source jobu. Backend dokonuje finalnego
-   * zoznaczenia w POST /api/jobs (przekazujemy `from_job_id`), więc
-   * tutaj prefill jest tylko visualnym preview formularza.
-   */
-  fromJobId?: number | null;
-}) {
-  const router = useRouter();
-  const [form, setForm] = useState<JobFormData>(EMPTY_JOB);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiSeniority, setAiSeniority] = useState("");
-  const [aiDraft, setAiDraft] = useState<{ description: string; source: string } | null>(null);
-  const [clientTacCount, setClientTacCount] = useState<number | null>(0);
-  // auto_cc collaborators: undefined = not initialised (all auto-add), otherwise
-  // the explicit set user chose (may exclude some backend would add).
-  const [autoCollaboratorIds, setAutoCollaboratorIds] = useState<number[] | null>(null);
-
-  // Prefill form from source job when fromJobId is provided.
-  useEffect(() => {
-    if (fromJobId == null) return;
-    let cancelled = false;
-    api
-      .get(`/api/jobs/${fromJobId}`)
-      .then((r) => {
-        if (cancelled) return;
-        const src = r.data;
-        const prefilled = jobToForm(src);
-        // User świadomie wybiera klienta i nadaje nową nazwę roli — nie
-        // kopiujemy `client_id` ani `title` (zmuszamy DL do potwierdzenia).
-        prefilled.client_id = "";
-        prefilled.title = "";
-        // Szablon to TREŚĆ starej roli, nie jej cykl życia: kopia zamkniętej
-        // rekrutacji startowała jako „Zamknięta" z terminem sprzed lat
-        // (audyt B40). Status i deadline są stanem NOWEGO procesu — zaczyna
-        // jak każda nowa rekrutacja: szkic bez terminu.
-        prefilled.status = EMPTY_JOB.status;
-        prefilled.deadline = "";
-        setForm(prefilled);
-      })
-      .catch(() => {
-        // Cichy fallback — DL może wypełnić ręcznie.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fromJobId]);
-
-  // Banner z siostrzanymi requestami — pokazujemy gdy klient wybrany
-  // i tytuł >=5 znaków. Debounced przez staleTime + enabled gate.
-  const debouncedTitle = useDebouncedValue(form.title, 500);
-  const clientIdNum = form.client_id ? Number(form.client_id) : null;
-  const previewQuery = useQuery<RequestHistoryResponse>({
-    queryKey: [
-      "request-history-preview",
-      clientIdNum,
-      debouncedTitle,
-      form.train_name,
-    ],
-    queryFn: async () => {
-      const r = await requestHistoryApi.preview({
-        title: debouncedTitle,
-        client_id: clientIdNum,
-        train_name: form.train_name || null,
-        raw_description: form.description || null,
-        top_k: 5,
-        cross_client: false,
-        include_open: true,
-      });
-      return r.data;
-    },
-    enabled:
-      fromJobId == null && // banner zbędny gdy już mamy template — DL widział historię
-      clientIdNum !== null &&
-      debouncedTitle.length >= 5,
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-  });
-  const previewTotal =
-    (previewQuery.data?.closed.length ?? 0) +
-    (previewQuery.data?.in_progress.length ?? 0);
-
-  const { data: clientsData } = useQuery({
-    queryKey: ["clients-list-qa"],
-    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
-  });
-  const { data: usersData } = useQuery({
-    queryKey: ["users-list-qa"],
-    queryFn: () => api.get("/api/users").then(r => r.data),
-  });
-  const { data: templatesData } = useQuery({
-    queryKey: ["pipeline-templates-list"],
-    queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
-  });
-  const clients = clientsData ?? [];
-  const users = usersData ?? [];
-  const templates = templatesData ?? [];
-
-  const onChange = (k: keyof JobFormData, v: string) => {
-    if (k === "client_id") {
-      setClientTacCount(v ? null : 0);
-    }
-    setForm((current) => {
-      if (k === "client_id" && current.client_id !== v) {
-        return {
-          ...current,
-          client_id: v,
-          tac_id: "",
-          delivery_lead_id: "",
-        };
-      }
-      return { ...current, [k]: v };
-    });
-  };
-
-  const handleGenerateAI = async () => {
-    if (!form.title.trim()) { setAiError("Wpisz najpierw tytuł stanowiska"); return; }
-    setAiGenerating(true);
-    setAiError("");
-    try {
-      const clientName = clients.find((c: any) => String(c.id) === form.client_id)?.name;
-      const skills = form.requirements
-        ? form.requirements.split(/[\n,]/).map(s => s.trim().replace(/^[-•*]/, "").trim()).filter(Boolean)
-        : [];
-      const { data } = await aiWriterApi.generateJob({
-        title: form.title,
-        client: clientName,
-        seniority: aiSeniority || undefined,
-        skills,
-        description_hint: form.description || undefined,
-      });
-      setAiDraft({ description: data.description, source: data.source });
-    } catch (e: any) {
-      setAiError(formErrorMsg(e, "Błąd generowania AI"));
-    } finally {
-      setAiGenerating(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.title) { setError("Tytuł jest wymagany"); return; }
-    // Backend wymaga `client_id` (JobCreate), a bez tej walidacji użytkownik
-    // dostawał surowe 422 po angielsku: „client_id: Field required".
-    if (!form.client_id) {
-      setError("Wybierz klienta — bez niego nie da się zapisać rekrutacji");
-      return;
-    }
-    if (form.client_id && clientTacCount === null) {
-      setError("Poczekaj, aż wczytamy TAC-ów przypisanych do klienta");
-      return;
-    }
-    if ((clientTacCount ?? 0) > 1 && !form.tac_id) {
-      setError("Wybierz ownera requestu spośród równorzędnych TAC-ów klienta");
-      return;
-    }
-    setSaving(true); setError("");
-    try {
-      const { data: newJob } = await api.post<{ id: number; competence_category_id?: number }>("/api/jobs", {
-        title: form.title,
-        client_id: form.client_id ? Number(form.client_id) : undefined,
-        recruitment_type: form.recruitment_type,
-        status: form.status,
-        description: form.description || undefined,
-        requirements: form.requirements || undefined,
-        location: form.location || undefined,
-        // 0278: puste = "nieznane" (null), nie "hybrid" — bez domyślnej po
-        // stronie DB od tej migracji.
-        remote_policy: form.remote_policy || null,
-        onsite_days_per_week:
-          form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
-        salary_min: form.salary_min ? Number(form.salary_min) : undefined,
-        salary_max: form.salary_max ? Number(form.salary_max) : undefined,
-        rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : undefined,
-        priority: form.priority,
-        deadline: form.deadline || undefined,
-        recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
-        tac_id: form.tac_id ? Number(form.tac_id) : undefined,
-        delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : undefined,
-        hiring_manager_contact_id: form.hiring_manager_contact_id
-          ? Number(form.hiring_manager_contact_id)
-          : undefined,
-        pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
-        competence_category_id: form.competence_category_id
-          ? Number(form.competence_category_id)
-          : undefined,
-        auto_suggest_cc: !form.competence_category_id,
-        // Phase 15 / Phase D: opcjonalne, auto-extract z opisu po stronie
-        // backendu gdy puste (regex w `train_name_extractor`).
-        train_name: form.train_name.trim() || undefined,
-        // "Skopiuj jako template" handoff — backend kopiuje brakujące pola
-        // i pinned interview questions (idempotent, same-client champion only).
-        from_job_id: fromJobId ?? undefined,
-        copy_questions: fromJobId != null ? true : undefined,
-      });
-      // Reconcile auto_cc collaborators: if user de-selected any after backend
-      // already auto-added, we DELETE them here. Hits the same endpoint the
-      // JobOwnershipPanel uses post-creation (idempotent soft-delete).
-      if (newJob?.id && autoCollaboratorIds !== null) {
-        try {
-          const { data: jobDetail } = await api.get<{ collaborators?: Array<{ id: number }> }>(
-            `/api/jobs/${newJob.id}`,
-          );
-          const current = (jobDetail.collaborators ?? []).map((c) => c.id);
-          const toRemove = current.filter((uid) => !autoCollaboratorIds.includes(uid));
-          await Promise.all(
-            toRemove.map((uid) =>
-              api.delete(`/api/jobs/${newJob.id}/collaborators/${uid}`),
-            ),
-          );
-        } catch (e) {
-          // Non-fatal: user can still edit collaborators on the job page.
-        }
-      }
-      // P0-A przeniosło ranking do handoffu („Przekaż do searchu"), więc przy
-      // tworzeniu NIC nie szuka. Komunikat obiecywał pracę, która się nie dzieje,
-      // a redirect prowadził na pustą sekcję propozycji AI — przez co użytkownik
-      // uczył się jej nie ufać.
-      onSuccess("Rekrutacja utworzona. Uzupełnij Profil Championa, żeby przekazać ją do searchu.");
-      onClose();
-      // Phase 13: redirect to the job detail page with AI proposals section
-      // highlighted so the recruiter sees the snapshot load progress.
-      if (newJob?.id) {
-        router.push(`/jobs/${newJob.id}?tab=champion-profile`);
-      }
-    } catch (err: any) {
-      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <Modal
-      title={fromJobId != null ? "Skopiuj jako template" : "Dodaj rekrutację"}
-      onClose={onClose}
-      wide
-    >
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-        {error && <ErrorBanner error={error} />}
-        {fromJobId != null && (
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-            Tworzysz kopię z roli #{fromJobId}. Pola opisu, wymagań, skills,
-            seniority i train zostały prefillowane. Wybierz klienta i nadaj
-            tytuł — Champion Profile zostanie skopiowany tylko gdy zachowasz
-            tego samego klienta.
-          </div>
-        )}
-        {/* AI Generate button */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleGenerateAI}
-            disabled={aiGenerating || !form.title.trim()}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-linear-to-r from-blue-600 to-violet-600 text-white rounded-lg hover:from-blue-700 hover:to-violet-700 disabled:opacity-50 transition-all font-medium shadow-xs"
-          >
-            {aiGenerating ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Generuję AI...</>
-            ) : (
-              <><Sparkles className="w-4 h-4" /> ✨ Generuj AI</>
-            )}
-          </button>
-          <label className="text-xs text-muted-foreground">
-            Poziom stanowiska do szkicu
-            <select aria-label="Poziom stanowiska do szkicu" value={aiSeniority} onChange={e => setAiSeniority(e.target.value)} className="ml-2 rounded border bg-background p-1">
-              <option value="">Nie podano</option>
-              <option value="junior">Junior</option>
-              <option value="mid">Mid</option>
-              <option value="senior">Senior</option>
-              <option value="lead">Lead</option>
-            </select>
-          </label>
-          <span className="text-xs text-muted-foreground">Przygotuje szkic do sprawdzenia</span>
-        </div>
-        {aiError && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{aiError}</div>}
-        {aiDraft && (
-          <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-sm font-medium">Szkic opisu — {aiDraft.source === "template" ? "szablon z podanych danych" : "AI"}</p>
-            <p className="text-xs text-muted-foreground">Sprawdź zgodność z requestem i popraw treść przed zastosowaniem.</p>
-            <textarea aria-label="Szkic opisu do zatwierdzenia" className="w-full min-h-32 rounded border bg-background p-2 text-sm" value={aiDraft.description} onChange={e => setAiDraft(draft => draft ? {...draft, description: e.target.value} : null)} />
-            <button type="button" className="rounded bg-primary text-primary-foreground px-3 py-2 text-sm" onClick={() => { setForm(current => ({...current, description: aiDraft.description})); setAiDraft(null); }}>Zastosuj sprawdzony opis</button>
-            <button type="button" className="ml-2 text-sm" onClick={() => setAiDraft(null)}>Odrzuć szkic</button>
-          </div>
-        )}
-        {/* Awaria zapytania o podobne requesty MUSI być widoczna. Do 0270 cała
-            gałąź wisiała na `previewTotal > 0`, więc padnięte zapytanie
-            renderowało się identycznie jak „u tego klienta nie było nic
-            podobnego" — czyli jako twierdzenie o danych klienta zamiast
-            informacji o awarii. Kolejność jak w TalentRadarResults: błąd przed
-            stanem pustym. */}
-        {previewQuery.isError && (
-          <div
-            className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive"
-            data-testid="request-history-banner-error"
-          >
-            Nie udało się sprawdzić podobnych requestów u tego klienta — to nie
-            znaczy, że ich nie ma. Spróbuj ponownie za chwilę.
-          </div>
-        )}
-        {previewQuery.isSuccess && previewTotal > 0 && previewQuery.data && (
-          <div
-            className="rounded-lg bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 px-3 py-2 text-xs"
-            data-testid="request-history-banner"
-          >
-            <div className="flex items-center gap-1.5 text-primary dark:text-primary font-medium">
-              <Sparkles className="inline w-4 h-4" />
-              U tego klienta było już {previewTotal}{" "}
-              {previewTotal === 1 ? "podobny request" : "podobnych requestów"}
-              {" "}({previewQuery.data.in_progress.length} w toku,{" "}
-              {previewQuery.data.closed.length} zamkniętych)
-            </div>
-            <ul className="mt-1.5 space-y-0.5 pl-5 list-disc text-primary dark:text-primary">
-              {[...previewQuery.data.in_progress, ...previewQuery.data.closed]
-                .slice(0, 3)
-                .map((r) => (
-                  <li key={r.job_id}>
-                    <a
-                      href={`/jobs/${r.job_id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline hover:text-primary/80"
-                    >
-                      {r.title}
-                    </a>{" "}
-                    <span className="text-primary dark:text-primary">
-                      ({r.is_in_progress ? "w toku" : r.outcome ?? "zamknięty"}
-                      {/* `null` = nie znamy daty otwarcia rekrutacji (wiersze
-                          sprzed backfillu 0270). Pominięcie tej informacji
-                          czytało się jak „czas nieistotny"; do 0270 pole i tak
-                          zawsze pokazywało „0d", bo liczyło od daty importu. */}
-                      {r.is_in_progress
-                        ? ""
-                        : r.tth_days != null
-                          ? `, ${r.tth_days}d`
-                          : ", czas nieznany"})
-                    </span>
-                  </li>
-                ))}
-            </ul>
-          </div>
-        )}
-        <JobFormFields
-          form={form}
-          onChange={onChange}
-          clients={clients}
-          users={users}
-          templates={templates}
-          autoCollaboratorIds={autoCollaboratorIds ?? []}
-          onAutoCollaboratorsChange={setAutoCollaboratorIds}
-          onClientTacCountChange={setClientTacCount}
-          enforceExplicitTacOwner
-        />
-        <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Dodaj rekrutację" />
-        </div>
-      </form>
-    </Modal>
   );
 }
 
@@ -2462,7 +2035,9 @@ function QuickActionsButton({
 
       {/* Modals */}
       {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
-      {modal === "job" && <AddJobModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "job" && (
+        <CreateJobModal onClose={() => setModal(null)} onSuccess={(msg) => showToast(msg)} />
+      )}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}
 
