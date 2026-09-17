@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -116,6 +116,31 @@ async def enqueue(
     )
 
 
+async def load_unloaded_columns(db: AsyncSession, entity) -> list[str]:
+    """Doładuj kolumny, których instancja jeszcze nie ma w pamięci.
+
+    Świeżo ``flush()``-owany wiersz ma kolumny z ``server_default``
+    (``created_at`` / ``updated_at`` z ``TimestampMixin``) w stanie „expired":
+    ORM pobierze je dopiero przy pierwszym odczycie — synchronicznym SELECT-em,
+    który w ``AsyncSession`` poza greenletem kończy się ``MissingGreenlet``.
+    ``desired_state`` czyta ``updated_at`` właśnie tak, więc KAŻDY nowy
+    kandydat z ``/candidates/from-cv`` tracił embedding (prod 2026-09-16:
+    55/55 odpowiedzi 201 z „[from-cv] embedding failed"), a ``db.get`` nic nie
+    pomagał, bo oddaje tę samą instancję z identity map.
+
+    Odświeżamy WYŁĄCZNIE atrybuty niezaładowane (``state.unloaded``) i tylko
+    kolumnowe: załadowane mogą nieść niesflushowane zmiany edycji, których
+    pełny ``refresh`` by nie cofnął z bazy, a relacje nie są potrzebne
+    tekstowi embeddingu. Zwraca listę doładowanych nazw (dla testów).
+    """
+    state = inspect(entity)
+    column_keys = {attr.key for attr in state.mapper.column_attrs}
+    missing = sorted(state.unloaded & column_keys)
+    if missing:
+        await db.refresh(entity, attribute_names=missing)
+    return missing
+
+
 async def schedule_or_embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
     """Outbox-on ⇒ enqueue an upsert; outbox-off ⇒ embed inline (legacy)."""
     from app.services.embedding_service import embed_candidate
@@ -135,6 +160,7 @@ async def schedule_or_embed_candidate(candidate_id: int, db: AsyncSession) -> bo
             operation="delete",
         )
     else:
+        await load_unloaded_columns(db, entity)
         st = desired_state(CANDIDATE, entity)
         await _enqueue_isolated(
             entity_type=CANDIDATE,
@@ -163,6 +189,7 @@ async def schedule_or_embed_job(job_id: int, db: AsyncSession) -> bool:
             operation="delete",
         )
     else:
+        await load_unloaded_columns(db, entity)
         st = desired_state(JOB, entity)
         await _enqueue_isolated(
             entity_type=JOB,
