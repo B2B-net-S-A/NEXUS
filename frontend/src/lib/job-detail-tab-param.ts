@@ -12,11 +12,18 @@ import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
  *
  * `similar` — link z powiadomienia „Podobny request — gotowi kandydaci"
  * prowadzi na zakładkę AI Matching, nie na zakładkę o nazwie „similar".
+ *
+ * `notes` — wzmianka w notatce; notatki żyją w doku kandydata na tablicy.
+ *
+ * Te same aliasy czyta `useUrlTab` na stronie rekrutacji (zakładka żyje
+ * w `?tab=`), więc jest jedna lista dla obu miejsc.
  */
-const TAB_PARAM_ALIASES: Readonly<Record<string, JobDetailTab>> = {
+export const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailTab>> = {
   "champion-profile": "champion",
   similar: "ai-matching",
+  notes: "pipeline",
 };
+const TAB_PARAM_ALIASES = JOB_DETAIL_TAB_ALIASES;
 
 /** Literały `JobDetailTab`, na które wolno wejść bezpośrednio przez `?tab=`. */
 const DEEP_LINKABLE_TABS: ReadonlySet<JobDetailTab> = new Set<JobDetailTab>([

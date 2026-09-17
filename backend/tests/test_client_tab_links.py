@@ -47,6 +47,7 @@ def test_backend_client_links_use_real_frontend_tab_keys() -> None:
 
 FRONTEND = BACKEND.parent / "frontend" / "src"
 JOB_PAGE_TSX = FRONTEND / "app" / "jobs" / "[id]" / "page.tsx"
+JOB_TAB_ALIASES_TS = FRONTEND / "lib" / "job-detail-tab-param.ts"
 CANDIDATE_NAV_TS = (
     FRONTEND / "components" / "v2" / "pages" / "candidate-profile-navigation.ts"
 )
@@ -70,8 +71,11 @@ def _object_keys(source: str, anchor: str) -> set[str]:
 
 def _job_tab_keys() -> set[str]:
     source = JOB_PAGE_TSX.read_text(encoding="utf-8")
+    # Aliasy żyją w `lib/job-detail-tab-param.ts` — jedna lista dla `useUrlTab`
+    # na stronie rekrutacji i dla `resolveJobDetailTab`.
+    aliases = JOB_TAB_ALIASES_TS.read_text(encoding="utf-8")
     return _array_literal(source, "JOB_DETAIL_TABS") | _object_keys(
-        source, "JOB_DETAIL_TAB_ALIASES"
+        aliases, "export const JOB_DETAIL_TAB_ALIASES"
     )
 
 

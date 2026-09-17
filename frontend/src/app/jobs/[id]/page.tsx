@@ -8,6 +8,7 @@ import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandida
 import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
 import { jobBudgetHourly } from "@/lib/job-budget";
+import { JOB_DETAIL_TAB_ALIASES } from "@/lib/job-detail-tab-param";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -2008,18 +2009,6 @@ const JOB_DETAIL_TABS: readonly JobDetailTab[] = [
   "interviews",
   "contract",
 ];
-
-/**
- * Stare i obce identyfikatory zakładek w linkach, które już są w bazie
- * powiadomień: `champion-profile` (zapis Championa do 09.2026), `similar`
- * („Podobny request — gotowi kandydaci"), `notes` (wzmianka w notatce —
- * notatki żyją w doku kandydata na tablicy).
- */
-const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailTab>> = {
-  "champion-profile": "champion",
-  similar: "ai-matching",
-  notes: "pipeline",
-};
 
 export default function JobDetailPage() {
   const { id } = useParams();
