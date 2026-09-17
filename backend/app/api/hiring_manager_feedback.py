@@ -36,10 +36,15 @@ zdejmuje z niej wymóg ``calendar_event_id`` (klient często umawia się
 z kandydatem sam, poza kalendarzem NEXUSA) i dokłada ``rejection_reason_id``.
 
 Jeden werdykt na parę (kandydat, rekrutacja): powtórne wywołanie NADPISUJE
-wiersz bez spotkania zamiast hodować stos. Werdykty przypięte do konkretnego
-``CalendarEvent`` zostają nietknięte — te edytuje ``PATCH /api/interview-feedback``.
+NAJNOWSZY wiersz ``client_side`` tej pary — także przypięty do spotkania
+(feedback od klienta zapisany z okna wydarzenia). Do 09.2026 lista i upsert
+czytały wyłącznie wiersze BEZ spotkania, więc werdykt zapisany po rozmowie
+w kalendarzu był na karcie rekrutacji niewidoczny („do uzupełnienia"),
+a Delivery Lead wpisywał go drugi raz obok. Zapis gasi też ``needs_attention``
+na wydarzeniu tego wiersza (ta sama reguła co ``PATCH /api/interview-feedback``).
 
-Nadpisać CUDZY werdykt może wyłącznie autor, Delivery Lead albo admin — ta
+Nadpisać CUDZY werdykt może wyłącznie autor, Delivery Lead, Head of Recruitment
+albo admin (HoR od 17.09.2026, decyzja Artura) — ta
 sama reguła co ``PATCH /api/interview-feedback`` (``_can_edit``). Do 09.2026
 upsert po parze podmieniał autora i treść bez pytania, więc drugi rekruter
 kasował werdykt kolegi jednym kliknięciem „Zapisz". Odczyt stoi za
@@ -56,6 +61,7 @@ zapisu — Finance na cudzej rekrutacji klikało „Zapisz feedback" prosto w 40
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -64,6 +70,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import IMPERSONATION_HEADER, RecruiterPlus
+from app.api.calendar_access import user_can_mutate_event
 from app.api.interview_feedback import _can_edit as _can_edit_feedback
 from app.api.recruitment_access import (
     RECRUITMENT_TRANSITION_ROLES,
@@ -73,6 +80,7 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.models.calendar_event import CalendarEvent
 from app.models.contact import Contact
 from app.models.interview_feedback import (
     FeedbackSource,
@@ -141,6 +149,11 @@ class HiringManagerFeedbackResponse(BaseModel):
     author_id: Optional[int] = None
     author_name: Optional[str] = None
     can_edit: bool = False
+    # Werdykt zebrany z okna wydarzenia w kalendarzu — karta rekrutacji mówi
+    # wtedy „zapisany · z rozmowy dd.mm".
+    calendar_event_id: Optional[int] = None
+    event_start_time: Optional[datetime] = None
+    event_title: Optional[str] = None
 
 
 class HiringManagerFeedbackList(BaseModel):
@@ -189,9 +202,10 @@ def _user_can_overwrite(user: User, feedback: InterviewFeedback) -> bool:
     """Czy ``user`` może nadpisać ten werdykt — reguła ``PATCH /interview-feedback``.
 
     ``_can_edit`` przepuszcza autora, Delivery Leada, Head of Recruitment
-    i admina; zapis stoi jednak za ``RecruiterPlus`` (bez HoR), więc rola
-    musi też należeć do zbioru, który w ogóle może zapisać werdykt — inaczej
-    ``can_edit`` obiecywałby HoR przycisk kończący się 403.
+    i admina; zapis stoi jednak za ``RecruiterPlus``, więc rola musi też
+    należeć do zbioru, który w ogóle może zapisać werdykt — inaczej
+    ``can_edit`` obiecywałby przycisk kończący się 403. (Od 17.09.2026 HoR
+    jest w ``RecruiterPlus`` — parytet z rekruterem.)
     """
     return user.has_any_role(*RECRUITMENT_TRANSITION_ROLES) and _can_edit_feedback(
         user, feedback
@@ -208,6 +222,7 @@ def _to_response(
     veto_blockers: list[str],
     author_name: Optional[str],
     can_edit: bool,
+    event: Optional[CalendarEvent] = None,
 ) -> HiringManagerFeedbackResponse:
     return HiringManagerFeedbackResponse(
         id=feedback.id,
@@ -228,6 +243,9 @@ def _to_response(
         author_id=feedback.author_id,
         author_name=author_name,
         can_edit=can_edit,
+        calendar_event_id=feedback.calendar_event_id,
+        event_start_time=event.start_time if event is not None else None,
+        event_title=event.title if event is not None else None,
     )
 
 
@@ -374,9 +392,13 @@ async def record_hiring_manager_feedback(
 
     reason = await _resolve_reason(db, job=job, reason_id=payload.rejection_reason_id)
 
-    # Upsert po parze (kandydat, rekrutacja) wśród wierszy BEZ spotkania.
-    # Wiersze przypięte do `CalendarEvent` zostają nietknięte — mają własną
-    # ścieżkę edycji i własne miejsce w kalendarzu.
+    # Upsert po parze (kandydat, rekrutacja) WYŁĄCZNIE na wierszu bez
+    # wydarzenia. Wiersz przypięty do rozmowy opisuje TĘ rozmowę (rundę 1),
+    # a werdykt z karty bywa decyzją po rundzie 2 — nadpisanie zgubiłoby
+    # notatkę rundy 1. Do tego FK wiersza z wydarzeniem ma ON DELETE CASCADE:
+    # werdykt z karty zapisany na takim wierszu znikałby (razem z wetem) przy
+    # usunięciu spotkania. Lista i tak pokazuje ostatnio zmieniony wiersz pary
+    # (`updated_at`), więc po zapisie karta widzi to, co zapisała.
     feedback = await db.scalar(
         select(InterviewFeedback)
         .where(
@@ -385,7 +407,7 @@ async def record_hiring_manager_feedback(
             InterviewFeedback.feedback_source == FeedbackSource.client_side,
             InterviewFeedback.calendar_event_id.is_(None),
         )
-        .order_by(InterviewFeedback.created_at.desc())
+        .order_by(InterviewFeedback.created_at.desc(), InterviewFeedback.id.desc())
         .limit(1)
     )
     created = feedback is None
@@ -410,7 +432,8 @@ async def record_hiring_manager_feedback(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
                 f"Werdykt dla tego kandydata zapisał(a) {author_name or 'inna osoba'}"
-                " — zmienić go może autor, Delivery Lead albo admin."
+                " — zmienić go może autor, Delivery Lead, Head of Recruitment"
+                " albo admin."
             ),
         )
 
@@ -422,6 +445,32 @@ async def record_hiring_manager_feedback(
     feedback.soft_fit = payload.soft_fit
     feedback.overall_fit = payload.overall_fit
     await db.flush()
+
+    # Werdykt klienta z karty to feedback po rozmowach tej pary — gasi flagę
+    # „brak feedbacku" (eskalacja T+2h) na jej rozmowach. Lustro
+    # `PATCH /api/interview-feedback`: tylko tam, gdzie wołający może edytować
+    # wydarzenie (właściciel / admin / HoR), żeby cudza eskalacja nie gasła
+    # od zapisu osoby spoza rozmowy.
+    flagged_events = (
+        (
+            await db.execute(
+                select(CalendarEvent).where(
+                    CalendarEvent.candidate_id == payload.candidate_id,
+                    CalendarEvent.job_id == job_id,
+                    CalendarEvent.needs_attention.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    cleared = False
+    for flagged in flagged_events:
+        if user_can_mutate_event(flagged, current_user):
+            flagged.needs_attention = False
+            cleared = True
+    if cleared:
+        await db.flush()
 
     # Powiadomienie „klient idzie dalej / klient odpada — zaproponuj next step"
     # do rekrutera prowadzącego. Best-effort jak w `POST /api/interview-feedback`:
@@ -463,6 +512,7 @@ async def record_hiring_manager_feedback(
         veto_blockers=veto_blockers,
         author_name=current_user.name,
         can_edit=True,
+        event=None,
     )
 
 
@@ -506,18 +556,25 @@ async def list_hiring_manager_feedback(
     rows = list(
         (
             await db.execute(
-                select(InterviewFeedback, RejectionReason, User.name)
+                select(InterviewFeedback, RejectionReason, User.name, CalendarEvent)
                 .outerjoin(
                     RejectionReason,
                     RejectionReason.id == InterviewFeedback.rejection_reason_id,
                 )
                 .outerjoin(User, User.id == InterviewFeedback.author_id)
+                .outerjoin(
+                    CalendarEvent,
+                    CalendarEvent.id == InterviewFeedback.calendar_event_id,
+                )
                 .where(
                     InterviewFeedback.job_id == job_id,
                     InterviewFeedback.feedback_source == FeedbackSource.client_side,
-                    InterviewFeedback.calendar_event_id.is_(None),
                 )
-                .order_by(InterviewFeedback.created_at.desc())
+                .order_by(
+                    InterviewFeedback.updated_at.desc(),
+                    InterviewFeedback.created_at.desc(),
+                    InterviewFeedback.id.desc(),
+                )
             )
         ).all()
     )
@@ -529,7 +586,14 @@ async def list_hiring_manager_feedback(
         )
 
     out: list[HiringManagerFeedbackResponse] = []
-    for feedback, reason, author_name in rows:
+    seen_candidates: set[int] = set()
+    for feedback, reason, author_name, event in rows:
+        # Po jednym na kandydata — najnowszy. Z wierszami z kalendarza para
+        # bywa opisana dwa razy (werdykt z karty + z okna wydarzenia), a karta
+        # i upsert patrzą na ten sam, najnowszy wiersz.
+        if feedback.candidate_id in seen_candidates:
+            continue
+        seen_candidates.add(feedback.candidate_id)
         veto_recorded, veto_blockers = await _veto_state(
             db, job=job, candidate_id=feedback.candidate_id, reason=reason
         )
@@ -543,6 +607,7 @@ async def list_hiring_manager_feedback(
                 veto_blockers=veto_blockers,
                 author_name=author_name,
                 can_edit=_user_can_overwrite(current_user, feedback),
+                event=event,
             )
         )
     can_record = await _can_record_verdict(db, request, current_user, job_id=job_id)

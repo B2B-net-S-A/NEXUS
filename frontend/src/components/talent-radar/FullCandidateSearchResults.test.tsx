@@ -80,3 +80,13 @@ test("verification action requires a saved recruitment and write permission", ()
   view.rerender(<FullCandidateSearchResults {...props} jobId={7} canVerify />);
   expect(screen.getByRole("button", { name: "Zweryfikuj wymaganie" })).toBeVisible();
 });
+
+test("a transient read error during a running scan keeps the progress visible", () => {
+  const running: CandidateSearchPage = { ...data, state: "running", counts: { ...data.counts, pending: 30000, evaluated: 30000 } };
+  const onRetry = vi.fn();
+  render(<FullCandidateSearchResults data={running} error={Object.assign(new Error("Bad gateway"), { response: { status: 502 } })} loading={false} fetching={false} offset={0} onPage={vi.fn()} onRetry={onRetry} canOpenProfile />);
+  expect(screen.getByRole("alert")).toHaveTextContent(/Przegląd trwa dalej/);
+  expect(screen.getByLabelText("Zakres wyszukiwania")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
+  expect(onRetry).toHaveBeenCalledOnce();
+});

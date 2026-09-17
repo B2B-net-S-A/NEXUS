@@ -126,6 +126,10 @@ class NotificationType(str, enum.Enum):
     # następnego zamówienia. Emitowane przez `services/order_gaps.py` do DL
     # przypisanych do klienta; dedup po (typ, related_entity=(order_gap, id)).
     order_missing_successor = "order_missing_successor"
+    # 0324: system sam dodał kandydata do pipeline'u rekrutacji (auto-match po
+    # odczycie nowego CV albo po publikacji rekrutacji). Dedup po wierszu
+    # etapu, nie po rekrutacji — dwóch kandydatów tego samego dnia to dwa dzwonki.
+    auto_match = "auto_match"
 
 
 class Notification(Base, TimestampMixin):

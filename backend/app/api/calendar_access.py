@@ -61,6 +61,8 @@ CALENDAR_READ_OVERRIDE_ROLES: tuple[UserRole, ...] = (
 # ── Audit actions (Activity.action) ──────────────────────────────────────────
 CALENDAR_EVENT_UPDATED = "calendar_event_updated"
 CALENDAR_EVENT_DELETED = "calendar_event_deleted"
+# Odwołanie (także w Outlooku) — wiersz zostaje ze statusem `cancelled`.
+CALENDAR_EVENT_CANCELLED = "calendar_event_cancelled"
 
 
 def _attendee_emails(attendees: Any) -> Iterator[str]:
@@ -120,6 +122,18 @@ def user_can_view_event(event: CalendarEvent, user: User) -> bool:
 def user_can_mutate_event(event: CalendarEvent, user: User) -> bool:
     """Owner OR admin/HoR only — a bare participant may not mutate."""
     return user_is_override(user) or user_owns_event(event, user)
+
+
+def user_can_remove_event(event: CalendarEvent, user: User) -> bool:
+    """Odwołanie / usunięcie / status `cancelled`: właściciel albo admin.
+
+    Decyzja Artura 17.09.2026: Head of Recruitment (od tego dnia z zapisem
+    w kalendarzu) poprawia metadane CUDZYCH wydarzeń (typ, kandydat,
+    rekrutacja, przypomnienie), ale odwołać lub usunąć może tylko własne.
+    Odwołanie wydarzenia z Outlooka idzie przez połączenie M365 TWÓRCY
+    i wysyła uczestnikom odwołanie — tego nie wolno robić cudzym kalendarzem.
+    """
+    return user.has_role(UserRole.admin) or user_owns_event(event, user)
 
 
 # ── SQL-level visibility filter (applied BEFORE read, for the LIST route) ──────

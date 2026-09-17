@@ -277,3 +277,25 @@ describe("candidate query keys", () => {
     ]);
   });
 });
+
+describe("candidate profile navigation — notatki z powiadomień", () => {
+  it("alias `notes` otwiera widok notatek (starsze linki wzmianek)", () => {
+    expect(parseCandidateProfileView(new URLSearchParams("tab=notes"))).toMatchObject({
+      section: "activity",
+      activity: "notes",
+      isLegacy: true,
+    });
+  });
+
+  it("czyta `?note=<id>` wyłącznie jako dodatnią liczbę całkowitą", async () => {
+    const { parseCandidateNoteFocus } = await import(
+      "@/components/v2/pages/candidate-profile-navigation"
+    );
+    expect(
+      parseCandidateNoteFocus(new URLSearchParams("tab=activity&activity=notes&note=42")),
+    ).toBe(42);
+    for (const bad of ["0", "-3", "4.2", "1e3", " 7", "abc", ""]) {
+      expect(parseCandidateNoteFocus(new URLSearchParams({ note: bad }))).toBeNull();
+    }
+  });
+});

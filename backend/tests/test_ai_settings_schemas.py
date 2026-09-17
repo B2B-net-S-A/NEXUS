@@ -20,9 +20,7 @@ from app.models.ai_feature import (
 from app.schemas.ai_settings import (
     AISettingsOut,
     FeatureConfig,
-    FeatureConfigUpdate,
     FeatureUsage,
-    MasterToggleUpdate,
 )
 from app.services.ai_quota import (
     AIQuotaExceeded,
@@ -143,26 +141,6 @@ class TestFeatureUsageSchema:
             period_end=date(2026, 5, 31),
         )
         assert usage.is_exhausted is True
-
-
-class TestPatchPayloads:
-    def test_master_toggle_update(self):
-        payload = MasterToggleUpdate(enabled=False)
-        assert payload.enabled is False
-
-    def test_feature_partial_update_enabled_only(self):
-        payload = FeatureConfigUpdate(enabled=False)
-        assert payload.enabled is False
-        assert payload.monthly_limit is None
-
-    def test_feature_partial_update_limit_only(self):
-        payload = FeatureConfigUpdate(monthly_limit=500)
-        assert payload.monthly_limit == 500
-        assert payload.enabled is None
-
-    def test_feature_update_rejects_negative_limit(self):
-        with pytest.raises(ValidationError):
-            FeatureConfigUpdate(monthly_limit=-100)
 
 
 class TestQuotaState:

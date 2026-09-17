@@ -6,7 +6,7 @@
  * stanowisku screeningu (krok 05 programu „flow w języku C2", PR 6/7).
  *
  * Makieta kroku 05 pokazuje stawkę INLINE w doku, z komunikatem „mieści się
- * w budżecie / czeka na akceptację" widocznym ZANIM ktoś kliknie. To ten sam
+ * w budżecie / ponad budżet" widocznym ZANIM ktoś kliknie. To ten sam
  * werdykt, który modal pokazuje po wpisaniu kwoty, więc pola i zdanie pod nimi
  * są jednym komponentem, a sama reguła — jedną funkcją (`evaluateRateGate`).
  */
@@ -50,12 +50,21 @@ const VERDICT_STYLE = {
     className:
       "border-success/30 bg-success-muted text-success-muted-foreground",
   },
-  needs_approval: {
+  // Informacja, nie blokada (bramka „Pending" wyłączona 17.09.2026).
+  over_budget: {
     icon: AlertTriangle,
     className:
       "border-warning/30 bg-warning-muted text-warning-muted-foreground",
   },
+  not_comparable: {
+    icon: Info,
+    className: "border-border bg-muted/40 text-muted-foreground",
+  },
   no_budget: {
+    icon: Info,
+    className: "border-border bg-muted/40 text-muted-foreground",
+  },
+  budget_hidden: {
     icon: Info,
     className: "border-border bg-muted/40 text-muted-foreground",
   },

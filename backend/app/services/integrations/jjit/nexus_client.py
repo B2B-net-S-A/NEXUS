@@ -25,6 +25,7 @@ from typing import Any, Optional
 import httpx
 from sqlalchemy import select
 
+from app.services.auto_match_rules import is_good_match  # noqa: F401 — reguła wspólna z auto-matchem
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.oauth_client import OAuthClient
@@ -47,19 +48,6 @@ class MatchResult:
     cv_refresh: str = ""
     matched: list[dict] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
-
-
-def is_good_match(rec: dict, *, min_score: float, require_must: bool) -> bool:
-    """Ta sama reguła co w scraperze: próg + published + ≥1 trafione must-have."""
-    if rec["score"] < min_score or rec["status"] not in ("", "published"):
-        return False
-    if (
-        require_must
-        and (rec["gap_must"] or rec["matching_must"])
-        and not rec["matching_must"]
-    ):
-        return False
-    return True
 
 
 async def mint_client_token() -> str:

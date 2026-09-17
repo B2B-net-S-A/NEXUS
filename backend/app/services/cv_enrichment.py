@@ -26,6 +26,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -59,6 +60,7 @@ _MAX_SKILL_NAME_CHARS = 120
 # schematy same importują z `app.services.*`, więc import w drugą stronę to
 # gotowy cykl. Zgodność obu słowników zamraża test — rozjazd będzie czerwony.
 _CANONICAL_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
+_SKILL_DATE_RE = re.compile(r"^(?:\d{4}(?:-\d{2})?|present)$")
 
 
 def normalize_llm_skills(value: Any) -> Optional[list[dict]]:
@@ -148,6 +150,13 @@ def normalize_llm_skills(value: Any) -> Optional[list[dict]]:
                     category = item.get("category")
                     if isinstance(category, str) and category.strip():
                         entry["category"] = category.strip()
+                    # Odczyt v7: kiedy skill był używany (kanon z parsera).
+                    for date_key in ("first_used", "last_used"):
+                        date_value = item.get(date_key)
+                        if isinstance(date_value, str) and _SKILL_DATE_RE.match(
+                            date_value.strip()
+                        ):
+                            entry[date_key] = date_value.strip()
         if entry is None:
             continue
         dedup_key = entry["name"].casefold()
@@ -292,6 +301,29 @@ def _apply_cv_contact_fields(
         )
 
 
+_RICH_EXPERIENCE_KEYS = (
+    "technologies",
+    "employment_type",
+    "location",
+    "client",
+)
+_LEGAL_SUFFIX_RE = re.compile(
+    r"\b(sp\.?\s*z\s*o\.?\s*o\.?|s\.?\s*a\.?|sp\.?\s*j\.?|sp\.?\s*k\.?|"
+    r"gmbh|ltd\.?|llc|inc\.?|corp\.?|plc|ag|s\.?\s*r\.?\s*o\.?|bv|oy)\b",
+    re.IGNORECASE,
+)
+
+
+def company_norm(name: Optional[str]) -> Optional[str]:
+    """Nazwa firmy do porównań: małe litery, bez formy prawnej i interpunkcji."""
+    if not isinstance(name, str):
+        return None
+    text = _LEGAL_SUFFIX_RE.sub(" ", name.casefold())
+    text = re.sub(r"[^\w]+", " ", text)
+    text = " ".join(text.split())
+    return text[:160] or None
+
+
 def cv_experience_entries(parsed: dict) -> list[dict]:
     """Wpisy `experience`, które ten odczyt CV zapisuje kandydatowi.
 
@@ -302,23 +334,40 @@ def cv_experience_entries(parsed: dict) -> list[dict]:
     „CV nie podaje daty”. Ta sama
     funkcja buduje oczekiwany kształt przy czyszczeniu kwarantanny
     tożsamości, więc zapis i jego cofnięcie nie mogą się rozjechać.
+
+    Odczyt v7 (pełny profil) dokłada per stanowisko: technologie, opis (w `desc`,
+    który czytają embedding, tekst kanoniczny i CV HTML), formę zatrudnienia,
+    lokalizację, klienta końcowego, `is_current`, `company_norm` i znacznik
+    `source: "cv"`. Znacznik odróżnia opisy z CV od opisów z importu Traffita —
+    tylko te drugie blokują nadpisanie historii nowym CV.
     """
+    from app.services.profile_projection import is_rich_profile_parse
+
+    rich_profile = is_rich_profile_parse(parsed)
     rich = [
         e
         for e in (parsed.get("experience") or [])
         if isinstance(e, dict) and (e.get("company") or e.get("role"))
     ]
     if any(e.get("role") or e.get("start") or e.get("end") for e in rich):
-        return [
-            {
+        entries = []
+        for e in rich:
+            entry = {
                 "company": e.get("company") or None,
                 "role": e.get("role") or None,
                 "start": e.get("start") or None,
                 "end": e.get("end") or None,
-                "desc": None,
+                "desc": (e.get("description") or None) if rich_profile else None,
             }
-            for e in rich
-        ]
+            if rich_profile:
+                for key in _RICH_EXPERIENCE_KEYS:
+                    if e.get(key):
+                        entry[key] = e[key]
+                entry["is_current"] = str(e.get("end") or "").casefold() == "present"
+                entry["company_norm"] = company_norm(e.get("company"))
+                entry["source"] = "cv"
+            entries.append(entry)
+        return entries
     return [
         {
             "company": name,
@@ -459,6 +508,36 @@ def _apply_cv_enrichment(
     # is prose a recruiter may have rewritten. Freezing highlights alongside a
     # curated summary would stale the one field guaranteed to come from the CV.
     next_extracted["cv_highlights"] = cv_highlights
+    from app.services.profile_projection import (
+        PROFILE_SCHEMA_VERSION,
+        build_skill_timeline,
+        is_rich_profile_parse,
+    )
+
+    rich_keys = (
+        "_profile_schema",
+        "skill_timeline",
+        "certifications",
+        "projects",
+        "achievements",
+    )
+    if not is_rich_profile_parse(parsed) and policy is CvWritePolicy.FILL_EMPTY:
+        # Słabszy odczyt (regex, szablon masowy, nocny backfill) nie kasuje
+        # pełnego profilu z wcześniejszego odczytu v7. Świadomy „użyj tego CV”
+        # (REFRESH) na regexie usuwa go — opisywałby poprzedni plik.
+        for key in rich_keys:
+            if key in existing_extracted:
+                next_extracted[key] = existing_extracted[key]
+    if is_rich_profile_parse(parsed):
+        next_extracted["_profile_schema"] = PROFILE_SCHEMA_VERSION
+        next_extracted["skill_timeline"] = build_skill_timeline(
+            experience=parsed.get("experience"),
+            skills=parsed.get("skills"),
+            projects=parsed.get("projects"),
+        )
+        for locked_list in ("certifications", "projects", "achievements"):
+            if existing_extracted.get(f"_manual_override_{locked_list}"):
+                next_extracted[locked_list] = existing_extracted.get(locked_list) or []
     # Preserve EVERY manual-override flag, not a hand-maintained list. The old
     # code copied only `_CV_CONTACT_FIELDS`, so `_manual_override_country` — set
     # by both importers and read by the location writer — was silently dropped on
@@ -489,7 +568,9 @@ def _apply_cv_enrichment(
     # Historia z opisami stanowisk pochodzi z importu (backfill Traffita), nie
     # z odczytu CV: zasila tekst kanoniczny, embeddingi i CV HTML. Odczyt CV
     # (maks. 10 stanowisk, bez opisów) jej nie zastępuje — także przy REFRESH.
-    has_described_history = any(e.get("desc") for e in existing_entries)
+    has_described_history = any(
+        e.get("desc") and e.get("source") != "cv" for e in existing_entries
+    )
     written = 0
     # Płaska lista firm nigdy nie zastępuje bogatego doświadczenia. Stanowiska
     # z datami z CV zastępują je tylko przy świadomym „użyj tego CV” (REFRESH).

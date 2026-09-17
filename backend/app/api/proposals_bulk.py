@@ -17,6 +17,7 @@ Returned shape lets the UI render a "Added 7, skipped 3" toast with reasons.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -316,39 +317,47 @@ def _merge_tags(existing: list, incoming: list[str]) -> list:
     return merged
 
 
-@router.post(
-    "/jobs/{job_id}/proposals/bulk",
-    response_model=BulkProposalsResponse,
-    summary="Bulk-add candidates to job pipeline (manual search → recruitment)",
-)
-async def bulk_add_proposals(
-    job_id: int,
-    body: BulkProposalsRequest,
-    current_user: RecruiterPlus,
-    db: AsyncSession = Depends(get_db),
-) -> BulkProposalsResponse:
+@dataclass
+class IntakeResult:
+    added: list[int]
+    skipped: list[BulkSkippedRow]
+    warnings: list[BulkWarningRow]
+    stage_ids: dict[int, int]
+
+
+async def add_candidates_to_job(
+    db: AsyncSession,
+    *,
+    job: Job,
+    candidate_ids: list[int],
+    actor_user_id: Optional[int],
+    initial_stage_def_id: Optional[int] = None,
+    initial_stage_legacy: Optional[str] = None,
+    note: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> IntakeResult:
+    """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
+
+    Wyciągnięte z `bulk_add_proposals` (17.09.2026), żeby auto-dopasowanie
+    (`tasks/candidate_auto_match.py`) przechodziło DOKŁADNIE przez te same bramki
+    co rekruter: blacklista, konflikty i NDA klienta, weto hiring managera,
+    wykluczenia kandydata, już-w-procesie. Bez commita i bez sprawdzenia
+    członkostwa w zespole — to robi wołający (trasa: `ensure_job_membership`;
+    automat: działa w imieniu właściciela rekrutacji).
+    """
     # Kanoniczna kolejność blokad — patrz `canonical_candidate_lock_order`.
     # Pętla niżej blokuje wiersz kandydata przez `open_process`, a jedyny commit
     # jest po pętli, więc surowa lista z requestu znaczyła, że dwa nakładające
     # się bulk-addy z odwróconą kolejnością zakleszczały się o siebie.
     # Deduplikacja przy okazji kasuje zdublowane wiersze w `skipped`.
-    lock_ordered_ids = canonical_candidate_lock_order(body.candidate_ids)
-
-    job = await db.scalar(select(Job).where(Job.id == job_id))
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    # Ta sama bramka co na pięciu trasach shortlisty (`job_shortlist.py`).
-    # Bez niej containment był niespójny w gorszą stronę: zaparkowanie
-    # kandydata na shortliście dawało 403, a cięższe wpisanie go wprost do
-    # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
-    await ensure_job_membership(db, current_user, job_id)
+    lock_ordered_ids = canonical_candidate_lock_order(candidate_ids)
 
     stage_def = await _resolve_initial_stage(
-        db, job, body.initial_stage_def_id, body.initial_stage_legacy
+        db, job, initial_stage_def_id, initial_stage_legacy
     )
     legacy_enum = _legacy_enum_for(
         stage_def,
-        body.initial_stage_legacy,
+        initial_stage_legacy,
         has_template=job.pipeline_template_id is not None,
     )
 
@@ -376,7 +385,7 @@ async def bulk_add_proposals(
         (
             await db.execute(
                 select(CandidateStage.candidate_id).where(
-                    CandidateStage.job_id == job_id,
+                    CandidateStage.job_id == job.id,
                     CandidateStage.candidate_id.in_(lock_ordered_ids),
                 )
             )
@@ -401,6 +410,7 @@ async def bulk_add_proposals(
     )
 
     added: list[int] = []
+    stage_ids: dict[int, int] = {}
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
 
@@ -452,10 +462,10 @@ async def bulk_add_proposals(
             stage = await open_process(
                 db,
                 candidate_id=candidate_id,
-                job_id=job_id,
+                job_id=job.id,
                 stage=legacy_enum,
                 stage_def_id=stage_def.id if stage_def else None,
-                actor_user_id=current_user.id,
+                actor_user_id=actor_user_id,
                 work_channel=PriorityChannel.database,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
@@ -470,38 +480,76 @@ async def bulk_add_proposals(
             await maybe_ensure_contact_opportunity(
                 db,
                 candidate_id=candidate_id,
-                job_id=job_id,
+                job_id=job.id,
                 source="pipeline",
                 occurred_at=stage.moved_at,
             )
 
             # Optional shared note attached to every newly added candidate.
-            if body.note:
+            if note:
                 db.add(
                     Note(
-                        content=body.note,
+                        content=note,
                         note_type=NoteType.general,
                         candidate_id=candidate_id,
-                        job_id=job_id,
-                        author_id=current_user.id,
+                        job_id=job.id,
+                        author_id=actor_user_id,
                     )
                 )
 
             # Optional shared tags merged into the candidate's tags JSONB. We
             # treat candidate.tags as a list when populated and a placeholder dict
             # otherwise — same convention as the rest of the codebase.
-            if body.tags:
+            if tags:
                 existing = candidate.tags
                 if isinstance(existing, list):
-                    candidate.tags = _merge_tags(existing, body.tags)
+                    candidate.tags = _merge_tags(existing, tags)
                 elif isinstance(existing, dict) and "items" in existing:
                     candidate.tags = {
-                        "items": _merge_tags(existing.get("items") or [], body.tags)
+                        "items": _merge_tags(existing.get("items") or [], tags)
                     }
                 else:
-                    candidate.tags = _merge_tags([], body.tags)
+                    candidate.tags = _merge_tags([], tags)
 
             added.append(candidate_id)
+            stage_ids[candidate_id] = stage.id
+
+    return IntakeResult(
+        added=added, skipped=skipped, warnings=warnings, stage_ids=stage_ids
+    )
+
+
+@router.post(
+    "/jobs/{job_id}/proposals/bulk",
+    response_model=BulkProposalsResponse,
+    summary="Bulk-add candidates to job pipeline (manual search → recruitment)",
+)
+async def bulk_add_proposals(
+    job_id: int,
+    body: BulkProposalsRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> BulkProposalsResponse:
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Ta sama bramka co na pięciu trasach shortlisty (`job_shortlist.py`).
+    # Bez niej containment był niespójny w gorszą stronę: zaparkowanie
+    # kandydata na shortliście dawało 403, a cięższe wpisanie go wprost do
+    # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
+    await ensure_job_membership(db, current_user, job_id)
+
+    result = await add_candidates_to_job(
+        db,
+        job=job,
+        candidate_ids=body.candidate_ids,
+        actor_user_id=current_user.id,
+        initial_stage_def_id=body.initial_stage_def_id,
+        initial_stage_legacy=body.initial_stage_legacy,
+        note=body.note,
+        tags=body.tags,
+    )
+    added, skipped, warnings = result.added, result.skipped, result.warnings
 
     await db.commit()
 

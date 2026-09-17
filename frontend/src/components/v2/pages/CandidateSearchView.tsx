@@ -32,6 +32,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AiStatusBanner } from "@/components/jobs/AiStatusBanner";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
+import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import {
   candidateSearchApi,
   proposalsBulkApi,
@@ -63,6 +64,8 @@ import {
 } from "@/lib/match-breakdown";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { apiErrorMessage } from "@/lib/api-error";
+import { encodeJobBackRef } from "@/lib/url-filters";
 import {
   SEARCH_REQUEST_URL_PARAM,
   decodeSearchRequest,
@@ -105,6 +108,39 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
 // Wyniesione do `lib/parse-tag-input.ts` (współdzielone z `CreateJobModal`);
 // re-eksport tutaj utrzymuje starą ścieżkę importu (`parseTagInput.test.ts`).
 export { parseTagInput };
+
+/** Ile osób obsługuje porównanie (`CandidateCompareModal`). */
+export const COMPARE_MAX_CANDIDATES = 5;
+
+/**
+ * Po ilu ms od pustego wyniku odpalamy diagnostykę (wodospad kilku COUNT-ów).
+ * Pauza w pisaniu dłuższa niż debounce (300 ms) daje pośredni zerowy wynik —
+ * bez tej zwłoki każda taka pauza odpalała pełny wodospad.
+ */
+export const DIAGNOSTICS_DELAY_MS = 1000;
+
+/**
+ * Strona poza zakresem: odpowiedź bez wierszy przy `total > 0` na stronie > 1
+ * (np. po dodaniu ostatnich osób ze strony do rekrutacji albo po `?s=` ze
+ * starą stroną). Zwraca ostatnią istniejącą stronę albo `null`, gdy nie ma
+ * czego poprawiać.
+ */
+export function clampedSearchPage(
+  resp: Pick<CandidateSearchResponse, "items" | "total" | "page_size">,
+  requestedPage: number,
+): number | null {
+  if (resp.items.length > 0 || resp.total <= 0 || requestedPage <= 1) return null;
+  const lastPage = Math.max(1, Math.ceil(resp.total / Math.max(1, resp.page_size)));
+  return lastPage < requestedPage ? lastPage : null;
+}
+
+/** Etykieta dostępności z tego samego słownika co filtr (bez surowego enuma). */
+export function availabilityLabel(value: string): string {
+  return (
+    SEARCH_AVAILABILITY_OPTIONS.find((option) => option.value === value)?.label ??
+    value.replace(/_/g, " ")
+  );
+}
 
 interface CandidateSearchViewProps {
   /** Optional initial overrides — used by the job-context tab to prefill. */
@@ -181,12 +217,24 @@ export function CandidateSearchView({
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   }, [syncUrl, request, baseRequest]);
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
+  // Request, który wyprodukował `data` — diagnostyka pyta o TO zapytanie,
+  // nie o to, które użytkownik właśnie pisze.
+  const dataRequestRef = useRef<CandidateSearchRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Błąd SAMEGO wyszukiwania ma własny stan: czyści wyniki i daje „Ponów".
+  // Stare wyniki pod czerwonym paskiem czytały się jak aktualne.
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [diagnostics, setDiagnostics] =
     useState<SearchDiagnosticsResponse | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Imię i nazwisko zaznaczonych — zaznaczenie przeżywa zmianę strony, więc
+  // porównanie nie może szukać ich w `data.items` bieżącej strony.
+  const [selectedMeta, setSelectedMeta] = useState<
+    Map<number, { id: number; name: string }>
+  >(new Map());
   const queryClient = useQueryClient();
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
@@ -244,16 +292,27 @@ export function CandidateSearchView({
     };
   }, [addToJob, readOnly]);
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (item: CandidateSearchItem) => {
+    const { id } = item;
+    const wasSelected = selected.has(id);
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
+      if (wasSelected) next.delete(id);
       else next.add(id);
+      return next;
+    });
+    setSelectedMeta((prev) => {
+      const next = new Map(prev);
+      if (wasSelected) next.delete(id);
+      else next.set(id, { id, name: `${item.name} ${item.lastname}` });
       return next;
     });
   };
 
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    setSelectedMeta(new Map());
+  };
 
   const loadSavedSearch = (ss: SavedSearchOut) => {
     if (ss.requires_reapproval) {
@@ -346,7 +405,7 @@ export function CandidateSearchView({
       setSaveName("");
       refreshSavedSearches();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Zapisanie nie powiodło się");
+      setError(apiErrorMessage(err, "Zapisanie nie powiodło się"));
     } finally {
       setSavePending(false);
     }
@@ -362,7 +421,7 @@ export function CandidateSearchView({
       }
       refreshSavedSearches();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Usunięcie nie powiodło się");
+      setError(apiErrorMessage(err, "Usunięcie nie powiodło się"));
     }
   };
 
@@ -420,9 +479,7 @@ export function CandidateSearchView({
       clearSelection();
       setShortlistRefresh((n) => n + 1);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Dodanie do shortlisty nie powiodło się",
-      );
+      setError(apiErrorMessage(err, "Dodanie do shortlisty nie powiodło się"));
     } finally {
       setShortlistPending(false);
     }
@@ -442,22 +499,38 @@ export function CandidateSearchView({
     if (validationError) {
       setLoading(false);
       setData(null);
+      setSearchError(null);
       setError(validationError);
       return;
     }
     let cancelled = false;
+    // Przerwane zapytanie nie tylko nie nadpisze nowszych wyników (flaga
+    // `cancelled`), ale przestaje też obciążać retrieval, gdy ktoś pisze dalej.
+    const controller = new AbortController();
     const handle = setTimeout(() => {
       setLoading(true);
       setError(null);
+      setSearchError(null);
       candidateSearchApi
-        .search(request)
+        .search(request, controller.signal)
         .then((resp) => {
-          if (!cancelled) setData(resp);
+          if (cancelled) return;
+          const clamped = clampedSearchPage(resp, request.page ?? 1);
+          if (clamped !== null) {
+            // Strona zniknęła (np. po dodaniu ostatnich osób do rekrutacji):
+            // przechodzimy na ostatnią istniejącą zamiast „Brak wyników".
+            setRequest((current) =>
+              current === request ? { ...current, page: clamped } : current,
+            );
+            return;
+          }
+          dataRequestRef.current = request;
+          setData(resp);
         })
         .catch((err: unknown) => {
-          if (!cancelled) {
-            setError(err instanceof Error ? err.message : "Wyszukiwanie nie powiodło się");
-          }
+          if (cancelled) return;
+          setData(null);
+          setSearchError(apiErrorMessage(err, "Wyszukiwanie nie powiodło się"));
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -466,36 +539,45 @@ export function CandidateSearchView({
     return () => {
       cancelled = true;
       clearTimeout(handle);
+      controller.abort();
     };
-  }, [request]);
+  }, [request, retryNonce]);
 
   // Exclusion waterfall — only when a COMPLETED search returned nothing (it runs
   // several cumulative COUNT queries, so never fire it on a non-empty result).
   // Keyed on `data`: fires once per empty result, using the request that
   // produced it.
+  //
+  // Odpalana dopiero po `DIAGNOSTICS_DELAY_MS` od pustego wyniku i tylko,
+  // gdy request, który go dał, jest nadal bieżący — pośrednie zera w trakcie
+  // pisania (pauza > debounce) nie uruchamiają już wodospadu.
   useEffect(() => {
-    if (!data || data.total > 0) {
+    if (!data || data.total > 0 || dataRequestRef.current !== request) {
       setDiagnostics(null);
+      setDiagLoading(false);
       return;
     }
+    const producedBy = request;
     let cancelled = false;
     setDiagLoading(true);
-    candidateSearchApi
-      .diagnostics(request)
-      .then((d) => {
-        if (!cancelled) setDiagnostics(d);
-      })
-      .catch(() => {
-        if (!cancelled) setDiagnostics(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDiagLoading(false);
-      });
+    const handle = setTimeout(() => {
+      candidateSearchApi
+        .diagnostics(producedBy)
+        .then((d) => {
+          if (!cancelled) setDiagnostics(d);
+        })
+        .catch(() => {
+          if (!cancelled) setDiagnostics(null);
+        })
+        .finally(() => {
+          if (!cancelled) setDiagLoading(false);
+        });
+    }, DIAGNOSTICS_DELAY_MS);
     return () => {
       cancelled = true;
+      clearTimeout(handle);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, request]);
 
   // How many results actually state a value for a chip that no longer excludes
   // blanks. Built from `meta.soft_match_counts`, which the backend only fills
@@ -532,14 +614,15 @@ export function CandidateSearchView({
   // Stable while the selection and the result set are: the compare modal
   // keys its request on these ids, so a new array per render must not look
   // like a new comparison.
+  // Z mapy zaznaczonych, nie z bieżącej strony: zaznaczenie przeżywa
+  // paginację, więc porównanie obejmuje osoby ze WSZYSTKICH stron. Powyżej
+  // `COMPARE_MAX_CANDIDATES` przycisk jest zablokowany z podpisem, zamiast po
+  // cichu ucinać listę.
   const compareCandidates = useMemo(
-    () =>
-      (data?.items ?? [])
-        .filter((c) => selected.has(c.id))
-        .slice(0, 5)
-        .map((c) => ({ id: c.id, name: `${c.name} ${c.lastname}` })),
-    [data, selected],
+    () => Array.from(selectedMeta.values()),
+    [selectedMeta],
   );
+  const compareTooMany = selected.size > COMPARE_MAX_CANDIDATES;
 
   const ccCounts = useMemo(() => {
     const map: Record<number, number> = {};
@@ -592,7 +675,7 @@ export function CandidateSearchView({
           </h1>
         </div>
         {data && (
-          <div className="text-sm text-zinc-500 dark:text-zinc-400 tabular-nums">
+          <div className="text-sm text-muted-foreground tabular-nums">
             {data.total} {data.total === 1 ? "wynik" : "wyniki"} ·{" "}
             {data.meta.took_ms} ms
           </div>
@@ -609,7 +692,7 @@ export function CandidateSearchView({
       {softMatchSummary && (
         <div
           role="status"
-          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+          className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
         >
           {softMatchSummary} Reszta nie ma tych danych uzupełnionych —
           zostawiamy ich niżej w wynikach, zamiast ukrywać.
@@ -624,7 +707,7 @@ export function CandidateSearchView({
       {data?.meta?.result_cap_reached && (
         <div
           role="status"
-          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+          className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground"
         >
           Tryb semantyczny pokazuje <strong>najtrafniejsze {data.total}</strong>{" "}
           osób, a nie wszystkie pasujące — to sufit tego trybu, nie rozmiar bazy.
@@ -646,7 +729,7 @@ export function CandidateSearchView({
       {data?.meta?.search_degraded && data.meta.ai_status === "ok" && (
         <div
           role="status"
-          className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+          className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground"
         >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <div>
@@ -676,13 +759,13 @@ export function CandidateSearchView({
       {/* Saved searches strip */}
       {(savedSearches.length > 0 || (!readOnly && saveDraftOpen)) && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-zinc-500 dark:text-zinc-400 font-medium">
+          <span className="text-muted-foreground font-medium">
             Zapisane:
           </span>
           {savedSearches.map((ss) => (
             <span
               key={ss.id}
-              className="group inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 dark:bg-zinc-900 dark:border-zinc-700"
+              className="group inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1"
             >
               <button
                 type="button"
@@ -716,7 +799,7 @@ export function CandidateSearchView({
                   type="button"
                   aria-label={`Usuń ${ss.name}`}
                   onClick={() => deleteSavedSearch(ss.id)}
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-zinc-400 hover:text-rose-600"
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -798,7 +881,7 @@ export function CandidateSearchView({
       {!readOnly && savedSearchAwaitingReapproval && (
         <div
           role="alert"
-          className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="flex items-start gap-2">
             <TriangleAlert
@@ -852,7 +935,7 @@ export function CandidateSearchView({
       {/* Sort + status row */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-xs">
-          <span className="text-zinc-500 dark:text-zinc-400">Sortuj:</span>
+          <span className="text-muted-foreground">Sortuj:</span>
           {(
             [
               ["relevance", "Trafność"],
@@ -875,7 +958,7 @@ export function CandidateSearchView({
           ))}
         </div>
         {loading && (
-          <span className="flex items-center gap-1 text-xs text-zinc-500">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" />
             Ładowanie…
           </span>
@@ -883,8 +966,27 @@ export function CandidateSearchView({
       </div>
 
       {error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+        <div className="rounded-md border border-destructive/30 bg-destructive-muted p-3 text-sm text-destructive-muted-foreground">
           {error}
+        </div>
+      )}
+
+      {searchError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive-muted p-3 text-sm text-destructive-muted-foreground"
+        >
+          <span>{searchError}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setRetryNonce((n) => n + 1)}
+            disabled={loading}
+          >
+            <RotateCcw className="h-3 w-3" aria-hidden="true" />
+            Ponów
+          </Button>
         </div>
       )}
 
@@ -892,18 +994,18 @@ export function CandidateSearchView({
         (() => {
           const summary = summarizeBulkResult(bulkResult);
           return (
-            <div className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            <div className="space-y-1 rounded-md border border-success/30 bg-success-muted p-3 text-sm text-success-muted-foreground">
               <div>
                 Dodano {summary.added} kandydatów do requestu „{addToJob?.title}
                 ".
               </div>
               {summary.warnings.length > 0 && (
-                <div className="text-amber-700 dark:text-amber-300">
+                <div className="text-warning-muted-foreground">
                   ⚠ Z ostrzeżeniem: {formatReasonCounts(summary.warnings)}.
                 </div>
               )}
               {summary.skipped.length > 0 && (
-                <div className="text-zinc-600 dark:text-zinc-400">
+                <div className="text-muted-foreground">
                   Pominięto {bulkResult.total_skipped}:{" "}
                   {formatReasonCounts(summary.skipped)}.
                 </div>
@@ -913,7 +1015,7 @@ export function CandidateSearchView({
         })()}
 
       {/* Result rows */}
-      <ul className="divide-y rounded-lg border bg-card dark:border-zinc-800">
+      <ul className="divide-y rounded-lg border bg-card">
         {data?.items.length === 0 && !loading && (
           <li className="p-4">
             <ExclusionWaterfall
@@ -928,7 +1030,8 @@ export function CandidateSearchView({
             item={c}
             selectable={Boolean(addToJob)}
             selected={selected.has(c.id)}
-            onToggleSelect={() => toggleSelect(c.id)}
+            onToggleSelect={() => toggleSelect(c)}
+            backRefJobId={addToJob?.id}
             score={matchScores[String(c.id)]}
             breakdown={matchBreakdowns[String(c.id)]}
             scoreFailure={matchFailures[String(c.id)]}
@@ -943,12 +1046,12 @@ export function CandidateSearchView({
       {addToJob && selected.size > 0 && (
         <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-col items-center gap-2">
           {!readOnly && bulkOptionsOpen && (
-            <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg dark:border-zinc-800">
+            <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg">
               {assignableStages.length > 0 && (
                 <div className="space-y-1">
                   <label
                     htmlFor="bulk-stage"
-                    className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                    className="text-xs font-medium text-muted-foreground"
                   >
                     Etap docelowy
                   </label>
@@ -960,7 +1063,7 @@ export function CandidateSearchView({
                         e.target.value === "" ? "" : Number(e.target.value),
                       )
                     }
-                    className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                    className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring"
                   >
                     <option value="">Domyślny (pierwszy etap)</option>
                     {assignableStages.map((s) => (
@@ -974,7 +1077,7 @@ export function CandidateSearchView({
               <div className="space-y-1">
                 <label
                   htmlFor="bulk-note"
-                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                  className="text-xs font-medium text-muted-foreground"
                 >
                   Notatka (dołączona do każdego dodanego kandydata)
                 </label>
@@ -985,13 +1088,13 @@ export function CandidateSearchView({
                   rows={2}
                   maxLength={2000}
                   placeholder="Opcjonalna wspólna notatka…"
-                  className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring dark:border-zinc-700"
+                  className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring"
                 />
               </div>
               <div className="space-y-1">
                 <label
                   htmlFor="bulk-tags"
-                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                  className="text-xs font-medium text-muted-foreground"
                 >
                   Tagi (oddziel przecinkami)
                 </label>
@@ -1005,7 +1108,7 @@ export function CandidateSearchView({
               </div>
             </div>
           )}
-          <div className="flex w-fit items-center gap-3 rounded-full border bg-zinc-900 px-4 py-2 text-sm text-zinc-50 shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+          <div className="flex w-fit items-center gap-3 rounded-full border bg-foreground px-4 py-2 text-sm text-background shadow-lg">
             <span className="tabular-nums">
               Wybrano <strong>{selected.size}</strong>
             </span>
@@ -1014,7 +1117,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
+                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
                 onClick={() => setBulkOptionsOpen((o) => !o)}
                 disabled={bulkPending}
               >
@@ -1035,7 +1138,7 @@ export function CandidateSearchView({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
+              className="h-7 text-xs text-background hover:bg-background/15 hover:text-background"
               onClick={clearSelection}
               disabled={bulkPending || shortlistPending}
             >
@@ -1046,7 +1149,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
+                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
                 onClick={submitShortlist}
                 disabled={bulkPending || shortlistPending}
               >
@@ -1063,12 +1166,21 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
-                onClick={() => setCompareOpen(true)}
-                disabled={bulkPending || shortlistPending}
+                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
+                onClick={() => {
+                  if (!compareTooMany) setCompareOpen(true);
+                }}
+                disabled={bulkPending || shortlistPending || compareTooMany}
+                title={
+                  compareTooMany
+                    ? `Porównanie obsługuje do ${COMPARE_MAX_CANDIDATES} osób`
+                    : undefined
+                }
               >
                 <GitCompare className="h-3 w-3" />
-                Porównaj
+                {compareTooMany
+                  ? `Porównaj (maks. ${COMPARE_MAX_CANDIDATES})`
+                  : "Porównaj"}
               </Button>
             )}
             {!readOnly ? (
@@ -1103,7 +1215,7 @@ export function CandidateSearchView({
           >
             Poprzednia
           </Button>
-          <span className="text-zinc-500 tabular-nums dark:text-zinc-400">
+          <span className="text-muted-foreground tabular-nums">
             Strona {data.page} / {totalPages}
           </span>
           <Button
@@ -1118,7 +1230,7 @@ export function CandidateSearchView({
         </div>
       )}
 
-      {compareOpen && addToJob && (
+      {compareOpen && addToJob && !compareTooMany && (
         <CandidateCompareModal
           jobId={addToJob.id}
           candidates={compareCandidates}
@@ -1149,6 +1261,11 @@ interface CandidateSearchRowProps {
    * screen"; only the first `MATCH_SCORES_MAX_CANDIDATES` rows then ask.
    */
   scoreWithoutObserver?: boolean;
+  /**
+   * Rekrutacja, z której otwarto wyszukiwanie: link do profilu niesie
+   * `from=job&jobId=`, żeby „Wróć" prowadziło do rekrutacji, nie do listy.
+   */
+  backRefJobId?: number;
 }
 
 /** Calls `onVisible(id)` the first time the element enters the viewport. */
@@ -1180,10 +1297,10 @@ function useReportWhenVisible(
 
 export function scoreBadgeClass(score: number): string {
   if (score >= 70)
-    return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+    return "bg-success-muted text-success-muted-foreground";
   if (score >= 40)
-    return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
-  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
+    return "bg-warning-muted text-warning-muted-foreground";
+  return "bg-muted text-muted-foreground";
 }
 
 function CandidateSearchRow({
@@ -1197,6 +1314,7 @@ function CandidateSearchRow({
   onRetryScore,
   onVisible,
   scoreWithoutObserver = false,
+  backRefJobId,
 }: CandidateSearchRowProps) {
   const rowRef = useRef<HTMLLIElement>(null);
   useReportWhenVisible(rowRef, item.id, onVisible, scoreWithoutObserver);
@@ -1222,7 +1340,7 @@ function CandidateSearchRow({
   const assignBlocked = eligibility?.assignment_allowed === false;
 
   return (
-    <li ref={rowRef} className="p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+    <li ref={rowRef} className="p-3 hover:bg-muted/50">
       <div className="flex items-start gap-3">
       {selectable && (
         <input
@@ -1290,7 +1408,11 @@ function CandidateSearchRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <Link
-            href={`/candidates/${item.id}`}
+            href={
+              backRefJobId
+                ? `/candidates/${item.id}?${encodeJobBackRef(backRefJobId)}`
+                : `/candidates/${item.id}`
+            }
             className="font-medium hover:underline"
           >
             {item.name} {item.lastname}
@@ -1299,7 +1421,7 @@ function CandidateSearchRow({
             <Badge variant="neutral">{item.competence_category}</Badge>
           )}
           {item.is_champion && (
-            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+            <Badge className="bg-warning-muted text-warning-muted-foreground">
               Champion
             </Badge>
           )}
@@ -1314,12 +1436,12 @@ function CandidateSearchRow({
             </span>
           )}
           {item.years_it_experience !== null && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs text-muted-foreground">
               {item.years_it_experience} lat IT
             </span>
           )}
           {formattedLocation && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs text-muted-foreground">
               {formattedLocation}
             </span>
           )}
@@ -1329,7 +1451,7 @@ function CandidateSearchRow({
             {skillNames.map((s) => (
               <span
                 key={s}
-                className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground"
               >
                 {s}
               </span>
@@ -1337,16 +1459,14 @@ function CandidateSearchRow({
           </div>
         )}
         {item.ai_summary && (
-          <p className="mt-1 line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {item.ai_summary}
           </p>
         )}
       </div>
-      <div className="text-right text-xs text-zinc-500 dark:text-zinc-400 tabular-nums whitespace-nowrap">
+      <div className="text-right text-xs text-muted-foreground tabular-nums whitespace-nowrap">
         {item.availability_status && (
-          <div className="capitalize">
-            {item.availability_status.replace(/_/g, " ")}
-          </div>
+          <div>{availabilityLabel(item.availability_status)}</div>
         )}
       </div>
       </div>
@@ -1366,8 +1486,8 @@ function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
           key={t}
           className={`rounded px-1.5 py-0.5 text-xs ${
             tone === "ok"
-              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-              : "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200"
+              ? "bg-success-muted text-success-muted-foreground"
+              : "bg-destructive-muted text-destructive-muted-foreground"
           }`}
         >
           {t}
@@ -1376,9 +1496,9 @@ function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
     </>
   );
   return (
-    <div className="ml-12 mt-2 space-y-2 rounded-lg border bg-muted/40 p-3 dark:border-zinc-800">
+    <div className="ml-12 mt-2 space-y-2 rounded-lg border bg-muted/40 p-3">
       {s.layers.length > 0 && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {s.layers.map((l) => (
             <span key={l.key} className="tabular-nums">
               {l.label}{" "}
@@ -1397,7 +1517,7 @@ function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
       )}
       {(s.matchedMust.length > 0 || s.gapMust.length > 0) && (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">
             Wymagane:
           </span>
           <Chips items={s.matchedMust} tone="ok" />
@@ -1406,7 +1526,7 @@ function MatchScoreDetail({ breakdown }: { breakdown: MatchBreakdown }) {
       )}
       {(s.matchedNice.length > 0 || s.gapNice.length > 0) && (
         <div className="flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <span className="mr-1 text-xs font-medium text-muted-foreground">
             Mile widziane:
           </span>
           <Chips items={s.matchedNice} tone="ok" />
@@ -1432,7 +1552,7 @@ export function ExclusionWaterfall({
 }: ExclusionWaterfallProps) {
   if (loading && !diagnostics) {
     return (
-      <div className="flex items-center justify-center gap-2 py-2 text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         Analizuję, który filtr zawęził wyniki…
       </div>
@@ -1440,7 +1560,7 @@ export function ExclusionWaterfall({
   }
   if (!diagnostics || diagnostics.stages.length === 0) {
     return (
-      <div className="py-2 text-center text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="py-2 text-center text-sm text-muted-foreground">
         Brak wyników. Zmień filtry lub poszerz zapytanie.
       </div>
     );
@@ -1466,15 +1586,15 @@ export function ExclusionWaterfall({
             <li key={s.key} className="flex items-center gap-2 text-xs">
               <span
                 className={`w-44 shrink-0 truncate text-right ${
-                  i === 0 ? "font-medium" : "text-zinc-600 dark:text-zinc-400"
+                  i === 0 ? "font-medium" : "text-muted-foreground"
                 }`}
               >
                 {s.label}
               </span>
-              <span className="relative h-4 flex-1 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+              <span className="relative h-4 flex-1 overflow-hidden rounded bg-muted">
                 <span
                   className={`absolute inset-y-0 left-0 rounded ${
-                    isCulprit || isZero ? "bg-rose-500" : "bg-primary/60"
+                    isCulprit || isZero ? "bg-destructive" : "bg-primary/60"
                   }`}
                   style={{ width: `${pct}%` }}
                 />
@@ -1482,13 +1602,13 @@ export function ExclusionWaterfall({
               <span
                 className={`w-16 shrink-0 text-right tabular-nums ${
                   isZero
-                    ? "font-semibold text-rose-600 dark:text-rose-400"
-                    : "text-zinc-600 dark:text-zinc-400"
+                    ? "font-semibold text-destructive"
+                    : "text-muted-foreground"
                 }`}
               >
                 {s.count.toLocaleString("pl-PL")}
               </span>
-              <span className="w-14 shrink-0 text-rose-600 dark:text-rose-400">
+              <span className="w-14 shrink-0 text-destructive">
                 {isCulprit ? "← tutaj" : ""}
               </span>
             </li>
@@ -1496,7 +1616,7 @@ export function ExclusionWaterfall({
         })}
       </ul>
       {diagnostics.first_zeroing_stage && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs text-muted-foreground">
           Poluzuj oznaczony filtr, aby zobaczyć kandydatów.
         </p>
       )}

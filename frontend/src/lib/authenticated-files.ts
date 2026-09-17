@@ -15,9 +15,50 @@
  * `contract-documents`) na dowolny endpoint plikowy backendu.
  */
 
+import { messageFromApiResponse } from "./api-error";
 import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "Sesja wygasła — zaloguj się ponownie i spróbuj jeszcze raz.",
+  403: "Nie masz uprawnień do tego pliku.",
+  404: "Nie znaleziono pliku.",
+  409: "Plik jest w nieaktualnym stanie — odśwież widok i spróbuj ponownie.",
+};
+
+/** Błąd z odpowiedzią w kształcie axiosa — działa z `apiErrorMessage`. */
+export type AuthenticatedFileError = Error & {
+  response: { status: number; data: unknown };
+};
+
+/**
+ * Błąd nieudanego pobrania z czytelnym komunikatem. Backend odpowiada JSON-em
+ * `{detail}` (string, obiekt albo tablica) — do 09.2026 użytkownik dostawał
+ * surowy JSON albo „HTTP 409". Treść jest tłumaczona przez wspólne
+ * `messageFromApiResponse`; bez `detail` zostaje zdanie zależne od statusu.
+ */
+async function responseError(res: Response): Promise<AuthenticatedFileError> {
+  let text = "";
+  try {
+    text = typeof res.text === "function" ? await res.text() : "";
+  } catch {
+    text = "";
+  }
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    data = undefined;
+  }
+  const message =
+    messageFromApiResponse(res.status, data) ??
+    STATUS_MESSAGES[res.status] ??
+    `Nie udało się pobrać pliku (błąd ${res.status}).`;
+  return Object.assign(new Error(message), {
+    response: { status: res.status, data },
+  });
+}
 
 /**
  * Fetch a backend file as a Blob with the Bearer JWT attached.
@@ -30,7 +71,7 @@ export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const res = await fetch(url, {
     headers: getAuthenticatedRequestHeaders(),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await responseError(res);
   return res.blob();
 }
 
@@ -55,10 +96,7 @@ export async function postAuthenticatedDownload(
     }),
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(detail || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await responseError(res);
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];

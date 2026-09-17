@@ -49,7 +49,6 @@ import {
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { hasRole, useAuthStore } from "@/store/auth";
 import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -140,6 +139,12 @@ export interface CvHandoffWorkbenchProps {
   /** Odśwież kanban po udanym ruchu (strona trzyma klucz zapytania). */
   onMoved: () => void;
   readOnly: boolean;
+  /**
+   * `JobResponse.can_write_client_rate` — liczone przez serwer tą samą funkcją
+   * co `PATCH …/client-rate` (admin, DL, TAC, TCM, HoR, Finanse albo
+   * właściciel/twórca rekrutacji). Brak pola = pole stawki ukryte.
+   */
+  canWriteClientRate?: boolean;
 }
 
 const SHARE_DAYS_OPTIONS = [7, 14, 30, 60, 90];
@@ -177,6 +182,7 @@ export function CvHandoffWorkbench({
   onRetry,
   onMoved,
   readOnly,
+  canWriteClientRate = false,
 }: CvHandoffWorkbenchProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -205,12 +211,9 @@ export function CvHandoffWorkbench({
   const fullName = selected ? itemFullName(selected.item) : "";
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
-  // `PATCH …/client-rate` stoi za `CandidateFinanceAccess` = WYŁĄCZNIE admin
-  // (`CANDIDATE_FINANCE_ROLES` w `candidate_access.py`). Rekruterowi nie
-  // pokazujemy pola, które gwarantowanie kończy się 403 — tablica ma ten sam
-  // problem (modal stawki dla każdego), tu naprawiamy go u źródła.
-  const authUser = useAuthStore((s) => s.user);
-  const canWriteClientRate = hasRole(authUser, "admin");
+  // `canWriteClientRate` przychodzi z odpowiedzi `GET /api/jobs/{id}` — ta
+  // sama reguła co zapis `PATCH …/client-rate` i modal na tablicy. Do 09.2026
+  // warsztat zgadywał ją po roli admina, a tablica pytała każdego.
   // `/settings/cv-rules` jest bramkowane w middleware (admin / DL, sekcja
   // Delivery write) — link dla innych ról prowadziłby wprost w 403.
   const canManageCvRules = useCapability("cv_rule.manage");
@@ -623,22 +626,14 @@ export function CvHandoffWorkbench({
             {queue.map(({ item }) => (
               <div key={item.id} role="listitem">
                 <RailRow
-                  tone={
-                    item.hm_veto
-                      ? "bad"
-                      : item.verification_status === "pending"
-                        ? "warn"
-                        : "ok"
-                  }
+                  tone={item.hm_veto ? "bad" : "ok"}
                   label={itemFullName(item)}
                   meta={
-                    item.verification_status === "pending"
-                      ? `${formatExpectedRate(item) ?? "—"} · pending`
+                    item.budget_exceeded
+                      ? `${formatExpectedRate(item) ?? "—"} · ponad budżet`
                       : (formatExpectedRate(item) ?? undefined)
                   }
-                  metaTone={
-                    item.verification_status === "pending" ? "warn" : "neutral"
-                  }
+                  metaTone={item.budget_exceeded ? "warn" : "neutral"}
                   active={item.id === selectedStageId}
                   onSelect={() => setSelectedStageId(item.id)}
                 />
@@ -782,10 +777,13 @@ export function CvHandoffWorkbench({
                 .join(" · ")}
               badges={
                 <>
-                  {selected.item.verification_status === "pending" && (
-                    <Badge variant="warning" size="sm">
-                      <HelpCircle className="h-2.5 w-2.5" /> Stawka czeka na
-                      akceptację
+                  {selected.item.budget_exceeded && (
+                    <Badge
+                      variant="warning"
+                      size="sm"
+                      title="Stawka kandydata przekracza budżet rekrutacji — informacja, nic nie blokuje."
+                    >
+                      <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
                     </Badge>
                   )}
                   {selected.item.hm_veto && (
@@ -1157,9 +1155,9 @@ export function CvHandoffWorkbench({
                 </DockSection>
               ) : (
                 <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  Stawkę do klienta zapisuje admin (uprawnienie finansowe) —
-                  wysyłka idzie bez stawki, uzupełni ją później z profilu
-                  kandydata.
+                  Stawkę do klienta zapisuje właściciel rekrutacji, Delivery
+                  Lead, TAC, TCM, Head of Recruitment, Finanse albo admin —
+                  wysyłka idzie bez stawki, uzupełnią ją później.
                 </p>
               )}
 

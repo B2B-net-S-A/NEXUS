@@ -527,7 +527,7 @@ def _schedule_missing_dates(result: CompanyPeopleResponse) -> None:
     całej bazie, bo pełny przebieg to ~50 tys. CV i kilkaset dolarów, podczas
     gdy handlowiec ogląda dziesiątki firm.
 
-    Domyślnie WYŁĄCZONE (``EXPERIENCE_DATES_ON_DEMAND_ENABLED``) — patrz
+    Domyślnie włączone (``EXPERIENCE_DATES_ON_DEMAND_ENABLED``, wyłącznik awaryjny) — patrz
     ``experience_backfill.schedule_on_demand``. Każda awaria jest połykana:
     to jest dodatek do odczytu kartoteki, a nie jego warunek.
     """

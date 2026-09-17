@@ -468,6 +468,54 @@ describe("CV upload context and server history", () => {
     expect(form.get("client_id")).toBe("5");
     expect(getMock).toHaveBeenCalledWith("/api/cv-generator/generated", {params:{candidate_id:2,job_id:40,before_id:undefined,limit:60}});
   });
+  it("explains why Generate is disabled when the recruitment's client rule requires a position", async () => {
+    // Klient przychodzi z przypisanej rekrutacji, nie z pickera — Alert wisiał
+    // dotąd tylko na pickerze, więc przycisk był wyłączony bez wyjaśnienia.
+    getMock.mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/recruitments")) return {data: [{stage_id: 30, job_id: 40, job_title: "Test job", client_id: 5, client_name: "Test client", ready: true}]};
+      if (u === "/api/cv-generator/clients/5/rule-for-generation") return {data: {
+        client_id: 5, client_name: "Test client", is_active: true, client_policy: "Stanowisko wymagane",
+        version: 2, cv_language: null, requires_en_copy: false, auto_second_language: false,
+        requires_rodo_consent_block: false, content_mode: null, content_mode_locked: false,
+        require_screening_notes_min_chars: null, require_project_ref: false, require_position: true,
+        require_champion: false, filename_pattern: null, filename_preview: null, notes: null, generator_instructions: null,
+      }};
+      return {data: []};
+    });
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
+    await openUploadMode();
+    await screen.findByText("Klient rekrutacji: Test client");
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    expect(await screen.findByText("Klient wymaga uzupełnienia danych przed generacją")).toBeInTheDocument();
+    expect(screen.getByText(/Ten klient wymaga stanowiska/)).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Stanowisko"), {target: {value: "Analityk"}});
+    await waitFor(() => expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeEnabled());
+    expect(screen.queryByText("Klient wymaga uzupełnienia danych przed generacją")).not.toBeInTheDocument();
+  });
+
+  it("shows the search validation message instead of „Brak wyników” for a too long query", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("combobox"));
+    fireEvent.change(screen.getByPlaceholderText("Szukaj kandydata…"), {target: {value: "x".repeat(121)}});
+    expect(await screen.findByText(/Wpisz najwyżej 120 znaków/)).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(getMock).not.toHaveBeenCalledWith("/api/cv-generator/candidates", {params: {q: "x".repeat(121), limit: 20}});
+  });
+
+  it("shows a readable quota reason when generation is refused", async () => {
+    getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/recruitments") ? [{stage_id: 30, job_id: 40, job_title: "Test job", client_id: 5, client_name: "Test client", ready: true}] : []}) as never);
+    postMock.mockRejectedValue({response: {status: 503, data: {detail: {feature: "cv_generator", reason: "Limit generacji CV został wyczerpany.", used: 10, limit: 10}}}});
+    renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
+    await openUploadMode();
+    await screen.findByText("Klient rekrutacji: Test client");
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    fireEvent.click(screen.getByRole("button", {name: /Generuj CV/i}));
+    expect(await screen.findByText("Limit generacji CV został wyczerpany. (wykorzystano 10/10)", {}, {timeout: 5000})).toBeInTheDocument();
+  });
+
   it("loads older documents using the same server filters and a cursor", async () => {
     const row = (id: number) => ({id,candidate_name:`Document ${id}`, language:"pl",mode:"upload",status:"ready",filename:"cv.docx",warnings:[],can_download:false,can_delete:false});
     getMock.mockImplementation(async (url, options) => {
@@ -554,5 +602,24 @@ describe("durable generation status", () => {
     expect(await screen.findByText("Oczekuje w kolejce")).toBeInTheDocument();
     expect(screen.getByText("Przerwano")).toBeInTheDocument();
     expect(screen.getByText("Generacja przerwana")).toBeInTheDocument();
+  });
+
+  it("loads the interrupted row's settings back into the form", async () => {
+    setSourcingAccess("write");
+    getMock.mockReset();
+    getMock.mockImplementation(async (url) => {
+      const u = String(url);
+      if (u === "/api/cv-generator/generated") return {data: [
+        {id: 903, candidate_id: 77, job_id: 88, candidate_name: "Interrupted Person", language: "en", blind: true, mode: "new", content_mode: "basic", status: "failed", job_status: "interrupted", filename: "", can_download: false, can_delete: false},
+      ]};
+      if (u.endsWith("/candidates/77/recruitments")) return {data: [{stage_id: 99, job_id: 88, job_title: "Retry job", client_id: null, client_name: null, ready: true, has_cv: true, has_champion: true, has_notes: true}]};
+      return {data: []};
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", {name: /Wygeneruj ponownie/}));
+    await waitFor(() => expect(screen.getAllByText("Interrupted Person").length).toBeGreaterThan(1));
+    expect(screen.getByRole("radio", {name: /English/})).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/api/cv-generator/candidates/77/recruitments", {params: {content_mode: "basic"}}));
+    expect(await screen.findByText(/Retry job/)).toBeInTheDocument();
   });
 });

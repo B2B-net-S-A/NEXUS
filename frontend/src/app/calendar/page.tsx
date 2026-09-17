@@ -4,132 +4,38 @@ import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertCircle,
+  AlertTriangle,
   Calendar,
-  Check,
   ChevronLeft,
   ChevronRight,
-  ChevronsUpDown,
-  Plus,
-  X,
-  Clock,
-  MapPin,
-  Users,
-  Link as LinkIcon,
-  User,
-  Briefcase,
-  Building2,
-  Video,
-  Phone,
-  PlayCircle,
-  CheckCircle,
-  AlertCircle,
   Download,
   Loader2,
-  Search,
+  Plus,
+  User,
+  X,
 } from "lucide-react";
-import api, { calendarApi, candidatesApi } from "@/lib/api";
+import api, { calendarApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
-import { ConfirmButton } from "@/components/ConfirmDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
-import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { EventDetailModal } from "@/components/calendar/EventDetailModal";
+import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
+import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
+import {
+  DAY_NAMES,
+  EVENT_TYPE_CONFIG,
+  FEEDBACK_EVENT_TYPES,
+  HOURS,
+  REMINDER_OPTIONS,
+  type CalendarEvent,
+} from "@/components/calendar/calendar-config";
 import { resolveViewState } from "@/lib/view-state";
 import { layoutOverlappingEvents, limitVisibleLanes } from "@/lib/calendar-overlap";
-import { attendeeAddress, attendeeLabel, type CalendarAttendee } from "@/lib/calendar-attendees";
-import { htmlToPlainText } from "@/lib/plain-text";
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const EVENT_TYPE_CONFIG: Record<
-  string,
-  { label: string; color: string; bgColor: string; borderColor: string; dotColor: string }
-> = {
-  interview: {
-    label: "Rozmowa kwalifikacyjna",
-    color: "text-primary",
-    bgColor: "bg-primary/15",
-    borderColor: "border-primary/30",
-    dotColor: "bg-primary",
-  },
-  screening: {
-    label: "Screening",
-    color: "text-green-700",
-    bgColor: "bg-green-100",
-    borderColor: "border-green-300",
-    dotColor: "bg-green-500",
-  },
-  prep_call: {
-    label: "Prep Call",
-    color: "text-purple-700",
-    bgColor: "bg-purple-100",
-    borderColor: "border-purple-300",
-    dotColor: "bg-purple-500",
-  },
-  meeting: {
-    label: "Spotkanie",
-    color: "text-foreground",
-    bgColor: "bg-muted",
-    borderColor: "border-border",
-    dotColor: "bg-gray-400",
-  },
-  deadline: {
-    label: "Deadline",
-    color: "text-destructive",
-    bgColor: "bg-destructive/15",
-    borderColor: "border-red-300",
-    dotColor: "bg-destructive",
-  },
-};
-
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  scheduled: { label: "Zaplanowane", color: "bg-primary/15 text-primary" },
-  completed: { label: "Zakończone", color: "bg-green-100 text-green-700" },
-  cancelled: { label: "Anulowane", color: "bg-destructive/15 text-destructive" },
-};
-
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 8:00 – 20:00
-
-const DAY_NAMES = ["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"];
-const DAY_NAMES_FULL = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"];
-
-type CalendarEvent = {
-  id: number;
-  title: string;
-  description?: string;
-  event_type: string;
-  start_time: string;
-  end_time?: string;
-  all_day: boolean;
-  candidate_id?: number;
-  candidate_name?: string;
-  job_id?: number;
-  job_title?: string;
-  client_id?: number;
-  client_name?: string;
-  attendees?: CalendarAttendee[];
-  location?: string;
-  teams_link?: string;
-  // Phase 7.1 — Graph-generated Teams meeting join URL (distinct from the
-  // legacy free-text `teams_link`).
-  online_meeting_url?: string | null;
-  // Phase 7.8 — OneDrive share link to the published Teams recording.
-  recording_url?: string | null;
-  reminder_minutes: number;
-  status: string;
-  created_at?: string;
-};
+import { allDayLabel, isAllDayOnDay } from "@/lib/calendar-all-day";
+import { invalidAttendeeEmails, splitAttendeeEmails } from "@/components/calendar/attendee-emails";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -305,6 +211,17 @@ function CalendarPageInner() {
         .then((r) => r.data.pairs ?? {}),
   });
 
+  // „Najbliższe" z OSOBNEGO zapytania: lista brana z załadowanego tygodnia
+  // w piątek pokazywała pustkę, choć w poniedziałek czekały trzy rozmowy.
+  const upcomingQuery = useQuery<CalendarEvent[]>({
+    queryKey: ["calendar-upcoming"],
+    queryFn: () =>
+      calendarApi
+        .listEvents({ upcoming: true, mine_only: true, limit: 20 })
+        .then((r) => r.data),
+    staleTime: 60_000,
+  });
+
   const prevWeek = () => {
     setCurrentMonday((d) => {
       const nd = new Date(d);
@@ -346,7 +263,14 @@ function CalendarPageInner() {
       <CalendarSidebar
         today={today}
         events={events}
-        failed={calendarFailed}
+        currentMonday={currentMonday}
+        onPickDay={(day) => setCurrentMonday(getMonday(day))}
+        upcoming={upcomingQuery.data ?? []}
+        failed={calendarFailed || upcomingQuery.isError}
+        onEventClick={(ev) => {
+          setCurrentMonday(getMonday(new Date(ev.start_time)));
+          setSelectedEvent(ev);
+        }}
         onCreateClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
       />
 
@@ -475,6 +399,12 @@ function CalendarPageInner() {
               onRetry={() => void refetch()}
             />
           ) : (
+            <>
+            <AllDayStrip
+              weekDays={weekDays}
+              events={events}
+              onEventClick={setSelectedEvent}
+            />
             <WeekGrid
               hours={HOURS}
               weekDays={weekDays}
@@ -484,6 +414,7 @@ function CalendarPageInner() {
               onSlotClick={handleSlotClick}
               onEventClick={setSelectedEvent}
             />
+            </>
           )}
         </div>
       </div>
@@ -495,6 +426,8 @@ function CalendarPageInner() {
           onClose={() => setShowCreateModal(false)}
           onCreated={() => {
             queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+            queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
+            queryClient.invalidateQueries({ queryKey: ["calendar-conflicts-summary"] });
             setShowCreateModal(false);
           }}
         />
@@ -513,6 +446,12 @@ function CalendarPageInner() {
             setSelectedEvent(null);
             clearEventParam();
           }}
+          onUpdated={(updated) => setSelectedEvent(updated)}
+          onOpenFeedback={(eventId) => {
+            // Jedno okno naraz: formularz feedbacku zastępuje szczegóły.
+            setSelectedEvent(null);
+            setFeedbackEventId(eventId);
+          }}
         />
       )}
 
@@ -526,6 +465,9 @@ function CalendarPageInner() {
             clearEventParam();
           }}
           calendarEventId={feedbackEventId}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+          }}
         />
       )}
     </div>
@@ -572,14 +514,18 @@ function WeekGrid({
       {/* Day columns */}
       {weekDays.map((day, dayIdx) => {
         const isToday = isSameDay(day, today);
+        // Wpisy całodniowe mają własny pasek nad siatką — rysowane jako blok
+        // 00:00–24:00 zajmowały pas w kolumnie i zwężały rozmowy.
         const dayEvents = events.filter((ev) => {
+          if (ev.all_day) return false;
           const evDate = parseTime(ev.start_time);
           return isSameDay(evDate, day);
         });
         // Nachodzące wydarzenia dzielą szerokość dnia na pasy — bez tego
         // kafle o tej samej godzinie leżały dokładnie na sobie (UAT M03-B11).
         // Przedziały w pikselach, z minimalną wysokością kafla (28 px).
-        const overlapInputs = dayEvents.map((ev) => {
+        // Odwołane nie biorą pasa: rysujemy je pod spodem na pełną szerokość.
+        const overlapInputs = dayEvents.filter((ev) => ev.status !== "cancelled").map((ev) => {
           const evStart = parseTime(ev.start_time);
           const evEnd = ev.end_time ? parseTime(ev.end_time) : null;
           const evTop = getEventTop(evStart);
@@ -643,7 +589,8 @@ function WeekGrid({
               const conflictTooltip = hasConflict
                 ? `Konflikt z: ${conflictTitles.join(", ")}`
                 : undefined;
-              const slot = overlapSlots.get(ev.id) ?? {
+              const cancelled = ev.status === "cancelled";
+              const slot = (!cancelled && overlapSlots.get(ev.id)) || {
                 column: 0,
                 columns: 1,
                 cluster: -1,
@@ -656,10 +603,10 @@ function WeekGrid({
                   key={ev.id}
                   title={conflictTooltip}
                   className={cn(
-                    "absolute rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-xs hover:shadow-md transition-shadow z-5",
-                    cfg.bgColor,
-                    cfg.borderColor,
-                    ev.status === "cancelled" && "opacity-50 line-through",
+                    "absolute rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-xs hover:shadow-md transition-shadow",
+                    cancelled
+                      ? "z-0 bg-muted border-border text-muted-foreground opacity-60 line-through"
+                      : cn("z-5", cfg.bgColor, cfg.borderColor),
                     hasConflict &&
                       "ring-2 ring-amber-500 dark:ring-amber-400 ring-offset-1"
                   )}
@@ -671,11 +618,21 @@ function WeekGrid({
                     width: `calc(${100 / slot.columns}% - 8px)`,
                   }}
                   data-testid={`calendar-event-${ev.id}`}
+                  data-cancelled={cancelled ? "true" : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEventClick(ev);
                   }}
                 >
+                  {ev.needs_attention && !cancelled ? (
+                    <span
+                      className="absolute bottom-0.5 right-1 text-destructive"
+                      aria-label="Brak feedbacku po rozmowie"
+                      title="Brak feedbacku po rozmowie"
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                    </span>
+                  ) : null}
                   {hasConflict && (
                     <span
                       className="absolute top-0.5 right-1 text-amber-600 dark:text-amber-400 text-xs leading-none"
@@ -688,7 +645,7 @@ function WeekGrid({
                     className={cn(
                       "text-xs font-semibold truncate leading-tight",
                       hasConflict && "pr-3",
-                      cfg.color,
+                      cancelled ? "text-muted-foreground" : cfg.color,
                     )}
                   >
                     {ev.title}
@@ -722,6 +679,56 @@ function WeekGrid({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Pasek „cały dzień" ──────────────────────────────────────────────────────
+
+function AllDayStrip({
+  weekDays,
+  events,
+  onEventClick,
+}: {
+  weekDays: Date[];
+  events: CalendarEvent[];
+  onEventClick: (ev: CalendarEvent) => void;
+}) {
+  const allDay = events.filter((ev) => ev.all_day);
+  if (allDay.length === 0) return null;
+  return (
+    <div
+      className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border bg-muted/30"
+      data-testid="calendar-all-day-strip"
+    >
+      <div className="border-r border-border px-1 py-1 text-[10px] leading-tight text-muted-foreground text-right">
+        cały dzień
+      </div>
+      {weekDays.map((day, i) => (
+        <div key={i} className="border-r border-border last:border-r-0 p-1 space-y-0.5 min-w-0">
+          {allDay
+            .filter((ev) => isAllDayOnDay(ev, day))
+            .map((ev) => {
+              const cfg = EVENT_TYPE_CONFIG[ev.event_type] || EVENT_TYPE_CONFIG.meeting;
+              return (
+                <button
+                  key={ev.id}
+                  type="button"
+                  title={`${ev.title} — ${allDayLabel(ev)}`}
+                  onClick={() => onEventClick(ev)}
+                  className={cn(
+                    "block w-full truncate rounded-md border px-1.5 py-0.5 text-left text-[11px] font-medium",
+                    ev.status === "cancelled"
+                      ? "bg-muted border-border text-muted-foreground line-through opacity-60"
+                      : cn(cfg.bgColor, cfg.borderColor, cfg.color),
+                  )}
+                >
+                  {ev.title}
+                </button>
+              );
+            })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -782,25 +789,31 @@ function OverflowEventsChip({
 function CalendarSidebar({
   today,
   events,
+  currentMonday,
+  onPickDay,
+  upcoming,
   failed,
+  onEventClick,
   onCreateClick,
 }: {
   today: Date;
+  /** Wydarzenia widocznego tygodnia (kropki w mini-kalendarzu). */
   events: CalendarEvent[];
+  currentMonday: Date;
+  onPickDay: (day: Date) => void;
+  /** Najbliższe własne wydarzenia — osobne zapytanie, niezależne od tygodnia. */
+  upcoming: CalendarEvent[];
   /** Pobranie wydarzeń padło — panel „Najbliższe" nie może po cichu zniknąć. */
   failed: boolean;
+  onEventClick: (ev: CalendarEvent) => void;
   onCreateClick: () => void;
 }) {
-  const upcomingEvents = events
-    .filter((ev) => {
-      const d = new Date(ev.start_time);
-      return d >= today && ev.status !== "cancelled";
-    })
+  const upcomingEvents = upcoming
+    .filter((ev) => ev.status !== "cancelled" && new Date(ev.start_time) >= today)
     .slice(0, 5);
 
   return (
     <div className="w-64 shrink-0 mr-4 flex flex-col gap-4">
-      {/* Create button */}
       <button
         onClick={onCreateClick}
         className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl transition-colors shadow-xs"
@@ -809,15 +822,15 @@ function CalendarSidebar({
         Nowe wydarzenie
       </button>
 
-      {/* Mini calendar */}
       <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
-        <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
-          {today.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
-        </div>
-        <MiniCalendar today={today} events={events} />
+        <MiniCalendar
+          today={today}
+          events={events}
+          currentMonday={currentMonday}
+          onPickDay={onPickDay}
+        />
       </div>
 
-      {/* Upcoming events */}
       {failed ? (
         <div
           role="alert"
@@ -841,24 +854,28 @@ function CalendarSidebar({
               const cfg = EVENT_TYPE_CONFIG[ev.event_type] || EVENT_TYPE_CONFIG.meeting;
               const d = new Date(ev.start_time);
               return (
-                <div key={ev.id} className="flex items-start gap-2">
+                <button
+                  key={ev.id}
+                  type="button"
+                  onClick={() => onEventClick(ev)}
+                  className="w-full flex items-start gap-2 rounded-md text-left hover:bg-muted"
+                >
                   <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", cfg.dotColor)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-foreground truncate">{ev.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {d.toLocaleDateString("pl-PL", { weekday: "short", day: "numeric", month: "short" })}
-                      {" "}
-                      {d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}
+                      {ev.all_day
+                        ? allDayLabel(ev)
+                        : `${d.toLocaleDateString("pl-PL", { weekday: "short", day: "numeric", month: "short" })} ${d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`}
                     </p>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* Legend */}
       <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
         <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
           Typy wydarzeń
@@ -878,18 +895,47 @@ function CalendarSidebar({
 
 // ── Mini calendar ─────────────────────────────────────────────────────────────
 
-function MiniCalendar({ today, events }: { today: Date; events: CalendarEvent[] }) {
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+/**
+ * Nawigacja po tygodniach: klik w dzień przewija siatkę na jego tydzień.
+ * Do 09.2026 mini-kalendarz był ozdobą — pokazywał zawsze bieżący miesiąc
+ * i nie reagował na kliknięcia.
+ */
+function MiniCalendar({
+  today,
+  events,
+  currentMonday,
+  onPickDay,
+}: {
+  today: Date;
+  events: CalendarEvent[];
+  currentMonday: Date;
+  onPickDay: (day: Date) => void;
+}) {
+  const [month, setMonth] = useState(
+    () => new Date(currentMonday.getFullYear(), currentMonday.getMonth(), 1),
+  );
+  // Siatka przewinięta strzałkami tygodnia do innego miesiąca → miesiąc idzie za nią.
+  useEffect(() => {
+    setMonth((m) =>
+      m.getFullYear() === currentMonday.getFullYear() && m.getMonth() === currentMonday.getMonth()
+        ? m
+        : new Date(currentMonday.getFullYear(), currentMonday.getMonth(), 1),
+    );
+  }, [currentMonday]);
+
+  const year = month.getFullYear();
+  const monthIdx = month.getMonth();
+  const firstDay = new Date(year, monthIdx, 1).getDay();
+  const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
   const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+  const weekEnd = new Date(currentMonday);
+  weekEnd.setDate(weekEnd.getDate() + 7);
 
   const eventDays = new Set(
     events.map((ev) => {
       const d = new Date(ev.start_time);
       return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    })
+    }),
   );
 
   const cells: (number | null)[] = [
@@ -899,6 +945,27 @@ function MiniCalendar({ today, events }: { today: Date; events: CalendarEvent[] 
 
   return (
     <div>
+      <div className="flex items-center justify-between mb-3">
+        <button
+          type="button"
+          aria-label="Poprzedni miesiąc"
+          onClick={() => setMonth(new Date(year, monthIdx - 1, 1))}
+          className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+          {month.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
+        </div>
+        <button
+          type="button"
+          aria-label="Następny miesiąc"
+          onClick={() => setMonth(new Date(year, monthIdx + 1, 1))}
+          className="p-0.5 rounded hover:bg-muted text-muted-foreground"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
       <div className="grid grid-cols-7 gap-0.5 mb-1">
         {["P", "W", "Ś", "C", "P", "S", "N"].map((d, i) => (
           <div key={i} className="text-center text-xs text-muted-foreground font-medium">
@@ -909,22 +976,31 @@ function MiniCalendar({ today, events }: { today: Date; events: CalendarEvent[] 
       <div className="grid grid-cols-7 gap-0.5">
         {cells.map((day, i) => {
           if (!day) return <div key={i} />;
-          const isToday = day === today.getDate();
-          const key = `${year}-${month}-${day}`;
-          const hasEvents = eventDays.has(key);
+          const date = new Date(year, monthIdx, day);
+          const isToday = isSameDay(date, today);
+          const inWeek = date >= currentMonday && date < weekEnd;
+          const hasEvents = eventDays.has(`${year}-${monthIdx}-${day}`);
           return (
-            <div
+            <button
               key={i}
+              type="button"
+              onClick={() => onPickDay(date)}
+              aria-label={date.toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" })}
+              aria-pressed={inWeek}
               className={cn(
                 "text-center text-xs py-0.5 rounded-md font-medium relative",
-                isToday ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"
+                isToday
+                  ? "bg-primary text-white"
+                  : inWeek
+                    ? "bg-primary/10 text-foreground"
+                    : "text-muted-foreground hover:bg-muted",
               )}
             >
               {day}
               {hasEvents && !isToday && (
                 <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary/30 rounded-full" />
               )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -943,8 +1019,6 @@ function CreateEventModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const queryClient = useQueryClient();
-
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -952,44 +1026,29 @@ function CreateEventModal({
     start_time: prefilledStart,
     end_time: "",
     all_day: false,
-    candidate_id: "",
-    job_id: "",
     attendees_raw: "",
     location: "",
     teams_link: "",
     reminder_minutes: "15",
   });
+  const [candidate, setCandidate] = useState<CandidateChoice | null>(null);
+  const [jobId, setJobId] = useState<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
-
-  // Kandydat: wyszukiwanie po stronie serwera, nie lista „100 ostatnich".
-  // Zwykły `<select>` z `page_size: 100` pokazywał setną część bazy bez
-  // szukania — starszej osoby nie dało się wskazać wcale (audyt B07). Ten sam
-  // endpoint i ta sama bramka co dotąd (`/api/candidates?q=`), tylko z frazą.
-  const [candidateOpen, setCandidateOpen] = useState(false);
-  const [candidateQuery, setCandidateQuery] = useState("");
-  const [candidate, setCandidate] = useState<{ id: number; label: string } | null>(null);
-  const debouncedCandidateQuery = useDebouncedValue(candidateQuery.trim(), 300);
-  const candidatesQuery = useQuery({
-    queryKey: ["calendar-candidate-search", debouncedCandidateQuery],
-    queryFn: () =>
-      candidatesApi
-        .list({ q: debouncedCandidateQuery || undefined, page_size: 20 })
-        .then((r) => (r.data?.items || []) as Array<{ id: number; name?: string; lastname?: string; email?: string | null }>),
-    enabled: candidateOpen,
-  });
 
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => calendarApi.createEvent(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       onCreated();
       celebrate({ small: true, message: "Wydarzenie zaplanowane! 📅" });
     },
-    onError: (e: any) => {
+    onError: (e: unknown) => {
       setError(apiErrorMessage(e, "Błąd tworzenia wydarzenia"));
     },
   });
+
+  const needsRecruitmentWarning =
+    !!candidate && jobId == null && FEEDBACK_EVENT_TYPES.has(form.event_type);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -997,11 +1056,21 @@ function CreateEventModal({
       setError("Tytuł i czas rozpoczęcia są wymagane");
       return;
     }
+    if (
+      !form.all_day &&
+      form.end_time &&
+      new Date(form.end_time) <= new Date(form.start_time)
+    ) {
+      setError("Koniec wydarzenia musi być późniejszy niż jego początek.");
+      return;
+    }
 
-    const attendees = form.attendees_raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const attendees = splitAttendeeEmails(form.attendees_raw);
+    const invalid = invalidAttendeeEmails(attendees);
+    if (invalid.length > 0) {
+      setError(`Nieprawidłowy adres e-mail: ${invalid.join(", ")}`);
+      return;
+    }
 
     mutation.mutate({
       title: form.title.trim(),
@@ -1010,16 +1079,14 @@ function CreateEventModal({
       start_time: new Date(form.start_time).toISOString(),
       end_time: form.end_time ? new Date(form.end_time).toISOString() : null,
       all_day: form.all_day,
-      candidate_id: form.candidate_id ? parseInt(form.candidate_id) : null,
-      job_id: form.job_id ? parseInt(form.job_id) : null,
+      candidate_id: candidate?.id ?? null,
+      job_id: candidate ? jobId : null,
       attendees,
       location: form.location || null,
       teams_link: form.teams_link || null,
       reminder_minutes: parseInt(form.reminder_minutes) || 15,
     });
   };
-
-  const typeConfig = EVENT_TYPE_CONFIG[form.event_type] || EVENT_TYPE_CONFIG.meeting;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
@@ -1029,23 +1096,23 @@ function CreateEventModal({
             <Calendar className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-bold text-foreground dark:text-foreground">Nowe wydarzenie</h2>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
+          <button onClick={onClose} aria-label="Zamknij" className="text-muted-foreground hover:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-4">
           {error && (
-            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+            <div role="alert" className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </div>
           )}
 
-          {/* Title */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Tytuł *</label>
+            <label htmlFor="calendar-new-title" className="text-xs font-semibold text-muted-foreground block mb-1">Tytuł *</label>
             <input
+              id="calendar-new-title"
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -1054,7 +1121,6 @@ function CreateEventModal({
             />
           </div>
 
-          {/* Type */}
           <div>
             <label className="text-xs font-semibold text-muted-foreground block mb-1">Typ</label>
             <div className="grid grid-cols-5 gap-1.5">
@@ -1076,11 +1142,11 @@ function CreateEventModal({
             </div>
           </div>
 
-          {/* Date/time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-muted-foreground block mb-1">Od *</label>
+              <label htmlFor="calendar-new-start" className="text-xs font-semibold text-muted-foreground block mb-1">Od *</label>
               <input
+                id="calendar-new-start"
                 required
                 type="datetime-local"
                 value={form.start_time}
@@ -1089,8 +1155,9 @@ function CreateEventModal({
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-muted-foreground block mb-1">Do</label>
+              <label htmlFor="calendar-new-end" className="text-xs font-semibold text-muted-foreground block mb-1">Do</label>
               <input
+                id="calendar-new-end"
                 type="datetime-local"
                 value={form.end_time}
                 onChange={(e) => setForm({ ...form, end_time: e.target.value })}
@@ -1098,8 +1165,16 @@ function CreateEventModal({
               />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={form.all_day}
+              onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+            />
+            Cały dzień
+            <span className="text-xs text-muted-foreground">(urlop, nieobecność — nie blokuje slotów)</span>
+          </label>
 
-          {/* Candidate */}
           <div>
             <label
               id="calendar-candidate-label"
@@ -1107,95 +1182,42 @@ function CreateEventModal({
             >
               Kandydat (opcjonalnie)
             </label>
-            <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  role="combobox"
-                  aria-expanded={candidateOpen}
-                  aria-labelledby="calendar-candidate-label"
-                  className="w-full flex items-center justify-between gap-2 border border-border rounded-lg px-3 py-2 text-sm text-left focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="flex items-center gap-2 truncate">
-                    <Search className="h-4 w-4 shrink-0 opacity-60" />
-                    <span className={cn("truncate", !candidate && "text-muted-foreground")}>
-                      {candidate ? candidate.label : "Szukaj kandydata…"}
-                    </span>
-                  </span>
-                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    placeholder="Szukaj kandydata…"
-                    value={candidateQuery}
-                    onValueChange={setCandidateQuery}
-                  />
-                  <CommandList>
-                    {candidatesQuery.isLoading ? (
-                      <div className="p-3 text-sm text-muted-foreground">Szukam…</div>
-                    ) : candidatesQuery.isError ? (
-                      // Awaria ≠ „nikogo nie ma": pusta lista czytałaby się
-                      // jak brak kandydata w bazie.
-                      <div className="p-3 text-sm text-destructive" role="alert">
-                        Nie udało się wyszukać kandydatów.
-                      </div>
-                    ) : (
-                      <CommandEmpty>Brak wyników.</CommandEmpty>
-                    )}
-                    <CommandGroup>
-                      {candidate ? (
-                        <CommandItem
-                          value="__none__"
-                          onSelect={() => {
-                            setCandidate(null);
-                            setForm({ ...form, candidate_id: "" });
-                            setCandidateOpen(false);
-                          }}
-                        >
-                          <X className="mr-2 h-4 w-4" />
-                          Bez kandydata
-                        </CommandItem>
-                      ) : null}
-                      {(candidatesQuery.data ?? []).map((c) => {
-                        const label = `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`;
-                        return (
-                          <CommandItem
-                            key={c.id}
-                            value={String(c.id)}
-                            onSelect={() => {
-                              setCandidate({ id: c.id, label });
-                              setForm({ ...form, candidate_id: String(c.id) });
-                              setCandidateOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                candidate?.id === c.id ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            <span className="truncate">
-                              {label}
-                              {c.email ? (
-                                <span className="ml-1 text-xs text-muted-foreground">{c.email}</span>
-                              ) : null}
-                            </span>
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <CandidateCombobox
+              labelledBy="calendar-candidate-label"
+              value={candidate}
+              onChange={(next) => {
+                setCandidate(next);
+                // Rekrutacja należy do kandydata — zmiana osoby ją zeruje.
+                if (next?.id !== candidate?.id) setJobId(null);
+              }}
+            />
           </div>
 
-          {/* Location */}
+          {candidate && (
+            <div>
+              <label htmlFor="calendar-new-job" className="text-xs font-semibold text-muted-foreground block mb-1">
+                Rekrutacja
+              </label>
+              <RecruitmentSelect
+                key={candidate.id}
+                id="calendar-new-job"
+                candidateId={candidate.id}
+                value={jobId}
+                onChange={setJobId}
+              />
+              {needsRecruitmentWarning && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  Bez rekrutacji feedback po rozmowie i przypomnienie do Delivery
+                  Leada nie zadziałają.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Lokalizacja</label>
+            <label htmlFor="calendar-new-location" className="text-xs font-semibold text-muted-foreground block mb-1">Lokalizacja</label>
             <input
+              id="calendar-new-location"
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
@@ -1203,10 +1225,10 @@ function CreateEventModal({
             />
           </div>
 
-          {/* Teams link */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Link Teams/Meet</label>
+            <label htmlFor="calendar-new-link" className="text-xs font-semibold text-muted-foreground block mb-1">Link Teams/Meet</label>
             <input
+              id="calendar-new-link"
               value={form.teams_link}
               onChange={(e) => setForm({ ...form, teams_link: e.target.value })}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
@@ -1214,12 +1236,12 @@ function CreateEventModal({
             />
           </div>
 
-          {/* Attendees */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">
-              Uczestnicy (email, oddzielone przecinkiem)
+            <label htmlFor="calendar-new-attendees" className="text-xs font-semibold text-muted-foreground block mb-1">
+              Uczestnicy (e-maile oddzielone przecinkiem, średnikiem lub spacją)
             </label>
             <input
+              id="calendar-new-attendees"
               value={form.attendees_raw}
               onChange={(e) => setForm({ ...form, attendees_raw: e.target.value })}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
@@ -1227,10 +1249,10 @@ function CreateEventModal({
             />
           </div>
 
-          {/* Description */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Opis</label>
+            <label htmlFor="calendar-new-description" className="text-xs font-semibold text-muted-foreground block mb-1">Opis</label>
             <textarea
+              id="calendar-new-description"
               rows={2}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -1238,23 +1260,22 @@ function CreateEventModal({
             />
           </div>
 
-          {/* Reminder */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Przypomnienie</label>
+            <label htmlFor="calendar-new-reminder" className="text-xs font-semibold text-muted-foreground block mb-1">Przypomnienie</label>
             <select
+              id="calendar-new-reminder"
               value={form.reminder_minutes}
               onChange={(e) => setForm({ ...form, reminder_minutes: e.target.value })}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
             >
-              <option value="5">5 minut przed</option>
-              <option value="10">10 minut przed</option>
-              <option value="15">15 minut przed</option>
-              <option value="30">30 minut przed</option>
-              <option value="60">1 godzina przed</option>
+              {REMINDER_OPTIONS.map((o) => (
+                <option key={o.value} value={String(o.value)}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* Buttons */}
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
@@ -1277,290 +1298,29 @@ function CreateEventModal({
   );
 }
 
-// ── Event Detail Modal ────────────────────────────────────────────────────────
-
-function EventDetailModal({
-  event,
-  onClose,
-  onDeleted,
-}: {
-  event: CalendarEvent;
-  onClose: () => void;
-  onDeleted: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const cfg = EVENT_TYPE_CONFIG[event.event_type] || EVENT_TYPE_CONFIG.meeting;
-  const statusCfg = STATUS_CONFIG[event.status] || STATUS_CONFIG.scheduled;
-
-  const deleteMutation = useMutation({
-    mutationFn: () => calendarApi.deleteEvent(event.id),
-    onSuccess: onDeleted,
-  });
-
-  const completeMutation = useMutation({
-    mutationFn: () => calendarApi.updateEvent(event.id, { status: "completed" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-      onClose();
-    },
-  });
-
-  const start = new Date(event.start_time);
-  const end = event.end_time ? new Date(event.end_time) : null;
-  const descriptionText = htmlToPlainText(event.description);
-
-  // Radix `Dialog` (jak każde okno w aplikacji): `role="dialog"`,
-  // `aria-modal`, Escape (UAT M03-B11), a od audytu B34 także pułapka fokusu
-  // i fokus początkowy — własny `div` przepuszczał Tab do strony pod oknem.
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent
-        size="sm"
-        hideClose
-        aria-modal="true"
-        aria-describedby={undefined}
-        className="p-0 gap-0 rounded-2xl"
-      >
-        {/* Header stripe */}
-        <div className={cn("h-1.5 shrink-0 rounded-t-2xl", cfg.dotColor)} />
-
-        {/* Treść przewija się W OKNIE: `DialogContent` ma `max-h-[90vh]
-            overflow-hidden`, więc długi opis z Outlooka ucinał przyciski,
-            a Tab do nich przesuwał ukryty kontener i znikał nagłówek. */}
-        <div className="p-6 min-h-0 overflow-y-auto" data-testid="calendar-event-detail-body">
-          {/* Title + close */}
-          <div className="flex items-start justify-between gap-3 mb-4">
-            <div>
-              <div
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold mb-2",
-                  cfg.bgColor,
-                  cfg.color
-                )}
-              >
-                <div className={cn("w-1.5 h-1.5 rounded-full", cfg.dotColor)} />
-                {cfg.label}
-              </div>
-              {/* Bez własnego `id`: Radix wiąże `aria-labelledby` okna
-                  z WYGENEROWANYM id tytułu, a nadpisanie go odcinało nazwę. */}
-              <DialogTitle className="text-lg font-bold text-foreground">
-                {event.title}
-              </DialogTitle>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="Zamknij"
-              className="text-muted-foreground hover:text-muted-foreground shrink-0"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Details */}
-          <div className="space-y-3">
-            {/* Time */}
-            <div className="flex items-center gap-3 text-sm text-foreground">
-              <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
-              <span>
-                {start.toLocaleDateString("pl-PL", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                })}{" "}
-                · {start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}
-                {end && ` – ${end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`}
-              </span>
-            </div>
-
-            {/* Status */}
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-4 h-4 text-muted-foreground" />
-              <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", statusCfg.color)}>
-                {statusCfg.label}
-              </span>
-            </div>
-
-            {/* Candidate */}
-            {event.candidate_name && (
-              <div className="flex items-center gap-3 text-sm text-foreground">
-                <User className="w-4 h-4 text-muted-foreground shrink-0" />
-                <span>{event.candidate_name}</span>
-              </div>
-            )}
-
-            {/* Job */}
-            {event.job_title && (
-              <div className="flex items-center gap-3 text-sm text-foreground">
-                <Briefcase className="w-4 h-4 text-muted-foreground shrink-0" />
-                <span>{event.job_title}</span>
-              </div>
-            )}
-
-            {/* Location */}
-            {event.location && (
-              <div className="flex items-center gap-3 text-sm text-foreground">
-                <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-                <span>{event.location}</span>
-              </div>
-            )}
-
-            {/* Teams link */}
-            {event.teams_link && (
-              <div className="flex items-center gap-3 text-sm">
-                <Video className="w-4 h-4 text-muted-foreground shrink-0" />
-                <a
-                  href={event.teams_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline truncate"
-                >
-                  Dołącz do spotkania
-                </a>
-              </div>
-            )}
-
-            {/* Phase 7.8 — Teams recording */}
-            <RecordingBlock event={event} />
-
-
-            {/* Attendees */}
-            {event.attendees && event.attendees.length > 0 && (
-              <div className="flex items-start gap-3 text-sm text-foreground">
-                <Users className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="flex flex-wrap gap-1">
-                  {/* Uczestnik z M365 to obiekt {address, name} — renderowany wprost
-                      wywracał cały kalendarz (React #31). */}
-                  {event.attendees.map((attendee, i) => {
-                    const label = attendeeLabel(attendee);
-                    if (!label) return null;
-                    const address = attendeeAddress(attendee);
-                    return (
-                      <span
-                        key={i}
-                        title={address && address !== label ? address : undefined}
-                        className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs"
-                      >
-                        {label}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Description — wydarzenie z M365 niesie w opisie pełny dokument
-                HTML maila; pokazujemy sam tekst, nigdy `dangerouslySetInnerHTML`. */}
-            {descriptionText && (
-              <p
-                className="text-sm text-muted-foreground bg-muted rounded-lg p-3 leading-relaxed whitespace-pre-line break-words"
-                data-testid="calendar-event-description"
-              >
-                {descriptionText}
-              </p>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2 mt-5 pt-4 border-t border-border">
-            {event.status === "scheduled" && (
-              <button
-                onClick={() => completeMutation.mutate()}
-                disabled={completeMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                Zakończ
-              </button>
-            )}
-            <ConfirmButton
-              onConfirm={() => deleteMutation.mutate()}
-              message={`Usunąć „${event.title}”?`}
-              confirmLabel="Usuń"
-              cancelLabel="Anuluj"
-              className={`flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 border border-destructive/20 hover:bg-destructive/15 text-destructive text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${deleteMutation.isPending ? "opacity-50 pointer-events-none" : ""}`}
-            >
-              <X className="w-3.5 h-3.5" />
-              {deleteMutation.isPending ? "Usuwam..." : "Usuń"}
-            </ConfirmButton>
-            <button
-              onClick={onClose}
-              className="ml-auto px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Zamknij
-            </button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Teams meeting recording block (Phase 7.8) ───────────────────────────────
-//
-// Renders one of three states under the event details panel:
-//   1. `recording_url` set → "Odsłuchaj nagranie" link (opens OneDrive).
-//   2. `online_meeting_url` set + event ended >1h ago → searching hint.
-//   3. Otherwise → render nothing (no Teams meeting or too recent to nag).
-//
-// The discovery loop runs every 6h, so we tell users explicitly the search
-// is still ongoing instead of letting them assume the recording will never
-// arrive when it just hasn't been scanned yet.
-
-interface RecordingBlockProps {
-  event: CalendarEvent;
-}
-
-function RecordingBlock({ event }: RecordingBlockProps) {
-  if (event.recording_url) {
-    return (
-      <div className="flex items-center gap-3 text-sm rounded-md border border-violet-500/30 bg-violet-500/5 px-3 py-2">
-        <PlayCircle className="w-4 h-4 text-violet-600 shrink-0" />
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
-            Nagranie z interview
-          </span>
-          <a
-            href={event.recording_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline truncate text-sm"
-          >
-            Odsłuchaj nagranie
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  // Hint state — meeting happened, no recording yet but the discovery loop
-  // is still scanning OneDrive. Only nag once the event ended at least 1h
-  // ago (Teams typically publishes within an hour).
-  if (!event.online_meeting_url || !event.end_time) {
-    return null;
-  }
-  const endedAt = new Date(event.end_time);
-  const ONE_HOUR_MS = 60 * 60 * 1000;
-  if (endedAt.getTime() > Date.now() - ONE_HOUR_MS) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-start gap-3 text-xs text-muted-foreground rounded-md border border-muted bg-muted/30 px-3 py-2">
-      <Loader2 className="w-3.5 h-3.5 shrink-0 mt-0.5 animate-spin opacity-60" />
-      <span>
-        Nagranie nie zostało jeszcze znalezione. Sprawdź folder Recordings na
-        OneDrive organizatora.
-      </span>
-    </div>
-  );
-}
-
 // ── iCal import button (Phase 7b.6) ──────────────────────────────────────────
+
+interface ICalImportSummary {
+  events_fetched: number;
+  inserted: number;
+  updated: number;
+  skipped_past: number;
+  skipped_conflict?: number;
+  errors: number;
+}
+
+/** Wynik importu iCal po polsku — do 09.2026 „fetched=12 ins=3 upd=1 skip=0 err=0". */
+function icalImportSummary(d: ICalImportSummary): string {
+  const parts = [
+    `Pobrano ${d.events_fetched} wydarzeń`,
+    `dodano ${d.inserted}`,
+    `zaktualizowano ${d.updated}`,
+  ];
+  if (d.skipped_past) parts.push(`pominięto ${d.skipped_past} starszych`);
+  if (d.skipped_conflict) parts.push(`pominięto ${d.skipped_conflict} zajętych przez inny import`);
+  if (d.errors) parts.push(`błędy: ${d.errors}`);
+  return parts.join(", ") + ".";
+}
 
 function ICalImportButton({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false);
@@ -1578,16 +1338,8 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
         url: url.trim(),
         since_days: since,
       });
-      const d = r.data as {
-        events_fetched: number;
-        inserted: number;
-        updated: number;
-        skipped_past: number;
-        errors: number;
-      };
-      setResult(
-        `fetched=${d.events_fetched} ins=${d.inserted} upd=${d.updated} skip=${d.skipped_past} err=${d.errors}`
-      );
+      const d = r.data as ICalImportSummary;
+      setResult(icalImportSummary(d));
       onImported();
     } catch (e: unknown) {
       const msg = apiErrorMessage(e, "Błąd");
@@ -1652,7 +1404,7 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
             </button>
           </div>
           {result && (
-            <div className="text-xs text-foreground dark:text-muted-foreground bg-muted dark:bg-card rounded p-2 font-mono">
+            <div role="status" className="text-xs text-foreground dark:text-muted-foreground bg-muted dark:bg-card rounded p-2">
               {result}
             </div>
           )}

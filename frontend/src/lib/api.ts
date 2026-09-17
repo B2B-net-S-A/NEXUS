@@ -1429,6 +1429,10 @@ export interface HiringManagerFeedback {
    * reguła `PATCH /api/interview-feedback`). Liczone po stronie serwera.
    */
   can_edit?: boolean;
+  /** Werdykt zapisany z okna wydarzenia w kalendarzu (a nie z karty). */
+  calendar_event_id?: number | null;
+  event_start_time?: string | null;
+  event_title?: string | null;
 }
 
 /** Odpowiedź `GET /api/jobs/{id}/hiring-manager-feedback`. */
@@ -1483,6 +1487,30 @@ export interface CalendarEventResponse {
   reminder_minutes: number;
   status: string;
   created_at: string | null;
+  /** Eskalacja T+2h: rozmowa bez feedbacku. */
+  needs_attention?: boolean;
+  candidate_confirmed_at?: string | null;
+  candidate_confirmation_source?: string | null;
+  /** `microsoft365` / `ical` / `manual` — Outlook się odwołuje, reszta usuwa. */
+  external_source?: string | null;
+  /** Strony feedbacku zapisane pod wydarzeniem (`candidate_side`, `client_side`). */
+  feedback_sources?: string[];
+  /** Czy wołający może odwołać / usunąć (właściciel albo admin). */
+  can_remove?: boolean;
+}
+
+/** Co stało się w Outlooku przy `POST /calendar/events/{id}/cancel`. */
+export type CalendarCancelOutcome =
+  | "cancelled"
+  | "deleted"
+  | "gone"
+  | "skipped"
+  | "not_applicable"
+  | "already_cancelled";
+
+export interface CalendarCancelResponse {
+  event: CalendarEventResponse;
+  outlook: CalendarCancelOutcome;
 }
 
 export const calendarApi = {
@@ -1492,6 +1520,7 @@ export const calendarApi = {
     event_type?: string;
     status?: string;
     mine_only?: boolean;
+    upcoming?: boolean;
     limit?: number;
   }) => api.get("/api/calendar/events", { params }),
   createEvent: (data: Record<string, unknown>) => api.post("/api/calendar/events", data),
@@ -1499,6 +1528,9 @@ export const calendarApi = {
   updateEvent: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/calendar/events/${id}`, data),
   deleteEvent: (id: number) => api.delete(`/api/calendar/events/${id}`),
+  // Odwołanie: w Outlooku (gdy stamtąd pochodzi) i w NEXUSIE — wiersz zostaje.
+  cancelEvent: (id: number) =>
+    api.post<CalendarCancelResponse>(`/api/calendar/events/${id}/cancel`),
   // Phase 5.4 — overlap check used by ScheduleInterviewModal before booking.
   conflicts: (params: {
     start: string;
@@ -1528,6 +1560,8 @@ export interface NotificationResponse {
 export interface NotificationListResponse {
   items: NotificationResponse[];
   unread_count: number;
+  /** Nieprzeczytane własne (bez przypomnień w zastępstwie) — steruje „Oznacz wszystko”. */
+  own_unread_count?: number;
 }
 
 export const notificationsApi = {
@@ -1553,6 +1587,29 @@ export const notificationsApi = {
 };
 
 // ── Interview Feedback ────────────────────────────────────────────────────────
+export type InterviewFeedbackSource = "candidate_side" | "client_side";
+
+/** Wiersz `GET /api/interview-feedback`. */
+export interface InterviewFeedbackRow {
+  id: number;
+  calendar_event_id: number | null;
+  candidate_id: number;
+  job_id: number | null;
+  author_id: number | null;
+  feedback_source: InterviewFeedbackSource;
+  overall_impression: number | null;
+  interest_level: string | null;
+  candidate_questions: string | null;
+  concerns: string | null;
+  next_step_preference: string | null;
+  technical_fit: number | null;
+  soft_fit: number | null;
+  overall_fit: number | null;
+  decision: string | null;
+  client_questions: string | null;
+  feedback_summary: string | null;
+}
+
 export const interviewFeedbackApi = {
   list: (params?: {
     calendar_event_id?: number;
@@ -4897,6 +4954,9 @@ export const microsoft365Api = {
     extra_attendees?: string[];
     invite_candidate?: boolean;
     add_teams_meeting?: boolean;
+    /** Rekrutacja — bez niej feedback i eskalacja T+2h nie mają do czego się przypiąć. */
+    job_id?: number | null;
+    reminder_minutes?: number;
   }) =>
     api.post<CalendarEventResponse>(
       "/api/calendar/events/m365-invite",
@@ -5646,21 +5706,32 @@ export interface AISettingsResponse {
   usage: AIFeatureUsageDto[];
 }
 
-export interface AIFeatureUpdate {
-  enabled?: boolean;
-  monthly_limit?: number;
+export interface AutoMatchLogRow {
+  candidate_id: number;
+  job_id: number;
+  job_title: string;
+  score: number | null;
+  decision: string;
+  reason: string | null;
+  trigger: string;
+  created_at: string;
+}
+
+export interface AutoMatchOverview {
+  enabled: boolean;
+  dry_run: boolean;
+  min_score: number;
+  max_jobs_per_candidate: number;
+  max_candidates_per_job: number;
+  decisions_7d: Record<string, number>;
+  queue_7d: Record<string, number>;
+  recent: AutoMatchLogRow[];
 }
 
 export const aiSettingsApi = {
   testAlert: () => api.post<{ delivered: boolean; alert_id: number }>("/api/settings/ai/alerts/test"),
   get: () => api.get<AISettingsResponse>("/api/settings/ai"),
-  setMaster: (enabled: boolean) =>
-    api.patch<AISettingsResponse>("/api/settings/ai/master", { enabled }),
-  updateFeature: (feature: AIFeatureKey, payload: AIFeatureUpdate) =>
-    api.patch<AISettingsResponse>(
-      `/api/settings/ai/features/${feature}`,
-      payload,
-    ),
+  autoMatch: () => api.get<AutoMatchOverview>("/api/settings/ai/auto-match"),
 };
 
 // ── Settings → API integration / OAuth clients (Traffit gap #6) ──────────────

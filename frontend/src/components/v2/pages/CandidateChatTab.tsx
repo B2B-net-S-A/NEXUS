@@ -40,6 +40,10 @@ import {
   type CandidateChatMessageListResp,
   type ReactionAggregate,
 } from "@/types/job-chat";
+import {
+  chatMessageDomId,
+  useChatMessageFocus,
+} from "@/hooks/useChatMessageFocus";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
@@ -147,6 +151,16 @@ export default function CandidateChatTab({
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages.length]);
+
+  // Link z powiadomienia `&msg=<id>` — przewiń i podświetl wiadomość.
+  const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+  const highlightedMessageId = useChatMessageFocus({
+    messageIds,
+    ready: messagesQuery.isSuccess,
+    onFocus: () => {
+      stickToBottomRef.current = false;
+    },
+  });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const sendMutation = useMutation({
@@ -446,28 +460,37 @@ export default function CandidateChatTab({
           </div>
         )}
         {messages.map((m) => (
-          <MessageRow
+          <div
             key={m.id}
-            message={m}
-            currentUserId={user?.id ?? -1}
-            canPin={canPin}
-            isAdmin={!readOnly && user?.role === "admin"}
-            readOnly={readOnly}
-            onReply={() => {
-              setReplyTo(m);
-              setEditingId(null);
-              requestAnimationFrame(() => textareaRef.current?.focus());
-            }}
-            onEdit={() => startEdit(m)}
-            onDelete={() => deleteMutation.mutate(m.id)}
-            onPinToggle={() => pinMutation.mutate({ id: m.id, pin: !m.pinned })}
-            onReaction={(emoji, add) =>
-              reactionMutation.mutate({ id: m.id, emoji, add })
-            }
-            onLoadReadBy={async (msgId) =>
-              (await candidateChatApi.getReadBy(candidateId, msgId)).data
-            }
-          />
+            id={chatMessageDomId(m.id)}
+            data-highlighted={highlightedMessageId === m.id ? "true" : undefined}
+            className={cn(
+              "rounded-lg transition-colors duration-500",
+              highlightedMessageId === m.id && "bg-primary/10 ring-2 ring-primary/40",
+            )}
+          >
+            <MessageRow
+              message={m}
+              currentUserId={user?.id ?? -1}
+              canPin={canPin}
+              isAdmin={!readOnly && user?.role === "admin"}
+              readOnly={readOnly}
+              onReply={() => {
+                setReplyTo(m);
+                setEditingId(null);
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+              onEdit={() => startEdit(m)}
+              onDelete={() => deleteMutation.mutate(m.id)}
+              onPinToggle={() => pinMutation.mutate({ id: m.id, pin: !m.pinned })}
+              onReaction={(emoji, add) =>
+                reactionMutation.mutate({ id: m.id, emoji, add })
+              }
+              onLoadReadBy={async (msgId) =>
+                (await candidateChatApi.getReadBy(candidateId, msgId)).data
+              }
+            />
+          </div>
         ))}
       </div>
 

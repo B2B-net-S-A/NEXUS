@@ -100,9 +100,25 @@ export function MyKpiWidget({ variant ="compact", className }: Props) {
  className={cn("relative", className)}
  onMouseEnter={() => setHovered(true)}
  onMouseLeave={() => setHovered(false)}
+ // Szczegóły KPI także z klawiatury i dotykiem — do 09.2026 wyłącznie hover,
+ // czyli niedostępne na tablecie i dla nawigacji tabulatorem.
+ onFocus={() => setHovered(true)}
+ onBlur={(event) => {
+ if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+ setHovered(false);
+ }
+ }}
+ onKeyDown={(event) => {
+ if (event.key === "Escape") setHovered(false);
+ }}
  >
  <button
  type="button"
+ // Otwiera (nie przełącza): kliknięcie myszą najpierw ustawia fokus, więc
+ // przełączanie zamykałoby właśnie otwarte szczegóły. Zamyka blur/Escape.
+ onClick={() => setHovered(true)}
+ aria-expanded={hovered}
+ aria-describedby={hovered ? "my-kpi-tooltip" : undefined}
  className={cn("flex items-center gap-2 h-9 px-3 rounded-lg","border border-border","bg-background/60 hover:bg-background","text-xs text-muted-foreground transition-colors",
  )}
  aria-label="Moje KPI"
@@ -132,6 +148,7 @@ export function MyKpiWidget({ variant ="compact", className }: Props) {
  className={cn("absolute right-0 top-full mt-2 w-72 p-3 z-50","rounded-lg border border-border","bg-card shadow-smd",
  )}
  role="tooltip"
+ id="my-kpi-tooltip"
  >
  <div className="text-xs font-semibold text-foreground mb-2">
  Twoje KPI dziś / tydzień / miesiąc

@@ -6,6 +6,8 @@
  * kept its own copy of these utilities and they had already started to drift.
  */
 
+import { apiErrorMessage } from "@/lib/api-error";
+
 export type RecruitmentOption = {
   stage_id: number;
   job_id: number;
@@ -27,6 +29,8 @@ export type RecruitmentOption = {
   // zastosowanie reguł (nazwa pliku, język) innego klienta niż widać na ekranie.
   client_id?: number | null;
   client_name?: string | null;
+  /** Czy wołający może przypiąć do tej rekrutacji wydarzenie (członkostwo). */
+  can_schedule?: boolean;
 };
 
 export const CV_ACCEPT = ".pdf,.docx";
@@ -198,26 +202,124 @@ export function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Kwota AI / AI wyłączone: `503 {detail: {feature, reason, used, limit}}`
+ * (`_charge_cv_generation_quota` w `cv_generator_b2b.py`). `reason` jest po
+ * polsku i mówi, CZY to decyzja administratora — bez tej gałęzi rekruter
+ * widział ogólne „Nie udało się uruchomić generacji" i szukał awarii.
+ */
+function quotaMessage(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return undefined;
+  const { reason, used, limit } = detail as {
+    reason?: unknown;
+    used?: unknown;
+    limit?: unknown;
+  };
+  if (typeof reason !== "string" || !reason.trim()) return undefined;
+  if (typeof used === "number" && typeof limit === "number") {
+    return `${reason} (wykorzystano ${used}/${limit})`;
+  }
+  return reason;
+}
+
+function messageFromBody(status: number | undefined, data: unknown): string {
+  if (typeof data === "string") return data;
+  const detail = (data as { detail?: unknown } | null | undefined)?.detail;
+  const quota = quotaMessage(detail);
+  if (quota) return quota;
+  // String, `{message}` i TABLICA błędów walidacji — wspólne tłumaczenie,
+  // żeby obiekt nigdy nie dotarł do toasta jako „[object Object]".
+  return apiErrorMessage({ response: { status, data } }, "");
+}
+
+/**
+ * Tekst błędu generatora CV dla użytkownika — zawsze string, `""` gdy nie ma
+ * nic do pokazania (wołający podstawia własny komunikat).
+ */
 export async function extractErrorDetail(err: unknown): Promise<string> {
   if (typeof err !== "object" || err === null) return "";
-  const anyErr = err as { response?: { data?: unknown } };
-  const data = anyErr.response?.data;
+  const response = (err as { response?: { status?: unknown; data?: unknown } })
+    .response;
+  const status = typeof response?.status === "number" ? response.status : undefined;
+  const data = response?.data;
   // With responseType: "blob" axios delivers error bodies as a Blob too, so the
   // backend's JSON {detail} must be read out of the Blob before it can surface.
   if (data instanceof Blob) {
     try {
-      const txt = await data.text();
-      const parsed = JSON.parse(txt);
-      if (typeof parsed?.detail === "string") return parsed.detail;
-      return txt;
+      const parsed: unknown = JSON.parse(await data.text());
+      return messageFromBody(status, parsed);
     } catch {
       return "";
     }
   }
-  if (typeof data === "string") return data;
-  if (data && typeof data === "object" && "detail" in data) {
-    const detail = (data as { detail: unknown }).detail;
-    if (typeof detail === "string") return detail;
+  return messageFromBody(status, data);
+}
+
+/** Sufit `q` w `GET /api/cv-generator/candidates` (`max_length=120`). */
+export const CANDIDATE_SEARCH_MAX_LENGTH = 120;
+
+/**
+ * Komunikat pola wyszukiwania kandydata albo `null`. Za długie zapytanie
+ * kończyło się 422, które combobox pokazywał jako „Brak wyników" — czyli
+ * jako fakt o bazie, a nie jako błąd wpisu.
+ */
+export function candidateSearchMessage(query: string, error: unknown): string | null {
+  if (query.trim().length > CANDIDATE_SEARCH_MAX_LENGTH) {
+    return `Wpisz najwyżej ${CANDIDATE_SEARCH_MAX_LENGTH} znaków — skróć wyszukiwaną frazę.`;
   }
-  return "";
+  if (!error) return null;
+  return apiErrorMessage(error, "Nie udało się wyszukać kandydatów — spróbuj ponownie.");
+}
+
+/** Pola reguły klienta, od których zależą wymagane wejścia generacji. */
+export type CvRequirementRule = {
+  require_screening_notes_min_chars?: number | null;
+  require_project_ref?: boolean;
+  require_position?: boolean;
+  require_champion?: boolean;
+  filename_pattern?: string | null;
+};
+
+/** Czy formularz musi pokazać pole „Numer / nazwa projektu". */
+export function ruleNeedsProjectRef(rule: CvRequirementRule | null | undefined): boolean {
+  return !!rule && (!!rule.filename_pattern?.includes("{PROJEKT}") || !!rule.require_project_ref);
+}
+
+/**
+ * Braki względem OBOWIĄZUJĄCEJ reguły klienta — te same zdania, które zwróci
+ * 422 serwera (`required_input_problems`), pokazane przed kliknięciem.
+ * Jedno źródło dla strony generatora i okna z profilu kandydata.
+ */
+export function clientRuleRequirementProblems(
+  rule: CvRequirementRule | null | undefined,
+  input: {
+    mode: "new" | "old";
+    notesChars: number;
+    projectRef: string;
+    position: string;
+    hasChampionInput: boolean;
+  },
+): string[] {
+  if (!rule) return [];
+  const problems: string[] = [];
+  const min = rule.require_screening_notes_min_chars ?? 0;
+  if (min > 0 && input.notesChars < min) {
+    problems.push(
+      `Ten klient wymaga notatek ze screeningu o długości co najmniej ${min} znaków — jest ${input.notesChars}.`,
+    );
+  }
+  if (rule.require_project_ref && !input.projectRef.trim()) {
+    problems.push("Ten klient wymaga numeru projektu — uzupełnij pole „Numer / nazwa projektu”.");
+  }
+  if (rule.require_position && input.mode === "old" && !input.position.trim()) {
+    problems.push("Ten klient wymaga stanowiska — uzupełnij pole „Stanowisko”.");
+  }
+  if (rule.require_champion && !input.hasChampionInput) {
+    problems.push(
+      input.mode === "new"
+        ? "Ten klient wymaga Profilu Championa — uzupełnij go na karcie rekrutacji przed generacją."
+        : "Ten klient wymaga wymagań z Profilu Championa — wgraj plik championa albo wpisz wymagania must-have / nice-to-have.",
+    );
+  }
+  return problems;
 }

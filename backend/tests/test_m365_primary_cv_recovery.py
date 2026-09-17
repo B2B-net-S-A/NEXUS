@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 import uuid
 
 import pytest
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
-from app.services import candidate_identity_quarantine, cv_enrichment, cv_parser
+from app.services import candidate_identity_quarantine, cv_ingest_service, cv_parser
 from app.services import cv_text_extractor
 from app.services.m365 import attachment_handler
 
@@ -34,8 +34,11 @@ async def test_restored_primary_waits_for_identity_gate(
         "parse_cv",
         AsyncMock(return_value={"first_name": "Alex", "last_name": "Example"}),
     )
-    enrichment = MagicMock()
-    monkeypatch.setattr(cv_enrichment, "_apply_cv_enrichment", enrichment)
+    # Od 17.09.2026 załącznik z maila przechodzi przez wspólną ścieżkę po
+    # odczycie CV (`cv_ingest_service.finish_cv_ingest`), nie przez gołe
+    # `_apply_cv_enrichment`.
+    enrichment = AsyncMock()
+    monkeypatch.setattr(cv_ingest_service, "finish_cv_ingest", enrichment)
 
     async with AsyncSessionLocal() as db:
         candidate = Candidate(
@@ -126,7 +129,7 @@ async def test_restored_primary_waits_for_identity_gate(
         else:
             assert attachment.parse_error is None
             assert candidate.raw_cv_text == "Synthetic CV"
-            enrichment.assert_called_once()
+            enrichment.assert_awaited_once()
         # Everything is synthetic and left uncommitted: close rolls it back.
 
 

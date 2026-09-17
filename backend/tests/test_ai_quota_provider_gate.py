@@ -160,18 +160,14 @@ def test_bare_charge_baseline_has_no_stale_entries():
     assert not stale, f"already migrated, remove from the baseline: {sorted(stale)}"
 
 
-def test_missing_feature_row_is_treated_as_enabled_without_a_ceiling():
-    """Fail-open, matching `AIFeatureConfig.enabled`'s own default.
-
-    Pinned because it is a deliberate trade, not an accident: an unseeded
-    feature also has NO monthly limit, which is why `/api/health` reports the
-    missing keys as a spend warning.
-    """
+def test_feature_rows_are_never_a_gate():
+    """NEXUS bez limitów AI (17.09.2026): brak wiersza, `enabled=False` i dodatni
+    `monthly_limit` niczego nie blokują. Pinned so a refactor cannot quietly
+    reintroduce a toggle that the Settings panel no longer lets anyone change."""
     src = (BACKEND / "app/services/ai_quota.py").read_text()
-    assert "if config is not None and not config.enabled:" in src, (
-        "quota went back to fail-closed on a missing row — that contradicts "
-        "the documented default and the health probe built around it"
-    )
+    body = src[src.index("async def check_and_increment") : src.index("# ── Provider-boundary gate")]
+    assert "not config.enabled" not in body
+    assert "raise AIQuotaExceeded" not in body
 
 
 # ── Nothing reaches the provider undeclared ──────────────────────────────────

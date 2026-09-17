@@ -5,6 +5,7 @@ import {
   CV_CONTENT_MODES,
   DEFAULT_CV_CONTENT_MODE,
   MAX_UPLOAD_MB,
+  extractErrorDetail,
   fileValidationError,
   isCertainWarning,
   parseDispositionFilename,
@@ -142,5 +143,60 @@ describe("parseDispositionFilename", () => {
     expect(parseDispositionFilename("attachment", "fallback.docx")).toBe(
       "fallback.docx",
     );
+  });
+});
+
+describe("extractErrorDetail", () => {
+  const axiosError = (status: number, data: unknown) => ({ response: { status, data } });
+
+  it("reads the quota reason with usage numbers instead of a generic failure", async () => {
+    const err = axiosError(503, {
+      detail: {
+        feature: "cv_generator",
+        reason: "Miesięczny limit generacji CV został wyczerpany.",
+        used: 40,
+        limit: 40,
+      },
+    });
+    expect(await extractErrorDetail(err)).toBe(
+      "Miesięczny limit generacji CV został wyczerpany. (wykorzystano 40/40)",
+    );
+  });
+
+  it("returns the reason alone when numbers are absent", async () => {
+    const err = axiosError(503, {
+      detail: { feature: "cv_generator", reason: "AI jest wyłączone przez administratora.", used: null, limit: null },
+    });
+    expect(await extractErrorDetail(err)).toBe("AI jest wyłączone przez administratora.");
+  });
+
+  it("translates a validation array into text, never an object", async () => {
+    const err = axiosError(422, {
+      detail: [{ type: "string_too_long", loc: ["body", "project_ref"], msg: "String should have at most 120 characters" }],
+    });
+    const message = await extractErrorDetail(err);
+    expect(typeof message).toBe("string");
+    expect(message).toBe("project_ref: String should have at most 120 characters");
+  });
+
+  it("keeps a plain string detail", async () => {
+    expect(await extractErrorDetail(axiosError(422, { detail: "Ten klient wymaga stanowiska." }))).toBe(
+      "Ten klient wymaga stanowiska.",
+    );
+  });
+
+  it("reads JSON detail out of a Blob body (responseType: blob)", async () => {
+    const blob = new Blob([JSON.stringify({ detail: { reason: "Limit wyczerpany.", used: 3, limit: 3 } })], {
+      type: "application/json",
+    });
+    expect(await extractErrorDetail(axiosError(503, blob))).toBe("Limit wyczerpany. (wykorzystano 3/3)");
+    const plain = new Blob([JSON.stringify({ detail: "Brak pliku." })]);
+    expect(await extractErrorDetail(axiosError(404, plain))).toBe("Brak pliku.");
+    expect(await extractErrorDetail(axiosError(500, new Blob(["<html>"])))).toBe("");
+  });
+
+  it("returns an empty string when there is nothing to show", async () => {
+    expect(await extractErrorDetail(new Error("Network Error"))).toBe("");
+    expect(await extractErrorDetail(null)).toBe("");
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -18,9 +18,13 @@ import {
   type CvContentMode,
   type RecruitmentOption,
   DEFAULT_CV_CONTENT_MODE,
+  clientRuleRequirementProblems,
   extractErrorDetail,
   isCertainWarning,
+  ruleNeedsProjectRef,
 } from "@/lib/cv-generator";
+import { Alert } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +105,11 @@ export function CVGeneratorV2({
       return res.data;
     },
     enabled: open,
+    // Zmiana trybu (także wymuszona regułą klienta) przelicza gotowość. Bez
+    // poprzednich danych na czas odświeżenia wybrana rekrutacja na chwilę
+    // znikała, a z nią reguła klienta — blokady języka i trybu migały.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === candidateId ? previous : undefined,
   });
 
   // Auto-pick first ready recruitment on open
@@ -124,6 +133,7 @@ export function CVGeneratorV2({
   useEffect(() => {
     setStageId("");
     setConsentKey(null);
+    setProjectRef("");
     setEnqueued(false);
     setGeneratedId(null);
     setError(null);
@@ -132,16 +142,54 @@ export function CVGeneratorV2({
   // własne zapytania o tę samą regułę rozjechałyby się przy pierwszej zmianie.
   // `is_active`, bo propozycja z seeda (niezatwierdzona) nie obowiązuje i serwer
   // też jej nie stosuje (`resolve_client_rule`).
-  const consentRuleQuery = useClientCvRule(selectedRecruitment?.client_id ?? null);
-  const consentRequired =
-    !!consentRuleQuery.data?.is_active &&
-    !!consentRuleQuery.data.requires_rodo_consent_block;
+  const clientRuleQuery = useClientCvRule(selectedRecruitment?.client_id ?? null);
+  const activeRule = clientRuleQuery.data?.is_active ? clientRuleQuery.data : undefined;
+  const consentRequired = !!activeRule?.requires_rodo_consent_block;
+  const [projectRef, setProjectRef] = useState("");
+
+  // Te same blokady co na stronie generatora — do 09.2026 okno z profilu
+  // ignorowało je i kończyło na 422 o polach, których tu nie było.
+  // Wymuszony język: ustawiony i zablokowany (serwer odrzuca rozjazd).
+  const forcedLanguage = activeRule?.cv_language === "en" || activeRule?.cv_language === "pl"
+    ? activeRule.cv_language
+    : null;
+  useEffect(() => {
+    if (forcedLanguage && forcedLanguage !== language) setLanguage(forcedLanguage);
+  }, [forcedLanguage, language]);
+
+  // Tryb obróbki: zablokowany = wymuszony; domyślny = zaznaczany RAZ na klienta.
+  const lockedMode = activeRule?.content_mode_locked ? activeRule.content_mode : null;
+  const defaultMode = activeRule?.content_mode ?? null;
+  const ruleClientId = activeRule?.client_id ?? null;
+  const lastDefaultedClient = useRef<number | null>(null);
+  useEffect(() => {
+    if (lockedMode && lockedMode !== contentMode) setContentMode(lockedMode);
+  }, [lockedMode, contentMode]);
+  useEffect(() => {
+    if (ruleClientId === null || lastDefaultedClient.current === ruleClientId) return;
+    lastDefaultedClient.current = ruleClientId;
+    if (defaultMode && !lockedMode) setContentMode(defaultMode);
+  }, [ruleClientId, defaultMode, lockedMode]);
+
+  const needsProjectRef = ruleNeedsProjectRef(activeRule);
+  const requirementProblems = useMemo(
+    () =>
+      clientRuleRequirementProblems(activeRule, {
+        mode: "new",
+        notesChars: selectedRecruitment?.notes_chars ?? 0,
+        projectRef,
+        position: "",
+        hasChampionInput: !!selectedRecruitment?.has_champion,
+      }),
+    [activeRule, selectedRecruitment, projectRef],
+  );
 
   const canSubmit =
     !!selectedRecruitment &&
     !!sourceSelection.selected &&
     selectedRecruitment.ready &&
-    (!consentRequired || !!consentKey);
+    (!consentRequired || !!consentKey) &&
+    requirementProblems.length === 0;
 
   const generateMut = useMutation({
     mutationFn: async () => {
@@ -156,6 +204,9 @@ export function CVGeneratorV2({
           candidate_id: candidateId,
           cv_document_id: sourceSelection.selected.id,
           stage_id: selectedRecruitment.stage_id,
+          // Asercja, nie wybór — serwer bierze klienta z rekrutacji.
+          client_id: selectedRecruitment.client_id ?? null,
+          project_ref: projectRef.trim(),
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
@@ -384,19 +435,59 @@ export function CVGeneratorV2({
 
             <CvSourcePicker selection={sourceSelection} />
 
+            {needsProjectRef && (
+              <div>
+                <Label className="mb-2 block" htmlFor="cvgen-modal-project">
+                  Numer / nazwa projektu
+                </Label>
+                <Input
+                  id="cvgen-modal-project"
+                  value={projectRef}
+                  onChange={(e) => setProjectRef(e.target.value)}
+                  placeholder="np. 4521"
+                  maxLength={120}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Wzór nazwy pliku tego klienta zawiera numer projektu. Bez niego
+                  plik dostanie nazwę bez tego członu.
+                </p>
+              </div>
+            )}
+
             <div>
               <Label className="mb-2 block">Obróbka treści</Label>
-              <ContentModeTiles value={contentMode} onChange={setContentMode} />
+              <div className={lockedMode ? "opacity-60" : undefined}>
+                <ContentModeTiles
+                  value={contentMode}
+                  onChange={setContentMode}
+                  disabled={!!lockedMode}
+                />
+              </div>
+              {lockedMode ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tryb ustalony przez Delivery Leada dla tego klienta — wybór jest
+                  zablokowany.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="mb-2 block">Język</Label>
-                <LanguageTiles
-                  value={language}
-                  onChange={setLanguage}
-                  ariaLabel="Język"
-                />
+                <div className={forcedLanguage ? "opacity-60" : undefined}>
+                  <LanguageTiles
+                    value={language}
+                    onChange={setLanguage}
+                    ariaLabel="Język"
+                    disabled={!!forcedLanguage}
+                  />
+                </div>
+                {forcedLanguage ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Ten klient wymaga CV w języku{" "}
+                    {forcedLanguage === "en" ? "angielskim" : "polskim"}.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label className="mb-2 block">Blind CV</Label>
@@ -416,6 +507,20 @@ export function CVGeneratorV2({
               required={consentRequired}
               disabled={generateMut.isPending}
             />
+
+            {requirementProblems.length > 0 && (
+              <Alert
+                variant="warning"
+                title="Klient wymaga uzupełnienia danych przed generacją"
+                description={
+                  <ul className="list-disc space-y-1 pl-4">
+                    {requirementProblems.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                }
+              />
+            )}
 
             {error && (
               <div

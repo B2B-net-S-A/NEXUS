@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateRateGate,
+  isJobBudgetHiddenFor,
   normalizeRateToMonthly,
 } from "@/lib/verified-rate-gate";
 
@@ -31,7 +32,7 @@ describe("normalizeRateToMonthly", () => {
 });
 
 describe("evaluateRateGate", () => {
-  it("stawka godzinowa mieszcząca się w budżecie miesięcznym przechodzi bez akceptacji", () => {
+  it("stawka godzinowa mieszcząca się w budżecie miesięcznym", () => {
     const gate = evaluateRateGate({
       rawRate: "118",
       unit: "hourly",
@@ -43,17 +44,18 @@ describe("evaluateRateGate", () => {
     expect(gate.message).toContain("mieści się w budżecie");
   });
 
-  it("stawka godzinowa PONAD budżet miesięczny idzie do akceptacji — to jest ta regresja", () => {
-    // Surowe porównanie (130 < 20000) mówiłoby „mieści się", a backend
-    // stawia kartę na „Pending": 130 × 168 = 21 840 > 20 000.
+  it("stawka godzinowa PONAD budżet miesięczny to informacja, nie akceptacja", () => {
+    // Surowe porównanie (130 < 20000) mówiłoby „mieści się": 130 × 168 =
+    // 21 840 > 20 000. Bramka „Pending" jest wyłączona (17.09.2026).
     const gate = evaluateRateGate({
       rawRate: "130",
       unit: "hourly",
       jobBudgetMax: 20000,
     });
     expect(gate.normalizedMonthly).toBe(21840);
-    expect(gate.verdict).toBe("needs_approval");
-    expect(gate.message).toContain("Pending");
+    expect(gate.verdict).toBe("over_budget");
+    expect(gate.message).toContain("ponad budżet");
+    expect(gate.message).not.toContain("Pending");
   });
 
   it("przecinek dziesiętny jest akceptowany", () => {
@@ -66,7 +68,7 @@ describe("evaluateRateGate", () => {
     expect(gate.isValid).toBe(true);
   });
 
-  it("waluta inna niż PLN kończy się akceptacją ręczną, nie auto-zgodą", () => {
+  it("waluta inna niż PLN to brak porównania, nie zgadywane przekroczenie", () => {
     const gate = evaluateRateGate({
       rawRate: "100",
       unit: "hourly",
@@ -74,7 +76,7 @@ describe("evaluateRateGate", () => {
       jobBudgetMax: 20000,
     });
     expect(gate.normalizedMonthly).toBeNull();
-    expect(gate.verdict).toBe("needs_approval");
+    expect(gate.verdict).toBe("not_comparable");
   });
 
   it("brak budżetu rekrutacji to brak bramki, nie odmowa", () => {
@@ -109,5 +111,30 @@ describe("evaluateRateGate", () => {
       jobBudgetMax: 20000,
     });
     expect(gate.message).toBeNull();
+  });
+
+  it("budżet ukryty dla roli nie udaje braku budżetu", () => {
+    const gate = evaluateRateGate({
+      rawRate: "500",
+      unit: "hourly",
+      jobBudgetMax: null,
+      budgetHidden: true,
+    });
+    expect(gate.verdict).toBe("budget_hidden");
+    expect(gate.message).toContain("Budżet ukryty dla Twojej roli");
+    expect(gate.message).not.toContain("nie ma wpisanego budżetu");
+  });
+});
+
+describe("isJobBudgetHiddenFor", () => {
+  it("Delivery Lead i TCM bez admina mają budżet zredagowany", () => {
+    expect(isJobBudgetHiddenFor({ role: "delivery_lead" } as never)).toBe(true);
+    expect(
+      isJobBudgetHiddenFor({ role: "talent_community_manager" } as never),
+    ).toBe(true);
+    expect(isJobBudgetHiddenFor({ role: "recruiter" } as never)).toBe(false);
+    expect(
+      isJobBudgetHiddenFor({ role: "admin", roles: ["admin", "delivery_lead"] } as never),
+    ).toBe(false);
   });
 });

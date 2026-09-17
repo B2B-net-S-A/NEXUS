@@ -92,16 +92,20 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
     expect(action.kind).toBe("none");
   });
 
-  it("„pending” mówi o cudzej decyzji, nie o własnej akcji", () => {
-    const action = nextActionFor(
-      item({ verification_status: "pending" }),
-      verifiedCol,
-    );
+  it("stawka ponad budżet nie jest bramką — bramka „Pending” wyłączona", () => {
+    const action = nextActionFor(item({ budget_exceeded: true }), verifiedCol);
     expect(action).toEqual({
-      label: "Czeka na akceptację stawki",
-      tone: "gate",
-      kind: "verification",
+      label: "Wyślij CV do klienta",
+      tone: "normal",
+      kind: "cv",
     });
+  });
+
+  it("„Ogłoszenia” dostaje tę samą podpowiedź co „Nowi”", () => {
+    const postingCol = col({ stage: "posting", name: "Ogłoszenia" });
+    const action = nextActionFor(item({ days_in_stage: 0 }), postingCol);
+    expect(action).toEqual(nextActionFor(item({ days_in_stage: 0 }), intakeCol));
+    expect(action.label).not.toBe("");
   });
 
   it("weto hiring managera blokuje etap nie-terminalny", () => {
@@ -120,10 +124,10 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
     expect(action.tone).toBe("gate");
   });
 
-  it("„pending” wygrywa z wetem — czekamy na decyzję, nie na ruch", () => {
+  it("weto wygrywa z informacją o budżecie", () => {
     const action = nextActionFor(
       item({
-        verification_status: "pending",
+        budget_exceeded: true,
         hm_veto: {
           hiring_manager_contact_id: 1,
           source_job_id: 2,
@@ -133,7 +137,7 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
       }),
       verifiedCol,
     );
-    expect(action.label).toBe("Czeka na akceptację stawki");
+    expect(action.label).toBe("Bramka: weto HM");
   });
 });
 
@@ -325,9 +329,9 @@ describe("oldestDaysInColumn", () => {
 });
 
 describe("nextActionFor — zatrudniony z zaległą bramką (follow-up fali 3)", () => {
-  it("zatrudniony z zaległym `pending` dostaje „Przekaż do Delivery”, nie bramkę stawki", () => {
+  it("zatrudniony ponad budżetem dostaje „Przekaż do Delivery”", () => {
     const action = nextActionFor(
-      item({ verification_status: "pending" }),
+      item({ budget_exceeded: true }),
       hiredCol,
     );
     expect(action).toEqual({

@@ -49,11 +49,13 @@ function LanguageTile({
   onSelect,
   flag,
   label,
+  disabled = false,
 }: {
   selected: boolean;
   onSelect: () => void;
   flag: ReactNode;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -61,8 +63,12 @@ function LanguageTile({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
+      // `disabled`, nie samo `pointer-events-none`: wymuszony przez regułę
+      // klienta język nie może dać się zmienić klawiaturą.
+      disabled={disabled}
       className={cn(
         "relative flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+        "disabled:cursor-not-allowed",
         "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         selected
           ? "border-primary bg-primary/5 ring-1 ring-primary"
@@ -88,6 +94,7 @@ interface LanguageTilesProps {
   onChange: (lang: CvLanguage) => void;
   className?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -100,11 +107,13 @@ export function LanguageTiles({
   onChange,
   className,
   ariaLabel = "Język CV",
+  disabled = false,
 }: LanguageTilesProps) {
   return (
     <div
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
       className={cn("grid grid-cols-2 gap-3", className)}
     >
       <LanguageTile
@@ -112,12 +121,14 @@ export function LanguageTiles({
         onSelect={() => onChange("pl")}
         flag={<FlagPL />}
         label="Polski"
+        disabled={disabled}
       />
       <LanguageTile
         selected={value === "en"}
         onSelect={() => onChange("en")}
         flag={<FlagUS />}
         label="English"
+        disabled={disabled}
       />
     </div>
   );

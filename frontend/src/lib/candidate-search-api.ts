@@ -178,9 +178,17 @@ export interface SearchDiagnosticsResponse {
 }
 
 export const candidateSearchApi = {
-  search: (body: CandidateSearchRequest): Promise<CandidateSearchResponse> =>
+  /** `signal` przerywa zapytanie zastąpione nowszym (pisanie w polu frazy). */
+  search: (
+    body: CandidateSearchRequest,
+    signal?: AbortSignal,
+  ): Promise<CandidateSearchResponse> =>
     api
-      .post<CandidateSearchResponse>("/api/search/candidates", body)
+      .post<CandidateSearchResponse>(
+        "/api/search/candidates",
+        body,
+        signal ? { signal } : undefined,
+      )
       .then((r) => r.data),
   diagnostics: (
     body: CandidateSearchRequest,

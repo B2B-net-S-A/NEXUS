@@ -103,15 +103,90 @@ export function initialSortFromUrl(params: URLSearchParams): JobSortFilterValue 
   return pickFromUrl(params, "sort", JOB_SORT_VALUES, "newest");
 }
 
+// ── Pozostałe filtry (audyt 17.09.2026) ────────────────────────────────────
+//
+// Lista zapisywała do URL-a 5 z 14 filtrów. Wyszukiwarka, osoby, klienci,
+// kategorie kompetencji, przełączniki i Priority Work ginęły po F5 i po
+// „Wstecz" z profilu rekrutacji — bez sygnału, że zawężenie przepadło.
+
+export const JOB_PRIORITY_WORK_VALUES = [
+  "any",
+  "assigned",
+  "carry_over",
+  "either",
+] as const;
+export type JobPriorityWorkFilterValue = (typeof JOB_PRIORITY_WORK_VALUES)[number];
+
+/** `?q=java` → `"java"`; brak → `""`. */
+export function initialSearchFromUrl(params: URLSearchParams): string {
+  return params.get("q") ?? "";
+}
+
+/**
+ * `?client=3&client=7` → `[3, 7]`. Wartości niebędące dodatnią liczbą
+ * całkowitą są odrzucane (ręcznie podrasowany URL = brak zawężenia, nie 422).
+ */
+export function initialIdsFromUrl(
+  params: URLSearchParams,
+  key: "responsible" | "client" | "cc",
+): number[] {
+  const out: number[] = [];
+  for (const raw of params.getAll(key)) {
+    if (!/^\d+$/.test(raw.trim())) continue;
+    const n = Number(raw);
+    if (Number.isSafeInteger(n) && n > 0 && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+/** Przełącznik zapisany jako `?klucz=1`; wszystko inne → `false`. */
+export function initialFlagFromUrl(
+  params: URLSearchParams,
+  key: "sourcing" | "active_search" | "open" | "no_owner",
+): boolean {
+  return params.get(key) === "1";
+}
+
+/** `?priority=carry_over` → `"carry_over"`; brak/nieznana → `"any"`. */
+export function initialPriorityWorkFromUrl(
+  params: URLSearchParams,
+): JobPriorityWorkFilterValue {
+  return pickFromUrl(params, "priority", JOB_PRIORITY_WORK_VALUES, "any");
+}
+
 export interface JobsListUrlState {
   status: readonly JobStatusFilterValue[];
   mine: boolean;
   type: JobTypeFilterValue;
   deadline: JobDeadlinePreset;
   sort: JobSortFilterValue;
+  q?: string;
+  responsibleIds?: readonly number[];
+  clientIds?: readonly number[];
+  ccIds?: readonly number[];
+  needsSourcing?: boolean;
+  activeInSearch?: boolean;
+  openOnly?: boolean;
+  noOwnerOnly?: boolean;
+  priorityWork?: JobPriorityWorkFilterValue;
 }
 
-const MANAGED_KEYS = ["status", "mine", "type", "deadline", "sort"] as const;
+const MANAGED_KEYS = [
+  "status",
+  "mine",
+  "type",
+  "deadline",
+  "sort",
+  "q",
+  "responsible",
+  "client",
+  "cc",
+  "sourcing",
+  "active_search",
+  "open",
+  "no_owner",
+  "priority",
+] as const;
 
 /**
  * Stan filtrów → querystring (bez `?`). Wartości domyślne NIE są zapisywane,
@@ -133,5 +208,17 @@ export function encodeJobsListUrl(
   if (state.type !== "all") next.set("type", state.type);
   if (state.deadline !== "any") next.set("deadline", state.deadline);
   if (state.sort !== "newest") next.set("sort", state.sort);
+  const q = state.q?.trim();
+  if (q) next.set("q", q);
+  for (const id of state.responsibleIds ?? []) next.append("responsible", String(id));
+  for (const id of state.clientIds ?? []) next.append("client", String(id));
+  for (const id of state.ccIds ?? []) next.append("cc", String(id));
+  if (state.needsSourcing) next.set("sourcing", "1");
+  if (state.activeInSearch) next.set("active_search", "1");
+  if (state.openOnly) next.set("open", "1");
+  if (state.noOwnerOnly) next.set("no_owner", "1");
+  if (state.priorityWork && state.priorityWork !== "any") {
+    next.set("priority", state.priorityWork);
+  }
   return next.toString();
 }

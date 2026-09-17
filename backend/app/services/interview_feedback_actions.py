@@ -25,6 +25,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.candidate import Candidate
 from app.models.interview_feedback import (
     InterestLevel,
     InterviewDecision,
@@ -64,6 +65,15 @@ async def apply_post_feedback_actions(
         return 0
 
     emitted = 0
+    # Imię i nazwisko zamiast „#12345" — numer nic rekruterowi nie mówi.
+    candidate = await db.get(Candidate, feedback.candidate_id)
+    full_name = (
+        " ".join(p for p in (candidate.name, candidate.lastname) if p).strip()
+        if candidate is not None
+        else ""
+    )
+    who = full_name or "kandydat"
+    in_job = f" w rekrutacji „{job.title}”" if job is not None and job.title else ""
 
     if feedback.decision == InterviewDecision.advance:
         result = await emit(
@@ -71,8 +81,9 @@ async def apply_post_feedback_actions(
             user_id=recruiter_id,
             title="Klient idzie dalej — zaproponuj next step",
             message=(
-                f"Klient chce iść dalej z kandydatem #{feedback.candidate_id}. "
-                "Zaproponuj: CV, drugi interview, offer, lub dopytaj co dalej."
+                f"Klient chce iść dalej: {who}{in_job}. "
+                "Zaproponuj kolejny krok — kolejną rozmowę, ofertę dla kandydata "
+                "albo dopytaj klienta, co dalej."
             ),
             link=f"/candidates/{feedback.candidate_id}",
             ntype=NotificationType.suggest_next_step,
@@ -86,10 +97,10 @@ async def apply_post_feedback_actions(
         result = await emit(
             db,
             user_id=recruiter_id,
-            title="Klient odrzucił — zamknij proces / przenieś do puli",
+            title="Klient odrzucił — zamknij proces albo przenieś do puli",
             message=(
-                f"Klient nie chce kontynuować z kandydatem #{feedback.candidate_id}. "
-                "Zamknij stage jako rejected i rozważ przeniesienie do talent pool."
+                f"Klient nie chce kontynuować: {who}{in_job}. "
+                "Przesuń kandydata na etap „Odrzucony” i rozważ dodanie do puli talentów."
             ),
             link=f"/candidates/{feedback.candidate_id}",
             ntype=NotificationType.suggest_next_step,
@@ -105,8 +116,8 @@ async def apply_post_feedback_actions(
             user_id=recruiter_id,
             title="Kandydat stracił zainteresowanie",
             message=(
-                f"Kandydat #{feedback.candidate_id} zamknął temat po swojej stronie "
-                "(interest_level=dead). Zapisz reason, zamknij stage, rozważ pulę."
+                f"{full_name or 'Kandydat'}{in_job} zamknął temat po swojej stronie. "
+                "Zapisz powód, zamknij proces i rozważ dodanie do puli talentów."
             ),
             link=f"/candidates/{feedback.candidate_id}",
             ntype=NotificationType.suggest_next_step,

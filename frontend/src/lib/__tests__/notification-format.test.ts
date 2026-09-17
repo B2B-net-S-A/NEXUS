@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  notificationOnBehalfLabel,
   formatNotificationText,
   notificationTimeAgo,
 } from "@/lib/notification-format";
@@ -36,5 +37,19 @@ describe("notificationTimeAgo (UAT M00-B05)", () => {
     expect(notificationTimeAgo(ago(10), now)).toBe("Przed chwilą");
     expect(notificationTimeAgo(ago(300), now)).toBe("5 min temu");
     expect(notificationTimeAgo(ago(7200), now)).toBe("2 h temu");
+  });
+});
+
+describe("notificationOnBehalfLabel", () => {
+  it("oznacza cudze przypomnienie widoczne w zastępstwie", () => {
+    expect(notificationOnBehalfLabel({ on_behalf_of_name: "Anna Nowak" })).toBe(
+      "w zastępstwie za Anna Nowak",
+    );
+  });
+
+  it("własne powiadomienie nie ma etykiety", () => {
+    expect(notificationOnBehalfLabel({})).toBeNull();
+    expect(notificationOnBehalfLabel({ on_behalf_of_name: null })).toBeNull();
+    expect(notificationOnBehalfLabel({ on_behalf_of_name: "  " })).toBeNull();
   });
 });

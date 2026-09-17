@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { apiErrorMessage } from "@/lib/api-error";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Copy, Link2, Loader2, Sparkles } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -136,9 +137,18 @@ function CvGeneratedShareModalContent({
 
   async function copyLink() {
     if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    showToast("Link skopiowany do schowka", "success");
+    // Wynik zamiast domysłu: link jest pokazywany JEDEN raz, więc toast
+    // „skopiowano" po nieudanym zapisie kosztowałby utratę sekretu.
+    if (await copyTextToClipboard(shareUrl)) {
+      setCopied(true);
+      showToast("Link skopiowany do schowka", "success");
+    } else {
+      setCopied(false);
+      showToast(
+        "Nie udało się skopiować linku — zaznacz go w polu i skopiuj ręcznie.",
+        "error",
+      );
+    }
   }
 
   function handleClose() {
@@ -242,7 +252,7 @@ function CvGeneratedShareModalContent({
             </Alert>
             <div className="flex items-center gap-2">
               <Input readOnly value={shareUrl} className="font-mono text-xs" />
-              <Button variant="outline" size="sm" onClick={copyLink}>
+              <Button variant="outline" size="sm" onClick={copyLink} aria-label="Kopiuj link">
                 {copied ? (
                   <Check className="h-4 w-4" />
                 ) : (

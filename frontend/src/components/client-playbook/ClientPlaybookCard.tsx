@@ -47,7 +47,7 @@ import {
   type ClientPlaybook,
   type PlaybookDocument,
 } from "@/lib/client-playbooks";
-import type { ClientCvRule } from "@/lib/cv-rules";
+import type { ClientCvRuleForGeneration as ClientCvRule } from "@/lib/cv-rules";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";

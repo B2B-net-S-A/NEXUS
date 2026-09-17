@@ -77,7 +77,11 @@ def test_bulk_move_locks_all_candidates_before_the_first_job_lock() -> None:
 
 
 def test_bulk_add_proposals_locks_all_candidates_before_the_first_job_lock() -> None:
-    src = inspect.getsource(proposals_bulk.bulk_add_proposals)
+    # Rdzeń bulk-addu (wspólny z auto-dopasowaniem od 17.09.2026).
+    src = inspect.getsource(proposals_bulk.add_candidates_to_job)
+    assert "add_candidates_to_job(" in inspect.getsource(
+        proposals_bulk.bulk_add_proposals
+    )
 
     assert src.index("canonical_candidate_lock_order(") < src.index("with_for_update()")
     assert src.index("with_for_update()") < src.index("open_process(")
@@ -85,9 +89,9 @@ def test_bulk_add_proposals_locks_all_candidates_before_the_first_job_lock() -> 
 
 
 def test_bulk_add_proposals_never_iterates_the_raw_client_list() -> None:
-    src = inspect.getsource(proposals_bulk.bulk_add_proposals)
+    src = inspect.getsource(proposals_bulk.add_candidates_to_job)
 
-    assert "for candidate_id in body.candidate_ids:" not in src
+    assert "for candidate_id in candidate_ids:" not in src
     assert "for candidate_id in lock_ordered_ids:" in src
 
 

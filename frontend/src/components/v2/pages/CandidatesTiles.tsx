@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from"react";
 import { useVirtualizer } from"@tanstack/react-virtual";
+import { candidateStageLabel } from "./candidate-timeline-labels";
 import { Banknote, Briefcase, Clock3, MapPin, MessageSquare } from"lucide-react";
 import { cn, formatRelativeTime } from"@/lib/utils";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
@@ -274,7 +275,7 @@ export function CandidatesTiles({
  <div className="flex min-w-0 items-center gap-2 text-xs text-foreground">
  <Briefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
  <span className="truncate" title={activeRecruitment.job_title}>
- {activeRecruitment.job_title} · {activeRecruitment.stage}
+ {activeRecruitment.job_title} · {candidateStageLabel(activeRecruitment.stage)}
  </span>
  </div>
  )}

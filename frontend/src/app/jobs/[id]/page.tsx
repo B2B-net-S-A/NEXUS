@@ -8,7 +8,6 @@ import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandida
 import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
 import { jobBudgetHourly } from "@/lib/job-budget";
-import { resolveJobDetailTab } from "@/lib/job-detail-tab-param";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -40,11 +39,13 @@ import {
   countHired,
   countInProcess,
   countInterviewStages,
-  selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
 import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
+import { useUrlTab } from "@/lib/url-tab";
+import { positiveIntParam } from "@/lib/client-tab";
+import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
@@ -1992,6 +1993,34 @@ const CvHandoffWorkbench = dynamic(
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+/** Wszystkie zakładki rekrutacji — każda może stać w `?tab=`. */
+const JOB_DETAIL_TABS: readonly JobDetailTab[] = [
+  "pipeline",
+  "history",
+  "ai-matching",
+  "manual-search",
+  "portals",
+  "champion",
+  "questions",
+  "chat",
+  "screening",
+  "cv",
+  "interviews",
+  "contract",
+];
+
+/**
+ * Stare i obce identyfikatory zakładek w linkach, które już są w bazie
+ * powiadomień: `champion-profile` (zapis Championa do 09.2026), `similar`
+ * („Podobny request — gotowi kandydaci"), `notes` (wzmianka w notatce —
+ * notatki żyją w doku kandydata na tablicy).
+ */
+const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailTab>> = {
+  "champion-profile": "champion",
+  similar: "ai-matching",
+  notes: "pipeline",
+};
+
 export default function JobDetailPage() {
   const { id } = useParams();
   const searchParams = useSearchParams();
@@ -2019,7 +2048,17 @@ export default function JobDetailPage() {
   // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty, żeby nagłówek
   // nie spychał pipeline'u poza ekran.
   const [showFullDescription, setShowFullDescription] = useState(false);
-  const [activeTab, setActiveTab] = useState<JobDetailTab>("pipeline");
+  // Zakładka żyje w `?tab=` (F5 i „Wstecz" wracają na nią; linki z powiadomień
+  // działają także przy miękkiej nawigacji na tej samej rekrutacji).
+  const [activeTab, selectTab, setActiveTab] = useUrlTab<JobDetailTab>({
+    requested: searchParams?.get("tab"),
+    validTabs: JOB_DETAIL_TABS,
+    defaultTab: "pipeline",
+    aliases: JOB_DETAIL_TAB_ALIASES,
+  });
+  // `?candidate=<id>` (np. wzmianka w notatce) — otwórz dok tego kandydata
+  // na tablicy, jeśli jest w pipelinie tej rekrutacji.
+  const focusCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
   // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
@@ -2035,25 +2074,15 @@ export default function JobDetailPage() {
     JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
   );
 
-  // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
-  // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
-  // zakładka AI Matching; scroll + glow robi sama HistoricalCandidatesSection.
-  // ?tab=champion-profile (stare linki sprzed `CreateJobModal`, PR 2) →
-  // "champion". `resolveJobDetailTab` (lib/job-detail-tab-param.ts) niesie
-  // oba aliasy + identyczność dla literałów `JobDetailTab` już
-  // deep-linkowanych stąd (chat/champion/screening/cv/interviews/contract) —
-  // bez tego link lądował po cichu na domyślnym Pipeline.
-  useEffect(() => {
-    const resolved = resolveJobDetailTab(searchParams?.get("tab"));
-    if (resolved) setActiveTab(resolved);
-  }, [searchParams]);
 
   // Unread badge dla taba Chat
   const { data: chatUnread } = useQuery({
     queryKey: ["job-chat-unread", id],
     queryFn: async () => (await jobChatApi.getUnreadCount(Number(id))).data,
     enabled: !!id,
-    refetchInterval: 30_000,
+    // Siatka bezpieczeństwa pod WebSocketem (`chat:message:new` unieważnia ten
+    // klucz w `useNotifications`) — nie źródło świeżości.
+    refetchInterval: WS_BACKED_SAFETY_POLL_MS,
     refetchOnWindowFocus: true,
   });
 
@@ -2065,7 +2094,7 @@ export default function JobDetailPage() {
   useEffect(() => {
     if (searchParams?.get("highlight") !== "ai-proposals") return;
     setActiveTab("ai-matching");
-  }, [searchParams]);
+  }, [searchParams, setActiveTab]);
 
   const {
     data: job,
@@ -2314,7 +2343,7 @@ export default function JobDetailPage() {
           />
         }
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={selectTab}
         onAddCandidate={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onEdit={
           canWritePipeline && canUpdateJob
@@ -2345,10 +2374,7 @@ export default function JobDetailPage() {
         // kanban się nie wczytał, listwa nie pokazuje liczby (zero znaczyłoby
         // „nikogo tu nie ma", a to jeszcze nie wiadomo).
         screeningCount={
-          kanban
-            ? selectScreeningQueue(kanbanColumns).length +
-              selectPendingVerifications(kanbanColumns).length
-            : undefined
+          kanban ? selectScreeningQueue(kanbanColumns).length : undefined
         }
         cvCount={kanban ? selectVerifiedQueue(kanbanColumns).length : undefined}
         // Kroki 07 i 08 (flow C2, PR 7/7) — liczone z TEGO SAMEGO kanbana co
@@ -2471,6 +2497,7 @@ export default function JobDetailPage() {
               // ten sam klucz zapytania karty klienta co krok 06 (zero nowych
               // requestów). Bez klienta tablica mówi „nie ustawiono".
               clientId={job?.client_id ?? null}
+              focusCandidateId={focusCandidateId}
             />
           </PipelineBoardGate>
         </div>
@@ -2495,7 +2522,7 @@ export default function JobDetailPage() {
           jobId={Number(id)}
           job={job}
           readOnly={!canWritePipeline}
-          onTabChange={setActiveTab}
+          onTabChange={selectTab}
           searchSummary={ranking}
         >
           {/* Warsztat dopasowań C2 — „kto pasuje do tej oferty". Widoczny dla
@@ -2611,7 +2638,7 @@ export default function JobDetailPage() {
           onRetry={() => void refetchKanban()}
           onMoved={invalidateKanban}
           readOnly={!canWritePipeline}
-          onTabChange={setActiveTab}
+          onTabChange={selectTab}
           // Fala 3: „SLA <klient>: N d" w nagłówku kolejki i „dzień X z Y SLA"
           // — z karty klienta (ten sam klucz zapytania co krok 06).
           clientId={job?.client_id ?? null}
@@ -2634,6 +2661,7 @@ export default function JobDetailPage() {
           onRetry={() => void refetchKanban()}
           onMoved={invalidateKanban}
           readOnly={!canWritePipeline}
+          canWriteClientRate={job?.can_write_client_rate === true}
         />
       )}
 

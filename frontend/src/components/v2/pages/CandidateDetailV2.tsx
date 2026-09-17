@@ -65,11 +65,18 @@ import { PinButton } from"@/components/v2/PinButton";
 import { DeferUntilVisible } from"@/components/v2/DeferUntilVisible";
 import { ExpandableText } from"@/components/v2/ExpandableText";
 import {
+ formatEducationYears,
  formatExperienceDate,
  getCandidateSummaryLine,
  getCvProjectionNotice,
  getEducationList,
+ getExperienceDetails,
+ getRichCvProfile,
 } from"@/components/v2/pages/candidate-profile-helpers";
+import {
+ CvRichProfileSections,
+ CvTechnologyChips,
+} from "@/components/candidates/CvRichProfileSections";
 import {
  formatCandidateLocation,
  getCandidateInitials,
@@ -214,10 +221,12 @@ import {
 import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from"@/components/v2/pages/candidate-cache";
 import { useCandidateHistoryQuery } from"@/components/v2/pages/candidate-history-query";
+import { CandidateInterviewFeedbackPanel } from "@/components/feedback/CandidateInterviewFeedbackPanel";
 import {
  ACTIVITY_VIEWS,
  DOCUMENT_VIEWS,
  focusCandidateRecruitmentCard,
+ parseCandidateNoteFocus,
  parseCandidateRecruitmentFocus,
  parseCandidateProfileView,
  resolveVisibleRecruitmentFocus,
@@ -234,7 +243,7 @@ import {
  type CandidateContactCase,
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
-import { canMutateSection } from "@/lib/section-access";
+import { useCapability } from "@/hooks/useCapability";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -377,6 +386,13 @@ const backJobTitle =
  ?.title ?? null)
 : null;
 
+ const focusedNoteId = React.useMemo(
+ () =>
+ embedded || !searchParamsForNav
+ ? null
+ : parseCandidateNoteFocus(new URLSearchParams(searchParamsForNav.toString())),
+ [embedded, searchParamsForNav],
+ );
  const profileViewFromUrl = React.useMemo(
  () =>
  parseCandidateProfileView(
@@ -567,12 +583,11 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // passed into children so the NotatkiTab can emit edit signals without
  // mounting a second hook instance.
  const currentUser = useAuthStore((s) => s.user);
- const isImpersonating = useAuthStore((s) => s.realUser !== null);
- const canWriteSourcing = canMutateSection(
- currentUser,
- "sourcing",
- isImpersonating,
- );
+ // Akcje zapisu na profilu = capability `candidate.write` (lustro
+ // CANDIDATE_WRITE_ROLES / RecruiterPlus + sekcja sourcing write + blokada
+ // impersonacji). Dotąd liczone z samej sekcji, więc rozjeżdżały się z bramką
+ // roli na backendzie (audyt 2026-09-17).
+ const canWriteSourcing = useCapability("candidate.write");
  const contactFeature = useCandidateContactFeature({
  queryEnabled: hasRole(
  currentUser,
@@ -680,6 +695,16 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const history = React.useMemo<any[]>(
  () => (Array.isArray(historyRaw) ? historyRaw : (historyRaw?.jobs ?? [])),
  [historyRaw],
+ );
+ // `job_id → tytuł` dla bloku „Feedback po rozmowach" (bez drugiego zapytania).
+ const historyJobTitles = React.useMemo(
+ () =>
+ new Map<number, string>(
+ history
+ .filter((job: any) => typeof job?.job_id === "number")
+ .map((job: any) => [job.job_id as number, String(job.job_title ?? `Rekrutacja #${job.job_id}`)]),
+ ),
+ [history],
  );
  const historyContracts: any[] = Array.isArray(historyRaw)
  ? []
@@ -1419,6 +1444,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateName={`${candidate.name} ${candidate.lastname}`}
  focusedJobId={visibleFocusJobId}
  readOnly={!canWriteSourcing}
+ refreshing={historyQuery.isRefreshing}
  />
  </div>
  <div className="space-y-4">
@@ -1426,6 +1452,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  employment={candidate.employment}
  readOnly={!canWriteSourcing}
+ />
+ <CandidateInterviewFeedbackPanel
+ candidateId={Number(id)}
+ jobTitles={historyJobTitles}
  />
  </div>
  </div>
@@ -1517,6 +1547,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateName={candidate.name ?? null}
  candidateLastname={candidate.lastname ?? null}
  readOnly={!canWriteSourcing}
+ focusedNoteId={focusedNoteId}
  />
  )
  ) : null}
@@ -2375,10 +2406,11 @@ function SellRatePanel({
  // (kandydat luzem w bazie sourcingowej nie zaśmieca profilu pustą kartą).
  if (jobs.length === 0) return null;
 
- // Aktywne rekrutacje (otwarta oferta) na górze; w grupie najświeższe pierwsze.
+ // Aktywne rekrutacje (opublikowane) na górze; w grupie najświeższe pierwsze.
+ // `JobStatus` to draft/published/closed — porównanie z „open” nigdy nie działało.
  const sorted = [...jobs].sort((a, b) => {
- const aOpen = a.job_status === "open" ? 0 : 1;
- const bOpen = b.job_status === "open" ? 0 : 1;
+ const aOpen = a.job_status === "published" ? 0 : 1;
+ const bOpen = b.job_status === "published" ? 0 : 1;
  if (aOpen !== bOpen) return aOpen - bOpen;
  return String(b.last_seen ?? "").localeCompare(String(a.last_seen ?? ""));
  });
@@ -2404,7 +2436,7 @@ function SellRatePanel({
  </span>
  {job.latest_stage && (
  <Badge size="sm" variant="soft">
- {job.latest_stage}
+ {candidateStageLabel(job.latest_stage)}
  </Badge>
  )}
  </div>
@@ -2464,6 +2496,7 @@ function ProfilTab({
  const aiSource: string = candidate.cv_extracted_data?._source ??"";
  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
  const education = getEducationList(candidate);
+ const richCvProfile = getRichCvProfile(candidate);
  const verifiedTech = verifiedTechList(candidate);
  const verifiedSet = new Set(verifiedTech.map((t) => t.toLowerCase()));
  const title = getCurrentTitle(candidate);
@@ -2516,6 +2549,41 @@ function ProfilTab({
  };
 
  const [adminOpen, setAdminOpen] = useState(false);
+ // Stabilne referencje dla paneli edycji — nowy literał w każdym renderze
+ // resetował wpisywany tekst (panele synchronizują się z `initial`).
+ const engagementInitial = useMemo(
+ () => ({
+ is_ambassador: candidate.is_ambassador,
+ wants_to_verify_candidates: candidate.wants_to_verify_candidates,
+ open_to_side_projects: candidate.open_to_side_projects,
+ open_to_sales_support: candidate.open_to_sales_support,
+ open_to_expert_consult: candidate.open_to_expert_consult,
+ open_to_side_projects_updated_at: candidate.open_to_side_projects_updated_at,
+ open_to_sales_support_updated_at: candidate.open_to_sales_support_updated_at,
+ open_to_expert_consult_updated_at: candidate.open_to_expert_consult_updated_at,
+ engagement_notes: candidate.engagement_notes,
+ }),
+ [
+ candidate.is_ambassador,
+ candidate.wants_to_verify_candidates,
+ candidate.open_to_side_projects,
+ candidate.open_to_sales_support,
+ candidate.open_to_expert_consult,
+ candidate.open_to_side_projects_updated_at,
+ candidate.open_to_sales_support_updated_at,
+ candidate.open_to_expert_consult_updated_at,
+ candidate.engagement_notes,
+ ],
+ );
+ const locationInitial = useMemo(
+ () => ({
+ city: candidate.city,
+ country: candidate.country,
+ region: candidate.region,
+ hub_city: candidate.hub_city,
+ }),
+ [candidate.city, candidate.country, candidate.region, candidate.hub_city],
+ );
  const cvProjectionNotice = getCvProjectionNotice(candidate);
  const hasJdg =
  candidate.legal_name ||
@@ -2753,6 +2821,7 @@ function ProfilTab({
  const end = exp.end ?? exp.end_date ??"";
  const desc = exp.desc ?? exp.description ??"";
  const expLoc = exp.location ??"";
+ const details = getExperienceDetails(exp);
  return (
  <div
  key={i}
@@ -2763,7 +2832,9 @@ function ProfilTab({
  {role && <div className="font-medium text-foreground">{role}</div>}
  <div className="text-xs text-muted-foreground">
  {company}
+ {details.client ? ` (dla: ${details.client})` : ""}
  {expLoc ? ` · ${expLoc}` :""}
+ {details.employmentType ? ` · ${details.employmentType}` : ""}
  </div>
  </div>
  {(start || end) && (
@@ -2774,6 +2845,7 @@ function ProfilTab({
  )}
  </div>
  {desc && <ExpandableText text={desc} maxLines={2} className="mt-2" />}
+ <CvTechnologyChips items={details.technologies} />
  </div>
  );
  })}
@@ -2800,13 +2872,16 @@ function ProfilTab({
  </div>
  <div className="text-xs text-muted-foreground">
  {edu.school}
- {edu.year ? ` · ${edu.year}` :""}
+ {formatEducationYears(edu) ? ` · ${formatEducationYears(edu)}` : ""}
  </div>
  </div>
  ))}
  </div>
  </section>
  )}
+
+ {/* Pełny profil z odczytu CV v7 (certyfikaty, projekty, oś technologii) */}
+ {richCvProfile && <CvRichProfileSections profile={richCvProfile} />}
 
  {/* Firmy z CV — kept (AI-parsed), only when present */}
  {aiCompanies.length > 0 && (
@@ -2853,29 +2928,11 @@ function ProfilTab({
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <CandidateEngagementPanel
  candidateId={candidate.id}
- initial={{
- is_ambassador: candidate.is_ambassador,
- wants_to_verify_candidates: candidate.wants_to_verify_candidates,
- open_to_side_projects: candidate.open_to_side_projects,
- open_to_sales_support: candidate.open_to_sales_support,
- open_to_expert_consult: candidate.open_to_expert_consult,
- open_to_side_projects_updated_at:
- candidate.open_to_side_projects_updated_at,
- open_to_sales_support_updated_at:
- candidate.open_to_sales_support_updated_at,
- open_to_expert_consult_updated_at:
- candidate.open_to_expert_consult_updated_at,
- engagement_notes: candidate.engagement_notes,
- }}
+ initial={engagementInitial}
  />
  <CandidateLocationPanel
  candidateId={candidate.id}
- initial={{
- city: candidate.city,
- country: candidate.country,
- region: candidate.region,
- hub_city: candidate.hub_city,
- }}
+ initial={locationInitial}
  />
  </div>
  <div className="rounded-xl bg-card border border-border p-4">
@@ -3498,22 +3555,33 @@ function RekrutacjeTab({
  candidateName,
  focusedJobId,
  readOnly = false,
+ refreshing = false,
 }: {
  history: any[];
  candidateId: number;
  candidateName: string;
  focusedJobId: number | null;
  readOnly?: boolean;
+ refreshing?: boolean;
 }) {
+ // Podczas odświeżania w tle poprzednie dane zostają na ekranie — podpowiedź
+ // zamiast migającego „brak rekrutacji” przy każdym powrocie do karty.
+ const refreshHint = refreshing ? (
+ <p role="status" className="text-xs text-muted-foreground">
+ Odświeżam…
+ </p>
+ ) : null;
  if (!Array.isArray(history) || history.length === 0) {
  return (
  <div className="py-10 text-center text-sm text-muted-foreground">
+ {refreshHint}
  Kandydat nie ma aktywnych rekrutacji.
  </div>
  );
  }
  return (
  <div className="space-y-2">
+ {refreshHint}
  {history.map((job: any, i: number) => (
  <RekrutacjaCard
  key={job.job_id ?? job.id ?? i}
@@ -4261,6 +4329,7 @@ function NotatkiTab({
  candidateName,
  candidateLastname,
  readOnly = false,
+ focusedNoteId = null,
 }: {
  timeline: any[];
  recruitments?: any[];
@@ -4278,9 +4347,23 @@ function NotatkiTab({
  candidateName?: string | null;
  candidateLastname?: string | null;
  readOnly?: boolean;
+ focusedNoteId?: number | null;
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
  const notes = items.filter((t: any) => t.type === "note");
+ // Link z powiadomienia o wzmiance (`?note=<id>`) przewija do notatki i ją
+ // wyróżnia — raz na notatkę, żeby odświeżenie listy nie szarpało widokiem.
+ const focusedNotePresent =
+ focusedNoteId != null && notes.some((n: any) => Number(n.id) === focusedNoteId);
+ const handledNoteFocusRef = useRef<number | null>(null);
+ useEffect(() => {
+ if (!focusedNotePresent || focusedNoteId == null) return;
+ if (handledNoteFocusRef.current === focusedNoteId) return;
+ const el = document.querySelector(`[data-note-id="${focusedNoteId}"]`);
+ if (!(el instanceof HTMLElement)) return;
+ handledNoteFocusRef.current = focusedNoteId;
+ el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+ }, [focusedNoteId, focusedNotePresent]);
 
  // Lista rekrutacji kandydata (z /history) — do selektora "przypisz notatkę
  // do rekrutacji". `recruitments` jest już posortowane most-recent-first.
@@ -4355,11 +4438,17 @@ function NotatkiTab({
  return (
  <div
  key={n.id ?? i}
- className="rounded-lg bg-background/40 border border-border p-3"
+ data-note-id={n.id ?? undefined}
+ className={cn(
+ "rounded-lg bg-background/40 border border-border p-3",
+ focusedNoteId != null &&
+ Number(n.id) === focusedNoteId &&
+ "border-primary ring-2 ring-primary/30",
+ )}
  >
  <div className="flex items-baseline gap-2 text-xs text-muted-foreground flex-wrap">
  <span className="font-medium text-foreground">
- {n.note_type ? `Notatka — ${n.note_type}` :"Notatka"}
+ {noteTypeLabel(n.note_type) ? `Notatka — ${noteTypeLabel(n.note_type)}` :"Notatka"}
  </span>
  {(n.job_title ?? jobTitleById.get(Number(n.job_id))) && (
  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium">

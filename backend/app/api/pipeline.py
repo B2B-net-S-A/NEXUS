@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
@@ -173,6 +174,45 @@ def _days_in_stage(moved_at: datetime) -> int:
     return max(0, (now - moved_at).days)
 
 
+def _budget_exceeded(stage: CandidateStage) -> bool:
+    """Czy stawka zapisana przy ruchu przekracza budżet zamrożony na etapie.
+
+    Liczone w jednej jednostce (miesięcznej), jak dawna bramka „Pending".
+    Stawka w walucie/jednostce, której nie da się przeliczyć, NIE daje
+    odznaki — „ponad budżet" ma być stwierdzeniem faktu, nie domysłem.
+    """
+    if stage.expected_rate_value is None or stage.budget_max_at_move is None:
+        return False
+    normalized, _note = normalize_rate_to_monthly(
+        Decimal(stage.expected_rate_value),
+        stage.expected_rate_unit,
+        stage.expected_rate_currency,
+    )
+    return normalized is not None and normalized > Decimal(stage.budget_max_at_move)
+
+
+def _reported_verification_status(stage: CandidateStage) -> VerificationStatus:
+    if (
+        not settings.PENDING_VERIFICATION_ENABLED
+        and stage.verification_status == VerificationStatus.pending
+    ):
+        return VerificationStatus.active
+    return stage.verification_status
+
+
+def _require_pending_gate() -> None:
+    """Trasy bramki „Pending" istnieją tylko przy włączonej fladze.
+
+    404, nie 403: przy wyłączonej bramce nie ma czego akceptować ani
+    odrzucać, a 403 sugerowałby, że inna rola by mogła.
+    """
+    if not settings.PENDING_VERIFICATION_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail="Bramka akceptacji weryfikacji jest wyłączona.",
+        )
+
+
 def _stage_response(
     stage: CandidateStage,
     *,
@@ -205,11 +245,17 @@ def _stage_response(
         "created_at": stage.created_at,
         "days_in_stage": _days_in_stage(stage.moved_at),
         # Pending verification snapshot (migracja 0056)
-        "verification_status": stage.verification_status,
+        # Przy wyłączonej bramce `pending` zapisany przed 17.09.2026 nie jest
+        # stanem, na który ktokolwiek może zareagować — raportujemy `active`,
+        # żeby żadna karta nie renderowała „oczekuje na akceptację".
+        "verification_status": _reported_verification_status(stage),
         "expected_rate_value": stage.expected_rate_value,
         "expected_rate_unit": stage.expected_rate_unit,
         "expected_rate_currency": stage.expected_rate_currency,
         "budget_max_at_move": stage.budget_max_at_move,
+        # Informacja, nie bramka (decyzja 17.09.2026): stawka zapisana przy
+        # ruchu przekracza zamrożony budżet rekrutacji. Karta pokazuje odznakę.
+        "budget_exceeded": _budget_exceeded(stage),
         "approved_by": stage.approved_by,
         "approved_at": stage.approved_at,
         "rejected_by": stage.rejected_by,
@@ -273,7 +319,12 @@ async def _notify_pending_verification(
     Rate/budget exceptions are Admin-only. Delivery Lead and Head of
     Recruitment must not receive the financial values or candidate identity in
     this notification. A notification failure must not block the stage move.
+
+    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED=False`) nie ma czego
+    akceptować, więc nie ma też komu tego zgłaszać.
     """
+    if not settings.PENDING_VERIFICATION_ENABLED:
+        return
     approvers = (
         await db.execute(
             select(User.id).where(
@@ -493,8 +544,11 @@ async def move_candidate(
 
     # M4 PR-02 (audyt P0.4): gdy current row czeka na akceptację stawki,
     # kolejny move nie może ominąć gate'u — najpierw decyzja approvera.
+    # Przy wyłączonej bramce (17.09.2026) nie ma approvera: wiersze zapisane
+    # jako `pending` przed wyłączeniem nie mogą trwale zablokować karty.
     if (
-        previous_stage_row is not None
+        settings.PENDING_VERIFICATION_ENABLED
+        and previous_stage_row is not None
         and previous_stage_row.verification_status == VerificationStatus.pending
     ):
         raise HTTPException(
@@ -701,6 +755,7 @@ async def move_candidate(
     expected_rate_currency = data.expected_rate_currency or "PLN"
     budget_max_snapshot: Optional[int] = None
     needs_approval = False
+    budget_exceeded = False
     normalization_note: Optional[str] = None
 
     if legacy_enum == PipelineStage.verified:
@@ -726,8 +781,13 @@ async def move_candidate(
             if normalized_monthly is None or normalized_monthly > Decimal(
                 job.salary_max
             ):
-                verification_status = VerificationStatus.pending
-                needs_approval = True
+                # Decyzja 17.09.2026: bramka „Pending" wyłączona — ruch
+                # przechodzi, stawka zostaje zapisana, a przekroczenie budżetu
+                # jedzie na kartę jako informacja (`budget_exceeded`).
+                budget_exceeded = normalized_monthly is not None
+                if settings.PENDING_VERIFICATION_ENABLED:
+                    verification_status = VerificationStatus.pending
+                    needs_approval = True
 
     # M4 PR-02 (audyt P1.1): free-text reason był przyjmowany, "zaliczał"
     # walidację terminalną i znikał (nie ma kolumny). Utrwalamy go w notes,
@@ -808,6 +868,7 @@ async def move_candidate(
             "policy": RATE_POLICY_VERSION,
             "note": normalization_note,
             "pending": needs_approval,
+            "budget_exceeded": budget_exceeded,
             "budget_max": budget_max_snapshot,
         }
     db.add(
@@ -1570,6 +1631,9 @@ async def get_stage_screening(
     stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
+    # Odpowiedzi screeningu i profil Championa należą do rekrutacji — ten sam
+    # zakres odczytu co tablica (`/kanban/{job_id}`), nie sama rola.
+    await ensure_job_read_access(db, current_user, stage.job_id)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
     return {
         "stage_id": stage.id,
@@ -1602,6 +1666,9 @@ async def submit_stage_screening(
     stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
+    # Zapis screeningu to mutacja pipeline'u tej rekrutacji — ta sama bramka
+    # członkostwa co `/move`; do 09.2026 wystarczała sama rola.
+    await ensure_job_membership(db, current_user, stage.job_id)
 
     answers = ScreeningAnswers.model_validate(payload or {})
     answers.answered_at = datetime.now(timezone.utc)
@@ -1970,7 +2037,9 @@ async def list_pending_verifications(
     Dostępna dla administratora i Finance. Rekruter, Delivery Lead i Head of
     Recruitment dostaną 403, ponieważ wiersze zawierają oczekiwaną stawkę oraz
     budżet stanowiska. Akceptacja i odrzucenie pozostają Admin-only.
+    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
     """
+    _require_pending_gate()
     query = (
         select(CandidateStage, Candidate, Job, User)
         .join(Candidate, Candidate.id == CandidateStage.candidate_id)
@@ -2032,7 +2101,9 @@ async def accept_verification(
 
     Audit: zapisujemy approved_by + approved_at na samym CandidateStage,
     plus Activity log. Notyfikacja do recruitera który wrzucił (`moved_by`).
+    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
     """
+    _require_pending_gate()
     stage = await accept_pending_verification(
         db,
         candidate_stage_id=candidate_stage_id,
@@ -2123,7 +2194,9 @@ async def reject_verification(
     2. Tworzymy NOWY CandidateStage z poprzednim stage'em (najnowszy przed
        obecnym dla pary candidate+job) + notatkę "Rejected verification: …".
     3. Activity log + notification do recruitera (`moved_by`).
+    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
     """
+    _require_pending_gate()
     stage, revert = await reject_pending_verification(
         db,
         candidate_stage_id=candidate_stage_id,

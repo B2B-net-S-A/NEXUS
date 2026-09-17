@@ -95,6 +95,7 @@ describe("CandidateSearchView — stan wyszukiwania w URL (UAT B29)", () => {
         experience_years_max: 6,
         page: 2,
       }),
+      expect.any(AbortSignal),
     );
   });
 
@@ -113,7 +114,10 @@ describe("CandidateSearchView — stan wyszukiwania w URL (UAT B29)", () => {
     urlParams = new URLSearchParams({ s: JSON.stringify({ page: 2 }) });
     renderView();
     await waitFor(() => expect(search).toHaveBeenCalled());
-    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }));
+    expect(search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1 }),
+      expect.any(AbortSignal),
+    );
     expect(replaceState).not.toHaveBeenCalled();
   });
 });
