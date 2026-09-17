@@ -281,7 +281,12 @@ describe("ContractDetailPage — edycja walut stawek", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: /Kontrakt #563/ });
-    await user.click(screen.getByRole("button", { name: /Edytuj/ }));
+    // Kotwice są tu load-bearing (jak w `/^Usuń$/` niżej): karta kontraktu ma
+    // też ołówki edycji w miejscu z etykietami „Edytuj: E-mail" / „Edytuj:
+    // Telefon", więc gołe `/Edytuj/` trafia w kilka przycisków i `getByRole`
+    // wywala się na „Found multiple elements". Chodzi o przycisk edycji CAŁEJ
+    // karty, nie o pojedyncze pole.
+    await user.click(screen.getByRole("button", { name: /^Edytuj$/ }));
 
     const clientCurrency = screen.getByRole("combobox", {
       name: "Waluta stawki przychodowej (klienta)",

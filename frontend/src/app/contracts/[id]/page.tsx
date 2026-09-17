@@ -25,6 +25,7 @@ import {
   contractActivityDetailRows,
   contractActivityLabel,
 } from "@/components/contracts/contract-timeline-labels";
+import { ContractCandidateContactRow } from "@/components/contracts/ContractCandidateContactRow";
 import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
 import {
@@ -98,6 +99,16 @@ interface ContractDetail {
   candidate_name: string | null;
   client_name: string | null;
   job_title: string | null;
+  // Kontakt do konsultanta. `candidate_email`/`candidate_phone` to zapisane na
+  // umowie NADPISANIE (puste = brak nadpisania), `*_effective` to wartość po
+  // fallbacku do profilu kandydata, `*_source` mówi, skąd pochodzi — bez tego
+  // ekran nie umie oznaczyć „z profilu".
+  candidate_email?: string | null;
+  candidate_phone?: string | null;
+  candidate_email_effective?: string | null;
+  candidate_phone_effective?: string | null;
+  candidate_email_source?: "contract" | "candidate_profile" | null;
+  candidate_phone_source?: "contract" | "candidate_profile" | null;
   start_date: string;
   end_date: string | null;
   client_order_start_date?: string | null;
@@ -540,6 +551,21 @@ export default function ContractDetailPage() {
       setError(extractErrorMsg(err));
     },
   });
+
+  // Kontakt do konsultanta zapisuje się POZA `updateMutation`: tamta zamyka
+  // tryb edycji całej karty i przy błędzie pisze do wspólnego `error`, a tu
+  // edytujemy jedno pole w miejscu. `InlineText` oczekuje Promise'a, którego
+  // ODRZUCENIE niesie gotowy komunikat — surowy AxiosError dałby użytkownikowi
+  // „Request failed with status code 422" zamiast powodu z backendu.
+  const saveCandidateContact = async (patch: Record<string, string>) => {
+    try {
+      await contractsApi.update(id, patch);
+    } catch (err: unknown) {
+      throw new Error(extractErrorMsg(err));
+    }
+    await queryClient.invalidateQueries({ queryKey: ["contract", id] });
+    setError("");
+  };
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => contractsApi.updateStatus(id, status),
@@ -1178,6 +1204,23 @@ export default function ContractDetailPage() {
                 <InfoRow icon={FileEdit} label="Typ kontraktu">
                   {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
                 </InfoRow>
+                {/* Kontakt do konsultanta — jeden wiersz pod „Typ kontraktu".
+                    Wartość leci z backendu już po fallbacku (umowa → profil
+                    kandydata → puste), więc ekran nie powtarza tej reguły. */}
+                <ContractCandidateContactRow
+                  email={contract.candidate_email_effective ?? null}
+                  emailSource={contract.candidate_email_source ?? null}
+                  phone={contract.candidate_phone_effective ?? null}
+                  phoneSource={contract.candidate_phone_source ?? null}
+                  editable={canEditContract}
+                  onSaveEmail={(raw) =>
+                    saveCandidateContact({ candidate_email: raw })
+                  }
+                  onSavePhone={(raw) =>
+                    saveCandidateContact({ candidate_phone: raw })
+                  }
+                  onError={setError}
+                />
                 {canViewFinance &&
                   (contract.target_rate_min || contract.target_rate_max) && (
                   <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">

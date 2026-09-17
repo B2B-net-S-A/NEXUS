@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
@@ -219,6 +219,13 @@ class ContractUpdate(BaseModel):
     # z metadanymi; ten PATCH zachowuje jednak jawny wybór statusu z rejestru.
     status: Optional[ContractRegisterStatus] = None
     documents: Optional[Any] = None
+    # Kontakt do KONSULTANTA — nadpisanie danych z profilu kandydata.
+    # Semantyka częściowa opiera się na `model_fields_set`, więc jawny `null`
+    # (albo pusty string) KASUJE nadpisanie i wiersz wraca do profilu; pominięcie
+    # pola nie zmienia niczego. Nie mylić z `client_pm_*` — tamto jest kontaktem
+    # po stronie KLIENTA.
+    candidate_email: Optional[str] = None
+    candidate_phone: Optional[str] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
     line_manager: Optional[str] = None
@@ -484,6 +491,20 @@ class ContractEurPlnRate(BaseModel):
 class ContractDetailResponse(ContractResponse):
     """Extended response for the contract detail page — includes denormalized names."""
 
+    # Kontakt do konsultanta. Trzy pary pól, bo ekran musi umieć powiedzieć nie
+    # tylko CO pokazuje, ale i SKĄD to ma: `candidate_email`/`candidate_phone` to
+    # zapisane na umowie NADPISANIE (puste = brak nadpisania, edycja startuje
+    # pusta), `*_effective` to wartość do wyświetlenia po fallbacku, a `*_source`
+    # mówi, czy pochodzi z umowy, czy z profilu kandydata — bez tego nie da się
+    # oznaczyć „z profilu" ani wytłumaczyć, czemu wyczyszczone pole nadal coś
+    # pokazuje. Świadomie TYLKO w odpowiedzi szczegółów: lista kontraktów tego
+    # nie renderuje, więc nie ma po co puchnąć.
+    candidate_email: Optional[str] = None
+    candidate_phone: Optional[str] = None
+    candidate_email_effective: Optional[str] = None
+    candidate_phone_effective: Optional[str] = None
+    candidate_email_source: Optional[Literal["contract", "candidate_profile"]] = None
+    candidate_phone_source: Optional[Literal["contract", "candidate_profile"]] = None
     candidate_name: Optional[str] = None
     client_name: Optional[str] = None
     job_title: Optional[str] = None

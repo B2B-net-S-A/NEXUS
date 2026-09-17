@@ -784,6 +784,57 @@ async def test_confirm_repeat_is_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_confirm_copies_the_partner_contact_onto_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """E-mail i telefon z „Danych Partnera" trafiają na umowę przy podpisie.
+
+    Bez tego kroku przeżywają wyłącznie w `render_payload` i w treści DOCX,
+    więc karta kontraktu nie miała ich skąd wziąć (ticket 09.2026).
+    """
+
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        expected_email = generated.render_payload["partner_email"]
+        expected_phone = generated.render_payload["partner_phone"]
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, response.json()["contract_id"])
+        assert contract.candidate_email == expected_email
+        assert contract.candidate_phone == expected_phone
+
+
+@pytest.mark.asyncio
+async def test_confirm_never_overwrites_a_contact_typed_into_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Ręczna poprawka Delivery wygrywa z dokumentem podpisanym wcześniej."""
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    contract_id = await _seed_existing_contract(scenario, status=ContractStatus.draft)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.candidate_phone = "+48 700 700 700"
+        await db.commit()
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert response.status_code == 200, response.text
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.candidate_phone == "+48 700 700 700"
+        # Pole, którego nikt nie tknął, uzupełnia się normalnie.
+        assert contract.candidate_email is not None
+
+
+@pytest.mark.asyncio
 async def test_concurrent_documents_for_one_recruitment_share_one_contractor(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
