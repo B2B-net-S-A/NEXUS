@@ -7,7 +7,11 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: () => ({ token: "test-token" }),
 }));
 
-import { reconnectDelayMs, useNotifications } from "@/hooks/useNotifications";
+import {
+  CHAT_REFRESH_COALESCE_MS,
+  reconnectDelayMs,
+  useNotifications,
+} from "@/hooks/useNotifications";
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
 
 /**
@@ -100,6 +104,75 @@ describe("useNotifications — powrót połączenia i fallback", () => {
       vi.advanceTimersByTime(NOTIFICATIONS_FALLBACK_POLL_MS);
     });
     expect(keys()).toContain(JSON.stringify(["notifications"]));
+    hook.unmount();
+  });
+});
+
+describe("useNotifications — zdarzenia czatu odświeżają dzwonek", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function flushChatRefresh() {
+    act(() => {
+      vi.advanceTimersByTime(CHAT_REFRESH_COALESCE_MS + 10);
+    });
+  }
+
+  function deliver(message: unknown) {
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    act(() => ws.onmessage?.({ data: JSON.stringify(message) }));
+  }
+
+  it("nowa wiadomość w czacie rekrutacji unieważnia powiadomienia i licznik czatu", () => {
+    const { hook, keys } = setup();
+    deliver({ type: "chat:message:new", data: { id: 1, job_id: 7 } });
+    flushChatRefresh();
+    expect(keys()).toContain(JSON.stringify(["notifications"]));
+    expect(keys()).toContain(JSON.stringify(["job-chat-unread"]));
+    hook.unmount();
+  });
+
+  it("seria wiadomości daje JEDNO odświeżenie dzwonka, nie jedno na wiadomość", () => {
+    const { hook, keys } = setup();
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    const before = keys().filter((k) => k === JSON.stringify(["notifications"])).length;
+    for (let id = 1; id <= 5; id += 1) {
+      act(() =>
+        ws.onmessage?.({ data: JSON.stringify({ type: "chat:message:new", data: { id, job_id: 7 } }) }),
+      );
+    }
+    expect(keys().filter((k) => k === JSON.stringify(["notifications"])).length).toBe(before);
+    flushChatRefresh();
+    expect(keys().filter((k) => k === JSON.stringify(["notifications"])).length).toBe(before + 1);
+    hook.unmount();
+  });
+
+  it("nowa wiadomość w czacie kandydata unieważnia powiadomienia", () => {
+    const { hook, keys } = setup();
+    deliver({ type: "candidate-chat:message:new", data: { id: 2, candidate_id: 9 } });
+    flushChatRefresh();
+    expect(keys()).toContain(JSON.stringify(["notifications"]));
+    expect(keys()).toContain(JSON.stringify(["candidate-chat-unread"]));
+    hook.unmount();
+  });
+
+  it("edycja wiadomości nie odpytuje dzwonka", () => {
+    const { hook, keys } = setup();
+    deliver({ type: "chat:message:edit", data: { id: 1, job_id: 7 } });
+    deliver({ type: "candidate-chat:message:edit", data: { id: 2 } });
+    flushChatRefresh();
+    expect(keys()).not.toContain(JSON.stringify(["notifications"]));
     hook.unmount();
   });
 });

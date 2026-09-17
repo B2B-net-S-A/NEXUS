@@ -163,6 +163,11 @@ class RecruitmentOption(BaseModel):
     # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    # Czy wołający może przypiąć do tej rekrutacji wydarzenie w kalendarzu
+    # (członkostwo — ta sama bramka co zapis wydarzenia). Picker kalendarza
+    # auto-wybiera i udostępnia tylko takie rekrutacje; generator CV pola
+    # nie czyta (generować może każdy, decyzja 10.09.2026).
+    can_schedule: bool = True
 
 
 class GenerateRequest(BaseModel):
@@ -366,6 +371,11 @@ async def _create_pending_row(
     return row.id
 
 
+CONSENT_ATTACH_FAILED_MESSAGE = (
+    "Nie udało się dołączyć zrzutu zgody — wgraj go ponownie i wygeneruj jeszcze raz."
+)
+
+
 async def _finalize_success(
     db: AsyncSession,
     generated_id: int,
@@ -384,6 +394,46 @@ async def _finalize_success(
     row = await db.get(CvGeneratedDocument, generated_id)
     if row is None:
         return False
+    # Zrzut zgody dołączamy PRZED jakąkolwiek zmianą wiersza. Gdy magazyn nie
+    # odda obrazu (albo obraz jest nieczytelny), wiersz ma skończyć jako
+    # „failed" z konkretnym komunikatem — wyjątek rzucony stąd leciał POZA
+    # `try` workera i zostawiał generację bez czytelnego powodu.
+    final_docx = result.docx_bytes
+    frozen_consent = None
+    if consent_screenshot:
+        from copy import deepcopy
+        from app.services.cv_generator_b2b.standalone_service import (
+            hydrate_consent_screenshot,
+        )
+
+        payload_with_consent = deepcopy(result.render_payload or {})
+        payload_with_consent["consent_screenshot"] = dict(consent_screenshot)
+        try:
+            hydrated = await run_in_threadpool(
+                hydrate_consent_screenshot, payload_with_consent
+            )
+            frozen_consent = (hydrated.get("consent_screenshot") or {}).get("_bytes")
+            if not frozen_consent:
+                raise ValueError("consent screenshot bytes unavailable")
+            final_docx = await run_in_threadpool(
+                rerender_docx_from_payload,
+                hydrated,
+                require_consent=True,
+                template_bytes=getattr(result, "template_bytes", None),
+            )
+        except Exception:  # noqa: BLE001 — porażka ma trafić na wiersz, nie w próżnię
+            logger.warning(
+                "[cv_b2b] consent screenshot not attached to %s",
+                generated_id,
+                exc_info=True,
+            )
+            await _finalize_failure(
+                db,
+                generated_id,
+                CONSENT_ATTACH_FAILED_MESSAGE,
+                diagnostic_code="consent_screenshot_unavailable",
+            )
+            return False
     payload = result.render_payload or {}
     # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
     # the real name captured in the payload so the INTERNAL list stays
@@ -402,26 +452,6 @@ async def _finalize_success(
     if consent_screenshot and isinstance(result.render_payload, dict):
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
-    final_docx = result.docx_bytes
-    frozen_consent = None
-    if consent_screenshot:
-        from copy import deepcopy
-        from app.services.cv_generator_b2b.standalone_service import (
-            hydrate_consent_screenshot,
-        )
-
-        hydrated = await run_in_threadpool(
-            hydrate_consent_screenshot, deepcopy(result.render_payload)
-        )
-        frozen_consent = (hydrated.get("consent_screenshot") or {}).get("_bytes")
-        if not frozen_consent:
-            raise ValueError("Nie można zapisać CV bez dołączonego obrazu zgody.")
-        final_docx = await run_in_threadpool(
-            rerender_docx_from_payload,
-            hydrated,
-            require_consent=True,
-            template_bytes=getattr(result, "template_bytes", None),
-        )
     row.consent_content = frozen_consent
     row.docx_content = final_docx
     row.template_content = getattr(result, "template_bytes", None)
@@ -1140,6 +1170,109 @@ class CvSourceOption(BaseModel):
     uploaded_at: datetime | None = None
 
 
+class ClientCvRuleForGeneration(BaseModel):
+    """Wąska projekcja reguły CV klienta dla osoby GENERUJĄCEJ CV.
+
+    Pełny odczyt reguły (`GET /api/clients/{id}/cv-rule`) stoi za grafem
+    klienta: rekruter bez przypisanej rekrutacji u tego klienta dostawał 403,
+    a serwer i tak stosował regułę przy generacji — formularz tracił wiedzę
+    o języku, zrzucie zgody i numerze projektu i kończył na 422 o polach,
+    których nie widać. Ta projekcja niesie WYŁĄCZNIE to, czego potrzebuje
+    formularz generatora i baner reguł. Niezatwierdzona propozycja nie
+    obowiązuje (`resolve_client_rule`), więc jej treść tu nie wychodzi.
+    """
+
+    client_id: int
+    client_name: Optional[str] = None
+    is_active: bool = False
+    # `null` = brak wiersza reguły; `""` = wiersz jest, ale nie obowiązuje.
+    client_policy: Optional[str] = None
+    version: Optional[int] = None
+    cv_language: Optional[str] = None
+    requires_en_copy: bool = False
+    auto_second_language: bool = False
+    requires_rodo_consent_block: bool = False
+    content_mode: Optional[str] = None
+    content_mode_locked: bool = False
+    require_screening_notes_min_chars: Optional[int] = None
+    require_project_ref: bool = False
+    require_position: bool = False
+    require_champion: bool = False
+    filename_pattern: Optional[str] = None
+    filename_preview: Optional[str] = None
+    # Baner pokazuje rekruterowi, czym model kształtował dokument.
+    notes: Optional[str] = None
+    generator_instructions: Optional[str] = None
+
+
+@router.get(
+    "/clients/{client_id}/rule-for-generation",
+    response_model=ClientCvRuleForGeneration,
+)
+async def client_rule_for_generation(
+    client_id: int,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ClientCvRuleForGeneration:
+    """Reguła CV klienta w kształcie potrzebnym formularzowi generatora.
+
+    Bramka = ta sama co generacja (`CandidateWriteAccess`): kto może wygenerować
+    CV pod klienta, ten musi wiedzieć, jakie reguły serwer zastosuje.
+
+    Wyjątek: notatka i instrukcje Delivery Leada (`notes`,
+    `generator_instructions`) to wiedza o kliencie, nie wymóg formularza —
+    dostaje je tylko ktoś z zakresem klienta (`can_view_knowledge`, ta sama
+    reguła co pełny `GET /api/clients/{id}/cv-rule`). Reszta roli ich nie widzi.
+    """
+    # Lazy import: moduł reguł importuje serwis generatora; podgląd nazwy pliku
+    # ma JEDNO źródło (te same przykładowe dane co ekran reguł).
+    from app.api.client_cv_rules import _preview
+    from app.services.client_access import resolve_client_access
+    from app.models.client_cv_rule import ClientCvRule
+    from app.services.cv_generator_b2b.client_rules import describe_rule
+
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+    client_name = (client.display_name or "").strip() or client.name
+    rule = await resolve_client_rule(db, client.id)
+    if rule is None:
+        has_row = await db.scalar(
+            select(ClientCvRule.id).where(ClientCvRule.client_id == client.id)
+        )
+        return ClientCvRuleForGeneration(
+            client_id=client.id,
+            client_name=client_name,
+            client_policy="" if has_row is not None else None,
+        )
+    snap = snapshot_rule(rule)
+    access = await resolve_client_access(db, current_user, client.id)
+    sees_client_knowledge = bool(access.can_view_knowledge)
+    return ClientCvRuleForGeneration(
+        client_id=client.id,
+        client_name=client_name,
+        is_active=True,
+        client_policy=describe_rule(snap),
+        version=int(rule.version or 1),
+        cv_language=rule.cv_language,
+        requires_en_copy=bool(rule.requires_en_copy),
+        auto_second_language=bool(rule.auto_second_language),
+        requires_rodo_consent_block=bool(rule.requires_rodo_consent_block),
+        content_mode=rule.content_mode,
+        content_mode_locked=bool(rule.content_mode_locked),
+        require_screening_notes_min_chars=rule.require_screening_notes_min_chars,
+        require_project_ref=bool(rule.require_project_ref),
+        require_position=bool(rule.require_position),
+        require_champion=bool(rule.require_champion),
+        filename_pattern=rule.filename_pattern,
+        filename_preview=_preview(rule),
+        notes=rule.notes if sees_client_knowledge else None,
+        generator_instructions=(
+            rule.generator_instructions if sees_client_knowledge else None
+        ),
+    )
+
+
 @router.get(
     "/candidates/{candidate_id}/cv-sources", response_model=list[CvSourceOption]
 )
@@ -1179,7 +1312,8 @@ async def list_candidate_recruitments(
     zwraca każdej roli operacyjnej `GET /api/candidates/{id}/pipelines`.
     """
 
-    del current_user  # bramka roli (CandidatePIIAccess) — bez zakresu rekrutacji
+    # Bramka roli (CandidatePIIAccess) — bez zakresu rekrutacji. Zakres liczymy
+    # wyłącznie jako flagę `can_schedule` dla pickera kalendarza.
     try:
         readiness = await list_recruitments_with_readiness(
             db,
@@ -1190,6 +1324,18 @@ async def list_candidate_recruitments(
         raise HTTPException(
             status_code=_error_status(err.code), detail=err.message
         ) from err
+
+    from app.api.recruitment_access import ensure_optional_job_membership
+
+    schedulable: dict[int, bool] = {}
+    for r in readiness:
+        if r.job_id in schedulable:
+            continue
+        try:
+            await ensure_optional_job_membership(db, current_user, r.job_id)
+            schedulable[r.job_id] = True
+        except HTTPException:
+            schedulable[r.job_id] = False
 
     return [
         RecruitmentOption(
@@ -1208,6 +1354,7 @@ async def list_candidate_recruitments(
             missing_inputs=r.missing_inputs,
             client_id=r.client_id,
             client_name=r.client_name,
+            can_schedule=schedulable.get(r.job_id, False),
         )
         for r in readiness
     ]

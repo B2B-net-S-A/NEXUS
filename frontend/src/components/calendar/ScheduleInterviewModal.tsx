@@ -23,6 +23,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAuthStore } from "@/store/auth";
+import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
+import {
+  invalidAttendeeEmails,
+  splitAttendeeEmails,
+} from "@/components/calendar/attendee-emails";
+import { REMINDER_OPTIONS } from "@/components/calendar/calendar-config";
 
 interface ConflictItem {
   id: number;
@@ -66,6 +72,8 @@ interface ScheduleInterviewModalProps {
   candidateEmail: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Rekrutacja podpowiadana przy otwarciu (np. z karty rekrutacji). */
+  defaultJobId?: number | null;
 }
 
 type EventType = "interview" | "screening" | "prep_call" | "meeting";
@@ -91,14 +99,19 @@ export default function ScheduleInterviewModal({
   candidateEmail,
   open,
   onOpenChange,
+  defaultJobId = null,
 }: ScheduleInterviewModalProps) {
   const queryClient = useQueryClient();
-  const defaultStart = useMemo(() => nextHourIso(), []);
 
   const [title, setTitle] = useState(`Interview: ${candidateName}`);
   const [description, setDescription] = useState("");
   const [eventType, setEventType] = useState<EventType>("interview");
-  const [start, setStart] = useState(defaultStart);
+  // Liczone przy otwarciu (efekt niżej), nie raz na życie komponentu: okno
+  // jest stale zamontowane na profilu kandydata, więc `useMemo([])`
+  // proponowało godzinę sprzed kilku godzin.
+  const [start, setStart] = useState(() => nextHourIso());
+  const [jobId, setJobId] = useState<number | null>(defaultJobId);
+  const [reminderMinutes, setReminderMinutes] = useState(15);
   const [duration, setDuration] = useState(45); // minutes
   const [inviteCandidate, setInviteCandidate] = useState(true);
   const [extraAttendees, setExtraAttendees] = useState("");
@@ -111,6 +124,26 @@ export default function ScheduleInterviewModal({
     useState<CalendarEventResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Każde otwarcie to nowe spotkanie — do 09.2026 zostawali „Dodatkowi
+  // uczestnicy" i termin z poprzedniej rozmowy (wzorzec z InterviewFeedbackModal).
+  useEffect(() => {
+    if (!open) return;
+    setTitle(`Interview: ${candidateName}`);
+    setDescription("");
+    setEventType("interview");
+    setStart(nextHourIso());
+    setDuration(45);
+    setInviteCandidate(true);
+    setExtraAttendees("");
+    setAddTeamsMeeting(true);
+    setTeamsTouched(false);
+    setCreatedEvent(null);
+    setCopied(false);
+    setError(null);
+    setJobId(defaultJobId);
+    setReminderMinutes(15);
+  }, [open, candidateId, candidateName, defaultJobId]);
 
   useEffect(() => {
     if (!teamsTouched) {
@@ -246,25 +279,29 @@ export default function ScheduleInterviewModal({
   });
   const conflicts = conflictsQuery.data?.conflicts ?? [];
 
+  const needsRecruitmentWarning =
+    jobId == null && (eventType === "interview" || eventType === "screening");
+
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (extra_attendees: string[]) =>
       microsoft365Api.createInvite({
         candidate_id: candidateId,
+        job_id: jobId,
         title,
         description,
         start: new Date(start).toISOString(),
         end,
         event_type: eventType,
-        extra_attendees: extraAttendees
-          .split(/[,;]/)
-          .map((s) => s.trim())
-          .filter(Boolean),
+        extra_attendees,
         invite_candidate: inviteCandidate,
         add_teams_meeting: addTeamsMeeting,
+        reminder_minutes: reminderMinutes,
       }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["candidate-calls", candidateId] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-conflicts-summary"] });
       // Linger on a confirmation step when Graph returned a Teams join URL —
       // recruiter wants to copy it into the candidate ping. When no URL is
       // present (non-Teams event or older backend) we close immediately.
@@ -279,6 +316,30 @@ export default function ScheduleInterviewModal({
       setError(msg);
     },
   });
+
+  const handleSubmit = () => {
+    setError(null);
+    const startDate = new Date(start);
+    if (!start || Number.isNaN(startDate.getTime())) {
+      setError("Podaj datę i godzinę rozpoczęcia.");
+      return;
+    }
+    if (startDate.getTime() < Date.now()) {
+      setError("Termin rozpoczęcia jest w przeszłości — wybierz przyszłą godzinę.");
+      return;
+    }
+    if (!title.trim()) {
+      setError("Tytuł jest wymagany.");
+      return;
+    }
+    const attendees = splitAttendeeEmails(extraAttendees);
+    const invalid = invalidAttendeeEmails(attendees);
+    if (invalid.length > 0) {
+      setError(`Nieprawidłowy adres e-mail: ${invalid.join(", ")}`);
+      return;
+    }
+    mutation.mutate(attendees);
+  };
 
   const handleCopyMeetingUrl = async () => {
     const url = createdEvent?.online_meeting_url;
@@ -368,10 +429,17 @@ export default function ScheduleInterviewModal({
 
         <div className="flex-1 min-h-0 space-y-3 px-6 py-4 overflow-y-auto">
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
+            <label
+              htmlFor="schedule-interview-title"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
               Tytuł
             </label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              id="schedule-interview-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -409,10 +477,14 @@ export default function ScheduleInterviewModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
+            <label
+              htmlFor="schedule-interview-start"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
               Początek (czas lokalny)
             </label>
             <Input
+              id="schedule-interview-start"
               type="datetime-local"
               value={start}
               onChange={(e) => setStart(e.target.value)}
@@ -425,6 +497,27 @@ export default function ScheduleInterviewModal({
                   description={conflictHint.description}
                 />
               </div>
+            )}
+          </div>
+
+          <div>
+            <label
+              htmlFor="schedule-interview-job"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
+              Rekrutacja
+            </label>
+            <RecruitmentSelect
+              id="schedule-interview-job"
+              candidateId={open ? candidateId : null}
+              value={jobId}
+              onChange={setJobId}
+            />
+            {needsRecruitmentWarning && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                Bez rekrutacji feedback po rozmowie i przypomnienie do Delivery
+                Leada nie zadziałają.
+              </p>
             )}
           </div>
 
@@ -466,14 +559,39 @@ export default function ScheduleInterviewModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Dodatkowi uczestnicy (e-maile, rozdziel przecinkami)
+            <label
+              htmlFor="schedule-interview-attendees"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
+              Dodatkowi uczestnicy (e-maile oddzielone przecinkiem, średnikiem lub spacją)
             </label>
             <Input
+              id="schedule-interview-attendees"
               value={extraAttendees}
               onChange={(e) => setExtraAttendees(e.target.value)}
               placeholder="client@firma.com, kolega@b2bnet.pl"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor="schedule-interview-reminder"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
+              Przypomnienie
+            </label>
+            <select
+              id="schedule-interview-reminder"
+              value={reminderMinutes}
+              onChange={(e) => setReminderMinutes(Number(e.target.value))}
+              className="w-full rounded-lg border border-border px-3 py-2 text-sm bg-card"
+            >
+              {REMINDER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-foreground">
@@ -507,7 +625,7 @@ export default function ScheduleInterviewModal({
           </label>
 
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+            <div role="alert" className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               {error}
               {error.includes("Microsoft 365") && (
                 <a href="/settings" className="ml-2 underline">
@@ -527,7 +645,7 @@ export default function ScheduleInterviewModal({
             Anuluj
           </button>
           <button
-            onClick={() => mutation.mutate()}
+            onClick={handleSubmit}
             disabled={mutation.isPending}
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
           >

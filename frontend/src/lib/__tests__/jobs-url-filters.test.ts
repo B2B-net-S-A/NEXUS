@@ -122,3 +122,69 @@ describe("typ, termin, sortowanie w URL-u", () => {
     expect(params.get("foo")).toBe("bar");
   });
 });
+
+describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
+  it("zapisuje i odtwarza wszystkie 14 filtrów", async () => {
+    const mod = await import("@/lib/jobs-url-filters");
+    const qs = mod.encodeJobsListUrl({
+      status: ["published"],
+      mine: true,
+      type: "tender",
+      deadline: "next7",
+      sort: "oldest",
+      q: "  java  ",
+      responsibleIds: [4, 9],
+      clientIds: [12],
+      ccIds: [3],
+      needsSourcing: true,
+      activeInSearch: true,
+      openOnly: true,
+      noOwnerOnly: true,
+      priorityWork: "carry_over",
+    });
+    const params = new URLSearchParams(qs);
+    expect(mod.initialStatusFromUrl(params)).toEqual(["published"]);
+    expect(mod.initialMineFromUrl(params)).toBe(true);
+    expect(mod.initialTypeFromUrl(params)).toBe("tender");
+    expect(mod.initialDeadlineFromUrl(params)).toBe("next7");
+    expect(mod.initialSortFromUrl(params)).toBe("oldest");
+    expect(mod.initialSearchFromUrl(params)).toBe("java");
+    expect(mod.initialIdsFromUrl(params, "responsible")).toEqual([4, 9]);
+    expect(mod.initialIdsFromUrl(params, "client")).toEqual([12]);
+    expect(mod.initialIdsFromUrl(params, "cc")).toEqual([3]);
+    expect(mod.initialFlagFromUrl(params, "sourcing")).toBe(true);
+    expect(mod.initialFlagFromUrl(params, "active_search")).toBe(true);
+    expect(mod.initialFlagFromUrl(params, "open")).toBe(true);
+    expect(mod.initialFlagFromUrl(params, "no_owner")).toBe(true);
+    expect(mod.initialPriorityWorkFromUrl(params)).toBe("carry_over");
+  });
+
+  it("wartości domyślne nie trafiają do adresu, a obce parametry zostają", async () => {
+    const mod = await import("@/lib/jobs-url-filters");
+    const qs = mod.encodeJobsListUrl(
+      {
+        status: [],
+        mine: false,
+        type: "all",
+        deadline: "any",
+        sort: "newest",
+        q: "",
+        responsibleIds: [],
+        clientIds: [],
+        ccIds: [],
+        priorityWork: "any",
+      },
+      new URLSearchParams("q=stare&client=5&utm=x"),
+    );
+    expect(qs).toBe("utm=x");
+  });
+
+  it("śmieci w identyfikatorach i priorytecie to brak zawężenia", async () => {
+    const mod = await import("@/lib/jobs-url-filters");
+    const params = new URLSearchParams(
+      "client=abc&client=-2&client=7&client=7&priority=hack",
+    );
+    expect(mod.initialIdsFromUrl(params, "client")).toEqual([7]);
+    expect(mod.initialPriorityWorkFromUrl(params)).toBe("any");
+  });
+});

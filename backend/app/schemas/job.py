@@ -243,6 +243,11 @@ class JobResponse(BaseModel):
     # owner badge. Both are ``None``/empty when the job is unassigned.
     primary_owner: Optional[UserBrief] = None
     collaborators: list[UserBrief] = []
+    # Czy bieżący użytkownik może zapisać „stawkę do klienta" w tej rekrutacji
+    # (`user_can_write_client_rate`: role zarządcze/Finanse albo właściciel/
+    # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica
+    # pipeline i warsztat CV pokazują modal/pole stawki wyłącznie przy `True`.
+    can_write_client_rate: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
 

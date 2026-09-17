@@ -27,7 +27,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
-import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import {
+  evaluateRateGate,
+  isJobBudgetHiddenFor,
+} from "@/lib/verified-rate-gate";
+import { useAuthStore } from "@/store/auth";
 import type { RateUnit } from "@/lib/api";
 
 interface Props {
@@ -53,7 +57,14 @@ export function VerifiedRateModal({
   const [unit, setUnit] = useState<RateUnit>("hourly");
   const currency = "PLN";
 
-  const gate = evaluateRateGate({ rawRate: rate, unit, currency, jobBudgetMax });
+  const authUser = useAuthStore((st) => st.user);
+  const gate = evaluateRateGate({
+    rawRate: rate,
+    unit,
+    currency,
+    jobBudgetMax,
+    budgetHidden: isJobBudgetHiddenFor(authUser),
+  });
 
   const handleSubmit = () => {
     if (!gate.isValid) return;
@@ -96,9 +107,7 @@ export function VerifiedRateModal({
             Anuluj
           </Button>
           <Button onClick={handleSubmit} disabled={!gate.isValid}>
-            {gate.verdict === "needs_approval" && gate.isValid
-              ? "Wyślij do akceptacji"
-              : "Przesuń"}
+            Przesuń
           </Button>
         </DialogFooter>
       </DialogContent>

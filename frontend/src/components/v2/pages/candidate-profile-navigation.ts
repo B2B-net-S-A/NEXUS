@@ -172,6 +172,8 @@ export function parseCandidateProfileView(
       documents: "files",
     },
     notatki: { section: "activity", activity: "notes", documents: "files" },
+    // Angielski alias — starsze linki z powiadomień o wzmiankach (`?tab=notes`).
+    notes: { section: "activity", activity: "notes", documents: "files" },
     calls: { section: "activity", activity: "calls", documents: "files" },
     chat: { section: "activity", activity: "chat", documents: "files" },
     pliki: { section: "documents", activity: "timeline", documents: "files" },
@@ -224,4 +226,15 @@ export function withCandidateProfileView(
   else next.delete("documents");
 
   return next;
+}
+
+/**
+ * Notatka wskazana w adresie (`?note=<id>`, link z powiadomienia o wzmiance).
+ * Tylko dodatnia liczba całkowita; wszystko inne jest ignorowane.
+ */
+export function parseCandidateNoteFocus(params: URLSearchParams): number | null {
+  const raw = params.get("note");
+  if (!raw || !/^[1-9]\d*$/.test(raw)) return null;
+  const noteId = Number(raw);
+  return isPositiveSafeInteger(noteId) ? noteId : null;
 }

@@ -397,10 +397,12 @@ describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () 
 
   // Dlatego bramki akcji NIE liczą rang, tylko czytają rejestr capability
   // (`lib/capabilities.ts`) — pełna macierz w `lib/__tests__/capabilities.test.ts`.
-  it("HoR nie przechodzi bramek RecruiterPlus (kandydat / kalendarz / link)", () => {
-    expect(hasCapability(hor, "candidate.create")).toBe(false)
-    expect(hasCapability(hor, "calendar_event.create")).toBe(false)
-    expect(hasCapability(hor, "invite_link.create")).toBe(false)
+  it("HoR ma parytet z rekruterem (RecruiterPlus), ale nie bramki TAC/Delivery", () => {
+    // Decyzja Artura 2026-09-17: HoR przechodzi RecruiterPlus (kandydat,
+    // kalendarz, link aplikacyjny) — dalej NIE zakłada rekrutacji ani klientów.
+    expect(hasCapability(hor, "candidate.create")).toBe(true)
+    expect(hasCapability(hor, "calendar_event.create")).toBe(true)
+    expect(hasCapability(hor, "invite_link.create")).toBe(true)
     expect(hasCapability(hor, "job.create")).toBe(false)
     expect(hasCapability(hor, "client.create")).toBe(false)
     // Delivery pozostaje zamknięte także dla zapisów kontaktów klienta.

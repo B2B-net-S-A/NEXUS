@@ -267,10 +267,11 @@ export function PipelineCandidateDock({
     .slice(0, 2)
     .join("")
     .toUpperCase();
-  const isPending = item.verification_status === "pending";
+  // Bramka „Pending" wyłączona 17.09.2026 — stawka ponad budżet to odznaka,
+  // nie blokada, więc nie odbiera karcie zielonej pigułki „bez blokad".
+  const overBudget = Boolean(item.budget_exceeded);
   const noKnownBlockers =
     !item.hm_veto &&
-    !isPending &&
     moveTargets.length > 0 &&
     moveTargets.every((t) => !t.blockedReason);
   const normalizedScore =
@@ -499,9 +500,13 @@ export function PipelineCandidateDock({
               {CANDIDATE_STATUS_LABEL[candidate.status] ?? candidate.status}
             </Badge>
           )}
-          {isPending && (
-            <Badge variant="warning" size="sm">
-              <HelpCircle className="h-2.5 w-2.5" /> Pending
+          {overBudget && (
+            <Badge
+              variant="warning"
+              size="sm"
+              title="Stawka kandydata przekracza budżet rekrutacji — informacja, nic nie blokuje."
+            >
+              <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
             </Badge>
           )}
           {contactFeatureEnabled && (

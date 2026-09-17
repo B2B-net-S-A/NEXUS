@@ -47,6 +47,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
+from app.services.polish_ilike import escape_like
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -114,6 +115,84 @@ def _apply_client_visibility(statement: Any, column: Any, client_ids: Any) -> An
     if client_ids is None:
         return statement
     return statement.where(column.in_(sorted(client_ids) or [-1]))
+
+
+def _contains_pattern(q: str) -> str:
+    """Wzorzec ``%q%`` do ILIKE z ``%``/``_`` traktowanymi DOSŁOWNIE.
+
+    Pasek ⌘K i wyszukiwarka globalna wkładały surowy tekst w ``%{q}%``: ``%``
+    zwracał wszystkich, a ``_`` dopasowywał dowolny znak („Nowak_A" trafiało
+    w „NowakXA"). Postgres domyślnie escapuje backslashem, więc wzorzec z
+    ``escape_like`` działa bez klauzuli ESCAPE.
+    """
+    return f"%{escape_like(q)}%"
+
+
+def _hybrid_soft_ranks(body: CandidateSearchRequest) -> list[Any]:
+    """Soft-ranki w TEJ SAMEJ kolejności co gałąź boolowska (chip skilla >
+    lata > miasto)."""
+    return [
+        expr
+        for expr in (
+            skills_soft_rank(body),
+            experience_soft_rank(body),
+            location_soft_rank(body),
+        )
+        if expr is not None
+    ]
+
+
+async def _resort_hybrid_pool(
+    db: AsyncSession, body: CandidateSearchRequest, ranked_ids: list[int]
+) -> list[int]:
+    """Przestaw przefiltrowaną pulę hybrydy wg soft-ranków i ``sort``.
+
+    Do 09.2026 tryb semantyczny wycinał stronę z surowej kolejności RRF, więc
+    przyciski „Alfabetycznie"/„Ostatnio aktualizowani" i chipy skilli
+    „podbijające ranking" działały WYŁĄCZNIE w trybie boolowskim — a UI
+    pokazywało je w obu (decyzja Artura, 17.09.2026: sort + chipy działają
+    także w trybie semantycznym). Kolejność kluczy jest lustrem `order_cols`
+    z gałęzi `else`: soft-ranki malejąco (chip skilla > lata > miasto), potem
+    żądany sort; pozycja RRF jest ostatnim, stabilnym tie-breakiem, więc bez
+    chipów i przy `sort=relevance` pula wraca DOKŁADNIE w kolejności retrievalu.
+
+    Jedno zapytanie po same kolumny sortowania (pula ≤ `_hybrid_pool_size()`),
+    sortowanie w Pythonie — pula jest krótka, a wyrażenia soft-ranków są
+    SQL-owe, więc liczy je baza, nie kopia logiki.
+    """
+    soft_exprs = _hybrid_soft_ranks(body)
+    if not ranked_ids or (not soft_exprs and body.sort == "relevance"):
+        return ranked_ids
+
+    columns: list[Any] = [Candidate.id]
+    columns.extend(expr.label(f"soft_{i}") for i, expr in enumerate(soft_exprs))
+    columns.extend([Candidate.lastname, Candidate.name, Candidate.updated_at])
+    rows = (
+        await db.execute(select(*columns).where(Candidate.id.in_(ranked_ids)))
+    ).all()
+    rrf_position = {cid: pos for pos, cid in enumerate(ranked_ids)}
+    soft_count = len(soft_exprs)
+
+    def sort_key(row: Any) -> tuple[Any, ...]:
+        cid = row[0]
+        softs = tuple(-(row[1 + i] or 0) for i in range(soft_count))
+        lastname, name, updated_at = row[1 + soft_count :]
+        if body.sort == "name":
+            tail: tuple[Any, ...] = (
+                (lastname or "").casefold(),
+                (name or "").casefold(),
+                rrf_position[cid],
+            )
+        elif body.sort == "recent":
+            # Brak daty spada na koniec (`-inf` po negacji jest największe).
+            stamp = updated_at.timestamp() if updated_at is not None else float("-inf")
+            tail = (-stamp, rrf_position[cid])
+        else:
+            tail = (rrf_position[cid],)
+        return softs + tail
+
+    ordered = sorted(rows, key=sort_key)
+    return [row[0] for row in ordered]
 
 
 def _fts_clause(q: str) -> Any:
@@ -573,7 +652,9 @@ async def advanced_candidate_search(
 
     # === Sort ================================================================
     if use_hybrid:
-        # Hybrid path: respect the orchestrator's RRF/rerank ordering.
+        # Hybrid path: the orchestrator's RRF/rerank ordering is the BASE
+        # order; soft-ranks and the requested `sort` re-order the filtered
+        # pool on top of it (see `_resort_hybrid_pool`).
         #
         # Stronę wolno wycinać DOPIERO z listy przefiltrowanej. `hybrid_order`
         # to surowa pula retrievalu (do `_hybrid_pool_size()`), a `where_clause` niesie
@@ -594,6 +675,10 @@ async def advanced_candidate_search(
         surviving_query = select(Candidate.id).where(where_clause)
         surviving = set((await db.execute(surviving_query)).scalars().all())
         ranked_ids = [cid for cid in hybrid_order if cid in surviving]
+        # Sort i chipy „podbijające ranking" obowiązują też tutaj — patrz
+        # `_resort_hybrid_pool`. Bez soft-ranków i przy `sort=relevance`
+        # kolejność RRF/rerankera zostaje nietknięta.
+        ranked_ids = await _resort_hybrid_pool(db, body, ranked_ids)
         page_start = (body.page - 1) * body.page_size
         page_ids = ranked_ids[page_start : page_start + body.page_size]
         if page_ids:
@@ -708,10 +793,10 @@ async def unified_search(
             select(Candidate)
             .where(
                 or_(
-                    Candidate.name.ilike(f"%{q}%"),
-                    Candidate.lastname.ilike(f"%{q}%"),
-                    Candidate.email.ilike(f"%{q}%"),
-                    Candidate.location.ilike(f"%{q}%"),
+                    Candidate.name.ilike(_contains_pattern(q)),
+                    Candidate.lastname.ilike(_contains_pattern(q)),
+                    Candidate.email.ilike(_contains_pattern(q)),
+                    Candidate.location.ilike(_contains_pattern(q)),
                 )
             )
             .limit(10)
@@ -733,8 +818,8 @@ async def unified_search(
             select(Job)
             .where(
                 or_(
-                    Job.title.ilike(f"%{q}%"),
-                    Job.description.ilike(f"%{q}%"),
+                    Job.title.ilike(_contains_pattern(q)),
+                    Job.description.ilike(_contains_pattern(q)),
                 )
             )
             .limit(10)
@@ -754,9 +839,9 @@ async def unified_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(f"%{q}%"),
-                    Client.name.ilike(f"%{q}%"),
-                    Client.industry.ilike(f"%{q}%"),
+                    client_name.ilike(_contains_pattern(q)),
+                    Client.name.ilike(_contains_pattern(q)),
+                    Client.industry.ilike(_contains_pattern(q)),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -798,9 +883,9 @@ async def global_search(
             select(Candidate)
             .where(
                 or_(
-                    Candidate.name.ilike(f"%{q}%"),
-                    Candidate.lastname.ilike(f"%{q}%"),
-                    Candidate.email.ilike(f"%{q}%"),
+                    Candidate.name.ilike(_contains_pattern(q)),
+                    Candidate.lastname.ilike(_contains_pattern(q)),
+                    Candidate.email.ilike(_contains_pattern(q)),
                 )
             )
             .limit(LIMIT)
@@ -821,7 +906,7 @@ async def global_search(
         jobs_result = await db.execute(
             select(Job)
             .where(
-                Job.title.ilike(f"%{q}%"),
+                Job.title.ilike(_contains_pattern(q)),
             )
             .limit(LIMIT)
         )
@@ -858,9 +943,9 @@ async def global_search(
             .where(
                 *visible_client_predicates(),
                 or_(
-                    client_name.ilike(f"%{q}%"),
-                    Client.name.ilike(f"%{q}%"),
-                    Client.industry.ilike(f"%{q}%"),
+                    client_name.ilike(_contains_pattern(q)),
+                    Client.name.ilike(_contains_pattern(q)),
+                    Client.industry.ilike(_contains_pattern(q)),
                 ),
             )
             .order_by(func.lower(client_name).asc(), Client.id.asc())
@@ -891,8 +976,8 @@ async def global_search(
             select(Contact)
             .where(
                 or_(
-                    Contact.name.ilike(f"%{q}%"),
-                    Contact.email.ilike(f"%{q}%"),
+                    Contact.name.ilike(_contains_pattern(q)),
+                    Contact.email.ilike(_contains_pattern(q)),
                 )
             )
             .limit(LIMIT)
@@ -1013,11 +1098,11 @@ async def semantic_search(
         select(Candidate)
         .where(
             or_(
-                Candidate.name.ilike(f"%{q}%"),
-                Candidate.lastname.ilike(f"%{q}%"),
-                Candidate.email.ilike(f"%{q}%"),
-                Candidate.competence_category.ilike(f"%{q}%"),
-                Candidate.raw_cv_text.ilike(f"%{q}%"),
+                Candidate.name.ilike(_contains_pattern(q)),
+                Candidate.lastname.ilike(_contains_pattern(q)),
+                Candidate.email.ilike(_contains_pattern(q)),
+                Candidate.competence_category.ilike(_contains_pattern(q)),
+                Candidate.raw_cv_text.ilike(_contains_pattern(q)),
             )
         )
         .limit(body.top_k)

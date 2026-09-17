@@ -95,14 +95,15 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     const attempt = ++generation.current;
     setStarting(true);
     setStartError(null);
-    setRunId(null);
-    setCursor({ filterKey: "", offset: 0 });
-    persist(null);
     try {
       const run = await candidateSearchApi.start(request);
       // A response for a cleared/edited form must not replace its new state.
+      // The previous run is replaced (and forgotten) only now, after the 202:
+      // a refused start (e.g. 409 „two searches already running") used to wipe
+      // the results on screen before the server said no.
       if (generation.current === attempt) {
         setRunId(run.run_id);
+        setCursor({ filterKey: "", offset: 0 });
         persist(run.run_id);
       }
       return run;
@@ -113,6 +114,14 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
       setStarting(false);
     }
   }, [persist]);
+
+  // A re-read of the current run also dismisses a refused start: the run on
+  // screen is still valid, the refusal was about the new one.
+  const { refetch } = page;
+  const refresh = useCallback(() => {
+    setStartError(null);
+    return refetch();
+  }, [refetch]);
 
   const changeMinScore = useCallback((value: number) => {
     setMinScore(value);
@@ -131,7 +140,7 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     loading: starting || (runId !== null && page.isPending),
     fetching: page.isFetching,
     /** Re-read the current run; never starts a new scan. */
-    refresh: page.refetch,
+    refresh,
     /**
      * The stored run can only be replaced, not re-read: it failed, expired, or
      * no longer matches the request. Offer „Uruchom ponownie” (a new run)

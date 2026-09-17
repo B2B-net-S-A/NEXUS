@@ -157,14 +157,15 @@ describe("CandidateFilesTab upload", () => {
   // czyta (CandidateDocumentAccess), ale POST dokumentu to CandidateWriteAccess
   // bez niego. Ten przypadek był dotąd zielony przypadkiem — ręczna lista
   // gubiła HoR razem z finansami, więc nie pilnował właściwego guardu.
-  it("HoR widzi listę plików, ale nie ma uploadera (CandidateWriteAccess bez HoR)", async () => {
+  // Od 2026-09-17 CANDIDATE_WRITE_ROLES zawiera HoR (parytet z rekruterem),
+  // więc uploader ma się pokazać — viewer `user` dalej go nie ma.
+  it("HoR ma uploader (CandidateWriteAccess z HoR od 2026-09-17)", async () => {
     currentRole = "head_of_recruitment";
     renderTab();
 
-    expect(await screen.findByText("Brak plików.")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Dodaj plik/ }),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: /Dodaj plik/ }),
+    ).toBeInTheDocument();
   });
 
   // Odwrotna regresja: CANDIDATE_WRITE_ROLES zawiera `finance` (tier

@@ -45,7 +45,6 @@ const SEGMENT_LABELS: Record<string, string> = {
   "bulk-import": "Masowy import CV",
   search: "Wyszukiwanie",
   "contact-queue": "Do przedzwonienia",
-  "pending-verifications": "Weryfikacje",
   prep: "Przygotowanie do rozmowy",
   "cv-generator": "Generator CV",
   "b2b-generator": "Generator Umów B2B",

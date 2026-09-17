@@ -8,6 +8,8 @@ import {
 } from "@/lib/api";
 import { Award, Save, RefreshCcw, Link as LinkIcon } from "lucide-react";
 import api from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useToast } from "@/components/Toast";
 
 type OpenToFlagKey =
   | "open_to_side_projects"
@@ -88,6 +90,7 @@ function formatStaleness(days: number): string {
 
 export function CandidateEngagementPanel({ candidateId, initial }: Props) {
   const qc = useQueryClient();
+  const { showError } = useToast();
   const [flags, setFlags] = useState<CandidateEngagementPayload>({
     is_ambassador: !!initial.is_ambassador,
     wants_to_verify_candidates: !!initial.wants_to_verify_candidates,
@@ -98,16 +101,33 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
   });
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
+  // Synchronizacja z serwerem tylko przy zmianie kandydata albo WARTOŚCI pól.
+  // Zależność od samego obiektu `initial` kasowała wpisywaną notatkę przy każdym
+  // przerysowaniu profilu (rodzic budował nowy literał w każdym renderze).
+  const isAmbassador = !!initial.is_ambassador;
+  const wantsToVerify = !!initial.wants_to_verify_candidates;
+  const openToSide = !!initial.open_to_side_projects;
+  const openToSales = !!initial.open_to_sales_support;
+  const openToExpert = !!initial.open_to_expert_consult;
+  const engagementNotes = initial.engagement_notes ?? "";
   useEffect(() => {
     setFlags({
-      is_ambassador: !!initial.is_ambassador,
-      wants_to_verify_candidates: !!initial.wants_to_verify_candidates,
-      open_to_side_projects: !!initial.open_to_side_projects,
-      open_to_sales_support: !!initial.open_to_sales_support,
-      open_to_expert_consult: !!initial.open_to_expert_consult,
-      engagement_notes: initial.engagement_notes ?? "",
+      is_ambassador: isAmbassador,
+      wants_to_verify_candidates: wantsToVerify,
+      open_to_side_projects: openToSide,
+      open_to_sales_support: openToSales,
+      open_to_expert_consult: openToExpert,
+      engagement_notes: engagementNotes,
     });
-  }, [initial]);
+  }, [
+    candidateId,
+    isAmbassador,
+    wantsToVerify,
+    openToSide,
+    openToSales,
+    openToExpert,
+    engagementNotes,
+  ]);
 
   const mut = useMutation({
     mutationFn: (payload: CandidateEngagementPayload) =>
@@ -115,6 +135,9 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["candidate", candidateId] });
       setSavedAt(new Date().toLocaleTimeString());
+    },
+    onError: (error) => {
+      showError(apiErrorMessage(error, "Nie udało się zapisać zaangażowania."));
     },
   });
 
@@ -142,7 +165,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
         }
       }
     } catch (e) {
-      // Toast niepotrzebny — UI pokaże brak linku.
+      showError(apiErrorMessage(e, "Nie udało się wygenerować linku."));
     } finally {
       setLinkPending(false);
     }

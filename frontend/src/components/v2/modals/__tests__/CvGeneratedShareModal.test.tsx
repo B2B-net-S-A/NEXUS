@@ -6,7 +6,10 @@ import { CvGeneratedShareModal } from "../CvGeneratedShareModal";
 
 const api = vi.hoisted(() => ({ approve: vi.fn(), approvedVersions: vi.fn(), list: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
 vi.mock("@/lib/api", () => ({ cvGeneratedShareApi: api }));
-vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
+const showToast = vi.hoisted(() => vi.fn());
+vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast }) }));
+const clipboard = vi.hoisted(() => ({ copyTextToClipboard: vi.fn() }));
+vi.mock("@/lib/clipboard", () => clipboard);
 beforeEach(() => {
   vi.clearAllMocks();
   api.list.mockResolvedValue({ data: [] });
@@ -61,4 +64,23 @@ it.each([
   await user.selectOptions(screen.getByLabelText("Zatwierdzona wersja CV"), "12");
   await user.click(screen.getByRole("button", { name: "Wygeneruj link" }));
   expect(await screen.findByText(message)).toBeInTheDocument();
+});
+
+it.each([
+  [true, "Link skopiowany do schowka", "success"],
+  [false, "Nie udało się skopiować linku — zaznacz go w polu i skopiuj ręcznie.", "error"],
+])("confirms copying only when the clipboard write succeeded (ok=%s)", async (ok, message, kind) => {
+  clipboard.copyTextToClipboard.mockResolvedValueOnce(ok);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><CvGeneratedShareModal generatedId={7} onClose={() => {}} /></QueryClientProvider>);
+  const user = userEvent.setup();
+  await screen.findByRole("option", { name: /Wersja 2/ });
+  await user.selectOptions(screen.getByLabelText("Zatwierdzona wersja CV"), "12");
+  await user.click(screen.getByRole("button", { name: "Wygeneruj link" }));
+  await screen.findByDisplayValue(/\/cv\/i\/test$/);
+  await user.click(screen.getByRole("button", { name: /Kopiuj/ }));
+  await waitFor(() => expect(showToast).toHaveBeenCalledWith(message, kind));
+  expect(clipboard.copyTextToClipboard).toHaveBeenCalledWith(expect.stringMatching(/\/cv\/i\/test$/));
+  // Adres zostaje na ekranie niezależnie od wyniku.
+  expect(screen.getByDisplayValue(/\/cv\/i\/test$/)).toBeInTheDocument();
 });

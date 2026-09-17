@@ -13,6 +13,7 @@ from sqlalchemy import (
     nulls_last,
     or_,
     select,
+    true,
     tuple_,
     update as sql_update,
 )
@@ -63,7 +64,7 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
-from app.api.candidate_access import redact_job_for_viewer
+from app.api.candidate_access import redact_job_for_viewer, resolve_client_rate_write
 from app.api.deps import (
     CurrentUser,
     DeliveryLeadPlus,
@@ -492,6 +493,41 @@ def jobs_register_base_clause():
     return and_(Job.client_id.is_not(None), job_client_listed_clause(Job.client_id))
 
 
+def jobs_search_clause(q: str):
+    """Pole „Szukaj" rejestru: tytuł, numer referencyjny, klient, technologie.
+
+    Placeholder w UI obiecuje „Tytuł, klient, technologia…", a do 09.2026
+    backend filtrował wyłącznie po tytule — i to bez escapowania, więc `%`
+    zwracało pełną listę. Klient przez EXISTS (nie JOIN): jeden wiersz na
+    rekrutację, więc `total` liczone z tego samego zapytania się zgadza.
+    `must_skills` to JSONB — porównujemy jego tekst, bez rozbijania listy.
+    """
+    from sqlalchemy import cast, exists
+    from sqlalchemy.types import Text
+
+    from app.models.client import Client
+    from app.services.polish_ilike import polish_folded_ilike
+
+    needle = q.strip()
+    if not needle:
+        return true()
+    client_match = exists(
+        select(Client.id).where(
+            Client.id == Job.client_id,
+            or_(
+                polish_folded_ilike(Client.name, needle),
+                polish_folded_ilike(Client.display_name, needle),
+            ),
+        )
+    )
+    return or_(
+        polish_folded_ilike(Job.title, needle),
+        polish_folded_ilike(Job.reference_number, needle),
+        client_match,
+        polish_folded_ilike(cast(Job.must_skills, Text), needle),
+    )
+
+
 def jobs_mine_clause(current_user: User):
     """„Moje projekty" — właściciel operacyjny ALBO współpracownik."""
     collab_subq = select(JobCollaborator.job_id).where(
@@ -726,7 +762,7 @@ async def list_jobs(
     if client_id:
         query = query.where(Job.client_id.in_(client_id))
     if q:
-        query = query.where(Job.title.ilike(f"%{q}%"))
+        query = query.where(jobs_search_clause(q))
     if owner_id:
         query = query.where(Job.recruiter_id.in_(owner_id))
     if responsible_id:
@@ -1529,6 +1565,11 @@ async def get_job(
                 Client.id == job.client_id
             )
         )
+    # Tablica i warsztat „CV do klienta" pokazują pole stawki do klienta TYLKO
+    # osobom, które mogą ją zapisać (ta sama funkcja co bramka PATCH).
+    payload["can_write_client_rate"] = await resolve_client_rate_write(
+        db, current_user, job
+    )
     redact_job_for_viewer(payload, current_user)
     _redact_delivery_lead_job_finance(payload, current_user)
     return payload
@@ -2162,7 +2203,9 @@ async def _save_champion_profile(
         if sections_pl
         else f"{editor_name} zaktualizował profil dla: {job.title}"
     )
-    link = f"/jobs/{job.id}?tab=champion-profile"
+    # Front zna zakładkę `champion`; `champion-profile` zostaje jako alias
+    # dla powiadomień zapisanych w bazie przed 09.2026.
+    link = f"/jobs/{job.id}?tab=champion"
 
     for recipient_id in recipients:
         await create_notification(
@@ -2233,6 +2276,7 @@ async def _save_champion_profile(
 
 _HANDOFF_RECRUITER_ROLES = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,

@@ -218,3 +218,25 @@ test("a late start response cannot replace a newer shared run from another tab",
   expect(result.current.runId).toBe("newer-run");
   expect(localStorage.getItem(key)).toBe("newer-run");
 });
+
+test("a refused start keeps the run on screen; re-reading it dismisses the refusal", async () => {
+  const busy = Object.assign(new Error("Dwa wyszukiwania już trwają"), { response: { status: 409 } });
+  vi.mocked(candidateSearchApi.start)
+    .mockResolvedValueOnce({ run_id: "kept", state: "queued", population: 10, brief_status: "provided", versions: {} })
+    .mockRejectedValueOnce(busy);
+  vi.mocked(candidateSearchApi.page).mockResolvedValue({ ...runningPage, run_id: "kept", state: "complete" });
+  const key = "nexus-full-radar:7";
+  const { result } = renderHook(() => useFullCandidateSearch({ storageKey: key }), { wrapper: Wrapper });
+  await act(async () => { await result.current.start({ job_id: 42 }); });
+  await waitFor(() => expect(result.current.data?.state).toBe("complete"));
+
+  await act(async () => { await result.current.start({ job_id: 42 }); });
+  expect(result.current.error).toBe(busy);
+  // The previous run was not forgotten before the server answered.
+  expect(result.current.runId).toBe("kept");
+  expect(sessionStorage.getItem(key)).toBe("kept");
+
+  await act(async () => { await result.current.refresh(); });
+  await waitFor(() => expect(result.current.error).toBeNull());
+  expect(result.current.data?.run_id).toBe("kept");
+});

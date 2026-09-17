@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 
@@ -17,6 +17,11 @@ const chatApi = vi.hoisted(() => ({
   addReaction: vi.fn(),
   removeReaction: vi.fn(),
   getReadBy: vi.fn(),
+}));
+
+const navigation = vi.hoisted(() => ({ search: "" }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(navigation.search),
 }));
 
 vi.mock("@/lib/api", () => ({ jobChatApi: chatApi }));
@@ -88,5 +93,43 @@ describe("JobChatTab read-only", () => {
     expect(chatApi.markRead).not.toHaveBeenCalled();
     expect(chatApi.sendMessage).not.toHaveBeenCalled();
     expect(chatApi.addReaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobChatTab — link z powiadomienia `&msg=`", () => {
+  afterEach(() => {
+    navigation.search = "";
+    vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("przewija do wskazanej wiadomości, podświetla ją i zdejmuje `msg` z adresu", async () => {
+    const other = { ...message, id: 30, pinned: false, content: "Wcześniejsza wiadomość." };
+    const target = { ...message, pinned: false };
+    chatApi.getMembers.mockResolvedValue({ data: [message.author] });
+    chatApi.getPinned.mockResolvedValue({ data: [] });
+    chatApi.listMessages.mockResolvedValue({
+      data: { items: [target, other], has_more: false, next_before_id: null },
+    });
+    navigation.search = "tab=chat&msg=31";
+    window.history.replaceState(null, "", "/jobs/12?tab=chat&msg=31");
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => undefined);
+
+    const { container } = renderChat();
+
+    await screen.findByText("Kandydat gotowy do rozmowy z klientem.");
+    await waitFor(() =>
+      expect(container.querySelector("#chat-msg-31")).toHaveAttribute(
+        "data-highlighted",
+        "true",
+      ),
+    );
+    expect(container.querySelector("#chat-msg-30")).not.toHaveAttribute(
+      "data-highlighted",
+    );
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(window.location.search).toBe("?tab=chat");
   });
 });

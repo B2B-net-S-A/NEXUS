@@ -35,6 +35,7 @@ export type CapabilityUser = SectionUser;
 export type Capability =
   // ── Akcje tworzenia ────────────────────────────────────────────────────────
   | "candidate.create"
+  | "candidate.write"
   | "job.create"
   | "job.update"
   | "client.create"
@@ -81,9 +82,12 @@ const OPERATIONAL: readonly UserRole[] = [
   "sourcer",
 ];
 
-/** Odpowiednik backendowego `RecruiterPlus` — UWAGA: bez `head_of_recruitment`. */
+/** Odpowiednik backendowego `RecruiterPlus`. Od 2026-09-17 Z
+ *  `head_of_recruitment` (decyzja Artura: HoR = pełny parytet z rekruterem;
+ *  wcześniej HoR widział akcje liczone z sekcji i dostawał 403 na zapisie). */
 const RECRUITER_PLUS: readonly UserRole[] = [
   "admin",
+  "head_of_recruitment",
   "delivery_lead",
   "talent_community_manager",
   "tac",
@@ -121,6 +125,12 @@ const CORTEX_READ = rolesWithSectionAccess("insights").filter(
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
   "candidate.create": RECRUITER_PLUS,
+  // PATCH /api/candidates/{id}, POST /api/notes, assign-to-job, usunięcie
+  // z rekrutacji → CandidateWriteAccess = CANDIDATE_WRITE_ROLES
+  // (candidate_access.py) = parytet z RecruiterPlus. Bramka akcji zapisu na
+  // profilu kandydata — dotąd profil liczył je z sekcji (`canMutateSection`),
+  // a backend z roli, i te dwie listy się rozjeżdżały.
+  "candidate.write": RECRUITER_PLUS,
   // POST /api/jobs → TacPlus (backend/app/api/jobs.py)
   "job.create": TAC_PLUS,
   // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py). Uwaga: TacPlus
@@ -151,22 +161,18 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // ADMIN_LIKE_ROLES ∪ CLIENT_TEAM_ROLES (backend/app/services/client_access.py)
   "contact.create": DELIVERY_TAC_WRITERS,
   // POST /api/calendar/events → CalendarWriteAccess = CALENDAR_WRITE_ROLES
-  // (backend/app/api/recruitment_access.py) — również bez HoR.
+  // (backend/app/api/recruitment_access.py) — parytet z RecruiterPlus.
   "calendar_event.create": RECRUITER_PLUS,
   // POST /api/invite-links → RecruiterPlus (backend/app/api/invite_links.py)
   "invite_link.create": RECRUITER_PLUS,
   // POST /api/jobs/{id}/hiring-manager-feedback → RecruiterPlus
-  // (backend/app/api/hiring_manager_feedback.py). HoR CZYTA werdykty
-  // (RecruitmentReadAccess), ale zapis dostałby 403 — przycisk „Zapisz
-  // feedback" ma być dla niego niewidoczny. Nadpisanie CUDZEGO werdyktu
+  // (backend/app/api/hiring_manager_feedback.py). Nadpisanie CUDZEGO werdyktu
   // dodatkowo pilnuje `can_edit` z odpowiedzi serwera (autor / DL / admin).
   "hm_feedback.record": RECRUITER_PLUS,
 
   // POST /api/candidates/{id}/documents + PATCH .../documents/{doc_id} →
   // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (candidate_access.py) —
-  // parytet z RecruiterPlus, BEZ head_of_recruitment. HoR CZYTA teczkę
-  // (CandidateDocumentAccess = CANDIDATE_DOCUMENT_ROLES, szerszy zbiór),
-  // ale upload / zmiana rodzaju / „główne CV" to dla niego 403.
+  // parytet z RecruiterPlus (od 2026-09-17 z head_of_recruitment).
   "candidate.document.manage": RECRUITER_PLUS,
   // GET/PUT /api/candidates/{id}/languages + GET/PATCH .../profile-rate →
   // CandidateProfileFactsReadAccess i CandidateProfileFactsWriteAccess
@@ -176,7 +182,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // produktowa faktów globalnych jawnie dopuszcza tu HoR i sourcera.
   // Gdy backend rozdzieli odczyt od zapisu — rozdziel też ten wpis.
   "candidate.profile_fact.manage": OPERATIONAL,
-  "candidate.requirement.verify": ["admin", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer"],
+  "candidate.requirement.verify": RECRUITER_PLUS,
 
   // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
   // (backend/app/api/client_directory.py). Przenoszenie klienta między
@@ -229,6 +235,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   Record<Capability, SectionRequirement>
 > = {
   "candidate.create": { section: "sourcing", required: "write" },
+  "candidate.write": { section: "sourcing", required: "write" },
   "job.create": { section: "pipeline", required: "write" },
   "job.update": { section: "pipeline", required: "write" },
   "client.create": { section: "delivery", required: "write" },
@@ -262,6 +269,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
 
 export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "candidate.create",
+  "candidate.write",
   "job.create",
   "job.update",
   "client.create",

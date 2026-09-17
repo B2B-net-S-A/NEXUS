@@ -157,6 +157,17 @@ describe("buildStageFunnel — stage_columns (UAT B33)", () => {
     expect(funnelRejectedTotal({ stage_columns: columns })).toBe(detail.closed);
   });
 
+  it("kandydaci na „Ogłoszenia” liczą się do „Nowi” — tablica i lista mówią to samo", () => {
+    const withPosting = [
+      { stage: "posting", category: "internal" as const, count: 4, stage_def_id: 10, name: "Ogłoszenia", order: 0 },
+      { stage: "new", category: "internal" as const, count: 1, stage_def_id: 11, name: "Nowi", order: 1 },
+    ];
+    const byKey = Object.fromEntries(
+      buildStageFunnel({ stage_columns: withPosting }).map((g) => [g.key, g.count]),
+    );
+    expect(byKey.new).toBe(5);
+  });
+
   it("bez `stage_columns` cofa się do legacy rozkładu (starsze odpowiedzi)", () => {
     const groups = buildStageFunnel({ stage_breakdown: breakdown });
     expect(groups.find((g) => g.key === "new")?.count).toBe(4);

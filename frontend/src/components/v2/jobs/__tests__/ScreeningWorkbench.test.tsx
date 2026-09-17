@@ -232,14 +232,15 @@ describe("ScreeningWorkbench", () => {
     expect(button.getAttribute("title") ?? "").not.toContain("Brak bankowości");
   });
 
-  it("karta „Pending” blokuje ruch i odrzucenie z powodem — serwer odmawia każdego ruchu (409)", async () => {
+  it("karta ponad budżetem (także zapisana jako `pending`) NIE blokuje ruchu ani odrzucenia — bramka wyłączona", async () => {
     const pending = item({
       id: 41,
       candidate_id: 141,
       stage: "verified",
       name: "Anna",
-      lastname: "Pending",
+      lastname: "Ponadbudzet",
       verification_status: "pending",
+      budget_exceeded: true,
     });
     const cols = columns([item()]);
     cols[1] = { ...cols[1], count: 1, items: [pending] };
@@ -254,18 +255,19 @@ describe("ScreeningWorkbench", () => {
     });
     renderWorkbench({ columns: cols });
     await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
-    await userEvent.click(screen.getByRole("button", { name: /Anna Pending/ }));
-    await screen.findByRole("heading", { name: /Screening · Anna Pending/ });
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Anna Ponadbudzet/ })[0],
+    );
+    await screen.findByRole("heading", { name: /Screening · Anna Ponadbudzet/ });
+    expect(screen.getAllByText("Ponad budżet").length).toBeGreaterThan(0);
 
     await userEvent.type(screen.getByLabelText("Kwota"), "118");
     const move = screen.getByRole("button", {
       name: /Zweryfikowany — zapisz stawkę i przenieś/,
     });
-    expect(move).toBeDisabled();
-    expect(move.getAttribute("title")).toContain("czeka na akceptację");
+    await waitFor(() => expect(move).not.toBeDisabled());
     const reject = screen.getByRole("button", { name: /Odrzuć z powodem/ });
-    expect(reject).toBeDisabled();
-    expect(reject.getAttribute("title")).toContain("czeka na akceptację");
+    expect(reject).not.toBeDisabled();
   });
 
   it("tryb tylko do odczytu chowa zapis screeningu i ruch", async () => {
@@ -306,12 +308,13 @@ describe("ScreeningWorkbench", () => {
     await waitFor(() => expect(onMoved).toHaveBeenCalled());
   });
 
-  it("stawka ponad budżet zapowiada akceptację ZANIM ktoś kliknie", async () => {
+  it("stawka ponad budżet zapowiada odznakę informacyjną ZANIM ktoś kliknie — bez akceptacji", async () => {
     renderWorkbench();
     await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
     // 130 × 168 = 21 840 > 20 000 — surowe porównanie mówiłoby „mieści się".
     await userEvent.type(screen.getByLabelText("Kwota"), "130");
-    expect(await screen.findByText(/Karta trafi na „Pending”/)).toBeTruthy();
+    expect(await screen.findByText(/powyżej budżetu 20 000 PLN\/mc/)).toBeTruthy();
+    expect(screen.queryByText(/Pending/)).toBeNull();
   });
 
   it("linkuje prep-kit, który dotąd nie miał żadnego wejścia w aplikacji", async () => {
@@ -326,23 +329,25 @@ describe("ScreeningWorkbench", () => {
     expect(await screen.findByText("3")).toBeTruthy();
   });
 
-  it("klik w kartę czekającą na akceptację otwiera JEJ arkusz, zamiast gasić stanowisko", async () => {
+  it("klik w kartę ponad budżetem otwiera JEJ arkusz, zamiast gasić stanowisko", async () => {
     const pending = item({
       id: 41,
       candidate_id: 141,
       stage: "verified",
       name: "Anna",
-      lastname: "Pending",
-      verification_status: "pending",
+      lastname: "Ponadbudzet",
+      budget_exceeded: true,
     });
     const cols = columns([item()]);
     cols[1] = { ...cols[1], count: 1, items: [pending] };
     renderWorkbench({ columns: cols });
     await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
 
-    await userEvent.click(screen.getByRole("button", { name: /Anna Pending/ }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /Anna Ponadbudzet/ })[0],
+    );
     expect(
-      await screen.findByRole("heading", { name: /Screening · Anna Pending/ }),
+      await screen.findByRole("heading", { name: /Screening · Anna Ponadbudzet/ }),
     ).toBeTruthy();
     expect(screen.queryByText(/Wybierz kandydata z kolejki po lewej/)).toBeNull();
   });

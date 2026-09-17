@@ -1,15 +1,14 @@
-"""Tests for the pending verification flow (migracja 0056).
+"""Bramka „Pending" (migracja 0056) — domyślnie WYŁĄCZONA (decyzja 17.09.2026).
 
-Cover scenariuszy:
-- ruch na 'verified' z rate'm w widełkach → status=active, brak notyfikacji
-- ruch na 'verified' z rate'm > Job.salary_max → status=pending + notyfikacje
-- ruch na 'verified' bez expected_rate_value → 422
-- accept/reject-verification przez admina → decyzja + audit
-- Delivery Lead / HoR → 403 na liście i decyzjach
-- accept-verification przez recruitera → 403
-- reject-verification → tworzy nowy CandidateStage z poprzednim stage'em
-- list pending-verifications tylko dla admina
-- notification helper wysyła tylko do adminów
+`PENDING_VERIFICATION_ENABLED=False` (domyślne):
+- ruch na 'verified' ze stawką ponad `Job.salary_max` → status `active`,
+  `budget_exceeded=True` w odpowiedzi, ZERO powiadomień `pending_verification`
+- stawka w widełkach → `budget_exceeded=False`
+- `/pending-verifications`, `accept-verification`, `reject-verification` → 404
+
+Stare scenariusze bramki (status pending, akceptacja, odrzucenie, lista,
+odbiorcy powiadomień) zostają pod fixturą `pending_gate_on`, która włącza
+flagę na czas testu — kod bramki ma dalej działać po włączeniu w Coolify.
 
 Bramka członkostwa (P1-PIPE-01, `ensure_job_membership`): rekruter, który
 przesuwa kandydata, musi należeć do zespołu rekrutacji — fixture ustawia go
@@ -25,6 +24,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -52,6 +52,13 @@ async def pv_client():
         base_url="http://testserver",
     ) as c:
         yield c
+
+
+@pytest.fixture
+def pending_gate_on(monkeypatch: pytest.MonkeyPatch):
+    """Włącza bramkę „Pending" na czas testu (na prodzie jest wyłączona)."""
+    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", True)
+    yield
 
 
 async def _seed_user(role: UserRole, label: str = "pv") -> tuple[int, str, str]:
@@ -141,10 +148,11 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
         await db.commit()
 
 
-# ── Tests ───────────────────────────────────────────────────────────────────
+# ── Tests: bramka WŁĄCZONA (fixture `pending_gate_on`) ──────────────────────
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_move_to_verified_within_budget_active(pv_client: AsyncClient):
     recr_uid, email, pw = await _seed_user(UserRole.recruiter, "within")
     headers = await _login(pv_client, email, pw)
@@ -172,6 +180,7 @@ async def test_move_to_verified_within_budget_active(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_move_to_verified_above_budget_pending(pv_client: AsyncClient):
     recr_uid, email, pw = await _seed_user(UserRole.recruiter, "above")
     headers = await _login(pv_client, email, pw)
@@ -211,6 +220,7 @@ async def test_move_to_verified_above_budget_pending(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_move_to_verified_missing_rate_returns_422(pv_client: AsyncClient):
     recr_uid, email, pw = await _seed_user(UserRole.recruiter, "missing")
     headers = await _login(pv_client, email, pw)
@@ -232,6 +242,7 @@ async def test_move_to_verified_missing_rate_returns_422(pv_client: AsyncClient)
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_accept_verification_by_admin(pv_client: AsyncClient):
     recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "ack-r")
     _, admin_email, admin_pw = await _seed_user(UserRole.admin, "ack-admin")
@@ -269,6 +280,7 @@ async def test_accept_verification_by_admin(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_accept_verification_forbidden_for_recruiter(pv_client: AsyncClient):
     recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "forb-r")
     recr_headers = await _login(pv_client, recr_email, recr_pw)
@@ -302,6 +314,7 @@ async def test_accept_verification_forbidden_for_recruiter(pv_client: AsyncClien
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_accept_verification_forbidden_for_delivery_lead(
     pv_client: AsyncClient,
 ):
@@ -334,6 +347,7 @@ async def test_accept_verification_forbidden_for_delivery_lead(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
     recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "rej-r")
     _, admin_email, admin_pw = await _seed_user(UserRole.admin, "rej-admin")
@@ -399,6 +413,7 @@ async def test_reject_verification_creates_revert_stage(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
     recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "list-r")
     _, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead, "list-dl")
@@ -443,6 +458,7 @@ async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_pending_verifications_mine_does_not_widen_delivery_lead_access(
     pv_client: AsyncClient,
 ):
@@ -481,6 +497,7 @@ async def test_pending_verifications_mine_does_not_widen_delivery_lead_access(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_pending_verifications_mine_does_not_widen_hor_access(
     pv_client: AsyncClient,
 ):
@@ -526,6 +543,7 @@ async def test_pending_verifications_mine_does_not_widen_hor_access(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_pending_verification_notification_sent_only_to_admin(
     pv_client: AsyncClient,
 ):
@@ -572,5 +590,162 @@ async def test_pending_verification_notification_sent_only_to_admin(
             assert dl_uid not in recipients
             assert hor_uid not in recipients
             assert other_uid not in recipients
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+# ── Tests: bramka WYŁĄCZONA (domyślne ustawienie produkcji) ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_gate_off_above_budget_stays_active_and_flags_budget(
+    pv_client: AsyncClient,
+):
+    assert settings.PENDING_VERIFICATION_ENABLED is False
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "off-above")
+    admin_uid, _, _ = await _seed_user(UserRole.admin, "off-admin")
+    headers = await _login(pv_client, email, pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    try:
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "25000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # Ruch przechodzi, stawka zapisana, przekroczenie tylko jako informacja.
+        assert body["verification_status"] == "active"
+        assert body["budget_exceeded"] is True
+        assert body["budget_max_at_move"] == 20000
+        assert body["expected_rate_value"] in ("25000.00", "25000")
+
+        async with AsyncSessionLocal() as db:
+            notif = await db.scalar(
+                select(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.pending_verification,
+                    Notification.related_entity_id == body["id"],
+                )
+            )
+            assert notif is None, "przy wyłączonej bramce nie ma komu zgłaszać"
+
+        # Tablica niesie tę samą informację na karcie.
+        kanban = await pv_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+        assert kanban.status_code == 200, kanban.text
+        cards = [
+            item
+            for col in kanban.json()["columns"]
+            for item in col["items"]
+            if item["candidate_id"] == cand_id
+        ]
+        assert cards and cards[0]["budget_exceeded"] is True
+        assert cards[0]["verification_status"] == "active"
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_gate_off_within_budget_has_no_flag(pv_client: AsyncClient):
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "off-within")
+    headers = await _login(pv_client, email, pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    try:
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "15000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["verification_status"] == "active"
+        assert body["budget_exceeded"] is False
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_gate_off_routes_answer_404_even_for_admin(pv_client: AsyncClient):
+    _, admin_email, admin_pw = await _seed_user(UserRole.admin, "off-404")
+    admin_headers = await _login(pv_client, admin_email, admin_pw)
+
+    listing = await pv_client.get(
+        "/api/pipeline/pending-verifications", headers=admin_headers
+    )
+    assert listing.status_code == 404, listing.text
+
+    accept = await pv_client.post(
+        "/api/pipeline/999999/accept-verification", headers=admin_headers
+    )
+    assert accept.status_code == 404, accept.text
+
+    reject = await pv_client.post(
+        "/api/pipeline/999999/reject-verification",
+        headers=admin_headers,
+        json={"note": "test"},
+    )
+    assert reject.status_code == 404, reject.text
+
+
+@pytest.mark.asyncio
+async def test_gate_off_stage_stored_as_pending_is_not_stuck(pv_client: AsyncClient):
+    """Produkcja ma wiersze `pending` zapisane przed wyłączeniem bramki.
+    Bez approvera nie mogą blokować kolejnego ruchu ani wyglądać na Pending."""
+    from datetime import datetime, timezone
+
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "off-stuck")
+    headers = await _login(pv_client, email, pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    stage=PipelineStage.verified,
+                    moved_at=datetime.now(timezone.utc),
+                    moved_by=recr_uid,
+                    verification_status=VerificationStatus.pending,
+                    expected_rate_value=30000,
+                    expected_rate_unit="monthly",
+                    expected_rate_currency="PLN",
+                    budget_max_at_move=20000,
+                )
+            )
+            await db.commit()
+
+        kanban = await pv_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+        assert kanban.status_code == 200, kanban.text
+        cards = [
+            item
+            for col in kanban.json()["columns"]
+            for item in col["items"]
+            if item["candidate_id"] == cand_id
+        ]
+        assert cards and cards[0]["verification_status"] == "active"
+        assert cards[0]["budget_exceeded"] is True
+
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["stage"] == "cv_sent"
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])

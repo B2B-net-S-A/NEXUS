@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BriefcaseBusiness,
   CalendarCheck2,
@@ -414,6 +414,19 @@ export function RecruitmentActivityDashboard() {
   const initialDay = useMemo(() => warsawToday(), [])
   const [day, setDay] = useState(initialDay)
   const [month, setMonth] = useState(initialDay.slice(0, 7))
+  // Dzień i miesiąc idą za zegarem (jak „Moje zadania"), dopóki użytkownik
+  // sam ich nie wybierze. Do 09.2026 pulpit otwarty wieczorem pokazywał rano
+  // wczorajsze statystyki jako „dzisiejsze".
+  const dayPinnedRef = useRef(false)
+  const monthPinnedRef = useRef(false)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const today = warsawToday()
+      if (!dayPinnedRef.current) setDay(today)
+      if (!monthPinnedRef.current) setMonth(today.slice(0, 7))
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const [subjectUserId, setSubjectUserId] = useState<number | null | undefined>(
     undefined,
   )
@@ -532,6 +545,7 @@ export function RecruitmentActivityDashboard() {
               value={day}
               onChange={(event) => {
                 if (!event.target.value) return
+                dayPinnedRef.current = true
                 setDay(event.target.value)
                 setExpandedMetric(null)
               }}
@@ -548,6 +562,7 @@ export function RecruitmentActivityDashboard() {
               value={month}
               onChange={(event) => {
                 if (!event.target.value) return
+                monthPinnedRef.current = true
                 setMonth(event.target.value)
                 setExpandedMetric(null)
               }}

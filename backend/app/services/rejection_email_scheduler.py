@@ -353,7 +353,7 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
                     "Kandydat nie otrzymał powiadomienia o odrzuceniu. "
                     "Podłącz skrzynkę w Ustawieniach → Integracje."
                 ),
-                link="/settings/integrations",
+                link="/settings?tab=integracje",
                 notification_type=NotificationType.rejection_email_skipped,
                 related_entity_type="scheduled_rejection_email",
                 related_entity_id=row.id,

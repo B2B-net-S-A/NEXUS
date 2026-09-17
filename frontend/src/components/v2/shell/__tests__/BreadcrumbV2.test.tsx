@@ -52,7 +52,6 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     ["/sourcing/marketplace", "Targ / Dostępni"],
     ["/candidates/bulk-import", "Masowy import CV"],
     ["/candidates/search", "Wyszukiwanie"],
-    ["/pending-verifications", "Weryfikacje"],
     ["/settings/entity-fields", "Konfiguracja pól"],
     ["/settings/team-structure", "Kompetencje i odpowiedzialności"],
   ])("%s → %s", (pathname, label) => {

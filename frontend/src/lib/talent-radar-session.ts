@@ -25,6 +25,11 @@
  */
 
 import type { ClientRef } from "@/lib/contract-client-filter";
+// Czysty moduł bez importów — runtime import nie domyka cyklu z lib/api.ts.
+import {
+  isRadarRunCriteria,
+  type RadarRunCriteria,
+} from "@/components/talent-radar/run-criteria";
 import type {
   ChampionParseSummary,
   TalentRadarSearchResponse,
@@ -60,6 +65,8 @@ export interface TalentRadarSessionState {
    */
   championSkills: { must: string[]; nice: string[] } | null;
   requirementsPreview?: { source: string; must: string; nice: string; excluded: string[]; uncertain: string[] } | null;
+  /** Kryteria wyświetlanego biegu (pasek „Kryteria biegu"); doszły później. */
+  runCriteria?: RadarRunCriteria | null;
   response: TalentRadarSearchResponse | null;
 }
 
@@ -107,6 +114,9 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
     value.championSkills !== null &&
     !isRecord(value.championSkills)
   ) {
+    return false;
+  }
+  if (value.runCriteria != null && !isRadarRunCriteria(value.runCriteria)) {
     return false;
   }
   if (typeof value.budgetMax !== "string") return false;

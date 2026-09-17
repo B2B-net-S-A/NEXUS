@@ -11,7 +11,7 @@ import {
   ChevronDown,
   Clock3,
 } from "lucide-react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -27,6 +27,7 @@ import {
   type CalendarEventResponse,
   type NotificationResponse,
 } from "@/lib/api"
+import { notificationOnBehalfLabel } from "@/lib/notification-format"
 import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
@@ -159,6 +160,7 @@ function NotificationList({
 }: {
   notifications: NotificationResponse[]
 }) {
+  const queryClient = useQueryClient()
   if (!notifications.length) {
     return (
       <p className="py-5 text-center text-xs text-muted-foreground">
@@ -166,9 +168,20 @@ function NotificationList({
       </p>
     )
   }
+  // Kliknięcie oznacza pozycję jako przeczytaną — jak w dzwonku. Do 09.2026
+  // widget był zwykłym linkiem, więc otwarta sprawa wracała tu i w liczniku
+  // przy każdym powrocie na pulpit. Nawigacja nie czeka na zapis.
+  const markRead = (notification: NotificationResponse) => {
+    if (notification.is_read) return
+    void notificationsApi
+      .markRead(notification.id)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["notifications"] }))
+      .catch(() => undefined)
+  }
   return (
     <div className="space-y-1">
       {notifications.slice(0, 5).map((notification) => {
+        const onBehalf = notificationOnBehalfLabel(notification)
         const content = (
           <>
             <span
@@ -184,19 +197,34 @@ function NotificationList({
               <span className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                 {notification.message}
               </span>
+              {onBehalf ? (
+                <span className="mt-0.5 block text-[11px] font-medium text-warning">
+                  {onBehalf}
+                </span>
+              ) : null}
             </span>
           </>
         )
         const classes =
-          "flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/60 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          "flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/60 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         return notification.link ? (
-          <Link key={notification.id} href={notification.link} className={classes}>
+          <Link
+            key={notification.id}
+            href={notification.link}
+            className={classes}
+            onClick={() => markRead(notification)}
+          >
             {content}
           </Link>
         ) : (
-          <div key={notification.id} className={classes}>
+          <button
+            key={notification.id}
+            type="button"
+            className={classes}
+            onClick={() => markRead(notification)}
+          >
             {content}
-          </div>
+          </button>
         )
       })}
     </div>

@@ -16,7 +16,6 @@ import {
  AlertTriangle,
  ChevronLeft,
  ChevronRight,
- CheckCircle2,
  Clock,
  FileArchive,
  FileSignature,
@@ -55,7 +54,6 @@ import {
  DialogHeader,
  DialogTitle,
 } from"@/components/ui/dialog";
-import { FormField } from"@/components/ui/form-field";
 import {
  BulkCvDownloadError,
  downloadBulkCvs,
@@ -134,7 +132,14 @@ export { colId, columnLabel, ScoreRing };
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment"]);
+// Lustro `RECRUITMENT_RATE_EDIT_ROLES` (backend/app/api/recruitment_access.py):
+// ruch na „Zweryfikowany" zapisuje stawkę kandydata i poza tymi rolami serwer
+// odpowiada 403. Modal stawki dla innej roli kończyłby się odmową PO wpisaniu
+// kwoty, więc tablica mówi o tym przed. (Bramka „Pending" z akceptacją
+// admin/DL/HoR wyłączona 17.09.2026 — `APPROVER_ROLES` zniknęło.)
+const RATE_EDIT_ROLES = new Set(["admin","head_of_recruitment","delivery_lead","tac","recruiter","finance"]);
+const RATE_EDIT_DENIED_MESSAGE =
+ "Ruch na „Zweryfikowany” zapisuje stawkę kandydata — mogą go wykonać: rekruter, TAC, Delivery Lead, Head of Recruitment, Finanse lub administrator.";
 
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
@@ -162,7 +167,10 @@ interface KanbanBoardV2Props {
   *  (`client_playbooks`) zasila lewą kolumnę i licznik na kolumnie
   *  „Screening". Bez niego tablica działa jak dotąd i mówi wprost, że SLA
   *  nie jest ustawione — nigdy go nie zgaduje. */
- clientId?: number | null;}
+ clientId?: number | null;
+ /** `?candidate=<id>` z adresu rekrutacji (np. wzmianka w notatce) — otwiera
+  *  dok tego kandydata raz, gdy jego karta pojawi się na tablicy. */
+ focusCandidateId?: number | null;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -450,11 +458,8 @@ interface CardProps {
  onOpenScreening: (stageId: number, name: string) => void;
  density: "cozy" |"compact";
  canScreen: boolean;
- isApprover: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
- onAcceptVerification?: (item: KanbanItem) => void;
- onRejectVerification?: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
@@ -481,11 +486,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScreening,
  density,
  canScreen,
- isApprover,
  matchScore,
  scoresLoading,
- onAcceptVerification,
- onRejectVerification,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
@@ -494,7 +496,13 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  dimmed,
  nextAction,
 }: CardProps) {
- const isPending = item.verification_status === "pending";
+ // Bramka „Pending" wyłączona (17.09.2026): stawka ponad budżet to odznaka
+ // informacyjna, nie stan karty. Zapisany `pending` backend raportuje jako
+ // `active`, więc karta nie ma już wariantu „oczekuje na akceptację".
+ const overBudget = Boolean(item.budget_exceeded);
+ const overBudgetTitle = overBudget
+ ? `Stawka ${item.expected_rate_value ?? "?"} ponad budżet rekrutacji ${item.budget_max_at_move ?? "?"} PLN/mc — informacja, ruch niczego nie blokuje.`
+ : null;
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
@@ -533,7 +541,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
  }`;
  const accessibleDetails = [
- isPending ? "Oczekuje akceptacji weryfikacji." : null,
+ overBudget ? "Stawka ponad budżet rekrutacji." : null,
  normalizedMatchScore != null
  ? `Dopasowanie AI: ${normalizedMatchScore} na 100.`
  : scoresLoading
@@ -573,9 +581,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ]
  .filter(Boolean)
  .join(" — ")
- : isPending
- ? "Oczekuje akceptacji weryfikacji."
- : null;
+ : overBudgetTitle;
 
  return (
  <div
@@ -587,19 +593,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
  density === "compact" ?"p-2" :"p-3",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
- isPending &&"opacity-70 grayscale-40 border-amber-300 bg-amber-50/40",
- // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
- // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
- // managera.
- item.hm_veto && !isPending &&"border-destructive/50",
+ // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny".
+ // Ten kandydat jest aktywny, tylko nie dla tego managera.
+ item.hm_veto &&"border-destructive/50",
  // Filtr lewej kolumny nie pasuje — przyciemnij, ale zostaw w DOM-ie
  // (patrz komentarz `dimmed` w `CardProps`).
  dimmed &&"opacity-35"
  )}
  title={
- isPending
- ? `${fullName}\nOczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
- : [
+ [
  fullName,
  normalizedMatchScore != null
  ? `Dopasowanie AI: ${normalizedMatchScore}/100`
@@ -611,6 +613,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `W etapie: ${item.days_in_stage} dni`
  : null,
  addedAttribution,
+ overBudgetTitle,
  ]
  .filter(Boolean)
  .join("\n")
@@ -621,16 +624,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {accessibleDetails}
  </span>
  )}
- {isPending && (
- <div className={cn("absolute top-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold", desktopOverview &&"xl:pointer-fine:hidden")}>
- <HelpCircle className="h-2.5 w-2.5" />
- Pending
- </div>
- )}
  <div className="absolute left-0 top-0 flex h-6 w-6 items-center justify-center">
  <Checkbox
  checked={selected}
- onCheckedChange={() => onToggleSelect(item.id)}
+ onCheckedChange={() => onToggleSelect(item.candidate_id)}
  aria-label={`Zaznacz ${fullName}`}
  className={cn(
  "relative h-6 w-6 border-0 bg-transparent before:absolute before:inset-1 before:rounded-md before:border before:border-border before:bg-card before:transition-colors hover:border-transparent hover:before:border-primary",
@@ -640,9 +637,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  </div>
 
- {/* Kropka bramki — jedyny sygnał hm_veto/pending, który przeżywa gęsty
+ {/* Kropka bramki — jedyny sygnał hm_veto / „ponad budżet", który przeżywa gęsty
  widok pełnego pipeline'u (`desktopOverview`): tekstowe badge'e niżej na
- karcie (Weto HM / Pending) są tam schowane (`xl:pointer-fine:hidden`),
+ karcie (Weto HM / ponad budżet) są tam schowane (`xl:pointer-fine:hidden`),
  bo w tym trybie karta jest kilkunastopikselowym kafelkiem. Ta kropka
  NIE jest owinięta tym warunkiem — patrz `dołóż flagę bramki jako
  kropkę` w brief programu C2 (04 Pipeline). */}
@@ -776,6 +773,17 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  Weto HM
  </span>
  )}
+ {overBudget && (
+ <span
+ className={cn(
+ "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold bg-warning/15 text-warning",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={overBudgetTitle ?? undefined}
+ >
+ ponad budżet
+ </span>
+ )}
  {daysBadge && (
  <span
  className={cn(
@@ -805,7 +813,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
- „pending", gdzie prawy górny róg zajmuje badge weryfikacji. */}
+ (prawy górny róg jest wolny — badge „Pending" zniknął 17.09.2026). */}
  {!readOnly && <button
  type="button"
  onClick={(e) => {
@@ -816,7 +824,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
  density === "compact" ?"h-5 w-5" :"h-6 w-6",
  desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
- isPending ?"top-7" :"top-1",
+ "top-1",
  desktopOverview &&"xl:pointer-fine:bottom-0 xl:pointer-fine:left-0 xl:pointer-fine:right-auto xl:pointer-fine:top-auto"
  )}
  title="Usuń kandydata z tej rekrutacji"
@@ -825,7 +833,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
  </button>}
 
- {!readOnly && canScreen && !isPending && (
+ {!readOnly && canScreen && (
  <button
  type="button"
  onClick={(e) => {
@@ -841,36 +849,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Screening</span>
  </button>
  )}
- {!readOnly && isPending && isApprover && (
- <div className={cn("mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5", desktopOverview &&"xl:pointer-fine:mt-1 xl:pointer-fine:flex-col xl:pointer-fine:items-center xl:pointer-fine:gap-0.5 xl:pointer-fine:pt-1")}>
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onAcceptVerification?.(item);
- }}
- className={cn("inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:p-0")}
- title="Akceptuj weryfikację"
- >
- <CheckCircle2 className="h-3 w-3" />
- <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Akceptuj</span>
- </button>
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- e.preventDefault();
- onRejectVerification?.(item);
- }}
- className={cn("inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-card text-rose-700 border border-rose-300 font-semibold hover:bg-rose-50 transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:p-0")}
- title="Odrzuć weryfikację"
- >
- <XCircle className="h-3 w-3" />
- <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Odrzuć</span>
- </button>
- </div>
- )}
  </div>
  );
 });
@@ -884,11 +862,8 @@ interface ColProps {
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
  density: "cozy" |"compact";
- isApprover: boolean;
  scoreMap?: Map<number, number>;
  scoresLoading?: boolean;
- onAcceptVerification: (item: KanbanItem) => void;
- onRejectVerification: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
@@ -915,11 +890,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onToggleSelect,
  onOpenScreening,
  density,
- isApprover,
  scoreMap,
  scoresLoading,
- onAcceptVerification,
- onRejectVerification,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
@@ -1050,16 +1022,13 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <CandidateKanbanCard
  item={item}
  jobId={jobId}
- selected={selectedIds.has(item.id)}
+ selected={selectedIds.has(item.candidate_id)}
  onToggleSelect={onToggleSelect}
  onOpenScreening={onOpenScreening}
  density={density}
  canScreen={EXTERNAL_STAGES_FOR_SCREENING.has(item.stage)}
- isApprover={isApprover}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
- onAcceptVerification={onAcceptVerification}
- onRejectVerification={onRejectVerification}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
  contactFeatureEnabled={contactFeatureEnabled}
  desktopOverview={desktopOverview}
@@ -1201,7 +1170,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, focusCandidateId = null }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1214,7 +1183,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // M4 PR-03: pełny zbiór ról (primary + secondary), nie tylko primary —
  // hybrydowy TAC+DL ma widzieć akcje approvera (parity z backendem #782).
  const authUser = useAuthStore((s) => s.user);
- const isApprover = getUserRoles(authUser).some((r) => APPROVER_ROLES.has(r));
+ const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
@@ -1222,6 +1191,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
  );
+ // Zaznaczenie po `candidate_id`, nie po id etapu: każdy ruch tworzy NOWY
+ // `CandidateStage`, więc id etapu zaznaczonej karty po ruchu przestawało
+ // istnieć, a „Zaznaczono N" liczyło martwe wpisy.
  const [selected, setSelected] = useState<Set<number>>(new Set());
  const [bulkBusy, setBulkBusy] = useState(false);
  const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
@@ -1245,6 +1217,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  srcColId: string;
  } | null>(null);
  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
+ // `GET /api/jobs/{id}` liczy to tą samą funkcją co `PATCH …/client-rate`
+ // (admin, DL, TAC, TCM, HoR, Finanse albo właściciel/twórca rekrutacji).
+ // Reszta przenosi kartę na „CV Wysłane" bez pytania o stawkę — modal
+ // kończyłby się 403 po wpisaniu kwoty.
+ const [canWriteClientRate, setCanWriteClientRate] = useState(false);
 
  // Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" — trzymany po
  // `candidate_id` (STABILNY), nie po id CandidateStage (`item.id` zmienia się
@@ -1256,6 +1233,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ // Deep link `?candidate=` otwiera dok RAZ na wartość parametru — zamknięcie
+ // doku przez użytkownika nie może go ponownie otworzyć przy odświeżeniu kart.
+ const focusHandledRef = useRef<number | null>(null);
+ useEffect(() => {
+ if (focusCandidateId == null || focusHandledRef.current === focusCandidateId) return;
+ if (!cols.some((c) => c.items.some((i) => i.candidate_id === focusCandidateId))) return;
+ focusHandledRef.current = focusCandidateId;
+ setDockCandidateId(focusCandidateId);
+ }, [focusCandidateId, cols]);
 
  // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
  // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
@@ -1378,10 +1364,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  { item: KanbanItem; srcColId: string }[]
  >([]);
  const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
- const [pendingRejectVerification, setPendingRejectVerification] = useState<{
- item: KanbanItem;
- note: string;
- } | null>(null);
  const [scorecardPrompt, setScorecardPrompt] = useState<{
  candidateStageId: number;
  stageId: number;
@@ -1418,6 +1400,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const jobRes = await api.get(`/api/jobs/${jobId}`);
  const sMax = jobRes.data?.salary_max;
  setJobBudgetMax(typeof sMax === "number" ? sMax : null);
+ setCanWriteClientRate(jobRes.data?.can_write_client_rate === true);
  const tid = jobRes.data?.pipeline_template_id;
 
  let reasons: {
@@ -1611,7 +1594,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta w
  // cache dostaje jego id + status z serwera. Bez tego kolejne akcje
- // (screening, scorecard, accept/reject) celowały w historyczny rekord.
+ // (screening, scorecard) celowały w historyczny rekord.
  const newStageId = response?.data?.id;
  const serverVerifStatus = response?.data?.verification_status;
  // F05: nowa wersja procesu — kolejny ruch z tej karty przed odświeżeniem
@@ -1759,10 +1742,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // wyniesieniem warunków (czysta ekstrakcja, zero zmiany logiki).
  const dialog = moveDialogFor(dst);
 
- // Pending verification (migracja 0056) — najpierw zapytaj o rate,
+ // „Zweryfikowany" wymaga stawki (migracja 0056) — najpierw zapytaj o rate,
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
  if (dialog === "verified_rate") {
+ if (!canEditRates) {
+ showError(RATE_EDIT_DENIED_MESSAGE);
+ return;
+ }
  setVerifiedQueue([]);
  setVerifiedBulkTotal(1);
  setVerifiedRatePrompt({
@@ -1775,7 +1762,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
  // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
- if (dialog === "client_rate") {
+ if (dialog === "client_rate" && canWriteClientRate) {
  setClientRateQueue([]);
  setClientRateBulkTotal(1);
  setClientRatePrompt({ item, destCol: dst, srcColId });
@@ -1804,7 +1791,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  applyOptimistic(item, srcColId, dst);
  sendMove(item, dst);
  },
- [readOnly, applyOptimistic, sendMove, showError]
+ [readOnly, applyOptimistic, sendMove, showError, canEditRates, canWriteClientRate]
  );
 
  const onDragEnd = useCallback(
@@ -1852,10 +1839,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
  // item.id), żeby screening zapisał się na świeżym etapie „verified".
  newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
- const verifStatus = res?.data?.verification_status as
- |"active"
- |"pending"
- | undefined;
+ // Bramka „Pending" wyłączona (17.09.2026): ruch zawsze jest aktywny,
+ // a przekroczenie budżetu to informacja z serwera.
+ const budgetExceeded = res?.data?.budget_exceeded === true;
  // Zaktualizuj kolumnę z faktycznym statusem (nie zgaduj — backend wie).
  setCols((prev) =>
  prev.map((c) => {
@@ -1867,11 +1853,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const enriched: KanbanItem = {
  ...item,
  // M4 PR-03 (audyt P1.3): karta niesie id NOWEGO CandidateStage —
- // późniejsze accept/reject-verification przestaje celować w stary rekord.
+ // kolejne akcje przestają celować w stary rekord.
  id: newStageId ?? item.id,
  stage: destCol.stage,
  days_in_stage: 0,
- verification_status: verifStatus ??"active",
+ verification_status: "active",
+ budget_exceeded: budgetExceeded,
  expected_rate_value: payload.rate,
  expected_rate_unit: payload.unit,
  expected_rate_currency: payload.currency,
@@ -1887,8 +1874,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return c;
  })
  );
- if (verifStatus === "pending") {
- showSuccess("Wysłano do akceptacji delivery_lead. Karta będzie aktywna po zatwierdzeniu."
+ if (budgetExceeded) {
+ showSuccess(
+ `${movedName}: stawka przekracza budżet rekrutacji — zapisano jako informację.`
  );
  }
  syncKanbanCache();
@@ -1903,7 +1891,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  await refreshBoardAfterMove();
  } else {
- showError("Nie udało się przesunąć kandydata.");
+ // Powód odmowy serwera (403 roli, 409 czarna lista / NDA / konkurent)
+ // po polsku — stałe „Nie udało się" chowało, CO trzeba zmienić.
+ showError(assignErrorMessage(e));
  }
  } finally {
  // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki.
@@ -1934,57 +1924,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ]
  );
 
- const handleAcceptVerification = useCallback(
- async (item: KanbanItem) => {
- try {
- await pipelineApi.acceptVerification(item.id);
- setCols((prev) =>
- prev.map((c) => ({
- ...c,
- items: c.items.map((i) =>
- i.id === item.id ? { ...i, verification_status: "active" } : i
- ),
- }))
- );
- // Karta przestaje być „Pending" — kolejki kroków 05/06 i licznik
- // blokad czytają to z zapytania strony, nie z `cols`.
- syncKanbanCache();
- showSuccess("Weryfikacja zaakceptowana.");
- } catch (e) {
- console.error("Accept verification failed", e);
- showError("Nie udało się zaakceptować weryfikacji.");
- }
- },
- [syncKanbanCache, showSuccess, showError]
- );
-
- const submitRejectVerification = useCallback(async () => {
- if (!pendingRejectVerification) return;
- const { item, note } = pendingRejectVerification;
- if (!note.trim()) return;
- try {
- await pipelineApi.rejectVerification(item.id, note.trim());
- // Odśwież widok — backend tworzy nowy CandidateStage z poprzednim
- // stage'em, więc najprościej ponownie pobrać kanban dla joba.
- const fresh = await pipelineApi.kanban(jobId);
- if (Array.isArray(fresh.data?.columns)) {
- setCols(
- composeColumns(
- fresh.data.columns as KanbanColumn[],
- fresh.data.off_template as OffTemplateColumn | null
- )
- );
- }
- syncKanbanCache();
- showSuccess("Weryfikacja odrzucona — kandydat wrócił na poprzedni stage.");
- } catch (e) {
- console.error("Reject verification failed", e);
- showError("Nie udało się odrzucić weryfikacji.");
- } finally {
- setPendingRejectVerification(null);
- }
- }, [pendingRejectVerification, jobId, syncKanbanCache, showSuccess, showError]);
-
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
  // kartę z kolumny, kasuje go z zaznaczenia bulk i odświeża powiązane widoki
  // (zakładka „Rekrutacje" + widget pipeline'ów na profilu kandydata).
@@ -2004,9 +1943,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  })
  );
  setSelected((prev) => {
- if (!prev.has(item.id)) return prev;
+ if (!prev.has(item.candidate_id)) return prev;
  const n = new Set(prev);
- n.delete(item.id);
+ n.delete(item.candidate_id);
  return n;
  });
  queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -2047,10 +1986,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  const handleOpenScreening = useCallback((stageId: number, name: string) => {
  setScreeningPrompt({ stageId, candidateName: name });
- }, []);
-
- const handleRejectVerification = useCallback((item: KanbanItem) => {
- setPendingRejectVerification({ item, note: "" });
  }, []);
 
  const handleRemoveFromRecruitment = useCallback((item: KanbanItem) => {
@@ -2096,12 +2031,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Pigułki „Przenieś na etap": wszystkie kolumny szablonu poza tą, na której
  // kandydat dziś stoi. Bramka liczona z DANYCH KARTY (backend nie ma endpointu
  // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`) JEDNĄ funkcją
- // `moveBlockedReason`, wspólną z warsztatami 05–07: karta „Pending" blokuje
- // KAŻDY ruch (serwer odpowiada 409, zanim sprawdzi cokolwiek innego), weto
+ // `moveBlockedReason`, wspólną z warsztatami 05–07: weto
  // hiring managera wyłącznie „CV Wysłane" i „Interview Klient", a ruchy
  // wypisujące (`rejected`/`withdrawn`) omijają weto. Do 09.2026 dok trzymał
  // własną kopię z odwrotnymi regułami — „Zweryfikowany"/„Zatrudniony" przy
- // wecie były martwe, a karta „Pending" przepuszczała ruch prosto w 409.
+ // wecie były martwe. (Bramka „Pending" wyłączona 17.09.2026.)
  // Pozostałe twarde powody (czarna lista, NDA, klient konkurencyjny) nie są na
  // karcie — te kończą się 409 z polskim powodem w toaście.
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
@@ -2119,8 +2053,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return { col: c, blockedReason };
  });
  }, [dockItem, dockItemColId, stageCols, readOnly]);
- // „Odrzuć z powodem" w doku to ten sam ruch wypisujący — karta „Pending"
- // blokuje także jego (serwer odmawia każdego ruchu przed decyzją o stawce).
+ // „Odrzuć z powodem" w doku to ten sam ruch wypisujący — ta sama bramka.
  const dockRejectBlockedReason = useMemo(
  () =>
  dockItem
@@ -2232,7 +2165,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const blockedCount = useMemo(
  () =>
  allItems.filter(
- (i) => Boolean(i.hm_veto) || i.verification_status === "pending"
+ (i) => Boolean(i.hm_veto)
  ).length,
  [allItems]
  );
@@ -2253,7 +2186,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (stuckFilter && !stuckIds.has(item.id)) return true;
  if (
  blockedFilter &&
- !(Boolean(item.hm_veto) || item.verification_status === "pending")
+ !item.hm_veto
  ) {
  return true;
  }
@@ -2352,6 +2285,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  }
  } else if (!ok && isBulk) {
+ // `sendMove` w trybie zbiorczym jest cichy — bez tego toastu karta
+ // wracała na miejsce bez słowa wyjaśnienia.
+ const failedName =
+ `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
+ showError(`${failedName}: nie udało się przenieść na „CV Wysłane”.`);
  await refreshBoardAfterMove();
  }
  if (ok) syncKanbanCache();
@@ -2382,13 +2320,34 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (!dst || selected.size === 0) return;
  // Zaznaczone karty wraz z kolumną źródłową; karty już w celu pomijamy.
  const entries: { item: KanbanItem; srcColId: string }[] = [];
- for (const sid of Array.from(selected)) {
- const src = cols.find((c) => c.items.some((i) => i.id === sid));
+ const blockedEntries: { name: string; reason: string }[] = [];
+ const dstTerminal = terminalOf(dst);
+ for (const cid of Array.from(selected)) {
+ const src = cols.find((c) => c.items.some((i) => i.candidate_id === cid));
  if (!src || colId(src) === colId(dst)) continue;
- entries.push({
- item: src.items.find((i) => i.id === sid)!,
- srcColId: colId(src),
+ const item = src.items.find((i) => i.candidate_id === cid)!;
+ // Ta sama bramka co przeciągnięcie jednej karty — ruch zbiorczy omijał
+ // ją, a zablokowana karta wracała po cichu po odmowie serwera.
+ const reason = moveBlockedReason({
+ item,
+ readOnly,
+ terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
+ targetStage: dst.stage,
  });
+ if (reason) {
+ blockedEntries.push({
+ name: `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat",
+ reason,
+ });
+ continue;
+ }
+ entries.push({ item, srcColId: colId(src) });
+ }
+ if (blockedEntries.length > 0) {
+ showError(
+ `Pominięto ${blockedEntries.length} ${blockedEntries.length === 1 ? "kandydata" : "kandydatów"}: ` +
+ blockedEntries.map((b) => `${b.name} — ${b.reason}`).join("; ")
+ );
  }
  if (entries.length === 0) {
  setSelected(new Set());
@@ -2398,6 +2357,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // "Zweryfikowany" wymaga stawki per kandydat (backend: 422 bez stawki) —
  // zamiast bezpośrednich POST-ów otwórz modal stawki dla każdego po kolei.
  if (dst.stage === "verified") {
+ if (!canEditRates) {
+ showError(RATE_EDIT_DENIED_MESSAGE);
+ return;
+ }
  setVerifiedBulkTotal(entries.length);
  setVerifiedQueue(entries.slice(1));
  setVerifiedRatePrompt({
@@ -2411,7 +2374,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali (analogicznie
  // do verified). Pominięcie/anulowanie obsłużone w submitClientRateMove.
- if (dst.stage === "cv_sent") {
+ if (dst.stage === "cv_sent" && canWriteClientRate) {
  setClientRateBulkTotal(entries.length);
  setClientRateQueue(entries.slice(1));
  setClientRatePrompt({
@@ -2479,7 +2442,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  new Set(
  cols
  .flatMap((c) => c.items)
- .filter((i) => selected.has(i.id))
+ .filter((i) => selected.has(i.candidate_id))
  .map((i) => i.candidate_id)
  )
  );
@@ -2730,11 +2693,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onToggleSelect={toggleSelect}
  onOpenScreening={handleOpenScreening}
  density={density}
- isApprover={isApprover}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
- onAcceptVerification={handleAcceptVerification}
- onRejectVerification={handleRejectVerification}
  onRemoveFromRecruitment={handleRemoveFromRecruitment}
  contactFeatureEnabled={contactFeature.enabled}
  desktopOverview={desktopOverview}
@@ -2954,53 +2914,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
 
  {/* Reject verification modal — approver wpisuje notatkę */}
- {pendingRejectVerification && (
- <Dialog
- open={true}
- onOpenChange={(v: boolean) => !v && setPendingRejectVerification(null)}
- >
- <DialogContent>
- <DialogHeader>
- <DialogTitle>Odrzuć weryfikację</DialogTitle>
- <DialogDescription>
- Kandydat wróci na poprzedni stage z notatką. Ta akcja jest
- widoczna w historii pipeline'a.
- </DialogDescription>
- </DialogHeader>
- <DialogBody>
- <FormField label="Powód odrzucenia">
- <textarea
- value={pendingRejectVerification.note}
- onChange={(e) =>
- setPendingRejectVerification((p) =>
- p ? { ...p, note: e.target.value } : null
- )
- }
- placeholder="np. Stawka za wysoka, max 22000 PLN"
- rows={4}
- className="w-full px-3 py-2 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
- autoFocus
- />
- </FormField>
- </DialogBody>
- <DialogFooter>
- <Button
- variant="ghost"
- onClick={() => setPendingRejectVerification(null)}
- >
- Anuluj
- </Button>
- <Button
- onClick={submitRejectVerification}
- disabled={!pendingRejectVerification.note.trim()}
- >
- Odrzuć i wróć
- </Button>
- </DialogFooter>
- </DialogContent>
- </Dialog>
- )}
-
  {/* Usuń z rekrutacji — potwierdzenie (operacja nieodwracalna) */}
  {pendingRemoval && (
  <Dialog

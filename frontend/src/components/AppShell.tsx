@@ -515,9 +515,11 @@ function candidateFormToPayload(form: CandidateFormData) {
     country: form.country.trim().toUpperCase() || undefined,
     source: form.source,
     linkedin: form.linkedin || undefined,
-    availability_date: form.availability_date || undefined,
-    notice_period: form.notice_period ? Number(form.notice_period) : undefined,
-    notice_period_unit: form.notice_period ? (form.notice_period_unit || "days") : undefined,
+    // Wyczyszczone pole = jawne `null` (PATCH z exclude_unset: brak klucza
+    // zostawiał starą wartość, więc „Dostępny od” i wypowiedzenia nie dało się usunąć).
+    availability_date: form.availability_date || null,
+    notice_period: form.notice_period ? Number(form.notice_period) : null,
+    notice_period_unit: form.notice_period ? (form.notice_period_unit || "days") : null,
     status: form.status,
     availability_status: form.availability_status || undefined,
     tags: tags.length ? tags : undefined,

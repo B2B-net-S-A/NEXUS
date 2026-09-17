@@ -807,8 +807,8 @@ function InterviewCard({
             ) : (
               <ToolPill tone="ok">Weto HM: brak</ToolPill>
             )}
-            {item.verification_status === "pending" && (
-              <ToolPill tone="warn">Stawka czeka na akceptację</ToolPill>
+            {item.budget_exceeded && (
+              <ToolPill tone="warn">Stawka ponad budżet</ToolPill>
             )}
             {item.days_in_stage != null && (
               <ToolPill>
@@ -909,7 +909,7 @@ function InterviewCard({
       {/* Feedback klienta */}
       <WorkbenchCard
         title="Feedback klienta po rozmowie"
-        status={feedback ? "zapisany" : "do uzupełnienia"}
+        status={feedbackStatusLabel(feedback)}
         statusTone={feedback ? "ok" : "warn"}
       >
         {feedbackQueryState === "forbidden" ||
@@ -1052,7 +1052,7 @@ function InterviewCard({
             ) : verdictLockedByAuthor ? (
               <p className="text-[11px] text-muted-foreground">
                 Werdykt zapisał(a) {feedback?.author_name ?? "inna osoba"} —
-                zmienić go może autor, Delivery Lead albo admin.
+                zmienić go może autor, Delivery Lead, Head of Recruitment albo admin.
               </p>
             ) : null}
           </div>
@@ -1069,4 +1069,24 @@ function InterviewCard({
       </div>
     </div>
   );
+}
+
+/**
+ * Status karty feedbacku klienta. Werdykt zapisany z okna wydarzenia
+ * w kalendarzu jest nazwany wprost — do 09.2026 karta go nie widziała
+ * i mówiła „do uzupełnienia", więc Delivery Lead wpisywał werdykt drugi raz.
+ */
+export function feedbackStatusLabel(
+  feedback: Pick<HiringManagerFeedback, "calendar_event_id" | "event_start_time"> | null | undefined,
+): string {
+  if (!feedback) return "do uzupełnienia";
+  if (feedback.calendar_event_id != null && feedback.event_start_time) {
+    const d = new Date(feedback.event_start_time);
+    if (!Number.isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      return `zapisany · z rozmowy ${day}.${month}`;
+    }
+  }
+  return "zapisany";
 }

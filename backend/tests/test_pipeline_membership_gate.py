@@ -44,6 +44,7 @@ from app.core.database import AsyncSessionLocal
 MOVE = "/api/pipeline/move"
 BULK_MOVE = "/api/pipeline/bulk-move"
 FEEDBACK = "/api/interview-feedback"
+SCREENING = "/api/pipeline/stages/{stage_id}/screening"
 
 
 # ── seed helpers ─────────────────────────────────────────────────────────────
@@ -116,19 +117,20 @@ async def _seed_candidate(status: str = "active") -> int:
         return c.id
 
 
-async def _seed_stage(candidate_id: int, job_id: int, stage_value: str) -> None:
+async def _seed_stage(candidate_id: int, job_id: int, stage_value: str) -> int:
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
     async with AsyncSessionLocal() as db:
-        db.add(
-            CandidateStage(
-                candidate_id=candidate_id,
-                job_id=job_id,
-                stage=PipelineStage(stage_value),
-                moved_at=datetime.now(timezone.utc),
-            )
+        row = CandidateStage(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            stage=PipelineStage(stage_value),
+            moved_at=datetime.now(timezone.utc),
         )
+        db.add(row)
         await db.commit()
+        await db.refresh(row)
+        return row.id
 
 
 async def _seed_open_process(
@@ -449,3 +451,45 @@ async def test_clean_candidate_not_blocked_by_eligibility(
         MOVE, json=_move_body(cand, job_id), headers=app_auth_headers
     )
     assert r.status_code == 200, r.text
+
+
+# ── membership: screening answers follow the job's pipeline scope ────────────
+
+
+async def test_non_member_recruiter_blocked_on_screening(app_client: AsyncClient):
+    """Odpowiedzi screeningu i profil Championa należą do rekrutacji — do
+    09.2026 wystarczała sama rola, więc rekruter spoza zespołu czytał i pisał
+    screening cudzej rekrutacji po samym `stage_id`."""
+    headers, _uid = await _seed_recruiter(app_client)
+    job_id, _client_id = await _seed_job(owner_id=None)
+    cand_id = await _seed_candidate()
+    stage_id = await _seed_stage(cand_id, job_id, "screening")
+
+    r = await app_client.get(SCREENING.format(stage_id=stage_id), headers=headers)
+    assert r.status_code == 403, r.text
+
+    r = await app_client.post(
+        SCREENING.format(stage_id=stage_id),
+        headers=headers,
+        json={"overall_fit": "fit"},
+    )
+    assert r.status_code == 403, r.text
+
+
+async def test_member_recruiter_allowed_on_screening(app_client: AsyncClient):
+    headers, uid = await _seed_recruiter(app_client)
+    job_id, _client_id = await _seed_job(owner_id=uid)
+    cand_id = await _seed_candidate()
+    stage_id = await _seed_stage(cand_id, job_id, "screening")
+
+    r = await app_client.get(SCREENING.format(stage_id=stage_id), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["stage_id"] == stage_id
+
+    r = await app_client.post(
+        SCREENING.format(stage_id=stage_id),
+        headers=headers,
+        json={"overall_fit": "fit"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["stage_id"] == stage_id

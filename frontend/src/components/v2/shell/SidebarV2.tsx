@@ -244,24 +244,17 @@ const NAV_SECTIONS: NavSection[] = [
       //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
       //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
       //
-      //    UWAGA przy przywracaniu: slot `pendingVerifications` w
-      //    `BadgeCounts` został usunięty razem z fetchem, bo przez trzy
-      //    miesiące liczył licznik, którego nikt nie renderował — a robił to
-      //    zapytaniem admin-only (`GET /api/pipeline/pending-verifications`),
-      //    więc dla DL i HoR było to gwarantowane 403 co refetch. Przywracając
-      //    link, przywróć licznik jako zapytanie ZLICZAJĄCE (`?page_size=1` →
-      //    `total`), nie pełną listę, i zawęź bramkę do faktycznego
-      //    `AdminUser` z endpointu — inaczej wraca oba defekty naraz.
+      //    UWAGA przy przywracaniu: bramka „Pending" (akceptacja stawki
+      //    ponad budżet) jest WYŁĄCZONA od 17.09.2026 — strona
+      //    `/pending-verifications` i widget weryfikacji zostały usunięte,
+      //    a `GET /api/pipeline/pending-verifications` odpowiada 404. Nie
+      //    przywracaj `badgeKey: "pendingVerifications"`.
       /*
       {
-        // DL Hub (PR #225/#229) — łączy widget weryfikacji + KPI + 3 taby
-        // (klienci/zespół/aktywne joby). Stara osobna zakładka "Weryfikacje"
-        // została zwinięta do widgeta na górze panelu — link do pełnej
-        // listy (`/pending-verifications`) jest w widgecie.
+        // DL Hub (PR #225/#229) — KPI + 3 taby (klienci/zespół/aktywne joby).
         href: "/dashboard/delivery-lead",
         label: "Panel Managera",
         icon: BarChart3,
-        badgeKey: "pendingVerifications",
         roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
       */

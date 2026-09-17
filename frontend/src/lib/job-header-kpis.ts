@@ -3,7 +3,7 @@
  *
  * Jobbar jest wspólny dla kroków 02–08, ale liczby po jego prawej stronie NIE
  * są wspólne: każdy krok odpowiada na inne pytanie („kto utknął" na Pipeline,
- * „kto czeka na akceptację" w Screeningu, „kto ma weto HM" w Rozmowach). Ten
+ * „kto jest ponad budżet" w Screeningu, „kto ma weto HM" w Rozmowach). Ten
  * moduł jest tą mapą i niczym więcej — nie renderuje i nie woła sieci, więc
  * da się go przetestować na wartościach zamiast na zrzucie ekranu.
  *
@@ -35,7 +35,7 @@ import {
   countStage,
   countStalled,
   groupKanbanColumns,
-  selectPendingVerifications,
+  selectOverBudget,
   selectScreeningQueue,
   selectVerifiedQueue,
 } from "@/lib/pipeline-flow";
@@ -180,7 +180,7 @@ export function buildJobHeaderKpis({
   }
 
   if (tab === "screening") {
-    const pending = columns ? selectPendingVerifications(columns).length : null;
+    const overBudget = columns ? selectOverBudget(columns).length : null;
     return [
       {
         key: "screening",
@@ -189,10 +189,11 @@ export function buildJobHeaderKpis({
         tone: "neutral",
       },
       {
-        key: "pending",
-        label: "czeka na akceptację",
-        value: pending,
-        tone: toneWhenPositive(pending, "warn"),
+        // Informacja, nie kolejka decyzji: bramka „Pending" wyłączona 17.09.2026.
+        key: "over-budget",
+        label: "ponad budżet",
+        value: overBudget,
+        tone: "neutral",
       },
       {
         key: "verified",

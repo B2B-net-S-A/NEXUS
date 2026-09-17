@@ -131,6 +131,10 @@ class CandidateStageResponse(BaseModel):
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = None
     budget_max_at_move: Optional[int] = None
+    # Informacja (decyzja 17.09.2026, bramka „Pending" wyłączona): stawka
+    # zapisana przy ruchu przekracza budżet zamrożony na etapie. Karta na
+    # tablicy pokazuje odznakę „ponad budżet"; nic nie blokuje.
+    budget_exceeded: bool = False
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None
     rejected_by: Optional[int] = None

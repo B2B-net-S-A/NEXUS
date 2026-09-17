@@ -7,6 +7,8 @@ import {
   type CandidateLocationPayload,
 } from "@/lib/api";
 import { MapPin, Save } from "lucide-react";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useToast } from "@/components/Toast";
 
 interface Props {
   candidateId: number;
@@ -35,6 +37,7 @@ const HUB_SUGGESTIONS = [
 
 export function CandidateLocationPanel({ candidateId, initial }: Props) {
   const qc = useQueryClient();
+  const { showError } = useToast();
   const [form, setForm] = useState<CandidateLocationPayload>({
     city: initial.city ?? "",
     country: initial.country ?? "PL",
@@ -43,14 +46,20 @@ export function CandidateLocationPanel({ candidateId, initial }: Props) {
   });
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
+  // Synchronizacja tylko przy zmianie kandydata albo wartości z serwera — nowy
+  // obiekt `initial` przy każdym renderze rodzica kasował wpisywany tekst.
+  const initialCity = initial.city ?? "";
+  const initialCountry = initial.country ?? "PL";
+  const initialRegion = initial.region ?? "";
+  const initialHub = initial.hub_city ?? "";
   useEffect(() => {
     setForm({
-      city: initial.city ?? "",
-      country: initial.country ?? "PL",
-      region: initial.region ?? "",
-      hub_city: initial.hub_city ?? "",
+      city: initialCity,
+      country: initialCountry,
+      region: initialRegion,
+      hub_city: initialHub,
     });
-  }, [initial]);
+  }, [candidateId, initialCity, initialCountry, initialRegion, initialHub]);
 
   const mut = useMutation({
     mutationFn: (payload: CandidateLocationPayload) =>
@@ -58,6 +67,9 @@ export function CandidateLocationPanel({ candidateId, initial }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["candidate", candidateId] });
       setSavedAt(new Date().toLocaleTimeString());
+    },
+    onError: (error) => {
+      showError(apiErrorMessage(error, "Nie udało się zapisać lokalizacji."));
     },
   });
 

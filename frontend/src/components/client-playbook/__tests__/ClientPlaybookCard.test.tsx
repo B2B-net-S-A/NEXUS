@@ -65,7 +65,7 @@ const DL_USER = { id: 7, role: "delivery_lead", roles: ["delivery_lead"] };
 const RECRUITER_USER = { id: 8, role: "recruiter", roles: ["recruiter"] };
 
 const PLAYBOOK_URL = "/api/clients/1/playbook";
-const CV_RULE_URL = "/api/clients/1/cv-rule";
+const CV_RULE_URL = "/api/cv-generator/clients/1/rule-for-generation";
 const HEADER = "Karta klienta — Nordea Bank Abp";
 
 type Handler = () => unknown;

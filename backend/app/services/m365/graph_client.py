@@ -251,8 +251,12 @@ class GraphClient:
     async def get(self, url: str, params: Optional[dict] = None) -> Any:
         return await self._request("GET", url, params=params)
 
-    async def post(self, url: str, json: Optional[Any] = None) -> Any:
-        return await self._request("POST", url, json=json)
+    async def post(
+        self, url: str, json: Optional[Any] = None, *, expect_json: bool = True
+    ) -> Any:
+        # `expect_json=False` dla akcji bez ciała odpowiedzi (np. `/cancel`
+        # odpowiada 202 z pustą treścią).
+        return await self._request("POST", url, json=json, expect_json=expect_json)
 
     async def patch(self, url: str, json: Optional[Any] = None) -> Any:
         return await self._request("PATCH", url, json=json)
