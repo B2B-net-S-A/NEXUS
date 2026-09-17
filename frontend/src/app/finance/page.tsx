@@ -8,7 +8,10 @@ import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
-import { OrderChangesTab } from "@/components/finance/OrderChangesTab";
+import {
+  ORDER_CHANGES_URL_KEYS,
+  OrderChangesTab,
+} from "@/components/finance/OrderChangesTab";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -69,11 +72,10 @@ export default function FinancePage() {
     } else {
       params.set("view", next);
     }
-    // Podzakładka i miesiąc należą do „Zmian w zamówieniach" — w innym
+    // Podzakładka, miesiąc i filtry należą do „Zmian w zamówieniach" — w innym
     // widoku zostałyby w adresie jako martwy parametr.
     if (next !== "order-changes") {
-      params.delete("sub");
-      params.delete("month");
+      ORDER_CHANGES_URL_KEYS.forEach((key) => params.delete(key));
     }
     const query = params.toString();
     window.history.replaceState(

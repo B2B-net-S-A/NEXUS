@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { OrderChangeItem, OrderGapItem } from "@/lib/api/finance";
+import type { OrderChangeItem, OrderEntryItem, OrderGapItem } from "@/lib/api/finance";
 import {
+  changeMeta,
+  changeTitle,
   changeValue,
+  entryTags,
   formatRate,
   gapStatusLabel,
   initials,
@@ -41,6 +44,10 @@ function change(overrides: Partial<OrderChangeItem>): OrderChangeItem {
     rate_revenue: null,
     rate_unit: null,
     other_client_names: [],
+    previous_order_number: null,
+    previous_end_date: null,
+    previous_client_name: null,
+    start_date: null,
     ...overrides,
   };
 }
@@ -68,6 +75,79 @@ describe("finance order changes formatting", () => {
         change({ kind: "end_date", old_date: "2026-12-31", new_date: null }),
       ),
     ).toBe("31.12.2026 → bezterminowo");
+  });
+
+  it("describes a continuation as the previous order handing over to the new one", () => {
+    const item = change({
+      kind: "order_continuation",
+      occurred_at: null,
+      effective_date: "2026-09-01",
+      rate_cost: 120,
+      rate_revenue: 152,
+      rate_unit: "hourly",
+      previous_order_number: "NB-1980",
+      previous_end_date: "2026-08-31",
+      previous_client_name: "Klient",
+      old_amount: null,
+      new_amount: null,
+    });
+    expect(changeTitle(item)).toBe("Kontynuacja zamówienia");
+    expect(changeValue(item)).toBe(
+      "po zam. NB-1980 (do 31.08.2026) · od 01.09.2026 · " +
+        "koszt 120,00 zł/h · przychód 152,00 zł/h",
+    );
+    // Klient i numer nowego zamówienia stoją w wierszu meta — powtórzone
+    // w opisie czytałyby się jak druga, inna wartość (dowodzi tego `toBe`
+    // wyżej: w opisie jest wyłącznie numer POPRZEDNIEGO zamówienia).
+    expect(changeMeta(item)).toBe("Klient · zam. NB-1");
+  });
+
+  it("names both clients when a consultant moves between them", () => {
+    const item = change({
+      kind: "client_change",
+      occurred_at: null,
+      effective_date: "2026-09-08",
+      rate_cost: 140,
+      rate_revenue: 185,
+      rate_unit: "hourly",
+      previous_order_number: "UD-12",
+      previous_end_date: "2026-08-29",
+      previous_client_name: "Ubezpieczenia Demo",
+      old_amount: null,
+      new_amount: null,
+    });
+    expect(changeTitle(item)).toBe("Zmiana klienta");
+    expect(changeValue(item)).toBe(
+      "z: Ubezpieczenia Demo · zam. UD-12 (do 29.08.2026) · od 08.09.2026 · " +
+        "koszt 140,00 zł/h · przychód 185,00 zł/h",
+    );
+    // Docelowy klient jest w wierszu meta, nie w opisie.
+    expect(changeMeta(item)).toBe("Klient · zam. NB-1");
+  });
+
+  it("does not invent an author for a row that has no journal entry", () => {
+    const item = change({ kind: "client_change", occurred_at: null, source: null });
+    expect(changeMeta(item)).toBe("Klient · zam. NB-1");
+    expect(changeMeta(change({}))).toContain("Anna");
+  });
+
+  it("marks every entry as a new consultant, drafts included", () => {
+    const entry = {
+      ...baseRef,
+      start_date: "2026-09-01",
+      end_date: null,
+      rate_cost: 120,
+      rate_revenue: 152,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "active",
+    } as OrderEntryItem;
+    expect(entryTags(entry)).toEqual(["Nowy konsultant"]);
+    expect(entryTags({ ...entry, status: "draft" })).toEqual([
+      "Nowy konsultant",
+      "Szkic",
+    ]);
   });
 
   it("keeps a late-filled gap visible with the delay", () => {

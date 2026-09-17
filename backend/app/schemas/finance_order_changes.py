@@ -42,6 +42,15 @@ class OrderRef(BaseModel):
 
 
 class OrderEntryItem(OrderRef):
+    """Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.
+
+    Kontynuacja u tego samego klienta, przejście do innego klienta i dodatkowy
+    projekt NIE są wejściami — idą do Zmian (``OrderChangeItem``). Dlatego nie
+    ma tu już pól ``is_continuation`` / ``additional_project``: po korekcie
+    kwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną
+    stronę, zaprasza do budowania na nim.
+    """
+
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     rate_cost: Optional[MoneyPLN] = None
@@ -50,13 +59,12 @@ class OrderEntryItem(OrderRef):
     currency: Optional[str] = None
     order_type: OrderTypeCode
     status: str
-    is_continuation: bool
-    previous_order_number: Optional[str] = None
-    previous_end_date: Optional[date] = None
-    additional_project: bool = False
 
 
-ExitVerdict = Literal["continuation", "ended_intent", "no_successor", "ending_pending"]
+# Bez „continuation": osoba, która pracuje dalej (następca albo linia MD
+# z budżetem), nie jest zejściem i nie trafia na tę listę — stąd też brak pól
+# o następcy.
+ExitVerdict = Literal["ended_intent", "no_successor", "ending_pending"]
 
 
 class OrderExitItem(OrderRef):
@@ -69,12 +77,20 @@ class OrderExitItem(OrderRef):
     order_type: OrderTypeCode
     verdict: ExitVerdict
     verdict_label: str
-    successor_order_number: Optional[str] = None
-    successor_start_date: Optional[date] = None
     intent: Optional[str] = None
 
 
-ChangeKind = Literal["rate_cost", "rate_revenue", "end_date", "additional_project"]
+# ``order_continuation`` / ``client_change`` / ``additional_project`` liczone są
+# przy odczycie z zamówień startujących w miesiącu — nie ma ich w dzienniku
+# ``order_change_events`` (i dobrze: CHECK na ``field`` zostaje nietknięty).
+ChangeKind = Literal[
+    "rate_cost",
+    "rate_revenue",
+    "end_date",
+    "additional_project",
+    "order_continuation",
+    "client_change",
+]
 
 
 class OrderChangeItem(OrderRef):
@@ -91,12 +107,17 @@ class OrderChangeItem(OrderRef):
     is_whole_order: bool = False
     source: Optional[Literal["user", "system"]] = None
     author_name: Optional[str] = None
-    # Dodatkowy projekt: stawki nowego zamówienia i klienci, u których osoba
-    # równolegle pracuje.
+    # Nowe zamówienie w trwającej współpracy (dodatkowy projekt, kontynuacja,
+    # zmiana klienta): stawki nowego zamówienia, dane poprzedniego zamówienia
+    # i klienci, u których osoba równolegle pracuje.
     rate_cost: Optional[MoneyPLN] = None
     rate_revenue: Optional[MoneyPLN] = None
     rate_unit: Optional[str] = None
     other_client_names: list[str] = []
+    previous_order_number: Optional[str] = None
+    previous_end_date: Optional[date] = None
+    previous_client_name: Optional[str] = None
+    start_date: Optional[date] = None
 
 
 class OrderGapItem(OrderRef):
