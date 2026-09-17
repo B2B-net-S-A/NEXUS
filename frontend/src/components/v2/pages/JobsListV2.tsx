@@ -27,8 +27,9 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapabilities } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { AddJobModal } from "@/components/AppShell";
+import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
+import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -735,6 +736,7 @@ export function JobsListV2() {
   // zostawić doku bez podświetlonego wiersza.
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const queryClient = useQueryClient();
+  const { showSuccess } = useToast();
   const jobsView = useUiStore((s) => s.jobsView);
   const setJobsView = useUiStore((s) => s.setJobsView);
 
@@ -1659,11 +1661,12 @@ export function JobsListV2() {
       </div>
 
       {showAdd && (
-        <AddJobModal
+        <CreateJobModal
           onClose={() => setShowAdd(false)}
-          onSuccess={() => {
+          onSuccess={(msg) => {
             queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
             setShowAdd(false);
+            showSuccess(msg);
           }}
         />
       )}

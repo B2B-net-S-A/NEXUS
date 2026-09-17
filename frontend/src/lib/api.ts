@@ -4393,10 +4393,33 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
   briefing: EMPTY_CHAMPION_BRIEFING,
 };
 
+/**
+ * Kolumny rekrutacji porównywane z Profilem Championa
+ * (`GET /api/jobs/{id}/champion-profile` — walidacja i seed pól sekcji 1,
+ * patrz `lib/champion-job-seed.ts`). Indeks `[key: string]: unknown` zostaje —
+ * `must`/`nice` i reszta walidacji czytają go dynamicznie po nazwie pola
+ * (`ChampionIntake.tsx` `formatJobFieldValue`), a `role_name`/`deadline`
+ * (PR 1, „jedna lista braków") mogą jeszcze nie istnieć w odpowiedzi starszego
+ * backendu — stąd oba jako opcjonalne, nie wymagane.
+ */
+export interface ChampionJobValues {
+  [key: string]: unknown;
+  rate_value?: number | null;
+  onsite_days_per_week?: number | null;
+  work_mode?: "onsite" | "hybrid" | "remote" | null;
+  candidate_location_pref?: string | null;
+  must?: string | null;
+  nice?: string | null;
+  /** PR 1 — nazwa roli z kolumny rekrutacji; przy starszym backendzie brak klucza, nie `null`. */
+  role_name?: string | null;
+  /** PR 1 — termin na kandydatów (ISO), jw. */
+  deadline?: string | null;
+}
+
 export interface ChampionProfileResponse {
   validation?: import("@/components/ChampionIntake").ChampionValidation;
   fingerprint?: string;
-  job_values?: Record<string, unknown>;
+  job_values?: ChampionJobValues;
   job_id: number;
   job_title?: string;
   champion_profile: ChampionProfile | Record<string, never>;

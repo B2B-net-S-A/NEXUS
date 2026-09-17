@@ -127,7 +127,7 @@ describe("ChampionSectionNav — kolejność kroku 02", () => {
 });
 
 // Audyt B48: profil sprzed 09.2026 trzyma stack w kolumnach rekrutacji
-// (`job_values`) — edytor go stamtąd wczytuje (`seedStackFromJobColumns`),
+// (`job_values`) — edytor go stamtąd wczytuje (`seedChampionFromJob`),
 // a nawigacja liczyła stan z samego `champion_profile` i pokazywała „puste"
 // przy sekcji, która obok była „wypełnione" z listą technologii.
 describe("ChampionSectionNav — stack z kolumn rekrutacji (profil legacy)", () => {
@@ -158,6 +158,46 @@ describe("ChampionSectionNav — stack z kolumn rekrutacji (profil legacy)", () 
     const stackLabel = CHAMPION_SECTIONS.find((s) => s.id === "stack")!.label;
     await waitFor(() => {
       const link = screen.getByRole("link", { name: (n: string) => n.startsWith(stackLabel) });
+      expect(link.querySelector("span[title]")).toHaveAttribute(
+        "title",
+        CHAMPION_SECTION_STATE_LABEL.empty,
+      );
+    });
+  });
+});
+
+// PR 5: sekcja 1 „Podstawowe informacje” wczytuje puste pola z kolumn
+// rekrutacji w edytorze (`seedChampionFromJob`) — nawigacja MUSI liczyć stan
+// z TEGO SAMEGO seeda, inaczej kropka „basics” pokazuje „puste” obok
+// wypełnionego pola „Nazwa roli” (parytet z audytem B48, ale dla sekcji 1).
+describe("ChampionSectionNav — sekcja 1 z pól rekrutacji (parytet z edytorem, PR 5)", () => {
+  it("pusty profil + niepusta kolumna (stawka) → kropka „wypełnione”, jak w edytorze", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 501,
+        champion_profile: {},
+        job_values: { rate_value: 120 },
+      },
+    });
+    renderNav();
+    const basicsLabel = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(basicsLabel) });
+      expect(link.querySelector("span[title]")).toHaveAttribute(
+        "title",
+        CHAMPION_SECTION_STATE_LABEL.filled,
+      );
+    });
+  });
+
+  it("pusty profil i puste kolumny → nadal „puste”", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 501, champion_profile: {}, job_values: {} },
+    });
+    renderNav();
+    const basicsLabel = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(basicsLabel) });
       expect(link.querySelector("span[title]")).toHaveAttribute(
         "title",
         CHAMPION_SECTION_STATE_LABEL.empty,

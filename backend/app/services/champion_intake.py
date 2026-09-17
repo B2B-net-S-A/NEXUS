@@ -600,6 +600,11 @@ def validation(profile, job=None, *, enforce=False):
     another number than the one stored (a range whose parser midpoint was
     stored before the upper bound became the rule), and that number was never
     the budget of this profile or of `jobs.rate_budget_hourly`.
+
+    An empty stored MUST/NICE list is not treated as missing on its own: it
+    inherits the recruitment's `must_skills`/`nice_skills` column (via
+    `effective_skill_names`) for the missing/ineligible checks below, the
+    same way an empty `basics.role_name` falls back to `job.title`.
     """
     from pydantic import ValidationError
 
@@ -696,8 +701,14 @@ def validation(profile, job=None, *, enforce=False):
                 "Uzupełnij wskazówki oceny odpowiedzi.",
                 warning=True,
             )
-    names = [x["name"] for x in stack["must"]]
-    if not names and not stack["nice"]:
+    inherited = {}
+    if job is not None:
+        for key in STACK_COLUMNS:
+            if not stored_stack[key]:
+                inherited[key] = effective_skill_names(job, key)
+    names = [x["name"] for x in stack["must"]] or inherited.get("must", [])
+    nice_names = [x["name"] for x in stack["nice"]] or inherited.get("nice", [])
+    if not names and not nice_names:
         add("missing_requirements", "stack.must", "Uzupełnij wymagania roli.")
     if not names:
         add(
@@ -738,6 +749,10 @@ def validation(profile, job=None, *, enforce=False):
     values = dict(basics)
     if job is not None:
         for key, column in STACK_COLUMNS.items():
+            if not stored_stack[key]:
+                # Empty stored list inherits the column (see above) — there
+                # is nothing of the profile's own to conflict with it.
+                continue
             raw_column = getattr(job, column, None)
             declared = effective_skill_names(job, key)
             # The stored stack: that is what the columns were synced from.
@@ -875,6 +890,7 @@ def enforce_operation(job, operation, *, force=False):
 
 
 def fingerprint(job):
+    deadline = getattr(job, "deadline", None)
     state = {
         "profile": getattr(job, "champion_profile", None),
         "title": getattr(job, "title", None),
@@ -882,6 +898,7 @@ def fingerprint(job):
         "requirements": getattr(job, "matching_requirements", None),
         "reviewed": getattr(job, "requirements_reviewed", None),
         "office_location": getattr(job, "office_location", None),
+        "deadline": deadline.isoformat() if deadline else None,
     }
     state.update(
         {
@@ -894,24 +911,34 @@ def fingerprint(job):
     ).hexdigest()
 
 
+def _rubric_job_value(job, key, column):
+    """A rubric value as offered to the intake form — same source as `validation()`."""
+
+    if key == "rate_value":
+        raw = getattr(job, column, None)
+        return float(raw) if raw is not None else None
+    if key == "candidate_location_pref":
+        return getattr(job, "office_location", None) or getattr(job, column, None)
+    return getattr(job, column, None)
+
+
 def response_context(job):
+    deadline = getattr(job, "deadline", None)
 
     return {
         "validation": validation(job.champion_profile, job),
         "fingerprint": fingerprint(job),
         "job_values": {
             **{
-                key: (
-                    float(getattr(job, column))
-                    if key == "rate_value" and getattr(job, column, None) is not None
-                    else getattr(job, column, None)
-                )
+                key: _rubric_job_value(job, key, column)
                 for key, column in RUBRICS.items()
             },
             **{
                 key: "\n".join(effective_skill_names(job, key))
                 for key, column in STACK_COLUMNS.items()
             },
+            "role_name": getattr(job, "title", None),
+            "deadline": deadline.isoformat() if deadline else None,
         },
     }
 

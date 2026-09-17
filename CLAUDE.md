@@ -1200,6 +1200,20 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   Odłożony MUST, którego obecny normalizator nie przyjąłby (np. dłuższy niż
   limit pozycji), daje OSTRZEŻENIE — nigdy błąd ani blokadę. Konflikt kolumn
   NICE to ostrzeżenie, nie błąd.
+- **Pusty ZAPISANY stack MUST/NICE dziedziczy kolumny rekrutacji** (17.09.2026,
+  lustro `missing_role` → `job.title`): `validation()` czyta wtedy
+  `effective_skill_names(job, key)` zamiast zgłaszać `missing_requirements`/
+  `missing_must` na profilu, który po prostu jeszcze nie ma swojego stacku —
+  `ineligible_must` liczy się wtedy na liście odziedziczonej, a
+  `skill_column_conflict` pomija klucz, którego zapisana lista jest pusta
+  (dziedziczenie nie jest konfliktem). `job_handoff_blockers`
+  (`job_readiness.py`) dodatkowo pomija kody z `_MIRRORED_VALIDATION_CODES` —
+  te same braki (rola, klient, kontekst, pytania, must-have, budżet, tryb
+  pracy, dni/miasto biura) inaczej wychodziły DWA RAZY, raz jako zdanie
+  briefu/rubryki, raz jako issue Championa; realne dodatki (`column_conflict`,
+  `skill_column_conflict`, `unresolved_value`, `ineligible_must`, ...) zostają.
+  `response_context()["job_values"]` niesie też `role_name` (= `job.title`) i
+  `deadline` (ISO) — `fingerprint()` obejmuje `deadline`.
 
 ## Karta klienta (`client_playbooks`)
 
@@ -1856,6 +1870,36 @@ innego niż serwer albo nadpisywał cudzą pracę.
   kanoniczna ma co najmniej 3 znaki (koniec z „IT” → `LIKE '%it%'`). Filtr listy
   `_worked_at_client_predicate` nadal liczy szkice i unieważnione kontrakty —
   znany dług.
+- **Delivery Lead zakładający rekrutację staje się jej `delivery_lead_id`**
+  (17.09.2026, `create_job`): pierwszeństwo jawne `delivery_lead_id` > head DL
+  klienta (`resolve_default_owners`) > twórca — zawsze WYŁĄCZNIE gdy pole
+  zostaje puste po obu wcześniejszych krokach. `recruiter_id`/`/claim`
+  nietknięte, to zmiana ownera, nie autorstwa. `delivery_lead_job_pairs`
+  zwraca `None` dla roli DL, więc bramka zakresu klienta nie gryzie własnej
+  rekrutacji świeżo utworzonej bez zespołu. 403 przy próbie ustawienia widełek
+  wynagrodzenia przez DL/TCM jest teraz po polsku: „Widełki wynagrodzenia może
+  ustawić tylko admin lub TAC”.
+- **Tworzenie rekrutacji = krótki modal + reszta w doku** (17.09.2026).
+  `CreateJobModal` (`components/v2/modals/`) ma 9 pól: tytuł, klient
+  (`ClientSinglePicker`), typ, opis (z „Generuj AI”), must-have, miasto, tryb,
+  dni w biurze, budżet PLN/h; widełki PLN/mies. tylko dla `canManageRecruitmentBudget`
+  (klucz NIEOBECNY dla DL/TCM, nie `null` — backend liczy `fields_set`). Nie
+  wysyła statusu, priorytetu, deadline'u, TAC/DL/rekrutera/HM/szablonu/kategorii.
+  Po zapisie ląduje na `/jobs/{id}?tab=champion` (+`&intake=1`, gdy jest opis —
+  panel AI otwarty z opisem); `?tab=champion-profile` zostaje aliasem
+  (`JOB_DETAIL_TAB_ALIASES` w `app/jobs/[id]/page.tsx`). Szkic formularza w `localStorage`
+  (`nexus:jobDraft:v1:<userId>`), Escape przy brudnym formularzu pyta.
+  `EditJobModal`/`JobFormFields` ZOSTAJĄ w `AppShell.tsx` jako pełna edycja
+  (testy źródłowe czytają tam literały `FieldGroup`). TAC, DL, szablon,
+  kategoria, Program/Train, priorytet i deadline edytuje `JobSettingsPanel`
+  w zakładce „Zespół” doku gotowości. Zakładka „Zlecenie i Champion”: spis
+  sekcji tylko od `2xl`, na `xl` dwie kolumny (edytor + dok) — przy 1440 px
+  edytor miał 251 px; dok zwijany do 44 px wyłącznie od `xl`
+  (`nexus:jobChampionDockCollapsed:v1`), szyna „Otwarte karty” domyślnie
+  zwinięta (`nexus.jobTabsRail.collapsed.v2`). Sekcja 1 Championa startuje
+  z pól rekrutacji per pole (`lib/champion-job-seed.ts`), nietknięte klucze nie
+  jadą w PUT; okno „Uzgodnij profil i pola rekrutacji” dostaje widoczny `draft`
+  (pusty stack + „Uzgodnij też pole” czyściłby `must_skills`).
 
 ## Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
 

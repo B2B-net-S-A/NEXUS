@@ -1,6 +1,7 @@
 """Draft validation and gradual adoption contracts; no database or AI needed."""
 
 from copy import deepcopy
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -220,6 +221,27 @@ def test_fingerprint_changes_on_profile_and_recruitment_edits():
     before = fingerprint(j)
     j.rate_budget_hourly = 200
     assert before != fingerprint(j)
+    before = fingerprint(j)
+    j.deadline = date(2026, 12, 1)
+    assert before != fingerprint(j)
+
+
+def test_job_values_carry_role_deadline_and_office_location():
+    from app.services.champion_intake import response_context
+
+    j = job(filled())
+    j.title = "Senior Go Developer"
+    j.deadline = date(2026, 11, 30)
+    j.office_location = "Kraków"
+    j.location = "Warszawa"
+
+    job_values = response_context(j)["job_values"]
+
+    assert job_values["role_name"] == "Senior Go Developer"
+    assert job_values["deadline"] == "2026-11-30"
+    # `office_location` wins over the legacy `location` column, like the
+    # `basics.candidate_location_pref` comparison in `validation()`.
+    assert job_values["candidate_location_pref"] == "Kraków"
 
 
 @pytest.mark.asyncio
