@@ -4,6 +4,14 @@ set -euo pipefail
 # Merge train: wprowadza WIELE gotowych PR-ów na main bez ręcznego klikania,
 # pod branch protection strict=true ("branch must be up to date").
 #
+# UWAGA (17.09.2026): od włączenia natywnej KOLEJKI MERGE'ÓW GitHuba ten skrypt
+# jest ścieżką AWARYJNĄ, nie domyślną. Normalnie: `gh pr merge <pr> --squash`
+# dodaje PR do kolejki, GitHub sam składa gotowe PR-y w grupę i puszcza
+# wymagane konteksty raz na grupę. Sięgaj po train tylko, gdy reguła
+# `merge_queue` w rulesecie `main-baseline` jest wyłączona — i NIGDY nie
+# uruchamiaj go z kilku sesji naraz (17.09 trzy równoległe trainy
+# aktualizowały swoje PR-y na wyścigi i żaden nie wchodził).
+#
 # Problem, który rozwiązuje: przy strict=true każdy merge na main flipuje
 # pozostałe PR-y w BEHIND, a GitHubowy auto-merge NIGDY sam nie aktualizuje
 # gałęzi — więc seria PR-ów blokuje się nawzajem i wymaga babysittingu
