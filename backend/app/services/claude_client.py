@@ -200,6 +200,34 @@ def _apply_system_cache(kwargs: dict[str, Any]) -> None:
         ]
 
 
+# Parametry próbkowania, które SDK Anthropic 1.x usunęło z sygnatur
+# `messages.create()` / `messages.stream()` (TypeError przy wywołaniu). API
+# nadal je honoruje dla modeli, które ich słuchają — oficjalna droga to
+# `extra_body`, scalane w JSON żądania bez zmian (MIGRATION.md SDK).
+_SAMPLING_PARAMS = ("temperature", "top_p", "top_k")
+
+
+def _sdk_request_kwargs(call_kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Kwargi dla SDK Anthropic: próbkowanie przeniesione do ``extra_body``.
+
+    Wołający (parser Championa, ekstraktor notatek) pinują ``temperature=0``
+    i nie muszą wiedzieć, że SDK zmienił sygnaturę — granica dostawcy tłumaczy
+    to raz. Tylko dla Anthropic: `llm_providers.build_request` czyta
+    ``temperature`` wprost z kwargów dla DeepSeek. Jawne ``extra_body``
+    wołającego wygrywa przy kolizji klucza.
+    """
+    sampling = {k: call_kwargs[k] for k in _SAMPLING_PARAMS if k in call_kwargs}
+    if not sampling:
+        return call_kwargs
+    sdk_kwargs = {k: v for k, v in call_kwargs.items() if k not in sampling}
+    extra_body = call_kwargs.get("extra_body")
+    sdk_kwargs["extra_body"] = {
+        **sampling,
+        **(extra_body if isinstance(extra_body, dict) else {}),
+    }
+    return sdk_kwargs
+
+
 def _record_health(
     started: float, *, failed: bool, provider: str = llm_providers.ANTHROPIC
 ) -> None:
@@ -369,7 +397,7 @@ def _call_one_model(
                     model=model,
                     max_tokens=max_tokens,
                     messages=messages,
-                    **call_kwargs,
+                    **_sdk_request_kwargs(call_kwargs),
                 ) as stream:
                     for _event in stream:
                         if deadline is not None and time.monotonic() >= deadline:
@@ -382,7 +410,7 @@ def _call_one_model(
                     model=model,
                     max_tokens=max_tokens,
                     messages=messages,
-                    **call_kwargs,
+                    **_sdk_request_kwargs(call_kwargs),
                 )
             # Ucięcie to NIE awaria dostawcy: wywołanie WRÓCIŁO i zostało
             # opłacone. Zaliczenie go jako porażki otwierałoby circuit breaker
