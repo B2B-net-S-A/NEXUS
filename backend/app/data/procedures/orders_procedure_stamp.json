@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-16",
+  "reviewed_at": "2026-09-17",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "590379514cda2bd3ce6c0da5ca759f34fa12c62921cc9756e33859e7432104e6",
@@ -67,7 +67,7 @@
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "9437e3d9b05a8e7b2fb89842aa52ea83c576c5f7238332082bb96794bca0bd3e",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "665cbb8a5078dd79c4c8b1ad3afd34305c14ac1f57662a028b38187a38ce66da",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "7cea4354ce2f9115459df8f4227c8fed6fbda2003d7b2441828ad207231eabdc",
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "e045cc2e7c3909412ecec22f41115ac8ffee09d056db9d786c722d9d4179f951",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "89fb51b4940d2483c596054fa08f47ac87426ebb960e05a87b75dee3822ffe31",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "b6e16e713c863bbb18c718d8136a5fd16e405e04fac68e5cfe84585f39725db9",
     "frontend/src/components/order-mail/OrderMailQueue.tsx": "72b87f131fa8c105f61f0c2aa252da198286ef452ebf673c1ef973bad4e01427",
@@ -77,7 +77,7 @@
     "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx": "e9c244925768ebed8ece87eeddad18167c489ace09d7a7fc3e96d416853569f1",
     "frontend/src/lib/api/orderMail.ts": "95ebfcb8e3e2c588d8d34dd2a60455c4a625d51a92e278af083242573e03f69e",
     "frontend/src/lib/order-extraction.ts": "c49a161f4a316e8edaa9eb792ccbba88158c7d86886e1b35d4b2968c3d149309",
-    "frontend/src/lib/order-line-usage.ts": "71dfc08327c14e5df4a022455a408dd44c64eb7b60f1b36a857ef3eb324759c2",
+    "frontend/src/lib/order-line-usage.ts": "23d5d51b45530160fb4b414c5d97594298342b4075373eb8b4d104fc3a8a6cbf",
     "frontend/src/lib/order-plan.ts": "edf6612fc56fb2492a8b57e9989dbfcd50873e94875dd9ccb05f680ed18185de"
   }
 }
