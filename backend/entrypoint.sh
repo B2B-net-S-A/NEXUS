@@ -8121,6 +8121,43 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Centrum e-Zdrowia (09.2026) — jednorazowo: dwie osoby miały obok linii
+# zamówienia grupowego CeZ/242/2025 stare, samodzielne zamówienie na tym samym
+# kontrakcie (karta bez zużycia MD nad właściwą kartą). Anulowanie jak
+# `DELETE /orders/{id}` (rekord zostaje, status „anulowane"), tylko gdy kontrakt
+# jest żywy i ma żywą linię w aktywnej grupie; inaczej pominięcie z kodem.
+# Logika w `app/services/cez_standalone_md_duplicate_repair.py`; marker
+# w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody powodów.
+startup_phase "repair-cez-standalone-md-duplicates"
+echo "Orders: cancel CeZ standalone orders duplicating group lines (one-shot)..."
+python - <<'PY' || echo "cez standalone md duplicate repair skipped; continuing"
+import asyncio
+import sys
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cez_standalone_md_duplicate_repair import (
+    run_cez_standalone_md_duplicate_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_cez_standalone_md_duplicate_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"cez standalone md duplicate repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            sys.exit(1)
+    print(f"cez standalone md duplicate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Stawki w Kontraktach godzinowe (09.2026, ticket „Ujednolicenie stawek") —
 # jednorazowo: każdy kontrakt w MD przechodzi na zł/h (stawki, harmonogramy,
 # stawka ramowa, widełki ÷ 8; 176 h/mc, więc kwoty miesięczne bez zmian).
