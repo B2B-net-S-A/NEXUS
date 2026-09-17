@@ -40,6 +40,7 @@ import {
   LayoutDashboard,
   UserSquare2,
   Trash2,
+  AlertOctagon,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -58,6 +59,7 @@ import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
+import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -1051,6 +1053,13 @@ export default function ClientDetailPage() {
                   readOnly={!canEditDelivery}
                   showContractTerms={canViewDeliveryLegal}
                 />
+              </LazyDetails>
+
+              <LazyDetails
+                icon={<AlertOctagon className="w-4 h-4 text-muted-foreground" />}
+                title="Konflikty z kandydatami"
+              >
+                <ClientConflictsSection clientId={Number(id)} />
               </LazyDetails>
             </div>
           )}

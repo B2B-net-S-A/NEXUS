@@ -256,24 +256,39 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
   it("preserves current eligibility from a saved proposal", async () => {
     mocks.latest.mockResolvedValue(readySnapshot({ candidates: [{
       ...candidateMatch(82, BREAKDOWN),
-      eligibility: { reason_code: "nda", reason: "Aktualna blokada", assignment_allowed: false,
-        visibility: "warn", severity: "hard", secondary: [] },
+      eligibility: { reason_code: "rejected_by_hiring_manager",
+        reason: "Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie",
+        assignment_allowed: false, visibility: "warn", severity: "hard", secondary: [] },
     }] }));
     renderWidget();
-    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktualna blokada");
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Hiring manager");
     expect(screen.getByText("Do shortlisty")).toBeDisabled();
     expect(screen.getByText("Przypisz")).toBeDisabled();
   });
 
-  it("shows a visible block and prevents shortlist and assignment actions", async () => {
+  it("a client conflict (NDA) is a warning: reason visible, actions enabled", async () => {
     mocks.forJob.mockResolvedValue(liveResponse([{
       ...candidateMatch(82, BREAKDOWN),
-      eligibility: { reason_code: "nda", reason: "Aktywna blokada NDA", assignment_allowed: false,
-        visibility: "warn", severity: "hard", secondary: [] },
+      eligibility: { reason_code: "client_nda", reason: "Konflikt: NDA z klientem",
+        assignment_allowed: true, visibility: "warn", severity: "warning", secondary: [] },
     }]));
     renderWidget();
     fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
-    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Aktywna blokada NDA");
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Konflikt: NDA z klientem");
+    expect(screen.getByText("Do shortlisty")).toBeEnabled();
+    expect(screen.getByText("Przypisz")).toBeEnabled();
+  });
+
+  it("a hiring-manager veto shows a visible block and prevents shortlist and assignment actions", async () => {
+    mocks.forJob.mockResolvedValue(liveResponse([{
+      ...candidateMatch(82, BREAKDOWN),
+      eligibility: { reason_code: "rejected_by_hiring_manager",
+        reason: "Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie",
+        assignment_allowed: false, visibility: "warn", severity: "hard", secondary: [] },
+    }]));
+    renderWidget();
+    fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
+    expect(await screen.findByTestId("eligibility-42")).toHaveTextContent("Hiring manager");
     const shortlist = screen.getByText("Do shortlisty");
     const assign = screen.getByText("Przypisz");
     expect(shortlist).toBeDisabled();

@@ -60,6 +60,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.candidate_conflict import CONFLICT_TYPE_LABELS, CandidateConflict
 from app.models.client import Client
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
@@ -73,6 +74,7 @@ from app.models.client_order_group import (
 )
 from app.models.contract import Contract, ContractStatus
 from app.models.dl_alert import (
+    ALERT_CANDIDATE_CONFLICT_EXPIRED,
     ALERT_CONTRACT_ENDING,
     ALERT_COST_BUDGET_LOW,
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
@@ -952,6 +954,80 @@ async def rule_framework_contract_expiring(
     return created
 
 
+#: Okno alertu „konflikt wygasł": wygaśnięcie z ostatnich N dni. Dłuższy
+#: przestój skanera nie zasypuje DL kartami o konfliktach sprzed miesięcy.
+CONFLICT_EXPIRED_LOOKBACK_DAYS = 7
+
+
+async def rule_candidate_conflict_expired(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Konflikt kandydat↔klient wygasł (``expires_at`` w ostatnich 7 dniach).
+
+    Jednorazowa karta (``emit`` bez okna powtórki, klucz ``conflict:{id}``) —
+    wygaśnięcie jest zdarzeniem, które się nie zmienia, więc nie ma czego
+    powtarzać ani zamykać (bez ``resolve_stale``). Wiersz konfliktu zostaje
+    ``active`` jako historia; stan „wygasły" liczy odczyt
+    (``CandidateConflict.state_at``). Payload i tytuł bez imion i nazwisk.
+    """
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(
+            CandidateConflict.id,
+            CandidateConflict.candidate_id,
+            CandidateConflict.client_id,
+            CandidateConflict.type,
+            CandidateConflict.expires_at,
+        )
+        .where(
+            CandidateConflict.active.is_(True),
+            CandidateConflict.expires_at.isnot(None),
+            CandidateConflict.expires_at <= now,
+            CandidateConflict.expires_at
+            >= now - timedelta(days=CONFLICT_EXPIRED_LOOKBACK_DAYS),
+        )
+        .order_by(CandidateConflict.id)
+    )
+    conflicts = list(result.all())
+    names = await _client_names(db, {c.client_id for c in conflicts})
+    created = 0
+    for conflict in conflicts:
+        user_ids = await dl_user_ids_for_client(
+            db, conflict.client_id, scope=recipient_scope
+        )
+        if not user_ids:
+            continue
+        client_name = names.get(conflict.client_id, "Klient")
+        type_key = conflict.type.value
+        label = CONFLICT_TYPE_LABELS.get(type_key, type_key)
+        created += len(
+            await emit(
+                db,
+                alert_type=ALERT_CANDIDATE_CONFLICT_EXPIRED,
+                user_ids=user_ids,
+                client_id=conflict.client_id,
+                entity_key=f"conflict:{conflict.id}",
+                title=f"{client_name} — wygasł konflikt: {label}",
+                message=(
+                    f"Konflikt „{label}” z klientem {client_name} wygasł "
+                    f"{conflict.expires_at.date().isoformat()}. Kandydata można "
+                    "ponownie proponować temu klientowi."
+                ),
+                link=f"/candidates/{conflict.candidate_id}",
+                payload={
+                    "conflict_id": conflict.id,
+                    "candidate_id": conflict.candidate_id,
+                    "conflict_type": type_key,
+                    "expires_at": conflict.expires_at.isoformat(),
+                },
+            )
+        )
+    return created
+
+
 async def rule_contract_ending(
     db: AsyncSession,
     recipient_scope: DeliveryAlertRecipientScope | None = None,
@@ -1231,6 +1307,7 @@ ALERT_RULES: dict[str, Rule] = {
     ALERT_COST_BUDGET_LOW: rule_cost_budget_low,
     ALERT_NEW_CONTRACTOR_DRAFT: rule_new_contractor_draft,
     ALERT_ORDER_MAIL_REVIEW: rule_order_mail_review,
+    ALERT_CANDIDATE_CONFLICT_EXPIRED: rule_candidate_conflict_expired,
 }
 
 

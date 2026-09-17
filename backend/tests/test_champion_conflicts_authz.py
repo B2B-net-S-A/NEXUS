@@ -15,9 +15,8 @@ recruiting intel to the read-only viewer role ``user`` (QC / client persona):
   same gate.
 - **candidate conflicts** (``GET /api/candidates/{candidate_id}/conflicts``) —
   candidate↔client conflict linkage (``client_id`` + free-text ``reason``),
-  candidate+client PII. Its finance-read sibling ``list_rate_history`` uses
-  ``CandidateFinanceReadAccess``; Finance may read it organization-wide while
-  write siblings keep their narrower mutation guards.
+  candidate+client PII. Since 17.09.2026 gated by ``CandidateSearchAccess``
+  (candidate roles, viewer excluded) — it is eligibility data, not finance.
 
 Pattern follows ``test_candidate_module_access.py``: status-code asymmetry —
 denied roles must get exactly 403; allowed roles must get *not* 403 (404/422
@@ -60,9 +59,6 @@ OPERATIONAL_ROLES = {
     UserRole.recruiter,
     UserRole.sourcer,
 }
-
-# CandidateFinanceReadAccess: Admin and Finance; mutation guards stay narrower.
-FINANCE_ROLES = {UserRole.admin, UserRole.finance}
 
 
 async def _seed_user(role: UserRole) -> tuple[str, str]:
@@ -141,22 +137,23 @@ async def test_champion_profile_role_matrix(
             )
 
 
-# ── Candidate conflicts read — CandidateFinanceReadAccess ───────────────────
+# ── Candidate conflicts read — CandidateSearchAccess (17.09.2026) ───────────
 
 
-async def test_list_conflicts_requires_finance_capability(
+async def test_list_conflicts_requires_candidate_read_access(
     authz_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Conflict linkage (client_id + reason) mirrors the finance read sibling —
-    recruiter / sourcer / head_of_recruitment / viewer all 403."""
-    path = "/api/candidates/999999/conflicts"
-    for role in ROLES:
-        resp = await authz_client.get(path, headers=headers_by_role[role])
-        if role in FINANCE_ROLES:
-            assert resp.status_code != 403, (
-                f"[{role.value}] {path} unexpectedly forbidden"
-            )
-        else:
-            assert resp.status_code == 403, (
-                f"[{role.value}] {path} expected 403, got {resp.status_code}"
-            )
+    """Konflikty to dane o dopuszczalności kandydata, nie finansowe: czyta je
+    każda rola kandydacka (Delivery Lead z ``finance=none`` dostawał 403),
+    viewer ``user`` nadal 403. Dotyczy też rejestru ``GET /api/conflicts``."""
+    for path in ("/api/candidates/999999/conflicts", "/api/conflicts"):
+        for role in ROLES:
+            resp = await authz_client.get(path, headers=headers_by_role[role])
+            if role in OPERATIONAL_ROLES:
+                assert resp.status_code != 403, (
+                    f"[{role.value}] {path} unexpectedly forbidden"
+                )
+            else:
+                assert resp.status_code == 403, (
+                    f"[{role.value}] {path} expected 403, got {resp.status_code}"
+                )

@@ -149,6 +149,11 @@ def test_build_message_mentions_counts_and_similarity() -> None:
 # Test idzie przez REALNĄ sesję i realny `candidate_conflicts`: patchowany jest
 # tylko ranking (wymaga Qdranta) i `emit` (żeby przechwycić treść). Bramka
 # biegnie po tej samej ścieżce co na produkcji.
+#
+# Od 17.09.2026 konflikt z klientem (blacklista klienta / NDA / konkurent) jest
+# ostrzeżeniem — zakładka go pokazuje, więc dzwonek go liczy. Wycinany jest
+# globalnie zablokowany kandydat (ranking jest patchowany, więc dociera do
+# bramki) i weto HM.
 
 
 @pytest.mark.integration
@@ -193,18 +198,20 @@ async def test_notification_counts_only_assignable_candidates() -> None:
                 name=f"Notify{i}",
                 lastname=f"Kandydat{unique}",
                 email=f"notify-{i}-{unique}@example.com",
-                # Status `active` — globalną blacklistę serwis odsiewa sam,
-                # więc dowodem może być tylko konflikt z klientem oferty.
-                status=CandidateStatus.active,
+                # Ranking jest patchowany, więc globalna blacklista dociera do
+                # bramki i to ona jest „zablokowanym".
+                status=(
+                    CandidateStatus.blacklisted if i == 0 else CandidateStatus.active
+                ),
             )
             for i in range(3)
         ]
         db.add_all([job, *cands])
         await db.flush()
-        blocked_id = cands[0].id
+        # Blacklista KLIENTA na drugim kandydacie — ostrzeżenie, liczy się.
         db.add(
             CandidateConflict(
-                candidate_id=blocked_id,
+                candidate_id=cands[1].id,
                 client_id=cli.id,
                 type=ConflictType.blacklist,
                 reason="pytest — blacklista klienta",
@@ -235,8 +242,9 @@ async def test_notification_counts_only_assignable_candidates() -> None:
         assert emitted == 1, "powiadomienie w ogóle nie poszło"
         message = emit_mock.await_args.kwargs["message"]
         assert "2 kandydat" in message, (
-            "dzwonek obiecuje więcej osób, niż zakładka pokaże — kandydat "
-            f"z aktywną blacklistą klienta został policzony ({message})"
+            "dzwonek liczy inaczej niż zakładka — globalnie zablokowany ma "
+            "wypaść, kandydat z blacklistą KLIENTA (ostrzeżenie) ma zostać "
+            f"({message})"
         )
         assert "3 kandydat" not in message
     finally:
@@ -269,7 +277,7 @@ async def test_notification_is_silent_when_everyone_is_blocked() -> None:
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate, CandidateStatus
-    from app.models.candidate_conflict import CandidateConflict, ConflictType
+    from app.models.candidate_conflict import CandidateConflict
     from app.models.client import Client
     from app.models.job import Job, JobStatus
     from app.models.user import User, UserRole
@@ -300,19 +308,10 @@ async def test_notification_is_silent_when_everyone_is_blocked() -> None:
             name="NotifySilent",
             lastname=f"Kandydat{unique}",
             email=f"notify-silent-c-{unique}@example.com",
-            status=CandidateStatus.active,
+            status=CandidateStatus.blacklisted,
         )
         db.add_all([job, cand])
         await db.flush()
-        db.add(
-            CandidateConflict(
-                candidate_id=cand.id,
-                client_id=cli.id,
-                type=ConflictType.nda,
-                reason="pytest — NDA",
-                active=True,
-            )
-        )
         await db.commit()
         job_id, client_id, cand_id, user_id = job.id, cli.id, cand.id, user.id
 

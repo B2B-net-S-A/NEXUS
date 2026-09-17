@@ -102,7 +102,7 @@ async def _load_snapshot_candidates(
 async def _hydrate_current_items(db, job, snap, *, context_stale=False):
     """Recheck visibility on every read; stored annotations are historical only."""
     from datetime import datetime, timezone
-    from app.api.matching import _eligibility_annotation
+    from app.services.eligibility_annotation import eligibility_annotation
     from app.services.pipeline_eligibility import evaluate_candidates_for_job
     from app.services.candidate_job_eligibility import Visibility
 
@@ -119,7 +119,7 @@ async def _hydrate_current_items(db, job, snap, *, context_stale=False):
     }
     items = _hydrate_items(snap, visible)
     for item in items:
-        item.eligibility = _eligibility_annotation(decisions[item.candidate.id])
+        item.eligibility = eligibility_annotation(decisions[item.candidate.id])
         candidate = visible[item.candidate.id]
         saved_version = item.breakdown.get("candidate_version")
         if (

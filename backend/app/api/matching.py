@@ -23,7 +23,8 @@ from app.api.deps import get_db
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
-from app.services.candidate_job_eligibility import Visibility
+from app.services.candidate_job_eligibility import Severity, Visibility
+from app.services.eligibility_annotation import eligibility_annotation
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     DealbreakerResult,
@@ -248,26 +249,8 @@ def _build_match_info(
     }
 
 
-def _eligibility_annotation(decision) -> dict | None:
-    """UI annotation for a candidate whose eligibility is not plainly clean.
-
-    Returns ``None`` for a fully-eligible candidate with no secondary signal.
-    Otherwise a dict the ranking row renders as a badge and uses to disable the
-    assign/promote action when ``assignment_allowed`` is ``False``. ``reason``
-    is the ready Polish label from ``_REASON_LABELS_PL``.
-    """
-    if decision is None:
-        return None
-    if decision.eligible and not decision.secondary_reasons:
-        return None
-    return {
-        "reason_code": decision.reason_code.value,
-        "reason": decision.reason,
-        "assignment_allowed": decision.assignment_allowed,
-        "visibility": decision.visibility.value,
-        "severity": decision.severity.value,
-        "secondary": [r.value for r in decision.secondary_reasons],
-    }
+# Jedna definicja plakietki dla wszystkich powierzchni (17.09.2026).
+_eligibility_annotation = eligibility_annotation
 
 
 async def _gate_and_dealbreakers(
@@ -294,22 +277,20 @@ async def _gate_and_dealbreakers(
     the two reads disagree).
       * ``hidden``-visibility candidates (global blacklist, already-in-job) are
         DROPPED — they must never surface in a job-scoped search.
-      * ``warn``-visibility candidates (active client blacklist / NDA /
-        competitor conflict, standing hiring-manager veto) are KEPT and
-        annotated with the Polish reason and ``assignment_allowed=False`` so
-        the row shows the block and the action is disabled.
-      * soft ``visible`` warnings (current employment, candidate-excluded
-        client) are kept and annotated too.
+      * ``warn``-visibility candidates are KEPT and annotated with the Polish
+        reason. A standing hiring-manager veto carries
+        ``assignment_allowed=False`` (row shows the block, action disabled);
+        client conflicts (blacklist / NDA / competitor), current employment and
+        candidate-excluded clients are soft warnings — assignable.
       * dealbreakers then hide over-budget and (for office/hybrid jobs)
         remote-only candidates; their counts come back in ``hidden_meta``.
-        ``warn`` candidates are EXEMPT from dealbreakers — a compliance block
-        must always surface with its reason, never be swallowed into a budget
-        count, so they stay in the list even when over budget.
+        Only rows that are hard-blocked but visible (the HM veto:
+        ``severity=hard`` + ``visibility=warn``) are EXEMPT — a block must
+        surface with its reason, never be swallowed into a budget count.
+        A soft-warned candidate over budget is hidden like anyone else.
       * ``eligibility_filtered`` is the count of ``hidden``-visibility
-        candidates dropped by the gate — the ONLY people the gate removes now
-        that ``warn`` are surfaced. Published in ``meta`` for parity with Talent
-        Radar (bliźniaczy ekran). Because ``warn`` (client blacklist / NDA /
-        competitor / HM veto) are shown as rows, they are NOT counted here.
+        candidates dropped by the gate (global blacklist, already in job).
+        Published in ``meta`` for parity with Talent Radar.
 
     PRODUKTOWY OVERRIDE (decyzja Artura, 2026-09). Do 2026-08-20 ta ścieżka
     wołała ``filter_eligible_candidates``, które WYCINAŁO wszystkich
@@ -320,6 +301,11 @@ async def _gate_and_dealbreakers(
     widoczny z plakietką, ``hidden`` nadal ukryty), więc globalna blacklista
     i duplikaty pozostają niewidoczne. Dealbreaker ``hidden_meta`` (budżet /
     zdalnie) nie jest poufny per klient i moduł sam zwraca liczniki.
+
+    17.09.2026 (decyzja 2): konflikty klienta (blacklist / NDA / konkurent)
+    przestały blokować przypisanie — są ostrzeżeniem jak obecne zatrudnienie.
+    Twardo-a-widocznie zostało tylko weto HM i tylko ono jest zwolnione
+    z dealbreakerów.
     """
     empty_meta = DealbreakerResult().hidden_meta()
     if not ordered:
@@ -355,19 +341,20 @@ async def _gate_and_dealbreakers(
             }
         )
 
-    # Dealbreakery (budżet / zdalnie) NIE mogą wchłonąć kandydatów `warn`
-    # (assignment_allowed=False: aktywny konflikt klienta / NDA / konkurent /
-    # weto HM). Inaczej `warn` nad budżetem znika do `hidden_meta.over_budget`
-    # BEZ plakietki compliance — rekruter widzi „ukryto N (budżet)" i nie wie,
-    # że część z nich to blokada prawna. Celem decyzji było „pokaż zablokowanych
-    # z powodem", więc `warn` zawsze wychodzi z anotacją; sufit budżetu ścina
-    # wyłącznie kandydatów przypisywalnych (eligible + miękkie ostrzeżenia).
-    warn_ids = {
+    # Dealbreakery (budżet / zdalnie) NIE mogą wchłonąć wierszy twardo
+    # zablokowanych, ale widocznych (weto HM: severity=hard, visibility=warn).
+    # Inaczej weto nad budżetem znika do `hidden_meta.over_budget` bez plakietki
+    # i rekruter szuka tej osoby od nowa. Miękkie ostrzeżenia (konflikt klienta,
+    # obecne zatrudnienie, wykluczenie) są przypisywalne, więc budżet ścina je
+    # jak każdego innego kandydata.
+    blocked_visible_ids = {
         c.id
         for c in visible
-        if (d := decisions.get(c.id)) is not None and not d.assignment_allowed
+        if (d := decisions.get(c.id)) is not None
+        and d.severity is Severity.hard
+        and d.visibility is Visibility.warn
     }
-    dealbreakable = [c for c in visible if c.id not in warn_ids]
+    dealbreakable = [c for c in visible if c.id not in blocked_visible_ids]
 
     # Rubryki (0278): jedno rozwiązanie budżetu/must-have/dni/miasta biura dla
     # tej oferty, dzielone przez WSZYSTKIE pięć powierzchni rubryk. `wants_office`
@@ -398,9 +385,13 @@ async def _gate_and_dealbreakers(
     if exclusion_reasons is not None:
         exclusion_reasons.update(db_res.exclusion_reasons)
     kept_dealbreakable_ids = {c.id for c in db_res.kept}
-    # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,
-    # nie-`warn` tylko jeśli przeszły dealbreakery.
-    kept = [c for c in visible if c.id in warn_ids or c.id in kept_dealbreakable_ids]
+    # Zachowaj oryginalną kolejność rankingu: zablokowane-widoczne zostają na
+    # swoich pozycjach, reszta tylko jeśli przeszła dealbreakery.
+    kept = [
+        c
+        for c in visible
+        if c.id in blocked_visible_ids or c.id in kept_dealbreakable_ids
+    ]
     annotations: dict[int, dict] = {}
     for c in kept:
         ann = _eligibility_annotation(decisions.get(c.id))

@@ -2630,6 +2630,12 @@ export interface ScoreBreakdown {
   gap_nice: string[];
   penalties: string[];
   /**
+   * Soft scoring warnings (`active_conflict`, `client_excluded`). Since
+   * 17.09.2026 a client conflict no longer zeroes the score — it lands here.
+   * Optional: cached/legacy breakdowns do not carry it.
+   */
+  warnings?: string[];
+  /**
    * Legacy payloads may contain a historical bonus. Current base-fit paths
    * keep this zero and report process history separately.
    */
@@ -2726,20 +2732,28 @@ export interface RecommendationMeta {
 }
 
 /**
- * Anotacja dopuszczalności na wierszu rankingu (`/ai-matches`). Obecna tylko dla
- * kandydatów, których dopuszczalność nie jest „czysta": `warn` (aktywny konflikt
- * klienta / NDA / konkurent / weto hiring managera) — pokazywani z powodem
- * i `assignment_allowed=false` — oraz miękkie ostrzeżenia (`current_employment`,
- * `excluded_client`). Kandydaci `hidden` (globalna blacklista, duplikat) nie
- * trafiają na listę w ogóle, więc nigdy nie mają tej anotacji. `reason` jest
- * gotową polską etykietą z `_REASON_LABELS_PL`.
+ * Anotacja dopuszczalności kandydata względem rekrutacji/klienta. Ten sam
+ * kształt na każdej powierzchni: `/ai-matches`, rekomendacje, „podobne
+ * rekrutacje", Talent Radar i ręczna wyszukiwarka (tylko z `exclude_in_job_id`).
+ *
+ * Obecna dla KAŻDEGO `reason_code` innego niż „eligible". Od 17.09.2026
+ * (decyzja Artura) konflikt z klientem — czarna lista klienta, NDA,
+ * konkurent — jest OSTRZEŻENIEM: `severity: "warning"`,
+ * `assignment_allowed: true`, wiersz widoczny z bursztynową plakietką.
+ * Blokuje wyłącznie weto hiring managera (`severity: "hard"`,
+ * `assignment_allowed: false`). Kandydaci `hidden` (globalna czarna lista,
+ * duplikat w rekrutacji) nie trafiają na listy w ogóle. `reason` jest gotową
+ * polską etykietą z backendu.
  */
+export type MatchEligibilitySeverity = "none" | "warning" | "hard";
+
 export interface MatchEligibility {
   reason_code: string;
   reason: string;
   assignment_allowed: boolean;
   visibility: "visible" | "warn" | "hidden";
-  severity: "warning" | "blocking" | string;
+  /** `string` zostaje w unii dla odporności na nowe wartości backendu. */
+  severity: MatchEligibilitySeverity | (string & {});
   secondary: string[];
 }
 
@@ -2820,16 +2834,76 @@ export interface RateHistoryRow {
   created_at: string | null;
 }
 
+export type ConflictType = "blacklist" | "current_employment" | "nda" | "competitor";
+
+/** Stan konfliktu liczony przy odczycie: wygaśnięcie nie przełącza `active`. */
+export type ConflictState = "active" | "expired" | "inactive";
+
+/**
+ * Wiersz konfliktu (`GET /api/candidates/{id}/conflicts`, POST, PATCH).
+ * `active_only=true` zwraca WYŁĄCZNIE `state === "active"` (bez wygasłych);
+ * `active_only=false` — pełną historię ze `state` na każdym wierszu.
+ */
 export interface ConflictRow {
   id: number;
   candidate_id: number;
   client_id: number;
-  type: "blacklist" | "current_employment" | "nda" | "competitor";
+  client_name: string | null;
+  type: ConflictType;
+  type_label: string;
   reason: string | null;
   active: boolean;
+  state: ConflictState;
   expires_at: string | null;
   created_by: number | null;
+  created_by_name: string | null;
   created_at: string | null;
+  deactivated_at: string | null;
+  deactivated_by: number | null;
+  deactivated_by_name: string | null;
+  deactivation_reason: string | null;
+}
+
+export interface ConflictRegistryRow extends ConflictRow {
+  /** `null`, gdy kandydat nie ma ani imienia, ani nazwiska. */
+  candidate_name: string | null;
+}
+
+/** Filtr stanu rejestru; `state` nadpisuje `active` po stronie backendu. */
+export type ConflictRegistryStateFilter = ConflictState | "all";
+
+export interface ConflictRegistryParams {
+  /** Ta sama bramka co profil klienta (dziś DL widzi wszystkich klientów). */
+  client_id?: number;
+  candidate_id?: number;
+  type?: ConflictType;
+  /** Domyślnie `true` (tylko aktywne); `false` = wygasłe + nieaktywne. */
+  active?: boolean;
+  /** Nadpisuje `active`. */
+  state?: ConflictRegistryStateFilter;
+  /** 1–365; wymusza stan aktywny i sortuje po `expires_at` rosnąco. */
+  expiring_within_days?: number;
+  /** ≤ 200 znaków. */
+  q?: string;
+  /** 1–200, domyślnie 50. */
+  limit?: number;
+  offset?: number;
+}
+
+export interface ConflictRegistryList {
+  items: ConflictRegistryRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  type_labels: Record<string, string>;
+}
+
+export interface ConflictCreatePayload {
+  client_id: number;
+  type: ConflictType;
+  reason?: string;
+  /** Pełne ISO (koniec dnia lokalnego); wymagane dla `nda`. */
+  expires_at?: string | null;
 }
 
 export const phase5Api = {
@@ -2860,17 +2934,16 @@ export const phase5Api = {
       api.get<ConflictRow[]>(`/api/candidates/${candidateId}/conflicts`, {
         params: { active_only },
       }),
-    create: (
-      candidateId: number,
-      data: {
-        client_id: number;
-        type: "blacklist" | "current_employment" | "nda" | "competitor";
-        reason?: string;
-        expires_at?: string;
-      },
-    ) => api.post<ConflictRow>(`/api/candidates/${candidateId}/conflicts`, data),
-    deactivate: (conflictId: number) =>
-      api.patch(`/api/conflicts/${conflictId}/deactivate`),
+    create: (candidateId: number, data: ConflictCreatePayload) =>
+      api.post<ConflictRow>(`/api/candidates/${candidateId}/conflicts`, data),
+    /** `reason` — min. 3 znaki po przycięciu (inaczej 422); drugi raz → 409. */
+    deactivate: (conflictId: number, data: { reason: string }) =>
+      api.patch<ConflictRow & { ok: true }>(
+        `/api/conflicts/${conflictId}/deactivate`,
+        data,
+      ),
+    registry: (params: ConflictRegistryParams = {}) =>
+      api.get<ConflictRegistryList>("/api/conflicts", { params }),
   },
 };
 
@@ -3522,6 +3595,8 @@ export interface HistoricalCandidate {
   same_client: boolean;
   /** Ten sam klient go wcześniej odrzucił — mocne ostrzeżenie, poza select-all. */
   rejected_by_same_client: boolean;
+  /** Konflikt z klientem / obecne zatrudnienie / weto HM — patrz `MatchEligibility`. */
+  eligibility?: MatchEligibility | null;
 }
 
 export interface HistoricalSimilarJob {

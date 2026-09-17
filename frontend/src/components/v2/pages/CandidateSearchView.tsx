@@ -12,6 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  AlertCircle,
   ArrowLeft,
   Bookmark,
   ChevronDown,
@@ -60,6 +61,7 @@ import {
   type MatchBreakdown,
 } from "@/lib/match-breakdown";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { eligibilityBadgeClass } from "@/lib/conflicts";
 import {
   SEARCH_REQUEST_URL_PARAM,
   decodeSearchRequest,
@@ -1227,6 +1229,11 @@ function CandidateSearchRow({
     .filter((s): s is string => Boolean(s))
     .slice(0, 6);
   const formattedLocation = formatCandidateLocation(item.location);
+  // `eligibility` przychodzi tylko w kontekście rekrutacji (`exclude_in_job_id`).
+  // Konflikt z klientem (czarna lista klienta / NDA / konkurent) od 17.09.2026
+  // jest ostrzeżeniem; zaznaczyć NIE da się wyłącznie przy wecie HM.
+  const eligibility = item.eligibility ?? null;
+  const assignBlocked = eligibility?.assignment_allowed === false;
 
   return (
     <li ref={rowRef} className="p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
@@ -1234,10 +1241,12 @@ function CandidateSearchRow({
       {selectable && (
         <input
           type="checkbox"
-          checked={selected}
+          checked={selected && !assignBlocked}
           onChange={onToggleSelect}
+          disabled={assignBlocked}
+          title={assignBlocked ? eligibility?.reason : undefined}
           aria-label={`Zaznacz ${item.name} ${item.lastname}`}
-          className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-ring"
+          className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
         />
       )}
       {typeof score === "number" && (
@@ -1307,6 +1316,16 @@ function CandidateSearchRow({
             <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
               Champion
             </Badge>
+          )}
+          {eligibility && (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${eligibilityBadgeClass(eligibility)}`}
+              title={eligibility.reason}
+              data-testid={`search-eligibility-${item.id}`}
+            >
+              <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
+              {eligibility.reason}
+            </span>
           )}
           {item.years_it_experience !== null && (
             <span className="text-xs text-zinc-500 dark:text-zinc-400">

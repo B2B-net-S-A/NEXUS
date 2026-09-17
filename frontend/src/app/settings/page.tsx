@@ -32,6 +32,7 @@ import {
   Network,
   MessageSquare,
   History,
+  AlertOctagon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -68,6 +69,14 @@ const AdminUsersTab = dynamic(
 
 const EventHistoryTab = dynamic(
   () => import("@/components/settings/EventHistoryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+
+const ConflictsRegistryTab = dynamic(
+  () => import("@/components/settings/ConflictsRegistryTab"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
@@ -125,12 +134,21 @@ const TABS: TabConfig[] = [
     // Backend wymaga sekcji Finanse (F02) — zakładka bez niej kończyłaby się 403.
     section: "finance",
   },
+  // Rejestr konfliktów kandydat↔klient. Backend (`GET /api/conflicts`) wymaga
+  // odczytu kandydatów; sekcja Sourcing jest bramką tej samej powierzchni.
+  {
+    id: "konflikty",
+    label: "Konflikty",
+    icon: <AlertOctagon className="w-4 h-4" />,
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "sourcing",
+  },
   { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
   { id: "pomoc", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
 ];
 
 // Taby które wymagają szerszego kontenera (tabele, dnd, grid).
-const WIDE_TABS: Tab[] = ["procesy", "administracja", "historia"];
+const WIDE_TABS: Tab[] = ["procesy", "administracja", "historia", "konflikty"];
 
 // Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
 const ADVANCED_LINKS: Array<{
@@ -585,6 +603,8 @@ export default function SettingsPage() {
       {visibleActiveTab === "administracja" && <AdminUsersTab />}
 
       {visibleActiveTab === "historia" && <EventHistoryTab />}
+
+      {visibleActiveTab === "konflikty" && <ConflictsRegistryTab />}
 
       {visibleActiveTab === "zaawansowane" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

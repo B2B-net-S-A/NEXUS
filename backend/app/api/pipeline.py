@@ -572,10 +572,12 @@ async def move_candidate(
         )
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
-    # enforce (global blacklist / active client blacklist·NDA·competitor) →
-    # 409 with the Polish reason. Skipped for terminal REMOVAL moves so a
-    # blacklisted/conflicted candidate can always be closed OUT (rejected /
-    # withdrawn); a forward or `hired` move of such a candidate is blocked.
+    # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
+    # reason. Client conflicts (blacklist / NDA / competitor) are warnings
+    # since 17.09.2026 and never block a move. Skipped for terminal REMOVAL
+    # moves so a blacklisted/vetoed candidate can always be closed OUT
+    # (rejected / withdrawn); a forward or `hired` move of such a candidate
+    # is blocked.
     is_removal_move = legacy_enum in (
         PipelineStage.rejected,
         PipelineStage.withdrawn,
@@ -2285,8 +2287,9 @@ async def bulk_move_candidates(
     # P1-PIPE-01: eligibility gate ── bulk-move only ever targets non-terminal
     # stages (terminal/verified/hired 422 above), so every candidate is a
     # forward move and the hard block applies to all. Fail-closed: any
-    # blacklisted / client-conflicted candidate rejects the batch (409),
-    # identical to the single /move contract.
+    # globally blacklisted / hiring-manager-vetoed candidate rejects the batch
+    # (409), identical to the single /move contract. Client conflicts are
+    # warnings since 17.09.2026 and do not stop the batch.
     await assert_candidates_move_eligible(
         db,
         candidate_ids=unique_ids,

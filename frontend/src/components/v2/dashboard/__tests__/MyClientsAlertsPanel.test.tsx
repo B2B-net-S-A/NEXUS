@@ -207,6 +207,9 @@ describe("MyClientsAlertsPanel", () => {
     expect(cardPill(card({ priority: "high", days_left: 7 }))).toBe("7 dni — pilne")
     expect(cardPill(card({ days_left: 23 }))).toBe("23 dni")
     expect(
+      cardPill(card({ alert_type: "candidate_conflict_expired", days_left: null })),
+    ).toBe("Wygasł")
+    expect(
       cardPill(card({ alert_type: "md_budget_low", days_left: null })),
     ).toBe("Mało MD")
     expect(cardMeta(card({ email_sent: true }))).toBe(
@@ -217,5 +220,8 @@ describe("MyClientsAlertsPanel", () => {
     )
     expect(cardMeta(card())).toBe("Pierwsze przypomnienie · kolejne za 7 dni")
     expect(cardCta(card({ alert_type: "contract_ending" }))).toBe("Przejdź do kontraktu")
+    expect(cardCta(card({ alert_type: "candidate_conflict_expired" }))).toBe(
+      "Przejdź do kandydata",
+    )
   })
 })

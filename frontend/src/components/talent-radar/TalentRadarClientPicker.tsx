@@ -5,8 +5,9 @@
  * odznaczenia.
  *
  * Brak klienta znaczy tu „nie wolno szukać": filtr dopuszczalności sprawdza
- * względem niego blacklistę, NDA, konflikty konkurencyjne i weto hiring
- * managera, a backend odrzuca żądanie bez `client_id`. Zaproszenie do wyboru,
+ * względem niego weto hiring managera i oznacza konflikty z klientem
+ * (czarna lista klienta, NDA, konkurent — od 17.09.2026 ostrzeżenia, nie
+ * blokady), a backend odrzuca żądanie bez `client_id`. Zaproszenie do wyboru,
  * który z definicji nie może zadziałać, jest gorsze niż brak podpowiedzi.
  *
  * Trzon mieszka w `ClientSinglePicker` (dzielony z generatorem CV); tutaj

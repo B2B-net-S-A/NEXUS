@@ -13,6 +13,7 @@ export type SettingsTab =
   | "procesy"
   | "administracja"
   | "historia"
+  | "konflikty"
   | "zaawansowane"
   | "pomoc";
 
@@ -23,6 +24,7 @@ export const SETTINGS_TAB_KEYS: readonly SettingsTab[] = [
   "procesy",
   "administracja",
   "historia",
+  "konflikty",
   "zaawansowane",
   "pomoc",
 ] as const;
