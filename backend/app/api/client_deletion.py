@@ -21,11 +21,11 @@ kto nie widzi klientów, nie ma czego usuwać.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_onboarded_user
@@ -98,7 +98,12 @@ _REFUSAL_DEDUP_WINDOW = timedelta(minutes=10)
 
 
 async def _recently_refused(db: AsyncSession, *, actor_id: int, client_id: int) -> bool:
-    since = datetime.now(timezone.utc) - _REFUSAL_DEDUP_WINDOW
+    # Okno liczone zegarem BAZY, nie procesu: `occurred_at` stawia
+    # `server_default=func.now()`, więc porównanie z `datetime.now()` zestawia
+    # dwa różne zegary. Rozjazd między nimi (zawieszony kontener, przesunięty
+    # zegar w testach, replika z opóźnieniem) zamienia dedup w loterię —
+    # przy rozjeździe większym niż okno każda odmowa ląduje w dzienniku od nowa.
+    since = func.now() - _REFUSAL_DEDUP_WINDOW
     existing = await db.scalar(
         select(CriticalEvent.id)
         .where(

@@ -20,11 +20,71 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from datetime import date, datetime, time
 from typing import AsyncIterator
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
+import time_machine
 from httpx import ASGITransport, AsyncClient
+
+from app.core.scheduling import DEFAULT_TZ, business_today
+
+
+# ── Zegar: doba nie może zmienić się w środku biegu ─────────────────────────
+# 16.09.2026 shard CI padł na `test_order_line_roster.py`, choć PR nie dotykał
+# zamówień. Mechanizm: moduły testowe liczą `_TODAY = business_today()` RAZ,
+# przy imporcie, a kod produkcyjny woła `business_today()` przy każdym
+# wywołaniu. Shard trwał 14m56s i przekroczył północ warszawską, więc wpis
+# z końcem „dziś" stał się wpisem z końcem „wczoraj" i wypadł z aktywnej obsady.
+#
+# Poprawianie tego plik po pliku nie jest naprawą: `grep` znajduje 28 modułów
+# liczących datę z zegara przy imporcie, a każdy kolejny dopisany test wnosi ten
+# sam błąd od nowa. Dlatego zegar jest przypinany TUTAJ, dla całej sesji.
+#
+# Fixture jest no-opem przez ~23 godziny na dobę: przypięcie włącza się dopiero
+# wtedy, gdy zegar faktycznie przeskoczył na inny dzień niż ten, który widziały
+# importy. Bieg rozpoczęty i skończony tego samego dnia nie odczuwa go wcale.
+#
+# 23:59, czyli tuż przed północą: baza ma własny zegar (`now()` Postgresa),
+# którego przypiąć się nie da, więc każda minuta cofnięcia to minuta rozjazdu
+# między czasem Pythona a znacznikami wierszy. Kod liczący okna („to samo
+# zdarzenie w ciągu 10 minut") łamie się na tym rozjeździe — zmierzone na
+# `test_client_deletion`: cofnięcie o godzinę wywraca dedup, cofnięcie o minuty
+# nie. Im bliżej północy, tym mniejszy rozjazd; dalej niż do 23:59 cofać się nie
+# opłaca, bo cały zysk to i tak pozostanie w tym samym dniu.
+_SESSION_DAY = business_today()
+_PINNED_HOUR = 23
+_PINNED_MINUTE = 59
+
+
+def pinned_moment(session_day: date, current_day: date) -> datetime | None:
+    """Moment, na który przypiąć zegar, albo ``None`` gdy nie ma czego naprawiać.
+
+    Wydzielone z fixture'a, żeby dało się to sprawdzić testem bez udawania
+    północy w prawdziwym zegarze procesu.
+    """
+    if current_day == session_day:
+        return None
+    return datetime.combine(
+        session_day, time(_PINNED_HOUR, _PINNED_MINUTE), tzinfo=ZoneInfo(DEFAULT_TZ)
+    )
+
+
+@pytest.fixture(autouse=True)
+def _pin_business_day():
+    """Trzymaj „dzisiaj" na dniu, z którego pochodzą stałe modułów testowych."""
+    pinned = pinned_moment(_SESSION_DAY, business_today())
+    if pinned is None:
+        yield _SESSION_DAY
+        return
+    # tick=False, bo przy 23:59 płynący zegar przekroczyłby północ po minucie —
+    # czyli dokładnie to, przed czym to przypięcie broni. Zamrożenie zmierzono na
+    # 394 testach (próba kontrolna: zegar ruszony, data ta sama): zero padów, więc
+    # nic w tej suicie nie zależy od upływu czasu po stronie Pythona.
+    with time_machine.travel(pinned, tick=False):
+        yield _SESSION_DAY
 
 
 # ── Legacy user-fixture compatibility after the role cutover ────────────────
