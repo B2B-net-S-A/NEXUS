@@ -126,6 +126,11 @@ interface OrderRef {
   order_number: string;
 }
 
+/**
+ * Wejście = osoba zaczynająca z nami współpracę po raz pierwszy. Kontynuacja,
+ * zmiana klienta i dodatkowy projekt idą do Zmian — dlatego nie ma tu pól
+ * `is_continuation` / `additional_project`.
+ */
 export interface OrderEntryItem extends OrderRef {
   start_date: string | null;
   end_date: string | null;
@@ -135,17 +140,10 @@ export interface OrderEntryItem extends OrderRef {
   currency: string | null;
   order_type: OrderTypeCode;
   status: string;
-  is_continuation: boolean;
-  previous_order_number: string | null;
-  previous_end_date: string | null;
-  additional_project: boolean;
 }
 
-export type OrderExitVerdict =
-  | "continuation"
-  | "ended_intent"
-  | "no_successor"
-  | "ending_pending";
+/** Bez „continuation": osoba pracująca dalej nie jest zejściem. */
+export type OrderExitVerdict = "ended_intent" | "no_successor" | "ending_pending";
 
 export interface OrderExitItem extends OrderRef {
   end_date: string;
@@ -157,8 +155,6 @@ export interface OrderExitItem extends OrderRef {
   order_type: OrderTypeCode;
   verdict: OrderExitVerdict;
   verdict_label: string;
-  successor_order_number: string | null;
-  successor_start_date: string | null;
   intent: string | null;
 }
 
@@ -166,7 +162,9 @@ export type OrderChangeKind =
   | "rate_cost"
   | "rate_revenue"
   | "end_date"
-  | "additional_project";
+  | "additional_project"
+  | "order_continuation"
+  | "client_change";
 
 export interface OrderChangeItem extends OrderRef {
   kind: OrderChangeKind;
@@ -186,6 +184,10 @@ export interface OrderChangeItem extends OrderRef {
   rate_revenue: number | null;
   rate_unit: RateUnitCode | null;
   other_client_names: string[];
+  previous_order_number: string | null;
+  previous_end_date: string | null;
+  previous_client_name: string | null;
+  start_date: string | null;
 }
 
 export interface OrderGapItem extends OrderRef {
@@ -210,8 +212,41 @@ export interface OrderChangesResponse {
   open_gaps_total: number;
 }
 
-export function orderChangesExportPath(year: number, month: number): string {
-  return `/api/finance/order-changes/export?year=${year}&month=${month}`;
+export type OrderChangesTab = "changes" | "entries" | "exits" | "gaps";
+
+/** Filtry widoku. Serwer liczy je raz — dla ekranu i dla eksportu. */
+export interface OrderChangesFilters {
+  q?: string;
+  client_id?: number | null;
+  date_from?: string | null;
+  date_to?: string | null;
+}
+
+function orderChangesQuery(filters: OrderChangesFilters): string {
+  const params = new URLSearchParams();
+  if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.client_id != null) params.set("client_id", String(filters.client_id));
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
+  const query = params.toString();
+  return query ? `&${query}` : "";
+}
+
+/**
+ * Eksport JEDNEJ podzakładki z aktywnymi filtrami — plik ma zawierać dokładnie
+ * to, co widać na ekranie. Bez `tab` serwer zwraca cały audyt (cztery arkusze).
+ */
+export function orderChangesExportPath(
+  year: number,
+  month: number,
+  options: OrderChangesFilters & { tab?: OrderChangesTab } = {},
+): string {
+  const tab = options.tab ? `&tab=${options.tab}` : "";
+  return (
+    `/api/finance/order-changes/export?year=${year}&month=${month}` +
+    tab +
+    orderChangesQuery(options)
+  );
 }
 
 export const financeApi = {
@@ -254,6 +289,7 @@ export const financeApi = {
   restoreImport: (runId: number) =>
     api.post<FinanceImportRun>(`/api/finance/imports/${runId}/restore`),
 
-  getOrderChanges: (params: { year: number; month: number }) =>
-    api.get<OrderChangesResponse>("/api/finance/order-changes", { params }),
+  getOrderChanges: (
+    params: { year: number; month: number } & OrderChangesFilters,
+  ) => api.get<OrderChangesResponse>("/api/finance/order-changes", { params }),
 };

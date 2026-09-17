@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -18,6 +18,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,6 +127,13 @@ from app.services.contract_order_sync import (
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
+)
+from app.services.contract_candidate_contact import (
+    email_too_long,
+    normalize_email,
+    normalize_phone,
+    phone_too_long,
+    resolve_for_contract as resolve_candidate_contact,
 )
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
@@ -809,8 +817,45 @@ async def _inherit_rates_into_unpriced_order_drafts(
     return len(drafts)
 
 
+def _normalize_candidate_contact_updates(updates: dict) -> None:
+    """Sprowadź kontakt konsultanta do postaci zapisywalnej — w miejscu.
+
+    Pusty string i same białe znaki stają się ``NULL``, więc „wyczyściłem pole"
+    znaczy „wróć do profilu kandydata", a nie „zablokuj profil pustką". E-mail
+    idzie małymi literami (jak `dedup_service._normalize_email`), telefon
+    wyłącznie przycięty — prefiks i format zostają takie, jak je wpisano.
+
+    Za długa wartość jest ODRZUCANA, nie przycinana: przycięty numer telefonu
+    wygląda na poprawny i nie da się go odróżnić od literówki.
+    """
+
+    if "candidate_email" in updates:
+        value = normalize_email(updates["candidate_email"])
+        if email_too_long(value):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "candidate_email_too_long",
+                    "message": "E-mail kandydata może mieć najwyżej 255 znaków.",
+                },
+            )
+        updates["candidate_email"] = value
+    if "candidate_phone" in updates:
+        value = normalize_phone(updates["candidate_phone"])
+        if phone_too_long(value):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "candidate_phone_too_long",
+                    "message": "Telefon kandydata może mieć najwyżej 30 znaków.",
+                },
+            )
+        updates["candidate_phone"] = value
+
+
 def _to_detail(contract: Contract) -> ContractDetailResponse:
     """Serialize a Contract (with eager-loaded relations) to the detail schema."""
+    contact = resolve_candidate_contact(contract)
     data = {
         "id": contract.id,
         "candidate_id": contract.candidate_id,
@@ -837,6 +882,15 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "contract_type": contract.contract_type,
         "status": contract.status,
         "documents": contract.documents,
+        # Kontakt do konsultanta: zapisane nadpisanie + wartość po fallbacku do
+        # profilu + źródło. Czyta `contract.candidate`, które ta ścieżka ma
+        # eager-loadowane (GET, PATCH); resolver nie dotyka innych relacji.
+        "candidate_email": contract.candidate_email,
+        "candidate_phone": contract.candidate_phone,
+        "candidate_email_effective": contact.email,
+        "candidate_phone_effective": contact.phone,
+        "candidate_email_source": contact.email_source,
+        "candidate_phone_source": contact.phone_source,
         "client_pm_name": contract.client_pm_name,
         "client_pm_email": contract.client_pm_email,
         "line_manager": contract.line_manager,
@@ -1973,6 +2027,100 @@ async def contract_order_sync_report(
     )
 
 
+@router.get("/candidate-contact-report")
+async def contract_candidate_contact_report(
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Braki kontaktu do konsultanta po jednorazowej korekcie 0316 (XLSX).
+
+    „Brak" liczy ta sama reguła, co karta kontraktu: wiersz trafia do arkusza
+    dopiero wtedy, gdy ANI umowa, ANI profil kandydata nie mają e-maila lub
+    telefonu. Zapytanie o samą pustą kolumnę wysyłałoby zespół do przepisywania
+    danych, które i tak widać na ekranie.
+
+    Bez przycisku w interfejsie — jak ``order-sync-report``: raport jest
+    jednorazowy, a lista nazwisk konsultantów wszystkich klientów to widok
+    administratora.
+    """
+    from app.models.app_setting import AppSetting
+    from app.services.contract_candidate_contact_backfill import REPAIR_MARKER
+    from app.services.contract_candidate_contact_report import (
+        build_gap_workbook,
+        gap_row,
+    )
+
+    receipt = await db.get(AppSetting, REPAIR_MARKER)
+    if receipt is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Jednorazowa korekta kontaktu jeszcze się nie wykonała — "
+                "lista braków byłaby liczona przed przepisaniem danych "
+                "z generatora."
+            ),
+        )
+
+    # `void` poza raportem: unieważnionej umowy nikt nie uzupełnia.
+    contracts = (
+        (
+            await db.execute(
+                select(Contract)
+                .where(Contract.status != ContractStatus.void)
+                .options(
+                    selectinload(Contract.candidate),
+                    selectinload(Contract.client),
+                    selectinload(Contract.job),
+                )
+                .order_by(Contract.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rows: list[list[Any]] = []
+    for contract in contracts:
+        contact = resolve_candidate_contact(contract)
+        missing_email = contact.email is None
+        missing_phone = contact.phone is None
+        if not (missing_email or missing_phone):
+            continue
+        candidate = contract.candidate
+        rows.append(
+            gap_row(
+                contract_id=contract.id,
+                candidate_name=(
+                    f"{candidate.name} {candidate.lastname}" if candidate else None
+                ),
+                client_name=(
+                    client_display_name(contract.client) if contract.client else None
+                ),
+                job_title=contract.job.title if contract.job else None,
+                status=getattr(contract.status, "value", str(contract.status)),
+                contract_type=getattr(
+                    contract.contract_type, "value", str(contract.contract_type)
+                ),
+                start_date=contract.start_date,
+                end_date=contract.end_date,
+                missing_email=missing_email,
+                missing_phone=missing_phone,
+            )
+        )
+
+    content = await run_in_threadpool(
+        build_gap_workbook, receipt=receipt.value or {}, rows=rows
+    )
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"braki-kontaktu-konsultantow_{ts}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
     current_user: ContractReadUser,
@@ -2807,6 +2955,7 @@ async def update_contract(
         validate_ready_for_activation(contract)
     )
     updates = data.model_dump(exclude_unset=True)
+    _normalize_candidate_contact_updates(updates)
     _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
