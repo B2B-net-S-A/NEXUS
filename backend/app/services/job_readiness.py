@@ -27,29 +27,50 @@ from app.services.dealbreaker_filters import (
     resolve_effective_remote_policy,
 )
 
-# Champion-draft validation codes that only restate, in different wording, a
-# gap `job_readiness_blockers`/`job_rubric_blockers` already lists. Kept in
-# `job_handoff_blockers` below, they would give the Delivery Lead the same
-# missing field twice — once as a brief/rubric sentence, once as a Champion
-# issue — with no visible link between the two. Every other validation code
-# (`column_conflict`, `skill_column_conflict`, `unresolved_value`,
-# `ineligible_must`, `conflicting_office_days`, `ambiguous_office`,
-# `conflicting_priority`, `review_alternatives`, `date_order`, ...) is a real
-# addition neither gate above can see, and stays.
-_MIRRORED_VALIDATION_CODES = frozenset(
-    {
-        "missing_role",
-        "missing_client",
-        "missing_context",
-        "missing_questions",
-        "missing_requirements",
-        "missing_must",
-        "missing_budget",
-        "missing_work_mode",
-        "missing_office_days",
-        "missing_office_city",
-    }
+# Komunikaty bramek — jedna definicja, bo ten sam tekst jest kontraktem
+# ``JobHandoffButton`` i testów ORAZ kluczem odduplikowania niżej.
+MSG_TITLE = "Uzupełnij tytuł rekrutacji."
+MSG_CLIENT = "Przypisz klienta do rekrutacji."
+MSG_CONTEXT = (
+    "Uzupełnij kontekst projektu (o projekcie / obowiązki) w Profilu Championa."
 )
+MSG_QUESTIONS = "Dodaj co najmniej 2 pytania screeningowe w Profilu Championa."
+MSG_MUST = (
+    "Dodaj co najmniej jedną technologię must-have (pole oferty lub "
+    "sekcja „Stack technologiczny” w Profilu Championa)."
+)
+MSG_BUDGET = (
+    "Uzupełnij budżet stawki kandydata w PLN/h (pole oferty lub "
+    "stawka w Profilu Championa)."
+)
+MSG_WORK_MODE = "Określ tryb pracy: zdalnie, hybrydowo albo stacjonarnie."
+MSG_OFFICE_DAYS = "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjonarny)."
+MSG_OFFICE_CITY = (
+    "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny)."
+)
+
+# Kod walidacji Championa → zdanie bramki briefu/rubryki, które opisuje TEN SAM
+# brak. Issue Championa znika z listy handoffu WYŁĄCZNIE wtedy, gdy to zdanie
+# faktycznie jest na liście — inaczej DL widziałby ten sam brak dwa razy,
+# raz słowami bramki, raz słowami Championa. Gdy bramki się rozjeżdżają (np.
+# hybryda z zerem dni: rubryka uznaje zero za znaną wartość, walidacja nie),
+# issue ZOSTAJE: pusta lista braków przy przycisku, który po kliknięciu
+# i tak dostałby 422 z ``enforce_operation``, byłaby kłamstwem.
+# Każdy inny kod (``column_conflict``, ``skill_column_conflict``,
+# ``unresolved_value``, ``ineligible_must``, ``conflicting_office_days``,
+# ``ambiguous_office``, ...) jest realnym dodatkiem i zostaje zawsze.
+_MIRRORED_VALIDATION_CODES: dict[str, str] = {
+    "missing_role": MSG_TITLE,
+    "missing_client": MSG_CLIENT,
+    "missing_context": MSG_CONTEXT,
+    "missing_questions": MSG_QUESTIONS,
+    "missing_requirements": MSG_MUST,
+    "missing_must": MSG_MUST,
+    "missing_budget": MSG_BUDGET,
+    "missing_work_mode": MSG_WORK_MODE,
+    "missing_office_days": MSG_OFFICE_DAYS,
+    "missing_office_city": MSG_OFFICE_CITY,
+}
 
 
 def job_readiness_blockers(job: Job) -> list[str]:
@@ -67,9 +88,9 @@ def job_readiness_blockers(job: Job) -> list[str]:
     """
     blockers: list[str] = []
     if not (job.title or "").strip():
-        blockers.append("Uzupełnij tytuł rekrutacji.")
+        blockers.append(MSG_TITLE)
     if job.client_id is None:
-        blockers.append("Przypisz klienta do rekrutacji.")
+        blockers.append(MSG_CLIENT)
 
     cp = job.champion_profile if isinstance(job.champion_profile, dict) else {}
     pc = champion_view.project(cp)
@@ -77,9 +98,7 @@ def job_readiness_blockers(job: Job) -> list[str]:
         pc.get("responsibilities")
     )
     if not has_context:
-        blockers.append(
-            "Uzupełnij kontekst projektu (o projekcie / obowiązki) w Profilu Championa."
-        )
+        blockers.append(MSG_CONTEXT)
 
     questions = cp.get("screening_questions")
     questions = questions if isinstance(questions, list) else []
@@ -89,7 +108,7 @@ def job_readiness_blockers(job: Job) -> list[str]:
         if isinstance(q, dict) and (q.get("question") or "").strip()
     ]
     if len(valid_questions) < 2:
-        blockers.append("Dodaj co najmniej 2 pytania screeningowe w Profilu Championa.")
+        blockers.append(MSG_QUESTIONS)
 
     return blockers
 
@@ -119,26 +138,16 @@ def job_rubric_blockers(job: Job) -> list[str]:
     # odsyłać go po „technologię”, którą już wpisał zdaniem (patrz
     # `gate_eligible_must_skills`).
     if not (inputs.must_skills or inputs.must_skills_ignored):
-        blockers.append(
-            "Dodaj co najmniej jedną technologię must-have (pole oferty lub "
-            "sekcja „Stack technologiczny” w Profilu Championa)."
-        )
+        blockers.append(MSG_MUST)
     if inputs.budget_hourly is None:
-        blockers.append(
-            "Uzupełnij budżet stawki kandydata w PLN/h (pole oferty lub "
-            "stawka w Profilu Championa)."
-        )
+        blockers.append(MSG_BUDGET)
     if policy is None:
-        blockers.append("Określ tryb pracy: zdalnie, hybrydowo albo stacjonarnie.")
+        blockers.append(MSG_WORK_MODE)
     elif policy in ("onsite", "hybrid"):
         if inputs.onsite_days_per_week is None:
-            blockers.append(
-                "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjonarny)."
-            )
+            blockers.append(MSG_OFFICE_DAYS)
         if not inputs.office_tokens:
-            blockers.append(
-                "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny)."
-            )
+            blockers.append(MSG_OFFICE_CITY)
 
     return blockers
 
@@ -151,20 +160,17 @@ def job_handoff_blockers(job: Job) -> list[str]:
 
     Czwarty składnik dokłada braki widoczne WYŁĄCZNIE w Profilu Championa
     (``column_conflict``, ``skill_column_conflict``, ``unresolved_value``,
-    ...) — ale pomija kody z ``_MIRRORED_VALIDATION_CODES``, bo te same braki
-    (rola, klient, kontekst, pytania, must-have, budżet, tryb pracy, dni/miasto
-    biura) są już w liście wyżej, w brzmieniu dla Delivery Leada.
+    ...) — ale pomija issue, którego brak (``_MIRRORED_VALIDATION_CODES``)
+    lista wyżej JUŻ nazywa swoim zdaniem. Rozjazd bramek zostaje widoczny.
     """
     from app.services.champion_intake import validation
 
     issues = validation(job.champion_profile, job)["issues"]
-    return (
-        job_readiness_blockers(job)
-        + job_rubric_blockers(job)
-        + [
-            issue["message"]
-            for issue in issues
-            if "handoff" in issue["blocked_operations"]
-            and issue["code"] not in _MIRRORED_VALIDATION_CODES
-        ]
-    )
+    gate = job_readiness_blockers(job) + job_rubric_blockers(job)
+    listed = set(gate)
+    return gate + [
+        issue["message"]
+        for issue in issues
+        if "handoff" in issue["blocked_operations"]
+        and _MIRRORED_VALIDATION_CODES.get(issue["code"]) not in listed
+    ]

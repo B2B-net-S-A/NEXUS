@@ -103,7 +103,9 @@ def test_missing_budget_blocks_and_champion_rate_fills_it_only_when_flag_on(
     champion = {**_READY_CHAMPION, "basics": {"rate_value": 180}}
     job = _job(rate_budget_hourly=None, champion_profile=champion)
 
-    monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False, raising=False)
+    monkeypatch.setattr(
+        settings, "CHAMPION_MATCH_SIGNALS_ENABLED", False, raising=False
+    )
     assert _BUDGET_MSG in job_handoff_blockers(job)
 
     monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True, raising=False)
@@ -178,9 +180,7 @@ def test_existing_champion_blockers_still_come_first():
         remote_policy=None,
     )
     blockers = job_handoff_blockers(job)
-    context_idx = next(
-        i for i, b in enumerate(blockers) if "kontekst projektu" in b
-    )
+    context_idx = next(i for i, b in enumerate(blockers) if "kontekst projektu" in b)
     questions_idx = next(
         i for i, b in enumerate(blockers) if "pytania screeningowe" in b
     )
@@ -257,3 +257,28 @@ def test_handoff_list_keeps_validation_gaps_the_rubrics_cannot_see(monkeypatch):
     blockers = job_handoff_blockers(job)
 
     assert "Profil i pola rekrutacji mają różne wartości. Uzgodnij je." in blockers
+
+
+def test_handoff_list_keeps_a_champion_gap_the_rubric_does_not_name(monkeypatch):
+    """Rozjazd bramek zostaje widoczny: hybryda z ZEREM dni to dla rubryki znana
+    wartość (brak blokera), a dla walidacji Championa brak dodatniej liczby dni.
+    Issue nie może zniknąć tylko dlatego, że jego kod jest „lustrzany" — pusta
+    lista braków przy przycisku, który po kliknięciu dostaje 422 z
+    ``enforce_operation``, byłaby kłamstwem."""
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    champion = {
+        **_READY_CHAMPION,
+        "stack": {"must": [{"name": "Python"}], "nice": []},
+        "intake": {"policy_version": 1},
+    }
+    job = _job(
+        champion_profile=champion,
+        remote_policy="hybrid",
+        onsite_days_per_week=0,
+        location="Warszawa",
+    )
+
+    blockers = job_handoff_blockers(job)
+
+    assert _DAYS_MSG not in blockers
+    assert "Dla obecności w biurze podaj dodatnią liczbę dni." in blockers
