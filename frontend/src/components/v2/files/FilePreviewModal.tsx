@@ -12,7 +12,13 @@
  * backendu), więc bez problemów CORS z bucketem Hetzner Object Storage.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -31,6 +37,20 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
+import {
+  activateDocumentMatch,
+  hasSearchableText,
+  highlightDocumentMatches,
+} from "@/lib/document-text-search";
+import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
+import {
+  DocumentSearchBar,
+  EMPTY_FIND_RESULT,
+  keepDialogOpenOnDocumentSearchEscape,
+  type DocumentFindResult,
+  type DocumentTextAvailability,
+} from "./DocumentSearchBar";
+import { SearchablePdfPreview, useDebouncedValue } from "./SearchablePdfPreview";
 
 export interface CandidateDocument {
   id: number;
@@ -148,32 +168,64 @@ export async function downloadDocumentBlob(
 // fallbackami loading/error/unsupported. Współdzielone przez `FilePreviewModal`
 // (w dialogu) i podglądy inline (np. widok CV w pipelinie). Wypełnia rodzica —
 // osadź w kontenerze z wysokością (flex-child z min-h-0 albo box o stałej h).
+//
+// Nad dokumentem stoi pasek „Szukaj w CV” (09.2026): PDF przeszukuje pdf.js
+// (`SearchablePdfPreview`, pasek ma własny), DOCX — `highlightDocumentMatches`
+// po wyrenderowanym HTML-u. Ctrl+F trafia w to pole zamiast w wyszukiwarkę przeglądarki
+// (`findShortcutScope`: w oknie zawsze, osadzony w stronie — gdy kursor albo
+// fokus jest w podglądzie).
 export function FilePreviewContent({
   doc,
   candidateId,
   onDownload,
   className,
-  hidePdfSidebar = false,
+  hidePdfSidebar: _hidePdfSidebar = false,
+  findShortcutScope = "container",
+  loadDocumentBlob = fetchDocumentBlob,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
   onDownload: (doc: CandidateDocument) => void;
   className?: string;
-  // Inline CV (widok „Podgląd"): chowamy natywny rail miniatur stron PDF
-  // (#navpanes=0 — to „podgląd z lewej", który zabierał połowę miejsca) i
-  // dopasowujemy stronę do szerokości kolumny (zoom=page-width), żeby CV
-  // wypełniało całą przeznaczoną na nie przestrzeń. Modal (np. wielostronicowe
-  // umowy) korzysta z railu do nawigacji, więc tam zostaje domyślnie widoczny.
+  // Historycznie chowało natywny rail miniatur Chrome (`#navpanes=0`). pdf.js
+  // nie ma railu i zawsze startuje od „dopasuj do szerokości”, więc flaga nie
+  // zmienia już wyglądu — zostaje w API, żeby nie ruszać wywołań.
   hidePdfSidebar?: boolean;
+  findShortcutScope?: "dialog" | "container";
+  // Źródło bajtów — domyślnie proxy backendu. Harness `/preview/cv-search`
+  // podaje pliki statyczne, bo nie może wołać API.
+  loadDocumentBlob?: typeof fetchDocumentBlob;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [docxBlob, setDocxBlob] = useState<Blob | null>(null);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 200);
+  const [availability, setAvailability] =
+    useState<DocumentTextAvailability>("pending");
+  const [findResult, setFindResult] =
+    useState<DocumentFindResult>(EMPTY_FIND_RESULT);
+  const [docxActiveIndex, setDocxActiveIndex] = useState(0);
 
   const kind = doc ? previewKind(doc) : "unsupported";
+  // PDF ma własny pasek w `SearchablePdfPreview`; tu pasek dla DOCX i obrazu
+  // (obraz = brak tekstu, pasek mówi to wprost zamiast milczeć na Ctrl+F).
+  const hasDomSearchBar = kind === "docx" || kind === "image";
+  const searchPlaceholder =
+    doc?.document_kind === "cv" ? "Szukaj w CV" : "Szukaj w dokumencie";
+
+  useDocumentFindShortcut({
+    enabled: hasDomSearchBar && doc != null,
+    scope: findShortcutScope,
+    containerRef: rootRef,
+    inputRef: searchInputRef,
+  });
 
   // Pobranie contentu po zmianie doc.id.
   useEffect(() => {
@@ -181,8 +233,12 @@ export function FilePreviewContent({
     let cancelled = false;
     let createdUrl: string | null = null;
     setStatus("loading");
-    setBlobUrl(null);
+    setImageUrl(null);
+    setPdfBlob(null);
     setDocxBlob(null);
+    setFindResult(EMPTY_FIND_RESULT);
+    // Obraz nie ma warstwy tekstu z definicji.
+    setAvailability(kind === "image" ? "no_text" : "pending");
 
     if (kind === "unsupported") {
       setStatus("ready");
@@ -197,7 +253,7 @@ export function FilePreviewContent({
       let raw: Blob | null = null;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          raw = await fetchDocumentBlob(candidateId, doc.id, "inline");
+          raw = await loadDocumentBlob(candidateId, doc.id, "inline");
           break;
         } catch {
           raw = null;
@@ -215,14 +271,17 @@ export function FilePreviewContent({
       if (kind === "docx") {
         // Render w osobnym efekcie — potrzebuje kontenera DOM.
         setDocxBlob(raw);
+      } else if (kind === "pdf") {
+        // Render i `status: ready` po stronie `SearchablePdfPreview`.
+        setPdfBlob(raw);
       } else {
-        // PDF / obraz — wymuszamy poprawny MIME (Blob default octet-stream
+        // Obraz — wymuszamy poprawny MIME (Blob default octet-stream
         // wymusiłby download zamiast inline renderu).
         const typed = doc.content_type
           ? new Blob([raw], { type: doc.content_type })
           : raw;
         createdUrl = URL.createObjectURL(typed);
-        setBlobUrl(createdUrl);
+        setImageUrl(createdUrl);
         setStatus("ready");
       }
     })();
@@ -231,7 +290,7 @@ export function FilePreviewContent({
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [doc, candidateId, kind]);
+  }, [doc, candidateId, kind, loadDocumentBlob]);
 
   // DOCX render — gdy blob gotowy i host w DOM. docx-preview lazy import,
   // żeby nie obciążać głównego bundla (ładowany tylko przy podglądzie DOCX).
@@ -254,7 +313,9 @@ export function FilePreviewContent({
           breakPages: true,
           useBase64URL: true,
         });
-        if (!cancelled) setStatus("ready");
+        if (cancelled) return;
+        setAvailability(hasSearchableText(host) ? "has_text" : "no_text");
+        setStatus("ready");
       } catch {
         if (!cancelled) setStatus("error");
       }
@@ -265,84 +326,134 @@ export function FilePreviewContent({
     };
   }, [kind, docxBlob]);
 
+  // DOCX: podświetlenie po wyrenderowaniu i przy każdej zmianie zapytania.
+  useEffect(() => {
+    if (kind !== "docx" || status !== "ready") return;
+    const host = docxHostRef.current;
+    if (!host) return;
+    const total = highlightDocumentMatches(host, debouncedQuery);
+    setDocxActiveIndex(0);
+    if (total > 0) activateDocumentMatch(host, 0);
+    setFindResult({ current: total > 0 ? 1 : 0, total, pending: false });
+  }, [kind, status, debouncedQuery, docxBlob]);
+
+  const stepMatch = (previous: boolean) => {
+    const host = docxHostRef.current;
+    if (kind !== "docx" || !host || findResult.total === 0) return;
+    const total = findResult.total;
+    const next = (docxActiveIndex + (previous ? total - 1 : 1)) % total;
+    setDocxActiveIndex(next);
+    activateDocumentMatch(host, next);
+    setFindResult({ current: next + 1, total, pending: false });
+  };
+
   if (!doc) return null;
 
   return (
-    <div className={cn("relative overflow-auto bg-muted/40", className)}>
-      {status === "loading" && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center">
-          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Ładowanie podglądu…
-          </span>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center">
-          <AlertTriangle className="h-8 w-8 text-[hsl(var(--accent-error))]" />
-          <p className="text-sm text-muted-foreground">
-            Nie udało się wyświetlić podglądu tego pliku.
-          </p>
-          <button
-            type="button"
-            onClick={() => onDownload(doc)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
-          >
-            <Download className="h-4 w-4" />
-            Pobierz plik
-          </button>
-        </div>
-      )}
-
-      {kind === "pdf" && blobUrl && (
-        <iframe
-          src={hidePdfSidebar ? `${blobUrl}#navpanes=0&zoom=page-width` : blobUrl}
-          title={doc.filename ?? "PDF"}
-          className="h-full w-full border-0"
-        />
-      )}
-
-      {kind === "image" && blobUrl && (
-        <div className="flex h-full w-full items-center justify-center p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={blobUrl}
-            alt={doc.filename ?? "Podgląd"}
-            className="max-h-full max-w-full object-contain"
+    <div
+      ref={rootRef}
+      className={cn("relative flex flex-col overflow-hidden bg-muted/40", className)}
+    >
+      {hasDomSearchBar && status !== "error" ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
+          <DocumentSearchBar
+            query={query}
+            onQueryChange={setQuery}
+            availability={availability}
+            result={
+              query === debouncedQuery
+                ? findResult
+                : { ...findResult, pending: true }
+            }
+            onNext={() => stepMatch(false)}
+            onPrevious={() => stepMatch(true)}
+            inputRef={searchInputRef}
+            placeholder={searchPlaceholder}
+            className="min-w-0 flex-1"
           />
         </div>
-      )}
+      ) : null}
 
-      {kind === "docx" && (
-        <div ref={docxHostRef} className="docx-preview-host w-full" />
-      )}
+      <div className="relative min-h-0 flex-1 overflow-auto">
+        {status === "loading" && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Ładowanie podglądu…
+            </span>
+          </div>
+        )}
 
-      {kind === "unsupported" && status !== "loading" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-          <FileText className="h-8 w-8 text-muted-foreground" />
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Podgląd nie jest dostępny dla tego formatu
-            {fileTypeLabel(doc.content_type, doc.filename)
-              ? ` (${fileTypeLabel(doc.content_type, doc.filename)})`
-              : ""}. Pobierz plik, aby
-            go otworzyć.
-          </p>
-          <button
-            type="button"
-            onClick={() => onDownload(doc)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
-          >
-            <Download className="h-4 w-4" />
-            Pobierz plik
-          </button>
-        </div>
-      )}
+        {status === "error" && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <AlertTriangle className="h-8 w-8 text-[hsl(var(--accent-error))]" />
+            <p className="text-sm text-muted-foreground">
+              Nie udało się wyświetlić podglądu tego pliku.
+            </p>
+            <button
+              type="button"
+              onClick={() => onDownload(doc)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
+            >
+              <Download className="h-4 w-4" />
+              Pobierz plik
+            </button>
+          </div>
+        )}
+
+        {kind === "pdf" && pdfBlob && status !== "error" && (
+          <SearchablePdfPreview
+            file={pdfBlob}
+            onLoaded={() => setStatus("ready")}
+            onError={() => setStatus("error")}
+            findShortcutScope={findShortcutScope}
+            placeholder={searchPlaceholder}
+            query={query}
+            onQueryChange={setQuery}
+          />
+        )}
+
+        {kind === "image" && imageUrl && (
+          <div className="flex h-full w-full items-center justify-center p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={doc.filename ?? "Podgląd"}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        )}
+
+        {kind === "docx" && (
+          <div ref={docxHostRef} className="docx-preview-host w-full" />
+        )}
+
+        {kind === "unsupported" && status !== "loading" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <FileText className="h-8 w-8 text-muted-foreground" />
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Podgląd nie jest dostępny dla tego formatu
+              {fileTypeLabel(doc.content_type, doc.filename)
+                ? ` (${fileTypeLabel(doc.content_type, doc.filename)})`
+                : ""}. Pobierz plik, aby
+              go otworzyć.
+            </p>
+            <button
+              type="button"
+              onClick={() => onDownload(doc)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
+            >
+              <Download className="h-4 w-4" />
+              Pobierz plik
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// Podgląd pliku in-app (modal). PDF → natywny viewer w <iframe>; DOCX →
+// Podgląd pliku in-app (modal). PDF → pdf.js (z wyszukiwaniem); DOCX →
 // `docx-preview` (lazy import); obraz → <img>; reszta → fallback z pobraniem.
 // Body wydzielone do `FilePreviewContent`, by ten sam podgląd działał inline.
 export function FilePreviewModal({
@@ -352,6 +463,7 @@ export function FilePreviewModal({
   candidateId,
   onClose,
   onDownload,
+  loadDocumentBlob,
 }: {
   doc?: CandidateDocument | null;
   documents?: CandidateDocument[];
@@ -359,6 +471,7 @@ export function FilePreviewModal({
   candidateId: number;
   onClose: () => void;
   onDownload: (doc: CandidateDocument) => void;
+  loadDocumentBlob?: typeof fetchDocumentBlob;
 }) {
   const gallery = useMemo(() => {
     if (documents?.length) {
@@ -396,6 +509,16 @@ export function FilePreviewModal({
   useEffect(() => {
     if (!open || gallery.length <= 1) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // Strzałki w polu „Szukaj w CV” przesuwają kursor w tekście.
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         setActiveIndex((index) => Math.max(0, index - 1));
@@ -413,7 +536,12 @@ export function FilePreviewModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent size="full" className="h-[92vh] p-0 gap-0" hideClose>
+      <DialogContent
+        size="full"
+        className="h-[92vh] p-0 gap-0"
+        hideClose
+        onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
+      >
         <DialogHeader className="flex-row items-center justify-between gap-3 py-3 pr-3">
           <div className="min-w-0">
             <DialogTitle className="truncate text-base font-semibold">
@@ -483,6 +611,8 @@ export function FilePreviewModal({
           candidateId={candidateId}
           onDownload={onDownload}
           className="flex-1 min-h-0"
+          findShortcutScope="dialog"
+          loadDocumentBlob={loadDocumentBlob}
         />
       </DialogContent>
     </Dialog>
