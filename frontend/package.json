@@ -51,6 +51,7 @@
     "dompurify": "^3.4.15",
     "lucide-react": "^0.469.0",
     "next": "^15.5.24",
+    "pdfjs-dist": "6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-hook-form": "^7.88.0",

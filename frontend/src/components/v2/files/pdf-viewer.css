@@ -1,0 +1,200 @@
+/*
+ * Minimalny wycinek `pdfjs-dist/web/pdf_viewer.css` (266 KB — edytory adnotacji,
+ * tryb prezentacji, paski narzędzi, których nie używamy). Zostają wyłącznie:
+ * układ stron, płótno i warstwa tekstu z podświetleniem trafień wyszukiwania.
+ * Zgodne z pdfjs-dist 6.3.289. Przy podbijaniu wersji porównaj te reguły z oryginałem
+ * (sekcje `.pdfViewer`, `.pdfViewer .page`, `.canvasWrapper`, `.textLayer`).
+ */
+
+.pdfViewer {
+  --scale-factor: 1;
+  --page-margin: 12px auto;
+  --page-border: none;
+  --pdfViewer-padding-bottom: 12px;
+  --hcm-highlight-filter: none;
+  --hcm-highlight-selected-filter: none;
+  padding-bottom: var(--pdfViewer-padding-bottom);
+}
+
+.pdfViewer .page {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  direction: ltr;
+  width: 816px;
+  height: 1056px;
+  margin: var(--page-margin);
+  position: relative;
+  overflow: visible;
+  border: var(--page-border);
+  background-clip: content-box;
+  background-color: rgb(255 255 255);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+}
+
+.pdfViewer .dummyPage {
+  position: relative;
+  width: 0;
+  height: var(--viewer-container-height);
+}
+
+.pdfViewer .canvasWrapper {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.pdfViewer .canvasWrapper canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  contain: content;
+}
+
+.pdfViewer .canvasWrapper canvas .structTree {
+  contain: strict;
+}
+
+.pdfViewer .canvasWrapper .selection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: rgb(0 90 255 / 0.22);
+}
+
+.textLayer {
+  color-scheme: only light;
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+
+/* Kolory trafień: pozostałe = bursztyn jak w `MatchSnippet` (lista
+   kandydatów), bieżące = mocniejszy pomarańcz z obrysem, żeby dało się je
+   odróżnić od reszty na pierwszy rzut oka. */
+.textLayer .highlight {
+  margin: -1px;
+  padding: 1px;
+  background-color: rgb(251 191 36 / 0.45);
+  border-radius: 4px;
+}
+
+.textLayer .highlight.appended {
+  position: initial;
+}
+
+.textLayer .highlight.begin {
+  border-radius: 4px 0 0 4px;
+}
+
+.textLayer .highlight.end {
+  border-radius: 0 4px 4px 0;
+}
+
+.textLayer .highlight.middle {
+  border-radius: 0;
+}
+
+.textLayer .highlight.selected {
+  background-color: rgb(249 115 22 / 0.55);
+  outline: 2px solid rgb(234 88 12);
+  scroll-margin-top: 50px;
+}
+
+@media screen and (forced-colors: active) {
+  .textLayer .highlight,
+  .textLayer .highlight.selected {
+    background-color: transparent;
+    outline: 2px solid Highlight;
+  }
+}
+
+.textLayer ::selection {
+  background: rgb(0 0 255 / 0.25);
+  color: transparent;
+}
+
+.textLayer.selectionRendering ::selection {
+  background: transparent;
+  color: transparent;
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/* Trafienia w podglądzie DOCX (`docx-preview` renderuje zwykły HTML). */
+mark[data-doc-search-hit] {
+  background-color: rgb(251 191 36 / 0.45);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark[data-doc-search-hit][data-active] {
+  background-color: rgb(249 115 22 / 0.55);
+  outline: 2px solid rgb(234 88 12);
+  scroll-margin: 80px;
+}
