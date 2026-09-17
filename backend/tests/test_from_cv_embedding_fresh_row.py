@@ -77,12 +77,13 @@ async def test_load_unloaded_columns_keeps_pending_in_memory_change():
         try:
             cand.ai_summary = "niesflushowana zmiana"
             loaded = await outbox.load_unloaded_columns(db, cand)
-            # Nieustawione kolumny (np. tags) były expired i zostały doładowane…
-            assert loaded and "tags" in loaded
+            # Nieustawione kolumny bez defaultu (np. availability_date) były
+            # expired i zostały doładowane…
+            assert loaded and "availability_date" in loaded
             # …ale ustawiona w pamięci nie — i jej wartość przeżyła.
             assert "ai_summary" not in loaded
             assert cand.ai_summary == "niesflushowana zmiana"
-            assert cand.tags is None
+            assert cand.availability_date is None
             assert cand.updated_at is not None
             # Drugie wywołanie nie ma już czego doładowywać.
             assert await outbox.load_unloaded_columns(db, cand) == []
