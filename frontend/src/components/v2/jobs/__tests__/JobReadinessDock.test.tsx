@@ -17,7 +17,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -108,6 +108,11 @@ vi.mock("@/components/v2/jobs/JobOwnershipPanel", () => ({
       data-testid="mock-ownership-panel"
       data-owner={props.primaryOwner?.name ?? ""}
     />
+  ),
+}));
+vi.mock("@/components/v2/jobs/JobSettingsPanel", () => ({
+  JobSettingsPanel: (props: { canEdit: boolean }) => (
+    <div data-testid="mock-settings-panel" data-can-edit={String(props.canEdit)} />
   ),
 }));
 vi.mock("@/components/jobs/HiringManagerPicker", () => ({
@@ -239,6 +244,8 @@ function renderDock(
   canOpen?: boolean,
   variant?: JobReadinessDockVariant,
   listNav?: JobReadinessDockListNav,
+  collapsed?: boolean,
+  onCollapsedChange?: (next: boolean) => void,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -252,6 +259,8 @@ function renderDock(
           canOpen={canOpen}
           variant={variant}
           listNav={listNav}
+          collapsed={collapsed}
+          onCollapsedChange={onCollapsedChange}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -871,5 +880,98 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
       "data-can-edit",
       "false",
     );
+    // JobSettingsPanel dzieli TĘ SAMĄ bramkę co HiringManagerPicker
+    // (`canWritePipeline && canUpdateJob`) — jedna kopia `job.update`, nie dwie.
+    expect(screen.getByTestId("mock-settings-panel")).toHaveAttribute(
+      "data-can-edit",
+      "false",
+    );
+  });
+
+  it("zakładka „Zespół” montuje JobSettingsPanel między właścicielem a hiring managerem, z `canEdit` DL-a", async () => {
+    useAuthStore.setState({ user: deliveryLead });
+    const user = userEvent.setup();
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+
+    await user.click(screen.getByRole("tab", { name: "Zespół" }));
+
+    expect(await screen.findByTestId("mock-settings-panel")).toHaveAttribute(
+      "data-can-edit",
+      "true",
+    );
+  });
+});
+
+describe("JobReadinessDock — zwijanie doku (krok 02)", () => {
+  it('bez `onCollapsedChange` renderuje się w pełni niezależnie od `collapsed` (np. `variant="list"`)', async () => {
+    renderDock(501, undefined, true, "list", undefined, true, undefined);
+    expect(await screen.findByText(jobFixture.title)).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("job-readiness-dock-collapsed"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('`collapsed=true` na `variant="champion"` renderuje pasek 44 px z przyciskiem „Rozwiń" i licznikiem done/total', async () => {
+    const onCollapsedChange = vi.fn();
+    renderDock(501, undefined, true, "champion", undefined, true, onCollapsedChange);
+
+    const strip = await screen.findByTestId("job-readiness-dock-collapsed");
+    expect(
+      within(strip).getByRole("button", { name: "Rozwiń dok gotowości" }),
+    ).toBeInTheDocument();
+    // 4 wiersze doku (must/nice, budżet, właściciel, HM) + 3 warunki
+    // weryfikacji Championa (klient/konsultant zweryfikowani, briefing
+    // „pending") = 6 z 7 — liczone z TYCH SAMYCH zapytań, które karmią pełny
+    // widok (patrz komentarz przy `JobReadinessDockProps.collapsed`).
+    expect(within(strip).getByText("6/7")).toBeInTheDocument();
+    // Zwinięty pasek nie pokazuje treści pełnego doku.
+    expect(screen.queryByText(CHAMPION_DOCK_LABEL)).not.toBeInTheDocument();
+  });
+
+  it('kliknięcie „Rozwiń dok gotowości" woła `onCollapsedChange(false)`', async () => {
+    const user = userEvent.setup();
+    const onCollapsedChange = vi.fn();
+    renderDock(501, undefined, true, "champion", undefined, true, onCollapsedChange);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Rozwiń dok gotowości" }),
+    );
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
+  });
+
+  it('rozwinięty dok (krok 02) pokazuje „Zwiń dok gotowości" obok kopiowania linku TYLKO z `onCollapsedChange`', async () => {
+    renderDock(501, undefined, true, "champion");
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+    expect(
+      screen.queryByRole("button", { name: "Zwiń dok gotowości" }),
+    ).not.toBeInTheDocument();
+
+    const onCollapsedChange = vi.fn();
+    renderDock(501, undefined, true, "champion", undefined, false, onCollapsedChange);
+    expect(
+      await screen.findByRole("button", { name: "Zwiń dok gotowości" }),
+    ).toBeInTheDocument();
+  });
+
+  it('kliknięcie „Zwiń dok gotowości" woła `onCollapsedChange(true)`', async () => {
+    const user = userEvent.setup();
+    const onCollapsedChange = vi.fn();
+    renderDock(501, undefined, true, "champion", undefined, false, onCollapsedChange);
+    await screen.findByText(CHAMPION_DOCK_LABEL);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Zwiń dok gotowości" }),
+    );
+    expect(onCollapsedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('„Zwiń dok gotowości" NIE renderuje się na `variant="list"` (kolumna listy nie zwija się)', async () => {
+    const onCollapsedChange = vi.fn();
+    renderDock(501, undefined, true, "list", undefined, false, onCollapsedChange);
+    expect(await screen.findByText(jobFixture.title)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Zwiń dok gotowości" }),
+    ).not.toBeInTheDocument();
   });
 });

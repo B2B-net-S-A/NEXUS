@@ -69,7 +69,7 @@ import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import Link from "next/link";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -84,6 +84,10 @@ import {
   JOB_HEADER_COLLAPSED_DEFAULT,
   JOB_HEADER_COLLAPSED_STORAGE_KEY,
 } from "@/lib/job-header-preferences";
+import {
+  JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
+  JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
+} from "@/lib/job-dock-preferences";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
@@ -2019,6 +2023,13 @@ export default function JobDetailPage() {
     JOB_HEADER_COLLAPSED_STORAGE_KEY,
     JOB_HEADER_COLLAPSED_DEFAULT,
   );
+  // Zwijanie doku „Gotowość" na kroku 02 (zakładka Championa) — patrz
+  // `lib/job-dock-preferences.ts`. Kolumna doku w siatce niżej i przyciski
+  // zwiń/rozwiń w `JobReadinessDock` czytają ten sam stan.
+  const [championDockCollapsed, setChampionDockCollapsed] = useLocalStorageFlag(
+    JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
+    JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
+  );
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
@@ -2532,7 +2543,20 @@ export default function JobDetailPage() {
         // dok „Gotowość" (`variant="champion"`) niesie weryfikację/briefing/
         // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
         // pory siedziały nad formularzem i w panelu nagłówka.
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+        //
+        // Trzecia kolumna (dok) jest zwijalna WYŁĄCZNIE na `xl` — `lg` trzyma
+        // dok pod edytorem (`col-span-2`), więc tam nie ma czego zwijać.
+        // Literały klas muszą być PEŁNE (Tailwind skanuje kod źródłowy, nie
+        // interpoluje fragmentów w runtime) — stąd dwie gałęzie zamiast
+        // wstrzykiwanej szerokości.
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]",
+            championDockCollapsed
+              ? "xl:grid-cols-[230px_minmax(0,1fr)_44px]"
+              : "xl:grid-cols-[230px_minmax(0,1fr)_360px]",
+          )}
+        >
           <aside className="lg:sticky lg:top-4 lg:self-start">
             <ChampionSectionNav jobId={Number(id)} />
           </aside>
@@ -2560,7 +2584,12 @@ export default function JobDetailPage() {
           </div>
 
           <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-            <JobReadinessDock jobId={Number(id)} variant="champion" />
+            <JobReadinessDock
+              jobId={Number(id)}
+              variant="champion"
+              collapsed={championDockCollapsed}
+              onCollapsedChange={setChampionDockCollapsed}
+            />
           </aside>
         </div>
       )}

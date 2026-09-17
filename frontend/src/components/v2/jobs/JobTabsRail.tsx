@@ -5,8 +5,11 @@ import { useRouter, usePathname } from "next/navigation";
 import { FileText, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
-
-const COLLAPSE_KEY = "nexus.jobTabsRail.collapsed";
+import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
+import {
+  JOB_TABS_RAIL_COLLAPSED_DEFAULT,
+  JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY,
+} from "@/lib/job-tabs-rail-preferences";
 
 /**
  * JobTabsRail — left-side vertical list of open recruitment "tabs", recreating
@@ -24,27 +27,20 @@ export function JobTabsRail({ className }: { className?: string }) {
   const pathname = usePathname();
 
   const [mounted, setMounted] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     setMounted(true);
-    try {
-      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
-    } catch {
-      /* localStorage unavailable — keep expanded */
-    }
   }, []);
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore persistence errors */
-      }
-      return next;
-    });
-  };
+  // `useLocalStorageFlag` odczytuje zapisaną preferencję w swoim własnym
+  // `useEffect` (patrz jego docstring) — startuje więc na domyślnej wartości
+  // i tuż po zamontowaniu dociąga zapamiętaną. `mounted` wyżej zostaje jako
+  // osobna bramka: ukrywa cały pasek, dopóki store otwartych kart (który NIE
+  // jest per-viewport-safe na serwerze) się nie zhydratuje.
+  const [collapsed, setCollapsed] = useLocalStorageFlag(
+    JOB_TABS_RAIL_COLLAPSED_STORAGE_KEY,
+    JOB_TABS_RAIL_COLLAPSED_DEFAULT,
+  );
+  const toggleCollapsed = () => setCollapsed((prev) => !prev);
 
   const tabs = useTabsStore((s) => s.tabs);
   const closeTab = useTabsStore((s) => s.closeTab);
