@@ -24,8 +24,8 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: mocks.showToast }),
 }));
 
-vi.mock("@/components/AppShell", () => ({
-  AddJobModal: () => <div role="dialog">Kopiowanie requestu</div>,
+vi.mock("@/components/v2/modals/CreateJobModal", () => ({
+  CreateJobModal: () => <div role="dialog">Kopiowanie requestu</div>,
 }));
 
 import { RequestHistorySection } from "@/components/RequestHistorySection";

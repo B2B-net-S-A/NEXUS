@@ -8,6 +8,7 @@ import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandida
 import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
 import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
 import { jobBudgetHourly } from "@/lib/job-budget";
+import { resolveJobDetailTab } from "@/lib/job-detail-tab-param";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -2034,27 +2035,14 @@ export default function JobDetailPage() {
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
   // zakładka AI Matching; scroll + glow robi sama HistoricalCandidatesSection.
-  // ?tab=champion (dok „Gotowość zlecenia" na /jobs, akcja „Otwórz" przy
-  // pozycji Profil Championa) → "champion" jest już literałem `JobDetailTab`,
-  // więc mapowanie jest tożsamościowe — bez tego link lądował po cichu na
-  // domyślnym Pipeline zamiast na Championie.
+  // ?tab=champion-profile (stare linki sprzed `CreateJobModal`, PR 2) →
+  // "champion". `resolveJobDetailTab` (lib/job-detail-tab-param.ts) niesie
+  // oba aliasy + identyczność dla literałów `JobDetailTab` już
+  // deep-linkowanych stąd (chat/champion/screening/cv/interviews/contract) —
+  // bez tego link lądował po cichu na domyślnym Pipeline.
   useEffect(() => {
-    const tab = searchParams?.get("tab");
-    if (tab === "chat") {
-      setActiveTab("chat");
-    } else if (tab === "similar") {
-      setActiveTab("ai-matching");
-    } else if (tab === "champion") {
-      setActiveTab("champion");
-    } else if (tab === "screening" || tab === "cv") {
-      // Kroki 05/06 — deep-link tożsamościowy, jak „champion".
-      setActiveTab(tab);
-    } else if (tab === "interviews") {
-      // Kroki 07 i 08 (flow C2) — mapowanie tożsamościowe, jak „champion".
-      setActiveTab("interviews");
-    } else if (tab === "contract") {
-      setActiveTab("contract");
-    }
+    const resolved = resolveJobDetailTab(searchParams?.get("tab"));
+    if (resolved) setActiveTab(resolved);
   }, [searchParams]);
 
   // Unread badge dla taba Chat
@@ -2580,6 +2568,11 @@ export default function JobDetailPage() {
                 canWritePipeline &&
                 (isAdmin || hasRole(authUser, "delivery_lead"))
               }
+              // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
+              // ma opis do podania AI (`createdJobUrl`) — otwiera panel „Wklej
+              // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.
+              intakeDefaultOpen={searchParams?.get("intake") === "1"}
+              intakeSeedText={job?.description ?? undefined}
             />
           </div>
 

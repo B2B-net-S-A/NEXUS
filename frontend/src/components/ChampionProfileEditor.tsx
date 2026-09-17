@@ -90,6 +90,16 @@ interface ChampionProfileEditorProps {
   /** Phase 15: pass-through to the Sources panel so historical-matches
    *  retrieval can default to same-client scope. */
   clientId?: number | null;
+  /**
+   * `CreateJobModal` ląduje tu z `?intake=1` (`lib/job-create-landing.ts`)
+   * gdy nowo utworzona rekrutacja ma opis do podania AI — otwiera panel
+   * „Wklej opis" (AI intake) od razu, zamiast zmuszać DL-a do odnalezienia
+   * go samemu w zwiniętym panelu.
+   */
+  intakeDefaultOpen?: boolean;
+  /** Seeduje pole „Wklej opis" treścią `job.description`, gdy panel otwiera
+   *  się automatycznie po zapisaniu nowej rekrutacji. */
+  intakeSeedText?: string;
 }
 
 function genId(): string {
@@ -100,6 +110,8 @@ export function ChampionProfileEditor({
   jobId,
   canEdit = true,
   clientId,
+  intakeDefaultOpen = false,
+  intakeSeedText = "",
 }: ChampionProfileEditorProps) {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -132,13 +144,15 @@ export function ChampionProfileEditor({
     ? (cvRuleQuery.data.cv_language ?? null)
     : null;
 
-  // AI Intake (Phase 14)
-  const [showIntake, setShowIntake] = useState(false);
+  // AI Intake (Phase 14). `intakeDefaultOpen`/`intakeSeedText` — patrz
+  // `CreateJobModalProps`/`createdJobUrl` (`?intake=1` z nowo zapisanej
+  // rekrutacji, PR 2).
+  const [showIntake, setShowIntake] = useState(intakeDefaultOpen);
   // Grupa „proza" (2 · 4 · 5) zwija się DOPIERO gdy wszystkie trzy sekcje są
   // puste — wtedy pełne trzy formularze to trzy ekrany pustych pól. Cokolwiek
   // wypełnione i grupa jest rozwinięta na stałe: zwinięcie ukryłoby dane.
   const [proseExpanded, setProseExpanded] = useState(false);
-  const [jdText, setJdText] = useState("");
+  const [jdText, setJdText] = useState(intakeSeedText);
   const [activeSuggestion, setActiveSuggestion] =
     useState<ChampionProfileSuggestion | null>(null);
 

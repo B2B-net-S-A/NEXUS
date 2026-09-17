@@ -49,6 +49,7 @@ import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
 import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareModal";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
+import { parseTagInput } from "@/lib/parse-tag-input";
 import {
   formatReasonCounts,
   summarizeBulkResult,
@@ -99,24 +100,9 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   search_mode: "hybrid",
 };
 
-/**
- * Parse a comma/newline-separated tag input into a clean list: trimmed,
- * case-insensitively de-duplicated, capped at the backend's 20-tag limit.
- */
-export function parseTagInput(raw: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const part of raw.split(/[,\n]/)) {
-    const tag = part.trim();
-    if (!tag) continue;
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(tag);
-    if (out.length >= 20) break;
-  }
-  return out;
-}
+// Wyniesione do `lib/parse-tag-input.ts` (współdzielone z `CreateJobModal`);
+// re-eksport tutaj utrzymuje starą ścieżkę importu (`parseTagInput.test.ts`).
+export { parseTagInput };
 
 interface CandidateSearchViewProps {
   /** Optional initial overrides — used by the job-context tab to prefill. */

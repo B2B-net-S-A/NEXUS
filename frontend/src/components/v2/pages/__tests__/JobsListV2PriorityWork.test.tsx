@@ -41,8 +41,17 @@ vi.mock("@/hooks/useCapability", () => ({
   }),
 }))
 
-vi.mock("@/components/AppShell", () => ({
-  AddJobModal: () => null,
+vi.mock("@/components/v2/modals/CreateJobModal", () => ({
+  CreateJobModal: () => null,
+}))
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({
+    showToast: vi.fn(),
+    showSuccess: vi.fn(),
+    showError: vi.fn(),
+    showActionToast: vi.fn(),
+  }),
 }))
 
 vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({

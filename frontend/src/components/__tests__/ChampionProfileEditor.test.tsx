@@ -469,3 +469,49 @@ describe("ChampionProfileEditor — sekcja 1 startuje z pól rekrutacji (PR 5)",
     ).not.toBeInTheDocument();
   });
 });
+
+describe("ChampionProfileEditor — intake seedowany z `CreateJobModal` (?intake=1)", () => {
+  it("intakeDefaultOpen/intakeSeedText otwierają panel „Wklej opis” od razu z treścią rekrutacji", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 42, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor
+          jobId={42}
+          canEdit
+          clientId={null}
+          intakeDefaultOpen
+          intakeSeedText="Szukamy Senior Java Developera do zespołu płatności."
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("toggle-ai-intake")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("jd-intake-textarea")).toHaveValue(
+      "Szukamy Senior Java Developera do zespołu płatności.",
+    );
+  });
+
+  it("bez propsów panel zostaje domyślnie zwinięty i pusty (zachowanie sprzed PR 2)", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 43, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={43} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("toggle-ai-intake")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByTestId("jd-intake-textarea")).not.toBeInTheDocument();
+  });
+});
