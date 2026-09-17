@@ -46,11 +46,19 @@ from app.services.calendar_auto_complete import mark_ended_interviews_completed
 
 logger = logging.getLogger(__name__)
 
-# Non-terminal stages — kandydat jest "w grze" i może utknąć.
+# Non-terminal stages — kandydat jest "w grze" i może utknąć. `posting`
+# (kandydat z ogłoszenia, nieprzejrzany) świadomie POZA: to poczekalnia, nie
+# proces — alert „utknął" na setkach kandydatów z auto-matchu byłby szumem.
 _NON_TERMINAL_STAGES: frozenset[PipelineStage] = frozenset(
     s
     for s in PipelineStage
-    if s not in {PipelineStage.hired, PipelineStage.rejected, PipelineStage.withdrawn}
+    if s
+    not in {
+        PipelineStage.posting,
+        PipelineStage.hired,
+        PipelineStage.rejected,
+        PipelineStage.withdrawn,
+    }
 )
 
 

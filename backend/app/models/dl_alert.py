@@ -57,6 +57,10 @@ ALERT_FRAMEWORK_CONTRACT_EXPIRING = "framework_contract_expiring"
 ALERT_CONTRACT_ENDING = "contract_ending"
 ALERT_COST_BUDGET_LOW = "cost_budget_low"
 ALERT_NEW_CONTRACTOR_DRAFT = "new_contractor_draft"
+# 0318: zużycie PODSTAWY MD (``md_total``) powyżej progu procentowego —
+# wczesne ostrzeżenie dla klientów z ``EXTENDED_ORDER_ALERT_CLIENT_IDS``,
+# niezależne od globalnego ``md_budget_low`` (21 MD pozostałych).
+ALERT_MD_BASE_USAGE_HIGH = "md_base_usage_high"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
@@ -71,6 +75,7 @@ DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_CONTRACT_ENDING,
     ALERT_COST_BUDGET_LOW,
     ALERT_NEW_CONTRACTOR_DRAFT,
+    ALERT_MD_BASE_USAGE_HIGH,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -81,11 +86,14 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_MD_CONSULTANT_ENDED: "Zakończenie współpracy — decyzja MD",
     ALERT_ORDER_MAIL_REVIEW: "Zamówienie z maila do weryfikacji",
     ALERT_ORDER_MISSING_SUCCESSOR: "Brak kolejnego zamówienia",
-    ALERT_PERIODIC_ORDER_ENDING: "Kończące się zamówienie okresowe",
+    # Nie „okresowe": od 0318 tę samą kartę dostają też linie zamówień
+    # wielo-konsultantowych u klientów z rozszerzonymi alertami.
+    ALERT_PERIODIC_ORDER_ENDING: "Kończące się zamówienie",
     ALERT_FRAMEWORK_CONTRACT_EXPIRING: "Wygasająca umowa ramowa",
     ALERT_CONTRACT_ENDING: "Kończący się kontrakt",
     ALERT_COST_BUDGET_LOW: "Kończący się budżet zamówienia kosztowego",
     ALERT_NEW_CONTRACTOR_DRAFT: "Nowy kontraktor — draft zamówienia",
+    ALERT_MD_BASE_USAGE_HIGH: "Wysokie zużycie podstawy MD",
 }
 
 #: Sekcje panelu „Moi klienci". Wyznacza je SERWER z typu — front nie trzyma
@@ -100,6 +108,7 @@ DL_ALERT_SECTION_BY_TYPE: dict[str, str] = {
     ALERT_FRAMEWORK_CONTRACT_EXPIRING: DL_ALERT_SECTION_ENDING,
     ALERT_CONTRACT_ENDING: DL_ALERT_SECTION_ENDING,
     ALERT_MD_BUDGET_LOW: DL_ALERT_SECTION_ENDING,
+    ALERT_MD_BASE_USAGE_HIGH: DL_ALERT_SECTION_ENDING,
     ALERT_COST_BUDGET_LOW: DL_ALERT_SECTION_ENDING,
     ALERT_COST_ORDER_EXHAUSTED: DL_ALERT_SECTION_ENDING,
     ALERT_NEW_CONTRACTOR_DRAFT: DL_ALERT_SECTION_NEW_CONTRACTOR,
@@ -149,7 +158,8 @@ class DlAlert(Base):
             "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review', "
             "'order_missing_successor', "
             "'periodic_order_ending', 'framework_contract_expiring', "
-            "'contract_ending', 'cost_budget_low', 'new_contractor_draft')",
+            "'contract_ending', 'cost_budget_low', 'new_contractor_draft', "
+            "'md_base_usage_high')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint(

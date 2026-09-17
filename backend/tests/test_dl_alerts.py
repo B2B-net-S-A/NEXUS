@@ -533,6 +533,7 @@ async def test_scanner_uses_a_single_rule_registry():
         ALERT_COST_BUDGET_LOW,
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
         ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+        ALERT_MD_BASE_USAGE_HIGH,
         ALERT_MD_BUDGET_LOW,
         ALERT_MISSING_REVENUE_RATE,
         ALERT_NEW_CONTRACTOR_DRAFT,
@@ -545,6 +546,7 @@ async def test_scanner_uses_a_single_rule_registry():
     assert set(ALERT_RULES) == {
         ALERT_DRAFT_CONSULTANT_UNASSIGNED,
         ALERT_MD_BUDGET_LOW,
+        ALERT_MD_BASE_USAGE_HIGH,
         ALERT_MISSING_REVENUE_RATE,
         ALERT_ORDER_MISSING_SUCCESSOR,
         ALERT_PERIODIC_ORDER_ENDING,
@@ -557,12 +559,21 @@ async def test_scanner_uses_a_single_rule_registry():
 
 
 def test_md_threshold_is_global_not_per_client():
-    """Ticket wprost zabrania konfiguracji progu per klient."""
+    """Ticket wprost zabrania konfiguracji progu per klient.
+
+    Alert procentowy dla klientów z ``EXTENDED_ORDER_ALERT_CLIENT_IDS``
+    (``md_base_usage_high``) tego NIE łamie: to osobny typ i osobna karta,
+    a „mało MD" nadal znaczy „zostało 21 MD" u każdego klienta.
+    """
     from app.core.config import settings
 
     # Panel „Moi klienci" (09.2026): pierwsze przypomnienie przy 21 MD.
     assert settings.DL_ALERT_MD_THRESHOLD == pytest.approx(21.0)
     assert settings.DL_ALERT_REPEAT_DAYS == 7
+    # Bramka rozszerzonych alertów jest fail-closed w domyślnej konfiguracji.
+    assert settings.EXTENDED_ORDER_ALERT_CLIENT_IDS == ""
+    assert settings.extended_order_alert_client_ids == frozenset()
+    assert settings.DL_ALERT_MD_BASE_USAGE_PERCENT == pytest.approx(80.0)
 
 
 async def test_roles_without_a_reason_to_be_here_are_rejected(app_client: AsyncClient):

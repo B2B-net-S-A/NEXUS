@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds";
+import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import {
@@ -37,6 +38,7 @@ import {
   effectiveGroupOrderType,
   flattenOrderGroupIds,
   sortOrderLinesByConsultant,
+  sortOrderLinesByEnd,
   usesSharedMdPool,
 } from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
@@ -438,7 +440,15 @@ function OrderLineRow({
         </Avatar>
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-            <span className="truncate">{line.consultant_name}</span>
+            {/* Link prowadzi do kontraktu TEJ linii (`line.contract_id`),
+                nie „do kontraktów tej osoby". Nazwiska poprzednika i następcy
+                niżej celowo linkami NIE są — mają wyłącznie `*_order_id`, więc
+                kontrakt trzeba by zgadywać. */}
+            <ContractPersonLink
+              contractId={line.contract_id}
+              name={line.consultant_name}
+              className="truncate"
+            />
             {pendingOffboarding ? (
               <span className="rounded bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
                 Zakończenie współpracy
@@ -640,10 +650,14 @@ function OrderLineRow({
               <button
                 type="button"
                 onClick={() => onSwapLine(group, line)}
-                disabled={!line.is_active}
+                // Bramka idzie po STATUSIE linii, bo to lustro serwera
+                // (`swap_consultant` wymaga `status == active`). `is_active`
+                // opisuje obsadę, a osoba z zapisaną datą zejścia ma dalej
+                // aktywną linię — zamianę wolno jej zrobić.
+                disabled={line.status !== "active"}
                 aria-label={`Zamień kontraktora — ${line.consultant_name}`}
                 title={
-                  line.is_active
+                  line.status === "active"
                     ? "Zamień kontraktora"
                     : "Zamienić można tylko aktywną linię"
                 }
@@ -844,9 +858,11 @@ function FutureOrders({
                         "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
                     )}
                   >
-                    <span className="truncate font-medium text-foreground">
-                      {line.consultant_name}
-                    </span>
+                    <ContractPersonLink
+                      contractId={line.contract_id}
+                      name={line.consultant_name}
+                      className="truncate font-medium text-foreground"
+                    />
                     <span className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">kosztowa</span>
                       {line.rate_cost == null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
@@ -991,8 +1007,12 @@ export function OrderGroupCard({
   const currentLines = sortedLines.filter(
     (line) => line.is_active || (group.status === "draft" && line.status === "draft") || line.offboarding_case?.status === "pending",
   );
-  const completedLines = sortedLines.filter(
-    (line) => !line.is_active && !(group.status === "draft" && line.status === "draft") && line.offboarding_case?.status !== "pending",
+  // „Zakończone" sortują się datą zejścia malejąco, nie alfabetem: sekcja mówi,
+  // kto ostatnio zszedł z zamówienia.
+  const completedLines = sortOrderLinesByEnd(
+    sortedLines.filter(
+      (line) => !line.is_active && !(group.status === "draft" && line.status === "draft") && line.offboarding_case?.status !== "pending",
+    ),
   );
   const isActive = group.status === "active";
 
