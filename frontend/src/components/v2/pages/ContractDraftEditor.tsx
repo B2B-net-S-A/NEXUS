@@ -52,6 +52,7 @@ export function DraftEditor({
  });
 
  const editor = useEditor({
+ immediatelyRender: false,
  extensions: [StarterKit],
  content: "",
  editorProps: {
@@ -68,7 +69,7 @@ export function DraftEditor({
  const sig = `${data.template_id ??""}:${data.updated_at ??""}`;
  if (sig === lastLoadedSig.current) return;
  lastLoadedSig.current = sig;
- editor.commands.setContent(data.content_html ??"<p></p>", false);
+ editor.commands.setContent(data.content_html ??"<p></p>", { emitUpdate: false });
  }, [editor, data]);
 
  // Debounced autosave for manual edits.
