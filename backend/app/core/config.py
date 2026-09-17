@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     # (scoring_service.scoring_algorithm_version()) derives from this flag, so
     # flipping it auto-invalidates the match-score cache — no manual sweep.
     AI_SCORING_CONTRACT_V2: bool = False
+    # Profil CV v7: dopasowany must/nice liczy się w pełni, gdy CV pokazuje użycie
+    # w ostatnich 3 latach (albo nie podaje dat); 3–6 lat temu = 0,75; dawniej = 0,5.
+    # Profile bez osi technologii mają wagi 1,0, więc ich wyniki się nie zmieniają.
+    # WYŁĄCZONE do czasu `scripts/eval_matching.py --scorer canonical` przed/po.
+    AI_SCORING_SKILL_RECENCY: bool = False
 
     # ── AI indexing outbox (plan PR5) ─────────────────────────────────────────
     # Durable "source change → reindex" queue so an embedding update can never be
@@ -328,11 +333,12 @@ class Settings(BaseSettings):
     CV_BACKFILL_MAX_CALLS: int = 45_000
 
     # ── Daty zatrudnienia na żądanie (kartoteka firmy w ATLAS-ie) ───────────
-    # DOMYŚLNIE WYŁĄCZONE: to jedyna ścieżka w repo, w której ruch użytkownika
-    # w INNEJ aplikacji uruchamia płatne wywołanie modelu. Deploy nie może
-    # zacząć wydawać pieniędzy bez świadomej decyzji — włączenie to zmiana
-    # zmiennej w Coolify, nie merge.
-    EXPERIENCE_DATES_ON_DEMAND_ENABLED: bool = False
+    # Domyślnie WŁĄCZONE od 17.09.2026 (decyzja Artura: NEXUS bez limitów AI,
+    # maksymalnie autonomiczny). To jedyna ścieżka, w której ruch użytkownika
+    # w INNEJ aplikacji (ATLAS) uruchamia płatne wywołanie modelu — koszt widać
+    # w Ustawieniach → AI i w alarmie wydatków. Flaga zostaje jako wyłącznik
+    # awaryjny w Coolify.
+    EXPERIENCE_DATES_ON_DEMAND_ENABLED: bool = True
     # Sufit osób na JEDNO zapytanie o firmę. Kartoteka pokazuje kilka-kilkanaście
     # osób; setka to znak, że ktoś trafił w konglomerat — wtedy lepiej nie
     # zapłacić za ogon niż uzupełnić wszystko.
@@ -451,6 +457,34 @@ class Settings(BaseSettings):
     TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
+    # Okno tekstu CV dla pełnego odczytu (prompt v7). Dłuższe CV jest cięte
+    # 70% początek / 30% koniec, bo wykształcenie i certyfikaty są na końcu.
+    CV_PARSER_INPUT_CHAR_CAP: int = 24_000
+
+    # ── Autonomiczne dopasowanie CV ↔ rekrutacje (17.09.2026) ─────────────────
+    # Po odczycie nowego/odświeżonego CV system sam sprawdza otwarte rekrutacje;
+    # dopasowanego kandydata dodaje do pipeline'u (etap „Ogłoszenia”, tag
+    # auto-match) i powiadamia właściciela. Publikacja rekrutacji robi to samo
+    # w drugą stronę dla profili z CV z ostatnich AUTO_MATCH_JOB_LOOKBACK_DAYS.
+    AUTO_MATCH_ENABLED: bool = True
+    # True = pełna ocena i dziennik decyzji, bez dodawania i bez powiadomień.
+    # Domyślnie True na pierwsze wdrożenie (plan: 48 h próby przed dodawaniem).
+    # Przejście na żywo: `AUTO_MATCH_DRY_RUN=false` w Coolify (workflow
+    # „Coolify set env") po przejrzeniu dziennika w Ustawieniach → AI.
+    AUTO_MATCH_DRY_RUN: bool = True
+    AUTO_MATCH_MIN_SCORE: float = 70.0
+    AUTO_MATCH_REQUIRE_MUST: bool = True
+    AUTO_MATCH_MAX_JOBS_PER_CANDIDATE: int = 3
+    AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
+    AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
+    AUTO_MATCH_INTERVAL_SECONDS: int = 15
+    AUTO_MATCH_MAX_ATTEMPTS: int = 3
+    AUTO_MATCH_STALE_HOURS: int = 48
+    # CV z maila od nadawcy spoza bazy zakłada kandydata (z dedupem po treści CV).
+    M365_AUTO_CREATE_CANDIDATE_FROM_CV: bool = True
+    # Tylko poczta z ostatnich N dni — bez tego pierwszy bieg po wdrożeniu
+    # zakładałby kandydatów z całej historii skrzynek.
+    M365_AUTO_CREATE_LOOKBACK_DAYS: int = 14
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
     ORDER_EXTRACTION_ENABLED: bool = True

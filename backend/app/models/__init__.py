@@ -669,3 +669,9 @@ from app.models.cv_approval_job import CvApprovalJob  # noqa: F401
 from app.models.cv_source_cleanup import CvSourceCleanup  # noqa: F401
 
 from app.models.cv_version_map import CvVersionMap  # noqa: F401
+
+from app.models.candidate_skill_usage import CandidateSkillUsage  # noqa: F401
+from app.models.candidate_auto_match import (  # noqa: F401
+    CandidateAutoMatchLog,
+    CandidateMatchOutbox,
+)

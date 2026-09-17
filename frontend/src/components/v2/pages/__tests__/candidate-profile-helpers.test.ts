@@ -5,6 +5,10 @@ import {
   getCandidateSummaryLine,
   formatExperienceDate,
   getCvProjectionNotice,
+  formatEducationYears,
+  formatUsageMonths,
+  getExperienceDetails,
+  getRichCvProfile,
 } from "@/components/v2/pages/candidate-profile-helpers";
 
 describe("getEducationList", () => {
@@ -165,5 +169,61 @@ describe("getCvProjectionNotice (UAT M01-B01)", () => {
       }),
     ).toBeNull();
     expect(getCvProjectionNotice({ cv_filename: null })).toBeNull();
+  });
+});
+
+describe("pełny profil z odczytu CV v7", () => {
+  it("nie pokazuje sekcji v7 dla profilu sprzed zmiany", () => {
+    expect(getRichCvProfile({ cv_extracted_data: { certifications: [{ name: "CKA" }] } })).toBeNull();
+    expect(getRichCvProfile({ cv_extracted_data: null })).toBeNull();
+  });
+
+  it("czyta certyfikaty, projekty, osiągnięcia i oś technologii", () => {
+    const profile = getRichCvProfile({
+      cv_extracted_data: {
+        _profile_schema: 2,
+        certifications: [{ name: "CKA", issuer: "CNCF", year: 2023 }, { issuer: "bez nazwy" }],
+        projects: [{ name: "Płatności", technologies: ["Go", 5] }],
+        achievements: ["-40% czasu", ""],
+        skill_timeline: [
+          {
+            skill: "Kafka",
+            first_used: "2021-03",
+            last_used: "2026-09",
+            months: 67,
+            is_current: true,
+            contexts: [{ company: "Allegro", role: "Dev" }],
+          },
+        ],
+      },
+    });
+    expect(profile?.certifications).toEqual([
+      { name: "CKA", issuer: "CNCF", year: 2023, expires: null },
+    ]);
+    expect(profile?.projects[0].technologies).toEqual(["Go"]);
+    expect(profile?.achievements).toEqual(["-40% czasu"]);
+    expect(profile?.timeline[0]).toMatchObject({ skill: "Kafka", isCurrent: true, contexts: ["Allegro"] });
+  });
+
+  it("formatuje długość użycia po polsku", () => {
+    expect(formatUsageMonths(67)).toBe("5 lat 7 mies.");
+    expect(formatUsageMonths(12)).toBe("1 rok");
+    expect(formatUsageMonths(26)).toBe("2 lata 2 mies.");
+    expect(formatUsageMonths(null)).toBe("");
+  });
+
+  it("podaje lata wykształcenia i szczegóły stanowiska", () => {
+    expect(formatEducationYears({ startYear: 2011, endYear: 2016 })).toBe("2011–2016");
+    expect(formatEducationYears({ year: 2016 })).toBe("2016");
+    expect(getExperienceDetails({ technologies: ["Java", ""], employment_type: "b2b", client: "ING" })).toEqual({
+      technologies: ["Java"],
+      employmentType: "B2B",
+      client: "ING",
+    });
+    expect(getExperienceDetails({ company: "Stara" })).toEqual({
+      technologies: [],
+      employmentType: null,
+      client: null,
+    });
   });
 });

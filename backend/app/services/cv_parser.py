@@ -267,7 +267,9 @@ def _unique_strings(values: Any, *, limit: int) -> list[str]:
     return output
 
 
-_EXPERIENCE_MAX_ENTRIES = 10
+# v7 prosi o WSZYSTKIE stanowiska (max 15). Dłuższa historia była dotąd cięta do
+# 10 najnowszych, więc pierwsze lata kariery znikały z osi technologii.
+_EXPERIENCE_MAX_ENTRIES = 15
 _EXPERIENCE_CURRENT_WORDS = frozenset(
     {"present", "current", "now", "obecnie", "teraz", "do teraz", "nadal", "ongoing"}
 )
@@ -304,11 +306,45 @@ def _normalize_experience_date(value: Any, *, allow_present: bool) -> Optional[s
     return None
 
 
-def _normalize_experience(value: Any) -> list[dict[str, Optional[str]]]:
-    """Waliduj listę stanowisk z CV (v6): firma, rola, początek, koniec."""
+_EMPLOYMENT_TYPES = frozenset(
+    {"b2b", "employment", "contract", "internship", "freelance"}
+)
+_EDUCATION_LEVELS = frozenset(
+    {"secondary", "bachelor", "engineer", "master", "phd", "other"}
+)
+_MAX_TECH_PER_ENTRY = 12
+
+
+def _clean_text(value: Any, limit: int) -> Optional[str]:
+    """Jednoliniowy tekst z modelu albo None — nigdy pusty string."""
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.split()).strip()
+    return cleaned[:limit] or None
+
+
+def _clean_year(value: Any) -> Optional[int]:
+    """Rok 1950–2100 albo None. Bool i śmieci odrzucone, nie zgadywane."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        year = int(float(str(value).strip()[:4]))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return year if 1950 <= year <= 2100 else None
+
+
+def _normalize_experience(value: Any) -> list[dict[str, Any]]:
+    """Waliduj listę stanowisk z CV: firma, rola, początek, koniec (+ v7).
+
+    Cztery klucze v6 są zawsze obecne. Klucze v7 (`technologies`,
+    `description`, `employment_type`, `location`, `client`) pojawiają się
+    tylko wtedy, gdy model podał użyteczną wartość — wynik odczytu v6 ma
+    więc dokładnie ten sam kształt co przed zmianą.
+    """
     if not isinstance(value, list):
         return []
-    entries: list[dict[str, Optional[str]]] = []
+    entries: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
             continue
@@ -320,19 +356,185 @@ def _normalize_experience(value: Any) -> list[dict[str, Optional[str]]]:
         role = " ".join(role.split()).strip()[:160] if isinstance(role, str) else ""
         if not company and not role:
             continue
+        entry: dict[str, Any] = {
+            "company": company or None,
+            "role": role or None,
+            "start": _normalize_experience_date(item.get("start"), allow_present=False),
+            "end": _normalize_experience_date(item.get("end"), allow_present=True),
+        }
+        technologies = _unique_strings(
+            item.get("technologies"), limit=_MAX_TECH_PER_ENTRY
+        )
+        if technologies:
+            entry["technologies"] = technologies
+        description = _clean_text(item.get("description") or item.get("desc"), 600)
+        if description:
+            entry["description"] = description
+        employment_type = item.get("employment_type")
+        if isinstance(employment_type, str):
+            employment_type = employment_type.strip().casefold()
+            if employment_type in {"uop", "umowa o pracę", "full-time", "permanent"}:
+                employment_type = "employment"
+            if employment_type in _EMPLOYMENT_TYPES:
+                entry["employment_type"] = employment_type
+        location = _clean_text(item.get("location"), 120)
+        if location:
+            entry["location"] = location
+        client = _clean_text(item.get("client"), 160)
+        if client:
+            entry["client"] = client
+        entries.append(entry)
+        if len(entries) >= _EXPERIENCE_MAX_ENTRIES:
+            break
+    return entries
+
+
+def _normalize_education(value: Any) -> Optional[list[dict[str, Any]]]:
+    """Walidacja `education`. Do v7 lista szła do bazy bez żadnego sprawdzenia.
+
+    Zwraca None, gdy wejście nie jest listą — `_apply_cv_enrichment` traktuje
+    brak klucza jako „nie zapisuj", a pusta lista jako wynik byłaby zapisem.
+    """
+    if not isinstance(value, list):
+        return None
+    entries: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, str):
+            school = _clean_text(item, 200)
+            if school:
+                entries.append(
+                    {"degree": None, "field": None, "school": school, "year": None}
+                )
+            continue
+        if not isinstance(item, dict):
+            continue
+        degree = _clean_text(item.get("degree"), 160)
+        field = _clean_text(item.get("field"), 160)
+        school = _clean_text(item.get("school") or item.get("institution"), 200)
+        if not (degree or field or school):
+            continue
+        end_year = _clean_year(item.get("end_year"))
+        year = _clean_year(item.get("year")) or end_year
+        entry: dict[str, Any] = {
+            "degree": degree,
+            "field": field,
+            "school": school,
+            "year": year,
+        }
+        start_year = _clean_year(item.get("start_year"))
+        if start_year:
+            entry["start_year"] = start_year
+        if end_year:
+            entry["end_year"] = end_year
+        level = item.get("level")
+        if isinstance(level, str) and level.strip().casefold() in _EDUCATION_LEVELS:
+            entry["level"] = level.strip().casefold()
+        entries.append(entry)
+        if len(entries) >= 10:
+            break
+    return entries
+
+
+def _normalize_certifications(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            continue
+        name = _clean_text(item.get("name"), 200)
+        if not name or name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
         entries.append(
             {
-                "company": company or None,
-                "role": role or None,
+                "name": name,
+                "issuer": _clean_text(item.get("issuer"), 120),
+                "year": _clean_year(item.get("year")),
+                "expires": _normalize_experience_date(
+                    item.get("expires"), allow_present=False
+                ),
+            }
+        )
+        if len(entries) >= 20:
+            break
+    return entries
+
+
+def _normalize_projects(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        name = _clean_text(item.get("name"), 200)
+        if not name:
+            continue
+        entries.append(
+            {
+                "name": name,
+                "role": _clean_text(item.get("role"), 160),
+                "company": _clean_text(item.get("company"), 160),
+                "technologies": _unique_strings(
+                    item.get("technologies"), limit=_MAX_TECH_PER_ENTRY
+                ),
                 "start": _normalize_experience_date(
                     item.get("start"), allow_present=False
                 ),
                 "end": _normalize_experience_date(item.get("end"), allow_present=True),
+                "description": _clean_text(item.get("description"), 600),
             }
         )
-        if len(entries) >= _EXPERIENCE_MAX_ENTRIES:
+        if len(entries) >= 8:
             break
     return entries
+
+
+def _normalize_achievements(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    output: list[str] = []
+    for item in value:
+        text = _clean_text(item, 300)
+        if text:
+            output.append(text)
+        if len(output) >= 6:
+            break
+    return output
+
+
+def _normalize_skill_dates(value: Any) -> Any:
+    """Daty użycia skilli (v7) do kanonu `YYYY-MM`/`YYYY`/`present` albo usunięte.
+
+    Reszta kształtu `skills` należy do `normalize_llm_skills` w warstwie zapisu,
+    więc tu dotykamy wyłącznie dwóch nowych kluczy i nic nie odrzucamy.
+    """
+    if not isinstance(value, list):
+        return value
+    output = []
+    for item in value:
+        if isinstance(item, dict) and ("first_used" in item or "last_used" in item):
+            item = dict(item)
+            first_used = _normalize_experience_date(
+                item.pop("first_used", None), allow_present=False
+            )
+            last_used = item.pop("last_used", None)
+            last_text = str(last_used).strip().casefold() if last_used else ""
+            last_used = (
+                "present"
+                if last_text in _EXPERIENCE_CURRENT_WORDS
+                else _normalize_experience_date(last_used, allow_present=False)
+            )
+            if first_used:
+                item["first_used"] = first_used
+            if last_used:
+                item["last_used"] = last_used
+        output.append(item)
+    return output
 
 
 def normalize_experience_entries(value: Any) -> list[dict[str, Optional[str]]]:
@@ -351,6 +553,24 @@ def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
 
     output = dict(parsed)
     output["experience"] = _normalize_experience(output.get("experience"))
+    if "education" in output:
+        education = _normalize_education(output.get("education"))
+        if education is None:
+            output.pop("education")
+        else:
+            output["education"] = education
+    if "skills" in output:
+        output["skills"] = _normalize_skill_dates(output.get("skills"))
+    for key, normalizer in (
+        ("certifications", _normalize_certifications),
+        ("projects", _normalize_projects),
+        ("achievements", _normalize_achievements),
+    ):
+        if key in output:
+            output[key] = normalizer(output.get(key))
+    for key in ("country", "github_url"):
+        if key in output:
+            output[key] = _clean_text(output.get(key), 200)
     technologies = output.get("technologies")
     if not isinstance(technologies, list):
         technologies = output.get("skills")
@@ -407,6 +627,44 @@ def _normalize_cv_output(parsed: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def _window_cv_text(text: str, cap: int) -> str:
+    """Tekst CV przycięty do `cap` znaków z zachowaniem KOŃCA dokumentu.
+
+    Do v7 model dostawał `cv_text[:8000]`, więc w długim CV odpadał ogon —
+    a tam siedzą wykształcenie, certyfikaty i języki. Przy przekroczeniu
+    bierzemy 70% z początku i 30% z końca, ze znacznikiem przerwy.
+    """
+    if len(text) <= cap:
+        return text
+    marker = "\n[…]\n"
+    head = int((cap - len(marker)) * 0.7)
+    tail = cap - len(marker) - head
+    return text[:head] + marker + text[-tail:]
+
+
+def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
+    """Okno wejścia: pełny odczyt rekrutera (v7) szeroki, bieg masowy bez zmian."""
+    if template.name == CV_ENRICHMENT.name:
+        return _window_cv_text(cv_text, settings.CV_PARSER_INPUT_CHAR_CAP)
+    return cv_text[:8000]
+
+
+def _max_tokens_for(template: PromptTemplate) -> int:
+    return 6000 if template.name == CV_ENRICHMENT.name else 3000
+
+
+def _timeouts_for(template: PromptTemplate) -> dict:
+    """Pełny odczyt v7 ma twardy sufit poniżej 120 s okna przeglądarki.
+
+    „Nowy kandydat z CV” czeka na odpowiedź synchronicznie. Domyślne 90 s na
+    próbę z dwoma ponowieniami dawało do ~270 s — długo po tym, jak przeglądarka
+    zgłosiła „Network Error”. Bieg masowy zostaje przy domyślnych.
+    """
+    if template.name != CV_ENRICHMENT.name:
+        return {}
+    return {"timeout": 100.0, "max_retries": 1, "total_timeout": 110.0}
+
+
 def _strip_json_fences(raw: str) -> str:
     """Strip ```json ... ``` markdown fences that LLMs occasionally emit.
 
@@ -458,15 +716,17 @@ async def _parse_with_claude(
     if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
         return None
     try:
-        user_prompt = template.render(cv_text=cv_text[:8000])
+        user_prompt = template.render(cv_text=_cv_input_for(template, cv_text))
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
         # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
             call_claude,
             model=chosen_model,
             # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
-            # dłuższych CV, a obcięta odpowiedź spada do regexu.
-            max_tokens=3000,
+            # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
+            # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.
+            max_tokens=_max_tokens_for(template),
+            **_timeouts_for(template),
             # Claude 5 does adaptive thinking by default; thinking tokens count
             # toward max_tokens and would truncate this JSON output. On models
             # where thinking is off by default (Haiku 4.5) `disabled` is a no-op

@@ -194,7 +194,11 @@ def _persist_bytes(email_row: Email, filename: str, content: bytes) -> str:
 
 
 async def try_parse_cv(
-    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+    db: AsyncSession,
+    attachment: EmailAttachment,
+    email_row: Email,
+    *,
+    preparsed: Optional[tuple[str, dict]] = None,
 ) -> None:
     """If this attachment looks like a CV and the email is linked to a candidate,
     run it through cv_parser and merge results into the candidate profile.
@@ -238,25 +242,15 @@ async def try_parse_cv(
         attachment.parse_error = "file_missing_on_disk"
         return
 
-    try:
-        # Lazy import to keep cold-start light.
-        from app.services.cv_parser import parse_cv
-        from app.services.cv_text_extractor import extract_text
-
-        text = await asyncio.to_thread(extract_text, str(abs_path), attachment.filename)
-        if not text.strip():
-            attachment.parse_error = "text_extraction_empty"
+    if preparsed is not None:
+        # Odczyt zrobiony już przy zakładaniu kandydata z maila — drugie płatne
+        # wywołanie modelu na tym samym pliku niczego by nie dodało.
+        text, parsed = preparsed
+    else:
+        parsed_pair = await _extract_and_parse(db, attachment, abs_path)
+        if parsed_pair is None:
             return
-        # `db=` włącza bramkę kwoty na PŁATNYM kroku. Bez niej ta ścieżka
-        # docierała do Claude'a poza systemem kwot: skrzynka współdzielona
-        # potrafi przynieść kilkadziesiąt CV dziennie, a żaden licznik ich nie
-        # widział. Wyczerpana kwota gasi wyłącznie Claude'a — Ollama i regex
-        # są darmowe i lecą dalej, więc załącznik nadal zostaje sparsowany.
-        parsed = await parse_cv(text, prefer_llm=True, db=db)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("CV parse failed for attachment %s", attachment.id)
-        attachment.parse_error = f"parse_failed: {exc!r}"[:500]
-        return
+        text, parsed = parsed_pair
 
     # Merge into candidate — but NEVER overwrite a more recent manual/upload parse.
     candidate: Optional[Candidate] = await db.get(Candidate, email_row.candidate_id)
@@ -390,28 +384,195 @@ async def try_parse_cv(
     )
     document.is_primary = True
 
-    from app.services.cv_enrichment import _apply_cv_enrichment
+    from app.services.cv_enrichment import CvWritePolicy
+    from app.services.cv_ingest_service import finish_cv_ingest
 
     candidate.raw_cv_text = text
     candidate.cv_filename = attachment.filename
-    _apply_cv_enrichment(
-        candidate,
-        parsed,
+    # Wspólna ścieżka po odczycie CV: pola, kategoria, wektor, cache i
+    # auto-dopasowanie. Do 17.09.2026 ta gałąź zapisywała same pola — CV z maila
+    # nie trafiało do wektora, więc wyszukiwanie semantyczne go nie widziało.
+    await finish_cv_ingest(
+        db,
+        candidate=candidate,
+        parsed=parsed,
         source_document_id=document.id,
         source_hash=content_hash,
+        policy=CvWritePolicy.FILL_EMPTY,
+        trigger="email",
+        language_source_ref=content_hash,
     )
-    if parsed.get("languages"):
-        from app.services.candidate_language_writer import (
-            sync_candidate_languages_from_source,
-        )
-
-        await sync_candidate_languages_from_source(
-            db,
-            candidate_id=candidate.id,
-            raw_languages=parsed["languages"],
-            provenance="cv",
-            source_ref=content_hash,
-        )
 
     attachment.parsed_candidate_id = candidate.id
     attachment.parse_error = None
+
+
+async def _extract_and_parse(
+    db: AsyncSession, attachment: EmailAttachment, abs_path: Path
+) -> Optional[tuple[str, dict]]:
+    """Tekst i odczyt CV z załącznika albo None (powód w `parse_error`)."""
+    from app.services.cv_parser import parse_cv
+    from app.services.cv_text_extractor import extract_text
+
+    try:
+        text = await asyncio.to_thread(extract_text, str(abs_path), attachment.filename)
+        if not text.strip():
+            attachment.parse_error = "text_extraction_empty"
+            return None
+        # `db=` podpina wywołanie pod licznik kosztów AI (bez limitów).
+        parsed = await parse_cv(text, prefer_llm=True, db=db)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("CV parse failed for attachment %s", attachment.id)
+        attachment.parse_error = f"parse_failed: {exc!r}"[:500]
+        return None
+    return text, parsed
+
+
+_STRONG_IDENTITY_REASONS = frozenset(
+    {"email_exact", "phone_exact", "linkedin_slug_match"}
+)
+
+
+async def try_create_candidate_from_cv(
+    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+) -> Optional[int]:
+    """CV z maila od nadawcy spoza bazy: podepnij do istniejącego albo załóż kandydata.
+
+    Decyzja Artura z 17.09.2026: CV przysłane mailem nie może zginąć tylko dlatego,
+    że nadawca nie jest jeszcze kandydatem. Tożsamość bierzemy z TREŚCI CV, nie
+    z adresu nadawcy — rekruterzy przesyłają CV dalej ze swoich skrzynek.
+
+    - e-mail / telefon / LinkedIn z CV pasuje do kandydata → mail podpięty
+      (`cv_identity`) i odczyt jak dla znanego kandydata;
+    - pasuje wyłącznie imię i nazwisko → nic nie zakładamy
+      (`possible_duplicate_name`): dwóch Janów Kowalskich to nie ta sama osoba;
+    - brak dopasowania, a CV ma imię, nazwisko i dane kontaktowe → nowy kandydat
+      (`source="email"`) i ta sama wspólna ścieżka co upload;
+    - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
+
+    Zwraca id kandydata albo None. Nie rzuca.
+    """
+    from datetime import datetime, timezone
+
+    if not (
+        settings.M365_AUTO_PARSE_CV and settings.M365_AUTO_CREATE_CANDIDATE_FROM_CV
+    ):
+        return None
+    if email_row.candidate_id is not None or email_row.is_private_filtered:
+        return None
+    if not attachment.is_cv_candidate or not attachment.storage_path:
+        return None
+
+    # Świadomie BEZ `cv_parse_attempted_at`: ten znacznik wyłącza załącznik
+    # z kolejki znanych kandydatów. Mail, który tu nikogo nie założył (np. tylko
+    # zbieżne imię i nazwisko), rekruter może podpiąć ręcznie — wtedy CV musi się
+    # sparsować. Próbę tej ścieżki znaczy `parse_error`.
+    abs_path = STORAGE_ROOT / attachment.storage_path
+    if not abs_path.is_file():
+        attachment.parse_error = "file_missing_on_disk"
+        return None
+    parsed_pair = await _extract_and_parse(db, attachment, abs_path)
+    if parsed_pair is None:
+        return None
+    text, parsed = parsed_pair
+
+    first_name = str(parsed.get("first_name") or "").strip()
+    last_name = str(parsed.get("last_name") or "").strip()
+    email = str(parsed.get("email") or "").strip().lower() or None
+    phone = str(parsed.get("phone") or "").strip() or None
+    linkedin = str(parsed.get("linkedin_url") or "").strip() or None
+    if email and _is_internal_email(email):
+        # CV z kontaktem naszego pracownika (CV wygenerowane przez NEXUS, które
+        # klient odesłał, albo szablon agencji z danymi rekrutera) nie opisuje
+        # kontaktu kandydata — nie wolno po nim łączyć ani zakładać.
+        email = None
+    if not (first_name and last_name and (email or phone or linkedin)):
+        attachment.parse_error = "identity_insufficient"
+        return None
+
+    from app.services.dedup_service import find_candidate_duplicates
+
+    duplicates = await find_candidate_duplicates(
+        db,
+        email=email,
+        phone=phone,
+        linkedin=linkedin,
+        name=first_name,
+        lastname=last_name,
+    )
+    strong = [
+        d
+        for d in duplicates
+        if _STRONG_IDENTITY_REASONS & set(d.get("match_reasons") or [])
+    ]
+    now = datetime.now(timezone.utc)
+    if len({int(d["candidate_id"]) for d in strong}) > 1:
+        # E-mail z CV wskazuje jedną osobę, telefon drugą: podpięcie do którejś
+        # wpisałoby jej cudzy kontakt (i łamało unikalność e-maila w bazie).
+        attachment.parse_error = "conflicting_identity"
+        return None
+    if strong:
+        candidate_id = int(strong[0]["candidate_id"])
+        _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
+        await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+        return candidate_id
+    if duplicates:
+        attachment.parse_error = "possible_duplicate_name"
+        return None
+
+    from app.models.activity import Activity
+
+    candidate = Candidate(
+        name=first_name[:100],
+        lastname=last_name[:100],
+        email=email[:255] if email else None,
+        phone=phone[:30] if phone else None,
+        source="email",
+        created_by=email_row.user_id,
+    )
+    db.add(candidate)
+    await db.flush()
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate.id,
+            action="created_from_email",
+            user_id=email_row.user_id,
+            details={
+                "email_id": email_row.id,
+                "attachment_id": attachment.id,
+                "filename": attachment.filename,
+                "source": parsed.get("_source"),
+            },
+        )
+    )
+    _link_email(email_row, candidate.id, 1.0, now)
+    await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+    if attachment.parsed_candidate_id != candidate.id or attachment.parse_error:
+        # Profil nie przeszedł wspólnej ścieżki (np. kolizja dokumentu), więc
+        # nikt go nie zaindeksował — a kandydat bez wektora nie istnieje
+        # w rekomendacjach ani w auto-dopasowaniu.
+        from app.services.index_outbox_service import schedule_or_embed_candidate
+
+        await schedule_or_embed_candidate(candidate.id, db)
+    return candidate.id
+
+
+def _is_internal_email(email: str) -> bool:
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    raw = getattr(settings, "SSO_ALLOWED_DOMAINS", "") or ""
+    domains = (
+        {d.strip().lower() for d in raw.split(",") if d.strip()}
+        if isinstance(raw, str)
+        else {str(d).strip().lower() for d in raw}
+    )
+    return bool(domain) and domain in domains
+
+
+def _link_email(email_row: Email, candidate_id: int, confidence: float, now) -> None:
+    from app.models.m365 import EmailMatchMethod
+
+    email_row.candidate_id = candidate_id
+    email_row.match_method = EmailMatchMethod.cv_identity
+    email_row.match_confidence = confidence
+    email_row.matched_at = now

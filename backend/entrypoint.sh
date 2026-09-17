@@ -596,6 +596,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'ai_spend_alert'",
     # 0308: brak kolejnego zamówienia po zakończonym zamówieniu (dzwonek DL).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'order_missing_successor'",
+    # 0324: auto-match — dzwonek „system dodał kandydata" + mail podpięty po CV.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match'",
+    "ALTER TYPE emailmatchmethod ADD VALUE IF NOT EXISTS 'cv_identity'",
     # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
     # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
@@ -4531,6 +4534,77 @@ _COLUMN_STATEMENTS = [
             END IF;
         END LOOP;
     END $$;""",
+    # 0323: indeks użycia technologii z odczytu CV v7 (`profile_projection`).
+    """CREATE TABLE IF NOT EXISTS candidate_skill_usage (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        skill_canonical VARCHAR(120) NOT NULL,
+        skill_raw VARCHAR(120) NOT NULL,
+        first_used DATE NULL,
+        last_used DATE NULL,
+        months INTEGER NULL,
+        is_current BOOLEAN NOT NULL DEFAULT FALSE,
+        contexts JSONB NOT NULL DEFAULT '[]'::jsonb,
+        provenance VARCHAR(16) NOT NULL DEFAULT 'cv',
+        source_ref VARCHAR(120) NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_candidate_skill_usage_candidate_skill
+            UNIQUE (candidate_id, skill_canonical),
+        CONSTRAINT ck_candidate_skill_usage_provenance
+            CHECK (provenance IN ('cv', 'manual'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_skill_usage_candidate_id "
+    "ON candidate_skill_usage (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_skill_usage_skill_last_used "
+    "ON candidate_skill_usage (skill_canonical, last_used)",
+    # 0324: autonomiczne dopasowanie CV ↔ rekrutacje.
+    """CREATE TABLE IF NOT EXISTS candidate_match_outbox (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        trigger VARCHAR(16) NOT NULL,
+        profile_revision VARCHAR(64) NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error VARCHAR(500) NULL,
+        result JSONB NULL,
+        heartbeat_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        processed_at TIMESTAMPTZ NULL,
+        CONSTRAINT ck_candidate_match_outbox_subject
+            CHECK (candidate_id IS NOT NULL OR job_id IS NOT NULL),
+        CONSTRAINT ck_candidate_match_outbox_status CHECK (
+            status IN ('pending', 'processing', 'done', 'failed', 'dead', 'skipped')
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_match_outbox_status_created "
+    "ON candidate_match_outbox (status, created_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_match_outbox_candidate_open "
+    "ON candidate_match_outbox (candidate_id, profile_revision) "
+    "WHERE candidate_id IS NOT NULL AND status IN ('pending', 'processing', 'failed')",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_match_outbox_job_open "
+    "ON candidate_match_outbox (job_id) "
+    "WHERE job_id IS NOT NULL AND status IN ('pending', 'processing', 'failed')",
+    """CREATE TABLE IF NOT EXISTS candidate_auto_match_log (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        profile_revision VARCHAR(64) NOT NULL,
+        trigger VARCHAR(16) NOT NULL,
+        score NUMERIC(5, 2) NULL,
+        decision VARCHAR(24) NOT NULL,
+        reason VARCHAR(500) NULL,
+        stage_id INTEGER NULL,
+        run_id VARCHAR(36) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_candidate_auto_match_log_pair_revision
+            UNIQUE (candidate_id, job_id, profile_revision)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_auto_match_log_job "
+    "ON candidate_auto_match_log (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_auto_match_log_created "
+    "ON candidate_auto_match_log (created_at)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

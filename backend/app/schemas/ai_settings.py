@@ -78,19 +78,6 @@ class AISettingsOut(BaseModel):
     spend_alerts: SpendAlertStatus = Field(default_factory=SpendAlertStatus)
 
 
-class FeatureConfigUpdate(BaseModel):
-    """Patch payload for ``PATCH /settings/ai/features/{feature}``."""
-
-    enabled: Optional[bool] = None
-    monthly_limit: Optional[int] = Field(None, ge=0)
-
-
-class MasterToggleUpdate(BaseModel):
-    """Patch payload for ``PATCH /settings/ai/master``."""
-
-    enabled: bool
-
-
 class QuotaCheckResult(BaseModel):
     """Internal result of `quota_service.check_and_increment`.
 

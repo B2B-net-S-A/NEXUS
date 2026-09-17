@@ -158,6 +158,12 @@ const TYPE_CONFIG: Record<
     color: "text-emerald-600",
     bgColor: "bg-emerald-100",
   },
+  // Auto-match: system sam dodał kandydata do pipeline'u rekrutacji (etap Ogłoszenia)
+  auto_match: {
+    icon: <Sparkles className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  },
   // Targ kandydatów — nowy projekt dopasował się do kandydata w puli marketplace
   marketplace_match: {
     icon: <Store className="w-3.5 h-3.5" />,
